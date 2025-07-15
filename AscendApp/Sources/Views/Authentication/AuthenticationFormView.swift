@@ -65,8 +65,9 @@ struct AuthenticationFormView: View {
             if let errorMessage = viewModel.errorMessage {
                 Text(errorMessage)
                     .font(.caption)
-                    .foregroundColor(.red)
+                    .foregroundColor(errorMessage.contains("sent") ? .green : .red)
                     .padding(.horizontal)
+                    .multilineTextAlignment(.center)
             }
 
             // Action Button
@@ -75,13 +76,22 @@ struct AuthenticationFormView: View {
                 isEnabled: viewModel.isFormValid,
                 isLoading: viewModel.isLoading
             ) {
-                viewModel.authenticate()
+                Task {
+                    await viewModel.authenticate()
+                }
             }
             .padding(.top, 8)
 
             // Forgot Password
             if viewModel.isLogin {
-                ForgotPasswordView(viewModel: viewModel)
+                Button("Forgot Password?") {
+                    Task {
+                        await viewModel.forgotPassword()
+                    }
+                }
+                .font(.subheadline)
+                .foregroundColor(.accent)
+                .disabled(viewModel.isLoading)
             }
         }
         .toolbar {
@@ -98,28 +108,6 @@ struct AuthenticationFormView: View {
                 .foregroundColor(.accent)
             }
         }
-    }
-
-    private var previousField: FormField? {
-        switch focusedField {
-        case .email: return nil
-        case .password: return .email
-        case .confirmPassword: return .password
-        case .none: return nil
-        }
-    }
-
-    private var nextField: FormField? {
-        switch focusedField {
-        case .email: return .password
-        case .password: return viewModel.isLogin ? nil : .confirmPassword
-        case .confirmPassword: return nil
-        case .none: return nil
-        }
-    }
-
-    private var lastField: FormField {
-        viewModel.isLogin ? .password : .confirmPassword
     }
 }
 

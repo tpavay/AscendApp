@@ -16,66 +16,100 @@ class AuthenticationViewModel {
     var isLogin = true
     var isLoading = false
     var errorMessage: String?
-    
+
+    private let authService = AuthenticationService()
+
     var isFormValid: Bool {
-        !email.isEmpty && !password.isEmpty && 
+        !email.isEmpty &&
+        !password.isEmpty &&
+        email.contains("@") &&
+        password.count >= 6 &&
         (isLogin || password == confirmPassword)
     }
-    
+
     var buttonTitle: String {
         isLogin ? "Log In" : "Create Account"
     }
-    
+
     func toggleMode() {
         isLogin.toggle()
         clearForm()
     }
-    
-    func authenticate() {
+
+    @MainActor
+    func authenticate() async {
         guard isFormValid else {
-            errorMessage = "Please fill in all fields correctly"
+            errorMessage = getValidationError()
             return
         }
-        
+
         isLoading = true
         errorMessage = nil
-        
-        // Simulate network call
-//        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-//            self.isLoading = false
-//            if self.isLogin {
-//                self.performLogin()
-//            } else {
-//                self.performSignUp()
-//            }
-//        }
+
+        do {
+            if isLogin {
+                try await authService.signIn(email: email, password: password)
+            } else {
+                try await authService.signUp(email: email, password: password)
+            }
+            // Success - authentication state will be handled by AuthenticationService
+            clearForm()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+
+        isLoading = false
     }
-    
-    func forgotPassword() {
-        // Handle forgot password logic
-        print("Forgot password for: \(email)")
+
+    @MainActor
+    func forgotPassword() async {
+        guard !email.isEmpty else {
+            errorMessage = "Please enter your email address first."
+            return
+        }
+
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            try await authService.resetPassword(email: email)
+            errorMessage = "Password reset email sent! Check your inbox."
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+
+        isLoading = false
     }
-    
+
     func openTermsOfService() {
         // Handle terms of service
         print("Opening Terms of Service")
     }
-    
+
     func openPrivacyPolicy() {
         // Handle privacy policy
         print("Opening Privacy Policy")
     }
-    
-    private func performLogin() {
-        // Implement actual login logic
-        print("Logging in with email: \(email)")
+
+    private func getValidationError() -> String {
+        if email.isEmpty {
+            return "Please enter your email address."
+        }
+        if !email.contains("@") {
+            return "Please enter a valid email address."
+        }
+        if password.isEmpty {
+            return "Please enter your password."
+        }
+        if password.count < 6 {
+            return "Password must be at least 6 characters long."
+        }
+        if !isLogin && password != confirmPassword {
+            return "Passwords do not match."
+        }
+        return "Please fill in all fields correctly."
     }
-    
-    private func performSignUp() {
-        // Implement actual sign up logic
-        print("Creating account with email: \(email)")
-    }
-    
+
     private func clearForm() {
         email = ""
         password = ""
