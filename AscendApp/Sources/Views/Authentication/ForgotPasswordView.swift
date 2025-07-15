@@ -12,7 +12,9 @@ struct ForgotPasswordView: View {
     
     var body: some View {
         Button(action: {
-            viewModel.forgotPassword()
+            Task {
+                await viewModel.forgotPassword()
+            }
         }) {
             Text("Forgot Password?")
                 .font(.subheadline)
