@@ -9,14 +9,19 @@ import Foundation
 import FirebaseAuth
 import Observation
 
+@MainActor
 @Observable
-class AuthenticationService {
+final class AuthenticationService: Sendable {
+
+    // Singleton authentication service
+    static let shared = AuthenticationService()
+
     var user: User?
     var isAuthenticated: Bool {
         user != nil
     }
 
-    init() {
+    private init() {
         // Listen for authentication state changes
         Auth.auth().addStateDidChangeListener { [weak self] _, user in
             if let user = user {

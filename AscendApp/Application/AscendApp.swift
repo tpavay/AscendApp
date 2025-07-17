@@ -10,13 +10,21 @@ import SwiftUI
 
 @main
 struct AscendApp: App {
+    let authService: AuthenticationService
+
     init() {
         FirebaseApp.configure()
+        authService = AuthenticationService.shared
     }
 
     var body: some Scene {
         WindowGroup {
-            LoginSignUpView()
+            if (authService.isAuthenticated) {
+                HomeView()
+            }
+            else {
+                LoginSignUpView()
+            }
         }
     }
 }

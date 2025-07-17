@@ -8,6 +8,7 @@
 import SwiftUI
 import Observation
 
+@MainActor
 @Observable
 class AuthenticationViewModel {
     var email = ""
@@ -17,7 +18,7 @@ class AuthenticationViewModel {
     var isLoading = false
     var errorMessage: String?
 
-    private let authService = AuthenticationService()
+    private let authService = AuthenticationService.shared
 
     var isFormValid: Bool {
         !email.isEmpty &&
