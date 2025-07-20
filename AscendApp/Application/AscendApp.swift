@@ -19,12 +19,14 @@ struct AscendApp: App {
 
     var body: some Scene {
         WindowGroup {
-            if (authService.isAuthenticated) {
-                HomeView()
-            }
-            else {
-                LoginSignUpView()
-            }
+            Group {
+                if (authService.isAuthenticated) {
+                    HomeView()
+                }
+                else {
+                    LoginSignUpView()
+                }
+            }.animation(.easeInOut(duration: 0.3), value: authService.isAuthenticated)
         }
     }
 }

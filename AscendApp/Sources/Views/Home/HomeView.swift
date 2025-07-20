@@ -10,9 +10,15 @@ import SwiftUI
 struct HomeView: View {
     var body: some View {
         NavigationStack {
-            Text("Home screen content")
+            VStack {
+                Text("Home screen content")
+            }
+            .navigationTitle("Home Screen")
+            .toolbar {
+                HomeToolbarContent()
+            }
         }
-        .navigationTitle("Home Screen")
+
     }
 }
 
