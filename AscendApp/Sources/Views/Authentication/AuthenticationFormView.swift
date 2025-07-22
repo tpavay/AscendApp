@@ -125,12 +125,6 @@ struct AuthenticationFormView: View {
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 HStack {
-                    Button(action: {}) {
-                        Text("Prev")
-                    }
-                    Button(action: {}) {
-                        Text("Next")
-                    }
                     Spacer()
 
                     // Done button
