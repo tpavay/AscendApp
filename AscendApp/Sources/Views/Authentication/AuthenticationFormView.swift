@@ -8,20 +8,47 @@
 import SwiftUI
 
 struct AuthenticationFormView: View {
-    let viewModel: AuthenticationViewModel
+    @State private var viewModel: AuthenticationViewModel = AuthenticationViewModel()
+
     @FocusState private var focusedField: FormField?
 
     enum FormField {
-        case email, password, confirmPassword
+        case email, firstName, lastName, password, confirmPassword
     }
 
     var body: some View {
         VStack(spacing: 24) {
+
             // Mode Toggle
             ModeToggleView(viewModel: viewModel)
 
             // Form Fields
             VStack(spacing: 16) {
+
+                if (!viewModel.isLogin) {
+                    FormFieldView(
+                        title: "First Name",
+                        text: Binding(
+                            get: { viewModel.firstName },
+                            set: { viewModel.firstName = $0 }
+                        ),
+                        placeholder: "Enter your first name",
+                        textContentType: .givenName
+                    )
+                    .focused($focusedField, equals: .firstName)
+
+                    FormFieldView(
+                        title: "Last Name",
+                        text: Binding(
+                            get: { viewModel.lastName },
+                            set: { viewModel.lastName = $0 }
+                        ),
+                        placeholder: "Enter your last name",
+                        textContentType: .familyName
+                    )
+                    .focused($focusedField, equals: .lastName)
+                }
+
                 FormFieldView(
                     title: "Email",
                     text: Binding(
@@ -33,6 +60,7 @@ struct AuthenticationFormView: View {
                     textContentType: .emailAddress
                 )
                 .focused($focusedField, equals: .email)
+                .autocorrectionDisabled()
 
                 FormFieldView(
                     title: "Password",
@@ -54,7 +82,7 @@ struct AuthenticationFormView: View {
                             set: { viewModel.confirmPassword = $0 }
                         ),
                         placeholder: "Confirm your password",
-                        textContentType: .newPassword,
+                        textContentType: .password,
                         isSecure: true
                     )
                     .focused($focusedField, equals: .confirmPassword)
@@ -97,6 +125,12 @@ struct AuthenticationFormView: View {
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 HStack {
+                    Button(action: {}) {
+                        Text("Prev")
+                    }
+                    Button(action: {}) {
+                        Text("Next")
+                    }
                     Spacer()
 
                     // Done button
@@ -108,15 +142,5 @@ struct AuthenticationFormView: View {
                 .foregroundColor(.accent)
             }
         }
-    }
-}
-
-#Preview {
-    @Previewable @State var viewModel = AuthenticationViewModel()
-
-    return NavigationView {
-        AuthenticationFormView(viewModel: viewModel)
-            .padding()
-            .background(Color.black)
     }
 }

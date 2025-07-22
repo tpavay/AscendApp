@@ -18,7 +18,7 @@ struct LoginSignUpView: View {
                         AppLogoView()
                             .padding(.top, 40)
 
-                        AuthenticationFormView(viewModel: viewModel)
+                        AuthenticationFormView()
 
                         if !viewModel.isLogin {
                             TermsAndPrivacyView(viewModel: viewModel)

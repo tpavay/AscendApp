@@ -11,6 +11,8 @@ import Observation
 @MainActor
 @Observable
 class AuthenticationViewModel {
+    var firstName = ""
+    var lastName = ""
     var email = ""
     var password = ""
     var confirmPassword = ""
@@ -21,11 +23,24 @@ class AuthenticationViewModel {
     private let authService = AuthenticationService.shared
 
     var isFormValid: Bool {
-        !email.isEmpty &&
-        !password.isEmpty &&
-        email.contains("@") &&
-        password.count >= 6 &&
-        (isLogin || password == confirmPassword)
+        // Only validate email and password when logging in
+        if (isLogin) {
+            return
+                !email.isEmpty &&
+                email.contains("@") &&
+                !password.isEmpty
+        }
+        // Validate all fields when signing up
+        else {
+            return
+                !firstName.isEmpty &&
+                !lastName.isEmpty &&
+                !email.isEmpty &&
+                !password.isEmpty &&
+                email.contains("@") &&
+                password.count >= 6 &&
+                (isLogin || password == confirmPassword)
+        }
     }
 
     var buttonTitle: String {
@@ -47,11 +62,14 @@ class AuthenticationViewModel {
         isLoading = true
         errorMessage = nil
 
+        // Trim whitespace around all form fields
+        normalizeFormFields()
+
         do {
             if isLogin {
                 try await authService.signIn(email: email, password: password)
             } else {
-                try await authService.signUp(email: email, password: password)
+                try await authService.signUp(email: email, password: password, firstName: firstName, lastName: lastName)
             }
             // Success - authentication state will be handled by AuthenticationService
             clearForm()
@@ -82,6 +100,16 @@ class AuthenticationViewModel {
         isLoading = false
     }
 
+    func normalizeFormFields() {
+        if (!isLogin) {
+            firstName = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+            lastName = lastName.trimmingCharacters(in: .whitespacesAndNewlines)
+            confirmPassword = confirmPassword.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        email = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        password = password.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     func openTermsOfService() {
         // Handle terms of service
         print("Opening Terms of Service")
@@ -93,6 +121,12 @@ class AuthenticationViewModel {
     }
 
     private func getValidationError() -> String {
+        if firstName.isEmpty {
+            return "Please enter your first name."
+        }
+        if lastName.isEmpty {
+            return "Please enter your last name."
+        }
         if email.isEmpty {
             return "Please enter your email address."
         }
@@ -112,6 +146,8 @@ class AuthenticationViewModel {
     }
 
     private func clearForm() {
+        firstName = ""
+        lastName = ""
         email = ""
         password = ""
         confirmPassword = ""

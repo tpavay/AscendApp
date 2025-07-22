@@ -9,6 +9,8 @@ import Foundation
 import FirebaseAuth
 import Observation
 
+// All code declared in this class will be isolated on the MainActor and therefore "isolated" to the Main Actor.
+// Therefore, we do not need to declare our methods using the @MainActor macro as that has already been done at the class-level.
 @MainActor
 @Observable
 final class AuthenticationService: Sendable {
@@ -33,20 +35,19 @@ final class AuthenticationService: Sendable {
         }
     }
 
-    @MainActor
-    func signUp(email: String, password: String) async throws {
+    func signUp(email: String, password: String, firstName: String, lastName: String) async throws {
         print("🔄 Attempting sign up for: \(email)")
         do {
             let result = try await Auth.auth().createUser(withEmail: email, password: password)
             print("✅ Sign up successful for: \(result.user.email ?? "Unknown")")
             self.user = result.user
+            try await updateUserDisplayName(firstName: firstName, lastName: lastName)
         } catch {
             print("❌ Sign up failed: \(error.localizedDescription)")
             throw AuthenticationError.from(error)
         }
     }
 
-    @MainActor
     func signIn(email: String, password: String) async throws {
         print("🔄 Attempting sign in for: \(email)")
         do {
@@ -59,7 +60,6 @@ final class AuthenticationService: Sendable {
         }
     }
 
-    @MainActor
     func signOut() throws {
         print("🔄 Attempting sign out")
         do {
@@ -72,7 +72,6 @@ final class AuthenticationService: Sendable {
         }
     }
 
-    @MainActor
     func resetPassword(email: String) async throws {
         print("🔄 Attempting password reset for: \(email)")
         do {
@@ -84,21 +83,44 @@ final class AuthenticationService: Sendable {
         }
     }
 
-    @MainActor
     func deleteAccount() async throws {
-        guard let user = Auth.auth().currentUser else {
+        guard let current = self.user else {
             throw AuthenticationError.userNotFound
         }
 
-        print("🔄 Attempting to delete account for: \(user.email ?? "Unknown")")
-        do {
-            try await user.delete()
-            print("✅ Account deleted successfully")
-            self.user = nil
-        } catch {
-            print("❌ Account deletion failed: \(error.localizedDescription)")
-            throw AuthenticationError.from(error)
+        print("🔄 Attempting to delete account for: \(current.email ?? "Unknown")")
+        await MainActor.run {
+            current.delete()
         }
+    }
+
+    // Asynchronous function declared using the async keyword within the function signature after the function name
+    @MainActor
+    func updateUserDisplayName(firstName: String,
+                               lastName: String) async throws {
+        // 1️⃣ Get the isolated user
+        guard let current = self.user else {
+            throw AuthenticationError.userNotFound
+        }
+
+        // 2️⃣ Set up the change request
+        let request = current.createProfileChangeRequest()
+        request.displayName = "\(firstName) \(lastName)"
+
+        // 3️⃣ Perform the non‑isolated SDK commit *and* handle its callback error
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            request.commitChanges { sdkError in
+                if let sdkError = sdkError {
+                    continuation.resume(throwing: sdkError)
+                } else {
+                    continuation.resume(returning: ())
+                }
+            }
+        }
+
+        // 4️⃣ Finally, sync your single source‑of‑truth
+        //     with the fresh user object (if anything changed server‑side).
+        self.user = Auth.auth().currentUser
     }
 }
 
