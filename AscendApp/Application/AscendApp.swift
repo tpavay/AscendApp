@@ -10,7 +10,7 @@ import SwiftUI
 
 @main
 struct AscendApp: App {
-    let authService: AuthenticationService
+    @State private var authService: AuthenticationService
 
     init() {
         FirebaseApp.configure()
@@ -27,6 +27,7 @@ struct AscendApp: App {
                     LoginSignUpView()
                 }
             }.animation(.easeInOut(duration: 0.3), value: authService.isAuthenticated)
+                .environment(authService)
         }
     }
 }

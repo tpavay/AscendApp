@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @State var viewModel = SettingsViewModel()
+    @State private var viewModel = SettingsViewModel()
 
     var body: some View {
         NavigationStack {
