@@ -10,14 +10,4 @@ import SwiftUI
 
 @MainActor
 class SettingsViewModel {
-    private let authService = AuthenticationService.shared
-
-    func signOut() {
-        do {
-            try authService.signOut()
-        }
-        catch {
-            print("ERROR: There was an error signing out")
-        }
-    }
 }

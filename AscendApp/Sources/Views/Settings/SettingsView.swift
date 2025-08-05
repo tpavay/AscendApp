@@ -13,21 +13,6 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             VStack {
-                ScrollView {
-                    Button(action: viewModel.signOut, label: {
-                        Text("Log Out")
-                            .foregroundStyle(.accent)
-                            .fontWeight(.bold)
-                    })
-                    .frame(maxWidth: .infinity)
-                    .foregroundStyle(.black)
-                    .padding()
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(.accent, lineWidth: 1)
-                    )
-                    .padding()
-                }
             }
             .navigationTitle("Settings")
         }
