@@ -17,31 +17,20 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		9A67D48C2E2493F5009FAD3F /* Exceptions for "AscendApp" folder in "AscendApp" target */ = {
+		9A4167C82E47B1A9004E8B91 /* Exceptions for "AscendApp" folder in "AscendApp" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				Sources/Common/Extensions/HideKeyboard.swift,
+				Info.plist,
 			);
 			target = 9A5E4D812E2406F8008DE803 /* AscendApp */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
-/* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
-		9A67D48D2E2493F5009FAD3F /* Exceptions for "AscendApp" folder in "Copy Bundle Resources" phase from "AscendApp" target */ = {
-			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
-			buildPhase = 9A5E4D802E2406F8008DE803 /* Resources */;
-			membershipExceptions = (
-				Sources/Common/Extensions/HideKeyboard.swift,
-			);
-		};
-/* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		9A5E4D842E2406F8008DE803 /* AscendApp */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				9A67D48C2E2493F5009FAD3F /* Exceptions for "AscendApp" folder in "AscendApp" target */,
-				9A67D48D2E2493F5009FAD3F /* Exceptions for "AscendApp" folder in "Copy Bundle Resources" phase from "AscendApp" target */,
+				9A4167C82E47B1A9004E8B91 /* Exceptions for "AscendApp" folder in "AscendApp" target */,
 			);
 			path = AscendApp;
 			sourceTree = "<group>";
@@ -298,6 +287,7 @@
 				DEVELOPMENT_TEAM = QWGVB7TN4T;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = AscendApp/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -332,6 +322,7 @@
 				DEVELOPMENT_TEAM = QWGVB7TN4T;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = AscendApp/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
