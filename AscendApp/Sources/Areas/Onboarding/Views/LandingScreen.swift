@@ -28,13 +28,13 @@ struct LandingScreen: View {
                     .shadow(color: .accent.opacity(0.35), radius: 16, y: 6)
 
                 Text("Ascend")
-                    .font(.custom("Montserrat-Bold", size: 48, relativeTo: .largeTitle))
+                    .font(.montserratBold)
                     .foregroundStyle(.white)
                     .kerning(0.5)
                     .shadow(color: .black.opacity(0.6), radius: 10, y: 4)
 
                 Text("Elevate Your Stairmaster Game")
-                    .font(.custom("Montserrat-Medium", size: 17, relativeTo: .body))
+                    .font(.montserratMedium)
                     .foregroundStyle(.white.opacity(0.72))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
@@ -42,7 +42,7 @@ struct LandingScreen: View {
 
                 Button(action: {}) {
                     Text("Continue")
-                        .font(.custom("Montserrat-SemiBold", size: 20, relativeTo: .title3))
+                        .font(.montserratSemiBold)
                         .foregroundStyle(.black)
                         .frame(maxWidth: .infinity, minHeight: 56)
                         .background(
