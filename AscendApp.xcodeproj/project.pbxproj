@@ -7,9 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		9A4D66F82E4817BD00EEAE1D /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 9A4D66F72E4817BD00EEAE1D /* FirebaseAuth */; };
 		9A8E4CE62E2418D200C78912 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 9A8E4CE52E2418D200C78912 /* FirebaseAnalytics */; };
-		9A8E4CE82E2418D200C78912 /* FirebaseAnalyticsWithoutAdIdSupport in Frameworks */ = {isa = PBXBuildFile; productRef = 9A8E4CE72E2418D200C78912 /* FirebaseAnalyticsWithoutAdIdSupport */; };
-		9A8E4CEA2E2418D200C78912 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 9A8E4CE92E2418D200C78912 /* FirebaseAuth */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -43,18 +42,25 @@
 			buildActionMask = 2147483647;
 			files = (
 				9A8E4CE62E2418D200C78912 /* FirebaseAnalytics in Frameworks */,
-				9A8E4CEA2E2418D200C78912 /* FirebaseAuth in Frameworks */,
-				9A8E4CE82E2418D200C78912 /* FirebaseAnalyticsWithoutAdIdSupport in Frameworks */,
+				9A4D66F82E4817BD00EEAE1D /* FirebaseAuth in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		9A4D66F62E4817BD00EEAE1D /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		9A5E4D792E2406F8008DE803 = {
 			isa = PBXGroup;
 			children = (
 				9A5E4D842E2406F8008DE803 /* AscendApp */,
+				9A4D66F62E4817BD00EEAE1D /* Frameworks */,
 				9A5E4D832E2406F8008DE803 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -88,8 +94,7 @@
 			name = AscendApp;
 			packageProductDependencies = (
 				9A8E4CE52E2418D200C78912 /* FirebaseAnalytics */,
-				9A8E4CE72E2418D200C78912 /* FirebaseAnalyticsWithoutAdIdSupport */,
-				9A8E4CE92E2418D200C78912 /* FirebaseAuth */,
+				9A4D66F72E4817BD00EEAE1D /* FirebaseAuth */,
 			);
 			productName = AscendApp;
 			productReference = 9A5E4D822E2406F8008DE803 /* AscendApp.app */;
@@ -290,7 +295,6 @@
 				INFOPLIST_FILE = AscendApp/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -325,7 +329,6 @@
 				INFOPLIST_FILE = AscendApp/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -381,20 +384,15 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		9A4D66F72E4817BD00EEAE1D /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9A8E4CE42E2418D200C78912 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
 		9A8E4CE52E2418D200C78912 /* FirebaseAnalytics */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 9A8E4CE42E2418D200C78912 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseAnalytics;
-		};
-		9A8E4CE72E2418D200C78912 /* FirebaseAnalyticsWithoutAdIdSupport */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 9A8E4CE42E2418D200C78912 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseAnalyticsWithoutAdIdSupport;
-		};
-		9A8E4CE92E2418D200C78912 /* FirebaseAuth */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 9A8E4CE42E2418D200C78912 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseAuth;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

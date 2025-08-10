@@ -12,19 +12,14 @@ struct LandingScreen: View {
                            endPoint: .bottomTrailing)
                 .ignoresSafeArea()
 
-            // Soft accent glow
-            RadialGradient(colors: [.accent.opacity(0.25), .clear],
-                           center: .center,
-                           startRadius: 0,
-                           endRadius: 340)
-                .blur(radius: 8)
+            
 
             VStack(spacing: 18) {
                 Image("AppIconInternal")
                     .resizable()
                     .renderingMode(.template)
                     .foregroundStyle(.accent)
-                    .frame(width: 96, height: 96)
+                    .frame(width: 120, height: 120)
                     .shadow(color: .accent.opacity(0.35), radius: 16, y: 6)
 
                 Text("Ascend")
@@ -40,23 +35,33 @@ struct LandingScreen: View {
                     .padding(.horizontal, 24)
                     .padding(.top, -4)
 
-                Button(action: {}) {
-                    Text("Continue")
-                        .font(.montserratSemiBold)
-                        .foregroundStyle(.black)
-                        .frame(maxWidth: .infinity, minHeight: 56)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14)
-                                .fill(.accent)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 14)
-                                        .stroke(.accent.darker(by: 0.18), lineWidth: 1)
-                                )
-                        )
+                VStack(spacing: -12) {
+                    NavigationLink(destination: SignUpView()) {
+                        Text("Create New Account")
+                            .font(.montserratSemiBold)
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 55)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(.accent.darker(by: 0.2))
+                            )
+                            .padding()
+                    }
+                    NavigationLink(destination: SignInView()) {
+                        Text("Login to existing account")
+                            .font(.montserratSemiBold)
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 55)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(.accent.darker(by: 0.2))
+                            )
+                            .padding()
+                    }
                 }
-                .shadow(color: .accent.opacity(0.35), radius: 14, y: 8)
-                .padding(.top, 8)
-                .padding(.horizontal, 24)
+
 
                 Spacer(minLength: 24)
             }
@@ -65,4 +70,8 @@ struct LandingScreen: View {
     }
 }
 
-#Preview { LandingScreen() }
+#Preview {
+    NavigationStack {
+        LandingScreen()
+    }
+}

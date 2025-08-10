@@ -17,7 +17,9 @@ struct AscendApp: App {
 
     var body: some Scene {
         WindowGroup {
-            LandingScreen()
+            NavigationStack {
+                LandingScreen()
+            }
         }
     }
 }
