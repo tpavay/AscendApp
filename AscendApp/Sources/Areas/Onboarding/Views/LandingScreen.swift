@@ -1,13 +1,11 @@
 import SwiftUI
 
 struct LandingScreen: View {
-    private let bgTop   = Color(hex: "0B0B0B")
-    private let bgBottom = Color(hex: "141414")
 
     var body: some View {
         ZStack {
             // Dark gradient background
-            LinearGradient(colors: [bgTop, bgBottom],
+            LinearGradient(colors: [.night, .jetLighter],
                            startPoint: .topLeading,
                            endPoint: .bottomTrailing)
                 .ignoresSafeArea()
@@ -37,7 +35,7 @@ struct LandingScreen: View {
 
                 VStack(spacing: -12) {
                     NavigationLink(destination: SignUpView()) {
-                        Text("Create New Account")
+                        Text("Continue")
                             .font(.montserratSemiBold)
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
@@ -48,18 +46,18 @@ struct LandingScreen: View {
                             )
                             .padding()
                     }
-                    NavigationLink(destination: SignInView()) {
-                        Text("Login to existing account")
-                            .font(.montserratSemiBold)
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 55)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14)
-                                    .fill(.accent.darker(by: 0.2))
-                            )
-                            .padding()
-                    }
+//                    NavigationLink(destination: SignInView()) {
+//                        Text("Login to existing account")
+//                            .font(.montserratSemiBold)
+//                            .foregroundStyle(.white)
+//                            .frame(maxWidth: .infinity)
+//                            .frame(height: 55)
+//                            .background(
+//                                RoundedRectangle(cornerRadius: 14)
+//                                    .fill(.accent.darker(by: 0.2))
+//                            )
+//                            .padding()
+//                    }
                 }
 
 
