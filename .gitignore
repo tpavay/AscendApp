@@ -1,0 +1,71 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode
+build/
+DerivedData/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata/
+*.xccheckout
+*.moved-aside
+*.xcuserstate
+*.xcscmblueprint
+
+# SwiftPM
+.swiftpm/
+.build/
+# Optional: many teams commit this; comment out if you want it tracked
+# Package.resolved
+
+# CocoaPods (uncomment if/when you use Pods)
+# Pods/
+# Podfile.lock  # (usually commit this for reproducible builds)
+
+# Carthage (optional)
+# Carthage/Build/
+# Carthage/Checkouts/
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output
+fastlane/readme.md
+
+# Firebase / Google
+# Keep the real config out of git; provide an example file instead
+GoogleService-Info.plist
+GoogleService-Info*.plist
+# Crashlytics/Analytics artifacts
+*.dSYM.zip
+fabric.properties
+
+# Sign in with Apple / Code signing secrets
+AuthKey_*.p8           # Apple Sign In private keys
+*.p12                  # Certificates
+*.mobileprovision
+*.cer
+*.der
+*.key
+
+# Env / secrets
+.env
+.env.*
+*.secret
+Secrets/
+*.xcconfig
+
+# Logs
+*.log
+
+# iOS simulator artifacts
+*.simstate

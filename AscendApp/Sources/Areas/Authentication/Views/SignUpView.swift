@@ -9,6 +9,8 @@ import AuthenticationServices
 import SwiftUI
 
 struct SignUpView: View {
+    @Environment(AuthenticationViewModel.self) private var authVM
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         ZStack {
@@ -76,7 +78,7 @@ struct SignUpView: View {
                     }
 
                     // Google Sign In Button with secondary styling
-                    Button(action: {}) {
+                    Button(action: { signInWithGoogle() }) {
                         HStack(spacing: 12) {
                             Image("GoogleIcon")
                                 .frame(width: 18, height: 18)
@@ -112,10 +114,20 @@ struct SignUpView: View {
             }
         }
     }
+
+    private func signInWithGoogle() {
+        Task {
+            let signInResult = await authVM.signInWithGoogle()
+            if (signInResult) {
+                dismiss()
+            }
+        }
+    }
 }
 
 #Preview {
     NavigationStack {
         SignUpView()
+            .environment(AuthenticationViewModel())
     }
 }

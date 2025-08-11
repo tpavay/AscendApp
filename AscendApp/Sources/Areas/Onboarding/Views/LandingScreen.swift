@@ -10,8 +10,6 @@ struct LandingScreen: View {
                            endPoint: .bottomTrailing)
                 .ignoresSafeArea()
 
-            
-
             VStack(spacing: 18) {
                 Image("AppIconInternal")
                     .resizable()

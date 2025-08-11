@@ -10,16 +10,19 @@ import SwiftUI
 
 @main
 struct AscendApp: App {
+    @State private var authVM: AuthenticationViewModel
 
     init() {
         FirebaseApp.configure()
+        authVM = AuthenticationViewModel()
     }
 
     var body: some Scene {
         WindowGroup {
             NavigationStack {
-                LandingScreen()
+                RootView()
             }
         }
+        .environment(authVM)
     }
 }
