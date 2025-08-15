@@ -6,15 +6,17 @@
 //
 
 import Foundation
-@preconcurrency import FirebaseAuth
+import FirebaseAuth
 import Observation
 
 enum AuthenticationState {
-    case authenticated
-    case authenticating
-    case unauthenticated
-}
+      case authenticated
+      case authenticatingWithApple
+      case authenticatingWithGoogle
+      case unauthenticated
+  }
 
+@MainActor
 @Observable
 class AuthenticationViewModel {
     var displayName: String = ""
@@ -43,8 +45,6 @@ class AuthenticationViewModel {
 
 @MainActor
 extension AuthenticationViewModel {
-  
-
     func signOut() {
         do {
             try authenticationService.signOut()
@@ -56,11 +56,26 @@ extension AuthenticationViewModel {
     }
 
     func signInWithGoogle() async {
+        authenticationState = .authenticatingWithGoogle
+        errorMessage = nil
+        
         do {
-            try await authenticationService.signInWithGoogle()
+            _ = try await authenticationService.signInWithGoogle()
+        } catch {
+            errorMessage = error.localizedDescription
+            authenticationState = .unauthenticated
         }
-        catch {
-
+    }
+    
+    func signInWithApple() async {
+        authenticationState = .authenticatingWithApple
+        errorMessage = nil
+        
+        do {
+            _ = try await authenticationService.signInWithApple()
+        } catch {
+            errorMessage = error.localizedDescription
+            authenticationState = .unauthenticated
         }
     }
 }

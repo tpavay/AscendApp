@@ -17,7 +17,9 @@ struct AccountView: View {
                 .ignoresSafeArea()
 
             VStack {
-                Button(action: { authVM.signOut() }) {
+                Button(action: {
+                    authVM.signOut()
+                }) {
                     Text("Sign Out")
                         .frame(maxWidth: .infinity)
                         .frame(height: 55)
@@ -38,6 +40,11 @@ struct AccountView: View {
             .padding()
         }
         .navigationTitle(authVM.displayName)
+        .onChange(of: authVM.authenticationState) { oldValue, newValue in
+            if newValue == .unauthenticated {
+                dismiss()
+            }
+        }
     }
 }
 

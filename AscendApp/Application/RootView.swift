@@ -15,7 +15,8 @@ struct RootView: View {
             switch authVM.authenticationState {
             case .authenticated:
                 HomeView()
-            case .authenticating:
+            case .authenticatingWithApple,
+                .authenticatingWithGoogle:
                 ProgressView("Signing In...")
             case .unauthenticated:
                 LandingScreen()
