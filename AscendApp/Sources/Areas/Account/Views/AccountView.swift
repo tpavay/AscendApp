@@ -17,7 +17,7 @@ struct AccountView: View {
                 .ignoresSafeArea()
 
             VStack {
-                Button(action: { signOut() }) {
+                Button(action: { authVM.signOut() }) {
                     Text("Sign Out")
                         .frame(maxWidth: .infinity)
                         .frame(height: 55)
@@ -28,19 +28,16 @@ struct AccountView: View {
                                 .fill(.red)
                         )
                 }
+                if let errorMessage = authVM.errorMessage {
+                    Text(errorMessage)
+                        .font(.montserratSemiBold)
+                        .foregroundStyle(.red)
+                }
 
             }
             .padding()
         }
         .navigationTitle(authVM.displayName)
-    }
-
-
-    private func signOut() {
-        let signOutResult = authVM.signOut()
-        if signOutResult {
-            dismiss()
-        }
     }
 }
 
