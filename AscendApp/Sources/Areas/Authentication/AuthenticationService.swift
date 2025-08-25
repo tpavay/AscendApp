@@ -1,124 +1,3 @@
-////
-////  AuthenticationService.swift
-////  AscendApp
-////
-////  Created by Tyler Pavay on 8/13/25.
-////
-//
-//import FirebaseAuth
-//import FirebaseCore
-//import GoogleSignIn
-//
-//enum AuthenticationError: LocalizedError {
-//    case signOutError(errorText: String)
-//}
-//
-//extension AuthenticationError {
-//    var localizedDescription: String {
-//        switch self {
-//        case .signOutError(let errorText): return "Error occurred while signing out. \(errorText)"
-//        }
-//    }
-//}
-//
-//class AuthenticationService {
-//
-//    func signInWithGoogle() async -> Bool {
-//          guard let clientID = FirebaseApp.app()?.options.clientID else {
-//            fatalError("No client ID found in Firebase configuration")
-//          }
-//          let config = GIDConfiguration(clientID: clientID)
-//          GIDSignIn.sharedInstance.configuration = config
-//
-//          let rootViewController = await MainActor.run {
-//              guard let windowScene = UIApplication.shared.connectedScenes.first as?
-//      UIWindowScene,
-//                    let window = windowScene.windows.first,
-//                    let rootViewController = window.rootViewController else {
-//                  return nil as UIViewController?
-//              }
-//              return rootViewController
-//          }
-//
-//          guard let rootViewController else {
-//              print("There is no root view controller!")
-//              return false
-//          }
-//
-//        do {
-//          let userAuthentication = try await GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController)
-//
-//          let user = userAuthentication.user
-//            guard let idToken = user.idToken else {
-//                print("ID token is missing")
-//                return false
-//            }
-//          let accessToken = user.accessToken
-//
-//          let credential = GoogleAuthProvider.credential(withIDToken: idToken.tokenString,
-//                                                         accessToken: accessToken.tokenString)
-//
-//          let result = try await Auth.auth().signIn(with: credential)
-//          let firebaseUser = result.user
-//          print("User \(firebaseUser.uid) signed in with email \(firebaseUser.email ?? "unknown")")
-//          return true
-//        }
-//        catch {
-//          print(error.localizedDescription)
-//          return false
-//        }
-//      }
-//
-////    @MainActor
-////    func signInWithGoogle() async -> Bool {
-////      guard let clientID = FirebaseApp.app()?.options.clientID else {
-////        fatalError("No client ID found in Firebase configuration")
-////      }
-////      let config = GIDConfiguration(clientID: clientID)
-////      GIDSignIn.sharedInstance.configuration = config
-////
-////        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-////              let window = windowScene.windows.first,
-////              let rootViewController = window.rootViewController else {
-////        print("There is no root view controller!")
-////        return false
-////      }
-////
-////        do {
-////          let userAuthentication = try await GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController)
-////
-////          let user = userAuthentication.user
-////            guard let idToken = user.idToken else {
-////                print("ID token is missing")
-////                return false
-////            }
-////          let accessToken = user.accessToken
-////
-////          let credential = GoogleAuthProvider.credential(withIDToken: idToken.tokenString,
-////                                                         accessToken: accessToken.tokenString)
-////
-////          let result = try await Auth.auth().signIn(with: credential)
-////          let firebaseUser = result.user
-////          print("User \(firebaseUser.uid) signed in with email \(firebaseUser.email ?? "unknown")")
-////          return true
-////        }
-////        catch {
-////          print(error.localizedDescription)
-////          return false
-////        }
-////    }
-//    
-//    func signOut() throws(AuthenticationError) {
-//        do {
-//            try Auth.auth().signOut()
-//        }
-//        catch {
-//            throw .signOutError(errorText: error.localizedDescription)
-//        }
-//    }
-//}
-
-
 //
 //  AuthenticationService.swift
 //  AscendApp
@@ -296,7 +175,14 @@ extension AuthenticationService {
             signInContinuation?.resume(throwing: AuthenticationError.invalidAppleCredential)
             return
         }
+
+        let firstName = appleIDCredential.fullName?.givenName ?? ""
+        let lastName = appleIDCredential.fullName?.familyName ?? ""
         
+        if !firstName.isEmpty && !lastName.isEmpty {
+            UserDataRepository.shared.saveUsername(firstName: firstName, lastName: lastName)
+        }
+
         guard let nonce = currentNonce else {
             signInContinuation?.resume(throwing: AuthenticationError.appleSignInFailed("Invalid state: A login callback was received, but no login request was sent."))
             return
@@ -330,5 +216,16 @@ extension AuthenticationService {
     
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
         signInContinuation?.resume(throwing: AuthenticationError.appleSignInFailed(error.localizedDescription))
+    }
+
+    func updateUserDisplayName(firstName: String, lastName: String) async throws {
+        guard let user = Auth.auth().currentUser else {
+            throw AuthenticationError.signInFailed("No authenticated user found")
+        }
+        
+        let changeRequest = user.createProfileChangeRequest()
+        changeRequest.displayName = "\(firstName) \(lastName)"
+        
+        try await changeRequest.commitChanges()
     }
 }

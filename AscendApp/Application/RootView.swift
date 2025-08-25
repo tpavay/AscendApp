@@ -20,6 +20,8 @@ struct RootView: View {
                 ProgressView("Signing In...")
             case .unauthenticated:
                 LandingScreen()
+            case .needsName:
+                NameInputView()
             }
         }.animation(.easeInOut(duration: 0.25), value: authVM.authenticationState)
     }

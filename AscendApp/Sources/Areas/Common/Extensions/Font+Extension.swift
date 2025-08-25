@@ -8,6 +8,10 @@
 import SwiftUI
 
 extension Font {
+    static func montserratBold(size: CGFloat = 48) -> Font {
+        return Font.custom("Montserrat-Bold", size: size, relativeTo: .largeTitle)
+    }
+
     static var montserratBold: Font {
         Font.custom("Montserrat-Bold", size: 48, relativeTo: .largeTitle)
     }
@@ -18,6 +22,10 @@ extension Font {
 
     static var montserratMedium: Font {
         Font.custom("Montserrat-Medium", size: 17, relativeTo: .body)
+    }
+
+    static func montserratRegular(size: CGFloat = 17) -> Font {
+        return Font.custom("Montserrat-Regular", size: size, relativeTo: .body)
     }
 
     static var montserratRegular: Font {

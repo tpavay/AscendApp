@@ -17,6 +17,22 @@ struct AccountView: View {
                 .ignoresSafeArea()
 
             VStack {
+                AsyncImage(url: authVM.photoURL) { phase in
+                    switch phase {
+                    case .empty:
+                        Image(systemName: "person")
+                            .foregroundStyle(.white)
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFit()
+                            .clipShape(Circle())
+                    case .failure:
+                        Image(systemName: "person")
+                    @unknown default:
+                        Image(systemName: "person")
+                    }
+                }
                 Button(action: {
                     authVM.signOut()
                 }) {
@@ -39,7 +55,9 @@ struct AccountView: View {
             }
             .padding()
         }
-        .navigationTitle(authVM.displayName)
+        .navigationTitle("Account")
+        .toolbarBackground(.green, for: .navigationBar)
+        .toolbarBackgroundVisibility(.visible, for: .navigationBar)
         .onChange(of: authVM.authenticationState) { oldValue, newValue in
             if newValue == .unauthenticated {
                 dismiss()

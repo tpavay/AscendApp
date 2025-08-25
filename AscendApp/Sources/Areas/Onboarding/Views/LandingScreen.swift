@@ -40,24 +40,11 @@ struct LandingScreen: View {
                             .frame(height: 55)
                             .background(
                                 RoundedRectangle(cornerRadius: 14)
-                                    .fill(.accent.darker(by: 0.2))
+                                    .fill(.accent)
                             )
                             .padding()
                     }
-//                    NavigationLink(destination: SignInView()) {
-//                        Text("Login to existing account")
-//                            .font(.montserratSemiBold)
-//                            .foregroundStyle(.white)
-//                            .frame(maxWidth: .infinity)
-//                            .frame(height: 55)
-//                            .background(
-//                                RoundedRectangle(cornerRadius: 14)
-//                                    .fill(.accent.darker(by: 0.2))
-//                            )
-//                            .padding()
-//                    }
                 }
-
 
                 Spacer(minLength: 24)
             }
