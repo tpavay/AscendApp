@@ -14,29 +14,16 @@ struct HomeView: View {
     var body: some View {
         VStack(spacing: 24) {
             // Header Section
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Welcome")
-                        .font(.montserratRegular(size: 18))
-                        .foregroundStyle(colorScheme == .dark ? .white.opacity(0.8) : .gray)
-                    
-                    Text(authVM.displayName.isEmpty ? "User" : authVM.displayName)
-                        .font(.montserratBold(size: 28))
-                        .foregroundStyle(colorScheme == .dark ? .white : .black)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Welcome")
+                    .font(.montserratRegular(size: 18))
+                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.8) : .gray)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 
-                NavigationLink(destination: AccountView()) {
-                    ZStack {
-                        Circle()
-                            .fill(colorScheme == .dark ? .jetLighter.opacity(0.3) : .gray.opacity(0.1))
-                            .frame(width: 44, height: 44)
-                        
-                        Image(systemName: "person.fill")
-                            .font(.system(size: 20, weight: .medium))
-                            .foregroundStyle(colorScheme == .dark ? .white : .black)
-                    }
-                }
+                Text(authVM.displayName.isEmpty ? "User" : authVM.displayName)
+                    .font(.montserratBold(size: 28))
+                    .foregroundStyle(colorScheme == .dark ? .white : .black)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             
             // Main Content Area

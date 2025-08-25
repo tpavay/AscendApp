@@ -121,10 +121,10 @@ struct AccountView: View {
                     }
                     .background(
                         RoundedRectangle(cornerRadius: 16)
-                            .fill(.jetLighter.opacity(0.3))
+                            .fill(colorScheme == .dark ? .jetLighter.opacity(0.3) : .gray.opacity(0.06))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 16)
-                                    .stroke(.white.opacity(0.1), lineWidth: 1)
+                                    .stroke(colorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
                             )
                     )
 
