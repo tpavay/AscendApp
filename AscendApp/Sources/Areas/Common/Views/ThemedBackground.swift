@@ -8,11 +8,16 @@
 import SwiftUI
 
 struct ThemedBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorScheme) private var systemColorScheme
+    @State private var themeManager = ThemeManager.shared
+    
+    private var effectiveColorScheme: ColorScheme {
+        themeManager.effectiveColorScheme(for: systemColorScheme)
+    }
     
     var body: some View {
         Group {
-            if colorScheme == .dark {
+            if effectiveColorScheme == .dark {
                 LinearGradient(
                     colors: [.night, .jetLighter],
                     startPoint: .topLeading,

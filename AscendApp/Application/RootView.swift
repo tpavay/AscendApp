@@ -18,12 +18,15 @@ struct RootView: View {
             case .authenticatingWithApple,
                 .authenticatingWithGoogle:
                 ProgressView("Signing In...")
+                    .themedBackground()
             case .unauthenticated:
                 LandingScreen()
             case .needsName:
                 NameInputView()
             }
-        }.animation(.easeInOut(duration: 0.25), value: authVM.authenticationState)
+        }
+        .animation(.easeInOut(duration: 0.25), value: authVM.authenticationState)
+        .themeAware()
     }
 }
 
