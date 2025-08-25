@@ -34,6 +34,8 @@ class AuthenticationViewModel {
     private var authenticationService = AuthenticationService()
 
     init() {
+        // Load display name from UserDefaults immediately
+        displayName = UserDataRepository.shared.getDisplayName() ?? ""
         registerAuthStateHandler()
     }
     private var authStateHandle: AuthStateDidChangeListenerHandle?
@@ -42,8 +44,15 @@ class AuthenticationViewModel {
         if authStateHandle == nil {
             authStateHandle = Auth.auth().addStateDidChangeListener({ auth, user in
                 self.user = user
+                
+                // Update display name from Firebase first, fallback to UserDefaults
+                if let firebaseDisplayName = user?.displayName, !firebaseDisplayName.isEmpty {
+                    self.displayName = firebaseDisplayName
+                } else {
+                    self.displayName = UserDataRepository.shared.getDisplayName() ?? ""
+                }
+                
                 self.authenticationState = self.getAuthenticationState()
-                self.displayName = user?.displayName ?? UserDefaults.standard.string(forKey: "displayName") ?? ""
                 self.photoURL = user?.photoURL ?? URL(string: "")
             })
         }
@@ -89,6 +98,10 @@ extension AuthenticationViewModel {
     func setDisplayName(firstName: String, lastName: String) async {
         do {
             try await authenticationService.updateUserDisplayName(firstName: firstName, lastName: lastName)
+            
+            // Save to UserDefaults for persistence
+            UserDataRepository.shared.saveUsername(firstName: firstName, lastName: lastName)
+            
             displayName = "\(firstName) \(lastName)"
             authenticationState = .authenticated
         } catch {
@@ -102,7 +115,10 @@ extension AuthenticationViewModel {
             return .unauthenticated
         }
 
-        if user != nil && displayName.isEmpty {
+        // Check both displayName and UserDefaults to determine if we need name input
+        let hasName = !displayName.isEmpty || UserDataRepository.shared.hasUserName()
+        
+        if user != nil && !hasName {
             return .needsName
         }
 

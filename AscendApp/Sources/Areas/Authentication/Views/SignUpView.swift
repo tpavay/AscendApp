@@ -4,16 +4,10 @@ import SwiftUI
 struct SignUpView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        ZStack {
-            // Same gradient as landing screen
-            LinearGradient(colors: [.night, .jetLighter],
-                           startPoint: .topLeading,
-                           endPoint: .bottomTrailing)
-                .ignoresSafeArea()
-
-            VStack(spacing: 24) {
+        VStack(spacing: 24) {
                 // App icon for continuity
                 Image("AppIconInternal")
                     .resizable()
@@ -26,23 +20,23 @@ struct SignUpView: View {
                 VStack(spacing: 0) {
                     Text("LOGIN TO")
                         .font(.custom("Montserrat-Bold", size: 36, relativeTo: .largeTitle))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(colorScheme == .dark ? .white : .black)
                         .multilineTextAlignment(.center)
                         .lineLimit(nil)
                         .kerning(0.5)
-                        .shadow(color: .white.opacity(0.6), radius: 2)
+                        .shadow(color: colorScheme == .dark ? .white.opacity(0.6) : .clear, radius: 2)
                     Text("CONNECT")
                         .font(.custom("Montserrat-Bold", size: 36, relativeTo: .largeTitle))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(colorScheme == .dark ? .white : .black)
                         .multilineTextAlignment(.center)
                         .lineLimit(nil)
                         .kerning(0.5)
-                        .shadow(color: .white.opacity(0.6), radius: 2)
+                        .shadow(color: colorScheme == .dark ? .white.opacity(0.6) : .clear, radius: 2)
                 }
 
                 Text("Connect your account to track your stairmaster progress and sync across all your devices")
                     .font(.montserratLight)
-                    .foregroundStyle(.white.opacity(0.72))
+                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.72) : .gray)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
                     .padding(.bottom, 16)
@@ -108,22 +102,22 @@ struct SignUpView: View {
                             } else {
                                 Image("GoogleIcon")
                                     .frame(width: 18, height: 18)
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(colorScheme == .dark ? .white : .black)
                             }
 
                             Text(authVM.authenticationState == .authenticatingWithGoogle ? "Signing In..." : "Continue with Google")
                                 .font(.montserratSemiBold)
                         }
-                        .foregroundStyle(.white)
+                        .foregroundStyle(colorScheme == .dark ? .white : .black)
                         .frame(maxWidth: .infinity)
                         .frame(height: 55)
                         .background(
                             RoundedRectangle(cornerRadius: 14)
-                                .fill(.white.opacity(0.1))
+                                .fill(colorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 14)
-                                .stroke(.white.opacity(0.3), lineWidth: 1)
+                                .stroke(colorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.3), lineWidth: 1)
                         )
                     }
                     .disabled(authVM.authenticationState == .authenticatingWithApple ||
@@ -136,12 +130,12 @@ struct SignUpView: View {
                 // Terms and privacy text
                 Text("By continuing, you agree to our Terms of Service and Privacy Policy")
                     .font(.montserratLight)
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.5) : .gray.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
                     .padding(.bottom, 40)
-            }
         }
+        .themedBackground()
     }
 }
 

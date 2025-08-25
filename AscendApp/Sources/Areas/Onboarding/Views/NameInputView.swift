@@ -13,6 +13,7 @@ enum NameInputFocusField: Hashable {
 
 struct NameInputView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var firstName: String = ""
     @State private var lastName: String = ""
@@ -37,20 +38,14 @@ struct NameInputView: View {
 //        .build()
 
     var body: some View {
-        ZStack {
-            LinearGradient(colors: [.night, .jetLighter],
-                           startPoint: .topLeading,
-                           endPoint: .bottomTrailing)
-                .ignoresSafeArea()
-
-            VStack(spacing: 12) {
-                Text("What's your name?")
-                    .font(.montserratBold(size: 32))
-                    .foregroundStyle(.white)
+        VStack(spacing: 12) {
+            Text("What's your name?")
+                .font(.montserratBold(size: 32))
+                .foregroundStyle(colorScheme == .dark ? .white : .black)
                 
                 Text("This is the name that will be displayed in your profile and can be changed later in settings.")
                     .font(.montserratRegular(size: 16))
-                    .foregroundStyle(.white.opacity(0.8))
+                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.8) : .gray)
                     .multilineTextAlignment(.center)
                     .padding(.bottom, 20)
                 
@@ -92,11 +87,11 @@ struct NameInputView: View {
                         )
                 }
                 .disabled(!isFormValid)
-            }
-            .padding()
-            .onAppear {
-                focusedField = .firstName
-            }
+        }
+        .padding()
+        .themedBackground()
+        .onAppear {
+            focusedField = .firstName
         }
     }
 }

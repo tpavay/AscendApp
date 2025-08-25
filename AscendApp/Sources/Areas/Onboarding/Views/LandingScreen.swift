@@ -1,16 +1,10 @@
 import SwiftUI
 
 struct LandingScreen: View {
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        ZStack {
-            // Dark gradient background
-            LinearGradient(colors: [.night, .jetLighter],
-                           startPoint: .topLeading,
-                           endPoint: .bottomTrailing)
-                .ignoresSafeArea()
-
-            VStack(spacing: 18) {
+        VStack(spacing: 18) {
                 Image("AppIconInternal")
                     .resizable()
                     .renderingMode(.template)
@@ -20,13 +14,13 @@ struct LandingScreen: View {
 
                 Text("Ascend")
                     .font(.montserratBold)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(colorScheme == .dark ? .white : .black)
                     .kerning(0.5)
-                    .shadow(color: .black.opacity(0.6), radius: 10, y: 4)
+                    .shadow(color: colorScheme == .dark ? .black.opacity(0.6) : .clear, radius: 10, y: 4)
 
                 Text("Elevate Your Stairmaster Game")
                     .font(.montserratMedium)
-                    .foregroundStyle(.white.opacity(0.72))
+                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.72) : .gray)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
                     .padding(.top, -4)
@@ -47,9 +41,9 @@ struct LandingScreen: View {
                 }
 
                 Spacer(minLength: 24)
-            }
-            .padding(.top, 180)
         }
+        .padding(.top, 180)
+        .themedBackground()
     }
 }
 
