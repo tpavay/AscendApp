@@ -33,16 +33,22 @@ struct WorkoutListView: View {
         .navigationBarTitleDisplayMode(.large)
         .toolbarBackground(.clear, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: {
-                    showingWorkoutForm = true
-                }) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(.accent)
-                }
+        .overlay(alignment: .bottomTrailing) {
+            // Floating Action Button
+            Button(action: {
+                showingWorkoutForm = true
+            }) {
+                Image(systemName: "plus")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 56, height: 56)
+                    .background(
+                        Circle()
+                            .fill(.accent)
+                            .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+                    )
             }
+            .padding(20)
         }
         .sheet(isPresented: $showingWorkoutForm) {
             WorkoutFormView()

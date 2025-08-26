@@ -44,6 +44,7 @@ extension TabItem {
                 NavigationStack {
                     HomeView()
                 }
+                .id("HomeNavigationStack")
             },
             
             TabItem(
@@ -54,6 +55,7 @@ extension TabItem {
                 NavigationStack {
                     WorkoutListView()
                 }
+                .id("WorkoutsNavigationStack")
             },
             
             TabItem(
@@ -64,6 +66,7 @@ extension TabItem {
                 NavigationStack {
                     ProgressPlaceholderView()
                 }
+                .id("ProgressNavigationStack")
             },
             
             TabItem(
@@ -74,6 +77,7 @@ extension TabItem {
                 NavigationStack {
                     AccountView()
                 }
+                .id("SettingsNavigationStack")
             }
         ]
     }
