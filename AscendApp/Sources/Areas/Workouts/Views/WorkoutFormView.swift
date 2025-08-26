@@ -15,6 +15,7 @@ struct WorkoutFormView: View {
     @State private var settingsManager = SettingsManager.shared
     @State private var themeManager = ThemeManager.shared
     
+    @State private var workoutName: String = ""
     @State private var workoutDate = Date()
     @State private var durationHours: String = ""
     @State private var durationMinutes: String = ""
@@ -30,6 +31,8 @@ struct WorkoutFormView: View {
     }
     
     private var isFormValid: Bool {
+        !workoutName.isEmpty &&
+        workoutName.count <= 50 &&
         !durationMinutes.isEmpty && 
         !durationSeconds.isEmpty &&
         !metricValue.isEmpty &&
@@ -48,6 +51,27 @@ struct WorkoutFormView: View {
                     
                     // Form Fields
                     VStack(spacing: 20) {
+                        // Workout Name
+                        formSection(title: "Workout Name") {
+                            TextField("Enter workout name", text: $workoutName)
+                                .focused($focusedField, equals: .workoutName)
+                                .padding(12)
+                                .background(Color.clear)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
+                                )
+                                .onSubmit {
+                                    focusedField = nil
+                                }
+                                .onChange(of: workoutName) { _, newValue in
+                                    // Cap at 50 characters
+                                    if newValue.count > 50 {
+                                        workoutName = String(newValue.prefix(50))
+                                    }
+                                }
+                        }
+                        
                         // Date & Time
                         formSection(title: "Date & Time") {
                             DatePicker("Workout Date", selection: $workoutDate, displayedComponents: [.date, .hourAndMinute])
@@ -225,6 +249,11 @@ struct WorkoutFormView: View {
                 .presentationDetents([.fraction(0.40)])
                 .presentationDragIndicator(.visible)
         }
+        .onAppear {
+            if workoutName.isEmpty {
+                workoutName = generateDefaultWorkoutName()
+            }
+        }
     }
     
     private func formSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -246,15 +275,39 @@ struct WorkoutFormView: View {
         )
     }
     
+    private func generateDefaultWorkoutName() -> String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        
+        switch hour {
+        case 5..<12:
+            return "Morning Workout"
+        case 12..<18:
+            return "Afternoon Workout"
+        default:
+            return "Evening Workout"
+        }
+    }
+    
     private func saveWorkout() {
+        print("🔍 Save workout called")
+        print("🔍 Form valid: \(isFormValid)")
+        print("🔍 Workout name: '\(workoutName)'")
+        print("🔍 Duration minutes: '\(durationMinutes)'")
+        print("🔍 Duration seconds: '\(durationSeconds)'")
+        print("🔍 Metric value: '\(metricValue)'")
+        
         guard let minutes = Int(durationMinutes),
               let seconds = Int(durationSeconds),
-              let value = Int(metricValue) else { return }
+              let value = Int(metricValue) else { 
+            print("❌ Guard failed - invalid number conversion")
+            return 
+        }
         
         let hours = Int(durationHours) ?? 0
         let totalDuration = TimeInterval(hours * 3600 + minutes * 60 + seconds)
         
         let workout = Workout(
+            name: workoutName,
             date: workoutDate,
             duration: totalDuration,
             steps: settingsManager.preferredWorkoutMetric == .steps ? value : nil,
@@ -262,20 +315,22 @@ struct WorkoutFormView: View {
             notes: notes
         )
         
+        print("🔍 Created workout: \(workout.name)")
         modelContext.insert(workout)
+        print("🔍 Inserted workout into context")
         
         do {
             try modelContext.save()
+            print("✅ Successfully saved workout")
             dismiss()
         } catch {
-            // TODO: Handle save error
-            print("Error saving workout: \(error)")
+            print("❌ Error saving workout: \(error)")
         }
     }
 }
 
 enum WorkoutFormField: Hashable {
-    case durationHours, durationMinutes, durationSeconds, metricValue, notes
+    case workoutName, durationHours, durationMinutes, durationSeconds, metricValue, notes
 }
 
 #Preview {

@@ -11,6 +11,7 @@ import SwiftData
 @Model
 class Workout {
     var id: UUID
+    var name: String
     var date: Date
     var duration: TimeInterval // Duration in seconds
     var steps: Int?
@@ -18,8 +19,9 @@ class Workout {
     var notes: String
     var createdAt: Date
     
-    init(date: Date = Date(), duration: TimeInterval, steps: Int? = nil, floors: Int? = nil, notes: String = "") {
+    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int? = nil, floors: Int? = nil, notes: String = "") {
         self.id = UUID()
+        self.name = name.isEmpty ? "Workout" : name
         self.date = date
         self.duration = duration
         self.steps = steps

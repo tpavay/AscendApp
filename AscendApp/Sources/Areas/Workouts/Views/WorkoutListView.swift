@@ -115,38 +115,46 @@ struct WorkoutRowView: View {
     }
     
     var body: some View {
-        HStack(spacing: 16) {
-            // Date
-            VStack(alignment: .leading, spacing: 4) {
-                Text(workout.date.formatted(.dateTime.month().day()))
-                    .font(.montserratBold(size: 16))
-                    .foregroundStyle(.accent)
-                
-                Text(workout.date.formatted(.dateTime.hour().minute()))
-                    .font(.montserratRegular(size: 12))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-            }
-            .frame(width: 60, alignment: .leading)
+        VStack(alignment: .leading, spacing: 12) {
+            // Workout Name (prominent)
+            Text(workout.name)
+                .font(.montserratBold(size: 18))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                .frame(maxWidth: .infinity, alignment: .leading)
             
-            // Workout Details
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("\(workout.primaryMetricValue ?? 0) \(workout.metricType.unit)")
-                        .font(.montserratSemiBold)
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+            HStack(spacing: 16) {
+                // Date
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(workout.date.formatted(.dateTime.month().day()))
+                        .font(.montserratBold(size: 16))
+                        .foregroundStyle(.accent)
                     
-                    Spacer()
-                    
-                    Text(workout.durationFormatted)
-                        .font(.montserratMedium)
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.7))
-                }
-                
-                if !workout.notes.isEmpty {
-                    Text(workout.notes)
-                        .font(.montserratRegular(size: 14))
+                    Text(workout.date.formatted(.dateTime.hour().minute()))
+                        .font(.montserratRegular(size: 12))
                         .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                        .lineLimit(2)
+                }
+                .frame(width: 60, alignment: .leading)
+                
+                // Workout Details
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("\(workout.primaryMetricValue ?? 0) \(workout.metricType.unit)")
+                            .font(.montserratSemiBold)
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                        
+                        Spacer()
+                        
+                        Text(workout.durationFormatted)
+                            .font(.montserratMedium)
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.7))
+                    }
+                    
+                    if !workout.notes.isEmpty {
+                        Text(workout.notes)
+                            .font(.montserratRegular(size: 14))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                            .lineLimit(2)
+                    }
                 }
             }
         }
