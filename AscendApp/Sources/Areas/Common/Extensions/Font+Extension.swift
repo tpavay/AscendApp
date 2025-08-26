@@ -16,6 +16,10 @@ extension Font {
         Font.custom("Montserrat-Bold", size: 48, relativeTo: .largeTitle)
     }
 
+    static func montserratSemiBold(size: CGFloat = 20) -> Font {
+        return Font.custom("Montserrat-SemiBold", size: size, relativeTo: .body)
+    }
+
     static var montserratSemiBold: Font {
         Font.custom("Montserrat-SemiBold", size: 20, relativeTo: .title3)
     }

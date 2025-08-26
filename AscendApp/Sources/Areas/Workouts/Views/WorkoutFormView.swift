@@ -185,21 +185,41 @@ struct WorkoutFormView: View {
                                         focusedField = .notes
                                     }
                                 
-                                HStack(spacing: 6) {
-                                    Text("Currently tracking: \(settingsManager.preferredWorkoutMetric.description)")
-                                        .font(.montserratRegular(size: 12))
-                                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
-                                    
-                                    Button(action: {
-                                        showingMetricTooltip = true
-                                    }) {
-                                        Image(systemName: "info.circle")
-                                            .font(.system(size: 12, weight: .medium))
-                                            .foregroundStyle(.accent.opacity(0.8))
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 6) {
+                                        Text("Currently tracking: \(settingsManager.preferredWorkoutMetric.description)")
+                                            .font(.montserratRegular(size: 12))
+                                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
+                                        
+                                        Button(action: {
+                                            showingMetricTooltip = true
+                                        }) {
+                                            Image(systemName: "info.circle")
+                                                .font(.system(size: 12, weight: .medium))
+                                                .foregroundStyle(.accent.opacity(0.8))
+                                        }
+                                        .buttonStyle(.plain)
+                                        
+                                        Spacer()
                                     }
-                                    .buttonStyle(.plain)
                                     
-                                    Spacer()
+                                    if settingsManager.preferredWorkoutMetric == .steps {
+                                        HStack(spacing: 6) {
+                                            Text("Step height: \(String(format: "%.1f", settingsManager.stepHeight)) \(settingsManager.measurementSystem.stepHeightAbbreviation)")
+                                                .font(.montserratRegular(size: 11))
+                                                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray.opacity(0.8))
+                                            
+                                            Text("•")
+                                                .font(.montserratRegular(size: 11))
+                                                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray.opacity(0.8))
+                                            
+                                            Text("\(settingsManager.stepsPerFloor) steps per floor")
+                                                .font(.montserratRegular(size: 11))
+                                                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray.opacity(0.8))
+                                            
+                                            Spacer()
+                                        }
+                                    }
                                 }
                             }
                         }

@@ -56,4 +56,23 @@ class Workout {
             return .floors
         }
     }
+    
+    // Calculate total vertical climb using settings
+    func totalVerticalClimb(stepHeight: Double, measurementSystem: MeasurementSystem) -> Double? {
+        guard let steps = steps else { return nil }
+        
+        // Convert step height to meters first
+        let stepHeightInMeters = measurementSystem.convertStepHeightToMeters(stepHeight)
+        
+        // Calculate total climb in meters
+        let totalClimbMeters = Double(steps) * stepHeightInMeters
+        
+        // Convert to user's preferred distance unit
+        return measurementSystem.convertMetersToDistanceUnit(totalClimbMeters)
+    }
+    
+    // Get the appropriate unit label for vertical climb display
+    func verticalClimbUnit(measurementSystem: MeasurementSystem) -> String {
+        return measurementSystem.distanceAbbreviation
+    }
 }

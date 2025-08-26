@@ -140,6 +140,31 @@ struct AccountView: View {
                         Divider()
                             .background(colorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
 
+                        NavigationLink(destination: MeasurementSystemSelectionView()) {
+                            HStack(spacing: 16) {
+                                Image(systemName: "ruler")
+                                    .font(.system(size: 20, weight: .medium))
+                                    .foregroundStyle(.accent)
+                                    .frame(width: 24, height: 24)
+                                
+                                Text("Measurement System")
+                                    .font(.montserratMedium)
+                                    .foregroundStyle(colorScheme == .dark ? .white : .black)
+                                
+                                Spacer()
+                                
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 16)
+                            .contentShape(Rectangle())
+                        }
+
+                        Divider()
+                            .background(colorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
+
                         settingsRow(icon: "lock", title: "Privacy", action: {
                             // TODO: Navigate to privacy
                         })
