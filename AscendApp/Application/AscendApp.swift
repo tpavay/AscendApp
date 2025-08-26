@@ -7,6 +7,7 @@
 
 import FirebaseCore
 import SwiftUI
+import SwiftData
 
 @main
 struct AscendApp: App {
@@ -24,5 +25,6 @@ struct AscendApp: App {
             }
         }
         .environment(authVM)
+        .modelContainer(for: [Workout.self])
     }
 }

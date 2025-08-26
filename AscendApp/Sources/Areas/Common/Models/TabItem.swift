@@ -52,7 +52,7 @@ extension TabItem {
                 selectedIconName: "figure.stair.stepper"
             ) {
                 NavigationStack {
-                    WorkoutPlaceholderView()
+                    WorkoutListView()
                 }
             },
             
@@ -83,6 +83,7 @@ extension TabItem {
     static var activeTabs: [TabItem] {
         [
             availableTabs[0], // Home
+            availableTabs[1], // Workouts
             availableTabs[3]  // Settings
         ]
     }
