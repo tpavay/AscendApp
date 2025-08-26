@@ -74,24 +74,6 @@ struct WorkoutListView: View {
                     .multilineTextAlignment(.center)
             }
             
-            Button(action: {
-                showingWorkoutForm = true
-            }) {
-                HStack(spacing: 8) {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 16, weight: .medium))
-                    Text("Log Your First Workout")
-                        .font(.montserratSemiBold)
-                }
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 50)
-                .background(
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(.accent)
-                )
-            }
-            .padding(.horizontal, 40)
             
             Spacer()
         }

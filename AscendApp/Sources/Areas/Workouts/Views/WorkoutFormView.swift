@@ -14,6 +14,8 @@ struct WorkoutFormView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var settingsManager = SettingsManager.shared
     @State private var themeManager = ThemeManager.shared
+    @State private var showingCompletedView = false
+    @State private var completedWorkout: Workout?
     
     @State private var workoutName: String = ""
     @State private var workoutDate = Date()
@@ -269,6 +271,18 @@ struct WorkoutFormView: View {
                 .presentationDetents([.fraction(0.40)])
                 .presentationDragIndicator(.visible)
         }
+        .fullScreenCover(isPresented: $showingCompletedView) {
+            if let workout = completedWorkout {
+                WorkoutCompletedView(
+                    workout: workout,
+                    workoutCount: getWorkoutCount(),
+                    onDismiss: {
+                        showingCompletedView = false
+                        dismiss() // Dismiss the workout form
+                    }
+                )
+            }
+        }
         .onAppear {
             if workoutName.isEmpty {
                 workoutName = generateDefaultWorkoutName()
@@ -308,6 +322,17 @@ struct WorkoutFormView: View {
         }
     }
     
+    private func getWorkoutCount() -> Int {
+        let fetchDescriptor = FetchDescriptor<Workout>()
+        do {
+            let workouts = try modelContext.fetch(fetchDescriptor)
+            return workouts.count
+        } catch {
+            print("❌ Error fetching workout count: \(error)")
+            return 0
+        }
+    }
+    
     private func saveWorkout() {
         print("🔍 Save workout called")
         print("🔍 Form valid: \(isFormValid)")
@@ -342,7 +367,10 @@ struct WorkoutFormView: View {
         do {
             try modelContext.save()
             print("✅ Successfully saved workout")
-            dismiss()
+            
+            // Show completed view instead of dismissing immediately
+            completedWorkout = workout
+            showingCompletedView = true
         } catch {
             print("❌ Error saving workout: \(error)")
         }
