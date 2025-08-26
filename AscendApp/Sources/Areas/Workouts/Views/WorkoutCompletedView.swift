@@ -69,6 +69,19 @@ struct WorkoutCompletedView: View {
                         color: .accent
                     )
                     
+                    Divider()
+                        .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
+                    
+                    // Pace
+                    statRow(
+                        title: "Pace",
+                        value: String(format: "%.1f %@/min", 
+                               workout.pace ?? 0.0,
+                               workout.metricType.unit),
+                        icon: "speedometer",
+                        color: .purple
+                    )
+                    
                     // Vertical Climb (only if steps)
                     if let verticalClimb = workout.totalVerticalClimb(
                         stepHeight: settingsManager.stepHeight,

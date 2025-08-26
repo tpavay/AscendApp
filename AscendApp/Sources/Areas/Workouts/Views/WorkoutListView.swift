@@ -15,6 +15,8 @@ struct WorkoutListView: View {
     
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
     @State private var showingWorkoutForm = false
+    @State private var showingCompletedView = false
+    @State private var completedWorkout: Workout?
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -51,7 +53,33 @@ struct WorkoutListView: View {
             .padding(20)
         }
         .sheet(isPresented: $showingWorkoutForm) {
-            WorkoutFormView()
+            WorkoutFormView(
+                showingWorkoutForm: $showingWorkoutForm,
+                onWorkoutCompleted: { workout in
+                    print("🔍 WorkoutListView: onWorkoutCompleted called")
+                    completedWorkout = workout
+                    
+                    // Dismiss the form first
+                    showingWorkoutForm = false
+                    
+                    // Then show completed view after a brief delay
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        showingCompletedView = true
+                        print("🔍 WorkoutListView: Set showingCompletedView = true")
+                    }
+                }
+            )
+        }
+        .fullScreenCover(isPresented: $showingCompletedView) {
+            if let workout = completedWorkout {
+                WorkoutCompletedView(
+                    workout: workout,
+                    workoutCount: workouts.count,
+                    onDismiss: {
+                        showingCompletedView = false
+                    }
+                )
+            }
         }
     }
     

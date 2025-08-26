@@ -57,6 +57,13 @@ class Workout {
         }
     }
     
+    // Calculate pace (steps or floors per minute)
+    var pace: Double? {
+        guard let metricValue = primaryMetricValue, duration > 0 else { return nil }
+        let minutes = duration / 60.0
+        return Double(metricValue) / minutes
+    }
+    
     // Calculate total vertical climb using settings
     func totalVerticalClimb(stepHeight: Double, measurementSystem: MeasurementSystem) -> Double? {
         guard let steps = steps else { return nil }
