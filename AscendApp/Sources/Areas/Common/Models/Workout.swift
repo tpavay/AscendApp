@@ -18,8 +18,11 @@ class Workout {
     var floors: Int?
     var notes: String
     var createdAt: Date
+    var avgHeartRate: Int? // Average heart rate in BPM
+    var maxHeartRate: Int? // Maximum heart rate in BPM
+    var caloriesBurned: Int? // Calories burned during workout
     
-    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int? = nil, floors: Int? = nil, notes: String = "") {
+    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int? = nil, floors: Int? = nil, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil) {
         self.id = UUID()
         self.name = name.isEmpty ? "Workout" : name
         self.date = date
@@ -28,6 +31,9 @@ class Workout {
         self.floors = floors
         self.notes = notes
         self.createdAt = Date()
+        self.avgHeartRate = avgHeartRate
+        self.maxHeartRate = maxHeartRate
+        self.caloriesBurned = caloriesBurned
     }
     
     // Computed properties for convenience

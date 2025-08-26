@@ -99,6 +99,48 @@ struct WorkoutCompletedView: View {
                             color: .orange
                         )
                     }
+                    
+                    // Health Metrics Section
+                    if workout.avgHeartRate != nil || workout.maxHeartRate != nil || workout.caloriesBurned != nil {
+                        // Average Heart Rate
+                        if let avgHR = workout.avgHeartRate {
+                            Divider()
+                                .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
+                            
+                            statRow(
+                                title: "Avg Heart Rate",
+                                value: "\(avgHR) BPM",
+                                icon: "heart.fill",
+                                color: .red
+                            )
+                        }
+                        
+                        // Max Heart Rate  
+                        if let maxHR = workout.maxHeartRate {
+                            Divider()
+                                .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
+                            
+                            statRow(
+                                title: "Max Heart Rate",
+                                value: "\(maxHR) BPM",
+                                icon: "heart.circle.fill",
+                                color: .red
+                            )
+                        }
+                        
+                        // Calories Burned
+                        if let calories = workout.caloriesBurned {
+                            Divider()
+                                .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
+                            
+                            statRow(
+                                title: "Calories Burned",
+                                value: "\(calories) cal",
+                                icon: "flame.fill",
+                                color: .orange
+                            )
+                        }
+                    }
                 }
                 .padding(24)
                 .background(
@@ -163,7 +205,10 @@ struct WorkoutCompletedView: View {
         duration: 1800, // 30 minutes
         steps: 2400,
         floors: nil,
-        notes: "Great session!"
+        notes: "Great session!",
+        avgHeartRate: 145,
+        maxHeartRate: 165,
+        caloriesBurned: 320
     )
     
     return WorkoutCompletedView(workout: workout, workoutCount: 5, onDismiss: {})
@@ -176,7 +221,10 @@ struct WorkoutCompletedView: View {
         duration: 2400, // 40 minutes
         steps: nil,
         floors: 150,
-        notes: ""
+        notes: "",
+        avgHeartRate: nil,
+        maxHeartRate: 180,
+        caloriesBurned: 280
     )
     
     return WorkoutCompletedView(workout: workout, workoutCount: 12, onDismiss: {})
