@@ -34,6 +34,8 @@ struct WorkoutFormView: View {
     @State private var caloriesBurned: String = ""
     @State private var durationFormatted: String = ""
     @State private var showingDatePicker = false
+    @State private var effortRating: Double? = nil
+    @State private var showingEffortRating = false
     
     @FocusState private var focusedField: WorkoutFormField?
     
@@ -86,6 +88,11 @@ struct WorkoutFormView: View {
         }
         .sheet(isPresented: $showingDatePicker) {
             DateTimePickerView(selectedDate: $workoutDate)
+                .presentationDetents([.fraction(0.4)])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showingEffortRating) {
+            EffortRatingView(effortRating: $effortRating)
                 .presentationDetents([.fraction(0.4)])
                 .presentationDragIndicator(.visible)
         }
@@ -215,6 +222,29 @@ struct WorkoutFormView: View {
                 }
                 .buttonStyle(.plain)
             }
+            
+            // Effort Rating (Optional)
+            Button(action: {
+                showingEffortRating = true
+            }) {
+                HStack {
+                    Text(effortRatingDisplayText())
+                        .font(.montserratRegular(size: 16))
+                        .foregroundStyle(effortRating == nil ? .gray : (effectiveColorScheme == .dark ? .white : .black))
+                    
+                    Spacer()
+                    
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.gray)
+                }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
         }
     }
     
@@ -450,6 +480,33 @@ struct WorkoutFormView: View {
         durationSeconds = String(format: "%02d", seconds)
     }
     
+    private func effortRatingDisplayText() -> String {
+        guard let rating = effortRating else {
+            return "Add effort rating (optional)"
+        }
+        
+        let ratingInt = Int(rating)
+        let description = effortDescription(for: rating)
+        return "Effort: \(ratingInt)/5 - \(description)"
+    }
+    
+    private func effortDescription(for rating: Double) -> String {
+        switch Int(rating) {
+        case 1:
+            return "Minimal"
+        case 2:
+            return "Light"
+        case 3:
+            return "Moderate"
+        case 4:
+            return "High"
+        case 5:
+            return "Maximum"
+        default:
+            return "Moderate"
+        }
+    }
+    
     private func formatWorkoutDateTime() -> String {
         let calendar = Calendar.current
         let now = Date()
@@ -595,6 +652,115 @@ struct DateTimePickerView: View {
                     
                     Button(action: {
                         selectedDate = tempDate
+                        dismiss()
+                    }) {
+                        Text("Done")
+                            .font(.montserratSemiBold)
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(.accent)
+                            )
+                    }
+                }
+                .padding(.top, 8)
+            }
+            .padding(.horizontal, 20)
+            
+            Spacer()
+        }
+        .themedBackground()
+    }
+}
+
+struct EffortRatingView: View {
+    @Binding var effortRating: Double?
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var themeManager = ThemeManager.shared
+    @State private var tempRating: Double
+    
+    init(effortRating: Binding<Double?>) {
+        self._effortRating = effortRating
+        self._tempRating = State(initialValue: effortRating.wrappedValue ?? 3.0)
+    }
+    
+    private var effectiveColorScheme: ColorScheme {
+        themeManager.effectiveColorScheme(for: colorScheme)
+    }
+    
+    private func effortDescription(for rating: Double) -> String {
+        switch Int(rating) {
+        case 1:
+            return "Minimal"
+        case 2:
+            return "Light"
+        case 3:
+            return "Moderate"
+        case 4:
+            return "High"
+        case 5:
+            return "Maximum"
+        default:
+            return "Moderate"
+        }
+    }
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            // Handle bar
+            RoundedRectangle(cornerRadius: 2.5)
+                .fill(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5))
+                .frame(width: 36, height: 5)
+                .padding(.top, 8)
+            
+            VStack(spacing: 24) {
+                Text("How much effort did you put in?")
+                    .font(.montserratSemiBold(size: 18))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                
+                VStack(spacing: 16) {
+                    Text(effortDescription(for: tempRating))
+                        .font(.montserratMedium(size: 24))
+                        .foregroundStyle(.accent)
+                    
+                    HStack {
+                        Text("1")
+                            .font(.montserratRegular(size: 14))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
+                        
+                        Slider(value: $tempRating, in: 1...5, step: 1)
+                            .accentColor(.accent)
+                        
+                        Text("5")
+                            .font(.montserratRegular(size: 14))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
+                    }
+                    
+                    Text("\(Int(tempRating))/5")
+                        .font(.montserratBold(size: 32))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                }
+                
+                HStack(spacing: 12) {
+                    Button(action: {
+                        dismiss()
+                    }) {
+                        Text("Cancel")
+                            .font(.montserratSemiBold)
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
+                            )
+                    }
+                    
+                    Button(action: {
+                        effortRating = tempRating
                         dismiss()
                     }) {
                         Text("Done")
