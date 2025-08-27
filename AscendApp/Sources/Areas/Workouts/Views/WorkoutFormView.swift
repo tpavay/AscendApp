@@ -29,8 +29,8 @@ struct WorkoutFormView: View {
     
     // Health Metrics
     @State private var showHealthMetrics = false
-    @State private var avgHeartRate: Int = 120
-    @State private var maxHeartRate: Int = 160
+    @State private var avgHeartRate: String = ""
+    @State private var maxHeartRate: String = ""
     @State private var caloriesBurned: String = ""
     @State private var durationFormatted: String = ""
     @State private var showingDatePicker = false
@@ -63,10 +63,12 @@ struct WorkoutFormView: View {
         let totalDurationSeconds = hours * 3600 + minutes * 60 + seconds
         let durationValid = totalDurationSeconds > 0
         
-        // Validate calories if provided
-        let caloriesValid = caloriesBurned.isEmpty || (Int(caloriesBurned) != nil && (Int(caloriesBurned) ?? 0) > 0)
+        // Validate health metrics if provided
+        let avgHRValid = avgHeartRate.isEmpty || (Int(avgHeartRate) != nil && (Int(avgHeartRate) ?? 0) >= 25 && (Int(avgHeartRate) ?? 0) <= 230)
+        let maxHRValid = maxHeartRate.isEmpty || (Int(maxHeartRate) != nil && (Int(maxHeartRate) ?? 0) >= 25 && (Int(maxHeartRate) ?? 0) <= 230)
+        let caloriesValid = caloriesBurned.isEmpty || (Int(caloriesBurned) != nil && (Int(caloriesBurned) ?? 0) >= 0)
         
-        return basicValidation && durationValid && caloriesValid
+        return basicValidation && durationValid && avgHRValid && maxHRValid && caloriesValid
     }
     
     var body: some View {
@@ -254,109 +256,69 @@ struct WorkoutFormView: View {
                 VStack(spacing: 20) {
                     workoutInfoCard
                         
-                        // Health Metrics (Expandable)
-                        VStack(alignment: .leading, spacing: 12) {
-                            Button(action: {
-                                withAnimation(.easeInOut(duration: 0.3)) {
-                                    showHealthMetrics.toggle()
-                                }
-                            }) {
-                                HStack {
-                                    Text("Health Metrics (Optional)")
-                                        .font(.montserratSemiBold)
-                                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                                    
-                                    Spacer()
-                                    
-                                    Image(systemName: showHealthMetrics ? "chevron.up" : "chevron.down")
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundStyle(.accent)
-                                        .rotationEffect(.degrees(showHealthMetrics ? 0 : 0))
-                                }
-                            }
-                            .buttonStyle(.plain)
+                        // Health Metrics Section Header
+                        HStack {
+                            Text("Health Metrics (Optional)")
+                                .font(.montserratSemiBold(size: 18))
+                                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                             
-                            if showHealthMetrics {
-                                VStack(spacing: 16) {
-                                    // Heart Rate Section
-                                    VStack(alignment: .leading, spacing: 12) {
-                                        Text("Heart Rate (BPM)")
-                                            .font(.montserratMedium)
-                                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                                        
-                                        HStack(spacing: 16) {
-                                            VStack(alignment: .leading, spacing: 8) {
-                                                Text("Average")
-                                                    .font(.montserratRegular(size: 14))
-                                                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .gray)
-                                                
-                                                Picker("Average HR", selection: $avgHeartRate) {
-                                                    ForEach(60...220, id: \.self) { value in
-                                                        Text("\(value)").tag(value)
-                                                    }
-                                                }
-                                                .pickerStyle(.wheel)
-                                                .frame(height: 80)
-                                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                                                .overlay(
-                                                    RoundedRectangle(cornerRadius: 8)
-                                                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
-                                                )
-                                            }
-                                            
-                                            VStack(alignment: .leading, spacing: 8) {
-                                                Text("Maximum")
-                                                    .font(.montserratRegular(size: 14))
-                                                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .gray)
-                                                
-                                                Picker("Max HR", selection: $maxHeartRate) {
-                                                    ForEach(60...220, id: \.self) { value in
-                                                        Text("\(value)").tag(value)
-                                                    }
-                                                }
-                                                .pickerStyle(.wheel)
-                                                .frame(height: 80)
-                                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                                                .overlay(
-                                                    RoundedRectangle(cornerRadius: 8)
-                                                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
-                                                )
-                                            }
-                                        }
-                                    }
-                                    
-                                    // Calories Section
-                                    VStack(alignment: .leading, spacing: 8) {
-                                        Text("Calories Burned")
-                                            .font(.montserratMedium)
-                                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                                        
-                                        TextField("Enter calories", text: $caloriesBurned)
-                                            .focused($focusedField, equals: .caloriesBurned)
-                                            .keyboardType(.numberPad)
-                                            .padding(12)
-                                            .background(Color.clear)
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 8)
-                                                    .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
-                                            )
-                                            .onSubmit {
-                                                focusedField = .notes
-                                            }
-                                    }
-                                }
-                                .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                            }
+                            Spacer()
                         }
-                        .padding(20)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 16)
-                                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
-                                )
-                        )
+                        .padding(.top, 16)
+                        
+                        // Average Heart Rate
+                        TextField("Average heart rate (BPM)", text: $avgHeartRate)
+                            .focused($focusedField, equals: .avgHeartRate)
+                            .keyboardType(.numberPad)
+                            .font(.montserratRegular(size: 16))
+                            .padding(16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
+                            )
+                            .onChange(of: avgHeartRate) { _, newValue in
+                                avgHeartRate = filterNumericInput(newValue)
+                            }
+                            .onSubmit { 
+                                validateHeartRateOnSubmit($avgHeartRate)
+                                focusedField = .maxHeartRate 
+                            }
+                        
+                        // Maximum Heart Rate
+                        TextField("Maximum heart rate (BPM)", text: $maxHeartRate)
+                            .focused($focusedField, equals: .maxHeartRate)
+                            .keyboardType(.numberPad)
+                            .font(.montserratRegular(size: 16))
+                            .padding(16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
+                            )
+                            .onChange(of: maxHeartRate) { _, newValue in
+                                maxHeartRate = filterNumericInput(newValue)
+                            }
+                            .onSubmit { 
+                                validateHeartRateOnSubmit($maxHeartRate)
+                                focusedField = .caloriesBurned 
+                            }
+                        
+                        // Calories Burned
+                        TextField("Calories burned", text: $caloriesBurned)
+                            .focused($focusedField, equals: .caloriesBurned)
+                            .keyboardType(.numberPad)
+                            .font(.montserratRegular(size: 16))
+                            .padding(16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
+                            )
+                            .onChange(of: caloriesBurned) { _, newValue in
+                                caloriesBurned = filterNumericInput(newValue)
+                            }
+                            .onSubmit { 
+                                validateCaloriesOnSubmit()
+                                focusedField = nil 
+                            }
                     }
                     
                     Spacer(minLength: 40)
@@ -364,6 +326,16 @@ struct WorkoutFormView: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, 16)
+            .onChange(of: focusedField) { oldFocus, newFocus in
+                // Validate fields when focus changes
+                if oldFocus == .avgHeartRate {
+                    validateHeartRateOnSubmit($avgHeartRate)
+                } else if oldFocus == .maxHeartRate {
+                    validateHeartRateOnSubmit($maxHeartRate)
+                } else if oldFocus == .caloriesBurned {
+                    validateCaloriesOnSubmit()
+                }
+            }
         }
 
     private var permanentHeader: some View {
@@ -480,6 +452,39 @@ struct WorkoutFormView: View {
         durationSeconds = String(format: "%02d", seconds)
     }
     
+    private func validateHeartRateOnSubmit(_ field: Binding<String>) {
+        let digits = field.wrappedValue.filter { $0.isNumber }
+        if digits.isEmpty { 
+            field.wrappedValue = ""
+            return 
+        }
+        
+        guard let value = Int(digits) else { return }
+        
+        if value < 25 { 
+            field.wrappedValue = "25" 
+        } else if value > 230 { 
+            field.wrappedValue = "230" 
+        } else {
+            field.wrappedValue = String(value)
+        }
+    }
+    
+    private func validateCaloriesOnSubmit() {
+        let digits = caloriesBurned.filter { $0.isNumber }
+        if digits.isEmpty { 
+            caloriesBurned = ""
+            return 
+        }
+        
+        guard let value = Int(digits) else { return }
+        caloriesBurned = value < 0 ? "0" : String(value)
+    }
+    
+    private func filterNumericInput(_ input: String) -> String {
+        return input.filter { $0.isNumber }
+    }
+    
     private func effortRatingDisplayText() -> String {
         guard let rating = effortRating else {
             return "Add effort rating (optional)"
@@ -555,10 +560,10 @@ struct WorkoutFormView: View {
         let hours = Int(durationHours) ?? 0
         let totalDuration = TimeInterval(hours * 3600 + minutes * 60 + seconds)
 
-        // Convert health metrics, only include if health section was expanded and values entered
-        let avgHR = showHealthMetrics ? avgHeartRate : nil
-        let maxHR = showHealthMetrics ? maxHeartRate : nil
-        let calories = showHealthMetrics && !caloriesBurned.isEmpty ? Int(caloriesBurned) : nil
+        // Convert health metrics, only include if values entered
+        let avgHR = !avgHeartRate.isEmpty ? Int(avgHeartRate) : nil
+        let maxHR = !maxHeartRate.isEmpty ? Int(maxHeartRate) : nil
+        let calories = !caloriesBurned.isEmpty ? Int(caloriesBurned) : nil
 
         let workout = Workout(
             name: workoutName,
@@ -591,7 +596,7 @@ struct WorkoutFormView: View {
 }
 
 enum WorkoutFormField: Hashable {
-    case workoutName, durationHours, durationMinutes, durationSeconds, metricValue, notes, caloriesBurned
+    case workoutName, durationHours, durationMinutes, durationSeconds, metricValue, notes, caloriesBurned, avgHeartRate, maxHeartRate
 }
 
 struct ScrollOffsetPreferenceKey: PreferenceKey {
