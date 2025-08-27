@@ -60,9 +60,31 @@ struct WorkoutFormView: View {
     
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    
+            VStack(spacing: 0) {
+                // Always visible header
+                permanentHeader
+                
+                // Scrollable content
+                scrollContent
+            }
+            .themedBackground()
+            .navigationBarHidden(true)
+        }
+        .sheet(isPresented: $showingMetricTooltip) {
+            MetricTooltipView()
+                .presentationDetents([.fraction(0.40)])
+                .presentationDragIndicator(.visible)
+        }
+        .onAppear {
+            if workoutName.isEmpty {
+                workoutName = generateDefaultWorkoutName()
+            }
+        }
+    }
+    
+    private var scrollContent: some View {
+        ScrollView {
+            VStack(spacing: 24) {
                     // Form Fields
                     VStack(spacing: 20) {
                         // Workout Name
@@ -358,48 +380,50 @@ struct WorkoutFormView: View {
                     
                     Spacer(minLength: 40)
                 }
-                .padding(.horizontal, 20)
             }
-            .themedBackground()
-            .navigationTitle("New Workout")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.clear, for: .navigationBar)
-            .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
-                        showingWorkoutForm = false
-                    }
+            .padding(.horizontal, 20)
+        }
+
+    private var permanentHeader: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button("Cancel") {
+                    showingWorkoutForm = false
+                }
+                .font(.montserratRegular)
+                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+                Spacer()
+
+                Text("Add Workout")
+                    .font(.montserratSemiBold(size: 18))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+                Spacer()
+
+                Button("Save") {
+                    saveWorkout()
                 }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Save") {
-                        saveWorkout()
-                    }
-                    .foregroundStyle(isFormValid ? .accent : .gray)
-                    .disabled(!isFormValid)
-                }
+                .font(.montserratSemiBold)
+                .foregroundStyle(isFormValid ? .accent : .gray)
+                .disabled(!isFormValid)
             }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 16)
+            .background(effectiveColorScheme == .dark ? .black : .white)
+
+            Divider()
+                .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
         }
-        .sheet(isPresented: $showingMetricTooltip) {
-            MetricTooltipView()
-                .presentationDetents([.fraction(0.40)])
-                .presentationDragIndicator(.visible)
-        }
-        .onAppear {
-            if workoutName.isEmpty {
-                workoutName = generateDefaultWorkoutName()
-            }
-        }
+        .background(effectiveColorScheme == .dark ? .black : .white)
     }
-    
     private func formSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.montserratSemiBold)
                 .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-            
+
             content()
         }
         .padding(20)
@@ -412,10 +436,10 @@ struct WorkoutFormView: View {
                 )
         )
     }
-    
+
     private func generateDefaultWorkoutName() -> String {
         let hour = Calendar.current.component(.hour, from: Date())
-        
+
         switch hour {
         case 5..<12:
             return "Morning Workout"
@@ -425,7 +449,7 @@ struct WorkoutFormView: View {
             return "Evening Workout"
         }
     }
-    
+
     private func saveWorkout() {
         print("🔍 Save workout called")
         print("🔍 Form valid: \(isFormValid)")
@@ -433,22 +457,22 @@ struct WorkoutFormView: View {
         print("🔍 Duration minutes: '\(durationMinutes)'")
         print("🔍 Duration seconds: '\(durationSeconds)'")
         print("🔍 Metric value: '\(metricValue)'")
-        
+
         guard let minutes = Int(durationMinutes),
               let seconds = Int(durationSeconds),
-              let value = Int(metricValue) else { 
+              let value = Int(metricValue) else {
             print("❌ Guard failed - invalid number conversion")
-            return 
+            return
         }
-        
+
         let hours = Int(durationHours) ?? 0
         let totalDuration = TimeInterval(hours * 3600 + minutes * 60 + seconds)
-        
+
         // Convert health metrics, only include if health section was expanded and values entered
         let avgHR = showHealthMetrics ? avgHeartRate : nil
         let maxHR = showHealthMetrics ? maxHeartRate : nil
         let calories = showHealthMetrics && !caloriesBurned.isEmpty ? Int(caloriesBurned) : nil
-        
+
         let workout = Workout(
             name: workoutName,
             date: workoutDate,
@@ -460,16 +484,16 @@ struct WorkoutFormView: View {
             maxHeartRate: maxHR,
             caloriesBurned: calories
         )
-        
+
         print("🔍 Created workout: \(workout.name)")
         modelContext.insert(workout)
         print("🔍 Inserted workout into context")
-        
+
         do {
             try modelContext.save()
             print("✅ Successfully saved workout")
             print("🔍 About to call onWorkoutCompleted")
-            
+
             // Call the completion handler to show completed view
             onWorkoutCompleted(workout)
             print("🔍 Called onWorkoutCompleted")
@@ -481,6 +505,13 @@ struct WorkoutFormView: View {
 
 enum WorkoutFormField: Hashable {
     case workoutName, durationHours, durationMinutes, durationSeconds, metricValue, notes, caloriesBurned
+}
+
+struct ScrollOffsetPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
 }
 
 #Preview {

@@ -52,7 +52,7 @@ struct WorkoutListView: View {
             }
             .padding(20)
         }
-        .sheet(isPresented: $showingWorkoutForm) {
+        .fullScreenCover(isPresented: $showingWorkoutForm) {
             WorkoutFormView(
                 showingWorkoutForm: $showingWorkoutForm,
                 onWorkoutCompleted: { workout in
