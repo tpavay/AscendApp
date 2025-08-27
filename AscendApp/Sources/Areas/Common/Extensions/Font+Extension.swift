@@ -17,11 +17,15 @@ extension Font {
     }
 
     static func montserratSemiBold(size: CGFloat = 20) -> Font {
-        return Font.custom("Montserrat-SemiBold", size: size, relativeTo: .body)
+        return Font.custom("Montserrat-SemiBold", size: size, relativeTo: .title3)
     }
 
     static var montserratSemiBold: Font {
         Font.custom("Montserrat-SemiBold", size: 20, relativeTo: .title3)
+    }
+
+    static func montserratMedium(size: CGFloat = 17) -> Font {
+        return Font.custom("Montserrat-Medium", size: size, relativeTo: .body)
     }
 
     static var montserratMedium: Font {

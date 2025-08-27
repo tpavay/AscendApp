@@ -40,10 +40,6 @@ struct MetricTooltipView: View {
                 
                 // Instructions
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("To change between tracking steps or floors:")
-                        .font(.montserratMedium)
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                    
                     HStack(spacing: 8) {
                         Text("1.")
                             .font(.montserratMedium)

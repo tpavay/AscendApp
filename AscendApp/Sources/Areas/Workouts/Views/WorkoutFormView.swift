@@ -32,6 +32,8 @@ struct WorkoutFormView: View {
     @State private var avgHeartRate: Int = 120
     @State private var maxHeartRate: Int = 160
     @State private var caloriesBurned: String = ""
+    @State private var durationFormatted: String = ""
+    @State private var showingDatePicker = false
     
     @FocusState private var focusedField: WorkoutFormField?
     
@@ -52,10 +54,17 @@ struct WorkoutFormView: View {
         (Int(durationSeconds) ?? 0) < 60 &&
         (durationHours.isEmpty || (Int(durationHours) != nil && (Int(durationHours) ?? 0) <= 999))
         
+        // Validate duration is greater than 0
+        let hours = Int(durationHours) ?? 0
+        let minutes = Int(durationMinutes) ?? 0
+        let seconds = Int(durationSeconds) ?? 0
+        let totalDurationSeconds = hours * 3600 + minutes * 60 + seconds
+        let durationValid = totalDurationSeconds > 0
+        
         // Validate calories if provided
         let caloriesValid = caloriesBurned.isEmpty || (Int(caloriesBurned) != nil && (Int(caloriesBurned) ?? 0) > 0)
         
-        return basicValidation && caloriesValid
+        return basicValidation && durationValid && caloriesValid
     }
     
     var body: some View {
@@ -72,7 +81,12 @@ struct WorkoutFormView: View {
         }
         .sheet(isPresented: $showingMetricTooltip) {
             MetricTooltipView()
-                .presentationDetents([.fraction(0.40)])
+                .presentationDetents([.fraction(0.30)])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showingDatePicker) {
+            DateTimePickerView(selectedDate: $workoutDate)
+                .presentationDetents([.fraction(0.4)])
                 .presentationDragIndicator(.visible)
         }
         .onAppear {
@@ -82,183 +96,133 @@ struct WorkoutFormView: View {
         }
     }
     
+    private var workoutInfoCard: some View {
+        VStack(spacing: 16) {
+            // Workout Name
+            TextField(generateDefaultWorkoutName(), text: $workoutName)
+                .focused($focusedField, equals: .workoutName)
+                .font(.montserratRegular(size: 18))
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
+                )
+                .onSubmit {
+                    focusedField = .notes
+                }
+                .onChange(of: workoutName) { _, newValue in
+                    if newValue.count > 50 {
+                        workoutName = String(newValue.prefix(50))
+                    }
+                }
+            
+            // Description
+            TextField("Add an optional description describing your workout", text: $notes, axis: .vertical)
+                .focused($focusedField, equals: .notes)
+                .font(.montserratRegular(size: 16))
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
+                )
+                .lineLimit(3...6)
+                .onSubmit {
+                    focusedField = nil
+                }
+            
+            // Section Header
+            HStack {
+                Text("Workout Details")
+                    .font(.montserratSemiBold(size: 18))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                
+                Spacer()
+            }
+            .padding(.top, 8)
+            
+            // Custom Date/Time Display
+            Button(action: {
+                showingDatePicker = true
+            }) {
+                HStack {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.gray)
+                    
+                    Text(formatWorkoutDateTime())
+                        .font(.montserratRegular(size: 16))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    
+                    Spacer()
+                    
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.gray)
+                }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            
+            // Duration - Auto-formatting text input
+            HStack {
+                Image(systemName: "clock")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(.gray)
+                
+                TextField("00:00:00", text: $durationFormatted)
+                    .focused($focusedField, equals: .durationMinutes)
+                    .keyboardType(.numberPad)
+                    .font(.montserratRegular(size: 16))
+                    .onChange(of: durationFormatted) { _, newValue in
+                        formatDurationInput(newValue)
+                    }
+                    .onSubmit { focusedField = .metricValue }
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
+            )
+            
+            // Steps/Floors
+            HStack {
+                TextField("Enter \(settingsManager.preferredWorkoutMetric.unit)", text: $metricValue)
+                    .focused($focusedField, equals: .metricValue)
+                    .keyboardType(.numberPad)
+                    .font(.montserratRegular(size: 16))
+                    .padding(16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
+                    )
+                    .onSubmit { focusedField = nil }
+                
+                Button(action: {
+                    showingMetricTooltip = true
+                }) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.accent)
+                        .padding(16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+    
     private var scrollContent: some View {
         ScrollView {
             VStack(spacing: 24) {
-                    // Form Fields
-                    VStack(spacing: 20) {
-                        // Workout Name
-                        formSection(title: "Workout Name") {
-                            TextField("Enter workout name", text: $workoutName)
-                                .focused($focusedField, equals: .workoutName)
-                                .padding(12)
-                                .background(Color.clear)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
-                                )
-                                .onSubmit {
-                                    focusedField = nil
-                                }
-                                .onChange(of: workoutName) { _, newValue in
-                                    // Cap at 50 characters
-                                    if newValue.count > 50 {
-                                        workoutName = String(newValue.prefix(50))
-                                    }
-                                }
-                        }
-                        
-                        // Date & Time
-                        formSection(title: "Date & Time") {
-                            DatePicker("Workout Date", selection: $workoutDate, displayedComponents: [.date, .hourAndMinute])
-                                .datePickerStyle(.compact)
-                                .accentColor(.accent)
-                        }
-                        
-                        // Duration
-                        formSection(title: "Duration") {
-                            HStack(spacing: 8) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Hours")
-                                        .font(.montserratMedium)
-                                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                                    TextField("0", text: $durationHours)
-                                        .focused($focusedField, equals: .durationHours)
-                                        .keyboardType(.numberPad)
-                                        .padding(12)
-                                        .background(Color.clear)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
-                                        )
-                                        .onChange(of: durationHours) { _, newValue in
-                                            // Cap hours at 999
-                                            if let hours = Int(newValue), hours > 999 {
-                                                durationHours = "999"
-                                            }
-                                        }
-                                        .onSubmit {
-                                            focusedField = .durationMinutes
-                                        }
-                                }
-                                
-                                Text(":")
-                                    .font(.montserratBold(size: 24))
-                                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                                    .padding(.top, 24)
-                                
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Minutes")
-                                        .font(.montserratMedium)
-                                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                                    TextField("00", text: $durationMinutes)
-                                        .focused($focusedField, equals: .durationMinutes)
-                                        .keyboardType(.numberPad)
-                                        .padding(12)
-                                        .background(Color.clear)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
-                                        )
-                                        .onChange(of: durationMinutes) { _, newValue in
-                                            // Cap minutes at 59
-                                            if let minutes = Int(newValue), minutes > 59 {
-                                                durationMinutes = "59"
-                                            }
-                                        }
-                                        .onSubmit {
-                                            focusedField = .durationSeconds
-                                        }
-                                }
-                                
-                                Text(":")
-                                    .font(.montserratBold(size: 24))
-                                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                                    .padding(.top, 24)
-                                
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Seconds")
-                                        .font(.montserratMedium)
-                                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                                    
-                                    TextField("00", text: $durationSeconds)
-                                        .focused($focusedField, equals: .durationSeconds)
-                                        .keyboardType(.numberPad)
-                                        .padding(12)
-                                        .background(Color.clear)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
-                                        )
-                                        .onChange(of: durationSeconds) { _, newValue in
-                                            // Cap seconds at 59
-                                            if let seconds = Int(newValue), seconds > 59 {
-                                                durationSeconds = "59"
-                                            }
-                                        }
-                                        .onSubmit {
-                                            focusedField = .metricValue
-                                        }
-                                }
-                            }
-                        }
-                        
-                        // Steps/Floors
-                        formSection(title: settingsManager.preferredWorkoutMetric.displayName) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                TextField("Enter \(settingsManager.preferredWorkoutMetric.unit)", text: $metricValue)
-                                    .focused($focusedField, equals: .metricValue)
-                                    .keyboardType(.numberPad)
-                                    .padding(12)
-                                    .background(Color.clear)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
-                                    )
-                                    .onSubmit {
-                                        focusedField = .notes
-                                    }
-                                
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack(spacing: 6) {
-                                        Text("Currently tracking: \(settingsManager.preferredWorkoutMetric.description)")
-                                            .font(.montserratRegular(size: 12))
-                                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
-                                        
-                                        Button(action: {
-                                            showingMetricTooltip = true
-                                        }) {
-                                            Image(systemName: "info.circle")
-                                                .font(.system(size: 12, weight: .medium))
-                                                .foregroundStyle(.accent.opacity(0.8))
-                                        }
-                                        .buttonStyle(.plain)
-                                        
-                                        Spacer()
-                                    }
-                                    
-                                    if settingsManager.preferredWorkoutMetric == .steps {
-                                        HStack(spacing: 6) {
-                                            Text("Step height: \(String(format: "%.1f", settingsManager.stepHeight)) \(settingsManager.measurementSystem.stepHeightAbbreviation)")
-                                                .font(.montserratRegular(size: 11))
-                                                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray.opacity(0.8))
-                                            
-                                            Text("•")
-                                                .font(.montserratRegular(size: 11))
-                                                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray.opacity(0.8))
-                                            
-                                            Text("\(settingsManager.stepsPerFloor) steps per floor")
-                                                .font(.montserratRegular(size: 11))
-                                                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray.opacity(0.8))
-                                            
-                                            Spacer()
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                VStack(spacing: 20) {
+                    workoutInfoCard
                         
                         // Health Metrics (Expandable)
                         VStack(alignment: .leading, spacing: 12) {
@@ -268,7 +232,7 @@ struct WorkoutFormView: View {
                                 }
                             }) {
                                 HStack {
-                                    Text("Health Metrics")
+                                    Text("Health Metrics (Optional)")
                                         .font(.montserratSemiBold)
                                         .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                                     
@@ -363,25 +327,13 @@ struct WorkoutFormView: View {
                                         .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
                                 )
                         )
-                        
-                        // Notes (Optional)
-                        formSection(title: "Notes (Optional)") {
-                            TextField("Add any notes about your workout...", text: $notes, axis: .vertical)
-                                .focused($focusedField, equals: .notes)
-                                .padding(12)
-                                .background(Color.clear)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
-                                )
-                                .lineLimit(3...6)
-                        }
                     }
                     
                     Spacer(minLength: 40)
                 }
             }
             .padding(.horizontal, 20)
+            .padding(.top, 16)
         }
 
     private var permanentHeader: some View {
@@ -435,6 +387,84 @@ struct WorkoutFormView: View {
                         .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
                 )
         )
+    }
+    
+    private func formatDurationInput(_ input: String) {
+        // Remove all non-digit characters
+        let digits = input.filter { $0.isNumber }
+        
+        // Limit to 6 digits (hhmmss)
+        let limitedDigits = String(digits.prefix(6))
+        
+        if limitedDigits.isEmpty {
+            durationFormatted = ""
+            durationHours = ""
+            durationMinutes = ""
+            durationSeconds = ""
+            return
+        }
+        
+        // Convert to total seconds, working from right-to-left
+        var totalSeconds = 0
+        let reversedDigits = Array(limitedDigits.reversed())
+        
+        // Process digits as seconds, then minutes, then hours
+        for (index, digit) in reversedDigits.enumerated() {
+            if let digitValue = Int(String(digit)) {
+                switch index {
+                case 0: // ones place of seconds
+                    totalSeconds += digitValue
+                case 1: // tens place of seconds  
+                    totalSeconds += digitValue * 10
+                case 2: // ones place of minutes
+                    totalSeconds += digitValue * 60
+                case 3: // tens place of minutes
+                    totalSeconds += digitValue * 600
+                case 4: // ones place of hours
+                    totalSeconds += digitValue * 3600
+                case 5: // tens place of hours
+                    totalSeconds += digitValue * 36000
+                default:
+                    break
+                }
+            }
+        }
+        
+        // Convert back to hours, minutes, seconds
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+        
+        // Format display based on whether hours is non-zero
+        if hours == 0 {
+            // Show as MM:SS
+            durationFormatted = String(format: "%02d:%02d", minutes, seconds)
+        } else {
+            // Show as H:MM:SS
+            durationFormatted = String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        
+        // Update individual components for saving
+        durationHours = String(format: "%02d", hours)
+        durationMinutes = String(format: "%02d", minutes)
+        durationSeconds = String(format: "%02d", seconds)
+    }
+    
+    private func formatWorkoutDateTime() -> String {
+        let calendar = Calendar.current
+        let now = Date()
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "h:mm a"
+        
+        if calendar.isDateInToday(workoutDate) {
+            return "Today at \(timeFormatter.string(from: workoutDate))"
+        } else if calendar.isDateInYesterday(workoutDate) {
+            return "Yesterday at \(timeFormatter.string(from: workoutDate))"
+        } else {
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "MMM d"
+            return "\(dateFormatter.string(from: workoutDate)) at \(timeFormatter.string(from: workoutDate))"
+        }
     }
 
     private func generateDefaultWorkoutName() -> String {
@@ -511,6 +541,80 @@ struct ScrollOffsetPreferenceKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
+    }
+}
+
+struct DateTimePickerView: View {
+    @Binding var selectedDate: Date
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var themeManager = ThemeManager.shared
+    @State private var tempDate: Date
+    
+    init(selectedDate: Binding<Date>) {
+        self._selectedDate = selectedDate
+        self._tempDate = State(initialValue: selectedDate.wrappedValue)
+    }
+    
+    private var effectiveColorScheme: ColorScheme {
+        themeManager.effectiveColorScheme(for: colorScheme)
+    }
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            // Handle bar
+            RoundedRectangle(cornerRadius: 2.5)
+                .fill(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5))
+                .frame(width: 36, height: 5)
+                .padding(.top, 8)
+            
+            VStack(spacing: 16) {
+                Text("Select Date & Time")
+                    .font(.montserratSemiBold(size: 18))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                
+                DatePicker("", selection: $tempDate, displayedComponents: [.date, .hourAndMinute])
+                    .datePickerStyle(.wheel)
+                    .accentColor(.accent)
+                    .labelsHidden()
+                
+                HStack(spacing: 12) {
+                    Button(action: {
+                        dismiss()
+                    }) {
+                        Text("Cancel")
+                            .font(.montserratSemiBold)
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
+                            )
+                    }
+                    
+                    Button(action: {
+                        selectedDate = tempDate
+                        dismiss()
+                    }) {
+                        Text("Done")
+                            .font(.montserratSemiBold)
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(.accent)
+                            )
+                    }
+                }
+                .padding(.top, 8)
+            }
+            .padding(.horizontal, 20)
+            
+            Spacer()
+        }
+        .themedBackground()
     }
 }
 
