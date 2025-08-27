@@ -17,50 +17,87 @@ struct MeasurementSystemSelectionView: View {
     }
     
     var body: some View {
-        List {
-            Section {
-                ForEach(MeasurementSystem.allCases) { system in
-                    Button(action: {
-                        settingsManager.setMeasurementSystem(system)
-                    }) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(system.displayName)
-                                    .font(.montserratMedium)
-                                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                                
-                                Text(system.description)
-                                    .font(.montserratRegular(size: 14))
-                                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                            }
-                            
-                            Spacer()
-                            
-                            if settingsManager.measurementSystem == system {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 16, weight: .medium))
-                                    .foregroundStyle(.accent)
-                            }
-                        }
-                        .padding(.vertical, 4)
+        ScrollView {
+            VStack(spacing: 30) {
+                Spacer()
+                    .frame(height: 20)
+                
+                // Measurement System Options
+                VStack(spacing: 12) {
+                    ForEach(MeasurementSystem.allCases) { system in
+                        measurementSystemRow(system: system)
                     }
-                    .buttonStyle(.plain)
                 }
-            } header: {
-                Text("Choose your preferred measurement system")
-                    .font(.montserratRegular(size: 14))
-                    .textCase(.none)
-            } footer: {
-                Text("This affects step height measurements, distance calculations, and other metrics throughout the app.")
-                    .font(.montserratRegular(size: 12))
-                    .textCase(.none)
+                .padding(.horizontal, 20)
+                
+                Spacer(minLength: 40)
             }
         }
         .themedBackground()
         .navigationTitle("Measurement System")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.clear, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+    }
+    
+    private func measurementSystemRow(system: MeasurementSystem) -> some View {
+        Button(action: {
+            settingsManager.setMeasurementSystem(system)
+        }) {
+            HStack(spacing: 16) {
+                // System Icon
+                ZStack {
+                    Circle()
+                        .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.3) : .gray.opacity(0.1))
+                        .frame(width: 50, height: 50)
+                    
+                    Image(systemName: system == .imperial ? "ruler" : "ruler.fill")
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(.accent)
+                }
+                
+                // System Info
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(system.displayName)
+                        .font(.montserratSemiBold)
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    
+                    Text(system.description)
+                        .font(.montserratRegular(size: 14))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                }
+                
+                Spacer()
+                
+                // Selection Indicator
+                ZStack {
+                    Circle()
+                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.3), lineWidth: 2)
+                        .frame(width: 24, height: 24)
+                    
+                    if settingsManager.measurementSystem == system {
+                        Circle()
+                            .fill(.accent)
+                            .frame(width: 16, height: 16)
+                            .scaleEffect(settingsManager.measurementSystem == system ? 1.0 : 0.5)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: settingsManager.measurementSystem)
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.05))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(settingsManager.measurementSystem == system ? .accent.opacity(0.5) : 
+                                   (effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1)), 
+                                   lineWidth: settingsManager.measurementSystem == system ? 2 : 1)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
 

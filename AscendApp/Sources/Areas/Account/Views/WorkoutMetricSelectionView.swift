@@ -57,28 +57,37 @@ struct WorkoutMetricSelectionView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 30) {
-                // Header
-                VStack(spacing: 8) {
-                    Image(systemName: "chart.bar.fill")
-                        .font(.system(size: 40, weight: .light))
-                        .foregroundStyle(.accent)
-                        .padding(.top, 20)
-                    
-                    Text("Workout Metric")
-                        .font(.montserratBold(size: 28))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                    
-                    Text("Choose what you want to track")
-                        .font(.montserratRegular(size: 16))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                }
+                Spacer()
+                    .frame(height: 20)
                 
-                // Metric Options
-                VStack(spacing: 12) {
-                    ForEach(WorkoutMetric.allCases) { metric in
-                        metricOptionRow(metric: metric)
+                // Metric Options Section
+                VStack(alignment: .leading, spacing: 16) {
+                    // Section Header
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Workout Metric")
+                            .font(.montserratSemiBold(size: 20))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                        
+                        Text("Choose what you want to track during your workouts")
+                            .font(.montserratRegular(size: 14))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                    }
+                    
+                    VStack(spacing: 12) {
+                        ForEach(WorkoutMetric.allCases) { metric in
+                            metricOptionRow(metric: metric)
+                        }
                     }
                 }
+                .padding(20)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.05))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1), lineWidth: 1)
+                        )
+                )
                 .padding(.horizontal, 20)
                 
                 // Step Configuration Section
@@ -155,13 +164,13 @@ struct WorkoutMetricSelectionView: View {
                     }
                 }
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 16)
             .padding(.vertical, 16)
             .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.05))
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.15) : .gray.opacity(0.03))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 16)
+                        RoundedRectangle(cornerRadius: 12)
                             .stroke(settingsManager.preferredWorkoutMetric == metric ? .accent.opacity(0.5) : 
                                    (effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1)), 
                                    lineWidth: settingsManager.preferredWorkoutMetric == metric ? 2 : 1)

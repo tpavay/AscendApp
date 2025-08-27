@@ -17,21 +17,8 @@ struct ThemeSelectionView: View {
     
     var body: some View {
         VStack(spacing: 20) {
-            // Header
-            VStack(spacing: 8) {
-                Image(systemName: "paintbrush")
-                    .font(.system(size: 40, weight: .light))
-                    .foregroundStyle(.accent)
-                    .padding(.top, 20)
-                
-                Text("Appearance")
-                    .font(.montserratBold(size: 28))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                
-                Text("Choose how the app looks")
-                    .font(.montserratRegular(size: 16))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-            }
+            Spacer()
+                .frame(height: 20)
             
             // Theme Options
             VStack(spacing: 12) {
