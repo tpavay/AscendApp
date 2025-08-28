@@ -13,6 +13,7 @@ struct WorkoutDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
+    @State private var showingEditWorkout = false
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -52,6 +53,12 @@ struct WorkoutDetailView: View {
                     Spacer()
                 }
             )
+            .fullScreenCover(isPresented: $showingEditWorkout) {
+                EditWorkoutView(
+                    workout: workout,
+                    showingEditWorkout: $showingEditWorkout
+                )
+            }
         }
     }
     
@@ -74,10 +81,21 @@ struct WorkoutDetailView: View {
                 
                 Spacer()
                 
-                // Placeholder for symmetry
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(.clear)
+                Menu {
+                    Button(action: {
+                        showingEditWorkout = true
+                    }) {
+                        Label("Edit Workout", systemImage: "pencil")
+                    }
+                    
+                    // Future: Add delete option here if needed
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
             }
             .padding(.horizontal, 20)
             .padding(.top, 8)
