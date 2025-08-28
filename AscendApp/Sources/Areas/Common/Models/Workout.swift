@@ -96,27 +96,29 @@ class Workout {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
         
-        // Group workouts by date
-        let workoutDates = Set(workouts.map { calendar.startOfDay(for: $0.date) })
+        // Group workouts by date and sort them
+        let workoutDates = workouts.map { calendar.startOfDay(for: $0.date) }
+        let sortedWorkoutDates = Array(Set(workoutDates)).sorted(by: >)
         
-        var streak = 0
-        var currentDate = today
+        guard !sortedWorkoutDates.isEmpty else { return 0 }
         
-        // Check if there's a workout today or yesterday (to handle late night logging)
-        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
-        if !workoutDates.contains(today) && !workoutDates.contains(yesterday) {
+        // Find the most recent workout date
+        let mostRecentWorkout = sortedWorkoutDates[0]
+        
+        // Check if the streak is still active (most recent workout is today or within the last 2 days)
+        let daysSinceLastWorkout = calendar.dateComponents([.day], from: mostRecentWorkout, to: today).day ?? 0
+        
+        // Allow up to 2 days gap (for weekends or rest days)
+        if daysSinceLastWorkout > 2 {
             return 0
         }
         
-        // Start counting from today or yesterday
-        if workoutDates.contains(today) {
-            currentDate = today
-        } else if workoutDates.contains(yesterday) {
-            currentDate = yesterday
-        }
+        // Count consecutive days backwards from the most recent workout
+        var streak = 0
+        var currentDate = mostRecentWorkout
+        let workoutDateSet = Set(sortedWorkoutDates)
         
-        // Count consecutive days backward
-        while workoutDates.contains(currentDate) {
+        while workoutDateSet.contains(currentDate) {
             streak += 1
             currentDate = calendar.date(byAdding: .day, value: -1, to: currentDate)!
         }
