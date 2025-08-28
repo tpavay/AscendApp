@@ -11,9 +11,11 @@ struct WorkoutDetailView: View {
     let workout: Workout
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
     @State private var showingEditWorkout = false
+    @State private var showingDeleteConfirmation = false
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -59,6 +61,19 @@ struct WorkoutDetailView: View {
                     showingEditWorkout: $showingEditWorkout
                 )
             }
+            .sheet(isPresented: $showingDeleteConfirmation) {
+                SingleWorkoutDeleteConfirmationView(
+                    workout: workout,
+                    onConfirm: {
+                        deleteWorkout()
+                        showingDeleteConfirmation = false
+                    },
+                    onCancel: {
+                        showingDeleteConfirmation = false
+                    }
+                )
+                .presentationDetents([.height(200)])
+            }
         }
     }
     
@@ -88,7 +103,11 @@ struct WorkoutDetailView: View {
                         Label("Edit Workout", systemImage: "pencil")
                     }
                     
-                    // Future: Add delete option here if needed
+                    Button(role: .destructive, action: {
+                        showingDeleteConfirmation = true
+                    }) {
+                        Label("Delete Workout", systemImage: "trash")
+                    }
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 18, weight: .medium))
@@ -460,6 +479,69 @@ struct WorkoutDetailView: View {
         }
     }
     
+    private func deleteWorkout() {
+        modelContext.delete(workout)
+        do {
+            try modelContext.save()
+            dismiss() // Navigate back to workout list
+        } catch {
+            print("❌ Error deleting workout: \(error)")
+        }
+    }
+}
+
+struct SingleWorkoutDeleteConfirmationView: View {
+    let workout: Workout
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
+    
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var themeManager = ThemeManager.shared
+    
+    private var effectiveColorScheme: ColorScheme {
+        themeManager.effectiveColorScheme(for: colorScheme)
+    }
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            VStack(spacing: 8) {
+                Text("Delete Workout")
+                    .font(.montserratBold(size: 20))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                
+                Text("Are you sure you want to delete \"\(workout.name)\"? This action cannot be undone.")
+                    .font(.montserratRegular(size: 16))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .gray)
+                    .multilineTextAlignment(.center)
+            }
+            
+            HStack(spacing: 12) {
+                Button("Cancel") {
+                    onCancel()
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
+                )
+                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                
+                Button("Delete") {
+                    onConfirm()
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(.red)
+                )
+                .foregroundStyle(.white)
+            }
+        }
+        .padding(20)
+        .themedBackground()
+    }
 }
 
 // MARK: - Preview
