@@ -21,6 +21,7 @@ struct WorkoutListView: View {
     @State private var isInDeleteMode = false
     @State private var selectedWorkouts: Set<UUID> = []
     @State private var showingDeleteConfirmation = false
+    @State private var showingImportSheet = false
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -98,6 +99,9 @@ struct WorkoutListView: View {
             )
             .presentationDetents([.height(200)])
         }
+        .fullScreenCover(isPresented: $showingImportSheet) {
+            ImportSourceSelectionView()
+        }
     }
     
     private var stickyHeader: some View {
@@ -145,6 +149,12 @@ struct WorkoutListView: View {
                         }
                     } else {
                         Menu {
+                            Button(action: {
+                                showingImportSheet = true
+                            }) {
+                                Label("Import Workouts", systemImage: "square.and.arrow.down")
+                            }
+                            
                             Button(action: {
                                 enterDeleteMode()
                             }) {
@@ -194,6 +204,24 @@ struct WorkoutListView: View {
                     .multilineTextAlignment(.center)
             }
             
+            Button(action: {
+                showingImportSheet = true
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "square.and.arrow.down")
+                        .font(.system(size: 16, weight: .medium))
+                    Text("Import Workouts")
+                        .font(.montserratMedium(size: 16))
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(.accent)
+                )
+            }
+            .padding(.horizontal, 40)
             
             Spacer()
         }
@@ -284,6 +312,10 @@ struct WorkoutRowView: View {
                     Text(workout.date.formatted(.dateTime.month().day()))
                         .font(.montserratBold(size: 16))
                         .foregroundStyle(.accent)
+                    
+                    Text(workout.date.formatted(.dateTime.year()))
+                        .font(.montserratRegular(size: 12))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
                     
                     Text(workout.date.formatted(.dateTime.hour().minute()))
                         .font(.montserratRegular(size: 12))

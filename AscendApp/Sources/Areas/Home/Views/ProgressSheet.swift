@@ -37,6 +37,12 @@ struct ProgressSheet: View {
         Set(workouts.map { calendar.startOfDay(for: $0.date) })
     }
     
+    private var canGoToNextMonth: Bool {
+        let nextMonthDate = calendar.date(byAdding: .month, value: 1, to: selectedDate) ?? selectedDate
+        let currentMonth = Date()
+        return calendar.compare(nextMonthDate, to: currentMonth, toGranularity: .month) != .orderedDescending
+    }
+    
     var body: some View {
         VStack(spacing: 0) {
             // Title
@@ -83,8 +89,9 @@ struct ProgressSheet: View {
                 Button(action: nextMonth) {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                        .foregroundStyle(canGoToNextMonth ? (effectiveColorScheme == .dark ? .white : .black) : .gray.opacity(0.4))
                 }
+                .disabled(!canGoToNextMonth)
             }
             .padding(.horizontal, 24)
             
@@ -252,7 +259,13 @@ struct ProgressSheet: View {
     
     private func nextMonth() {
         withAnimation(.easeInOut(duration: 0.3)) {
-            selectedDate = calendar.date(byAdding: .month, value: 1, to: selectedDate) ?? selectedDate
+            let nextMonthDate = calendar.date(byAdding: .month, value: 1, to: selectedDate) ?? selectedDate
+            let currentMonth = Date()
+            
+            // Only allow navigation if the next month is not in the future
+            if calendar.compare(nextMonthDate, to: currentMonth, toGranularity: .month) != .orderedDescending {
+                selectedDate = nextMonthDate
+            }
         }
     }
 }
