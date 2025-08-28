@@ -85,17 +85,14 @@ struct EditWorkoutView: View {
         .sheet(isPresented: $showingMetricTooltip) {
             MetricTooltipView()
                 .presentationDetents([.fraction(0.30)])
-                .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingDatePicker) {
             DateTimePickerView(selectedDate: $workoutDate)
-                .presentationDetents([.fraction(0.4)])
-                .presentationDragIndicator(.visible)
+                .presentationDetents([.height(400)])
         }
         .sheet(isPresented: $showingEffortRating) {
             EffortRatingView(effortRating: $effortRating)
                 .presentationDetents([.fraction(0.4)])
-                .presentationDragIndicator(.visible)
         }
         .onAppear {
             populateFields()

@@ -86,17 +86,14 @@ struct WorkoutFormView: View {
         .sheet(isPresented: $showingMetricTooltip) {
             MetricTooltipView()
                 .presentationDetents([.fraction(0.30)])
-                .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingDatePicker) {
             DateTimePickerView(selectedDate: $workoutDate)
-                .presentationDetents([.fraction(0.4)])
-                .presentationDragIndicator(.visible)
+                .presentationDetents([.height(400)])
         }
         .sheet(isPresented: $showingEffortRating) {
             EffortRatingView(effortRating: $effortRating)
                 .presentationDetents([.fraction(0.4)])
-                .presentationDragIndicator(.visible)
         }
         .onAppear {
             if workoutName.isEmpty {
@@ -623,17 +620,18 @@ struct DateTimePickerView: View {
     }
     
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 0) {
             // Handle bar
             RoundedRectangle(cornerRadius: 2.5)
                 .fill(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5))
                 .frame(width: 36, height: 5)
-                .padding(.top, 8)
+                .padding(.top, 16)
             
-            VStack(spacing: 16) {
+            VStack(spacing: 20) {
                 Text("Select Date & Time")
                     .font(.montserratSemiBold(size: 18))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    .padding(.top, 20)
                 
                 DatePicker("", selection: $tempDate, displayedComponents: [.date, .hourAndMinute])
                     .datePickerStyle(.wheel)
@@ -670,11 +668,9 @@ struct DateTimePickerView: View {
                             )
                     }
                 }
-                .padding(.top, 8)
             }
             .padding(.horizontal, 20)
-            
-            Spacer()
+            .padding(.bottom, 20)
         }
         .themedBackground()
     }
