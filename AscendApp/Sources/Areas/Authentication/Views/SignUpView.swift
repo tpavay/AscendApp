@@ -34,7 +34,7 @@ struct SignUpView: View {
                         .shadow(color: colorScheme == .dark ? .white.opacity(0.6) : .clear, radius: 2)
                 }
 
-                Text("Connect your account to track your stairmaster progress and sync across all your devices")
+                Text("Connect your account to track your stair climbing progress and sync across all your devices")
                     .font(.montserratLight)
                     .foregroundStyle(colorScheme == .dark ? .white.opacity(0.72) : .gray)
                     .multilineTextAlignment(.center)

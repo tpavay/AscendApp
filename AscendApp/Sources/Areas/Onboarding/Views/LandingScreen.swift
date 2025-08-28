@@ -18,7 +18,7 @@ struct LandingScreen: View {
                     .kerning(0.5)
                     .shadow(color: colorScheme == .dark ? .black.opacity(0.6) : .clear, radius: 10, y: 4)
 
-                Text("Elevate Your Stairmaster Game")
+                Text("Elevate Your Stair Climbing Game")
                     .font(.montserratMedium)
                     .foregroundStyle(colorScheme == .dark ? .white.opacity(0.72) : .gray)
                     .multilineTextAlignment(.center)

@@ -188,7 +188,7 @@ struct WorkoutListView: View {
                     .font(.montserratBold(size: 28))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                 
-                Text("Start tracking your stairmaster sessions")
+                Text("Start tracking your stair climbing sessions")
                     .font(.montserratRegular(size: 16))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
                     .multilineTextAlignment(.center)

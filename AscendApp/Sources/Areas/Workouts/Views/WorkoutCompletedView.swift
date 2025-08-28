@@ -37,7 +37,7 @@ struct WorkoutCompletedView: View {
                             .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                             .multilineTextAlignment(.center)
                         
-                        Text("Great job on your stairmaster session!")
+                        Text("Great job on your stair climbing session!")
                             .font(.montserratRegular(size: 16))
                             .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
                             .multilineTextAlignment(.center)
