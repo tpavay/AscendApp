@@ -10,6 +10,7 @@ import SwiftData
 
 struct WorkoutListView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.modelContext) private var modelContext
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
     
@@ -17,6 +18,9 @@ struct WorkoutListView: View {
     @State private var showingWorkoutForm = false
     @State private var showingCompletedView = false
     @State private var completedWorkout: Workout?
+    @State private var isInDeleteMode = false
+    @State private var selectedWorkouts: Set<UUID> = []
+    @State private var showingDeleteConfirmation = false
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -31,10 +35,43 @@ struct WorkoutListView: View {
             }
         }
         .themedBackground()
-        .navigationTitle("Workouts")
+        .navigationTitle(isInDeleteMode ? "Select Workouts" : "Workouts")
         .navigationBarTitleDisplayMode(.large)
         .toolbarBackground(.clear, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if !workouts.isEmpty {
+                    if isInDeleteMode {
+                        HStack(spacing: 16) {
+                            Button("Cancel") {
+                                exitDeleteMode()
+                            }
+                            .foregroundStyle(.accent)
+                            
+                            Button("Delete") {
+                                if !selectedWorkouts.isEmpty {
+                                    showingDeleteConfirmation = true
+                                }
+                            }
+                            .foregroundStyle(selectedWorkouts.isEmpty ? .gray : .red)
+                            .disabled(selectedWorkouts.isEmpty)
+                        }
+                    } else {
+                        Menu {
+                            Button(action: {
+                                enterDeleteMode()
+                            }) {
+                                Label("Delete Workouts", systemImage: "trash")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                        }
+                    }
+                }
+            }
+        }
         .overlay(alignment: .bottomTrailing) {
             // Floating Action Button
             Button(action: {
@@ -81,6 +118,19 @@ struct WorkoutListView: View {
                 )
             }
         }
+        .sheet(isPresented: $showingDeleteConfirmation) {
+            DeleteConfirmationView(
+                selectedCount: selectedWorkouts.count,
+                onConfirm: {
+                    deleteSelectedWorkouts()
+                    showingDeleteConfirmation = false
+                },
+                onCancel: {
+                    showingDeleteConfirmation = false
+                }
+            )
+            .presentationDetents([.height(200)])
+        }
     }
     
     private var emptyStateView: some View {
@@ -112,15 +162,60 @@ struct WorkoutListView: View {
         ScrollView {
             LazyVStack(spacing: 12) {
                 ForEach(workouts) { workout in
-                    NavigationLink(destination: WorkoutDetailView(workout: workout)) {
-                        WorkoutRowView(workout: workout)
+                    HStack(spacing: 12) {
+                        if isInDeleteMode {
+                            Button(action: {
+                                toggleWorkoutSelection(workout.id)
+                            }) {
+                                Image(systemName: selectedWorkouts.contains(workout.id) ? "checkmark.circle.fill" : "circle")
+                                    .font(.system(size: 22))
+                                    .foregroundStyle(selectedWorkouts.contains(workout.id) ? .accent : .gray)
+                            }
+                        }
+                        
+                        if isInDeleteMode {
+                            WorkoutRowView(workout: workout)
+                                .onTapGesture {
+                                    toggleWorkoutSelection(workout.id)
+                                }
+                        } else {
+                            NavigationLink(destination: WorkoutDetailView(workout: workout)) {
+                                WorkoutRowView(workout: workout)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
                     }
-                    .buttonStyle(PlainButtonStyle())
                 }
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
         }
+    }
+    
+    private func enterDeleteMode() {
+        isInDeleteMode = true
+        selectedWorkouts.removeAll()
+    }
+    
+    private func exitDeleteMode() {
+        isInDeleteMode = false
+        selectedWorkouts.removeAll()
+    }
+    
+    private func toggleWorkoutSelection(_ workoutId: UUID) {
+        if selectedWorkouts.contains(workoutId) {
+            selectedWorkouts.remove(workoutId)
+        } else {
+            selectedWorkouts.insert(workoutId)
+        }
+    }
+    
+    private func deleteSelectedWorkouts() {
+        let workoutsToDelete = workouts.filter { selectedWorkouts.contains($0.id) }
+        for workout in workoutsToDelete {
+            modelContext.delete(workout)
+        }
+        exitDeleteMode()
     }
 }
 
@@ -186,6 +281,60 @@ struct WorkoutRowView: View {
                         .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
                 )
         )
+    }
+}
+
+struct DeleteConfirmationView: View {
+    let selectedCount: Int
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
+    
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var themeManager = ThemeManager.shared
+    
+    private var effectiveColorScheme: ColorScheme {
+        themeManager.effectiveColorScheme(for: colorScheme)
+    }
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            VStack(spacing: 8) {
+                Text("Delete Workouts")
+                    .font(.montserratBold(size: 20))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                
+                Text("Are you sure you want to delete \(selectedCount) workout\(selectedCount == 1 ? "" : "s")? This action cannot be undone.")
+                    .font(.montserratRegular(size: 16))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .gray)
+                    .multilineTextAlignment(.center)
+            }
+            
+            HStack(spacing: 12) {
+                Button("Cancel") {
+                    onCancel()
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
+                )
+                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                
+                Button("Delete") {
+                    onConfirm()
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(.red)
+                )
+                .foregroundStyle(.white)
+            }
+        }
+        .padding(20)
+        .themedBackground()
     }
 }
 
