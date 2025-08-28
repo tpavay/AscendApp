@@ -118,6 +118,13 @@ class HealthKitService: ObservableObject {
         // Fetch time-series heart rate for charting
         metrics.heartRateTimeSeries = await fetchHeartRateTimeSeries(during: workout.startDate...workout.endDate)
         
+        // Extract Average METs from workout metadata
+        if let avgMetsQuantity = workout.metadata?["HKAverageMETs"] as? HKQuantity {
+            let metsUnit = HKUnit.kilocalorie().unitDivided(by: HKUnit.hour().unitMultiplied(by: HKUnit.gramUnit(with: .kilo)))
+            let metsValue = avgMetsQuantity.doubleValue(for: metsUnit)
+            metrics.averageMETs = metsValue
+        }
+        
         // Get active calories using the recommended approach
         if let activeEnergyType = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned),
            let caloriesStatistics = workout.statistics(for: activeEnergyType) {
@@ -247,6 +254,7 @@ struct WorkoutMetrics {
     var caloriesBurned: Int? // Active calories
     var restingCaloriesBurned: Int? // Resting/basal calories
     var heartRateTimeSeries: [HeartRateDataPoint] = []
+    var averageMETs: Double? // Average METs from workout metadata
 }
 
 extension HKWorkout {
@@ -260,7 +268,8 @@ extension HKWorkout {
             avgHeartRate: metrics.avgHeartRate,
             maxHeartRate: metrics.maxHeartRate,
             caloriesBurned: metrics.caloriesBurned,
-            heartRateTimeSeries: metrics.heartRateTimeSeries
+            heartRateTimeSeries: metrics.heartRateTimeSeries,
+            averageMETs: metrics.averageMETs
         )
         return workout
     }

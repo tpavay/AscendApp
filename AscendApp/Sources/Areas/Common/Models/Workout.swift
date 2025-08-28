@@ -23,8 +23,9 @@ class Workout {
     var caloriesBurned: Int? // Calories burned during workout
     var effortRating: Double? // Effort rating on 1-5 scale
     var heartRateData: Data? // Encoded heart rate time series data
+    var averageMETs: Double? // Average METs from Apple Health
     
-    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int? = nil, floors: Int? = nil, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil) {
+    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int? = nil, floors: Int? = nil, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil) {
         self.id = UUID()
         self.name = name.isEmpty ? "Workout" : name
         self.date = date
@@ -38,6 +39,7 @@ class Workout {
         self.caloriesBurned = caloriesBurned
         self.effortRating = effortRating
         self.heartRateData = heartRateTimeSeries?.encoded
+        self.averageMETs = averageMETs
     }
     
     // Computed properties for convenience

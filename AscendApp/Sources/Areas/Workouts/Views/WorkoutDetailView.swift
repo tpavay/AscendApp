@@ -40,8 +40,8 @@ struct WorkoutDetailView: View {
                         )
                     }
                     
-                    // Calories (if available and not already shown)
-                    if workout.caloriesBurned != nil {
+                    // Calories and METs (if available and not already shown)
+                    if workout.caloriesBurned != nil || workout.averageMETs != nil {
                         caloriesSection
                     }
                     
@@ -329,6 +329,16 @@ struct WorkoutDetailView: View {
                     value: "\(calories)",
                     subtitle: "calories",
                     iconColor: .orange
+                )
+            }
+            
+            if let averageMETs = workout.averageMETs {
+                statCard(
+                    icon: "bolt.circle.fill",
+                    title: "Average METs",
+                    value: String(format: "%.1f", averageMETs),
+                    subtitle: "METs",
+                    iconColor: .green
                 )
             }
         }
