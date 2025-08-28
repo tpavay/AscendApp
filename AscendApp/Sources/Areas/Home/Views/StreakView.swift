@@ -22,6 +22,8 @@ struct StreakView: View {
     @State private var selectedDailyWorkouts: DailyWorkoutNavigation?
     @State private var showWorkoutDetail = false
     @State private var showDailyWorkoutDetail = false
+    @State private var showingStreakSheet = false
+    @State private var showingProgressSheet = false
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -73,30 +75,43 @@ struct StreakView: View {
                 
                 Spacer()
                 
-                // Streak counter
-                HStack(spacing: 6) {
-                    Image(systemName: "flame.fill")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(.orange)
-                    
-                    Text("\(currentStreak)")
-                        .font(.montserratBold(size: 18))
-                        .foregroundStyle(.accent)
-                    
-                    Text("days")
-                        .font(.montserratRegular(size: 16))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                // Streak counter - Tappable
+                Button(action: {
+                    showingStreakSheet = true
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "flame.fill")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(.orange)
+                        
+                        Text("\(currentStreak)")
+                            .font(.montserratBold(size: 18))
+                            .foregroundStyle(
+                                currentStreak > 0 
+                                    ? AnyShapeStyle(LinearGradient(
+                                        gradient: Gradient(colors: [.yellow, .orange]),
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ))
+                                    : AnyShapeStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
+                            )
+                        
+                        Text(currentStreak == 1 ? "day" : "days")
+                            .font(.montserratRegular(size: 16))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(
+                        Capsule()
+                            .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.3) : .gray.opacity(0.1))
+                            .overlay(
+                                Capsule()
+                                    .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2), lineWidth: 1)
+                            )
+                    )
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(
-                    Capsule()
-                        .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.3) : .gray.opacity(0.1))
-                        .overlay(
-                            Capsule()
-                                .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2), lineWidth: 1)
-                        )
-                )
+                .buttonStyle(.plain)
             }
             
             // Weekly activity calendar with swipe navigation
@@ -154,6 +169,18 @@ struct StreakView: View {
             if let dailyWorkouts = selectedDailyWorkouts {
                 DailyWorkoutDetailView(date: dailyWorkouts.date, workouts: dailyWorkouts.workouts)
             }
+        }
+        .sheet(isPresented: $showingStreakSheet) {
+            StreakSheet(
+                currentStreak: currentStreak,
+                workouts: workouts,
+                showingProgressSheet: $showingProgressSheet
+            )
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showingProgressSheet) {
+            ProgressSheet(workouts: workouts)
+                .presentationDragIndicator(.visible)
         }
     }
     
