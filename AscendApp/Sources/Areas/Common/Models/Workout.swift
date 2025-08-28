@@ -160,7 +160,7 @@ class Workout {
 }
 
 // MARK: - Heart Rate Data Extensions
-struct HeartRateDataPoint: Codable {
+struct HeartRateDataPoint: Codable, Equatable {
     let timestamp: Date
     let heartRate: Int
 }

@@ -53,6 +53,42 @@ struct HeartRateChartView: View {
         }
     }
     
+    // Heart rate range for Y-axis scaling
+    private var heartRateRange: ClosedRange<Int> {
+        guard !heartRateData.isEmpty else { return 60...180 }
+        
+        let minRate = heartRateData.map { $0.heartRate }.min() ?? 60
+        let maxRate = heartRateData.map { $0.heartRate }.max() ?? 180
+        
+        return minRate...maxRate
+    }
+    
+    // Y-axis tick values - always includes min, max, and 3 evenly distributed values in between
+    private var heartRateTickValues: [Int] {
+        guard !heartRateData.isEmpty else { return [60, 90, 120, 150, 180] }
+        
+        let minRate = heartRateData.map { $0.heartRate }.min() ?? 60
+        let maxRate = heartRateData.map { $0.heartRate }.max() ?? 180
+        
+        // If min and max are the same, just show that value
+        guard minRate != maxRate else { return [minRate] }
+        
+        // Calculate 3 evenly distributed ticks between min and max
+        let range = maxRate - minRate
+        let interval = Double(range) / 4.0 // 4 intervals to create 5 total ticks
+        
+        var ticks: [Int] = []
+        for i in 0...4 {
+            let tickValue = minRate + Int(round(Double(i) * interval))
+            ticks.append(tickValue)
+        }
+        
+        // Ensure the last tick is exactly the max value
+        ticks[4] = maxRate
+        
+        return ticks
+    }
+    
     var body: some View {
         VStack(spacing: 16) {
             headerView
@@ -129,11 +165,25 @@ struct HeartRateChartView: View {
         }
         .frame(height: 200)
         .chartXScale(domain: 0...actualDuration)
+        .chartYScale(domain: heartRateRange)
         .padding(16)
         .chartXAxis { xAxisMarks }
         .chartYAxis { yAxisMarks }
         .chartXSelection(value: $rawSelectedTime)
         .animation(.easeInOut(duration: 0.2), value: rawSelectedTime)
+        .onChange(of: computedSelectedPoint) { oldValue, newValue in
+            // Trigger haptic feedback when selection changes to a new heart rate value
+            if let oldHR = oldValue?.heartRate, 
+               let newHR = newValue?.heartRate,
+               oldHR != newHR {
+                let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                impactFeedback.impactOccurred()
+            } else if oldValue == nil && newValue != nil {
+                // Initial selection
+                let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                impactFeedback.impactOccurred()
+            }
+        }
         .chartBackground { _ in
             backgroundView
         }
@@ -180,7 +230,7 @@ struct HeartRateChartView: View {
     }
     
     private var yAxisMarks: some AxisContent {
-        AxisMarks(position: .leading) { value in
+        AxisMarks(position: .leading, values: heartRateTickValues) { value in
             if let heartRate = value.as(Int.self) {
                 AxisValueLabel {
                     Text("\(heartRate)")
@@ -217,10 +267,10 @@ struct HeartRateChartView: View {
 #Preview {
     let startTime = Date()
     let sampleData = [
-        HeartRateDataPoint(timestamp: startTime, heartRate: 95),
+        HeartRateDataPoint(timestamp: startTime, heartRate: 70),
         HeartRateDataPoint(timestamp: startTime.addingTimeInterval(300), heartRate: 120),
         HeartRateDataPoint(timestamp: startTime.addingTimeInterval(600), heartRate: 145),
-        HeartRateDataPoint(timestamp: startTime.addingTimeInterval(900), heartRate: 155),
+        HeartRateDataPoint(timestamp: startTime.addingTimeInterval(900), heartRate: 200),
         HeartRateDataPoint(timestamp: startTime.addingTimeInterval(1200), heartRate: 140),
         HeartRateDataPoint(timestamp: startTime.addingTimeInterval(1500), heartRate: 125),
         HeartRateDataPoint(timestamp: startTime.addingTimeInterval(1800), heartRate: 105)
