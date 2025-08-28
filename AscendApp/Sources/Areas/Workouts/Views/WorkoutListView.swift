@@ -112,7 +112,10 @@ struct WorkoutListView: View {
         ScrollView {
             LazyVStack(spacing: 12) {
                 ForEach(workouts) { workout in
-                    WorkoutRowView(workout: workout)
+                    NavigationLink(destination: WorkoutDetailView(workout: workout)) {
+                        WorkoutRowView(workout: workout)
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
             }
             .padding(.horizontal, 20)

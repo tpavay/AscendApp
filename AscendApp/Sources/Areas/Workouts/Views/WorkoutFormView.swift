@@ -514,7 +514,6 @@ struct WorkoutFormView: View {
     
     private func formatWorkoutDateTime() -> String {
         let calendar = Calendar.current
-        let now = Date()
         let timeFormatter = DateFormatter()
         timeFormatter.dateFormat = "h:mm a"
         
@@ -574,7 +573,8 @@ struct WorkoutFormView: View {
             notes: notes,
             avgHeartRate: avgHR,
             maxHeartRate: maxHR,
-            caloriesBurned: calories
+            caloriesBurned: calories,
+            effortRating: effortRating
         )
 
         print("🔍 Created workout: \(workout.name)")
