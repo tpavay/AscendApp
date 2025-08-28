@@ -8,11 +8,20 @@
 import SwiftUI
 import SwiftData
 
+struct DailyWorkoutNavigation: Hashable {
+    let date: Date
+    let workouts: [Workout]
+}
+
 struct StreakView: View {
     let workouts: [Workout]
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
     @State private var selectedWeekOffset: Int = 0 // 0 = current week, -1 = last week, etc.
+    @State private var selectedWorkout: Workout?
+    @State private var selectedDailyWorkouts: DailyWorkoutNavigation?
+    @State private var showWorkoutDetail = false
+    @State private var showDailyWorkoutDetail = false
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -136,6 +145,16 @@ struct StreakView: View {
                     )
             )
         }
+        .navigationDestination(isPresented: $showWorkoutDetail) {
+            if let workout = selectedWorkout {
+                WorkoutDetailView(workout: workout)
+            }
+        }
+        .navigationDestination(isPresented: $showDailyWorkoutDetail) {
+            if let dailyWorkouts = selectedDailyWorkouts {
+                DailyWorkoutDetailView(date: dailyWorkouts.date, workouts: dailyWorkouts.workouts)
+            }
+        }
     }
     
     private func weekView(for weekOffset: Int) -> some View {
@@ -147,7 +166,7 @@ struct StreakView: View {
                         .font(.montserratMedium(size: 12))
                         .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
                     
-                    // Day circle with number
+                    // Day circle with number - tappable
                     ZStack {
                         Circle()
                             .fill(hasWorkout ? .accent : (effectiveColorScheme == .dark ? .jetLighter.opacity(0.3) : .gray.opacity(0.1)))
@@ -166,9 +185,40 @@ struct StreakView: View {
                                 .offset(x: 12, y: -12)
                         }
                     }
+                    .onTapGesture {
+                        handleDayTap(for: date)
+                    }
                 }
                 .frame(maxWidth: .infinity)
             }
+        }
+    }
+    
+    private func handleDayTap(for date: Date) {
+        let dayWorkouts = getWorkoutsForDate(date)
+        
+        guard !dayWorkouts.isEmpty else {
+            // No workouts - do nothing (maybe add haptic feedback later)
+            return
+        }
+        
+        if dayWorkouts.count == 1 {
+            // Single workout - navigate directly to WorkoutDetailView
+            selectedWorkout = dayWorkouts[0]
+            showWorkoutDetail = true
+        } else {
+            // Multiple workouts - navigate to DailyWorkoutDetailView
+            selectedDailyWorkouts = DailyWorkoutNavigation(date: date, workouts: dayWorkouts)
+            showDailyWorkoutDetail = true
+        }
+    }
+    
+    private func getWorkoutsForDate(_ date: Date) -> [Workout] {
+        let calendar = Calendar.current
+        let targetDate = calendar.startOfDay(for: date)
+        
+        return workouts.filter { workout in
+            calendar.startOfDay(for: workout.date) == targetDate
         }
     }
     
