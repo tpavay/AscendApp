@@ -28,6 +28,9 @@ struct WorkoutListView: View {
     
     var body: some View {
         VStack(spacing: 0) {
+            // Sticky Header
+            stickyHeader
+            
             if workouts.isEmpty {
                 emptyStateView
             } else {
@@ -35,43 +38,7 @@ struct WorkoutListView: View {
             }
         }
         .themedBackground()
-        .navigationTitle(isInDeleteMode ? "Select Workouts" : "Workouts")
-        .navigationBarTitleDisplayMode(.large)
-        .toolbarBackground(.clear, for: .navigationBar)
-        .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if !workouts.isEmpty {
-                    if isInDeleteMode {
-                        HStack(spacing: 16) {
-                            Button("Cancel") {
-                                exitDeleteMode()
-                            }
-                            .foregroundStyle(.accent)
-                            
-                            Button("Delete") {
-                                if !selectedWorkouts.isEmpty {
-                                    showingDeleteConfirmation = true
-                                }
-                            }
-                            .foregroundStyle(selectedWorkouts.isEmpty ? .gray : .red)
-                            .disabled(selectedWorkouts.isEmpty)
-                        }
-                    } else {
-                        Menu {
-                            Button(action: {
-                                enterDeleteMode()
-                            }) {
-                                Label("Delete Workouts", systemImage: "trash")
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis")
-                                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                        }
-                    }
-                }
-            }
-        }
+        .navigationBarHidden(true)
         .overlay(alignment: .bottomTrailing) {
             // Floating Action Button
             Button(action: {
@@ -131,6 +98,65 @@ struct WorkoutListView: View {
             )
             .presentationDetents([.height(200)])
         }
+    }
+    
+    private var stickyHeader: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(isInDeleteMode ? "Select Workouts" : "Workouts")
+                    .font(.montserratBold(size: 32))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                
+                Spacer()
+                
+                if !workouts.isEmpty {
+                    if isInDeleteMode {
+                        HStack(spacing: 16) {
+                            Button("Cancel") {
+                                exitDeleteMode()
+                            }
+                            .foregroundStyle(.accent)
+                            .font(.montserratMedium(size: 16))
+                            
+                            Button("Delete") {
+                                if !selectedWorkouts.isEmpty {
+                                    showingDeleteConfirmation = true
+                                }
+                            }
+                            .foregroundStyle(selectedWorkouts.isEmpty ? .gray : .red)
+                            .font(.montserratMedium(size: 16))
+                            .disabled(selectedWorkouts.isEmpty)
+                        }
+                    } else {
+                        Menu {
+                            Button(action: {
+                                enterDeleteMode()
+                            }) {
+                                Label("Delete Workouts", systemImage: "trash")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 16)
+            
+            // Divider
+            Rectangle()
+                .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
+                .frame(height: 1)
+        }
+        .background(
+            (effectiveColorScheme == .dark ? Color.jet : Color.white)
+                .opacity(0.95)
+        )
     }
     
     private var emptyStateView: some View {
