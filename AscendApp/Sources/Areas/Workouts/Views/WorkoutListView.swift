@@ -103,9 +103,25 @@ struct WorkoutListView: View {
     private var stickyHeader: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(isInDeleteMode ? "Select Workouts" : "Workouts")
-                    .font(.montserratBold(size: 32))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(isInDeleteMode ? "Select Workouts" : "Workouts")
+                        .font(.montserratBold(size: 32))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    
+                    if isInDeleteMode {
+                        Button(action: {
+                            if selectedWorkouts.count == workouts.count {
+                                selectedWorkouts.removeAll()
+                            } else {
+                                selectedWorkouts = Set(workouts.map { $0.id })
+                            }
+                        }) {
+                            Text(selectedWorkouts.count == workouts.count ? "Deselect All" : "Select All")
+                                .font(.montserratMedium(size: 14))
+                                .foregroundStyle(.accent)
+                        }
+                    }
+                }
                 
                 Spacer()
                 
