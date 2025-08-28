@@ -175,8 +175,13 @@ class HealthKitService: ObservableObject {
                 options: [.discreteAverage, .discreteMax]
             ) { _, result, error in
                 if let error = error {
-                    print("Error fetching heart rate: \(error)")
-                    continuation.resume(returning: (nil, nil))
+                    // Code 11 means "No data available" - this is normal for workouts without heart rate data
+                    if (error as NSError).code == 11 {
+                        continuation.resume(returning: (nil, nil))
+                    } else {
+                        print("Error fetching heart rate: \(error)")
+                        continuation.resume(returning: (nil, nil))
+                    }
                     return
                 }
                 
@@ -210,8 +215,13 @@ class HealthKitService: ObservableObject {
                 sortDescriptors: [sortDescriptor]
             ) { _, samples, error in
                 if let error = error {
-                    print("Error fetching heart rate time series: \(error)")
-                    continuation.resume(returning: [])
+                    // Code 11 means "No data available" - this is normal for workouts without heart rate data
+                    if (error as NSError).code == 11 {
+                        continuation.resume(returning: [])
+                    } else {
+                        print("Error fetching heart rate time series: \(error)")
+                        continuation.resume(returning: [])
+                    }
                     return
                 }
                 
@@ -228,11 +238,6 @@ class HealthKitService: ObservableObject {
             healthStore.execute(query)
         }
     }
-}
-
-struct HeartRateDataPoint {
-    let timestamp: Date
-    let heartRate: Int
 }
 
 struct WorkoutMetrics {
@@ -254,7 +259,8 @@ extension HKWorkout {
             floors: nil, // Not available in Apple Health stair stepper workouts
             avgHeartRate: metrics.avgHeartRate,
             maxHeartRate: metrics.maxHeartRate,
-            caloriesBurned: metrics.caloriesBurned
+            caloriesBurned: metrics.caloriesBurned,
+            heartRateTimeSeries: metrics.heartRateTimeSeries
         )
         return workout
     }

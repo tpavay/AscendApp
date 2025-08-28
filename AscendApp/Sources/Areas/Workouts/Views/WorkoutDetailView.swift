@@ -31,6 +31,15 @@ struct WorkoutDetailView: View {
                     // Workout Details
                     workoutDetailsSection
                     
+                    // Heart Rate Chart (if heart rate data is available)
+                    if !workout.heartRateTimeSeries.isEmpty {
+                        HeartRateChartView(
+                            heartRateData: workout.heartRateTimeSeries,
+                            workoutStartTime: workout.date,
+                            workoutDuration: workout.duration
+                        )
+                    }
+                    
                     // Calories (if available and not already shown)
                     if workout.caloriesBurned != nil {
                         caloriesSection

@@ -22,8 +22,9 @@ class Workout {
     var maxHeartRate: Int? // Maximum heart rate in BPM
     var caloriesBurned: Int? // Calories burned during workout
     var effortRating: Double? // Effort rating on 1-5 scale
+    var heartRateData: Data? // Encoded heart rate time series data
     
-    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int? = nil, floors: Int? = nil, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil) {
+    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int? = nil, floors: Int? = nil, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil) {
         self.id = UUID()
         self.name = name.isEmpty ? "Workout" : name
         self.date = date
@@ -36,6 +37,7 @@ class Workout {
         self.maxHeartRate = maxHeartRate
         self.caloriesBurned = caloriesBurned
         self.effortRating = effortRating
+        self.heartRateData = heartRateTimeSeries?.encoded
     }
     
     // Computed properties for convenience
@@ -89,6 +91,12 @@ class Workout {
     // Get the appropriate unit label for vertical climb display
     func verticalClimbUnit(measurementSystem: MeasurementSystem) -> String {
         return measurementSystem.distanceAbbreviation
+    }
+    
+    // Heart rate time series computed property
+    var heartRateTimeSeries: [HeartRateDataPoint] {
+        guard let data = heartRateData else { return [] }
+        return data.decoded ?? []
     }
     
     // MARK: - Streak Calculations
@@ -148,5 +156,23 @@ class Workout {
         }
         
         return weekActivity
+    }
+}
+
+// MARK: - Heart Rate Data Extensions
+struct HeartRateDataPoint: Codable {
+    let timestamp: Date
+    let heartRate: Int
+}
+
+extension Array where Element == HeartRateDataPoint {
+    var encoded: Data? {
+        try? JSONEncoder().encode(self)
+    }
+}
+
+extension Data {
+    var decoded: [HeartRateDataPoint]? {
+        try? JSONDecoder().decode([HeartRateDataPoint].self, from: self)
     }
 }
