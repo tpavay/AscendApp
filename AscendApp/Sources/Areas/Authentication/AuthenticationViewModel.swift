@@ -54,6 +54,13 @@ class AuthenticationViewModel {
                 
                 self.authenticationState = self.getAuthenticationState()
                 self.photoURL = user?.photoURL ?? URL(string: "")
+                
+                // Save user to Firestore when authenticated
+                if let user = user {
+                    Task {
+                        try? await self.saveUserToFirestore(user: user)
+                    }
+                }
             })
         }
     }
@@ -103,6 +110,14 @@ extension AuthenticationViewModel {
             UserDataRepository.shared.saveUsername(firstName: firstName, lastName: lastName)
             
             displayName = "\(firstName) \(lastName)"
+            
+            // Save updated user info to Firestore
+            if let user = user {
+                Task {
+                    try? await self.saveUserToFirestore(user: user)
+                }
+            }
+            
             authenticationState = .authenticated
         } catch {
             errorMessage = error.localizedDescription
@@ -123,5 +138,19 @@ extension AuthenticationViewModel {
         }
 
         return .authenticated
+    }
+    
+    private func saveUserToFirestore(user: User) async throws {
+        let firstName = UserDataRepository.shared.getFirstName()
+        let lastName = UserDataRepository.shared.getLastName()
+        let displayName = !self.displayName.isEmpty ? self.displayName : user.displayName
+        
+        try await UserDataRepository.shared.saveUserToFirestore(
+            userId: user.uid,
+            email: user.email,
+            firstName: firstName,
+            lastName: lastName,
+            displayName: displayName
+        )
     }
 }

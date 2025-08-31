@@ -11,6 +11,7 @@
 		9A4D66FD2E49447800EEAE1D /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 9A4D66FC2E49447800EEAE1D /* GoogleSignIn */; };
 		9A4D66FF2E49447800EEAE1D /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 9A4D66FE2E49447800EEAE1D /* GoogleSignInSwift */; };
 		9A8E4CE62E2418D200C78912 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 9A8E4CE52E2418D200C78912 /* FirebaseAnalytics */; };
+		9AF20E5E2E64DCFF00044C25 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 9AF20E5D2E64DCFF00044C25 /* FirebaseFirestore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -46,6 +47,7 @@
 				9A8E4CE62E2418D200C78912 /* FirebaseAnalytics in Frameworks */,
 				9A4D66F82E4817BD00EEAE1D /* FirebaseAuth in Frameworks */,
 				9A4D66FD2E49447800EEAE1D /* GoogleSignIn in Frameworks */,
+				9AF20E5E2E64DCFF00044C25 /* FirebaseFirestore in Frameworks */,
 				9A4D66FF2E49447800EEAE1D /* GoogleSignInSwift in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -101,6 +103,7 @@
 				9A4D66F72E4817BD00EEAE1D /* FirebaseAuth */,
 				9A4D66FC2E49447800EEAE1D /* GoogleSignIn */,
 				9A4D66FE2E49447800EEAE1D /* GoogleSignInSwift */,
+				9AF20E5D2E64DCFF00044C25 /* FirebaseFirestore */,
 			);
 			productName = AscendApp;
 			productReference = 9A5E4D822E2406F8008DE803 /* AscendApp.app */;
@@ -418,6 +421,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 9A8E4CE42E2418D200C78912 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseAnalytics;
+		};
+		9AF20E5D2E64DCFF00044C25 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9A8E4CE42E2418D200C78912 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
