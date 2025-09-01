@@ -49,22 +49,24 @@ class AuthenticationViewModel {
                 self.photoURL = user?.photoURL ?? URL(string: "")
                 
                 if let user = user {
-                    // Fetch display name from Firestore (with cache fallback)
+                    // Update authentication state immediately for responsive UI
+                    let cachedDisplayName = UserDataRepository.shared.getCachedDisplayName() ?? user.displayName ?? ""
+                    self.displayName = cachedDisplayName
+                    self.authenticationState = self.getAuthenticationState()
+                    
+                    // Handle Firestore operations in background
                     Task {
                         // Save/update user in Firestore first
                         try? await self.saveUserToFirestore(user: user)
                         
-                        // Then fetch the display name
+                        // Then fetch the latest display name from Firestore
                         if let firestoreDisplayName = await UserDataRepository.shared.getDisplayName(userId: user.uid) {
                             await MainActor.run {
-                                self.displayName = firestoreDisplayName
-                                self.authenticationState = self.getAuthenticationState()
-                            }
-                        } else {
-                            // Fallback to Firebase Auth display name
-                            await MainActor.run {
-                                self.displayName = user.displayName ?? ""
-                                self.authenticationState = self.getAuthenticationState()
+                                // Only update if different from what we currently have
+                                if self.displayName != firestoreDisplayName {
+                                    self.displayName = firestoreDisplayName
+                                    self.authenticationState = self.getAuthenticationState()
+                                }
                             }
                         }
                     }
