@@ -92,6 +92,17 @@ class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
         } catch let error as AuthenticationError {
             throw error
         } catch {
+            // Check for Google Sign-in cancellation
+            if let gidError = error as? GIDSignInError {
+                switch gidError.code {
+                case .canceled:
+                    // User canceled - not an error
+                    throw CancellationError()
+                default:
+                    throw AuthenticationError.signInFailed(error.localizedDescription)
+                }
+            }
+            
             throw AuthenticationError.signInFailed(error.localizedDescription)
         }
     }

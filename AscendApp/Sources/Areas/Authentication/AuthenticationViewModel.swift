@@ -100,8 +100,14 @@ extension AuthenticationViewModel {
         do {
             _ = try await authenticationService.signInWithGoogle()
         } catch {
-            errorMessage = error.localizedDescription
-            authenticationState = .unauthenticated
+            // Don't show error for user cancellation
+            if error is CancellationError {
+                // User canceled - just reset state without showing error
+                authenticationState = .unauthenticated
+            } else {
+                errorMessage = error.localizedDescription
+                authenticationState = .unauthenticated
+            }
         }
     }
     
