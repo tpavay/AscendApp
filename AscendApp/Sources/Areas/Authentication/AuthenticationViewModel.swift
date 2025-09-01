@@ -21,6 +21,8 @@ enum AuthenticationState {
     case needsName
   }
 
+
+
 @MainActor
 @Observable
 class AuthenticationViewModel {
@@ -34,8 +36,8 @@ class AuthenticationViewModel {
     private var authenticationService = AuthenticationService()
 
     init() {
-        // Load display name from UserDefaults immediately
-        displayName = UserDataRepository.shared.getDisplayName() ?? ""
+        // Load cached display name immediately for UI responsiveness
+        displayName = UserDataRepository.shared.getCachedDisplayName() ?? ""
         registerAuthStateHandler()
     }
     private var authStateHandle: AuthStateDidChangeListenerHandle?
@@ -44,22 +46,33 @@ class AuthenticationViewModel {
         if authStateHandle == nil {
             authStateHandle = Auth.auth().addStateDidChangeListener({ auth, user in
                 self.user = user
-                
-                // Update display name from Firebase first, fallback to UserDefaults
-                if let firebaseDisplayName = user?.displayName, !firebaseDisplayName.isEmpty {
-                    self.displayName = firebaseDisplayName
-                } else {
-                    self.displayName = UserDataRepository.shared.getDisplayName() ?? ""
-                }
-                
-                self.authenticationState = self.getAuthenticationState()
                 self.photoURL = user?.photoURL ?? URL(string: "")
                 
-                // Save user to Firestore when authenticated
                 if let user = user {
+                    // Fetch display name from Firestore (with cache fallback)
                     Task {
+                        // Save/update user in Firestore first
                         try? await self.saveUserToFirestore(user: user)
+                        
+                        // Then fetch the display name
+                        if let firestoreDisplayName = await UserDataRepository.shared.getDisplayName(userId: user.uid) {
+                            await MainActor.run {
+                                self.displayName = firestoreDisplayName
+                                self.authenticationState = self.getAuthenticationState()
+                            }
+                        } else {
+                            // Fallback to Firebase Auth display name
+                            await MainActor.run {
+                                self.displayName = user.displayName ?? ""
+                                self.authenticationState = self.getAuthenticationState()
+                            }
+                        }
                     }
+                } else {
+                    // User signed out
+                    self.displayName = ""
+                    self.authenticationState = .unauthenticated
+                    UserDataRepository.shared.clearUserCache()
                 }
             })
         }
@@ -106,16 +119,21 @@ extension AuthenticationViewModel {
         do {
             try await authenticationService.updateUserDisplayName(firstName: firstName, lastName: lastName)
             
-            // Save to UserDefaults for persistence
-            UserDataRepository.shared.saveUsername(firstName: firstName, lastName: lastName)
+            let fullDisplayName = "\(firstName) \(lastName)"
+            displayName = fullDisplayName
             
-            displayName = "\(firstName) \(lastName)"
+            // Cache display name for immediate UI updates
+            UserDataRepository.shared.cacheDisplayName(fullDisplayName)
             
-            // Save updated user info to Firestore
+            // Save updated user info to Firestore with individual names
             if let user = user {
-                Task {
-                    try? await self.saveUserToFirestore(user: user)
-                }
+                try await UserDataRepository.shared.saveUserToFirestore(
+                    userId: user.uid,
+                    email: user.email,
+                    firstName: firstName,
+                    lastName: lastName,
+                    displayName: fullDisplayName
+                )
             }
             
             authenticationState = .authenticated
@@ -130,10 +148,8 @@ extension AuthenticationViewModel {
             return .unauthenticated
         }
 
-        // Check both displayName and UserDefaults to determine if we need name input
-        let hasName = !displayName.isEmpty || UserDataRepository.shared.hasUserName()
-        
-        if user != nil && !hasName {
+        // Check if we have a display name (from Firestore, cache, or Firebase Auth)
+        if displayName.isEmpty {
             return .needsName
         }
 
@@ -141,16 +157,34 @@ extension AuthenticationViewModel {
     }
     
     private func saveUserToFirestore(user: User) async throws {
-        let firstName = UserDataRepository.shared.getFirstName()
-        let lastName = UserDataRepository.shared.getLastName()
-        let displayName = !self.displayName.isEmpty ? self.displayName : user.displayName
+        // Get existing data from Firestore or use Firebase Auth data
+        var firstName: String?
+        var lastName: String?
+        var displayNameToSave = !self.displayName.isEmpty ? self.displayName : user.displayName
+        
+        do {
+            let userDisplayNameData = try await UserDataRepository.shared.getUserFromFirestore(userId: user.uid)
+            
+            // Assign existing names if we don't already have them
+            firstName = userDisplayNameData.firstName
+            lastName = userDisplayNameData.lastName
+
+            // Use existing display name if we don't have a better one
+            if displayNameToSave?.isEmpty == true {
+                displayNameToSave = userDisplayNameData.displayName ?? 
+                    (firstName != nil && lastName != nil ? "\(firstName!) \(lastName!)" : nil)
+            }
+
+        } catch {
+            // If we can't fetch existing data, proceed with what we have
+        }
         
         try await UserDataRepository.shared.saveUserToFirestore(
             userId: user.uid,
             email: user.email,
             firstName: firstName,
             lastName: lastName,
-            displayName: displayName
+            displayName: displayNameToSave
         )
     }
 }

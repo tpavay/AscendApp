@@ -178,10 +178,6 @@ extension AuthenticationService {
 
         let firstName = appleIDCredential.fullName?.givenName ?? ""
         let lastName = appleIDCredential.fullName?.familyName ?? ""
-        
-        if !firstName.isEmpty && !lastName.isEmpty {
-            UserDataRepository.shared.saveUsername(firstName: firstName, lastName: lastName)
-        }
 
         guard let nonce = currentNonce else {
             signInContinuation?.resume(throwing: AuthenticationError.appleSignInFailed("Invalid state: A login callback was received, but no login request was sent."))
@@ -207,6 +203,20 @@ extension AuthenticationService {
                 let result = try await Auth.auth().signIn(with: credential)
                 let firebaseUser = result.user
                 print("User \(firebaseUser.uid) signed in with Apple ID \(appleIDCredential.user)")
+                
+                // Save Apple Sign In names to Firestore immediately since we won't get them again
+                if !firstName.isEmpty && !lastName.isEmpty {
+                    let displayName = "\(firstName) \(lastName)"
+                    try? await UserDataRepository.shared.saveUserToFirestore(
+                        userId: firebaseUser.uid,
+                        email: firebaseUser.email,
+                        firstName: firstName,
+                        lastName: lastName,
+                        displayName: displayName
+                    )
+                    UserDataRepository.shared.cacheDisplayName(displayName)
+                }
+                
                 signInContinuation?.resume(returning: firebaseUser)
             } catch {
                 signInContinuation?.resume(throwing: AuthenticationError.appleSignInFailed(error.localizedDescription))
