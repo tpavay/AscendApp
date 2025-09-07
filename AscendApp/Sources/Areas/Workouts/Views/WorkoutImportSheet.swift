@@ -149,12 +149,8 @@ struct WorkoutImportRow: View {
                         .fill(.blue.opacity(0.1))
                 )
             
-            // Workout info
+            // Workout info  
             VStack(alignment: .leading, spacing: 4) {
-                Text("Stair Climbing")
-                    .font(.montserratSemiBold(size: 16))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                
                 HStack(spacing: 8) {
                     Text(workout.startDate.formatted(date: .abbreviated, time: .shortened))
                         .font(.montserratRegular(size: 13))
@@ -190,7 +186,7 @@ struct WorkoutImportRow: View {
                 Button("Import") {
                     onImport()
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .disabled(isImporting)
             }
