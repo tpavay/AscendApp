@@ -13,6 +13,7 @@ struct WorkoutListView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
+    @State private var importService = WorkoutImportService.shared
     
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
     @State private var showingWorkoutForm = false
@@ -99,8 +100,12 @@ struct WorkoutListView: View {
             )
             .presentationDetents([.height(200)])
         }
-        .fullScreenCover(isPresented: $showingImportSheet) {
-            ImportSourceSelectionView()
+        .sheet(isPresented: $showingImportSheet) {
+            WorkoutImportSheet()
+        }
+        .task {
+            // Configure import service with model context
+            importService.configure(modelContext: modelContext)
         }
     }
     
@@ -150,9 +155,19 @@ struct WorkoutListView: View {
                     } else {
                         Menu {
                             Button(action: {
-                                showingImportSheet = true
+                                Task {
+                                    await importService.checkForNewWorkouts()
+                                    showingImportSheet = true
+                                }
                             }) {
-                                Label("Import Workouts", systemImage: "square.and.arrow.down")
+                                HStack {
+                                    Label("Import Workouts", systemImage: "square.and.arrow.down")
+                                    if importService.pendingWorkoutsCount > 0 {
+                                        Text("(\(importService.pendingWorkoutsCount))")
+                                            .font(.caption)
+                                            .foregroundStyle(.blue)
+                                    }
+                                }
                             }
                             
                             Button(action: {
@@ -205,13 +220,21 @@ struct WorkoutListView: View {
             }
             
             Button(action: {
-                showingImportSheet = true
+                Task {
+                    await importService.checkForNewWorkouts()
+                    showingImportSheet = true
+                }
             }) {
                 HStack(spacing: 8) {
                     Image(systemName: "square.and.arrow.down")
                         .font(.system(size: 16, weight: .medium))
                     Text("Import Workouts")
                         .font(.montserratMedium(size: 16))
+                    if importService.pendingWorkoutsCount > 0 {
+                        Text("(\(importService.pendingWorkoutsCount))")
+                            .font(.caption)
+                            .foregroundStyle(.blue)
+                    }
                 }
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)

@@ -8,6 +8,52 @@
 import Foundation
 import SwiftData
 
+enum WorkoutSource: String, CaseIterable, Codable {
+    case manual = "manual"           // User entered manually
+    case appleHealth = "apple_health" // Imported from Apple Health
+    case garmin = "garmin"           // Future: Garmin Connect
+    case strava = "strava"           // Future: Strava
+    case fitbit = "fitbit"           // Future: Fitbit
+    
+    var displayName: String {
+        switch self {
+        case .manual:
+            return "Manual Entry"
+        case .appleHealth:
+            return "Apple Health"
+        case .garmin:
+            return "Garmin"
+        case .strava:
+            return "Strava"
+        case .fitbit:
+            return "Fitbit"
+        }
+    }
+    
+    var isVerified: Bool {
+        switch self {
+        case .manual:
+            return false
+        case .appleHealth, .garmin, .strava, .fitbit:
+            return true
+        }
+    }
+}
+
+enum DataIntegrityLevel: String, CaseIterable, Codable {
+    case verified = "verified"       // From trusted wearable sources
+    case unverified = "unverified"   // Manual or questionable sources
+    
+    var displayName: String {
+        switch self {
+        case .verified:
+            return "Verified"
+        case .unverified:
+            return "Unverified"
+        }
+    }
+}
+
 @Model
 class Workout {
     var id: UUID
@@ -25,7 +71,14 @@ class Workout {
     var heartRateData: Data? // Encoded heart rate time series data
     var averageMETs: Double? // Average METs from Apple Health
     
-    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int? = nil, floors: Int? = nil, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil) {
+    // Data integrity and source tracking
+    var source: WorkoutSource // How this workout was created/imported
+    var integrityLevel: DataIntegrityLevel // Verified vs unverified data
+    var deviceModel: String? // "Apple Watch Series 9", "iPhone 15 Pro", etc.
+    var sourceMetadata: String? // Additional source-specific data (JSON string)
+    var healthKitUUID: String? // HealthKit workout UUID for deduplication
+    
+    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int? = nil, floors: Int? = nil, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil) {
         self.id = UUID()
         self.name = name.isEmpty ? "Workout" : name
         self.date = date
@@ -40,6 +93,13 @@ class Workout {
         self.effortRating = effortRating
         self.heartRateData = heartRateTimeSeries?.encoded
         self.averageMETs = averageMETs
+        
+        // Set data integrity fields
+        self.source = source
+        self.integrityLevel = source.isVerified ? .verified : .unverified
+        self.deviceModel = deviceModel
+        self.sourceMetadata = sourceMetadata
+        self.healthKitUUID = healthKitUUID
     }
     
     // Computed properties for convenience
@@ -99,6 +159,19 @@ class Workout {
     var heartRateTimeSeries: [HeartRateDataPoint] {
         guard let data = heartRateData else { return [] }
         return data.decoded ?? []
+    }
+    
+    // Data integrity computed properties
+    var isVerified: Bool {
+        return integrityLevel == .verified
+    }
+    
+    var sourceDisplayName: String {
+        return source.displayName
+    }
+    
+    var integrityDisplayName: String {
+        return integrityLevel.displayName
     }
     
     // MARK: - Streak Calculations

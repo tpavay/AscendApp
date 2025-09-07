@@ -571,7 +571,9 @@ struct WorkoutFormView: View {
             avgHeartRate: avgHR,
             maxHeartRate: maxHR,
             caloriesBurned: calories,
-            effortRating: effortRating
+            effortRating: effortRating,
+            source: .manual,
+            deviceModel: UIDevice.current.model
         )
 
         print("🔍 Created workout: \(workout.name)")

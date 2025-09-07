@@ -32,12 +32,33 @@ class HealthKitService: ObservableObject {
     }
     
     func hasPermissionToReadWorkouts() -> Bool {
-        guard isHealthDataAvailable else { return false }
+        guard isHealthDataAvailable else { 
+            print("❌ HealthKit data not available")
+            return false 
+        }
         let workoutType = HKObjectType.workoutType()
         let status = healthStore.authorizationStatus(for: workoutType)
+        print("🏥 HealthKit authorization status: \(status.rawValue)")
+        print("🏥 Status description: \(statusDescription(status))")
+        
         // HealthKit returns .notDetermined even when user has granted access for privacy reasons
         // We should consider both .sharingAuthorized and .notDetermined as potentially having access
-        return status == .sharingAuthorized || status == .notDetermined
+        let hasPermission = status == .sharingAuthorized || status == .notDetermined
+        print("🏥 Has permission result: \(hasPermission)")
+        return hasPermission
+    }
+    
+    private func statusDescription(_ status: HKAuthorizationStatus) -> String {
+        switch status {
+        case .notDetermined:
+            return "notDetermined"
+        case .sharingDenied:
+            return "sharingDenied"
+        case .sharingAuthorized:
+            return "sharingAuthorized"
+        @unknown default:
+            return "unknown"
+        }
     }
     
     func requestPermission() async -> Bool {
@@ -52,10 +73,16 @@ class HealthKitService: ObservableObject {
         ]
         
         do {
+            print("🏥 Requesting HealthKit permission...")
             try await healthStore.requestAuthorization(toShare: [], read: sampleTypesToRead)
             checkAuthorizationStatus()
-            return true
+            
+            let newStatus = healthStore.authorizationStatus(for: HKObjectType.workoutType())
+            print("🏥 New authorization status after request: \(statusDescription(newStatus))")
+            
+            return hasPermissionToReadWorkouts()
         } catch {
+            print("❌ HealthKit permission request error: \(error)")
             return false
         }
     }
@@ -259,6 +286,20 @@ struct WorkoutMetrics {
 
 extension HKWorkout {
     func toAscendWorkout(with metrics: WorkoutMetrics) -> Workout {
+        // Detect if workout came from Apple Watch based on source device
+        let deviceName = sourceRevision.source.name ?? "Unknown Device"
+        let isFromAppleWatch = deviceName.contains("Apple Watch") || deviceName.contains("Watch")
+        
+        // Create source metadata with device info
+        let sourceMetadata = """
+        {
+            "sourceDevice": "\(deviceName)",
+            "sourceBundleIdentifier": "\(sourceRevision.source.bundleIdentifier ?? "unknown")",
+            "workoutActivityType": "\(workoutActivityType.rawValue)",
+            "isFromAppleWatch": \(isFromAppleWatch)
+        }
+        """
+        
         let workout = Workout(
             name: "Stair Climbing Workout",
             date: startDate,
@@ -269,7 +310,11 @@ extension HKWorkout {
             maxHeartRate: metrics.maxHeartRate,
             caloriesBurned: metrics.caloriesBurned,
             heartRateTimeSeries: metrics.heartRateTimeSeries,
-            averageMETs: metrics.averageMETs
+            averageMETs: metrics.averageMETs,
+            source: .appleHealth,
+            deviceModel: deviceName,
+            sourceMetadata: sourceMetadata,
+            healthKitUUID: uuid.uuidString
         )
         return workout
     }
