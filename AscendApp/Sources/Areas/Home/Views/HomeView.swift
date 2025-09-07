@@ -34,7 +34,13 @@ struct HomeView: View {
                 
                 // Notification bell for workout imports
                 NotificationBellView(pendingImports: importService.pendingWorkoutsCount) {
-                    showingImportSheet = true
+                    Task {
+                        await importService.checkForNewWorkouts()
+                        showingImportSheet = true
+                    }
+                }
+                .onChange(of: importService.pendingWorkoutsCount) { oldValue, newValue in
+                    print("🔄 HomeView detected count change from \(oldValue) to \(newValue)")
                 }
             }
             
@@ -55,14 +61,18 @@ struct HomeView: View {
             // Configure the import service with model context
             importService.configure(modelContext: modelContext)
             
-            // Check for new workouts on app launch
-            await importService.checkForNewWorkouts()
+            // Check for workouts on app launch
+            await importService.checkForNewWorkoutsInBackground()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-            // Check for new workouts when app comes to foreground
+            // Check for new workouts when app comes to foreground (throttled to prevent spam)
             Task {
-                await importService.checkForNewWorkouts()
+                await importService.checkForNewWorkoutsInBackground()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            // Reset throttling when app goes to background so next foreground check works
+            importService.resetBackgroundCheckThrottle()
         }
     }
 }

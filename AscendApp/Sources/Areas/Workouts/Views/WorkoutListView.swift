@@ -233,7 +233,7 @@ struct WorkoutListView: View {
                     if importService.pendingWorkoutsCount > 0 {
                         Text("(\(importService.pendingWorkoutsCount))")
                             .font(.caption)
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(.white)
                     }
                 }
                 .foregroundStyle(.white)

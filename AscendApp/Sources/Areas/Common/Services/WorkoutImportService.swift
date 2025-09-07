@@ -16,15 +16,32 @@ class WorkoutImportService {
     
     var pendingWorkoutsCount = 0
     var pendingWorkouts: [HKWorkout] = []
-    var importedWorkoutUUIDs: Set<String> = []
     
     private let healthKitService = HealthKitService.shared
     private var modelContext: ModelContext?
+    private var lastCheckDate: Date?
     
     private init() {}
     
     func configure(modelContext: ModelContext) {
         self.modelContext = modelContext
+    }
+    
+    func checkForNewWorkoutsInBackground() async {
+        // Only check once per foreground session to avoid repeated queries
+        // while app is running, but allow fresh checks each time app comes to foreground
+        if let lastCheck = lastCheckDate, Date().timeIntervalSince(lastCheck) < 30 { // 30 seconds
+            print("📊 Skipping duplicate background check")
+            return
+        }
+        
+        lastCheckDate = Date()
+        await checkForNewWorkouts()
+    }
+    
+    func resetBackgroundCheckThrottle() {
+        // Reset when app goes to background so next foreground check works
+        lastCheckDate = nil
     }
     
     func checkForNewWorkouts() async {
@@ -41,9 +58,6 @@ class WorkoutImportService {
         // Fetch all workouts from the past year
         let allWorkouts = await healthKitService.fetchStairStepperWorkouts(from: searchStartDate)
         print("🏃‍♂️ Found \(allWorkouts.count) total HealthKit workouts")
-        
-        // Show all workouts but track which ones are already imported
-        await updateImportedStatus(for: allWorkouts)
         
         // Count only truly unimported workouts for the badge
         let unimportedCount = allWorkouts.filter { workout in
@@ -101,9 +115,6 @@ class WorkoutImportService {
             modelContext.insert(workout)
             try modelContext.save()
             
-            // Mark as imported but keep in list for visual feedback
-            importedWorkoutUUIDs.insert(hkWorkout.uuid.uuidString)
-            
             // Update count to exclude imported workouts
             pendingWorkoutsCount = pendingWorkouts.filter { workout in
                 !isWorkoutImported(workout.uuid.uuidString)
@@ -120,35 +131,23 @@ class WorkoutImportService {
         }
     }
     
-    private func updateImportedStatus(for workouts: [HKWorkout]) async {
-        guard let modelContext = modelContext else { return }
+    
+    func isWorkoutImported(_ uuid: String) -> Bool {
+        guard let modelContext = modelContext else { return false }
         
-        // Get all existing HealthKit UUIDs from our database
         let descriptor = FetchDescriptor<Workout>(
             predicate: #Predicate<Workout> { workout in
-                workout.healthKitUUID != nil
+                workout.healthKitUUID == uuid
             }
         )
         
         do {
             let existingWorkouts = try modelContext.fetch(descriptor)
-            let existingUUIDs = Set(existingWorkouts.compactMap { $0.healthKitUUID })
-            
-            // Update imported status based on database
-            for workout in workouts {
-                if existingUUIDs.contains(workout.uuid.uuidString) {
-                    importedWorkoutUUIDs.insert(workout.uuid.uuidString)
-                }
-            }
-            
-            print("🔄 Updated imported status - \(importedWorkoutUUIDs.count) workouts marked as imported")
+            return !existingWorkouts.isEmpty
         } catch {
-            print("❌ Error updating imported status: \(error)")
+            print("❌ Error checking if workout is imported: \(error)")
+            return false
         }
-    }
-    
-    func isWorkoutImported(_ uuid: String) -> Bool {
-        return importedWorkoutUUIDs.contains(uuid)
     }
     
     func importAllWorkouts() async -> Int {

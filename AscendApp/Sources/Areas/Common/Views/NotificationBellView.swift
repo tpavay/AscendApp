@@ -21,16 +21,39 @@ struct NotificationBellView: View {
     
     var body: some View {
         Button(action: action) {
-            Image(systemName: "bell")
-                .font(.system(size: 24, weight: .medium))
-                .foregroundStyle(colorScheme == .dark ? .white : .black)
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: "bell")
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundStyle(colorScheme == .dark ? .white : .black)
+                
+                if pendingImports > 0 {
+                    let displayText = pendingImports > 99 ? "99+" : "\(pendingImports)"
+                    let isWideText = pendingImports > 99
+                    
+                    Text(displayText)
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(minWidth: isWideText ? 24 : 18, minHeight: 18)
+                        .background(
+                            RoundedRectangle(cornerRadius: isWideText ? 9 : 18)
+                                .fill(.red)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: isWideText ? 9 : 18)
+                                        .stroke(.white, lineWidth: 1.5)
+                                        .opacity(0.3)
+                                )
+                        )
+                        .offset(x: 10, y: -10)
+                        .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
+                }
+            }
         }
         .buttonStyle(PlainButtonStyle())
-        .apply { view in
+        .onAppear {
             if pendingImports > 0 {
-                view.badge(pendingImports)
+                print("🔔 NotificationBellView showing badge: \(pendingImports)")
             } else {
-                view
+                print("🔔 NotificationBellView no badge - count: \(pendingImports)")
             }
         }
     }
