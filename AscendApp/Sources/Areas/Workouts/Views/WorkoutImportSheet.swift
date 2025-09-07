@@ -151,10 +151,11 @@ struct WorkoutImportRow: View {
             
             // Workout info  
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(workout.startDate.formatted(date: .abbreviated, time: .shortened))
+                HStack(spacing: 6) {
+                    Text(workout.startDate.formatted(date: .numeric, time: .shortened))
                         .font(.montserratRegular(size: 13))
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                     
                     Text("•")
                         .font(.montserratRegular(size: 13))
@@ -163,10 +164,12 @@ struct WorkoutImportRow: View {
                     Text(formatDuration(workout.duration))
                         .font(.montserratRegular(size: 13))
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
                 Text("From \(workout.sourceRevision.source.name)")
                     .font(.montserratRegular(size: 12))
                     .foregroundStyle(.blue)
+                    .lineLimit(1)
 
             }
             
