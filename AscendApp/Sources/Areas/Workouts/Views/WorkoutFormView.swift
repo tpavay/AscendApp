@@ -251,7 +251,7 @@ struct WorkoutFormView: View {
     }
     
     private var scrollContent: some View {
-        ScrollView {
+        ScrollView(showsIndicators: false) {
             VStack(spacing: 24) {
                 VStack(spacing: 20) {
                     workoutInfoCard
