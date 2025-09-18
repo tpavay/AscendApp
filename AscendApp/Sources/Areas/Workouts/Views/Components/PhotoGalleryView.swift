@@ -55,6 +55,7 @@ struct PhotoGalleryView: View {
                     }
                     .padding(.horizontal, 4)
                 }
+                .scrollTargetBehavior(.paging)
             }
         }
         .sheet(item: $imageToDelete) { imageToDelete in
