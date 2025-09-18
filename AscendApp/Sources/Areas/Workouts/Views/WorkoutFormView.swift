@@ -5,6 +5,7 @@
 //  Created by Tyler Pavay on 8/25/25.
 //
 
+import PhotosUI
 import SwiftUI
 import SwiftData
 
@@ -26,7 +27,7 @@ struct WorkoutFormView: View {
     @State private var metricValue: String = ""
     @State private var notes: String = ""
     @State private var showingMetricTooltip = false
-    
+
     // Health Metrics
     @State private var showHealthMetrics = false
     @State private var avgHeartRate: String = ""
@@ -135,7 +136,9 @@ struct WorkoutFormView: View {
                 .onSubmit {
                     focusedField = nil
                 }
-            
+
+            PhotoGalleryView()
+
             // Section Header
             HStack {
                 Text("Workout Details")
@@ -799,3 +802,4 @@ struct EffortRatingView: View {
         .modelContainer(for: Workout.self, inMemory: true)
         .preferredColorScheme(.dark)
 }
+
