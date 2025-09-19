@@ -28,6 +28,8 @@ struct WorkoutFormView: View {
     @State private var notes: String = ""
     @State private var showingMetricTooltip = false
 
+    @State private var selectedItems: [PhotosPickerItem] = []
+
     // Health Metrics
     @State private var showHealthMetrics = false
     @State private var avgHeartRate: String = ""
@@ -137,7 +139,7 @@ struct WorkoutFormView: View {
                     focusedField = nil
                 }
 
-            PhotoGalleryView()
+            PhotoGalleryView(selectedItems: $selectedItems)
 
             // Section Header
             HStack {
