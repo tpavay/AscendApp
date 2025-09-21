@@ -70,15 +70,16 @@ class Workout {
     var effortRating: Double? // Effort rating on 1-5 scale
     var heartRateData: Data? // Encoded heart rate time series data
     var averageMETs: Double? // Average METs from Apple Health
-    
+
     // Data integrity and source tracking
     var source: WorkoutSource // How this workout was created/imported
     var integrityLevel: DataIntegrityLevel // Verified vs unverified data
     var deviceModel: String? // "Apple Watch Series 9", "iPhone 15 Pro", etc.
     var sourceMetadata: String? // Additional source-specific data (JSON string)
     var healthKitUUID: String? // HealthKit workout UUID for deduplication
-    
-    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int? = nil, floors: Int? = nil, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil) {
+    var photos: [Photo]
+
+    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int? = nil, floors: Int? = nil, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil, photos: [Photo] = []) {
         self.id = UUID()
         self.name = name.isEmpty ? "Workout" : name
         self.date = date
@@ -100,6 +101,7 @@ class Workout {
         self.deviceModel = deviceModel
         self.sourceMetadata = sourceMetadata
         self.healthKitUUID = healthKitUUID
+        self.photos = photos
     }
     
     // Computed properties for convenience

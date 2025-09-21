@@ -88,7 +88,7 @@ struct WorkoutListView: View {
             }
         }
         .sheet(isPresented: $showingDeleteConfirmation) {
-            DeleteConfirmationView(
+            DeleteWorkoutConfirmationView(
                 selectedCount: selectedWorkouts.count,
                 onConfirm: {
                     deleteSelectedWorkouts()
@@ -378,60 +378,6 @@ struct WorkoutRowView: View {
                         .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
                 )
         )
-    }
-}
-
-struct DeleteConfirmationView: View {
-    let selectedCount: Int
-    let onConfirm: () -> Void
-    let onCancel: () -> Void
-    
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var themeManager = ThemeManager.shared
-    
-    private var effectiveColorScheme: ColorScheme {
-        themeManager.effectiveColorScheme(for: colorScheme)
-    }
-    
-    var body: some View {
-        VStack(spacing: 20) {
-            VStack(spacing: 8) {
-                Text("Delete Workouts")
-                    .font(.montserratBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                
-                Text("Are you sure you want to delete \(selectedCount) workout\(selectedCount == 1 ? "" : "s")? This action cannot be undone.")
-                    .font(.montserratRegular(size: 16))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .gray)
-                    .multilineTextAlignment(.center)
-            }
-            
-            HStack(spacing: 12) {
-                Button("Cancel") {
-                    onCancel()
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
-                )
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                
-                Button("Delete") {
-                    onConfirm()
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(.red)
-                )
-                .foregroundStyle(.white)
-            }
-        }
-        .padding(20)
-        .themedBackground()
     }
 }
 
