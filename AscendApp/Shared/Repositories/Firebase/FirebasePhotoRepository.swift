@@ -8,7 +8,7 @@
 import Foundation
 import FirebaseStorage
 
-class FirebasePhotoRepository: PhotoRepositoryProtocol {
+final class FirebasePhotoRepository: PhotoRepositoryProtocol, @unchecked Sendable {
     let firebaseStorage = Storage.storage()
 
     func upload(_ data: Data, filename: String) async throws -> URL {
@@ -23,3 +23,4 @@ class FirebasePhotoRepository: PhotoRepositoryProtocol {
         try await storageRef.delete()
     }
 }
+

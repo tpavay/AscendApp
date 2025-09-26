@@ -8,33 +8,26 @@
 import PhotosUI
 import SwiftUI
 
-class PhotoService {
-    private let photoRepository: PhotoRepositoryProtocol
-
-    init(photoRepository: PhotoRepositoryProtocol = FirebasePhotoRepository()) {
-        self.photoRepository = photoRepository
+actor PhotoService {
+    private let repo: any PhotoRepositoryProtocol
+    init(repo: any PhotoRepositoryProtocol = FirebasePhotoRepository()) {
+        self.repo = repo
     }
 
     func uploadPhotos(_ items: [PhotosPickerItem]) async throws -> [Photo] {
-        var photos: [Photo] = []
-
-        for item in items {
-            // 1. Extract data from PhotosPickerItem
-            guard let data = try await item.loadTransferable(type: Data.self) else {
-                continue // Skip invalid items
+        let repo = self.repo
+        return try await withThrowingTaskGroup(of: Photo?.self) { group in
+            for item in items {
+                group.addTask {
+                    guard let data = try await item.loadTransferable(type: Data.self) else { return nil }
+                    let filename = "photos/\(UUID().uuidString).jpg"
+                    let url = try await repo.upload(data, filename: filename)
+                    return Photo(url: url)
+                }
             }
-
-            // 2. Create unique filename
-            let filename = "photos/\(UUID().uuidString).jpg"
-
-            // 3. Upload via repository
-            let downloadURL = try await photoRepository.upload(data, filename: filename)
-
-            // 4. Create domain model
-            let photo = Photo(url: downloadURL)
-            photos.append(photo)
+            var out: [Photo] = []
+            for try await p in group { if let p { out.append(p) } }
+            return out
         }
-
-        return photos
     }
 }
