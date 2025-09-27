@@ -57,19 +57,6 @@ struct WorkoutFormView: View {
             EffortRatingView(effortRating: $viewModel.effortRating)
                 .presentationDetents([.fraction(0.4)])
         }
-        .overlay {
-            if viewModel.isUploading {
-                VStack(spacing: 16) {
-                    ProgressView()
-                        .scaleEffect(1.2)
-                    Text("Uploading photos...")
-                        .font(.montserratMedium(size: 16))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(.ultraThinMaterial)
-            }
-        }
         .alert("Upload Error", isPresented: .constant(viewModel.uploadError != nil)) {
             Button("OK") {
                 viewModel.uploadError = nil
@@ -338,14 +325,23 @@ struct WorkoutFormView: View {
 
                 Spacer()
 
-                Button("Save") {
+                Button(action: {
                     Task {
                         await saveWorkout()
+                    }
+                }) {
+                    if viewModel.isUploading {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    } else {
+                        Text("Save")
                     }
                 }
                 .font(.montserratSemiBold)
                 .foregroundStyle(viewModel.isFormValid ? .accent : .gray)
-                .disabled(!viewModel.isFormValid)
+                .disabled(!viewModel.isFormValid || viewModel.isUploading)
+                .frame(width: 60)
             }
             .padding(.horizontal, 20)
             .padding(.top, 8)
