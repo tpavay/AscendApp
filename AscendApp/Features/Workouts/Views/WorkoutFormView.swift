@@ -120,7 +120,7 @@ struct WorkoutFormView: View {
                     focusedField = nil
                 }
 
-            PhotoGalleryView(selectedPhotos: $viewModel.selectedItems)
+            PhotoGalleryView(selectedImages: $viewModel.selectedImages)
 
             // Section Header
             HStack {

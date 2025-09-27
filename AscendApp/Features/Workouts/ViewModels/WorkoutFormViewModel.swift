@@ -21,7 +21,7 @@ class WorkoutFormViewModel {
     var durationSeconds: String = ""
     var metricValue: String = ""
     var notes: String = ""
-    var selectedItems: [PhotosPickerItem] = []
+    var selectedImages: [SelectedPhotoItem] = []
 
     // Health Metrics
     var avgHeartRate: String = ""
@@ -91,7 +91,10 @@ class WorkoutFormViewModel {
 
         do {
             let request = try createWorkoutRequest()
-            let workout = try await workoutService.createWorkout(from: request, with: selectedItems)
+
+            // Convert SelectedPhotoItem to PhotosPickerItem for the service
+            let pickerItems = selectedImages.map { $0.pickerItem }
+            let workout = try await workoutService.createWorkout(from: request, with: pickerItems)
 
             modelContext.insert(workout)
             try modelContext.save()

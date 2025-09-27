@@ -10,8 +10,8 @@ import SwiftUI
 import PhotosUI
 
 struct PhotoGalleryView: View {
-    @Binding var selectedPhotos: [PhotosPickerItem]
-    @State private var selectedImages: [SelectedPhotoItem] = []
+    @Binding var selectedImages: [SelectedPhotoItem] // Change this binding
+    @State private var selectedPhotos: [PhotosPickerItem] = [] // Make this local state
     @State private var photoToDelete: SelectedPhotoItem?
 
     var body: some View {
@@ -31,9 +31,8 @@ struct PhotoGalleryView: View {
                         }
 
                         // Picker at the end
-                        PhotoPickerButton(selectedPhotos:
-                                            $selectedPhotos)
-                        .frame(width: 120)
+                        PhotoPickerButton(selectedPhotos: $selectedPhotos)
+                            .frame(width: 120)
                     }
                     .padding(.horizontal, 4)
                 }
@@ -58,8 +57,7 @@ extension PhotoGalleryView {
     @MainActor
     private func processNewPhotos(_ newItems: [PhotosPickerItem]) async {
         // Process photos on background, update UI on main
-        let newSelectedImages = await withTaskGroup(of:
-                                                        SelectedPhotoItem?.self) { group in
+        let newSelectedImages = await withTaskGroup(of: SelectedPhotoItem?.self) { group in
             for item in newItems {
                 group.addTask {
                     await createSelectedPhotoItem(from: item)
@@ -77,7 +75,7 @@ extension PhotoGalleryView {
 
         // UI update on main actor
         selectedImages.append(contentsOf: newSelectedImages)
-        selectedPhotos.removeAll() // Clear picker
+        selectedPhotos.removeAll() // Clear picker - this is now safe!
     }
 
     private func createSelectedPhotoItem(from item: PhotosPickerItem)
