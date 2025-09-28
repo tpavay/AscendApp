@@ -23,7 +23,10 @@ struct WorkoutListView: View {
     @State private var selectedWorkouts: Set<UUID> = []
     @State private var showingDeleteConfirmation = false
     @State private var showingImportSheet = false
-    
+    @State private var showingDeleteError = false
+    @State private var deleteErrorMessage = ""
+    @State private var failedDeleteCount = 0
+
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
@@ -91,7 +94,9 @@ struct WorkoutListView: View {
             DeleteWorkoutConfirmationView(
                 selectedCount: selectedWorkouts.count,
                 onConfirm: {
-                    deleteSelectedWorkouts()
+                    Task {
+                        await deleteSelectedWorkouts()
+                    }
                     showingDeleteConfirmation = false
                 },
                 onCancel: {
@@ -102,6 +107,13 @@ struct WorkoutListView: View {
         }
         .sheet(isPresented: $showingImportSheet) {
             WorkoutImportSheet()
+        }
+        .alert("Delete Failed", isPresented: $showingDeleteError) {
+            Button("OK") {
+                showingDeleteError = false
+            }
+        } message: {
+            Text(deleteErrorMessage)
         }
         .task {
             // Configure import service with model context
@@ -303,12 +315,43 @@ struct WorkoutListView: View {
         }
     }
     
-    private func deleteSelectedWorkouts() {
+    private func deleteSelectedWorkouts() async {
         let workoutsToDelete = workouts.filter { selectedWorkouts.contains($0.id) }
-        for workout in workoutsToDelete {
-            modelContext.delete(workout)
+
+        // Delete photos from Firebase first - ALL must succeed
+        let photoService = PhotoService()
+        do {
+            for workout in workoutsToDelete {
+                if !workout.photos.isEmpty {
+                    try await photoService.deletePhotos(workout.photos)
+                }
+            }
+        } catch {
+            print("❌ Failed to delete photos from Firebase: \(error)")
+            await MainActor.run {
+                deleteErrorMessage = "Failed to delete photos from cloud storage. Please check your internet connection and try again."
+                showingDeleteError = true
+            }
+            return // Don't delete any workouts
         }
-        exitDeleteMode()
+
+        // Only delete workouts if ALL photo deletions succeeded
+        do {
+            for workout in workoutsToDelete {
+                modelContext.delete(workout)
+            }
+            try modelContext.save()
+
+            await MainActor.run {
+                exitDeleteMode()
+            }
+        } catch {
+            print("❌ Error deleting workouts: \(error)")
+            await MainActor.run {
+                deleteErrorMessage = "Failed to delete workouts from local storage. Please try again."
+                showingDeleteError = true
+            }
+        }
     }
 }
 

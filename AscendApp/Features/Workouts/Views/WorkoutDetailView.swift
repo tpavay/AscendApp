@@ -16,7 +16,9 @@ struct WorkoutDetailView: View {
     @State private var settingsManager = SettingsManager.shared
     @State private var showingEditWorkout = false
     @State private var showingDeleteConfirmation = false
-    
+    @State private var showingDeleteError = false
+    @State private var deleteErrorMessage = ""
+
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
@@ -79,7 +81,9 @@ struct WorkoutDetailView: View {
                 SingleWorkoutDeleteConfirmationView(
                     workout: workout,
                     onConfirm: {
-                        deleteWorkout()
+                        Task {
+                            await deleteWorkout()
+                        }
                         showingDeleteConfirmation = false
                     },
                     onCancel: {
@@ -503,13 +507,35 @@ struct WorkoutDetailView: View {
         }
     }
     
-    private func deleteWorkout() {
+    private func deleteWorkout() async {
+        // Delete photos from Firebase first
+        if !workout.photos.isEmpty {
+            do {
+                let photoService = PhotoService()
+                try await photoService.deletePhotos(workout.photos)
+            } catch {
+                print("❌ Failed to delete photos from Firebase: \(error)")
+                await MainActor.run {
+                    deleteErrorMessage = "Failed to delete photos from cloud storage. Please check your internet connection and try again."
+                    showingDeleteError = true
+                }
+                return // Don't delete the workout
+            }
+        }
+
+        // Only delete workout if photo deletion succeeded
         modelContext.delete(workout)
         do {
             try modelContext.save()
-            dismiss() // Navigate back to workout list
+            await MainActor.run {
+                dismiss() // Navigate back to workout list
+            }
         } catch {
             print("❌ Error deleting workout: \(error)")
+            await MainActor.run {
+                deleteErrorMessage = "Failed to delete workout from local storage. Please try again."
+                showingDeleteError = true
+            }
         }
     }
 }

@@ -30,4 +30,16 @@ actor PhotoService {
             return out
         }
     }
+
+    func deletePhotos(_ photos: [Photo]) async throws {
+        let repo = self.repo
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for photo in photos {
+                group.addTask {
+                    try await repo.delete(url: photo.url)
+                }
+            }
+            try await group.waitForAll()
+        }
+    }
 }
