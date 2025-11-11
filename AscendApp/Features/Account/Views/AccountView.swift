@@ -15,200 +15,18 @@ struct AccountView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
-                // Profile Section
-                VStack(spacing: 16) {
-                    // Profile Picture
-                    AsyncImage(url: authVM.photoURL) { phase in
-                        switch phase {
-                        case .empty:
-                            ZStack {
-                                Circle()
-                                    .fill(.jetLighter.opacity(0.3))
-                                    .frame(width: 120, height: 120)
+                // Profile Header
+                ProfileHeaderView(
+                    photoURL: authVM.photoURL,
+                    displayName: authVM.displayName
+                )
 
-                                Image(systemName: "person.fill")
-                                    .font(.system(size: 50))
-                                    .foregroundStyle(.white.opacity(0.7))
-                            }
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 120, height: 120)
-                                .clipShape(Circle())
-                                .overlay(
-                                    Circle()
-                                        .stroke(.white.opacity(0.2), lineWidth: 2)
-                                )
-                        case .failure:
-                            ZStack {
-                                Circle()
-                                    .fill(.jetLighter.opacity(0.3))
-                                    .frame(width: 120, height: 120)
+                // Settings Sections
+                settingsContent
 
-                                Image(systemName: "person.fill")
-                                    .font(.system(size: 50))
-                                    .foregroundStyle(.white.opacity(0.7))
-                            }
-                        @unknown default:
-                            ZStack {
-                                Circle()
-                                    .fill(.jetLighter.opacity(0.3))
-                                    .frame(width: 120, height: 120)
-
-                                Image(systemName: "person.fill")
-                                    .font(.system(size: 50))
-                                    .foregroundStyle(.white.opacity(0.7))
-                            }
-                        }
-                    }
-                    .frame(width: 120, height: 120)
-
-                    // Display Name
-                    Text(authVM.displayName.isEmpty ? "No Name Set" : authVM.displayName)
-                        .font(.montserratSemiBold)
-                        .foregroundStyle(colorScheme == .dark ? .white : .black)
-                        .multilineTextAlignment(.center)
-                }
-                .padding(.top, 20)
-
-                // Settings Section
-                VStack(spacing: 16) {
-                    // Account Settings Card
-                    VStack(spacing: 0) {
-                        settingsRow(icon: "person.circle", title: "Edit Profile", action: {
-                            // TODO: Navigate to edit profile
-                        })
-
-                        Divider()
-                            .background(colorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
-
-                        settingsRow(icon: "bell", title: "Notifications", action: {
-                            // TODO: Navigate to notifications
-                        })
-
-                        Divider()
-                            .background(colorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
-
-                        NavigationLink(destination: ThemeSelectionView()) {
-                            HStack(spacing: 16) {
-                                Image(systemName: "paintbrush")
-                                    .font(.system(size: 20, weight: .medium))
-                                    .foregroundStyle(.accent)
-                                    .frame(width: 24, height: 24)
-                                
-                                Text("Appearance")
-                                    .font(.montserratMedium)
-                                    .foregroundStyle(colorScheme == .dark ? .white : .black)
-                                
-                                Spacer()
-                                
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 16)
-                            .contentShape(Rectangle())
-                        }
-
-                        Divider()
-                            .background(colorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
-
-                        NavigationLink(destination: WorkoutMetricSelectionView()) {
-                            HStack(spacing: 16) {
-                                Image(systemName: "chart.bar.fill")
-                                    .font(.system(size: 20, weight: .medium))
-                                    .foregroundStyle(.accent)
-                                    .frame(width: 24, height: 24)
-                                
-                                Text("Workout Metric")
-                                    .font(.montserratMedium)
-                                    .foregroundStyle(colorScheme == .dark ? .white : .black)
-                                
-                                Spacer()
-                                
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 16)
-                            .contentShape(Rectangle())
-                        }
-
-                        Divider()
-                            .background(colorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
-
-                        NavigationLink(destination: MeasurementSystemSelectionView()) {
-                            HStack(spacing: 16) {
-                                Image(systemName: "ruler")
-                                    .font(.system(size: 20, weight: .medium))
-                                    .foregroundStyle(.accent)
-                                    .frame(width: 24, height: 24)
-                                
-                                Text("Measurement System")
-                                    .font(.montserratMedium)
-                                    .foregroundStyle(colorScheme == .dark ? .white : .black)
-                                
-                                Spacer()
-                                
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 16)
-                            .contentShape(Rectangle())
-                        }
-
-                        Divider()
-                            .background(colorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
-
-                        settingsRow(icon: "lock", title: "Privacy", action: {
-                            // TODO: Navigate to privacy
-                        })
-                    }
-                    .background(
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(colorScheme == .dark ? .jetLighter.opacity(0.3) : .gray.opacity(0.06))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .stroke(colorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
-                            )
-                    )
-
-                    // Sign Out Button
-                    Button(action: {
-                        authVM.signOut()
-                    }) {
-                        HStack {
-                            Image(systemName: "rectangle.portrait.and.arrow.right")
-                                .font(.system(size: 18, weight: .medium))
-                            Text("Sign Out")
-                                .font(.montserratSemiBold)
-                        }
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 55)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(.red.opacity(0.8))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 16)
-                                        .stroke(.red.opacity(0.3), lineWidth: 1)
-                                )
-                        )
-                    }
-                    .padding(.top, 8)
-                }
-
+                // Error Message
                 if let errorMessage = authVM.errorMessage {
-                    Text(errorMessage)
-                        .font(.montserratRegular(size: 14))
-                        .foregroundStyle(.red.opacity(0.9))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
+                    errorMessageView(errorMessage)
                 }
 
                 Spacer(minLength: 40)
@@ -226,53 +44,90 @@ struct AccountView: View {
             }
         }
     }
-    
-    private func settingsRow(icon: String, title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 16) {
-                Image(systemName: icon)
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundStyle(.accent)
-                    .frame(width: 24, height: 24)
-                
-                Text(title)
-                    .font(.montserratMedium)
-                    .foregroundStyle(colorScheme == .dark ? .white : .black)
-                
-                Spacer()
-                
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
+
+    // MARK: - Settings Content
+
+    @ViewBuilder
+    private var settingsContent: some View {
+        VStack(spacing: 16) {
+            // Main Settings Card
+            SettingsCard(options: settingsOptions)
+
+            // Sign Out Button
+            SignOutButton(action: authVM.signOut)
+                .padding(.top, 8)
         }
-        .buttonStyle(.plain)
     }
-    
-    private func settingsRowContent(icon: String, title: String) -> some View {
-        HStack(spacing: 16) {
-            Image(systemName: icon)
-                .font(.system(size: 20, weight: .medium))
-                .foregroundStyle(.accent)
-                .frame(width: 24, height: 24)
-            
-            Text(title)
-                .font(.montserratMedium)
-                .foregroundStyle(colorScheme == .dark ? .white : .black)
-            
-            Spacer()
-            
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
+
+    // MARK: - Settings Options Configuration
+
+    private var settingsOptions: [SettingsOption] {
+        var options: [SettingsOption] = [
+            SettingsOption(
+                icon: "person.circle",
+                title: "Edit Profile",
+                action: {
+                    // TODO: Navigate to edit profile
+                }
+            ),
+            SettingsOption(
+                icon: "bell",
+                title: "Notifications",
+                action: {
+                    // TODO: Navigate to notifications
+                }
+            ),
+            SettingsOption(
+                icon: "paintbrush",
+                title: "Appearance",
+                destination: ThemeSelectionView()
+            ),
+            SettingsOption(
+                icon: "chart.bar.fill",
+                title: "Workout Metric",
+                destination: WorkoutMetricSelectionView()
+            ),
+            SettingsOption(
+                icon: "ruler",
+                title: "Measurement System",
+                destination: MeasurementSystemSelectionView()
+            )
+        ]
+
+        #if DEBUG
+        options.append(
+            SettingsOption(
+                icon: "hammer.fill",
+                title: "Debug Tools",
+                iconColor: .orange,
+                destination: DebugToolsView()
+            )
+        )
+        #endif
+
+        options.append(
+            SettingsOption(
+                icon: "lock",
+                title: "Privacy",
+                action: {
+                    // TODO: Navigate to privacy
+                }
+            )
+        )
+
+        return options
+    }
+
+    // MARK: - Error Message View
+
+    private func errorMessageView(_ message: String) -> some View {
+        Text(message)
+            .font(.montserratRegular(size: 14))
+            .foregroundStyle(.red.opacity(0.9))
+            .multilineTextAlignment(.center)
+            .padding(.horizontal)
     }
 }
-
 
 #Preview {
     NavigationStack {

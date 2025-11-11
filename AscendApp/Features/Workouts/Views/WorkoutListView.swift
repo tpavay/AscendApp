@@ -26,101 +26,124 @@ struct WorkoutListView: View {
     @State private var showingDeleteError = false
     @State private var deleteErrorMessage = ""
     @State private var failedDeleteCount = 0
+    @State private var searchText = ""
+    @State private var selectedSource: WorkoutSource? = nil
+
+    private var filteredWorkouts: [Workout] {
+        let normalizedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        return workouts.filter { workout in
+            let matchesSource = selectedSource == nil || workout.source == selectedSource
+
+            guard !normalizedQuery.isEmpty else {
+                return matchesSource
+            }
+
+            let matchesSearch = workout.name.lowercased().contains(normalizedQuery) ||
+                workout.notes.lowercased().contains(normalizedQuery) ||
+                workout.source.displayName.lowercased().contains(normalizedQuery)
+
+            return matchesSource && matchesSearch
+        }
+    }
 
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
-    
+
     var body: some View {
-        VStack(spacing: 0) {
-            // Sticky Header
-            stickyHeader
-            
-            if workouts.isEmpty {
-                emptyStateView
-            } else {
-                workoutsList
-            }
-        }
-        .themedBackground()
-        .navigationBarHidden(true)
-        .overlay(alignment: .bottomTrailing) {
-            // Floating Action Button
-            Button(action: {
-                showingWorkoutForm = true
-            }) {
-                Image(systemName: "plus")
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundStyle(.white)
-                    .frame(width: 56, height: 56)
-                    .background(
-                        Circle()
-                            .fill(.accent)
-                            .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
-                    )
-            }
-            .padding(20)
-        }
-        .fullScreenCover(isPresented: $showingWorkoutForm) {
-            WorkoutFormView(
-                showingWorkoutForm: $showingWorkoutForm,
-                onWorkoutCompleted: { workout in
-                    print("🔍 WorkoutListView: onWorkoutCompleted called")
-                    completedWorkout = workout
-                    
-                    // Dismiss the form first
-                    showingWorkoutForm = false
-                    
-                    // Then show completed view after a brief delay
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        showingCompletedView = true
-                        print("🔍 WorkoutListView: Set showingCompletedView = true")
-                    }
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Sticky Header
+                stickyHeader
+
+                if workouts.isEmpty {
+                    emptyStateView
+                } else {
+                    workoutsList
                 }
-            )
-        }
-        .fullScreenCover(isPresented: $showingCompletedView) {
-            if let workout = completedWorkout {
-                WorkoutCompletedView(
-                    workout: workout,
-                    workoutCount: workouts.count,
-                    onDismiss: {
-                        showingCompletedView = false
+            }
+            .themedBackground()
+            .navigationBarHidden(true)
+            .overlay(alignment: .bottomTrailing) {
+                // Floating Action Button
+                Button(action: {
+                    showingWorkoutForm = true
+                }) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: 56, height: 56)
+                        .background(
+                            Circle()
+                                .fill(.accent)
+                                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+                        )
+                }
+                .padding(20)
+            }
+            .fullScreenCover(isPresented: $showingWorkoutForm) {
+                WorkoutFormView(
+                    showingWorkoutForm: $showingWorkoutForm,
+                    onWorkoutCompleted: { workout in
+                        print("🔍 WorkoutListView: onWorkoutCompleted called")
+                        completedWorkout = workout
+
+                        // Dismiss the form first
+                        showingWorkoutForm = false
+
+                        // Then show completed view after a brief delay
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            showingCompletedView = true
+                            print("🔍 WorkoutListView: Set showingCompletedView = true")
+                        }
                     }
                 )
             }
-        }
-        .sheet(isPresented: $showingDeleteConfirmation) {
-            DeleteWorkoutConfirmationView(
-                selectedCount: selectedWorkouts.count,
-                onConfirm: {
-                    Task {
-                        await deleteSelectedWorkouts()
-                    }
-                    showingDeleteConfirmation = false
-                },
-                onCancel: {
-                    showingDeleteConfirmation = false
+            .fullScreenCover(isPresented: $showingCompletedView) {
+                if let workout = completedWorkout {
+                    WorkoutCompletedView(
+                        workout: workout,
+                        workoutCount: workouts.count,
+                        onDismiss: {
+                            showingCompletedView = false
+                        }
+                    )
                 }
-            )
-            .presentationDetents([.height(200)])
-        }
-        .sheet(isPresented: $showingImportSheet) {
-            WorkoutImportSheet()
-        }
-        .alert("Delete Failed", isPresented: $showingDeleteError) {
-            Button("OK") {
-                showingDeleteError = false
             }
-        } message: {
-            Text(deleteErrorMessage)
+            .sheet(isPresented: $showingDeleteConfirmation) {
+                DeleteWorkoutConfirmationView(
+                    selectedCount: selectedWorkouts.count,
+                    onConfirm: {
+                        Task {
+                            await deleteSelectedWorkouts()
+                        }
+                        showingDeleteConfirmation = false
+                    },
+                    onCancel: {
+                        showingDeleteConfirmation = false
+                    }
+                )
+                .presentationDetents([.height(200)])
+            }
+            .sheet(isPresented: $showingImportSheet) {
+                WorkoutImportSheet()
+            }
+            .alert("Delete Failed", isPresented: $showingDeleteError) {
+                Button("OK") {
+                    showingDeleteError = false
+                }
+            } message: {
+                Text(deleteErrorMessage)
+            }
+            .task {
+                // Configure import service with model context
+                importService.configure(modelContext: modelContext)
+            }
         }
-        .task {
-            // Configure import service with model context
-            importService.configure(modelContext: modelContext)
-        }
+        .searchable(text: $searchText, prompt: "Search workouts")
     }
-    
+
     private var stickyHeader: some View {
         VStack(spacing: 0) {
             HStack {
@@ -200,7 +223,13 @@ struct WorkoutListView: View {
             .padding(.horizontal, 20)
             .padding(.top, 8)
             .padding(.bottom, 16)
-            
+
+            if !isInDeleteMode && !workouts.isEmpty {
+                sourceFilterControl
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 12)
+            }
+
             // Divider
             Rectangle()
                 .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
@@ -262,11 +291,26 @@ struct WorkoutListView: View {
         }
         .padding(20)
     }
-    
+
     private var workoutsList: some View {
         ScrollView {
             LazyVStack(spacing: 12) {
-                ForEach(workouts) { workout in
+                if filteredWorkouts.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 32, weight: .light))
+                            .foregroundStyle(.accent)
+
+                        Text("No workouts match your filters")
+                            .font(.montserratMedium(size: 16))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 32)
+                }
+
+                ForEach(filteredWorkouts) { workout in
                     HStack(spacing: 12) {
                         if isInDeleteMode {
                             Button(action: {
@@ -295,6 +339,19 @@ struct WorkoutListView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
         }
+    }
+
+    private var sourceFilterControl: some View {
+        Picker("Source", selection: $selectedSource) {
+            Text("All Sources")
+                .tag(WorkoutSource?.none)
+
+            ForEach(WorkoutSource.allCases, id: \.self) { source in
+                Text(source.displayName)
+                    .tag(Optional(source))
+            }
+        }
+        .pickerStyle(.segmented)
     }
     
     private func enterDeleteMode() {

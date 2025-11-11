@@ -46,7 +46,7 @@ extension TabItem {
                 }
                 .id("HomeNavigationStack")
             },
-            
+
             TabItem(
                 title: "Workouts",
                 iconName: "figure.stair.stepper",
@@ -57,7 +57,18 @@ extension TabItem {
                 }
                 .id("WorkoutsNavigationStack")
             },
-            
+
+            TabItem(
+                title: "Leaderboard",
+                iconName: "chart.bar.fill",
+                selectedIconName: "chart.bar.fill"
+            ) {
+                NavigationStack {
+                    LeaderboardView()
+                }
+                .id("LeaderboardNavigationStack")
+            },
+
             TabItem(
                 title: "Progress",
                 iconName: "chart.line.uptrend.xyaxis",
@@ -68,7 +79,7 @@ extension TabItem {
                 }
                 .id("ProgressNavigationStack")
             },
-            
+
             TabItem(
                 title: "Settings",
                 iconName: "Settings",
@@ -81,14 +92,15 @@ extension TabItem {
             }
         ]
     }
-    
+
     // Currently active tabs - easily configurable
     @MainActor
     static var activeTabs: [TabItem] {
         [
             availableTabs[0], // Home
             availableTabs[1], // Workouts
-            availableTabs[3]  // Settings
+            availableTabs[2], // Leaderboard
+            availableTabs[4]  // Settings
         ]
     }
 }
