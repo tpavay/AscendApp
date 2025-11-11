@@ -141,7 +141,6 @@ struct WorkoutListView: View {
                 importService.configure(modelContext: modelContext)
             }
         }
-        .searchable(text: $searchText, prompt: "Search workouts")
     }
 
     private var stickyHeader: some View {
@@ -225,7 +224,7 @@ struct WorkoutListView: View {
             .padding(.bottom, 16)
 
             if !isInDeleteMode && !workouts.isEmpty {
-                sourceFilterControl
+                searchAndFilterBar
                     .padding(.horizontal, 20)
                     .padding(.bottom, 12)
             }
@@ -341,17 +340,74 @@ struct WorkoutListView: View {
         }
     }
 
-    private var sourceFilterControl: some View {
-        Picker("Source", selection: $selectedSource) {
-            Text("All Sources")
-                .tag(WorkoutSource?.none)
+    private var searchAndFilterBar: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.accent)
 
-            ForEach(WorkoutSource.allCases, id: \.self) { source in
-                Text(source.displayName)
-                    .tag(Optional(source))
+                TextField("Search workouts", text: $searchText)
+                    .font(.montserratMedium(size: 14))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(effectiveColorScheme == .dark ? Color.white.opacity(0.08) : Color.gray.opacity(0.1))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(effectiveColorScheme == .dark ? Color.white.opacity(0.12) : Color.gray.opacity(0.2), lineWidth: 1)
+            )
+
+            Spacer(minLength: 0)
+
+            Menu {
+                Button("All Sources") {
+                    selectedSource = nil
+                }
+
+                ForEach(WorkoutSource.allCases, id: \.self) { source in
+                    Button(source.displayName) {
+                        selectedSource = source
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text(selectedSource?.displayName ?? "All Sources")
+                        .font(.montserratMedium(size: 14))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.accent)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(effectiveColorScheme == .dark ? Color.white.opacity(0.08) : Color.gray.opacity(0.12))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(effectiveColorScheme == .dark ? Color.white.opacity(0.12) : Color.gray.opacity(0.2), lineWidth: 1)
+                )
+            }
+            .menuOrder(.fixed)
         }
-        .pickerStyle(.segmented)
     }
     
     private func enterDeleteMode() {
