@@ -12,7 +12,7 @@ final class WorkoutListFilterState: ObservableObject {
     @Published var searchText: String = ""
     @Published var selectedSources: Set<WorkoutSource> = []
     @Published var stepsRange: ClosedRange<Double>? = nil
-    @Published var dateRange: ClosedRange<Date>? = nil
+    @Published var dateFilter: WorkoutDateFilter? = nil
     @Published var durationRange: ClosedRange<Double>? = nil
     
     var normalizedSearchText: String {
@@ -23,14 +23,14 @@ final class WorkoutListFilterState: ObservableObject {
         !normalizedSearchText.isEmpty ||
         !selectedSources.isEmpty ||
         stepsRange != nil ||
-        dateRange != nil ||
+        dateFilter != nil ||
         durationRange != nil
     }
     
     var hasAdvancedFilters: Bool {
         !selectedSources.isEmpty ||
         stepsRange != nil ||
-        dateRange != nil ||
+        dateFilter != nil ||
         durationRange != nil
     }
     
@@ -48,7 +48,7 @@ final class WorkoutListFilterState: ObservableObject {
         searchText = ""
         selectedSources.removeAll()
         stepsRange = nil
-        dateRange = nil
+        dateFilter = nil
         durationRange = nil
     }
     
@@ -61,7 +61,7 @@ final class WorkoutListFilterState: ObservableObject {
     }
     
     func clearDates() {
-        dateRange = nil
+        dateFilter = nil
     }
     
     func clearDurations() {
@@ -84,8 +84,9 @@ final class WorkoutListFilterState: ObservableObject {
     }
     
     private func matchesDateRange(_ workout: Workout) -> Bool {
-        guard let range = dateRange else { return true }
-        return workout.date >= range.lowerBound && workout.date <= range.upperBound
+        guard let filter = dateFilter else { return true }
+        let upperBound = filter.end ?? .distantFuture
+        return workout.date >= filter.start && workout.date <= upperBound
     }
     
     private func matchesSearch(_ workout: Workout) -> Bool {
@@ -100,4 +101,10 @@ final class WorkoutListFilterState: ObservableObject {
         
         return targets.contains { $0.contains(query) }
     }
+}
+
+struct WorkoutDateFilter: Equatable {
+    var start: Date
+    var end: Date?
+    var isRange: Bool { end != nil }
 }

@@ -260,7 +260,7 @@ struct WorkoutFilterExplorerView: View {
         case .steps:
             return filterState.stepsRange != nil
         case .dates:
-            return filterState.dateRange != nil
+            return filterState.dateFilter != nil
         case .duration:
             return filterState.durationRange != nil
         }
@@ -490,6 +490,8 @@ private struct DatesFilterSheet: View {
     let bounds: ClosedRange<Date>
     @State private var startDate: Date = Date()
     @State private var endDate: Date = Date()
+    @State private var isRangeEnabled: Bool = true
+    @State private var focusedField: DateField = .start
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -498,11 +500,22 @@ private struct DatesFilterSheet: View {
     init(filterState: WorkoutListFilterState, bounds: ClosedRange<Date>) {
         self._filterState = ObservedObject(wrappedValue: filterState)
         self.bounds = bounds
-        let initialRange = filterState.dateRange ?? bounds
-        let clampedStart = max(bounds.lowerBound, min(initialRange.lowerBound, bounds.upperBound))
-        let clampedEnd = max(clampedStart, min(initialRange.upperBound, bounds.upperBound))
+        let storedFilter = filterState.dateFilter
+        let startSeed = storedFilter?.start ?? bounds.lowerBound
+        let clampedStart = max(bounds.lowerBound, min(startSeed, bounds.upperBound))
+        let endSeed: Date
+        if let explicitEnd = storedFilter?.end {
+            endSeed = explicitEnd
+        } else if storedFilter == nil {
+            endSeed = bounds.upperBound
+        } else {
+            endSeed = clampedStart
+        }
+        let clampedEnd = max(clampedStart, min(endSeed, bounds.upperBound))
         _startDate = State(initialValue: clampedStart)
         _endDate = State(initialValue: clampedEnd)
+        _isRangeEnabled = State(initialValue: storedFilter?.isRange ?? true)
+        _focusedField = State(initialValue: .start)
     }
     
     var body: some View {
@@ -518,24 +531,37 @@ private struct DatesFilterSheet: View {
             .multilineTextAlignment(.center)
             
             VStack(spacing: 16) {
-                DatePicker("Start Date", selection: $startDate, in: bounds, displayedComponents: [.date])
-                    .datePickerStyle(.graphical)
+                toggleRow
                 
-                DatePicker("End Date", selection: $endDate, in: bounds, displayedComponents: [.date])
+                dateField(title: "Start", date: startDate, isActive: focusedField == .start) {
+                    focusedField = .start
+                }
+                
+                if isRangeEnabled {
+                    dateField(title: "End", date: endDate, isActive: focusedField == .end) {
+                        focusedField = .end
+                    }
+                }
+                
+                DatePicker("", selection: activeDateBinding, in: activePickerBounds, displayedComponents: [.date])
                     .datePickerStyle(.graphical)
+                    .labelsHidden()
+                    .id(focusedField)
             }
             
             HStack(spacing: 12) {
                 Button("Reset") {
+                    isRangeEnabled = true
                     startDate = bounds.lowerBound
                     endDate = bounds.upperBound
+                    focusedField = .start
                 }
                 .buttonStyle(SecondaryFilterButtonStyle(colorScheme: effectiveColorScheme))
                 
                 Button("Apply") {
-                    let normalizedRange = normalizedDateRange()
+                    let newFilter = resolvedFilter()
                     withAnimation(.easeInOut) {
-                        filterState.dateRange = normalizedRange == bounds ? nil : normalizedRange
+                        filterState.dateFilter = newFilter
                     }
                     dismiss()
                 }
@@ -546,10 +572,103 @@ private struct DatesFilterSheet: View {
         .themedBackground()
     }
     
-    private func normalizedDateRange() -> ClosedRange<Date> {
-        let start = min(startDate, endDate)
-        let end = max(startDate, endDate)
-        return start...end
+    private var toggleRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Date Range")
+                    .font(.montserratMedium(size: 16))
+                Spacer()
+                Toggle("", isOn: $isRangeEnabled)
+                    .labelsHidden()
+                    .tint(.accent)
+                    .onChange(of: isRangeEnabled) { enabled in
+                        if !enabled {
+                            focusedField = .start
+                            endDate = startDate
+                        }
+                    }
+            }
+            Text(isRangeEnabled ? "Filter between a start and end date." : "Filter workouts on or after the selected start date.")
+                .font(.montserratRegular(size: 13))
+                .foregroundStyle(.secondary)
+        }
+    }
+    
+    private func dateField(title: String, date: Date, isActive: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title.uppercased())
+                        .font(.montserratSemiBold(size: 11))
+                        .foregroundStyle(.secondary)
+                    Text(dateFormatter.string(from: date))
+                        .font(.montserratMedium(size: 16))
+                        .foregroundStyle(.primary)
+                }
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isActive ? Color.accentColor.opacity(0.15) : (effectiveColorScheme == .dark ? Color.white.opacity(0.05) : Color.gray.opacity(0.08)))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(isActive ? Color.accentColor : (effectiveColorScheme == .dark ? Color.white.opacity(0.12) : Color.gray.opacity(0.2)), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private func resolvedFilter() -> WorkoutDateFilter? {
+        if isRangeEnabled {
+            let start = min(startDate, endDate)
+            let end = max(startDate, endDate)
+            let matchesBounds = start == bounds.lowerBound && end == bounds.upperBound
+            return matchesBounds ? nil : WorkoutDateFilter(start: start, end: end)
+        } else {
+            let normalizedStart = max(bounds.lowerBound, min(startDate, bounds.upperBound))
+            return normalizedStart == bounds.lowerBound ? nil : WorkoutDateFilter(start: normalizedStart, end: nil)
+        }
+    }
+    
+    private var activeDateBinding: Binding<Date> {
+        Binding {
+            focusedField == .start ? startDate : endDate
+        } set: { newValue in
+            switch focusedField {
+            case .start:
+                startDate = max(bounds.lowerBound, min(newValue, bounds.upperBound))
+                if endDate < startDate {
+                    endDate = startDate
+                }
+            case .end:
+                endDate = max(startDate, min(newValue, bounds.upperBound))
+            }
+        }
+    }
+    
+    private var activePickerBounds: ClosedRange<Date> {
+        switch focusedField {
+        case .start:
+            return bounds
+        case .end:
+            return startDate...bounds.upperBound
+        }
+    }
+    
+    private var dateFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        return formatter
+    }
+    
+    private enum DateField {
+        case start, end
     }
 }
 
