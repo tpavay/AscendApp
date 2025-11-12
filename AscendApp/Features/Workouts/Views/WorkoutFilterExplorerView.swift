@@ -13,7 +13,7 @@ struct WorkoutFilterExplorerView: View {
         case steps
         case dates
         case duration
-        
+
         var id: String {
             switch self {
             case .source: return "source"
@@ -21,6 +21,21 @@ struct WorkoutFilterExplorerView: View {
             case .dates: return "dates"
             case .duration: return "duration"
             }
+        }
+
+        var presentationDetents: Set<PresentationDetent> {
+            switch self {
+            case .source:
+                return [.height(CGFloat(520))]
+            case .steps, .duration:
+                return [.height(CGFloat(360))]
+            case .dates:
+                return [.fraction(0.92)]
+            }
+        }
+
+        var dragIndicatorVisibility: Visibility {
+            .visible
         }
     }
     
@@ -159,24 +174,20 @@ struct WorkoutFilterExplorerView: View {
             switch sheet {
             case .source:
                 WorkoutSourceFilterSheet(filterState: filterState)
-                    .presentationDetents([.fraction(0.65)])
-                    .presentationDragIndicator(.visible)
+                    .filterSheetPresentation(for: sheet)
             case .steps:
                 StepsFilterSheet(
                     filterState: filterState,
                     bounds: stepsBounds,
                     formatter: Self.stepsFormatter
                 )
-                .presentationDetents([.fraction(0.6)])
-                .presentationDragIndicator(.visible)
+                .filterSheetPresentation(for: sheet)
             case .dates:
                 DatesFilterSheet(filterState: filterState, bounds: dateBounds)
-                    .presentationDetents([.fraction(0.6)])
-                    .presentationDragIndicator(.visible)
+                    .filterSheetPresentation(for: sheet)
             case .duration:
                 DurationFilterSheet(filterState: filterState, bounds: durationBounds)
-                    .presentationDetents([.fraction(0.6)])
-                    .presentationDragIndicator(.visible)
+                    .filterSheetPresentation(for: sheet)
             }
         }
         .onAppear {
@@ -308,8 +319,6 @@ private struct WorkoutSourceFilterSheet: View {
     
     var body: some View {
         VStack(spacing: 24) {
-            SheetHandle()
-
             VStack(spacing: 24) {
                 VStack(spacing: 4) {
                     Text("Workout Source")
@@ -404,8 +413,6 @@ private struct StepsFilterSheet: View {
     
     var body: some View {
         VStack(spacing: 24) {
-            SheetHandle()
-            
             VStack(spacing: 4) {
                 Text("Steps Range")
                     .font(.montserratSemiBold(size: 20))
@@ -500,8 +507,6 @@ private struct DatesFilterSheet: View {
     
     var body: some View {
         VStack(spacing: 24) {
-            SheetHandle()
-            
             VStack(spacing: 4) {
                 Text("Date Range")
                     .font(.montserratSemiBold(size: 20))
@@ -574,8 +579,6 @@ private struct DurationFilterSheet: View {
     
     var body: some View {
         VStack(spacing: 24) {
-            SheetHandle()
-            
             VStack(spacing: 4) {
                 Text("Duration")
                     .font(.montserratSemiBold(size: 20))
@@ -729,14 +732,6 @@ private struct WorkoutFilterRangeSlider: View {
     }
 }
 
-private struct SheetHandle: View {
-    var body: some View {
-        RoundedRectangle(cornerRadius: 2.5)
-            .fill(Color.secondary.opacity(0.4))
-            .frame(width: 36, height: 5)
-    }
-}
-
 private struct PrimaryFilterButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -769,5 +764,13 @@ private struct SecondaryFilterButtonStyle: ButtonStyle {
                     )
             )
             .opacity(configuration.isPressed ? 0.8 : 1.0)
+    }
+}
+
+private extension View {
+    func filterSheetPresentation(for sheet: WorkoutFilterExplorerView.FilterSheet) -> some View {
+        self
+            .presentationDetents(sheet.presentationDetents)
+            .presentationDragIndicator(sheet.dragIndicatorVisibility)
     }
 }
