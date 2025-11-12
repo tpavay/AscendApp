@@ -155,6 +155,7 @@ struct WorkoutFilterExplorerView: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)
             }
+            .simultaneousGesture(TapGesture().onEnded { dismissSearchFocus() })
         }
         .navigationTitle("Search Workouts")
         .navigationBarTitleDisplayMode(.inline)
@@ -162,6 +163,7 @@ struct WorkoutFilterExplorerView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if filterState.hasActiveFilters {
                     Button("Reset All") {
+                        dismissSearchFocus()
                         withAnimation(.easeInOut) {
                             filterState.resetAll()
                         }
@@ -238,6 +240,7 @@ struct WorkoutFilterExplorerView: View {
             HStack(spacing: 10) {
                 ForEach(FilterChip.allCases) { chip in
                     Button {
+                        dismissSearchFocus()
                         activeSheet = chip.associatedSheet
                     } label: {
                         FilterChipView(
@@ -263,6 +266,12 @@ struct WorkoutFilterExplorerView: View {
             return filterState.dateFilter != nil
         case .duration:
             return filterState.durationRange != nil
+        }
+    }
+
+    private func dismissSearchFocus() {
+        if isSearchFocused {
+            isSearchFocused = false
         }
     }
 }
