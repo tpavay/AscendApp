@@ -423,31 +423,12 @@ private struct StepsFilterSheet: View {
                     valueSummary(title: "Max", value: formattedSteps(maxValue))
                 }
                 
-                VStack(spacing: 12) {
-                    Slider(
-                        value: Binding(
-                            get: { minValue },
-                            set: { newValue in
-                                minValue = min(newValue, maxValue)
-                            }
-                        ),
-                        in: bounds.lowerBound...maxValue,
-                        step: sliderStep(for: bounds.upperBound)
-                    )
-                    .tint(.accent)
-                    
-                    Slider(
-                        value: Binding(
-                            get: { maxValue },
-                            set: { newValue in
-                                maxValue = max(newValue, minValue)
-                            }
-                        ),
-                        in: minValue...bounds.upperBound,
-                        step: sliderStep(for: bounds.upperBound)
-                    )
-                    .tint(.accent)
-                }
+                WorkoutFilterRangeSlider(
+                    lowerValue: $minValue,
+                    upperValue: $maxValue,
+                    bounds: bounds,
+                    step: sliderStep(for: bounds.upperBound)
+                )
             }
             
             HStack(spacing: 12) {
@@ -612,31 +593,12 @@ private struct DurationFilterSheet: View {
                     valueSummary(title: "Max", value: formattedDuration(maxValue))
                 }
                 
-                VStack(spacing: 12) {
-                    Slider(
-                        value: Binding(
-                            get: { minValue },
-                            set: { newValue in
-                                minValue = min(newValue, maxValue)
-                            }
-                        ),
-                        in: bounds.lowerBound...maxValue,
-                        step: 60
-                    )
-                    .tint(.accent)
-                    
-                    Slider(
-                        value: Binding(
-                            get: { maxValue },
-                            set: { newValue in
-                                maxValue = max(newValue, minValue)
-                            }
-                        ),
-                        in: minValue...bounds.upperBound,
-                        step: 60
-                    )
-                    .tint(.accent)
-                }
+                WorkoutFilterRangeSlider(
+                    lowerValue: $minValue,
+                    upperValue: $maxValue,
+                    bounds: bounds,
+                    step: 60
+                )
             }
             
             HStack(spacing: 12) {
@@ -680,6 +642,90 @@ private struct DurationFilterSheet: View {
                 .font(.montserratSemiBold(size: 18))
                 .foregroundStyle(.accent)
         }
+    }
+}
+
+private struct WorkoutFilterRangeSlider: View {
+    @Binding var lowerValue: Double
+    @Binding var upperValue: Double
+    let bounds: ClosedRange<Double>
+    let step: Double?
+    
+    private let handleSize: CGFloat = 28
+    
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let trackWidth = max(width - handleSize, 1)
+            
+            let lowerRatio = normalizedValue(lowerValue)
+            let upperRatio = normalizedValue(upperValue)
+            let lowerPosition = handleSize / 2 + CGFloat(lowerRatio) * trackWidth
+            let upperPosition = handleSize / 2 + CGFloat(upperRatio) * trackWidth
+            
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.secondary.opacity(0.3))
+                    .frame(width: trackWidth, height: 4)
+                    .offset(x: handleSize / 2)
+                
+                Capsule()
+                    .fill(Color.accentColor)
+                    .frame(width: max(upperPosition - lowerPosition, 2), height: 4)
+                    .offset(x: lowerPosition)
+                
+                sliderHandle(at: lowerPosition, width: width, isLowerHandle: true)
+                sliderHandle(at: upperPosition, width: width, isLowerHandle: false)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        }
+        .frame(height: handleSize)
+    }
+    
+    private func sliderHandle(at position: CGFloat, width: CGFloat, isLowerHandle: Bool) -> some View {
+        Circle()
+            .fill(Color.white)
+            .frame(width: handleSize, height: handleSize)
+            .shadow(color: Color.black.opacity(0.2), radius: 4, x: 0, y: 2)
+            .overlay(
+                Circle()
+                    .stroke(Color.accentColor, lineWidth: 2)
+            )
+            .position(x: position, y: handleSize / 2)
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        updateValue(for: value.location.x, width: width, isLowerHandle: isLowerHandle)
+                    }
+            )
+            .accessibilityLabel(isLowerHandle ? "Minimum value" : "Maximum value")
+            .accessibilityValue("\(Int(isLowerHandle ? lowerValue : upperValue))")
+    }
+    
+    private func updateValue(for locationX: CGFloat, width: CGFloat, isLowerHandle: Bool) {
+        let newValue = snappedValue(from: locationX, width: width)
+        if isLowerHandle {
+            lowerValue = min(max(bounds.lowerBound, newValue), upperValue)
+        } else {
+            upperValue = max(min(bounds.upperBound, newValue), lowerValue)
+        }
+    }
+    
+    private func snappedValue(from locationX: CGFloat, width: CGFloat) -> Double {
+        let halfHandle = handleSize / 2
+        let clampedX = min(max(locationX, halfHandle), width - halfHandle)
+        let trackWidth = max(width - handleSize, 1)
+        let progress = Double((clampedX - halfHandle) / trackWidth)
+        let rawValue = bounds.lowerBound + progress * (bounds.upperBound - bounds.lowerBound)
+        guard let step, step > 0 else { return rawValue }
+        let steps = round((rawValue - bounds.lowerBound) / step)
+        return bounds.lowerBound + steps * step
+    }
+    
+    private func normalizedValue(_ value: Double) -> Double {
+        guard bounds.upperBound > bounds.lowerBound else { return 0 }
+        let clamped = min(max(value, bounds.lowerBound), bounds.upperBound)
+        return (clamped - bounds.lowerBound) / (bounds.upperBound - bounds.lowerBound)
     }
 }
 
