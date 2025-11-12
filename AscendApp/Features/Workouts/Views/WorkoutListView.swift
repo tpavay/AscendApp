@@ -12,8 +12,8 @@ struct WorkoutListView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @State private var themeManager = ThemeManager.shared
-    @State private var settingsManager = SettingsManager.shared
     @State private var importService = WorkoutImportService.shared
+    @StateObject private var filterState = WorkoutListFilterState()
     
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
     @State private var showingWorkoutForm = false
@@ -25,26 +25,9 @@ struct WorkoutListView: View {
     @State private var showingImportSheet = false
     @State private var showingDeleteError = false
     @State private var deleteErrorMessage = ""
-    @State private var failedDeleteCount = 0
-    @State private var searchText = ""
-    @State private var selectedSource: WorkoutSource? = nil
 
     private var filteredWorkouts: [Workout] {
-        let normalizedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-
-        return workouts.filter { workout in
-            let matchesSource = selectedSource == nil || workout.source == selectedSource
-
-            guard !normalizedQuery.isEmpty else {
-                return matchesSource
-            }
-
-            let matchesSearch = workout.name.lowercased().contains(normalizedQuery) ||
-                workout.notes.lowercased().contains(normalizedQuery) ||
-                workout.source.displayName.lowercased().contains(normalizedQuery)
-
-            return matchesSource && matchesSearch
-        }
+        filterState.applyFilters(to: workouts)
     }
 
     private var effectiveColorScheme: ColorScheme {
@@ -54,13 +37,45 @@ struct WorkoutListView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Sticky Header
-                stickyHeader
+                WorkoutListHeaderView(
+                    isInDeleteMode: isInDeleteMode,
+                    totalCount: workouts.count,
+                    selectedCount: selectedWorkouts.count,
+                    allSelected: areAllWorkoutsSelected,
+                    effectiveColorScheme: effectiveColorScheme,
+                    pendingImportCount: importService.pendingWorkoutsCount,
+                    canDelete: !selectedWorkouts.isEmpty,
+                    onToggleSelectAll: toggleSelectAllWorkouts,
+                    onCancelDelete: exitDeleteMode,
+                    onDeleteTapped: handleDeleteTapped,
+                    onImportTapped: handleImportTapped,
+                    onEnterDeleteMode: enterDeleteMode
+                ) {
+                    WorkoutListSearchTriggerView(
+                        filterState: filterState,
+                        effectiveColorScheme: effectiveColorScheme
+                    ) {
+                        WorkoutFilterExplorerView(
+                            workouts: workouts,
+                            filterState: filterState
+                        )
+                    }
+                }
 
                 if workouts.isEmpty {
-                    emptyStateView
+                    WorkoutListEmptyStateView(
+                        effectiveColorScheme: effectiveColorScheme,
+                        pendingImportCount: importService.pendingWorkoutsCount,
+                        onImportTapped: handleImportTapped
+                    )
                 } else {
-                    workoutsList
+                    WorkoutResultsListView(
+                        filteredWorkouts: filteredWorkouts,
+                        isInDeleteMode: isInDeleteMode,
+                        effectiveColorScheme: effectiveColorScheme,
+                        selectedWorkouts: selectedWorkouts,
+                        toggleSelection: toggleWorkoutSelection
+                    )
                 }
             }
             .themedBackground()
@@ -142,271 +157,30 @@ struct WorkoutListView: View {
             }
         }
     }
-
-    private var stickyHeader: some View {
-        VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(isInDeleteMode ? "Select Workouts" : "Workouts")
-                        .font(.montserratBold(size: 32))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                    
-                    if isInDeleteMode {
-                        Button(action: {
-                            if selectedWorkouts.count == workouts.count {
-                                selectedWorkouts.removeAll()
-                            } else {
-                                selectedWorkouts = Set(workouts.map { $0.id })
-                            }
-                        }) {
-                            Text(selectedWorkouts.count == workouts.count ? "Deselect All" : "Select All")
-                                .font(.montserratMedium(size: 14))
-                                .foregroundStyle(.accent)
-                        }
-                    }
-                }
-                
-                Spacer()
-                
-                if !workouts.isEmpty {
-                    if isInDeleteMode {
-                        HStack(spacing: 16) {
-                            Button("Cancel") {
-                                exitDeleteMode()
-                            }
-                            .foregroundStyle(.accent)
-                            .font(.montserratMedium(size: 16))
-                            
-                            Button("Delete") {
-                                if !selectedWorkouts.isEmpty {
-                                    showingDeleteConfirmation = true
-                                }
-                            }
-                            .foregroundStyle(selectedWorkouts.isEmpty ? .gray : .red)
-                            .font(.montserratMedium(size: 16))
-                            .disabled(selectedWorkouts.isEmpty)
-                        }
-                    } else {
-                        Menu {
-                            Button(action: {
-                                Task {
-                                    await importService.checkForNewWorkouts()
-                                    showingImportSheet = true
-                                }
-                            }) {
-                                HStack {
-                                    Label("Import Workouts", systemImage: "square.and.arrow.down")
-                                    if importService.pendingWorkoutsCount > 0 {
-                                        Text("(\(importService.pendingWorkoutsCount))")
-                                            .font(.caption)
-                                            .foregroundStyle(.blue)
-                                    }
-                                }
-                            }
-                            
-                            Button(action: {
-                                enterDeleteMode()
-                            }) {
-                                Label("Delete Workouts", systemImage: "trash")
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis")
-                                .font(.system(size: 18, weight: .medium))
-                                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 16)
-
-            if !isInDeleteMode && !workouts.isEmpty {
-                searchAndFilterBar
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 12)
-            }
-
-            // Divider
-            Rectangle()
-                .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
-                .frame(height: 1)
-        }
-        .background(
-            (effectiveColorScheme == .dark ? Color.jet : Color.white)
-                .opacity(0.95)
-        )
+    
+    
+    private var areAllWorkoutsSelected: Bool {
+        !workouts.isEmpty && selectedWorkouts.count == workouts.count
     }
     
-    private var emptyStateView: some View {
-        VStack(spacing: 24) {
-            Spacer()
-            
-            Image(systemName: "figure.stair.stepper")
-                .font(.system(size: 60, weight: .light))
-                .foregroundStyle(.accent)
-            
-            VStack(spacing: 8) {
-                Text("No Workouts Yet")
-                    .font(.montserratBold(size: 28))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                
-                Text("Start tracking your stair climbing sessions")
-                    .font(.montserratRegular(size: 16))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                    .multilineTextAlignment(.center)
-            }
-            
-            Button(action: {
-                Task {
-                    await importService.checkForNewWorkouts()
-                    showingImportSheet = true
-                }
-            }) {
-                HStack(spacing: 8) {
-                    Image(systemName: "square.and.arrow.down")
-                        .font(.system(size: 16, weight: .medium))
-                    Text("Import Workouts")
-                        .font(.montserratMedium(size: 16))
-                    if importService.pendingWorkoutsCount > 0 {
-                        Text("(\(importService.pendingWorkoutsCount))")
-                            .font(.caption)
-                            .foregroundStyle(.white)
-                    }
-                }
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 50)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(.accent)
-                )
-            }
-            .padding(.horizontal, 40)
-            
-            Spacer()
-        }
-        .padding(20)
-    }
-
-    private var workoutsList: some View {
-        ScrollView {
-            LazyVStack(spacing: 12) {
-                if filteredWorkouts.isEmpty {
-                    VStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 32, weight: .light))
-                            .foregroundStyle(.accent)
-
-                        Text("No workouts match your filters")
-                            .font(.montserratMedium(size: 16))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 32)
-                }
-
-                ForEach(filteredWorkouts) { workout in
-                    HStack(spacing: 12) {
-                        if isInDeleteMode {
-                            Button(action: {
-                                toggleWorkoutSelection(workout.id)
-                            }) {
-                                Image(systemName: selectedWorkouts.contains(workout.id) ? "checkmark.circle.fill" : "circle")
-                                    .font(.system(size: 22))
-                                    .foregroundStyle(selectedWorkouts.contains(workout.id) ? .accent : .gray)
-                            }
-                        }
-                        
-                        if isInDeleteMode {
-                            WorkoutRowView(workout: workout)
-                                .onTapGesture {
-                                    toggleWorkoutSelection(workout.id)
-                                }
-                        } else {
-                            NavigationLink(destination: WorkoutDetailView(workout: workout)) {
-                                WorkoutRowView(workout: workout)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
+    private func toggleSelectAllWorkouts() {
+        if areAllWorkoutsSelected {
+            selectedWorkouts.removeAll()
+        } else {
+            selectedWorkouts = Set(workouts.map { $0.id })
         }
     }
-
-    private var searchAndFilterBar: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.accent)
-
-                TextField("Search workouts", text: $searchText)
-                    .font(.montserratMedium(size: 14))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-
-                if !searchText.isEmpty {
-                    Button {
-                        searchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(effectiveColorScheme == .dark ? Color.white.opacity(0.08) : Color.gray.opacity(0.1))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(effectiveColorScheme == .dark ? Color.white.opacity(0.12) : Color.gray.opacity(0.2), lineWidth: 1)
-            )
-
-            Spacer(minLength: 0)
-
-            Menu {
-                Button("All Sources") {
-                    selectedSource = nil
-                }
-
-                ForEach(WorkoutSource.allCases, id: \.self) { source in
-                    Button(source.displayName) {
-                        selectedSource = source
-                    }
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Text(selectedSource?.displayName ?? "All Sources")
-                        .font(.montserratMedium(size: 14))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.accent)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(effectiveColorScheme == .dark ? Color.white.opacity(0.08) : Color.gray.opacity(0.12))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(effectiveColorScheme == .dark ? Color.white.opacity(0.12) : Color.gray.opacity(0.2), lineWidth: 1)
-                )
-            }
-            .menuOrder(.fixed)
+    
+    private func handleDeleteTapped() {
+        if !selectedWorkouts.isEmpty {
+            showingDeleteConfirmation = true
+        }
+    }
+    
+    private func handleImportTapped() {
+        Task {
+            await importService.checkForNewWorkouts()
+            showingImportSheet = true
         }
     }
     
