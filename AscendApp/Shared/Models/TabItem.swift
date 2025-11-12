@@ -59,17 +59,6 @@ extension TabItem {
             },
 
             TabItem(
-                title: "Leaderboard",
-                iconName: "chart.bar.fill",
-                selectedIconName: "chart.bar.fill"
-            ) {
-                NavigationStack {
-                    LeaderboardView()
-                }
-                .id("LeaderboardNavigationStack")
-            },
-
-            TabItem(
                 title: "Progress",
                 iconName: "chart.line.uptrend.xyaxis",
                 selectedIconName: "chart.line.uptrend.xyaxis"
@@ -78,6 +67,17 @@ extension TabItem {
                     ProgressPlaceholderView()
                 }
                 .id("ProgressNavigationStack")
+            },
+
+            TabItem(
+                title: "Leaderboard",
+                iconName: "chart.bar.fill",
+                selectedIconName: "chart.bar.fill"
+            ) {
+                NavigationStack {
+                    LeaderboardView()
+                }
+                .id("LeaderboardNavigationStack")
             },
 
             TabItem(
@@ -99,7 +99,8 @@ extension TabItem {
         [
             availableTabs[0], // Home
             availableTabs[1], // Workouts
-            availableTabs[2], // Leaderboard
+            availableTabs[2], // Progress
+            availableTabs[3], // Leaderboard
             availableTabs[4]  // Settings
         ]
     }
