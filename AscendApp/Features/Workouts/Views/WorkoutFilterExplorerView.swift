@@ -159,7 +159,7 @@ struct WorkoutFilterExplorerView: View {
             switch sheet {
             case .source:
                 WorkoutSourceFilterSheet(filterState: filterState)
-                    .presentationDetents([.fraction(0.55)])
+                    .presentationDetents([.fraction(0.65)])
                     .presentationDragIndicator(.visible)
             case .steps:
                 StepsFilterSheet(
@@ -309,46 +309,49 @@ private struct WorkoutSourceFilterSheet: View {
     var body: some View {
         VStack(spacing: 24) {
             SheetHandle()
-            
-            VStack(spacing: 4) {
-                Text("Workout Source")
-                    .font(.montserratSemiBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                Text("Choose the sources you want to include.")
-                    .font(.montserratRegular(size: 14))
-                    .foregroundStyle(.secondary)
-            }
-            .multilineTextAlignment(.center)
-            
-            VStack(spacing: 12) {
-                ForEach(WorkoutSource.allCases, id: \.self) { source in
-                    Button {
-                        toggleSelection(for: source)
-                    } label: {
-                        HStack {
-                            Text(source.displayName)
-                                .font(.montserratMedium(size: 16))
-                            Spacer()
-                            Image(systemName: tempSelection.contains(source) ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(tempSelection.contains(source) ? .accent : .gray)
+
+            VStack(spacing: 24) {
+                VStack(spacing: 4) {
+                    Text("Workout Source")
+                        .font(.montserratSemiBold(size: 20))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    Text("Choose the sources you want to include.")
+                        .font(.montserratRegular(size: 14))
+                        .foregroundStyle(.secondary)
+                }
+                .multilineTextAlignment(.center)
+
+                VStack(spacing: 12) {
+                    ForEach(WorkoutSource.allCases, id: \.self) { source in
+                        Button {
+                            toggleSelection(for: source)
+                        } label: {
+                            HStack {
+                                Text(source.displayName)
+                                    .font(.montserratMedium(size: 16))
+                                Spacer()
+                                Image(systemName: tempSelection.contains(source) ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(tempSelection.contains(source) ? .accent : .gray)
+                            }
+                            .padding()
+                            .frame(maxWidth: .infinity)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(effectiveColorScheme == .dark ? Color.white.opacity(0.08) : Color.gray.opacity(0.08))
+                            )
                         }
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(effectiveColorScheme == .dark ? Color.white.opacity(0.08) : Color.gray.opacity(0.08))
-                        )
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
-            
+            .padding(.bottom, 12)
+
             HStack(spacing: 12) {
                 Button("Reset") {
                     tempSelection.removeAll()
                 }
                 .buttonStyle(SecondaryFilterButtonStyle(colorScheme: effectiveColorScheme))
-                
+
                 Button("Apply") {
                     withAnimation(.easeInOut) {
                         filterState.selectedSources = tempSelection
@@ -357,6 +360,7 @@ private struct WorkoutSourceFilterSheet: View {
                 }
                 .buttonStyle(PrimaryFilterButtonStyle())
             }
+            .padding(.bottom, 24)
         }
         .padding(20)
         .themedBackground()
