@@ -519,56 +519,58 @@ private struct DatesFilterSheet: View {
     }
     
     var body: some View {
-        VStack(spacing: 24) {
-            VStack(spacing: 4) {
-                Text("Date Range")
-                    .font(.montserratSemiBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                Text("Only show workouts completed between these dates.")
-                    .font(.montserratRegular(size: 14))
-                    .foregroundStyle(.secondary)
-            }
-            .multilineTextAlignment(.center)
-            
-            VStack(spacing: 16) {
-                toggleRow
-                
-                dateField(title: "Start", date: startDate, isActive: focusedField == .start) {
-                    focusedField = .start
+        ScrollView {
+            VStack(spacing: 24) {
+                VStack(spacing: 4) {
+                    Text("Date Range")
+                        .font(.montserratSemiBold(size: 20))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    Text("Only show workouts completed between these dates.")
+                        .font(.montserratRegular(size: 14))
+                        .foregroundStyle(.secondary)
                 }
+                .multilineTextAlignment(.center)
                 
-                if isRangeEnabled {
-                    dateField(title: "End", date: endDate, isActive: focusedField == .end) {
-                        focusedField = .end
+                VStack(spacing: 16) {
+                    toggleRow
+                    
+                    dateField(title: "Start", date: startDate, isActive: focusedField == .start) {
+                        focusedField = .start
                     }
-                }
-                
-                DatePicker("", selection: activeDateBinding, in: activePickerBounds, displayedComponents: [.date])
-                    .datePickerStyle(.graphical)
-                    .labelsHidden()
-                    .id(focusedField)
-            }
-            
-            HStack(spacing: 12) {
-                Button("Reset") {
-                    isRangeEnabled = true
-                    startDate = bounds.lowerBound
-                    endDate = bounds.upperBound
-                    focusedField = .start
-                }
-                .buttonStyle(SecondaryFilterButtonStyle(colorScheme: effectiveColorScheme))
-                
-                Button("Apply") {
-                    let newFilter = resolvedFilter()
-                    withAnimation(.easeInOut) {
-                        filterState.dateFilter = newFilter
+                    
+                    if isRangeEnabled {
+                        dateField(title: "End", date: endDate, isActive: focusedField == .end) {
+                            focusedField = .end
+                        }
                     }
-                    dismiss()
+                    
+                    DatePicker("", selection: activeDateBinding, in: activePickerBounds, displayedComponents: [.date])
+                        .datePickerStyle(.graphical)
+                        .labelsHidden()
+                        .id(focusedField)
                 }
-                .buttonStyle(PrimaryFilterButtonStyle())
+                
+                HStack(spacing: 12) {
+                    Button("Reset") {
+                        isRangeEnabled = true
+                        startDate = bounds.lowerBound
+                        endDate = bounds.upperBound
+                        focusedField = .start
+                    }
+                    .buttonStyle(SecondaryFilterButtonStyle(colorScheme: effectiveColorScheme))
+                    
+                    Button("Apply") {
+                        let newFilter = resolvedFilter()
+                        withAnimation(.easeInOut) {
+                            filterState.dateFilter = newFilter
+                        }
+                        dismiss()
+                    }
+                    .buttonStyle(PrimaryFilterButtonStyle())
+                }
             }
+            .padding(20)
         }
-        .padding(20)
         .themedBackground()
     }
     
