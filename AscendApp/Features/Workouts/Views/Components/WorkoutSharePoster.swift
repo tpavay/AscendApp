@@ -170,13 +170,16 @@ private extension WorkoutSharePoster {
 
 private struct AscendBadge: View {
     var color: Color = .white.opacity(0.9)
+    var iconSize: CGFloat = 30
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "triangle.fill")
-                .font(.system(size: 13, weight: .semibold))
+            Image("AppIconInternal")
+                .resizable()
+                .renderingMode(.template)
                 .foregroundStyle(color)
-                .rotationEffect(.degrees(180))
+                .frame(width: iconSize, height: iconSize)
+                .accessibilityHidden(true)
             Text("Ascend")
                 .font(.montserratSemiBold(size: 14))
                 .foregroundStyle(color)
