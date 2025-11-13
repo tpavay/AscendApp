@@ -5,6 +5,7 @@
 //  Created by Tyler Pavay on 8/28/25.
 //
 
+import PhotosUI
 import SwiftUI
 import SwiftData
 
@@ -26,6 +27,12 @@ struct EditWorkoutView: View {
     @State private var metricValue: String = ""
     @State private var notes: String = ""
     @State private var showingMetricTooltip = false
+    @State private var selectedImages: [SelectedPhotoItem] = []
+    @State private var existingPhotos: [Photo] = []
+    @State private var photosMarkedForDeletion: [Photo] = []
+    @State private var photoPendingDeletion: Photo?
+    @State private var updateErrorMessage: String?
+    @State private var isSaving = false
     
     // Health Metrics
     @State private var avgHeartRate: String = ""
@@ -37,6 +44,8 @@ struct EditWorkoutView: View {
     @State private var showingEffortRating = false
     
     @FocusState private var focusedField: WorkoutFormField?
+    
+    private let photoService = PhotoService()
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -67,7 +76,7 @@ struct EditWorkoutView: View {
         let maxHRValid = maxHeartRate.isEmpty || (Int(maxHeartRate) != nil && (Int(maxHeartRate) ?? 0) >= 25 && (Int(maxHeartRate) ?? 0) <= 230)
         let caloriesValid = caloriesBurned.isEmpty || (Int(caloriesBurned) != nil && (Int(caloriesBurned) ?? 0) >= 0)
         
-        return basicValidation && durationValid && avgHRValid && maxHRValid && caloriesValid
+        return basicValidation && durationValid && avgHRValid && maxHRValid && caloriesValid && !isSaving
     }
     
     var body: some View {
@@ -94,6 +103,30 @@ struct EditWorkoutView: View {
             EffortRatingView(effortRating: $effortRating)
                 .presentationDetents([.fraction(0.4)])
         }
+        .sheet(item: $photoPendingDeletion) { photo in
+            DeletePhotoConfirmationView(
+                onDelete: {
+                    removeExistingPhoto(photo)
+                },
+                onCancel: {
+                    photoPendingDeletion = nil
+                }
+            )
+        }
+        .alert("Unable to Update", isPresented: Binding(
+            get: { updateErrorMessage != nil },
+            set: { newValue in
+                if !newValue {
+                    updateErrorMessage = nil
+                }
+            }
+        )) {
+            Button("OK", role: .cancel) {
+                updateErrorMessage = nil
+            }
+        } message: {
+            Text(updateErrorMessage ?? "")
+        }
         .onAppear {
             populateFields()
         }
@@ -116,12 +149,23 @@ struct EditWorkoutView: View {
 
                 Spacer()
 
-                Button("Update") {
-                    updateWorkout()
+                Button(action: {
+                    Task {
+                        await updateWorkout()
+                    }
+                }) {
+                    if isSaving {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                            .progressViewStyle(CircularProgressViewStyle(tint: .accent))
+                    } else {
+                        Text("Update")
+                    }
                 }
                 .font(.montserratSemiBold)
                 .foregroundStyle(isFormValid ? .accent : .gray)
                 .disabled(!isFormValid)
+                .frame(width: 80)
             }
             .padding(.horizontal, 20)
             .padding(.top, 8)
@@ -257,6 +301,10 @@ struct EditWorkoutView: View {
                     focusedField = nil
                 }
             
+            existingPhotosSection
+            
+            PhotoGalleryView(selectedImages: $selectedImages)
+            
             // Section Header
             HStack {
                 Text("Workout Details")
@@ -365,6 +413,47 @@ struct EditWorkoutView: View {
                 )
             }
             .buttonStyle(.plain)
+            
+        }
+    }
+    
+    @ViewBuilder
+    private var existingPhotosSection: some View {
+        if !existingPhotos.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Current Photos")
+                        .font(.montserratSemiBold(size: 18))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    
+                    Spacer()
+                }
+                
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 12) {
+                        ForEach(existingPhotos) { photo in
+                            LoadablePhotoView(
+                                photo: photo,
+                                size: CGSize(width: 120, height: 120),
+                                cornerRadius: 12
+                            )
+                            .overlay(alignment: .topTrailing) {
+                                Button {
+                                    photoPendingDeletion = photo
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 20))
+                                        .symbolRenderingMode(.hierarchical)
+                                        .foregroundStyle(.white, .black.opacity(0.7))
+                                        .shadow(radius: 2)
+                                }
+                                .offset(x: 6, y: -6)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
         }
     }
     
@@ -397,6 +486,9 @@ struct EditWorkoutView: View {
         maxHeartRate = workout.maxHeartRate != nil ? String(workout.maxHeartRate!) : ""
         caloriesBurned = workout.caloriesBurned != nil ? String(workout.caloriesBurned!) : ""
         effortRating = workout.effortRating
+        existingPhotos = workout.photos
+        photosMarkedForDeletion = []
+        selectedImages = []
     }
     
     private func formatDurationInput(_ input: String) {
@@ -536,16 +628,21 @@ struct EditWorkoutView: View {
         }
     }
     
-    private func updateWorkout() {
+    @MainActor
+    private func updateWorkout() async {
         print("🔍 Update workout called")
         print("🔍 Form valid: \(isFormValid)")
         
+        guard !isSaving else { return }
         guard let minutes = Int(durationMinutes),
               let seconds = Int(durationSeconds),
               let value = Int(metricValue) else {
             print("❌ Guard failed - invalid number conversion")
             return
         }
+        
+        isSaving = true
+        updateErrorMessage = nil
         
         let hours = Int(durationHours) ?? 0
         let totalDuration = TimeInterval(hours * 3600 + minutes * 60 + seconds)
@@ -555,32 +652,64 @@ struct EditWorkoutView: View {
         let maxHR = !maxHeartRate.isEmpty ? Int(maxHeartRate) : nil
         let calories = !caloriesBurned.isEmpty ? Int(caloriesBurned) : nil
         
-        // Update the workout properties
-        workout.name = workoutName
-        workout.date = workoutDate
-        workout.duration = totalDuration
-        workout.notes = notes
-        workout.avgHeartRate = avgHR
-        workout.maxHeartRate = maxHR
-        workout.caloriesBurned = calories
-        workout.effortRating = effortRating
-        
-        // Update metric value based on workout's original type
-        if workout.metricType == .steps {
-            workout.steps = value
-        } else {
-            workout.floors = value
-        }
-        
-        print("🔍 Updated workout: \(workout.name)")
+        let pickerItems = selectedImages.map { $0.pickerItem }
+        var newlyUploadedPhotos: [Photo] = []
         
         do {
+            if !pickerItems.isEmpty {
+                newlyUploadedPhotos = try await photoService.uploadPhotos(pickerItems)
+            }
+            
+            // Update the workout properties
+            workout.name = workoutName
+            workout.date = workoutDate
+            workout.duration = totalDuration
+            workout.notes = notes
+            workout.avgHeartRate = avgHR
+            workout.maxHeartRate = maxHR
+            workout.caloriesBurned = calories
+            workout.effortRating = effortRating
+            
+            // Update metric value based on workout's original type
+            if workout.metricType == .steps {
+                workout.steps = value
+            } else {
+                workout.floors = value
+            }
+            
+            // Persist new/existing photos
+            workout.photos = existingPhotos + newlyUploadedPhotos
+            
             try modelContext.save()
-            print("✅ Successfully updated workout")
+            print("✅ Successfully updated workout with \(workout.photos.count) photos")
+            
+            let photosToDelete = photosMarkedForDeletion
+            if !photosToDelete.isEmpty {
+                Task {
+                    try? await photoService.deletePhotos(photosToDelete)
+                }
+            }
+            
             showingEditWorkout = false
         } catch {
+            if !newlyUploadedPhotos.isEmpty {
+                Task {
+                    try? await photoService.deletePhotos(newlyUploadedPhotos)
+                }
+            }
             print("❌ Error updating workout: \(error)")
+            updateErrorMessage = "We couldn't update this workout. Please try again.\n\n\(error.localizedDescription)"
         }
+        
+        isSaving = false
+    }
+    
+    private func removeExistingPhoto(_ photo: Photo) {
+        if !photosMarkedForDeletion.contains(where: { $0.id == photo.id }) {
+            photosMarkedForDeletion.append(photo)
+        }
+        existingPhotos.removeAll { $0.id == photo.id }
+        photoPendingDeletion = nil
     }
 }
 
