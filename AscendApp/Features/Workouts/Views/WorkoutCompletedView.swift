@@ -17,6 +17,7 @@ struct WorkoutCompletedView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
+    @State private var showingShareView = false
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -155,6 +156,26 @@ struct WorkoutCompletedView: View {
                 
                 Spacer(minLength: 40)
                 
+                Button(action: {
+                    showingShareView = true
+                }) {
+                    Text("Share")
+                        .font(.montserratSemiBold)
+                        .foregroundStyle(.accent)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 55)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(.accent, lineWidth: 1.5)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .fill(effectiveColorScheme == .dark ? Color.white.opacity(0.05) : Color.white)
+                                )
+                        )
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 16)
+                
                 // Done Button
                 Button(action: {
                     onDismiss()
@@ -174,6 +195,9 @@ struct WorkoutCompletedView: View {
             }
         }
         .themedBackground()
+        .sheet(isPresented: $showingShareView) {
+            ShareWorkoutView(workout: workout)
+        }
     }
     
     private func statRow(title: String, value: String, icon: String, color: Color) -> some View {
