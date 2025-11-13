@@ -48,6 +48,14 @@ struct HomeView: View {
             VStack(spacing: 20) {
                 // Streak & Activity Section
                 StreakView(workouts: workouts)
+                
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Last 7 Days on the Stairs")
+                        .font(.montserratSemiBold(size: 20))
+                        .foregroundStyle(colorScheme == .dark ? .white : .black)
+                    
+                    LastSevenDaysSummaryCard(workouts: workouts)
+                }
             }
             
             Spacer()
