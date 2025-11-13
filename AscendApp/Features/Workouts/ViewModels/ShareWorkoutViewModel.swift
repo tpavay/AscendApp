@@ -18,8 +18,10 @@ final class ShareWorkoutViewModel: ObservableObject {
 
     @Published var usesPhotoBackground: Bool = false
     @Published var backgroundImage: UIImage? = nil
+    @Published var isLoadingBackground: Bool = false
 
     let workout: Workout
+    private var backgroundLoadTask: Task<Void, Never>?
 
     init(workout: Workout) {
         self.workout = workout
@@ -27,6 +29,8 @@ final class ShareWorkoutViewModel: ObservableObject {
     }
 
     func useDefaultBackground() {
+        cancelBackgroundLoad()
+        isLoadingBackground = false
         usesPhotoBackground = false
     }
 
@@ -76,13 +80,35 @@ final class ShareWorkoutViewModel: ObservableObject {
             return
         }
 
-        Task { [photoURL] in
-            guard let image = await Self.loadImage(from: photoURL) else { return }
-            if self.backgroundImage == nil {
-                self.backgroundImage = image
-                self.usesPhotoBackground = true
+        startBackgroundLoad(for: photoURL)
+    }
+
+    private func startBackgroundLoad(for url: URL) {
+        cancelBackgroundLoad()
+        isLoadingBackground = true
+
+        backgroundLoadTask = Task { [url] in
+            let image = await Self.loadImage(from: url)
+            await MainActor.run {
+                defer { self.backgroundLoadTask = nil }
+
+                guard !Task.isCancelled else {
+                    self.isLoadingBackground = false
+                    return
+                }
+
+                if let image, self.backgroundImage == nil {
+                    self.backgroundImage = image
+                    self.usesPhotoBackground = true
+                }
+                self.isLoadingBackground = false
             }
         }
+    }
+
+    private func cancelBackgroundLoad() {
+        backgroundLoadTask?.cancel()
+        backgroundLoadTask = nil
     }
 
     private static func loadImage(from url: URL) async -> UIImage? {

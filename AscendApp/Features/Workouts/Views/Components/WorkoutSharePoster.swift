@@ -162,11 +162,6 @@ private extension WorkoutSharePoster {
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
-                .overlay {
-                    Image(systemName: "photo.badge.plus")
-                        .font(.system(size: 48, weight: .light))
-                        .foregroundStyle(.white.opacity(0.7))
-                }
             }
         }
     }

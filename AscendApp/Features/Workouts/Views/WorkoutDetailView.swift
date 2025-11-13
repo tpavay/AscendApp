@@ -15,6 +15,7 @@ struct WorkoutDetailView: View {
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
     @State private var showingEditWorkout = false
+    @State private var showingShareWorkoutView = false
     @State private var showingDeleteConfirmation = false
     @State private var showingDeleteError = false
     @State private var deleteErrorMessage = ""
@@ -77,6 +78,9 @@ struct WorkoutDetailView: View {
                     showingEditWorkout: $showingEditWorkout
                 )
             }
+            .sheet(isPresented: $showingShareWorkoutView) {
+                ShareWorkoutView(workout: workout)
+            }
             .sheet(isPresented: $showingDeleteConfirmation) {
                 SingleWorkoutDeleteConfirmationView(
                     workout: workout,
@@ -115,6 +119,12 @@ struct WorkoutDetailView: View {
                 Spacer()
                 
                 Menu {
+                    Button(action: {
+                        showingShareWorkoutView = true
+                    }) {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                    
                     Button(action: {
                         showingEditWorkout = true
                     }) {

@@ -129,6 +129,18 @@ struct ShareWorkoutView: View {
             height: ShareWorkoutViewModel.displayCardHeight
         )
         .frame(maxWidth: .infinity)
+        .overlay {
+            if viewModel.isLoadingBackground {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 32)
+                        .fill(Color.black.opacity(0.35))
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+                }
+                .allowsHitTesting(false)
+            }
+        }
         .padding(.horizontal, 4)
     }
 
@@ -201,18 +213,31 @@ struct ShareWorkoutView: View {
     }
 
     private func loadImage(from pickerItem: PhotosPickerItem) async {
+        await MainActor.run {
+            viewModel.isLoadingBackground = true
+        }
+
         do {
             if let data = try await pickerItem.loadTransferable(type: Data.self),
                let image = UIImage(data: data) {
                 await MainActor.run {
                     viewModel.updateBackgroundImage(image)
                     photoPickerItem = nil
+                    viewModel.isLoadingBackground = false
                 }
+                return
+            }
+
+            await MainActor.run {
+                shareErrorMessage = "We couldn't load that photo. Please try another one."
+                photoPickerItem = nil
+                viewModel.isLoadingBackground = false
             }
         } catch {
             await MainActor.run {
                 shareErrorMessage = "We couldn't load that photo. Please try another one."
                 photoPickerItem = nil
+                viewModel.isLoadingBackground = false
             }
         }
     }
