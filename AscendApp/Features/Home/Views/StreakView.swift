@@ -16,14 +16,13 @@ struct DailyWorkoutNavigation: Hashable {
 struct StreakView: View {
     let workouts: [Workout]
     @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var tabRouter: TabRouter
     @State private var themeManager = ThemeManager.shared
     @State private var selectedWeekOffset: Int = 0 // 0 = current week, -1 = last week, etc.
     @State private var selectedWorkout: Workout?
     @State private var selectedDailyWorkouts: DailyWorkoutNavigation?
     @State private var showWorkoutDetail = false
     @State private var showDailyWorkoutDetail = false
-    @State private var showingStreakSheet = false
-    @State private var showingProgressSheet = false
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -77,7 +76,7 @@ struct StreakView: View {
                 
                 // Streak counter - Tappable
                 Button(action: {
-                    showingStreakSheet = true
+                    tabRouter.selectedTab = .progress
                 }) {
                     HStack(spacing: 6) {
                         Image(systemName: "flame.fill")
@@ -169,18 +168,6 @@ struct StreakView: View {
             if let dailyWorkouts = selectedDailyWorkouts {
                 DailyWorkoutDetailView(date: dailyWorkouts.date, workouts: dailyWorkouts.workouts)
             }
-        }
-        .sheet(isPresented: $showingStreakSheet) {
-            StreakSheet(
-                currentStreak: currentStreak,
-                workouts: workouts,
-                showingProgressSheet: $showingProgressSheet
-            )
-            .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $showingProgressSheet) {
-            ProgressSheet(workouts: workouts)
-                .presentationDragIndicator(.visible)
         }
     }
     
@@ -300,6 +287,7 @@ struct StreakView: View {
     
     StreakView(workouts: sampleWorkouts)
         .padding(20)
+        .environmentObject(TabRouter())
 }
 
 #Preview("Dark") {
@@ -322,5 +310,6 @@ struct StreakView: View {
     
     StreakView(workouts: sampleWorkouts)
         .padding(20)
+        .environmentObject(TabRouter())
         .preferredColorScheme(.dark)
 }

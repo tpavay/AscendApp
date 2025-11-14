@@ -11,7 +11,6 @@ struct ProgressSheet: View {
     let workouts: [Workout]
     
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.dismiss) private var dismiss
     @State private var themeManager = ThemeManager.shared
     @State private var selectedDate = Date()
     
@@ -44,7 +43,8 @@ struct ProgressSheet: View {
     }
     
     var body: some View {
-        VStack(spacing: 0) {
+        ScrollView {
+            VStack(spacing: 0) {
             // Title
             HStack {
                 Text("Progress")
@@ -62,7 +62,9 @@ struct ProgressSheet: View {
             // Calendar section
             calendarSection
 
-            Spacer()
+            Spacer(minLength: 0)
+        }
+        .padding(.bottom, 40)
         }
         .themedBackground()
     }

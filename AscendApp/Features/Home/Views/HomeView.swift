@@ -89,6 +89,7 @@ struct HomeView: View {
     NavigationStack {
         HomeView()
             .environment(AuthenticationViewModel())
+            .environmentObject(TabRouter())
     }
     .modelContainer(for: Workout.self, inMemory: true)
 }

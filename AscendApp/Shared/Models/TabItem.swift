@@ -7,14 +7,29 @@
 
 import SwiftUI
 
+enum AppTab: Hashable {
+    case home
+    case workouts
+    case progress
+    case leaderboard
+    case settings
+}
+
+final class TabRouter: ObservableObject {
+    @Published var selectedTab: AppTab = .home
+}
+
 struct TabItem: Identifiable, Hashable {
-    let id = UUID()
+    let identifier: AppTab
     let title: String
     let iconName: String
     let selectedIconName: String?
     let view: AnyView
     
-    init<V: View>(title: String, iconName: String, selectedIconName: String? = nil, @ViewBuilder view: () -> V) {
+    var id: AppTab { identifier }
+    
+    init<V: View>(identifier: AppTab, title: String, iconName: String, selectedIconName: String? = nil, @ViewBuilder view: () -> V) {
+        self.identifier = identifier
         self.title = title
         self.iconName = iconName
         self.selectedIconName = selectedIconName
@@ -23,11 +38,11 @@ struct TabItem: Identifiable, Hashable {
     
     // Hashable conformance
     static func == (lhs: TabItem, rhs: TabItem) -> Bool {
-        lhs.id == rhs.id
+        lhs.identifier == rhs.identifier
     }
     
     func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
+        hasher.combine(identifier)
     }
 }
 
@@ -37,6 +52,7 @@ extension TabItem {
     static var availableTabs: [TabItem] {
         [
             TabItem(
+                identifier: .home,
                 title: "Home",
                 iconName: "Home",
                 selectedIconName: "HomeFill"
@@ -48,6 +64,7 @@ extension TabItem {
             },
 
             TabItem(
+                identifier: .workouts,
                 title: "Workouts",
                 iconName: "figure.stair.stepper",
                 selectedIconName: "figure.stair.stepper"
@@ -59,17 +76,19 @@ extension TabItem {
             },
 
             TabItem(
+                identifier: .progress,
                 title: "Progress",
                 iconName: "chart.line.uptrend.xyaxis",
                 selectedIconName: "chart.line.uptrend.xyaxis"
             ) {
                 NavigationStack {
-                    ProgressPlaceholderView()
+                    ProgressTabView()
                 }
                 .id("ProgressNavigationStack")
             },
 
             TabItem(
+                identifier: .leaderboard,
                 title: "Leaderboard",
                 iconName: "chart.bar.fill",
                 selectedIconName: "chart.bar.fill"
@@ -81,6 +100,7 @@ extension TabItem {
             },
 
             TabItem(
+                identifier: .settings,
                 title: "Settings",
                 iconName: "Settings",
                 selectedIconName: "SettingsFill"

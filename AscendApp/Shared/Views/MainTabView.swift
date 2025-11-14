@@ -10,7 +10,7 @@ import SwiftUI
 struct MainTabView: View {
     @Environment(\.colorScheme) private var systemColorScheme
     @State private var themeManager = ThemeManager.shared
-    @State private var selectedTab: TabItem?
+    @StateObject private var tabRouter = TabRouter()
     
     // Easy configuration - just change this array to modify tabs
     private let tabs = TabItem.activeTabs
@@ -20,11 +20,11 @@ struct MainTabView: View {
     }
     
     var body: some View {
-        TabView(selection: $selectedTab) {
+        TabView(selection: $tabRouter.selectedTab) {
             ForEach(tabs) { tab in
                 tab.view
                     .tabItem {
-                        let isSelected = selectedTab?.id == tab.id
+                        let isSelected = tabRouter.selectedTab == tab.identifier
                         let iconToUse = getIconName(for: tab, isSelected: isSelected)
                         
                         if tab.iconName.starts(with: "Home") || tab.iconName.starts(with: "Settings") {
@@ -35,14 +35,12 @@ struct MainTabView: View {
                         }
                         Text(tab.title)
                     }
-                    .tag(tab)
+                    .tag(tab.identifier)
             }
         }
         .accentColor(.accent)
+        .environmentObject(tabRouter)
         .onAppear {
-            if selectedTab == nil {
-                selectedTab = tabs.first
-            }
             setupTabBarAppearance()
         }
         .onChange(of: effectiveColorScheme) { _, _ in
