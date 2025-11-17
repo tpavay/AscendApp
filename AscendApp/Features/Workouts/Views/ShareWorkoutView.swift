@@ -23,6 +23,7 @@ struct ShareWorkoutView: View {
     @State private var showingPhotoPicker = false
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var copyConfirmationText: String?
+    @State private var showingStyleOptions = false
 
     init(workout: Workout) {
         _viewModel = StateObject(wrappedValue: ShareWorkoutViewModel(workout: workout))
@@ -85,6 +86,14 @@ struct ShareWorkoutView: View {
                 showingPhotoPicker = true
             }
         }
+        .confirmationDialog("Background Style", isPresented: $showingStyleOptions, titleVisibility: .visible) {
+            ForEach(PosterBackgroundStyle.allCases) { style in
+                Button(style.displayName) {
+                    viewModel.backgroundStyle = style
+                    viewModel.useDefaultBackground()
+                }
+            }
+        }
         .alert("Unable to Share", isPresented: Binding(
             get: { shareErrorMessage != nil },
             set: { if !$0 { shareErrorMessage = nil } }
@@ -121,6 +130,7 @@ struct ShareWorkoutView: View {
             workout: viewModel.workout,
             usesPhotoBackground: viewModel.usesPhotoBackground,
             backgroundImage: viewModel.backgroundImage,
+            backgroundStyle: viewModel.backgroundStyle,
             measurementSystem: settingsManager.measurementSystem,
             stepHeight: settingsManager.stepHeight
         )
@@ -157,6 +167,17 @@ struct ShareWorkoutView: View {
                 }
 
                 ShareActionButton(
+                    icon: "paintpalette",
+                    title: "Style",
+                    foregroundColor: actionForeground,
+                    backgroundColor: actionBackground
+                ) {
+                    showingStyleOptions = true
+                }
+            }
+
+            HStack(spacing: 12) {
+                ShareActionButton(
                     icon: "square.and.arrow.up",
                     title: "More",
                     foregroundColor: actionForeground,
@@ -164,15 +185,15 @@ struct ShareWorkoutView: View {
                 ) {
                     sharePoster()
                 }
-            }
 
-            ShareActionButton(
-                icon: "doc.on.doc",
-                title: "Copy Text",
-                foregroundColor: actionForeground,
-                backgroundColor: actionBackground
-            ) {
-                copyShareText()
+                ShareActionButton(
+                    icon: "doc.on.doc",
+                    title: "Copy Text",
+                    foregroundColor: actionForeground,
+                    backgroundColor: actionBackground
+                ) {
+                    copyShareText()
+                }
             }
         }
     }

@@ -13,12 +13,13 @@ import UIKit
 final class ShareWorkoutViewModel: ObservableObject {
     static let posterExportSize = CGSize(width: 1080, height: 1350)
     static let posterAspectRatio = posterExportSize.width / posterExportSize.height
-    static let displayCardHeight: CGFloat = 420
+    static let displayCardHeight: CGFloat = 460
     static let displayCardWidth: CGFloat = displayCardHeight * posterAspectRatio
 
     @Published var usesPhotoBackground: Bool = false
     @Published var backgroundImage: UIImage? = nil
     @Published var isLoadingBackground: Bool = false
+    @Published var backgroundStyle: PosterBackgroundStyle = .texture
 
     let workout: Workout
     private var backgroundLoadTask: Task<Void, Never>?
@@ -47,6 +48,7 @@ final class ShareWorkoutViewModel: ObservableObject {
             workout: workout,
             usesPhotoBackground: usesPhotoBackground,
             backgroundImage: backgroundImage,
+            backgroundStyle: backgroundStyle,
             measurementSystem: measurementSystem,
             stepHeight: stepHeight
         )
