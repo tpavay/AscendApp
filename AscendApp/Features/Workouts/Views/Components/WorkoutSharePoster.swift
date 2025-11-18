@@ -187,7 +187,7 @@ private extension WorkoutSharePoster {
 
     var statList: some View {
         VStack(alignment: .leading, spacing: hasPhoto ? 8 : 10) {
-            statRow(icon: "clock.arrow.circlepath", label: "Workout Duration", value: workout.durationFormatted)
+            statRow(icon: "clock.arrow.circlepath", label: "Duration", value: workout.durationFormatted)
 
             if let stepsValue = stepsDisplay {
                 statRow(icon: "figure.walk.motion", label: "Steps", value: stepsValue)
