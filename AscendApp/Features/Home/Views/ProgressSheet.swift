@@ -41,6 +41,33 @@ struct ProgressSheet: View {
         let currentMonth = Date()
         return calendar.compare(nextMonthDate, to: currentMonth, toGranularity: .month) != .orderedDescending
     }
+
+    // MARK: - Monthly Aggregates
+    private var currentMonthWorkouts: [Workout] {
+        workouts.filter { calendar.isDate($0.date, equalTo: selectedDate, toGranularity: .month) }
+    }
+
+    private var totalWorkoutsThisMonth: Int {
+        currentMonthWorkouts.count
+    }
+
+    private var totalStepsThisMonth: Int {
+        currentMonthWorkouts.compactMap(\.steps).reduce(0, +)
+    }
+
+    private var totalCaloriesThisMonth: Int {
+        currentMonthWorkouts.compactMap(\.caloriesBurned).reduce(0, +)
+    }
+
+    private var totalDurationThisMonth: TimeInterval {
+        currentMonthWorkouts.map(\.duration).reduce(0, +)
+    }
+
+    private var averageStepsPerMinuteThisMonth: Double {
+        let totalMinutes = totalDurationThisMonth / 60
+        guard totalMinutes > 0 else { return 0 }
+        return Double(totalStepsThisMonth) / totalMinutes
+    }
     
     var body: some View {
         ScrollView {
@@ -98,6 +125,7 @@ struct ProgressSheet: View {
             .padding(.horizontal, 24)
             
             // Calendar grid
+            monthSummary
             calendarGrid
         }
         .padding(.vertical, 16)
@@ -135,28 +163,64 @@ struct ProgressSheet: View {
         }
     }
     
-    private func calendarDay(_ dayData: CalendarDay) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 16)
-                .fill(dayData.hasWorkout ? 
-                      AnyShapeStyle(LinearGradient(
-                        gradient: Gradient(colors: [.yellow, .orange]),
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                      )) : 
-                      AnyShapeStyle(effectiveColorScheme == .dark ? Color.white.opacity(0.1) : Color.gray.opacity(0.1))
-                )
-                .frame(height: 44)
+    private var monthSummary: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                summaryItem(title: "Workouts", value: "\(totalWorkoutsThisMonth)")
+                summaryItem(title: "Steps", value: formattedNumber(totalStepsThisMonth))
+                summaryItem(title: "Calories", value: formattedNumber(totalCaloriesThisMonth))
+            }
             
-            Text("\(dayData.day)")
-                .font(.montserratBold(size: 16))
-                .foregroundStyle(
-                    dayData.isCurrentMonth ? 
-                        (dayData.hasWorkout ? .white : (effectiveColorScheme == .dark ? .white : .black)) :
-                        (effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5))
-                )
+            HStack(spacing: 12) {
+                summaryItem(title: "Duration", value: formattedDuration(totalDurationThisMonth))
+                summaryItem(title: "Steps / Min", value: formattedStepsPerMinute(averageStepsPerMinuteThisMonth))
+            }
         }
-        .opacity(dayData.isCurrentMonth ? 1.0 : 0.6)
+        .padding(.horizontal, 16)
+    }
+    
+    private func summaryItem(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title.uppercased())
+                .font(.montserratMedium(size: 11))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+            Text(value)
+                .font(.montserratBold(size: 18))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(effectiveColorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.04))
+        )
+    }
+    
+    private func calendarDay(_ dayData: CalendarDay) -> some View {
+        Group {
+            if dayData.isCurrentMonth {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(dayData.hasWorkout ?
+                              AnyShapeStyle(LinearGradient(
+                                gradient: Gradient(colors: [.yellow, .orange]),
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                              )) :
+                              AnyShapeStyle(effectiveColorScheme == .dark ? Color.white.opacity(0.1) : Color.gray.opacity(0.1))
+                        )
+                        .frame(height: 44)
+                    
+                    Text("\(dayData.day)")
+                        .font(.montserratBold(size: 16))
+                        .foregroundStyle(dayData.hasWorkout ? .white : (effectiveColorScheme == .dark ? .white : .black))
+                }
+            } else {
+                Color.clear
+                    .frame(height: 44)
+            }
+        }
     }
     
     private var bottomSection: some View {
@@ -212,6 +276,33 @@ struct ProgressSheet: View {
             .padding(.horizontal, 60)
         }
         .padding(.vertical, 20)
+    }
+
+    // MARK: - Formatting Helpers
+    private func formattedNumber(_ number: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return formatter.string(from: NSNumber(value: number)) ?? "\(number)"
+    }
+
+    private func formattedDuration(_ duration: TimeInterval) -> String {
+        let totalSeconds = Int(duration)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        
+        if hours > 0 {
+            return String(format: "%d hr %02d min", hours, minutes)
+        } else {
+            return String(format: "%d min", minutes)
+        }
+    }
+
+    private func formattedStepsPerMinute(_ value: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.maximumFractionDigits = 0
+        formatter.minimumFractionDigits = 0
+        formatter.numberStyle = .decimal
+        return formatter.string(from: NSNumber(value: value)) ?? "0"
     }
     
     // MARK: - Calendar Logic
