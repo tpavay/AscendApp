@@ -17,16 +17,23 @@ struct ShareWorkoutView: View {
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
 
-    @State private var showingBackgroundOptions = false
+    @State private var showingPhotoOptions = false
     @State private var sharePayload: ActivitySharePayload?
     @State private var shareErrorMessage: String?
     @State private var showingPhotoPicker = false
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var copyConfirmationText: String?
-    @State private var showingStyleOptions = false
 
     init(workout: Workout) {
         _viewModel = StateObject(wrappedValue: ShareWorkoutViewModel(workout: workout))
+    }
+
+    private func handlePhotoButtonTap() {
+        if viewModel.backgroundImage == nil {
+            showingPhotoPicker = true
+        } else {
+            showingPhotoOptions = true
+        }
     }
 
     private var effectiveColorScheme: ColorScheme {
@@ -77,21 +84,13 @@ struct ShareWorkoutView: View {
             ActivityView(activityItems: payload.items)
                 .ignoresSafeArea()
         }
-        .confirmationDialog("Background", isPresented: $showingBackgroundOptions, titleVisibility: .visible) {
-            Button("Default") {
-                viewModel.useDefaultBackground()
-            }
-
-            Button("Photo") {
+        .confirmationDialog("Photo", isPresented: $showingPhotoOptions, titleVisibility: .visible) {
+            Button("Update Photo") {
                 showingPhotoPicker = true
             }
-        }
-        .confirmationDialog("Background Style", isPresented: $showingStyleOptions, titleVisibility: .visible) {
-            ForEach(PosterBackgroundStyle.allCases) { style in
-                Button(style.displayName) {
-                    viewModel.backgroundStyle = style
-                    viewModel.useDefaultBackground()
-                }
+
+            Button("Remove Photo", role: .destructive) {
+                viewModel.removePhoto()
             }
         }
         .alert("Unable to Share", isPresented: Binding(
@@ -125,6 +124,10 @@ struct ShareWorkoutView: View {
         }
     }
 
+    private var photoButtonTitle: String {
+        viewModel.backgroundImage == nil ? "Add Photo" : "Update Photo"
+    }
+
     private var posterView: some View {
         return WorkoutSharePoster(
             workout: viewModel.workout,
@@ -156,25 +159,15 @@ struct ShareWorkoutView: View {
 
     private var actionRow: some View {
         VStack(spacing: 12) {
-            HStack(spacing: 12) {
-                ShareActionButton(
-                    icon: "photo.on.rectangle",
-                    title: "Change Background",
-                    foregroundColor: actionForeground,
-                    backgroundColor: actionBackground
-                ) {
-                    showingBackgroundOptions = true
-                }
-
-                ShareActionButton(
-                    icon: "paintpalette",
-                    title: "Style",
-                    foregroundColor: actionForeground,
-                    backgroundColor: actionBackground
-                ) {
-                    showingStyleOptions = true
-                }
+            ShareActionButton(
+                icon: "photo.on.rectangle",
+                title: photoButtonTitle,
+                foregroundColor: actionForeground,
+                backgroundColor: actionBackground
+            ) {
+                handlePhotoButtonTap()
             }
+            .frame(maxWidth: .infinity)
 
             HStack(spacing: 12) {
                 ShareActionButton(

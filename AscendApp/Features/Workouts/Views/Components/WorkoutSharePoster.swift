@@ -18,8 +18,11 @@ struct WorkoutSharePoster: View {
     private let cornerRadius: CGFloat = 32
     private let accent = Color.accent
     private let photoCornerRadius: CGFloat = 24
-    private let photoSize: CGFloat = 180
+    private let photoSize: CGFloat = 210
     private let iconContainerSize: CGFloat = 26
+    private let iconSize: CGFloat = 16
+    private let iconContainerSizeLarge: CGFloat = 32
+    private let iconSizeLarge: CGFloat = 19
 
     var body: some View {
         photoSummaryCard
@@ -113,7 +116,7 @@ private extension WorkoutSharePoster {
         ZStack {
             cardBackground
 
-            VStack(alignment: .center, spacing: hasPhoto ? 10 : 10) {
+            VStack(alignment: .center, spacing: hasPhoto ? 10 : 18) {
                 if hasPhoto {
                     photoTile
                 }
@@ -125,7 +128,7 @@ private extension WorkoutSharePoster {
                     .layoutPriority(1)
             }
             .padding(.horizontal, 16)
-            .padding(.top, hasPhoto ? 10 : 16)
+            .padding(.top, hasPhoto ? 10 : 4)
             .padding(.bottom, 46)
         }
         .overlay(alignment: .bottomTrailing) {
@@ -143,99 +146,25 @@ private extension WorkoutSharePoster {
 
     @ViewBuilder
     var cardBackground: some View {
-        switch backgroundStyle {
-        case .accentGlow:
-            accentGlowBackground
-        case .texture:
-            textureBackground
-        }
+        defaultBackground
     }
 
-    var textureOverlay: some View {
-        Canvas { context, size in
-            let spacing: CGFloat = 18
-            let lineWidth: CGFloat = 1
-            var start = -size.height
-            while start < size.height * 2 {
-                var path = Path()
-                path.move(to: CGPoint(x: start, y: 0))
-                path.addLine(to: CGPoint(x: start - size.height, y: size.height))
-                context.stroke(path, with: .color(Color.white.opacity(0.12)), lineWidth: lineWidth)
-                start += spacing
-            }
-        }
-    }
-
-    var textureBackground: some View {
-        Group {
-            if let textureImage {
-                Image(uiImage: textureImage)
-                    .renderingMode(.original)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: cornerRadius)
-                            .stroke(Color.white.opacity(0.05), lineWidth: 1)
-                    }
-            } else {
-                accentGlowBackground
-            }
-        }
-    }
-
-    var accentGlowBackground: some View {
+    var defaultBackground: some View {
         LinearGradient(
-            colors: [
-                Color(hex: "0B0F1A"),
-                Color.accent.opacity(0.68),
-                Color(hex: "040406")
-            ],
+            colors: [.night, .jetLighter],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
-        .overlay {
-            ZStack {
-                RadialGradient(
-                    colors: [
-                        Color.accent.opacity(0.55),
-                        .clear
-                    ],
-                    center: .topLeading,
-                    startRadius: 26,
-                    endRadius: 420
-                )
-                RadialGradient(
-                    colors: [
-                        Color.accent.opacity(0.32),
-                        .clear
-                    ],
-                    center: .bottomTrailing,
-                    startRadius: 34,
-                    endRadius: 520
-                )
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .stroke(Color.white.opacity(0.06), lineWidth: 1)
             }
-            .blur(radius: 22)
-        }
-        .overlay {
-            textureOverlay
-                .blur(radius: 0.5)
-                .opacity(0.24)
-                .blendMode(.overlay)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: cornerRadius)
-                .stroke(Color.white.opacity(0.06), lineWidth: 1)
-        }
-    }
-
-    var textureImage: UIImage? {
-        UIImage(named: "WorkoutPosterBackground")
     }
 
     var photoTile: some View {
         Image(uiImage: backgroundImage ?? UIImage())
             .resizable()
-            .scaledToFit()
+            .scaledToFill()
             .frame(width: photoSize, height: photoSize)
             .clipped()
             .clipShape(RoundedRectangle(cornerRadius: photoCornerRadius))
@@ -248,7 +177,7 @@ private extension WorkoutSharePoster {
 
     var titleView: some View {
         Text(workoutTitle)
-            .font(.montserratBold(size: 18))
+            .font(hasPhoto ? .montserratBold(size: 18) : .montserratBold(size: 22))
             .foregroundStyle(.white)
             .lineLimit(2)
             .minimumScaleFactor(0.9)
@@ -257,15 +186,27 @@ private extension WorkoutSharePoster {
     }
 
     var statList: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: hasPhoto ? 8 : 10) {
             statRow(icon: "clock.arrow.circlepath", label: "Workout Duration", value: workout.durationFormatted)
 
             if let stepsValue = stepsDisplay {
                 statRow(icon: "figure.walk.motion", label: "Steps", value: stepsValue)
             }
 
+            if !hasPhoto {
+                if let stepsPerMinute = stepsPerMinuteDisplay {
+                    statRow(icon: "speedometer", label: stepsPerMinute.label, value: stepsPerMinute.value)
+                }
+            }
+
             if let calories = caloriesDisplay {
                 statRow(icon: "flame.fill", label: "Calories", value: calories)
+            }
+
+            if !hasPhoto {
+                if let maxHeartRate = maxHeartRateDisplay {
+                    statRow(icon: "heart.fill", label: "Max Heart Rate", value: maxHeartRate)
+                }
             }
         }
     }
@@ -281,6 +222,39 @@ private extension WorkoutSharePoster {
         return "\(value) steps"
     }
 
+    var stepsPerMinuteDisplay: (label: String, value: String)? {
+        guard let pace = workout.pace else { return nil }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = 1
+        formatter.minimumFractionDigits = 1
+        let paceValue = formatter.string(from: NSNumber(value: pace)) ?? String(format: "%.1f", pace)
+        let label = workout.metricType == .steps ? "Steps per Minute" : "Floors per Minute"
+        let value = workout.metricType == .steps ? "\(paceValue) steps/min" : "\(paceValue) floors/min"
+        return (label, value)
+    }
+
+    var maxHeartRateDisplay: String? {
+        guard let maxHeartRate = workout.maxHeartRate else { return nil }
+        return "\(maxHeartRate) BPM"
+    }
+
+    var statLabelFont: Font {
+        hasPhoto ? .montserratMedium(size: 12) : .montserratMedium(size: 14)
+    }
+
+    var statValueFont: Font {
+        hasPhoto ? .montserratBold(size: 15) : .montserratBold(size: 18)
+    }
+
+    var statIconContainerSize: CGFloat {
+        hasPhoto ? iconContainerSize : iconContainerSizeLarge
+    }
+
+    var statIconSize: CGFloat {
+        hasPhoto ? iconSize : iconSizeLarge
+    }
+
     var caloriesDisplay: String? {
         guard let calories = workout.caloriesBurned else { return nil }
         let formatter = NumberFormatter()
@@ -294,18 +268,18 @@ private extension WorkoutSharePoster {
             ZStack {
                 Circle()
                     .fill(accent.opacity(0.1))
-                    .frame(width: iconContainerSize, height: iconContainerSize)
+                    .frame(width: statIconContainerSize, height: statIconContainerSize)
                 Image(systemName: icon)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: statIconSize, weight: .semibold))
                     .foregroundStyle(accent)
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(label)
-                    .font(.montserratMedium(size: 12))
+                    .font(statLabelFont)
                     .foregroundStyle(.white.opacity(0.8))
                 Text(value)
-                    .font(.montserratBold(size: 15))
+                    .font(statValueFont)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
@@ -327,10 +301,7 @@ struct WorkoutSharePoster_Previews: PreviewProvider {
 
     static var previews: some View {
         Group {
-            poster(style: .texture)
-                .previewDisplayName("Texture")
-
-            poster(style: .accentGlow)
+            poster(style: .defaultStyle)
                 .previewDisplayName("Default")
         }
         .padding()
@@ -375,17 +346,14 @@ private struct AscendBadge: View {
 }
 
 enum PosterBackgroundStyle: String, CaseIterable, Identifiable {
-    case texture
-    case accentGlow
+    case defaultStyle
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .texture:
-            return "Texture"
-        case .accentGlow:
-            return "Accent Glow"
+        case .defaultStyle:
+            return "Default"
         }
     }
 }

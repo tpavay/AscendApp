@@ -19,7 +19,7 @@ final class ShareWorkoutViewModel: ObservableObject {
     @Published var usesPhotoBackground: Bool = false
     @Published var backgroundImage: UIImage? = nil
     @Published var isLoadingBackground: Bool = false
-    @Published var backgroundStyle: PosterBackgroundStyle = .texture
+    @Published var backgroundStyle: PosterBackgroundStyle = .defaultStyle
 
     let workout: Workout
     private var backgroundLoadTask: Task<Void, Never>?
@@ -38,6 +38,13 @@ final class ShareWorkoutViewModel: ObservableObject {
     func updateBackgroundImage(_ image: UIImage?) {
         backgroundImage = image
         usesPhotoBackground = image != nil
+    }
+
+    func removePhoto() {
+        cancelBackgroundLoad()
+        backgroundImage = nil
+        usesPhotoBackground = false
+        isLoadingBackground = false
     }
 
     func renderCurrentPoster(
