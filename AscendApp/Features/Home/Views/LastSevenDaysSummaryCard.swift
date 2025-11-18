@@ -105,9 +105,25 @@ struct LastSevenDaysSummaryCard: View {
                     .font(.montserratBold(size: 22))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                 
-                Text(summary.secondaryLine)
-                    .font(.montserratRegular(size: 14))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                if summary.prior7TotalSteps > 0, let percentChange = summary.percentChange {
+                    HStack(spacing: 8) {
+                        Text("Change vs prior 7 days")
+                            .font(.montserratSemiBold(size: 14))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.85) : .black)
+                        
+                        Text(formattedPercentChange(percentChange))
+                            .font(.montserratBold(size: 15))
+                            .foregroundStyle(percentChangeColor(percentChange))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(percentChangeBackground(percentChange))
+                            .clipShape(Capsule())
+                    }
+                } else {
+                    Text(summary.secondaryLine)
+                        .font(.montserratSemiBold(size: 14))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                }
             }
             
             MiniStairBarChart(
@@ -163,6 +179,23 @@ struct LastSevenDaysSummaryCard: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEEE"
         return formatter.string(from: date)
+    }
+    
+    private func formattedPercentChange(_ percentChange: Int) -> String {
+        percentChange > 0 ? "+\(percentChange)%" : "\(percentChange)%"
+    }
+    
+    private func percentChangeColor(_ percentChange: Int) -> Color {
+        if percentChange > 0 {
+            return .green
+        } else if percentChange < 0 {
+            return .red
+        }
+        return effectiveColorScheme == .dark ? .white.opacity(0.85) : .gray
+    }
+    
+    private func percentChangeBackground(_ percentChange: Int) -> Color {
+        percentChangeColor(percentChange).opacity(effectiveColorScheme == .dark ? 0.28 : 0.12)
     }
 }
 
