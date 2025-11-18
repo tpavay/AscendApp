@@ -48,9 +48,9 @@ struct WorkoutDetailView: View {
                         )
                     }
                     
-                    // Calories and METs (if available and not already shown)
-                    if workout.caloriesBurned != nil || workout.averageMETs != nil {
-                        caloriesSection
+                    // Additional metrics (e.g., calories, METs, vertical climb)
+                    if hasAdditionalMetrics {
+                        additionalMetricsSection
                     }
                     
                     // Notes (if available)
@@ -189,10 +189,10 @@ struct WorkoutDetailView: View {
                     // Show duration, steps/floors, avg HR, max HR in square
                     squareMetricsGrid
                     
-                    // Show pace and vertical climb below
+                    // Show pace below
                     additionalMetrics
                 } else {
-                    // Show duration, steps/floors, pace, vertical climb in square
+                    // Show duration, steps/floors, pace in square
                     fullWorkoutMetricsGrid
                 }
                 
@@ -287,20 +287,6 @@ struct WorkoutDetailView: View {
             } else {
                 gridStatCard(icon: "minus", title: "No Data", value: "—")
             }
-            
-            // Vertical climb (for steps) or empty slot
-            if let verticalClimb = workout.totalVerticalClimb(
-                stepHeight: settingsManager.stepHeight,
-                measurementSystem: settingsManager.measurementSystem
-            ) {
-                gridStatCard(
-                    icon: "arrow.up",
-                    title: "Vertical Climb",
-                    value: String(format: "%.1f", verticalClimb)
-                )
-            } else {
-                gridStatCard(icon: "minus", title: "No Data", value: "—")
-            }
         }
     }
     
@@ -315,23 +301,10 @@ struct WorkoutDetailView: View {
                     subtitle: "\(workout.metricType.unit)/min"
                 )
             }
-            
-            // Vertical climb (for steps)
-            if let verticalClimb = workout.totalVerticalClimb(
-                stepHeight: settingsManager.stepHeight,
-                measurementSystem: settingsManager.measurementSystem
-            ) {
-                statCard(
-                    icon: "arrow.up",
-                    title: "Vertical Climb",
-                    value: String(format: "%.1f", verticalClimb),
-                    subtitle: workout.verticalClimbUnit(measurementSystem: settingsManager.measurementSystem)
-                )
-            }
         }
     }
     
-    private var caloriesSection: some View {
+    private var additionalMetricsSection: some View {
         VStack(spacing: 16) {
             // Section header
             HStack {
@@ -339,6 +312,15 @@ struct WorkoutDetailView: View {
                     .font(.montserratSemiBold(size: 20))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                 Spacer()
+            }
+
+            if let verticalClimb = verticalClimbValue {
+                statCard(
+                    icon: "arrow.up",
+                    title: "Vertical Climb",
+                    value: String(format: "%.1f", verticalClimb),
+                    subtitle: workout.verticalClimbUnit(measurementSystem: settingsManager.measurementSystem)
+                )
             }
             
             if let calories = workout.caloriesBurned {
@@ -361,6 +343,17 @@ struct WorkoutDetailView: View {
                 )
             }
         }
+    }
+
+    private var hasAdditionalMetrics: Bool {
+        verticalClimbValue != nil || workout.caloriesBurned != nil || workout.averageMETs != nil
+    }
+
+    private var verticalClimbValue: Double? {
+        workout.totalVerticalClimb(
+            stepHeight: settingsManager.stepHeight,
+            measurementSystem: settingsManager.measurementSystem
+        )
     }
     
     private var notesSection: some View {
