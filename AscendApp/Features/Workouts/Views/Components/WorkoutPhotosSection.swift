@@ -33,16 +33,19 @@ struct WorkoutPhotosSection: View {
             }
 
             // Photos grid
-            LazyVGrid(columns: gridColumns, spacing: 12) {
-                ForEach(photos) { photo in
-                    LoadablePhotoView(
-                        photo: photo,
-                        size: CGSize(width: 100, height: 100),
-                        cornerRadius: 8
-                    ) {
-                        selectedPhoto = photo
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 12) {
+                    ForEach(photos) { photo in
+                        LoadablePhotoView(
+                            photo: photo,
+                            size: CGSize(width: 110, height: 110),
+                            cornerRadius: 10
+                        ) {
+                            selectedPhoto = photo
+                        }
                     }
                 }
+                .padding(.vertical, 4)
             }
         }
         .fullScreenCover(item: $selectedPhoto) { photo in
@@ -50,19 +53,6 @@ struct WorkoutPhotosSection: View {
                 selectedPhoto = nil
             }
         }
-    }
-
-    private var gridColumns: [GridItem] {
-        let screenWidth = UIScreen.main.bounds.width
-        let padding: CGFloat = 40 // 20 on each side
-        let spacing: CGFloat = 12
-        let itemSize: CGFloat = 100
-
-        let availableWidth = screenWidth - padding
-        let columnsWithSpacing = (availableWidth + spacing) / (itemSize + spacing)
-        let columnCount = max(2, Int(columnsWithSpacing.rounded(.down)))
-
-        return Array(repeating: GridItem(.flexible(), spacing: spacing), count: columnCount)
     }
 }
 
