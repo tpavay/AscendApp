@@ -50,7 +50,7 @@ struct HomeView: View {
                 StreakView(workouts: workouts)
                 
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Last 7 Days on the Stairs")
+                    Text("Last 7 Days")
                         .font(.montserratSemiBold(size: 20))
                         .foregroundStyle(colorScheme == .dark ? .white : .black)
                     
