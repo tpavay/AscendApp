@@ -262,6 +262,45 @@ extension AuthenticationViewModel {
         }
     }
     
+    func updateProfilePictureWithData(imageData: Data) async {
+        errorMessage = nil
+        
+        guard let user = user else {
+            errorMessage = "User not authenticated"
+            return
+        }
+        
+        do {
+            // Upload the photo data directly
+            let filename = "profile_pictures/\(user.uid)_\(UUID().uuidString).jpg"
+            let photoRepo = FirebasePhotoRepository()
+            let uploadedURL = try await photoRepo.upload(imageData, filename: filename)
+            
+            // Save the URL to Firestore user document
+            try await UserDataRepository.shared.updateProfilePictureURL(
+                userId: user.uid,
+                profilePictureURL: uploadedURL.absoluteString
+            )
+            
+            // Update the local state
+            customProfilePictureURL = uploadedURL
+            
+            // Update all leaderboard entries with the new photo URL
+            do {
+                try await LeaderboardService.shared.updateProfilePictureURL(
+                    userId: user.uid,
+                    photoURL: uploadedURL
+                )
+            } catch {
+                // Don't fail the whole operation if leaderboard update fails
+                print("Warning: Failed to update leaderboard photo URL: \(error)")
+            }
+            
+        } catch {
+            errorMessage = "Failed to update profile picture: \(error.localizedDescription)"
+        }
+    }
+    
     var displayPhotoURL: URL? {
         // Prioritize custom profile picture, then fall back to OAuth provider photo
         return customProfilePictureURL ?? photoURL

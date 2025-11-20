@@ -15,6 +15,8 @@ struct EditProfileView: View {
     
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var isUploadingPhoto = false
+    @State private var imageForCropping: UIImage?
+    @State private var showingCropView = false
     
     var body: some View {
         ScrollView {
@@ -35,10 +37,19 @@ struct EditProfileView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.clear, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+        .fullScreenCover(isPresented: $showingCropView) {
+            if let image = imageForCropping {
+                PhotoCropView(image: image) { croppedImage in
+                    Task {
+                        await uploadCroppedImage(croppedImage)
+                    }
+                }
+            }
+        }
         .onChange(of: selectedPhotoItem) { oldValue, newValue in
             if let newValue = newValue {
                 Task {
-                    await uploadProfilePicture(newValue)
+                    await loadImageForCropping(newValue)
                 }
             }
         }
@@ -141,14 +152,30 @@ struct EditProfileView: View {
     
     // MARK: - Actions
     
-    private func uploadProfilePicture(_ item: PhotosPickerItem) async {
+    private func loadImageForCropping(_ item: PhotosPickerItem) async {
+        guard let data = try? await item.loadTransferable(type: Data.self),
+              let uiImage = UIImage(data: data) else {
+            authVM.errorMessage = "Failed to load image"
+            selectedPhotoItem = nil
+            return
+        }
+        
+        imageForCropping = uiImage
+        showingCropView = true
+        selectedPhotoItem = nil
+    }
+    
+    private func uploadCroppedImage(_ image: UIImage) async {
         isUploadingPhoto = true
         defer { isUploadingPhoto = false }
         
-        await authVM.updateProfilePicture(photoPickerItem: item)
+        // Convert UIImage to JPEG data
+        guard let imageData = image.jpegData(compressionQuality: 0.8) else {
+            authVM.errorMessage = "Failed to process image"
+            return
+        }
         
-        // Clear selection after upload
-        selectedPhotoItem = nil
+        await authVM.updateProfilePictureWithData(imageData: imageData)
     }
 }
 
