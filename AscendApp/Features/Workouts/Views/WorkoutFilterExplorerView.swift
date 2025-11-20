@@ -601,7 +601,7 @@ private struct DatesFilterSheet: View {
                 Toggle("", isOn: $isRangeEnabled)
                     .labelsHidden()
                     .tint(.accent)
-                    .onChange(of: isRangeEnabled) { enabled in
+                    .onChange(of: isRangeEnabled) { _, enabled in
                         if !enabled {
                             focusedField = .start
                             endDate = startDate

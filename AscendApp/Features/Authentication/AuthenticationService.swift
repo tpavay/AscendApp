@@ -242,23 +242,20 @@ extension AuthenticationService {
             case .canceled:
                 // User canceled - this is not an error, just reset state silently
                 signInContinuation?.resume(throwing: CancellationError())
-                return
             case .unknown:
                 signInContinuation?.resume(throwing: AuthenticationError.appleSignInFailed("Apple Sign-in failed with unknown error"))
-                return
             case .invalidResponse:
                 signInContinuation?.resume(throwing: AuthenticationError.appleSignInFailed("Apple Sign-in received invalid response"))
-                return
             case .notHandled:
                 signInContinuation?.resume(throwing: AuthenticationError.appleSignInFailed("Apple Sign-in request not handled"))
-                return
             case .failed:
                 signInContinuation?.resume(throwing: AuthenticationError.appleSignInFailed("Apple Sign-in failed"))
-                return
+            case .notInteractive:
+                signInContinuation?.resume(throwing: AuthenticationError.appleSignInFailed("Apple Sign-in requires user interaction"))
             @unknown default:
                 signInContinuation?.resume(throwing: AuthenticationError.appleSignInFailed("Apple Sign-in failed with unknown error"))
-                return
             }
+            return
         }
         
         // For other types of errors

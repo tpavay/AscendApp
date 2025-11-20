@@ -127,7 +127,7 @@ struct LoadablePhotoView: View {
     
     private func loadVideoThumbnail() async {
         do {
-            let asset = AVAsset(url: photo.url)
+            let asset = AVURLAsset(url: photo.url)
             let imageGenerator = AVAssetImageGenerator(asset: asset)
             imageGenerator.appliesPreferredTrackTransform = true
             

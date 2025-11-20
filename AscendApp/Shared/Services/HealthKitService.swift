@@ -111,12 +111,7 @@ class HealthKitService: ObservableObject {
                 predicate: compoundPredicate,
                 limit: 1000,
                 sortDescriptors: [sortDescriptor]
-            ) { _, samples, error in
-                if let error = error {
-                    continuation.resume(returning: [])
-                    return
-                }
-                
+            ) { _, samples, _ in
                 let workouts = samples as? [HKWorkout] ?? []
                 continuation.resume(returning: workouts)
             }
@@ -179,13 +174,7 @@ class HealthKitService: ObservableObject {
                 quantityType: quantityType,
                 quantitySamplePredicate: predicate,
                 options: .cumulativeSum
-            ) { _, result, error in
-                if let error = error {
-                    print("Error fetching \(identifier): \(error)")
-                    continuation.resume(returning: nil)
-                    return
-                }
-                
+            ) { _, result, _ in
                 let sum = result?.sumQuantity()?.doubleValue(for: HKUnit.count()) ?? 0
                 continuation.resume(returning: sum > 0 ? sum : nil)
             }
@@ -207,18 +196,7 @@ class HealthKitService: ObservableObject {
                 quantityType: heartRateType,
                 quantitySamplePredicate: predicate,
                 options: [.discreteAverage, .discreteMax]
-            ) { _, result, error in
-                if let error = error {
-                    // Code 11 means "No data available" - this is normal for workouts without heart rate data
-                    if (error as NSError).code == 11 {
-                        continuation.resume(returning: (nil, nil))
-                    } else {
-                        print("Error fetching heart rate: \(error)")
-                        continuation.resume(returning: (nil, nil))
-                    }
-                    return
-                }
-                
+            ) { _, result, _ in
                 let average = result?.averageQuantity()?.doubleValue(for: unit)
                 let maximum = result?.maximumQuantity()?.doubleValue(for: unit)
                 
@@ -247,18 +225,7 @@ class HealthKitService: ObservableObject {
                 predicate: predicate,
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [sortDescriptor]
-            ) { _, samples, error in
-                if let error = error {
-                    // Code 11 means "No data available" - this is normal for workouts without heart rate data
-                    if (error as NSError).code == 11 {
-                        continuation.resume(returning: [])
-                    } else {
-                        print("Error fetching heart rate time series: \(error)")
-                        continuation.resume(returning: [])
-                    }
-                    return
-                }
-                
+            ) { _, samples, _ in
                 let dataPoints = (samples as? [HKQuantitySample])?.map { sample in
                     HeartRateDataPoint(
                         timestamp: sample.startDate,
@@ -287,14 +254,14 @@ struct WorkoutMetrics {
 extension HKWorkout {
     func toAscendWorkout(with metrics: WorkoutMetrics) -> Workout {
         // Detect if workout came from Apple Watch based on source device
-        let deviceName = sourceRevision.source.name ?? "Unknown Device"
+        let deviceName = sourceRevision.source.name
         let isFromAppleWatch = deviceName.contains("Apple Watch") || deviceName.contains("Watch")
         
         // Create source metadata with device info
         let sourceMetadata = """
         {
             "sourceDevice": "\(deviceName)",
-            "sourceBundleIdentifier": "\(sourceRevision.source.bundleIdentifier ?? "unknown")",
+            "sourceBundleIdentifier": "\(sourceRevision.source.bundleIdentifier)",
             "workoutActivityType": "\(workoutActivityType.rawValue)",
             "isFromAppleWatch": \(isFromAppleWatch)
         }

@@ -64,9 +64,9 @@ struct PhotoGalleryView: View {
                 .scrollTargetBehavior(.paging)
             }
         }
-        .onChange(of: selectedPhotos) { _, newItems in
+        .onChange(of: selectedPhotos) {
             Task {
-                await processNewPhotos(newItems)
+                await processNewPhotos(selectedPhotos)
             }
         }
         .sheet(item: $photoToDelete) { item in
@@ -176,14 +176,14 @@ extension PhotoGalleryView {
             return nil
         }
         
-        let asset = AVAsset(url: movie.url)
+        let asset = AVURLAsset(url: movie.url)
         let duration = try? await asset.load(.duration).seconds
         
         // Generate thumbnail
         let imageGenerator = AVAssetImageGenerator(asset: asset)
         imageGenerator.appliesPreferredTrackTransform = true
         
-        guard let cgImage = try? imageGenerator.copyCGImage(at: .zero, actualTime: nil),
+        guard let cgImage = try? await imageGenerator.image(at: .zero).image,
               let duration = duration else {
             return nil
         }

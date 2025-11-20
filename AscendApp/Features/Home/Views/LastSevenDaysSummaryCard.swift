@@ -147,7 +147,7 @@ struct LastSevenDaysSummaryCard: View {
         .onAppear {
             ensureSelectionExists(in: summary)
         }
-        .onChange(of: summary.dailyBars.map(\.date)) { newDates in
+        .onChange(of: summary.dailyBars.map(\.date)) { _, newDates in
             guard !newDates.isEmpty else {
                 selectedDate = nil
                 return

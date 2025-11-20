@@ -49,7 +49,7 @@ actor PhotoService {
         }
         
         // Get video duration
-        let asset = AVAsset(url: movie.url)
+        let asset = AVURLAsset(url: movie.url)
         let duration = try await asset.load(.duration).seconds
         
         // Load video data
