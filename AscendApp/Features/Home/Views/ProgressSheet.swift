@@ -68,6 +68,15 @@ struct ProgressSheet: View {
         guard totalMinutes > 0 else { return 0 }
         return Double(totalStepsThisMonth) / totalMinutes
     }
+
+    // MARK: - Best Efforts
+    private var allBestEfforts: [BestEffort] {
+        BestEffortsBuilder.bestEfforts(from: workouts)
+    }
+    
+    private var recentBestEfforts: [BestEffort] {
+        Array(allBestEfforts.prefix(3))
+    }
     
     var body: some View {
         ScrollView {
@@ -89,11 +98,60 @@ struct ProgressSheet: View {
             // Calendar section
             calendarSection
 
+            // Best Efforts below calendar
+            if !recentBestEfforts.isEmpty {
+                bestEffortsPreviewSection
+                    .padding(.horizontal, 24)
+                    .padding(.top, 24)
+            }
+
             Spacer(minLength: 0)
         }
         .padding(.bottom, 40)
         }
+        .scrollIndicators(.hidden)
         .themedBackground()
+    }
+
+    private var bestEffortsPreviewSection: some View {
+        VStack(spacing: 16) {
+            HStack {
+                Text("Best Efforts")
+                    .font(.montserratBold(size: 20))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                
+                Spacer()
+                
+                NavigationLink {
+                    BestEffortsListView(workouts: workouts)
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("View All")
+                            .font(.montserratMedium(size: 14))
+                            .foregroundStyle(.accent)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.accent)
+                    }
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            
+            VStack(spacing: 10) {
+                ForEach(recentBestEfforts) { effort in
+                    BestEffortRow(effort: effort, colorScheme: effectiveColorScheme)
+                }
+            }
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.08) : .gray.opacity(0.15), lineWidth: 1)
+                )
+        )
     }
     
     
@@ -220,6 +278,45 @@ struct ProgressSheet: View {
                 Color.clear
                     .frame(height: 44)
             }
+        }
+    }
+
+    // MARK: - Best Effort Row
+    private struct BestEffortRow: View {
+        let effort: BestEffort
+        let colorScheme: ColorScheme
+        
+        var body: some View {
+            HStack(spacing: 12) {
+                Image(systemName: effort.iconName)
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(.accent)
+                    .frame(width: 28)
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(effort.title)
+                        .font(.montserratSemiBold(size: 14))
+                        .foregroundStyle(colorScheme == .dark ? .white : .black)
+                        .lineLimit(1)
+                    
+                    Text(effort.detailText)
+                        .font(.montserratRegular(size: 12))
+                        .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
+                        .lineLimit(1)
+                }
+                
+                Spacer()
+                
+                Text(effort.valueText)
+                    .font(.montserratBold(size: 14))
+                    .foregroundStyle(colorScheme == .dark ? .white : .black)
+                    .multilineTextAlignment(.trailing)
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03))
+            )
         }
     }
     
