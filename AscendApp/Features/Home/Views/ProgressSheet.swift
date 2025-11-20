@@ -146,10 +146,10 @@ struct ProgressSheet: View {
         .padding(20)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(effectiveColorScheme == .dark ? Color.black.opacity(0.3) : Color.white.opacity(0.5))
+                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
-                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2), lineWidth: 1)
+                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
                 )
         )
     }
@@ -189,10 +189,10 @@ struct ProgressSheet: View {
         .padding(.vertical, 16)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(effectiveColorScheme == .dark ? Color.black.opacity(0.3) : Color.white.opacity(0.5))
+                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
-                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2), lineWidth: 1)
+                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
                 )
         )
         .padding(.horizontal, 24)
