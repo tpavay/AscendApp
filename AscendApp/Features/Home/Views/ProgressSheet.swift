@@ -14,6 +14,8 @@ struct ProgressSheet: View {
     @State private var themeManager = ThemeManager.shared
     @State private var selectedDate = Date()
     @State private var showIntensityExplanation = false
+    @State private var selectedCalendarDay: CalendarDay?
+    @State private var workoutToEdit: Workout?
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -121,6 +123,16 @@ struct ProgressSheet: View {
         .sheet(isPresented: $showIntensityExplanation) {
             IntensityExplanationView()
         }
+        .sheet(item: $workoutToEdit) { workout in
+            EditWorkoutView(workout: workout, showingEditWorkout: Binding(
+                get: { workoutToEdit != nil },
+                set: { isShowing in
+                    if !isShowing {
+                        workoutToEdit = nil
+                    }
+                }
+            ))
+        }
     }
 
     private var bestEffortsPreviewSection: some View {
@@ -178,9 +190,9 @@ struct ProgressSheet: View {
                 Spacer()
                 
                 HStack(spacing: 8) {
-                    Text(monthYearFormatter.string(from: selectedDate))
-                        .font(.montserratBold(size: 20))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                Text(monthYearFormatter.string(from: selectedDate))
+                    .font(.montserratBold(size: 20))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                     
                     Button {
                         showIntensityExplanation = true
@@ -205,6 +217,15 @@ struct ProgressSheet: View {
             // Calendar grid
             monthSummary
             calendarGrid
+            
+            // Selected day intensity details
+            if let selectedDay = selectedCalendarDay, selectedDay.hasWorkout {
+                workoutIntensityDetail(for: selectedDay)
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .top).combined(with: .opacity),
+                        removal: .move(edge: .top).combined(with: .opacity)
+                    ))
+            }
         }
         .padding(.vertical, 16)
         .background(
@@ -333,18 +354,36 @@ struct ProgressSheet: View {
     private func calendarDay(_ dayData: CalendarDay) -> some View {
         Group {
             if dayData.isCurrentMonth {
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        if dayData.hasWorkout {
+                            // Toggle selection
+                            if selectedCalendarDay?.date == dayData.date {
+                                selectedCalendarDay = nil
+                            } else {
+                                selectedCalendarDay = dayData
+                            }
+                        }
+                    }
+                } label: {
                 ZStack {
                     RoundedRectangle(cornerRadius: 16)
                         .fill(dayData.hasWorkout ?
-                              AnyShapeStyle(dayData.intensityGradient(for: effectiveColorScheme)) :
+                                  AnyShapeStyle(dayData.intensityGradient(for: effectiveColorScheme)) :
                               AnyShapeStyle(effectiveColorScheme == .dark ? Color.white.opacity(0.1) : Color.gray.opacity(0.1))
                         )
                         .frame(height: 44)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .stroke(selectedCalendarDay?.date == dayData.date ? Color.white : Color.clear, lineWidth: 3)
+                            )
                     
                     Text("\(dayData.day)")
                         .font(.montserratBold(size: 16))
                         .foregroundStyle(dayData.hasWorkout ? .white : (effectiveColorScheme == .dark ? .white : .black))
                 }
+                }
+                .buttonStyle(PlainButtonStyle())
             } else {
                 Color.clear
                     .frame(height: 44)
@@ -518,6 +557,7 @@ struct ProgressSheet: View {
     private func previousMonth() {
         withAnimation(.easeInOut(duration: 0.3)) {
             selectedDate = calendar.date(byAdding: .month, value: -1, to: selectedDate) ?? selectedDate
+            selectedCalendarDay = nil
         }
     }
     
@@ -529,7 +569,270 @@ struct ProgressSheet: View {
             // Only allow navigation if the next month is not in the future
             if calendar.compare(nextMonthDate, to: currentMonth, toGranularity: .month) != .orderedDescending {
                 selectedDate = nextMonthDate
+                selectedCalendarDay = nil
             }
+        }
+    }
+    
+    // MARK: - Workout Intensity Detail
+    
+    private func workoutIntensityDetail(for day: CalendarDay) -> some View {
+        VStack(spacing: 16) {
+            HStack {
+                Text("Intensity Breakdown")
+                    .font(.montserratBold(size: 16))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                
+                Spacer()
+                
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        selectedCalendarDay = nil
+                    }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+                }
+            }
+            
+            ForEach(day.workouts, id: \.id) { workout in
+                workoutIntensityCard(workout: workout)
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.3) : .gray.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.15) : .gray.opacity(0.2), lineWidth: 1)
+                )
+        )
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+    }
+    
+    private func workoutIntensityCard(workout: Workout) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Workout header
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(workout.name)
+                        .font(.montserratBold(size: 14))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    
+                    Text(workout.date.formatted(date: .omitted, time: .shortened))
+                        .font(.montserratRegular(size: 12))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
+                }
+                
+                Spacer()
+                
+                // Intensity badge
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(Color.intensityGradient(for: workout.intensity, colorScheme: effectiveColorScheme))
+                        .frame(width: 12, height: 12)
+                    
+                    Text(workout.intensity.displayName)
+                        .font(.montserratBold(size: 13))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule()
+                        .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .black.opacity(0.06))
+                )
+            }
+            
+            Divider()
+            
+            // Data points used
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Data Used")
+                    .font(.montserratBold(size: 12))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                    .textCase(.uppercase)
+                
+                VStack(spacing: 6) {
+                    if let effortRating = workout.effortRating {
+                        dataPointRow(
+                            icon: "star.fill",
+                            label: "Your Effort Rating",
+                            value: String(format: "%.1f / 5.0", effortRating),
+                            isPrimary: true
+                        )
+                    }
+                    
+                    if let avgHR = workout.avgHeartRate {
+                        dataPointRow(
+                            icon: "heart.fill",
+                            label: "Average Heart Rate",
+                            value: "\(avgHR) BPM",
+                            isPrimary: workout.effortRating == nil
+                        )
+                    }
+                    
+                    if let mets = workout.averageMETs {
+                        dataPointRow(
+                            icon: "flame.fill",
+                            label: "Apple Health Intensity",
+                            value: String(format: "%.1f METs", mets),
+                            isPrimary: false
+                        )
+                    }
+                    
+                    if let spm = workout.stepsPerMinute {
+                        dataPointRow(
+                            icon: "figure.stairs",
+                            label: "Steps per Minute",
+                            value: String(format: "%.0f", spm),
+                            isPrimary: workout.avgHeartRate == nil && workout.effortRating == nil
+                        )
+                    }
+                    
+                    dataPointRow(
+                        icon: "clock.fill",
+                        label: "Duration",
+                        value: workout.durationFormatted,
+                        isPrimary: false
+                    )
+                }
+            }
+            
+            // Explanation
+            if let explanation = intensityExplanation(for: workout) {
+                Divider()
+                
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "info.circle.fill")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.accent)
+                    
+                    Text(explanation)
+                        .font(.montserratRegular(size: 13))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .gray)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            
+            // Update effort rating button
+            if workout.effortRating == nil {
+                Divider()
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "lightbulb.fill")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.accent.opacity(0.8))
+                        
+                        Text("Think this intensity is wrong?")
+                            .font(.montserratMedium(size: 12))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                    }
+                    
+                    Button {
+                        workoutToEdit = workout
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "star.circle.fill")
+                                .font(.system(size: 16, weight: .medium))
+                            
+                            Text("Add Your Effort Rating")
+                                .font(.montserratSemiBold(size: 14))
+                            
+                            Spacer()
+                            
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(.accent)
+                        )
+                    }
+                }
+            } else {
+                Divider()
+                
+                Button {
+                    workoutToEdit = workout
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "pencil.circle.fill")
+                            .font(.system(size: 16, weight: .medium))
+                        
+                        Text("Update Effort Rating")
+                            .font(.montserratSemiBold(size: 14))
+                        
+                        Spacer()
+                        
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                    .padding(.vertical, 8)
+                }
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(effectiveColorScheme == .dark ? .white.opacity(0.05) : .white)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
+                )
+        )
+    }
+    
+    private func dataPointRow(icon: String, label: String, value: String, isPrimary: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(isPrimary ? .accent : (effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray))
+                .frame(width: 16)
+            
+            Text(label)
+                .font(.montserratMedium(size: 13))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
+            
+            Spacer()
+            
+            Text(value)
+                .font(.montserratBold(size: 13))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+            
+            if isPrimary {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.accent)
+            }
+        }
+    }
+    
+    private func intensityExplanation(for workout: Workout) -> String? {
+        if workout.effortRating != nil {
+            return "Intensity based on your manual effort rating, which is the most accurate indicator of how you felt."
+        } else if workout.avgHeartRate != nil {
+            if workout.averageMETs != nil {
+                return "Heart rate is the primary indicator, enhanced with Apple Health's metabolic data for accuracy."
+            } else if workout.stepsPerMinute != nil {
+                return "Heart rate combined with your climbing cadence provides an accurate intensity measurement."
+            } else {
+                return "Heart rate is the most reliable physiological indicator of workout intensity."
+            }
+        } else if workout.averageMETs != nil {
+            return "Apple Health's metabolic intensity rating helps estimate your effort level."
+        } else if workout.stepsPerMinute != nil {
+            return "Intensity estimated from your climbing cadence and workout duration."
+        } else {
+            return "Intensity estimated from workout duration."
         }
     }
 }

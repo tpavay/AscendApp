@@ -269,6 +269,7 @@ struct EditWorkoutView: View {
                     Spacer(minLength: 40)
                 }
             }
+            .scrollIndicators(.hidden)
             .padding(.horizontal, 20)
             .padding(.top, 16)
             .onChange(of: focusedField) { oldFocus, newFocus in
@@ -282,7 +283,6 @@ struct EditWorkoutView: View {
                 }
             }
         }
-
     
     private var workoutInfoCard: some View {
         VStack(spacing: 16) {
