@@ -8,6 +8,8 @@
 import Foundation
 import FirebaseAuth
 import Observation
+import PhotosUI
+import SwiftUI
 
 enum AuthenticationState {
       case authenticated
@@ -32,12 +34,20 @@ class AuthenticationViewModel {
     var errorMessage: String?
     var isErrorAlertPresented: Bool = false
     var photoURL: URL?
+    var customProfilePictureURL: URL?
 
     private var authenticationService = AuthenticationService()
+    private var photoService = PhotoService()
 
     init() {
         // Load cached display name immediately for UI responsiveness
         displayName = UserDataRepository.shared.getCachedDisplayName() ?? ""
+        
+        // Load cached profile picture URL
+        if let cachedURLString = UserDataRepository.shared.getCachedProfilePictureURL() {
+            customProfilePictureURL = URL(string: cachedURLString)
+        }
+        
         registerAuthStateHandler()
     }
     private var authStateHandle: AuthStateDidChangeListenerHandle?
@@ -69,10 +79,18 @@ class AuthenticationViewModel {
                                 }
                             }
                         }
+                        
+                        // Fetch custom profile picture URL from Firestore
+                        if let profilePictureURLString = await UserDataRepository.shared.getProfilePictureURL(userId: user.uid) {
+                            await MainActor.run {
+                                self.customProfilePictureURL = URL(string: profilePictureURLString)
+                            }
+                        }
                     }
                 } else {
                     // User signed out
                     self.displayName = ""
+                    self.customProfilePictureURL = nil
                     self.authenticationState = .unauthenticated
                     UserDataRepository.shared.clearUserCache()
                 }
@@ -200,5 +218,52 @@ extension AuthenticationViewModel {
             lastName: lastName,
             displayName: displayNameToSave
         )
+    }
+    
+    func updateProfilePicture(photoPickerItem: PhotosPickerItem) async {
+        errorMessage = nil
+        
+        guard let user = user else {
+            errorMessage = "User not authenticated"
+            return
+        }
+        
+        do {
+            // Upload the photo
+            let uploadedPhotos = try await photoService.uploadPhotos([photoPickerItem])
+            
+            guard let uploadedPhoto = uploadedPhotos.first else {
+                errorMessage = "Failed to upload photo"
+                return
+            }
+            
+            // Save the URL to Firestore user document
+            try await UserDataRepository.shared.updateProfilePictureURL(
+                userId: user.uid,
+                profilePictureURL: uploadedPhoto.url.absoluteString
+            )
+            
+            // Update the local state
+            customProfilePictureURL = uploadedPhoto.url
+            
+            // Update all leaderboard entries with the new photo URL
+            do {
+                try await LeaderboardService.shared.updateProfilePictureURL(
+                    userId: user.uid,
+                    photoURL: uploadedPhoto.url
+                )
+            } catch {
+                // Don't fail the whole operation if leaderboard update fails
+                print("Warning: Failed to update leaderboard photo URL: \(error)")
+            }
+            
+        } catch {
+            errorMessage = "Failed to update profile picture: \(error.localizedDescription)"
+        }
+    }
+    
+    var displayPhotoURL: URL? {
+        // Prioritize custom profile picture, then fall back to OAuth provider photo
+        return customProfilePictureURL ?? photoURL
     }
 }

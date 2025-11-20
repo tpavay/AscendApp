@@ -12,11 +12,13 @@ struct UserDisplayNameData: Sendable {
     let firstName: String?
     let lastName: String?
     let displayName: String?
+    let profilePictureURL: String?
 
     init(_ data: [String: Any]?) {
         self.firstName = data?["firstName"] as? String
         self.lastName = data?["lastName"] as? String
         self.displayName = data?["displayName"] as? String
+        self.profilePictureURL = data?["profilePictureURL"] as? String
     }
 }
 
@@ -36,8 +38,18 @@ final class UserDataRepository: Sendable {
         return UserDefaults.standard.string(forKey: "displayName")
     }
     
+    func cacheProfilePictureURL(_ urlString: String) {
+        UserDefaults.standard.set(urlString, forKey: "profilePictureURL")
+        UserDefaults.standard.synchronize()
+    }
+    
+    func getCachedProfilePictureURL() -> String? {
+        return UserDefaults.standard.string(forKey: "profilePictureURL")
+    }
+    
     func clearUserCache() {
         UserDefaults.standard.removeObject(forKey: "displayName")
+        UserDefaults.standard.removeObject(forKey: "profilePictureURL")
         UserDefaults.standard.synchronize()
     }
     
@@ -68,19 +80,24 @@ final class UserDataRepository: Sendable {
         return !displayName.isEmpty
     }
     
-    func saveUserToFirestore(userId: String, email: String?, firstName: String?, lastName: String?, displayName: String?) async throws {
+    func saveUserToFirestore(userId: String, email: String?, firstName: String?, lastName: String?, displayName: String?, profilePictureURL: String? = nil) async throws {
         let userRef = db.collection("users").document(userId)
         
         // Check if user already exists
         let document = try await userRef.getDocument()
         let userExists = document.exists
         
-        let newData = [
+        var newData: [String: Any] = [
             "email": email ?? "",
             "firstName": firstName ?? "",
             "lastName": lastName ?? "",
             "displayName": displayName ?? ""
         ]
+        
+        // Only include profilePictureURL if it's provided
+        if let profilePictureURL = profilePictureURL {
+            newData["profilePictureURL"] = profilePictureURL
+        }
         
         if userExists {
             // Compare with existing data and only update changed fields
@@ -88,9 +105,11 @@ final class UserDataRepository: Sendable {
             var changedData: [String: Any] = [:]
             
             for (key, newValue) in newData {
-                let existingValue = existingData[key] as? String ?? ""
-                if newValue != existingValue {
-                    changedData[key] = newValue
+                if let newStringValue = newValue as? String {
+                    let existingValue = existingData[key] as? String ?? ""
+                    if newStringValue != existingValue {
+                        changedData[key] = newValue
+                    }
                 }
             }
             
@@ -106,5 +125,30 @@ final class UserDataRepository: Sendable {
             userData["lastUpdated"] = FieldValue.serverTimestamp()
             try await userRef.setData(userData, merge: true)
         }
+    }
+    
+    func updateProfilePictureURL(userId: String, profilePictureURL: String) async throws {
+        let userRef = db.collection("users").document(userId)
+        
+        try await userRef.setData([
+            "profilePictureURL": profilePictureURL,
+            "lastUpdated": FieldValue.serverTimestamp()
+        ], merge: true)
+        
+        cacheProfilePictureURL(profilePictureURL)
+    }
+    
+    func getProfilePictureURL(userId: String) async -> String? {
+        do {
+            let userData = try await getUserFromFirestore(userId: userId)
+            if let profilePictureURL = userData.profilePictureURL, !profilePictureURL.isEmpty {
+                cacheProfilePictureURL(profilePictureURL)
+                return profilePictureURL
+            }
+        } catch {
+            print("Error fetching profile picture URL from Firestore: \(error)")
+        }
+        
+        return getCachedProfilePictureURL()
     }
 }

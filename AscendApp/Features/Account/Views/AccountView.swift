@@ -11,14 +11,19 @@ struct AccountView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    
+    @State private var isShowingEditProfile = false
 
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
                 // Profile Header
                 ProfileHeaderView(
-                    photoURL: authVM.photoURL,
-                    displayName: authVM.displayName
+                    photoURL: authVM.displayPhotoURL,
+                    displayName: authVM.displayName,
+                    onEditTap: {
+                        isShowingEditProfile = true
+                    }
                 )
 
                 // Settings Sections
@@ -38,6 +43,9 @@ struct AccountView: View {
         .navigationBarTitleDisplayMode(.large)
         .toolbarBackground(.clear, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+        .navigationDestination(isPresented: $isShowingEditProfile) {
+            EditProfileView()
+        }
         .onChange(of: authVM.authenticationState) { oldValue, newValue in
             if newValue == .unauthenticated {
                 dismiss()
@@ -67,7 +75,7 @@ struct AccountView: View {
                 icon: "person.circle",
                 title: "Edit Profile",
                 action: {
-                    // TODO: Navigate to edit profile
+                    isShowingEditProfile = true
                 }
             ),
             SettingsOption(

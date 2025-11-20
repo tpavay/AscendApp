@@ -292,7 +292,7 @@ struct LeaderboardView: View {
         await viewModel.refreshLeaderboard(
             userId: userId,
             displayName: authVM.displayName,
-            photoURL: authVM.photoURL,
+            photoURL: authVM.displayPhotoURL,
             workouts: workouts
         )
     }

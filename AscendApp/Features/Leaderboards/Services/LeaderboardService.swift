@@ -176,6 +176,14 @@ final class LeaderboardService {
         let descriptor = FetchDescriptor<LeaderboardStats>(predicate: predicate)
         return try context.fetch(descriptor).first
     }
+    
+    // Update profile picture URL across all user's leaderboard documents in Firestore
+    func updateProfilePictureURL(userId: String, photoURL: URL?) async throws {
+        try await repository.updateProfilePictureURL(
+            userId: userId,
+            photoURL: photoURL?.absoluteString ?? ""
+        )
+    }
 }
 
 enum LeaderboardError: LocalizedError {

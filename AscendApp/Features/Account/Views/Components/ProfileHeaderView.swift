@@ -12,11 +12,35 @@ struct ProfileHeaderView: View {
     
     let photoURL: URL?
     let displayName: String
+    let onEditTap: (() -> Void)?
+    
+    init(photoURL: URL?, displayName: String, onEditTap: (() -> Void)? = nil) {
+        self.photoURL = photoURL
+        self.displayName = displayName
+        self.onEditTap = onEditTap
+    }
     
     var body: some View {
         VStack(spacing: 16) {
-            // Profile Picture
-            ProfileImageView(photoURL: photoURL)
+            // Profile Picture with Edit Button
+            ZStack(alignment: .bottomTrailing) {
+                ProfileImageView(photoURL: photoURL)
+                
+                if let onEditTap = onEditTap {
+                    Button(action: onEditTap) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.accent)
+                                .frame(width: 36, height: 36)
+                            
+                            Image(systemName: "pencil")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(.white)
+                        }
+                        .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
+                    }
+                }
+            }
             
             // Display Name
             Text(displayName.isEmpty ? "No Name Set" : displayName)

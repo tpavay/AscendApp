@@ -119,4 +119,21 @@ final class LeaderboardRepository: Sendable {
 
         return (rank: userIndex + 1, total: allStats.count)
     }
+    
+    // Update profile picture URL across all user's leaderboard documents
+    func updateProfilePictureURL(userId: String, photoURL: String) async throws {
+        // Query all documents for this user
+        let query = db.collection("leaderboard_stats")
+            .whereField("userId", isEqualTo: userId)
+        
+        let snapshot = try await query.getDocuments()
+        
+        // Update each document
+        for document in snapshot.documents {
+            try await document.reference.updateData([
+                "photoURL": photoURL,
+                "lastUpdated": FieldValue.serverTimestamp()
+            ])
+        }
+    }
 }
