@@ -33,6 +33,7 @@ class WorkoutFormViewModel {
     var isUploading = false
     var uploadError: String? = nil
     var durationFormatted: String = ""
+    private var rawDurationDigits: String = ""
 
     // Dependencies
     private let workoutService: WorkoutService
@@ -110,14 +111,13 @@ class WorkoutFormViewModel {
     }
 
     // MARK: - Form Processing Methods
-    func formatDurationInput(_ input: String) {
-        // Remove all non-digit characters
-        let digits = input.filter { $0.isNumber }
+    func formatDurationInput(_ newValue: String, oldValue: String) {
+        let previousDigits = oldValue.filter { $0.isNumber }
+        let incomingDigits = newValue.filter { $0.isNumber }
 
-        // Limit to 6 digits (hhmmss)
-        let limitedDigits = String(digits.prefix(6))
-
-        if limitedDigits.isEmpty {
+        // Clear everything if the user deletes all input
+        if incomingDigits.isEmpty {
+            rawDurationDigits = ""
             durationFormatted = ""
             durationHours = ""
             durationMinutes = ""
@@ -125,9 +125,31 @@ class WorkoutFormViewModel {
             return
         }
 
+        // Update the raw digit buffer based on the change in digit count
+        if incomingDigits.count > previousDigits.count {
+            // Append only the newly typed digits
+            let addedCount = incomingDigits.count - previousDigits.count
+            let addedDigits = incomingDigits.suffix(addedCount)
+            rawDurationDigits.append(contentsOf: addedDigits)
+        } else if incomingDigits.count < previousDigits.count {
+            // Remove digits from the end when the user backspaces
+            let removedCount = previousDigits.count - incomingDigits.count
+            if removedCount >= rawDurationDigits.count {
+                rawDurationDigits = ""
+            } else {
+                rawDurationDigits = String(rawDurationDigits.dropLast(removedCount))
+            }
+        } else {
+            // Same count usually means paste/replace; sync to the incoming digits
+            rawDurationDigits = incomingDigits
+        }
+
+        // Limit to 6 digits (hhmmss)
+        rawDurationDigits = String(rawDurationDigits.prefix(6))
+
         // Convert to total seconds, working from right-to-left
         var totalSeconds = 0
-        let reversedDigits = Array(limitedDigits.reversed())
+        let reversedDigits = Array(rawDurationDigits.reversed())
 
         // Process digits as seconds, then minutes, then hours
         for (index, digit) in reversedDigits.enumerated() {
@@ -169,6 +191,26 @@ class WorkoutFormViewModel {
         durationHours = String(format: "%02d", hours)
         durationMinutes = String(format: "%02d", minutes)
         durationSeconds = String(format: "%02d", seconds)
+    }
+
+    func setDuration(hours: Int, minutes: Int, seconds: Int) {
+        let clampedHours = min(max(hours, 0), 999)
+        let clampedMinutes = min(max(minutes, 0), 59)
+        let clampedSeconds = min(max(seconds, 0), 59)
+
+        let hasHours = clampedHours > 0
+        durationHours = String(format: "%02d", clampedHours)
+        durationMinutes = String(format: "%02d", clampedMinutes)
+        durationSeconds = String(format: "%02d", clampedSeconds)
+
+        if hasHours {
+            durationFormatted = String(format: "%d:%02d:%02d", clampedHours, clampedMinutes, clampedSeconds)
+        } else {
+            durationFormatted = String(format: "%02d:%02d", clampedMinutes, clampedSeconds)
+        }
+
+        let hoursDigits = hasHours ? String(clampedHours) : ""
+        rawDurationDigits = hoursDigits + String(format: "%02d%02d", clampedMinutes, clampedSeconds)
     }
 
     func validateHeartRateOnSubmit(_ value: String) -> String {

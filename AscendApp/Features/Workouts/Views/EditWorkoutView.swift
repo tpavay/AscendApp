@@ -42,6 +42,10 @@ struct EditWorkoutView: View {
     @State private var showingDatePicker = false
     @State private var effortRating: Double? = nil
     @State private var showingEffortRating = false
+    @State private var showingDurationPicker = false
+    @State private var durationPickerHours = 0
+    @State private var durationPickerMinutes = 0
+    @State private var durationPickerSeconds = 0
     
     @FocusState private var focusedField: WorkoutFormField?
     
@@ -102,6 +106,17 @@ struct EditWorkoutView: View {
         .sheet(isPresented: $showingEffortRating) {
             EffortRatingView(effortRating: $effortRating)
                 .presentationDetents([.fraction(0.4)])
+        }
+        .sheet(isPresented: $showingDurationPicker) {
+            DurationPickerSheet(
+                hours: $durationPickerHours,
+                minutes: $durationPickerMinutes,
+                seconds: $durationPickerSeconds
+            ) {
+                setDuration(hours: durationPickerHours, minutes: durationPickerMinutes, seconds: durationPickerSeconds)
+                showingDurationPicker = false
+            }
+            .presentationDetents([.height(320)])
         }
         .sheet(item: $photoPendingDeletion) { photo in
             DeletePhotoConfirmationView(
@@ -343,25 +358,32 @@ struct EditWorkoutView: View {
             .buttonStyle(.plain)
             
             // Duration - Auto-formatting text input
-            HStack {
-                Image(systemName: "clock")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.gray)
-                
-                TextField("00:00:00", text: $durationFormatted)
-                    .focused($focusedField, equals: .durationMinutes)
-                    .keyboardType(.numberPad)
-                    .font(.montserratRegular(size: 16))
-                    .onChange(of: durationFormatted) { _, newValue in
-                        formatDurationInput(newValue)
-                    }
-                    .onSubmit { focusedField = .metricValue }
+            Button {
+                syncDurationPicker()
+                showingDurationPicker = true
+            } label: {
+                HStack {
+                    Image(systemName: "clock")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.gray)
+
+                    Text(durationFormatted.isEmpty ? "00:00:00" : durationFormatted)
+                        .font(.montserratRegular(size: 16))
+                        .foregroundStyle(durationFormatted.isEmpty ? .gray : (effectiveColorScheme == .dark ? .white : .black))
+
+                    Spacer()
+
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.gray)
+                }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
+                )
             }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
-            )
+            .buttonStyle(.plain)
             
             // Steps/Floors
             HStack {
@@ -490,7 +512,13 @@ struct EditWorkoutView: View {
         photosMarkedForDeletion = []
         selectedImages = []
     }
-    
+
+    private func syncDurationPicker() {
+        durationPickerHours = Int(durationHours) ?? 0
+        durationPickerMinutes = Int(durationMinutes) ?? 0
+        durationPickerSeconds = Int(durationSeconds) ?? 0
+    }
+
     private func formatDurationInput(_ input: String) {
         // Remove all non-digit characters
         let digits = input.filter { $0.isNumber }
@@ -550,6 +578,24 @@ struct EditWorkoutView: View {
         durationHours = String(format: "%02d", hours)
         durationMinutes = String(format: "%02d", minutes)
         durationSeconds = String(format: "%02d", seconds)
+    }
+
+    private func setDuration(hours: Int, minutes: Int, seconds: Int) {
+        let clampedHours = min(max(hours, 0), 999)
+        let clampedMinutes = min(max(minutes, 0), 59)
+        let clampedSeconds = min(max(seconds, 0), 59)
+
+        let hasHours = clampedHours > 0
+
+        durationHours = String(format: "%02d", clampedHours)
+        durationMinutes = String(format: "%02d", clampedMinutes)
+        durationSeconds = String(format: "%02d", clampedSeconds)
+
+        if hasHours {
+            durationFormatted = String(format: "%d:%02d:%02d", clampedHours, clampedMinutes, clampedSeconds)
+        } else {
+            durationFormatted = String(format: "%02d:%02d", clampedMinutes, clampedSeconds)
+        }
     }
     
     private func validateHeartRateOnSubmit(_ field: Binding<String>) {

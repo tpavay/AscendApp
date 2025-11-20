@@ -26,6 +26,10 @@ struct WorkoutFormView: View {
     @State private var showingMetricTooltip = false
     @State private var showingDatePicker = false
     @State private var showingEffortRating = false
+    @State private var showingDurationPicker = false
+    @State private var durationPickerHours = 0
+    @State private var durationPickerMinutes = 0
+    @State private var durationPickerSeconds = 0
 
     @FocusState private var focusedField: WorkoutFormField?
 
@@ -56,6 +60,21 @@ struct WorkoutFormView: View {
         .sheet(isPresented: $showingEffortRating) {
             EffortRatingView(effortRating: $viewModel.effortRating)
                 .presentationDetents([.fraction(0.4)])
+        }
+        .sheet(isPresented: $showingDurationPicker) {
+            DurationPickerSheet(
+                hours: $durationPickerHours,
+                minutes: $durationPickerMinutes,
+                seconds: $durationPickerSeconds
+            ) {
+                viewModel.setDuration(
+                    hours: durationPickerHours,
+                    minutes: durationPickerMinutes,
+                    seconds: durationPickerSeconds
+                )
+                showingDurationPicker = false
+            }
+            .presentationDetents([.height(320)])
         }
         .alert("Upload Error", isPresented: .constant(viewModel.uploadError != nil)) {
             Button("OK") {
@@ -147,25 +166,32 @@ struct WorkoutFormView: View {
             .buttonStyle(.plain)
 
             // Duration - Auto-formatting text input
-            HStack {
-                Image(systemName: "clock")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.gray)
+            Button {
+                syncDurationPickerWithViewModel()
+                showingDurationPicker = true
+            } label: {
+                HStack {
+                    Image(systemName: "clock")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.gray)
 
-                TextField("00:00:00", text: $viewModel.durationFormatted)
-                    .focused($focusedField, equals: .durationMinutes)
-                    .keyboardType(.numberPad)
-                    .font(.montserratRegular(size: 16))
-                    .onChange(of: viewModel.durationFormatted) { _, newValue in
-                        viewModel.formatDurationInput(newValue)
-                    }
-                    .onSubmit { focusedField = .metricValue }
+                    Text(viewModel.durationFormatted.isEmpty ? "00:00:00" : viewModel.durationFormatted)
+                        .font(.montserratRegular(size: 16))
+                        .foregroundStyle(viewModel.durationFormatted.isEmpty ? .gray : (effectiveColorScheme == .dark ? .white : .black))
+
+                    Spacer()
+
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.gray)
+                }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
+                )
             }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
-            )
+            .buttonStyle(.plain)
 
             // Steps/Floors
             HStack {
@@ -376,6 +402,12 @@ struct WorkoutFormView: View {
         default:
             return "Evening Workout"
         }
+    }
+
+    private func syncDurationPickerWithViewModel() {
+        durationPickerHours = Int(viewModel.durationHours) ?? 0
+        durationPickerMinutes = Int(viewModel.durationMinutes) ?? 0
+        durationPickerSeconds = Int(viewModel.durationSeconds) ?? 0
     }
 }
 
