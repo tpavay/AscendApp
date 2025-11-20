@@ -30,7 +30,6 @@ struct LeaderboardFilterBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             searchField
-                .padding(.horizontal, 20)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
@@ -48,7 +47,6 @@ struct LeaderboardFilterBar: View {
                         activeSheet = .metric
                     }
                 }
-                .padding(.horizontal, 20)
             }
         }
         .toolbar {

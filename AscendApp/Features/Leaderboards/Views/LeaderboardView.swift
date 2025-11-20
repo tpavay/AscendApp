@@ -22,34 +22,46 @@ struct LeaderboardView: View {
         case top
     }
 
+    private var effectiveColorScheme: ColorScheme {
+        colorScheme
+    }
+
     var body: some View {
         ZStack {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 24) {
-                        Color.clear
-                            .frame(height: 0)
-                            .id(ScrollTarget.top)
-
-                        titleHeader
-                        filterBar
-                        resetNotice
-
-                        if viewModel.isLoading && viewModel.hasCachedEntries {
-                            loadingNotice
-                        }
-
-                        if let error = viewModel.errorMessage, viewModel.hasCachedEntries {
-                            errorBanner(error)
-                        }
-
-                        contentSection
+            VStack(spacing: 0) {
+                header
+                    .onChange(of: viewModel.selectedMetric) { _, _ in
+                        resetScrollPosition()
+                        Task { await loadData() }
                     }
-                    .padding(.vertical, 20)
-                }
-                .onChange(of: scrollResetTrigger) { _, _ in
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        proxy.scrollTo(ScrollTarget.top, anchor: .top)
+                    .onChange(of: viewModel.selectedTimeFrame) { _, _ in
+                        resetScrollPosition()
+                        Task { await loadData() }
+                    }
+
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 24) {
+                            Color.clear
+                                .frame(height: 0)
+                                .id(ScrollTarget.top)
+
+                            if viewModel.isLoading && viewModel.hasCachedEntries {
+                                loadingNotice
+                            }
+
+                            if let error = viewModel.errorMessage, viewModel.hasCachedEntries {
+                                errorBanner(error)
+                            }
+
+                            contentSection
+                        }
+                        .padding(.vertical, 20)
+                    }
+                    .onChange(of: scrollResetTrigger) { _, _ in
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo(ScrollTarget.top, anchor: .top)
+                        }
                     }
                 }
             }
@@ -74,14 +86,38 @@ struct LeaderboardView: View {
         }
     }
 
-    private var titleHeader: some View {
-        HStack {
-            Text("Leaderboards")
-                .font(.montserratBold(size: 32))
-                .foregroundStyle(colorScheme == .dark ? .white : .black)
-            Spacer()
+    private var header: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Leaderboards")
+                        .font(.montserratBold(size: 32))
+                        .foregroundStyle(colorScheme == .dark ? .white : .black)
+                    Spacer()
+                }
+
+                LeaderboardFilterBar(
+                    searchText: $viewModel.searchText,
+                    selectedMetric: $viewModel.selectedMetric,
+                    selectedTimeFrame: $viewModel.selectedTimeFrame
+                )
+
+                Text(viewModel.resetStatusText)
+                    .font(.montserratRegular(size: 13))
+                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 16)
+
+            Rectangle()
+                .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
+                .frame(height: 1)
         }
-        .padding(.horizontal, 20)
+        .background(
+            (effectiveColorScheme == .dark ? Color.jet : Color.white)
+                .opacity(0.95)
+        )
     }
 
     private var filterBar: some View {
@@ -90,22 +126,6 @@ struct LeaderboardView: View {
             selectedMetric: $viewModel.selectedMetric,
             selectedTimeFrame: $viewModel.selectedTimeFrame
         )
-        .onChange(of: viewModel.selectedMetric) { _, _ in
-            resetScrollPosition()
-            Task { await loadData() }
-        }
-        .onChange(of: viewModel.selectedTimeFrame) { _, _ in
-            resetScrollPosition()
-            Task { await loadData() }
-        }
-    }
-
-    private var resetNotice: some View {
-        Text(viewModel.resetStatusText)
-            .font(.montserratRegular(size: 13))
-            .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 20)
     }
 
     @ViewBuilder
