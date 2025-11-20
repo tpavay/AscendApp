@@ -26,5 +26,7 @@
 	</array>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Ascend needs access to your Health data to import your stair climbing workouts, including steps, flights climbed, heart rate, and calories burned.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Ascend saves your workout posters to your Photos library.</string>
 </dict>
 </plist>

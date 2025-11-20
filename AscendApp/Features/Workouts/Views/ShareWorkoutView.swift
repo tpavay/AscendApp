@@ -5,6 +5,7 @@
 //  Created by Tyler Pavay on 10/5/25.
 //
 
+import Photos
 import PhotosUI
 import SwiftUI
 import UIKit
@@ -171,6 +172,15 @@ struct ShareWorkoutView: View {
 
             HStack(spacing: 12) {
                 ShareActionButton(
+                    icon: "square.and.arrow.down",
+                    title: "Save Image",
+                    foregroundColor: actionForeground,
+                    backgroundColor: actionBackground
+                ) {
+                    savePosterToPhotos()
+                }
+
+                ShareActionButton(
                     icon: "square.and.arrow.up",
                     title: "More",
                     foregroundColor: actionForeground,
@@ -208,6 +218,38 @@ struct ShareWorkoutView: View {
         items.append(ShareTextActivityItemSource(text: text))
 
         sharePayload = ActivitySharePayload(items: items)
+    }
+
+    private func savePosterToPhotos() {
+        guard let image = viewModel.renderCurrentPoster(
+            measurementSystem: settingsManager.measurementSystem,
+            stepHeight: settingsManager.stepHeight
+        ) else {
+            shareErrorMessage = "We couldn't render the poster. Please try again."
+            return
+        }
+
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+            guard status == .authorized || status == .limited else {
+                DispatchQueue.main.async {
+                    shareErrorMessage = "Please allow Photos access to save your workout poster."
+                }
+                return
+            }
+
+            UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+            DispatchQueue.main.async {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    copyConfirmationText = "Saved to Photos"
+                }
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        copyConfirmationText = nil
+                    }
+                }
+            }
+        }
     }
 
     private func copyShareText() {
