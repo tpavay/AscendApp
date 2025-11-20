@@ -22,6 +22,10 @@ struct ProgressSheet: View {
         Workout.calculateCurrentStreak(from: workouts)
     }
     
+    private var weeklyStreak: Int {
+        Workout.calculateWeeklyStreak(from: workouts)
+    }
+    
     private var calendar: Calendar {
         Calendar.current
     }
@@ -90,13 +94,15 @@ struct ProgressSheet: View {
             }
             .padding(.horizontal, 24)
             .padding(.top, 20)
-            
-            // Hero section with current streak
-            StreakHeroView(currentStreak: currentStreak)
-                .padding(32)
+
+            // Weekly streak hero (primary streak metric)
+            weeklyStreakView
+                .padding(.horizontal, 24)
+                .padding(.top, 24)
 
             // Calendar section
             calendarSection
+                .padding(.top, 24)
 
             // Best Efforts below calendar
             if !recentBestEfforts.isEmpty {
@@ -235,6 +241,61 @@ struct ProgressSheet: View {
             }
         }
         .padding(.horizontal, 16)
+    }
+    
+    private var weeklyStreakView: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "flame.fill")
+                .font(.system(size: 36, weight: .bold))
+                .foregroundStyle(
+                    LinearGradient(
+                        gradient: Gradient(colors: [.yellow, .orange, .red]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+            
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("WEEK STREAK")
+                        .font(.montserratBold(size: 14))
+                        .tracking(1.5)
+                        .foregroundStyle(
+                            LinearGradient(
+                                gradient: Gradient(colors: [.yellow, .orange]),
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                    
+                    Spacer()
+                    
+                    Text("\(weeklyStreak)")
+                        .font(.montserratBold(size: 24))
+                        .foregroundStyle(
+                            LinearGradient(
+                                gradient: Gradient(colors: [.yellow, .orange]),
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
+                
+                Text("Weeks in a row you worked out at least once")
+                    .font(.montserratSemiBold(size: 10))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .gray)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.3) : .gray.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.12) : .gray.opacity(0.18), lineWidth: 1)
+                )
+        )
     }
     
     private func summaryItem(title: String, value: String) -> some View {

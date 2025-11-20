@@ -211,6 +211,52 @@ class Workout {
         return streak
     }
     
+    static func calculateWeeklyStreak(from workouts: [Workout]) -> Int {
+        let calendar = Calendar.current
+        guard !workouts.isEmpty else { return 0 }
+
+        let today = Date()
+        guard let currentWeekStart = calendar.dateInterval(of: .weekOfYear, for: today)?.start else {
+            return 0
+        }
+
+        // Collect all week starts that have at least one workout
+        let weekStartsWithActivity: Set<Date> = Set(
+            workouts.compactMap { workout in
+                calendar.dateInterval(of: .weekOfYear, for: workout.date)?.start
+            }
+        )
+
+        guard !weekStartsWithActivity.isEmpty else { return 0 }
+
+        // Most recent week that has a workout
+        guard let mostRecentActiveWeek = weekStartsWithActivity.max() else {
+            return 0
+        }
+
+        // If we've gone more than one full week without a workout, streak is broken
+        if let weeksSinceMostRecent = calendar.dateComponents([.weekOfYear],
+                                                              from: mostRecentActiveWeek,
+                                                              to: currentWeekStart).weekOfYear,
+           weeksSinceMostRecent > 1 {
+            return 0
+        }
+
+        // Count consecutive weeks with activity going backwards
+        var streak = 0
+        var cursor = mostRecentActiveWeek
+
+        while weekStartsWithActivity.contains(cursor) {
+            streak += 1
+            guard let previousWeek = calendar.date(byAdding: .weekOfYear, value: -1, to: cursor) else {
+                break
+            }
+            cursor = previousWeek
+        }
+
+        return streak
+    }
+    
     static func getWeeklyActivity(from workouts: [Workout], for date: Date = Date()) -> [Date: Bool] {
         let calendar = Calendar.current
         let startOfWeek = calendar.dateInterval(of: .weekOfYear, for: date)?.start ?? date
