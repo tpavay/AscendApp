@@ -10,31 +10,48 @@ import SwiftData
 
 struct LeaderboardView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var tabRouter: TabRouter
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.modelContext) private var modelContext
     @Query private var workouts: [Workout]
 
     @State private var viewModel = LeaderboardViewModel()
+    @State private var scrollResetTrigger = 0
+
+    private enum ScrollTarget: Hashable {
+        case top
+    }
 
     var body: some View {
         ZStack {
-            ScrollView {
-                LazyVStack(spacing: 24) {
-                    titleHeader
-                    filterBar
-                    resetNotice
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 24) {
+                        Color.clear
+                            .frame(height: 0)
+                            .id(ScrollTarget.top)
 
-                    if viewModel.isLoading && viewModel.hasCachedEntries {
-                        loadingNotice
+                        titleHeader
+                        filterBar
+                        resetNotice
+
+                        if viewModel.isLoading && viewModel.hasCachedEntries {
+                            loadingNotice
+                        }
+
+                        if let error = viewModel.errorMessage, viewModel.hasCachedEntries {
+                            errorBanner(error)
+                        }
+
+                        contentSection
                     }
-
-                    if let error = viewModel.errorMessage, viewModel.hasCachedEntries {
-                        errorBanner(error)
-                    }
-
-                    contentSection
+                    .padding(.vertical, 20)
                 }
-                .padding(.vertical, 20)
+                .onChange(of: scrollResetTrigger) { _, _ in
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo(ScrollTarget.top, anchor: .top)
+                    }
+                }
             }
 
             if shouldShowBlockingLoader {
@@ -45,10 +62,15 @@ struct LeaderboardView: View {
         .themedBackground()
         .navigationTitle("Leaderboard")
         .task {
+            resetScrollPosition()
             await setupAndLoad()
         }
         .refreshable {
             await refreshData()
+        }
+        .onChange(of: tabRouter.selectedTab) { _, newTab in
+            guard newTab == .leaderboard else { return }
+            resetScrollPosition()
         }
     }
 
@@ -69,9 +91,11 @@ struct LeaderboardView: View {
             selectedTimeFrame: $viewModel.selectedTimeFrame
         )
         .onChange(of: viewModel.selectedMetric) { _, _ in
+            resetScrollPosition()
             Task { await loadData() }
         }
         .onChange(of: viewModel.selectedTimeFrame) { _, _ in
+            resetScrollPosition()
             Task { await loadData() }
         }
     }
@@ -252,12 +276,17 @@ struct LeaderboardView: View {
             workouts: workouts
         )
     }
+
+    private func resetScrollPosition() {
+        scrollResetTrigger &+= 1
+    }
 }
 
 #Preview {
     NavigationStack {
         LeaderboardView()
             .environment(AuthenticationViewModel())
+            .environmentObject(TabRouter())
     }
     .modelContainer(for: Workout.self, inMemory: true)
 }
