@@ -49,4 +49,57 @@ extension Color {
     /// Custom gray colors
     static let customGray = Color(hex: "888888")
     static let darkGray = Color(hex: "333333")
+    
+    // MARK: - Workout Intensity Colors
+    
+    /// Returns a gradient for workout intensity
+    /// Uses lighter/darker versions of the yellow-orange gradient
+    static func intensityGradient(for intensity: WorkoutIntensity, colorScheme: ColorScheme) -> LinearGradient {
+        let colors = intensityColors(for: intensity, colorScheme: colorScheme)
+        return LinearGradient(
+            gradient: Gradient(colors: colors),
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+    
+    /// Returns the color pair for a given intensity level
+    static func intensityColors(for intensity: WorkoutIntensity, colorScheme: ColorScheme) -> [Color] {
+        switch intensity {
+        case .veryLight:
+            // Lightest - very subtle gradient (keeping as is)
+            return [
+                Color(red: 1.0, green: 0.95, blue: 0.7),   // Very light yellow
+                Color(red: 1.0, green: 0.9, blue: 0.6)     // Light yellow-orange
+            ]
+            
+        case .light:
+            // Light - more saturated yellow
+            return [
+                Color(red: 1.0, green: 0.9, blue: 0.3),    // Brighter yellow
+                Color(red: 1.0, green: 0.8, blue: 0.2)     // Yellow-orange
+            ]
+            
+        case .moderate:
+            // Moderate - clear orange gradient
+            return [
+                Color(red: 1.0, green: 0.75, blue: 0.1),   // Golden yellow
+                Color(red: 1.0, green: 0.55, blue: 0.0)    // Orange
+            ]
+            
+        case .hard:
+            // Hard - deep orange to red-orange
+            return [
+                Color(red: 1.0, green: 0.55, blue: 0.0),   // Deep orange
+                Color(red: 1.0, green: 0.3, blue: 0.0)     // Red-orange
+            ]
+            
+        case .veryHard:
+            // Very Hard - orange to deep red
+            return [
+                Color(red: 1.0, green: 0.4, blue: 0.0),    // Bright red-orange
+                Color(red: 0.9, green: 0.0, blue: 0.0)     // Deep red
+            ]
+        }
+    }
 }

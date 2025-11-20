@@ -13,6 +13,7 @@ struct ProgressSheet: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
     @State private var selectedDate = Date()
+    @State private var showIntensityExplanation = false
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -117,6 +118,9 @@ struct ProgressSheet: View {
         }
         .scrollIndicators(.hidden)
         .themedBackground()
+        .sheet(isPresented: $showIntensityExplanation) {
+            IntensityExplanationView()
+        }
     }
 
     private var bestEffortsPreviewSection: some View {
@@ -163,7 +167,7 @@ struct ProgressSheet: View {
     
     private var calendarSection: some View {
         VStack(spacing: 16) {
-            // Month navigation
+            // Month navigation with info button
             HStack {
                 Button(action: previousMonth) {
                     Image(systemName: "chevron.left")
@@ -173,9 +177,19 @@ struct ProgressSheet: View {
                 
                 Spacer()
                 
-                Text(monthYearFormatter.string(from: selectedDate))
-                    .font(.montserratBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                HStack(spacing: 8) {
+                    Text(monthYearFormatter.string(from: selectedDate))
+                        .font(.montserratBold(size: 20))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    
+                    Button {
+                        showIntensityExplanation = true
+                    } label: {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundStyle(.accent)
+                    }
+                }
                 
                 Spacer()
                 
@@ -322,11 +336,7 @@ struct ProgressSheet: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: 16)
                         .fill(dayData.hasWorkout ?
-                              AnyShapeStyle(LinearGradient(
-                                gradient: Gradient(colors: [.yellow, .orange]),
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                              )) :
+                              AnyShapeStyle(dayData.intensityGradient(for: effectiveColorScheme)) :
                               AnyShapeStyle(effectiveColorScheme == .dark ? Color.white.opacity(0.1) : Color.gray.opacity(0.1))
                         )
                         .frame(height: 44)
@@ -487,13 +497,16 @@ struct ProgressSheet: View {
         while currentDate <= endDate {
             let dayOfMonth = calendar.component(.day, from: currentDate)
             let isCurrentMonth = calendar.isDate(currentDate, equalTo: selectedDate, toGranularity: .month)
-            let hasWorkout = workoutDates.contains(calendar.startOfDay(for: currentDate))
+            let dayStart = calendar.startOfDay(for: currentDate)
+            
+            // Get all workouts for this day
+            let workoutsForDay = workouts.filter { calendar.isDate($0.date, inSameDayAs: currentDate) }
             
             days.append(CalendarDay(
                 date: currentDate,
                 day: dayOfMonth,
                 isCurrentMonth: isCurrentMonth,
-                hasWorkout: hasWorkout
+                workouts: workoutsForDay
             ))
             
             currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate)!
@@ -526,7 +539,39 @@ struct CalendarDay {
     let date: Date
     let day: Int
     let isCurrentMonth: Bool
-    let hasWorkout: Bool
+    let workouts: [Workout]
+    
+    var hasWorkout: Bool {
+        !workouts.isEmpty
+    }
+    
+    /// Calculate the overall intensity for this day
+    /// If multiple workouts, uses the highest intensity
+    var intensity: WorkoutIntensity? {
+        guard !workouts.isEmpty else { return nil }
+        
+        let intensities = workouts.map { $0.intensity }
+        
+        // Return the highest intensity
+        if intensities.contains(.veryHard) { return .veryHard }
+        if intensities.contains(.hard) { return .hard }
+        if intensities.contains(.moderate) { return .moderate }
+        if intensities.contains(.light) { return .light }
+        return .veryLight
+    }
+    
+    /// Get the intensity gradient for this day
+    func intensityGradient(for colorScheme: ColorScheme) -> LinearGradient {
+        guard let intensity = intensity else {
+            return LinearGradient(
+                gradient: Gradient(colors: [.gray, .gray]),
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+        
+        return Color.intensityGradient(for: intensity, colorScheme: colorScheme)
+    }
 }
 
 #Preview {
