@@ -24,8 +24,6 @@ struct BestEffortsListView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                headerSection
-                
                 if efforts.isEmpty {
                     emptyState
                 } else {
@@ -41,18 +39,6 @@ struct BestEffortsListView: View {
         .themedBackground()
         .navigationTitle("Best Efforts")
         .navigationBarTitleDisplayMode(.large)
-    }
-    
-    private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Your Personal Records")
-                .font(.montserratBold(size: 24))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-            
-            Text("Highlights from your tracked workouts, calculated automatically from your data.")
-                .font(.montserratRegular(size: 14))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-        }
     }
     
     private var effortsList: some View {
