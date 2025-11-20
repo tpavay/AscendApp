@@ -88,4 +88,59 @@ enum LeaderboardTimeFrame: String, CaseIterable, Codable, Identifiable {
             return periodIdentifier(for: lastUpdated) != periodIdentifier()
         }
     }
+
+    // MARK: - Reset Info
+
+    func nextResetDate(from date: Date = Date()) -> Date? {
+        let calendar = Calendar.current
+
+        switch self {
+        case .allTime:
+            return nil
+        case .weekly:
+            guard let interval = calendar.dateInterval(of: .weekOfYear, for: date),
+                  let next = calendar.date(byAdding: .weekOfYear, value: 1, to: interval.start) else {
+                return nil
+            }
+            return next
+        case .monthly:
+            guard let interval = calendar.dateInterval(of: .month, for: date),
+                  let next = calendar.date(byAdding: .month, value: 1, to: interval.start) else {
+                return nil
+            }
+            return next
+        case .yearly:
+            guard let interval = calendar.dateInterval(of: .year, for: date),
+                  let next = calendar.date(byAdding: .year, value: 1, to: interval.start) else {
+                return nil
+            }
+            return next
+        }
+    }
+
+    func daysUntilReset(from date: Date = Date()) -> Int? {
+        guard let resetDate = nextResetDate(from: date) else { return nil }
+        let interval = resetDate.timeIntervalSince(date)
+        if interval <= 0 { return 0 }
+        return Int(ceil(interval / 86_400))
+    }
+
+    func resetDescription(from date: Date = Date()) -> String {
+        guard let resetDate = nextResetDate(from: date) else {
+            return "This leaderboard never resets"
+        }
+
+        let interval = resetDate.timeIntervalSince(date)
+        if interval <= 0 {
+            return "Leaderboard resets in less than a day"
+        }
+
+        if interval < 86_400 {
+            return "Leaderboard resets in less than a day"
+        }
+
+        let days = Int(ceil(interval / 86_400))
+        let unit = days == 1 ? "day" : "days"
+        return "Leaderboard resets in \(days) \(unit)"
+    }
 }

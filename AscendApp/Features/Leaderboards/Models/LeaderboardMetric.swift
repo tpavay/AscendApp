@@ -61,7 +61,7 @@ enum LeaderboardMetric: String, CaseIterable, Codable, Identifiable {
         case .workouts:
             return "Workouts"
         case .duration:
-            return "Time"
+            return "Duration"
         case .stepsPerMinute:
             return "Pace"
         }

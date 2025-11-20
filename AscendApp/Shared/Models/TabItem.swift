@@ -90,8 +90,8 @@ extension TabItem {
             TabItem(
                 identifier: .leaderboard,
                 title: "Leaderboard",
-                iconName: "chart.bar.fill",
-                selectedIconName: "chart.bar.fill"
+                iconName: "trophy.fill",
+                selectedIconName: "trophy.fill"
             ) {
                 NavigationStack {
                     LeaderboardView()

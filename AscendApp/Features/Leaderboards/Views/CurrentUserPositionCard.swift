@@ -38,15 +38,12 @@ struct CurrentUserPositionCard: View {
                 defaultAvatar
             }
             
-            // Name and metric
-            VStack(alignment: .leading, spacing: 4) {
+            // Name
+            VStack(alignment: .leading, spacing: 0) {
                 Text(entry.displayName)
                     .font(.montserratSemiBold(size: 16))
                     .foregroundStyle(colorScheme == .dark ? .white : .black)
-                
-                Text(metric.displayName)
-                    .font(.montserratRegular(size: 12))
-                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .gray)
+                    .lineLimit(1)
             }
             
             Spacer()

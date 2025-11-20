@@ -14,6 +14,12 @@ import Observation
 class LeaderboardViewModel {
     var selectedMetric: LeaderboardMetric = .steps
     var selectedTimeFrame: LeaderboardTimeFrame = .weekly
+    var searchText: String = "" {
+        didSet {
+            guard searchText != oldValue else { return }
+            resetPaginationForSearchChange()
+        }
+    }
     var leaderboardEntries: [LeaderboardEntry] = []
     var userEntry: LeaderboardEntry?
     var isLoading = false
@@ -23,10 +29,27 @@ class LeaderboardViewModel {
     private let service = LeaderboardService.shared
     private let repository = LeaderboardRepository.shared
     private var currentUserId: String?
+    private let pageSize = 25
+    private(set) var visibleEntryLimit = 25
     
     func configure(userId: String, modelContext: ModelContext) {
         self.currentUserId = userId
         service.configure(modelContext: modelContext)
+    }
+
+    var displayedEntries: [LeaderboardEntry] {
+        let entries = filteredEntries
+        guard !entries.isEmpty else { return [] }
+        let limit = min(visibleEntryLimit, entries.count)
+        return Array(entries.prefix(limit))
+    }
+
+    var resetStatusText: String {
+        selectedTimeFrame.resetDescription()
+    }
+
+    var hasCachedEntries: Bool {
+        !leaderboardEntries.isEmpty
     }
     
     func refreshLeaderboard(
@@ -72,6 +95,7 @@ class LeaderboardViewModel {
             
             // Convert to leaderboard entries with rankings
             var entries: [LeaderboardEntry] = []
+            var currentUserEntry: LeaderboardEntry?
             for (index, stat) in stats.enumerated() {
                 let value = stat.value(for: selectedMetric)
                 let entry = LeaderboardEntry(
@@ -87,17 +111,17 @@ class LeaderboardViewModel {
                 entries.append(entry)
                 
                 if stat.userId == userId {
-                    userEntry = entry
+                    currentUserEntry = entry
                 }
             }
             
             leaderboardEntries = entries
             
             // If user not in leaderboard yet, create a placeholder entry
-            if userEntry == nil {
+            if currentUserEntry == nil {
                 if let localStats = try service.getLocalStats(for: userId, timeFrame: selectedTimeFrame) {
                     let value = localStats.value(for: selectedMetric)
-                    userEntry = LeaderboardEntry(
+                    currentUserEntry = LeaderboardEntry(
                         userId: userId,
                         displayName: "You",
                         photoURL: nil,
@@ -108,6 +132,9 @@ class LeaderboardViewModel {
                     )
                 }
             }
+
+            userEntry = currentUserEntry
+            resetPagination()
             
         } catch {
             errorMessage = "Failed to load leaderboard: \(error.localizedDescription)"
@@ -122,6 +149,29 @@ class LeaderboardViewModel {
     
     func scrollToUser() {
         showingTopLeaders = false
+    }
+
+    func loadMoreEntriesIfNeeded(currentEntry entry: LeaderboardEntry) {
+        guard let lastVisible = displayedEntries.last, lastVisible.id == entry.id else { return }
+        let totalEntries = filteredEntries.count
+        guard visibleEntryLimit < totalEntries else { return }
+        visibleEntryLimit = min(visibleEntryLimit + pageSize, totalEntries)
+    }
+    
+    private func resetPagination() {
+        visibleEntryLimit = min(pageSize, filteredEntries.count)
+    }
+
+    private func resetPaginationForSearchChange() {
+        resetPagination()
+    }
+
+    private var filteredEntries: [LeaderboardEntry] {
+        let trimmedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else { return leaderboardEntries }
+        return leaderboardEntries.filter { entry in
+            entry.displayName.range(of: trimmedQuery, options: .caseInsensitive) != nil
+        }
     }
     
     private func formatValue(_ value: Double, for metric: LeaderboardMetric) -> String {

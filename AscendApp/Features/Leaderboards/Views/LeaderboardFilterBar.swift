@@ -9,99 +9,221 @@ import SwiftUI
 
 struct LeaderboardFilterBar: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Binding var searchText: String
     @Binding var selectedMetric: LeaderboardMetric
     @Binding var selectedTimeFrame: LeaderboardTimeFrame
+    @FocusState private var isSearchFocused: Bool
+    @State private var activeSheet: FilterSheet?
+
+    private enum FilterSheet: Identifiable {
+        case timeFrame
+        case metric
+
+        var id: String {
+            switch self {
+            case .timeFrame: return "timeFrame"
+            case .metric: return "metric"
+            }
+        }
+    }
 
     var body: some View {
-        VStack(spacing: 16) {
-            // Metric selector - Horizontal scroll at top
+        VStack(alignment: .leading, spacing: 16) {
+            searchField
+                .padding(.horizontal, 20)
+
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    ForEach(LeaderboardMetric.allCases) { metric in
-                        MetricChip(
-                            metric: metric,
-                            isSelected: selectedMetric == metric,
-                            action: {
-                                selectedMetric = metric
-                            }
-                        )
+                    FilterChipButton(
+                        title: "Time Frame",
+                        value: selectedTimeFrame.displayName
+                    ) {
+                        activeSheet = .timeFrame
+                    }
+
+                    FilterChipButton(
+                        title: "Metric",
+                        value: selectedMetric.displayName
+                    ) {
+                        activeSheet = .metric
                     }
                 }
                 .padding(.horizontal, 20)
             }
-
-            // Time frame selector - Smaller, below metrics
-            HStack(spacing: 8) {
-                ForEach(LeaderboardTimeFrame.allCases) { timeFrame in
-                    TimeFrameChip(
-                        timeFrame: timeFrame,
-                        isSelected: selectedTimeFrame == timeFrame,
-                        action: {
-                            selectedTimeFrame = timeFrame
-                        }
-                    )
-                }
-            }
-            .padding(.horizontal, 20)
         }
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .timeFrame:
+                LeaderboardSingleSelectSheet(
+                    title: "Time Frame",
+                    subtitle: "Choose which period to view.",
+                    options: LeaderboardTimeFrame.allCases,
+                    selectedOption: selectedTimeFrame,
+                    displayName: { $0.displayName },
+                    onSelect: { newSelection in
+                        selectedTimeFrame = newSelection
+                    },
+                    detents: [.height(420)]
+                )
+            case .metric:
+                LeaderboardSingleSelectSheet(
+                    title: "Metric",
+                    subtitle: "Choose the metric to rank competitors.",
+                    options: LeaderboardMetric.allCases,
+                    selectedOption: selectedMetric,
+                    displayName: { $0.displayName },
+                    onSelect: { newSelection in
+                        selectedMetric = newSelection
+                    },
+                    detents: [.height(420)]
+                )
+            }
+        }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+
+            TextField("Search for a player", text: $searchText)
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .font(.montserratRegular(size: 15))
+                .focused($isSearchFocused)
+
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(searchBackgroundColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(searchBorderColor, lineWidth: 1)
+        )
+    }
+
+    private var searchBackgroundColor: Color {
+        colorScheme == .dark ? Color("Jet") : Color.gray.opacity(0.08)
+    }
+
+    private var searchBorderColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.05)
     }
 }
 
-struct MetricChip: View {
+private struct FilterChipButton: View {
     @Environment(\.colorScheme) private var colorScheme
-    let metric: LeaderboardMetric
-    let isSelected: Bool
+    let title: String
+    let value: String
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 8) {
-                Image(systemName: metric.icon)
-                    .font(.system(size: 24))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title.uppercased())
+                    .font(.montserratSemiBold(size: 11))
+                    .foregroundStyle(.secondary)
 
-                Text(metric.shortName)
-                    .font(.montserratMedium(size: 14))
+                Text(value)
+                    .font(.montserratMedium(size: 15))
+                    .foregroundStyle(colorScheme == .dark ? .white : .black)
+                    .lineLimit(1)
             }
-            .foregroundStyle(isSelected ? .white : (colorScheme == .dark ? .white.opacity(0.6) : .gray))
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(isSelected ? Color.accent : (colorScheme == .dark ? Color("Jet") : Color.white))
+                    .fill(colorScheme == .dark ? Color("Jet") : Color.white)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 16)
-                    .stroke(isSelected ? Color.clear : (colorScheme == .dark ? Color.white.opacity(0.2) : Color.gray.opacity(0.3)), lineWidth: 1)
+                    .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.gray.opacity(0.25), lineWidth: 1)
             )
+            .shadow(color: .black.opacity(colorScheme == .dark ? 0.4 : 0.05), radius: 8, x: 0, y: 4)
         }
         .buttonStyle(.plain)
     }
 }
 
-struct TimeFrameChip: View {
+private struct LeaderboardSingleSelectSheet<Option: Identifiable & Equatable>: View {
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
-    let timeFrame: LeaderboardTimeFrame
-    let isSelected: Bool
-    let action: () -> Void
+
+    let title: String
+    let subtitle: String
+    let options: [Option]
+    let selectedOption: Option
+    let displayName: (Option) -> String
+    let onSelect: (Option) -> Void
+    let detents: Set<PresentationDetent>
 
     var body: some View {
-        Button(action: action) {
-            Text(timeFrame.shortName)
-                .font(.montserratMedium(size: 12))
-                .foregroundStyle(isSelected ? .white : (colorScheme == .dark ? .white.opacity(0.6) : .gray))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(
-                    Capsule()
-                        .fill(isSelected ? Color.accent : (colorScheme == .dark ? Color("Jet").opacity(0.5) : Color.gray.opacity(0.1)))
-                )
+        VStack(spacing: 20) {
+            VStack(spacing: 4) {
+                Text(title)
+                    .font(.montserratBold(size: 20))
+                    .foregroundStyle(colorScheme == .dark ? .white : .black)
+
+                Text(subtitle)
+                    .font(.montserratRegular(size: 14))
+                    .foregroundStyle(.secondary)
+            }
+
+            ScrollView {
+                VStack(spacing: 12) {
+                    ForEach(options) { option in
+                        Button {
+                            onSelect(option)
+                            dismiss()
+                        } label: {
+                            HStack {
+                                Text(displayName(option))
+                                    .font(.montserratMedium(size: 16))
+                                    .foregroundStyle(colorScheme == .dark ? .white : .black)
+                                    .lineLimit(1)
+
+                                Spacer()
+
+                                Image(systemName: option == selectedOption ? "largecircle.fill.circle" : "circle")
+                                    .font(.system(size: 20))
+                                    .foregroundStyle(option == selectedOption ? Color.accent : .secondary)
+                            }
+                            .padding()
+                            .background(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .fill(colorScheme == .dark ? Color("Jet") : Color.gray.opacity(0.1))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 16)
+            }
         }
-        .buttonStyle(.plain)
+        .padding(.top, 32)
+        .padding(.bottom, 12)
+        .presentationDetents(detents)
+        .presentationDragIndicator(.visible)
     }
 }
 
 #Preview {
     LeaderboardFilterBar(
+        searchText: .constant(""),
         selectedMetric: .constant(.steps),
         selectedTimeFrame: .constant(.weekly)
     )
