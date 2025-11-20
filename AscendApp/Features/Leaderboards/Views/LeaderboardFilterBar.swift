@@ -51,6 +51,17 @@ struct LeaderboardFilterBar: View {
                 .padding(.horizontal, 20)
             }
         }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button {
+                    isSearchFocused = false
+                } label: {
+                    Text("Done")
+                        .font(.montserratSemiBold(size: 16))
+                }
+            }
+        }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .timeFrame:

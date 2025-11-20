@@ -170,6 +170,15 @@ struct WorkoutFilterExplorerView: View {
                     }
                 }
             }
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button {
+                    dismissSearchFocus()
+                } label: {
+                    Text("Done")
+                        .font(.montserratSemiBold(size: 16))
+                }
+            }
         }
         .themedBackground()
         .sheet(item: $activeSheet) { sheet in
