@@ -18,7 +18,7 @@ struct StreakView: View {
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var tabRouter: TabRouter
     @State private var themeManager = ThemeManager.shared
-    @State private var selectedWeekOffset: Int = 0 // 0 = current week, -1 = last week, etc.
+    @State private var selectedWindowOffset: Int = 0 // 0 = last 7 days, -1 = previous 7 days, etc.
     @State private var selectedWorkout: Workout?
     @State private var selectedDailyWorkouts: DailyWorkoutNavigation?
     @State private var showWorkoutDetail = false
@@ -32,37 +32,31 @@ struct StreakView: View {
         Workout.calculateCurrentStreak(from: workouts)
     }
     
-    private var selectedWeekDate: Date {
+    private var sevenDayDateRange: String {
         let calendar = Calendar.current
-        return calendar.date(byAdding: .weekOfYear, value: selectedWeekOffset, to: Date()) ?? Date()
-    }
-    
-    private var weeklyActivity: [Date: Bool] {
-        Workout.getWeeklyActivity(from: workouts, for: selectedWeekDate)
-    }
-    
-    private var weekDateRange: String {
-        let calendar = Calendar.current
-        let startOfWeek = calendar.dateInterval(of: .weekOfYear, for: selectedWeekDate)?.start ?? selectedWeekDate
-        let endOfWeek = calendar.date(byAdding: .day, value: 6, to: startOfWeek) ?? selectedWeekDate
+        let range = sevenDayWindow(for: selectedWindowOffset)
+        let startOfWindow = range.start
+        let endOfWindow = range.end
         
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d"
         
-        let startString = formatter.string(from: startOfWeek)
-        let endString = formatter.string(from: endOfWeek)
+        let startString = formatter.string(from: startOfWindow)
+        let endString = formatter.string(from: endOfWindow)
+        let startYear = calendar.component(.year, from: startOfWindow)
+        let endYear = calendar.component(.year, from: endOfWindow)
         
-        // Add year if different from current year
-        if calendar.component(.year, from: startOfWeek) != calendar.component(.year, from: Date()) {
-            formatter.dateFormat = "MMM d, yyyy"
-            return "\(formatter.string(from: startOfWeek)) - \(formatter.string(from: endOfWeek))"
+        if startYear == endYear {
+            return "\(startString) - \(endString), \(startYear)"
         }
         
-        return "\(startString) - \(endString), \(calendar.component(.year, from: Date()))"
+        let longFormatter = DateFormatter()
+        longFormatter.dateFormat = "MMM d, yyyy"
+        return "\(longFormatter.string(from: startOfWindow)) - \(longFormatter.string(from: endOfWindow))"
     }
     
-    // Number of weeks to show (current + past weeks)
-    private let numberOfWeeks = 12
+    // Number of seven-day windows to show (current + past windows)
+    private let numberOfWindows = 12
     
     var body: some View {
         VStack(spacing: 16) {
@@ -115,36 +109,36 @@ struct StreakView: View {
             
             // Weekly activity calendar with swipe navigation
             VStack(spacing: 12) {
-                // Date range - updates based on selected week
-                Text(weekDateRange)
+                // Date range - updates based on selected window
+                Text(sevenDayDateRange)
                     .font(.montserratMedium(size: 14))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .gray)
-                    .animation(.easeInOut(duration: 0.3), value: selectedWeekOffset)
+                    .animation(.easeInOut(duration: 0.3), value: selectedWindowOffset)
                 
-                // Swipeable week view
-                TabView(selection: $selectedWeekOffset) {
-                    ForEach((0...(numberOfWeeks - 1)).reversed(), id: \.self) { weekOffset in
-                        weekView(for: -weekOffset) // Negative offset for past weeks
-                            .tag(-weekOffset)
+                // Swipeable seven-day view
+                TabView(selection: $selectedWindowOffset) {
+                    ForEach((0...(numberOfWindows - 1)).reversed(), id: \.self) { windowOffset in
+                        sevenDayView(for: -windowOffset) // Negative offset for past windows
+                            .tag(-windowOffset)
                     }
                 }
                 .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
                 .frame(height: 80)
-                .animation(.easeInOut(duration: 0.3), value: selectedWeekOffset)
-                .onChange(of: selectedWeekOffset) { oldValue, newValue in
+                .animation(.easeInOut(duration: 0.3), value: selectedWindowOffset)
+                .onChange(of: selectedWindowOffset) { oldValue, newValue in
                     // Prevent swiping into the future (positive offsets)
                     if newValue > 0 {
-                        selectedWeekOffset = 0
+                        selectedWindowOffset = 0
                     }
                 }
                 
-                // Week indicator dots
+                // Window indicator dots
                 HStack(spacing: 6) {
-                    ForEach((0...(numberOfWeeks - 1)).reversed(), id: \.self) { weekOffset in
+                    ForEach((0...(numberOfWindows - 1)).reversed(), id: \.self) { windowOffset in
                         Circle()
-                            .fill(selectedWeekOffset == -weekOffset ? .accent : (effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.4)))
+                            .fill(selectedWindowOffset == -windowOffset ? .accent : (effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.4)))
                             .frame(width: 6, height: 6)
-                            .animation(.easeInOut(duration: 0.2), value: selectedWeekOffset)
+                            .animation(.easeInOut(duration: 0.2), value: selectedWindowOffset)
                     }
                 }
                 .padding(.top, 8)
@@ -171,9 +165,9 @@ struct StreakView: View {
         }
     }
     
-    private func weekView(for weekOffset: Int) -> some View {
+    private func sevenDayView(for windowOffset: Int) -> some View {
         HStack(spacing: 0) {
-            ForEach(sortedWeekDays(for: weekOffset), id: \.0) { date, hasWorkout in
+            ForEach(sortedWindowDays(for: windowOffset), id: \.0) { date, hasWorkout in
                 VStack(spacing: 8) {
                     // Day abbreviation
                     Text(dayAbbreviation(for: date))
@@ -236,20 +230,29 @@ struct StreakView: View {
         }
     }
     
-    private func sortedWeekDays(for weekOffset: Int) -> [(Date, Bool)] {
+    private func sortedWindowDays(for windowOffset: Int) -> [(Date, Bool)] {
         let calendar = Calendar.current
-        let targetDate = calendar.date(byAdding: .weekOfYear, value: weekOffset, to: Date()) ?? Date()
-        let startOfWeek = calendar.dateInterval(of: .weekOfYear, for: targetDate)?.start ?? targetDate
-        let weekActivity = Workout.getWeeklyActivity(from: workouts, for: targetDate)
+        let window = sevenDayWindow(for: windowOffset)
+        let startOfWindow = calendar.startOfDay(for: window.start)
+        let workoutDates = Set(workouts.map { calendar.startOfDay(for: $0.date) })
         
         var result: [(Date, Bool)] = []
         for i in 0..<7 {
-            if let day = calendar.date(byAdding: .day, value: i, to: startOfWeek) {
-                let hasWorkout = weekActivity[calendar.startOfDay(for: day)] ?? false
+            if let day = calendar.date(byAdding: .day, value: i, to: startOfWindow) {
+                let normalizedDay = calendar.startOfDay(for: day)
+                let hasWorkout = workoutDates.contains(normalizedDay)
                 result.append((day, hasWorkout))
             }
         }
         return result
+    }
+    
+    private func sevenDayWindow(for offset: Int) -> (start: Date, end: Date) {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let endOfWindow = calendar.date(byAdding: .day, value: offset * 7, to: today) ?? today
+        let startOfWindow = calendar.date(byAdding: .day, value: -6, to: endOfWindow) ?? endOfWindow
+        return (start: startOfWindow, end: endOfWindow)
     }
     
     private func dayAbbreviation(for date: Date) -> String {
