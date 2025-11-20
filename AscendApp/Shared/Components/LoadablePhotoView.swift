@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import AVFoundation
 
 struct LoadablePhotoView: View {
     let photo: Photo
@@ -30,16 +31,39 @@ struct LoadablePhotoView: View {
     }
 
     var body: some View {
-        Group {
+        ZStack {
             if let image = loadedImage {
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
                     .frame(width: size.width, height: size.height)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-                    .onTapGesture {
-                        onTap?()
+                
+                // Video overlay
+                if photo.isVideo {
+                    ZStack {
+                        Color.black.opacity(0.3)
+                        
+                        VStack(spacing: 4) {
+                            Image(systemName: "play.circle.fill")
+                                .font(.system(size: 32))
+                                .foregroundStyle(.white)
+                            
+                            if let duration = photo.duration {
+                                Text(formatDuration(duration))
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(
+                                        Capsule()
+                                            .fill(Color.black.opacity(0.7))
+                                    )
+                            }
+                        }
                     }
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+                }
             } else if isLoading {
                 RoundedRectangle(cornerRadius: cornerRadius)
                     .fill(.gray.opacity(0.2))
@@ -64,11 +88,23 @@ struct LoadablePhotoView: View {
                     }
             }
         }
+        .frame(width: size.width, height: size.height)
+        .onTapGesture {
+            onTap?()
+        }
         .task {
-            await loadPhoto()
+            await loadMedia()
         }
     }
 
+    private func loadMedia() async {
+        if photo.isVideo {
+            await loadVideoThumbnail()
+        } else {
+            await loadPhoto()
+        }
+    }
+    
     private func loadPhoto() async {
         do {
             let (data, _) = try await URLSession.shared.data(from: photo.url)
@@ -86,6 +122,38 @@ struct LoadablePhotoView: View {
                 self.loadError = error
                 self.isLoading = false
             }
+        }
+    }
+    
+    private func loadVideoThumbnail() async {
+        do {
+            let asset = AVAsset(url: photo.url)
+            let imageGenerator = AVAssetImageGenerator(asset: asset)
+            imageGenerator.appliesPreferredTrackTransform = true
+            
+            let cgImage = try await imageGenerator.image(at: .zero).image
+            
+            await MainActor.run {
+                self.loadedImage = UIImage(cgImage: cgImage)
+                self.isLoading = false
+            }
+        } catch {
+            await MainActor.run {
+                self.loadError = error
+                self.isLoading = false
+            }
+        }
+    }
+    
+    private func formatDuration(_ duration: TimeInterval) -> String {
+        let totalSeconds = Int(duration.rounded())
+        let minutes = totalSeconds / 60
+        let seconds = totalSeconds % 60
+        
+        if minutes > 0 {
+            return String(format: "%d:%02d", minutes, seconds)
+        } else {
+            return String(format: "0:%02d", seconds)
         }
     }
 }

@@ -12,7 +12,7 @@ struct PhotoPickerButton: View {
     @Binding var selectedPhotos: [PhotosPickerItem]
 
     var body: some View {
-        PhotosPicker(selection: $selectedPhotos, matching: .images) {
+        PhotosPicker(selection: $selectedPhotos, matching: .any(of: [.images, .videos])) {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(.accent,
                         style: StrokeStyle(lineWidth: 1, dash:[10, 5])
@@ -21,7 +21,7 @@ struct PhotoPickerButton: View {
                 .overlay {
                     VStack(spacing: 6) {
                         Image(systemName: "camera")
-                        Text("Add Photos")
+                        Text("Add Media")
                             .font(.caption)
                     }
                 }

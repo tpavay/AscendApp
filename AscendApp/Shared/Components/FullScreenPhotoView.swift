@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import AVKit
 
 struct FullScreenPhotoView: View {
     let photo: Photo
@@ -17,152 +18,222 @@ struct FullScreenPhotoView: View {
     @State private var scale: CGFloat = 1.0
     @State private var offset: CGSize = .zero
     @State private var dragOffset: CGSize = .zero
+    @State private var player: AVPlayer?
 
     var body: some View {
         ZStack {
             // Background
             Color.black
                 .ignoresSafeArea()
+            
+            // Video Player for videos
+            if photo.isVideo {
+                if let player = player {
+                    VideoPlayer(player: player)
+                        .ignoresSafeArea()
+                        .onAppear {
+                            player.play()
+                        }
+                        .onDisappear {
+                            player.pause()
+                        }
+                } else if isLoading {
+                    ProgressView("Loading video...")
+                        .foregroundStyle(.white)
+                } else {
+                    VStack(spacing: 16) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 48))
+                            .foregroundStyle(.white)
+                        
+                        Text("Failed to load video")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                        
+                        Button("Dismiss") {
+                            onDismiss()
+                        }
+                        .foregroundStyle(.white)
+                        .padding()
+                        .background(Color.white.opacity(0.2))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+            } else {
+                // Image view for photos (existing code)
+                imageView
+            }
+            
+            // Close button and info overlay
+            overlayViews
+        }
+        .task {
+            if photo.isVideo {
+                await loadVideo()
+            } else {
+                await loadPhoto()
+            }
+        }
+        .onDisappear {
+            player?.pause()
+            player = nil
+        }
+    }
+    
+    @ViewBuilder
+    private var imageView: some View {
 
-            if let image = loadedImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .scaleEffect(scale)
-                    .offset(
-                        x: offset.width + dragOffset.width,
-                        y: offset.height + dragOffset.height
-                    )
-                    .gesture(
-                        SimultaneousGesture(
-                            // Pinch to zoom
-                            MagnificationGesture()
-                                .onChanged { value in
-                                    scale = max(1.0, min(value, 4.0))
-                                }
-                                .onEnded { _ in
-                                    withAnimation(.easeOut(duration: 0.3)) {
-                                        if scale < 1.2 {
-                                            scale = 1.0
-                                            offset = .zero
-                                        }
-                                    }
-                                },
-
-                            // Drag to pan
-                            DragGesture()
-                                .onChanged { value in
-                                    if scale > 1.0 {
-                                        dragOffset = value.translation
-                                    } else {
-                                        // Allow vertical drag to dismiss when not zoomed
-                                        if abs(value.translation.height) > abs(value.translation.width) {
-                                            dragOffset = CGSize(width: 0, height: value.translation.height)
-                                        }
-                                    }
-                                }
-                                .onEnded { value in
-                                    if scale > 1.0 {
-                                        offset.width += dragOffset.width
-                                        offset.height += dragOffset.height
-                                        dragOffset = .zero
-
-                                        // Constrain pan to keep image visible
-                                        withAnimation(.easeOut(duration: 0.3)) {
-                                            constrainOffset()
-                                        }
-                                    } else {
-                                        // Dismiss if dragged down enough
-                                        if value.translation.height > 100 {
-                                            onDismiss()
-                                        } else {
-                                            withAnimation(.easeOut(duration: 0.3)) {
-                                                dragOffset = .zero
-                                            }
-                                        }
-                                    }
-                                }
-                        )
-                    )
-                    .onTapGesture(count: 2) {
-                        // Double tap to zoom
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            if scale > 1.0 {
-                                scale = 1.0
-                                offset = .zero
-                            } else {
-                                scale = 2.0
+        if let image = loadedImage {
+            Image(uiImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .scaleEffect(scale)
+                .offset(
+                    x: offset.width + dragOffset.width,
+                    y: offset.height + dragOffset.height
+                )
+                .gesture(
+                    SimultaneousGesture(
+                        // Pinch to zoom
+                        MagnificationGesture()
+                            .onChanged { value in
+                                scale = max(1.0, min(value, 4.0))
                             }
+                            .onEnded { _ in
+                                withAnimation(.easeOut(duration: 0.3)) {
+                                    if scale < 1.2 {
+                                        scale = 1.0
+                                        offset = .zero
+                                    }
+                                }
+                            },
+
+                        // Drag to pan
+                        DragGesture()
+                            .onChanged { value in
+                                if scale > 1.0 {
+                                    dragOffset = value.translation
+                                } else {
+                                    // Allow vertical drag to dismiss when not zoomed
+                                    if abs(value.translation.height) > abs(value.translation.width) {
+                                        dragOffset = CGSize(width: 0, height: value.translation.height)
+                                    }
+                                }
+                            }
+                            .onEnded { value in
+                                if scale > 1.0 {
+                                    offset.width += dragOffset.width
+                                    offset.height += dragOffset.height
+                                    dragOffset = .zero
+
+                                    // Constrain pan to keep image visible
+                                    withAnimation(.easeOut(duration: 0.3)) {
+                                        constrainOffset()
+                                    }
+                                } else {
+                                    // Dismiss if dragged down enough
+                                    if value.translation.height > 100 {
+                                        onDismiss()
+                                    } else {
+                                        withAnimation(.easeOut(duration: 0.3)) {
+                                            dragOffset = .zero
+                                        }
+                                    }
+                                }
+                            }
+                    )
+                )
+                .onTapGesture(count: 2) {
+                    // Double tap to zoom
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        if scale > 1.0 {
+                            scale = 1.0
+                            offset = .zero
+                        } else {
+                            scale = 2.0
                         }
                     }
-            } else if isLoading {
-                ProgressView("Loading...")
-                    .foregroundStyle(.white)
-            } else {
-                VStack(spacing: 16) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 48))
-                        .foregroundStyle(.white)
-
-                    Text("Failed to load photo")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-
-                    Button("Dismiss") {
-                        onDismiss()
-                    }
-                    .foregroundStyle(.white)
-                    .padding()
-                    .background(Color.white.opacity(0.2))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
-            }
+        } else if isLoading {
+            ProgressView("Loading...")
+                .foregroundStyle(.white)
+        } else {
+            VStack(spacing: 16) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 48))
+                    .foregroundStyle(.white)
 
-            // Close button
-            VStack {
-                HStack {
-                    Spacer()
+                Text("Failed to load photo")
+                    .font(.headline)
+                    .foregroundStyle(.white)
 
-                    Button {
-                        onDismiss()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundStyle(.white.opacity(0.8))
-                            .background(Color.black.opacity(0.5))
-                            .clipShape(Circle())
-                    }
+                Button("Dismiss") {
+                    onDismiss()
                 }
+                .foregroundStyle(.white)
                 .padding()
-
-                Spacer()
+                .background(Color.white.opacity(0.2))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             }
-
-            // Photo info overlay (bottom)
-            VStack {
+        }
+    }
+    
+    @ViewBuilder
+    private var overlayViews: some View {
+        // Close button
+        VStack {
+            HStack {
                 Spacer()
 
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Uploaded \(photo.uploadedAt.formatted(.dateTime.month().day().hour().minute()))")
+                Button {
+                    onDismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 32))
+                        .foregroundStyle(.white.opacity(0.8))
+                        .background(Color.black.opacity(0.5))
+                        .clipShape(Circle())
+                }
+            }
+            .padding()
+
+            Spacer()
+        }
+
+        // Media info overlay (bottom)
+        VStack {
+            Spacer()
+
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Uploaded \(photo.uploadedAt.formatted(.dateTime.month().day().hour().minute()))")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.8))
+                    
+                    if photo.isVideo, let duration = photo.duration {
+                        Text("Duration: \(formatDuration(duration))")
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.8))
                     }
-
-                    Spacer()
                 }
-                .padding()
-                .background(
-                    LinearGradient(
-                        colors: [.clear, .black.opacity(0.6)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
+
+                Spacer()
             }
+            .padding()
+            .background(
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.6)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
         }
-        .task {
-            await loadPhoto()
+    }
+    
+    private func loadVideo() async {
+        await MainActor.run {
+            self.player = AVPlayer(url: photo.url)
+            self.isLoading = false
         }
     }
 
@@ -198,6 +269,18 @@ struct FullScreenPhotoView: View {
 
         offset.width = max(-maxOffsetX, min(maxOffsetX, offset.width))
         offset.height = max(-maxOffsetY, min(maxOffsetY, offset.height))
+    }
+    
+    private func formatDuration(_ duration: TimeInterval) -> String {
+        let totalSeconds = Int(duration.rounded())
+        let minutes = totalSeconds / 60
+        let seconds = totalSeconds % 60
+        
+        if minutes > 0 {
+            return String(format: "%d:%02d", minutes, seconds)
+        } else {
+            return String(format: "0:%02d", seconds)
+        }
     }
 }
 

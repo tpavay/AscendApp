@@ -21,7 +21,7 @@ struct WorkoutPhotosSection: View {
         VStack(spacing: 16) {
             // Section header
             HStack {
-                Text("Photos")
+                Text("Photos & Videos")
                     .font(.montserratSemiBold(size: 20))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
 

@@ -33,6 +33,8 @@ struct EditWorkoutView: View {
     @State private var photoPendingDeletion: Photo?
     @State private var updateErrorMessage: String?
     @State private var isSaving = false
+    @State private var showMediaLimitAlert = false
+    @State private var mediaLimitMessage = ""
     
     // Health Metrics
     @State private var avgHeartRate: String = ""
@@ -318,7 +320,11 @@ struct EditWorkoutView: View {
             
             existingPhotosSection
             
-            PhotoGalleryView(selectedImages: $selectedImages)
+            PhotoGalleryView(
+                selectedImages: $selectedImages,
+                existingMediaCount: existingPhotos.count,
+                existingVideoCount: existingPhotos.filter { $0.isVideo }.count
+            )
             
             // Section Header
             HStack {
@@ -444,7 +450,7 @@ struct EditWorkoutView: View {
         if !existingPhotos.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Text("Current Photos")
+                    Text("Current Media")
                         .font(.montserratSemiBold(size: 18))
                         .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                     
