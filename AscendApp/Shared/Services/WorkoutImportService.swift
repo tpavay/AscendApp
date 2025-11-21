@@ -52,7 +52,7 @@ class WorkoutImportService {
         
         // Always attempt to fetch workouts regardless of authorization status
         // HealthKit will return available data based on actual user permissions
-        let searchStartDate = Calendar.current.date(byAdding: .year, value: -1, to: Date())!
+        let searchStartDate = Calendar.current.date(byAdding: .year, value: -10, to: Date())!
         print("🔍 Searching for workouts since: \(searchStartDate)")
         
         // Fetch all workouts from the past year
