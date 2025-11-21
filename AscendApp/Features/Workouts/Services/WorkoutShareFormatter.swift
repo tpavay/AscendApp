@@ -45,6 +45,13 @@ func workoutShareText(
     if let maxHR = workout.maxHeartRate {
         lines.append("Max Heart Rate: \(maxHR) BPM")
     }
+    
+    // Add personal records if any were achieved
+    let prText = personalRecordsText(for: workout)
+    if !prText.isEmpty {
+        lines.append("")
+        lines.append(prText)
+    }
 
     return lines.joined(separator: "\n")
 }
@@ -73,4 +80,23 @@ private func formattedDecimal(_ value: Double, decimals: Int) -> String {
     formatter.maximumFractionDigits = decimals
     formatter.minimumFractionDigits = decimals
     return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.\(decimals)f", value)
+}
+
+private func personalRecordsText(for workout: Workout) -> String {
+    let achievedRecords = workout.achievedPersonalRecords
+    
+    guard !achievedRecords.isEmpty else {
+        return ""
+    }
+    
+    // Create PR text with emojis
+    let prLines = achievedRecords.map { recordType in
+        "\(recordType.emoji) PR: \(recordType.displayName)"
+    }
+    
+    if prLines.count == 1 {
+        return prLines[0]
+    } else {
+        return "Personal Records:\n" + prLines.map { "  • \($0)" }.joined(separator: "\n")
+    }
 }

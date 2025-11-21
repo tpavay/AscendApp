@@ -47,7 +47,30 @@ struct WorkoutCompletedView: View {
                 .padding(.top, 20)
                 .padding(.horizontal, 20)
                 
-                Spacer(minLength: 40)
+                // Personal Records Section
+                if workout.hasPersonalRecords {
+                    VStack(spacing: 12) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "trophy.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.orange)
+                            
+                            Text("Personal Records!")
+                                .font(.montserratBold(size: 18))
+                                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                        }
+                        
+                        PersonalRecordBadgeGroup(
+                            workout: workout,
+                            size: .large,
+                            maxVisible: nil
+                        )
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 24)
+                }
+                
+                Spacer(minLength: workout.hasPersonalRecords ? 24 : 40)
                 
                 // Combined Stats Card
                 VStack(spacing: 20) {

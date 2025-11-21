@@ -20,6 +20,9 @@ struct DebugToolsView: View {
                 // Header
                 headerSection
 
+                // Navigation sections
+                inspectionSection
+                
                 // Debug sections
                 ForEach(viewModel.sections) { section in
                     debugSection(section)
@@ -53,6 +56,87 @@ struct DebugToolsView: View {
         .onChange(of: viewModel.errorMessage) { _, newValue in
             showErrorAlert = newValue != nil
         }
+    }
+
+    // MARK: - Inspection Section
+    
+    private var inspectionSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Section header
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Data Inspection")
+                    .font(.montserratBold(size: 20))
+                    .foregroundStyle(colorScheme == .dark ? .white : .black)
+
+                Text("View and manage app data")
+                    .font(.montserratRegular(size: 14))
+                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .gray)
+            }
+            .padding(.horizontal, 20)
+
+            // Navigation Links
+            VStack(spacing: 12) {
+                NavigationLink {
+                    PersonalRecordsDebugView()
+                } label: {
+                    inspectionRow(
+                        title: "Personal Records",
+                        description: "View all current and historical PRs",
+                        icon: "trophy.fill",
+                        iconColor: .orange
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 20)
+        }
+    }
+    
+    private func inspectionRow(
+        title: String,
+        description: String,
+        icon: String,
+        iconColor: Color
+    ) -> some View {
+        HStack(spacing: 16) {
+            // Icon
+            ZStack {
+                Circle()
+                    .fill(iconColor.opacity(0.15))
+                    .frame(width: 44, height: 44)
+                
+                Image(systemName: icon)
+                    .font(.system(size: 20))
+                    .foregroundStyle(iconColor)
+            }
+            
+            // Text content
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.montserratSemiBold(size: 16))
+                    .foregroundStyle(colorScheme == .dark ? .white : .black)
+                
+                Text(description)
+                    .font(.montserratRegular(size: 13))
+                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .gray)
+                    .lineLimit(2)
+            }
+            
+            Spacer()
+            
+            Image(systemName: "chevron.right")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(colorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5))
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.02))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1), lineWidth: 1)
+        )
     }
 
     // MARK: - Header Section

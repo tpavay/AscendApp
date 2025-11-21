@@ -277,7 +277,7 @@ struct WorkoutRowView: View {
                 .frame(width: 60, alignment: .leading)
                 
                 // Workout Details
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text("\(workout.primaryMetricValue ?? 0) \(workout.metricType.unit)")
                             .font(.montserratSemiBold)
@@ -295,6 +295,15 @@ struct WorkoutRowView: View {
                             .font(.montserratRegular(size: 14))
                             .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
                             .lineLimit(2)
+                    }
+                    
+                    // Personal Record Badges
+                    if workout.hasPersonalRecords {
+                        PersonalRecordBadgeGroup(
+                            workout: workout,
+                            size: .small,
+                            maxVisible: 3
+                        )
                     }
                 }
             }

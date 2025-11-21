@@ -99,6 +99,19 @@ class WorkoutFormViewModel {
 
             modelContext.insert(workout)
             try modelContext.save()
+            
+            // Check for personal records after the workout is saved
+            let prResults = try checkAndSavePersonalRecords(
+                for: workout,
+                modelContext: modelContext
+            )
+            
+            // Update workout with PR types if any were achieved
+            if !prResults.isEmpty {
+                let prTypes = prResults.map { $0.type.rawValue }
+                workout.personalRecordTypes = prTypes
+                try modelContext.save()
+            }
 
             isUploading = false
             return workout
@@ -108,6 +121,39 @@ class WorkoutFormViewModel {
             uploadError = error.localizedDescription
             throw error
         }
+    }
+    
+    // MARK: - Personal Records
+    private func checkAndSavePersonalRecords(
+        for workout: Workout,
+        modelContext: ModelContext
+    ) throws -> [PersonalRecordResult] {
+        // Fetch all current personal records
+        let allRecords = try PersonalRecordService.fetchCurrentPersonalRecords(
+            modelContext: modelContext
+        )
+        
+        // Check for PRs in this workout
+        let prResults = PersonalRecordService.checkForPersonalRecords(
+            workout: workout,
+            allPersonalRecords: allRecords,
+            measurementSystem: settingsManager.measurementSystem,
+            stepHeight: settingsManager.stepHeight
+        )
+        
+        // Filter to only new records
+        let newRecords = prResults.filter { $0.isNewRecord }
+        
+        // Save the new personal records
+        if !newRecords.isEmpty {
+            try PersonalRecordService.savePersonalRecords(
+                results: newRecords,
+                workout: workout,
+                modelContext: modelContext
+            )
+        }
+        
+        return newRecords
     }
 
     // MARK: - Form Processing Methods

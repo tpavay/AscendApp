@@ -187,28 +187,59 @@ private extension WorkoutSharePoster {
 
     var statList: some View {
         VStack(alignment: .leading, spacing: hasPhoto ? 8 : 10) {
-            statRow(icon: "clock.arrow.circlepath", label: "Duration", value: workout.durationFormatted)
+            statRow(
+                icon: "clock.arrow.circlepath",
+                label: "Duration",
+                value: workout.durationFormatted,
+                isPR: hasPR(.longestDuration)
+            )
 
             if let stepsValue = stepsDisplay {
-                statRow(icon: "figure.walk.motion", label: "Steps", value: stepsValue)
+                let prType: PersonalRecordType = workout.metricType == .steps ? .mostSteps : .mostFloors
+                statRow(
+                    icon: "figure.walk.motion",
+                    label: workout.metricType == .steps ? "Steps" : "Floors",
+                    value: stepsValue,
+                    isPR: hasPR(prType)
+                )
             }
 
             if !hasPhoto {
                 if let stepsPerMinute = stepsPerMinuteDisplay {
-                    statRow(icon: "speedometer", label: stepsPerMinute.label, value: stepsPerMinute.value)
+                    statRow(
+                        icon: "speedometer",
+                        label: stepsPerMinute.label,
+                        value: stepsPerMinute.value,
+                        isPR: hasPR(.highestAveragePace)
+                    )
                 }
             }
 
             if let calories = caloriesDisplay {
-                statRow(icon: "flame.fill", label: "Calories", value: calories)
+                statRow(
+                    icon: "flame.fill",
+                    label: "Calories",
+                    value: calories,
+                    isPR: hasPR(.mostCaloriesBurned)
+                )
             }
 
             if !hasPhoto {
                 if let maxHeartRate = maxHeartRateDisplay {
-                    statRow(icon: "heart.fill", label: "Max Heart Rate", value: maxHeartRate)
+                    statRow(
+                        icon: "heart.fill",
+                        label: "Max Heart Rate",
+                        value: maxHeartRate,
+                        isPR: hasPR(.highestMaxHeartRate)
+                    )
                 }
             }
         }
+    }
+    
+    // Helper to check if a PR type was achieved in this workout
+    func hasPR(_ type: PersonalRecordType) -> Bool {
+        return workout.achievedPersonalRecords.contains(type)
     }
 
 }
@@ -263,7 +294,7 @@ private extension WorkoutSharePoster {
         return "\(value) cal"
     }
 
-    func statRow(icon: String, label: String, value: String) -> some View {
+    func statRow(icon: String, label: String, value: String, isPR: Bool = false) -> some View {
         HStack(alignment: .center, spacing: 14) {
             ZStack {
                 Circle()
@@ -278,11 +309,21 @@ private extension WorkoutSharePoster {
                 Text(label)
                     .font(statLabelFont)
                     .foregroundStyle(.white.opacity(0.8))
-                Text(value)
-                    .font(statValueFont)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
+                
+                HStack(spacing: 6) {
+                    Text(value)
+                        .font(statValueFont)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                    
+                    if isPR {
+                        Text("(PR)")
+                            .font(hasPhoto ? .montserratBold(size: 12) : .montserratBold(size: 14))
+                            .foregroundStyle(Color.orange)
+                            .shadow(color: Color.orange.opacity(0.5), radius: 2, x: 0, y: 0)
+                    }
+                }
             }
         }
     }

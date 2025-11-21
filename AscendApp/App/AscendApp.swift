@@ -30,8 +30,8 @@ struct AscendApp: App {
     
     private func createModelContainer() -> ModelContainer {
         do {
-            let config = ModelConfiguration(schema: Schema([Workout.self, LeaderboardStats.self]))
-            return try ModelContainer(for: Workout.self, LeaderboardStats.self, configurations: config)
+            let config = ModelConfiguration(schema: Schema([Workout.self, LeaderboardStats.self, PersonalRecord.self]))
+            return try ModelContainer(for: Workout.self, LeaderboardStats.self, PersonalRecord.self, configurations: config)
         } catch {
             print("❌ Failed to create model container: \(error)")
             // If migration fails, try deleting all database files and recreating
@@ -49,8 +49,8 @@ struct AscendApp: App {
                 }
 
                 // Create a clean container
-                let config = ModelConfiguration(schema: Schema([Workout.self, LeaderboardStats.self]))
-                return try ModelContainer(for: Workout.self, LeaderboardStats.self, configurations: config)
+                let config = ModelConfiguration(schema: Schema([Workout.self, LeaderboardStats.self, PersonalRecord.self]))
+                return try ModelContainer(for: Workout.self, LeaderboardStats.self, PersonalRecord.self, configurations: config)
             } catch {
                 fatalError("Could not create model container after cleanup: \(error)")
             }

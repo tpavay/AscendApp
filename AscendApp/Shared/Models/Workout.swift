@@ -78,8 +78,11 @@ class Workout {
     var sourceMetadata: String? // Additional source-specific data (JSON string)
     var healthKitUUID: String? // HealthKit workout UUID for deduplication
     var photos: [Photo]
+    
+    // Personal Records tracking
+    var personalRecordTypes: [String]? // Array of PersonalRecordType raw values achieved in this workout
 
-    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int? = nil, floors: Int? = nil, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil, photos: [Photo] = []) {
+    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int? = nil, floors: Int? = nil, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil, photos: [Photo] = [], personalRecordTypes: [String]? = nil) {
         self.id = UUID()
         self.name = name.isEmpty ? "Workout" : name
         self.date = date
@@ -102,6 +105,7 @@ class Workout {
         self.sourceMetadata = sourceMetadata
         self.healthKitUUID = healthKitUUID
         self.photos = photos
+        self.personalRecordTypes = personalRecordTypes
     }
     
     // Computed properties for convenience
@@ -174,6 +178,25 @@ class Workout {
     
     var integrityDisplayName: String {
         return integrityLevel.displayName
+    }
+    
+    // MARK: - Personal Records
+    var achievedPersonalRecords: [PersonalRecordType] {
+        guard let recordTypes = personalRecordTypes else { return [] }
+        return recordTypes.compactMap { PersonalRecordType(rawValue: $0) }
+    }
+    
+    var hasPersonalRecords: Bool {
+        return !(personalRecordTypes?.isEmpty ?? true)
+    }
+    
+    func addPersonalRecord(_ type: PersonalRecordType) {
+        if personalRecordTypes == nil {
+            personalRecordTypes = []
+        }
+        if !(personalRecordTypes?.contains(type.rawValue) ?? false) {
+            personalRecordTypes?.append(type.rawValue)
+        }
     }
     
     // MARK: - Streak Calculations

@@ -157,22 +157,74 @@ struct HealthKitImportView: View {
     private func importWorkouts() async {
         importState = .importing
         importedCount = 0
+        let settingsManager = SettingsManager.shared
         
         for hkWorkout in foundWorkouts {
             let metrics = await healthKitService.fetchWorkoutMetrics(for: hkWorkout)
             let workout = hkWorkout.toAscendWorkout(with: metrics)
             
             modelContext.insert(workout)
-            importedCount += 1
+            
+            do {
+                try modelContext.save()
+                
+                // Check for personal records after each workout is saved
+                let prResults = try checkAndSavePersonalRecords(
+                    for: workout,
+                    modelContext: modelContext,
+                    settingsManager: settingsManager
+                )
+                
+                // Update workout with PR types if any were achieved
+                if !prResults.isEmpty {
+                    let prTypes = prResults.map { $0.type.rawValue }
+                    workout.personalRecordTypes = prTypes
+                    try modelContext.save()
+                }
+                
+                importedCount += 1
+            } catch {
+                errorMessage = "Failed to save workout: \(error.localizedDescription)"
+                importState = .error
+                return
+            }
         }
         
-        do {
-            try modelContext.save()
-            importState = .completed
-        } catch {
-            errorMessage = "Failed to save workouts: \(error.localizedDescription)"
-            importState = .error
+        importState = .completed
+    }
+    
+    // MARK: - Personal Records
+    private func checkAndSavePersonalRecords(
+        for workout: Workout,
+        modelContext: ModelContext,
+        settingsManager: SettingsManager
+    ) throws -> [PersonalRecordResult] {
+        // Fetch all current personal records
+        let allRecords = try PersonalRecordService.fetchCurrentPersonalRecords(
+            modelContext: modelContext
+        )
+        
+        // Check for PRs in this workout
+        let prResults = PersonalRecordService.checkForPersonalRecords(
+            workout: workout,
+            allPersonalRecords: allRecords,
+            measurementSystem: settingsManager.measurementSystem,
+            stepHeight: settingsManager.stepHeight
+        )
+        
+        // Filter to only new records
+        let newRecords = prResults.filter { $0.isNewRecord }
+        
+        // Save the new personal records
+        if !newRecords.isEmpty {
+            try PersonalRecordService.savePersonalRecords(
+                results: newRecords,
+                workout: workout,
+                modelContext: modelContext
+            )
         }
+        
+        return newRecords
     }
 }
 

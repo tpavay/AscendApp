@@ -163,6 +163,16 @@ struct WorkoutDetailView: View {
                 .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                 .multilineTextAlignment(.center)
             
+            // Personal Records Badges
+            if workout.hasPersonalRecords {
+                PersonalRecordBadgeGroup(
+                    workout: workout,
+                    size: .medium,
+                    maxVisible: nil
+                )
+                .padding(.top, 4)
+            }
+            
             // Date & time
             VStack(spacing: 4) {
                 Text(formatWorkoutDateTime())
