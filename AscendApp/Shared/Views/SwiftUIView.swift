@@ -10,6 +10,7 @@ import PhotosUI
 
 struct PhotoPickerButton: View {
     @Binding var selectedPhotos: [PhotosPickerItem]
+    var isLoading: Bool = false
 
     var body: some View {
         PhotosPicker(selection: $selectedPhotos, matching: .any(of: [.images, .videos])) {
@@ -19,12 +20,25 @@ struct PhotoPickerButton: View {
                 )
                 .frame(height: 120)
                 .overlay {
-                    VStack(spacing: 6) {
-                        Image(systemName: "camera")
-                        Text("Add Media")
-                            .font(.caption)
+                    if isLoading {
+                        VStack(spacing: 8) {
+                            ProgressView()
+                                .tint(.accent)
+                            Text("Loading Media")
+                                .font(.caption)
+                                .foregroundStyle(.accent)
+                        }
+                    } else {
+                        VStack(spacing: 6) {
+                            Image(systemName: "camera")
+                                .foregroundStyle(.accent)
+                            Text("Add Media")
+                                .font(.caption)
+                                .foregroundStyle(.accent)
+                        }
                     }
                 }
         }
+        .disabled(isLoading)
     }
 }

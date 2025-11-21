@@ -22,6 +22,7 @@ struct PhotoGalleryView: View {
     @State private var videoToTrim: SelectedPhotoItem?
     @State private var showingVideoTrimmer = false
     @State private var pendingVideoItem: SelectedPhotoItem? // Video waiting to be trimmed
+    @State private var isLoadingMedia = false // Loading state for media processing
     
     // Computed properties for validation
     private var videoCount: Int {
@@ -43,8 +44,8 @@ struct PhotoGalleryView: View {
     var body: some View {
         Group {
             if selectedImages.isEmpty {
-                // Empty state - show picker
-                PhotoPickerButton(selectedPhotos: $selectedPhotos)
+                // Empty state - show picker (with loading state if applicable)
+                PhotoPickerButton(selectedPhotos: $selectedPhotos, isLoading: isLoadingMedia)
                     .frame(height: 120)
             } else {
                 // Photos selected - show gallery with picker at end
@@ -58,7 +59,7 @@ struct PhotoGalleryView: View {
 
                         // Picker at the end - only show if under limit
                         if canAddMore {
-                            PhotoPickerButton(selectedPhotos: $selectedPhotos)
+                            PhotoPickerButton(selectedPhotos: $selectedPhotos, isLoading: isLoadingMedia)
                                 .frame(width: 120)
                         }
                     }
@@ -108,12 +109,16 @@ struct PhotoGalleryView: View {
 extension PhotoGalleryView {
     @MainActor
     private func processNewPhotos(_ newItems: [PhotosPickerItem]) async {
+        // Set loading state
+        isLoadingMedia = true
+        
         // Validate total media count first
         let potentialTotal = totalMediaCount + newItems.count
         if potentialTotal > 3 {
             errorMessage = "Only 3 combined photos and videos (max 1 video) can be added to a given workout."
             showErrorAlert = true
             selectedPhotos.removeAll()
+            isLoadingMedia = false
             return
         }
         
@@ -131,6 +136,7 @@ extension PhotoGalleryView {
             errorMessage = "You can only add one video with a max length of 15 seconds."
             showErrorAlert = true
             selectedPhotos.removeAll()
+            isLoadingMedia = false
             return
         }
         
@@ -174,6 +180,8 @@ extension PhotoGalleryView {
             showingVideoTrimmer = true
         }
         
+        // Clear loading state
+        isLoadingMedia = false
         selectedPhotos.removeAll() // Clear picker - this is now safe!
     }
 
