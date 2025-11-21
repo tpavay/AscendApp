@@ -93,9 +93,8 @@ class WorkoutFormViewModel {
         do {
             let request = try createWorkoutRequest()
 
-            // Convert SelectedPhotoItem to PhotosPickerItem for the service
-            let pickerItems = selectedImages.map { $0.pickerItem }
-            let workout = try await workoutService.createWorkout(from: request, with: pickerItems)
+            // Use SelectedPhotoItems which includes trimmed videos
+            let workout = try await workoutService.createWorkout(from: request, with: selectedImages)
 
             modelContext.insert(workout)
             try modelContext.save()
@@ -114,12 +113,30 @@ class WorkoutFormViewModel {
             }
 
             isUploading = false
+            
+            // Clean up trimmed video files after successful upload
+            cleanupTrimmedVideos()
+            
             return workout
 
         } catch {
             isUploading = false
             uploadError = error.localizedDescription
             throw error
+        }
+    }
+    
+    /// Clean up temporary video files (both original and trimmed)
+    func cleanupTrimmedVideos() {
+        for item in selectedImages {
+            // Clean up trimmed video if exists
+            if let trimmedURL = item.trimmedVideoURL {
+                try? FileManager.default.removeItem(at: trimmedURL)
+            }
+            // Clean up original video temporary file if exists
+            if let originalURL = item.originalVideoURL {
+                try? FileManager.default.removeItem(at: originalURL)
+            }
         }
     }
     

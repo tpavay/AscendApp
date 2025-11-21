@@ -25,7 +25,35 @@ final class WorkoutService {
         // SAFE: this is an actor hop (MainActor -> PhotoService)
         let uploadedPhotos = try await photoService.uploadPhotos(photos)
 
-        // If you read UIKit values, you’re already on the main actor here.
+        // If you read UIKit values, you're already on the main actor here.
+        let model = UIDevice.current.model
+
+        return Workout(
+            name: request.name,
+            date: request.date,
+            duration: request.duration,
+            steps: request.steps,
+            floors: request.floors,
+            notes: request.notes,
+            avgHeartRate: request.avgHeartRate,
+            maxHeartRate: request.maxHeartRate,
+            caloriesBurned: request.caloriesBurned,
+            effortRating: request.effortRating,
+            source: .manual,
+            deviceModel: model,
+            photos: uploadedPhotos
+        )
+    }
+    
+    // New method that supports trimmed videos
+    @MainActor
+    func createWorkout(from request: CreateWorkoutRequest,
+                       with selectedPhotos: [SelectedPhotoItem]) async throws -> Workout {
+
+        // SAFE: this is an actor hop (MainActor -> PhotoService)
+        let uploadedPhotos = try await photoService.uploadSelectedPhotos(selectedPhotos)
+
+        // If you read UIKit values, you're already on the main actor here.
         let model = UIDevice.current.model
 
         return Workout(

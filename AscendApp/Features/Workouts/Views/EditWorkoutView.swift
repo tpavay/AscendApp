@@ -153,6 +153,7 @@ struct EditWorkoutView: View {
         VStack(spacing: 0) {
             HStack {
                 Button("Cancel") {
+                    cleanupTrimmedVideos()
                     showingEditWorkout = false
                 }
                 .font(.montserratRegular)
@@ -704,12 +705,11 @@ struct EditWorkoutView: View {
         let maxHR = !maxHeartRate.isEmpty ? Int(maxHeartRate) : nil
         let calories = !caloriesBurned.isEmpty ? Int(caloriesBurned) : nil
         
-        let pickerItems = selectedImages.map { $0.pickerItem }
         var newlyUploadedPhotos: [Photo] = []
         
         do {
-            if !pickerItems.isEmpty {
-                newlyUploadedPhotos = try await photoService.uploadPhotos(pickerItems)
+            if !selectedImages.isEmpty {
+                newlyUploadedPhotos = try await photoService.uploadSelectedPhotos(selectedImages)
             }
             
             // Update the workout properties
@@ -742,6 +742,9 @@ struct EditWorkoutView: View {
                 }
             }
             
+            // Clean up trimmed video files
+            cleanupTrimmedVideos()
+            
             showingEditWorkout = false
         } catch {
             if !newlyUploadedPhotos.isEmpty {
@@ -762,6 +765,19 @@ struct EditWorkoutView: View {
         }
         existingPhotos.removeAll { $0.id == photo.id }
         photoPendingDeletion = nil
+    }
+    
+    private func cleanupTrimmedVideos() {
+        for item in selectedImages {
+            // Clean up trimmed video if exists
+            if let trimmedURL = item.trimmedVideoURL {
+                try? FileManager.default.removeItem(at: trimmedURL)
+            }
+            // Clean up original video temporary file if exists
+            if let originalURL = item.originalVideoURL {
+                try? FileManager.default.removeItem(at: originalURL)
+            }
+        }
     }
 }
 

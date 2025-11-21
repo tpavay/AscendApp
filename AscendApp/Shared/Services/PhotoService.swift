@@ -36,6 +36,48 @@ actor PhotoService {
         }
     }
     
+    /// Upload photos from SelectedPhotoItems (supports trimmed videos)
+    func uploadSelectedPhotos(_ items: [SelectedPhotoItem]) async throws -> [Photo] {
+        let repo = self.repo
+        return try await withThrowingTaskGroup(of: (Photo?, URL?, URL?).self) { group in
+            for item in items {
+                group.addTask {
+                    if item.isVideo {
+                        // Use trimmed video if available, otherwise load from picker
+                        if let trimmedURL = item.trimmedVideoURL,
+                           let trimmedDuration = item.trimmedDuration {
+                            let photo = try await self.uploadVideoFromURL(trimmedURL, duration: trimmedDuration, repo: repo)
+                            return (photo, trimmedURL, item.originalVideoURL)
+                        } else if let originalURL = item.originalVideoURL {
+                            let photo = try await self.uploadVideoFromURL(originalURL, duration: item.duration ?? 0, repo: repo)
+                            return (photo, nil, originalURL)
+                        } else {
+                            let photo = try await self.uploadVideo(item.pickerItem, repo: repo)
+                            return (photo, nil, nil)
+                        }
+                    } else {
+                        let photo = try await self.uploadPhoto(item.pickerItem, repo: repo)
+                        return (photo, nil, nil)
+                    }
+                }
+            }
+            var out: [Photo] = []
+            for try await result in group {
+                if let photo = result.0 {
+                    out.append(photo)
+                }
+                // Clean up temporary files after successful upload
+                if let trimmedURL = result.1 {
+                    try? FileManager.default.removeItem(at: trimmedURL)
+                }
+                if let originalURL = result.2 {
+                    try? FileManager.default.removeItem(at: originalURL)
+                }
+            }
+            return out
+        }
+    }
+    
     private func uploadPhoto(_ item: PhotosPickerItem, repo: any PhotoRepositoryProtocol) async throws -> Photo? {
         guard let data = try await item.loadTransferable(type: Data.self) else { return nil }
         let filename = "photos/\(UUID().uuidString).jpg"
@@ -62,6 +104,21 @@ actor PhotoService {
         
         // Clean up temporary file
         try? FileManager.default.removeItem(at: movie.url)
+        
+        return Photo(url: url, type: .video, duration: duration)
+    }
+    
+    /// Upload a video from a URL (used for trimmed videos)
+    private func uploadVideoFromURL(_ videoURL: URL, duration: TimeInterval, repo: any PhotoRepositoryProtocol) async throws -> Photo? {
+        // Load video data
+        let data = try Data(contentsOf: videoURL)
+        
+        // Upload with video extension
+        let fileExtension = videoURL.pathExtension.isEmpty ? "mov" : videoURL.pathExtension
+        let filename = "videos/\(UUID().uuidString).\(fileExtension)"
+        let url = try await repo.upload(data, filename: filename)
+        
+        // Don't clean up the temporary file here - PhotoGalleryView will handle cleanup
         
         return Photo(url: url, type: .video, duration: duration)
     }
