@@ -21,7 +21,19 @@ class WorkoutFormViewModel {
     var durationSeconds: String = ""
     var metricValue: String = ""
     var notes: String = ""
-    var selectedImages: [SelectedPhotoItem] = []
+    var highlightedSelectedItemId: UUID?
+    var selectedImages: [SelectedPhotoItem] = [] {
+        didSet {
+            if let highlightedId = highlightedSelectedItemId,
+               !selectedImages.contains(where: { $0.id == highlightedId }) {
+                highlightedSelectedItemId = nil
+            }
+            
+            if highlightedSelectedItemId == nil {
+                highlightedSelectedItemId = selectedImages.first?.id
+            }
+        }
+    }
 
     // Health Metrics
     var avgHeartRate: String = ""
@@ -95,6 +107,14 @@ class WorkoutFormViewModel {
 
             // Use SelectedPhotoItems which includes trimmed videos
             let workout = try await workoutService.createWorkout(from: request, with: selectedImages)
+            
+            if let highlightedId = highlightedSelectedItemId,
+               let highlightIndex = selectedImages.firstIndex(where: { $0.id == highlightedId }),
+               highlightIndex < workout.photos.count {
+                workout.highlightedPhotoId = workout.photos[highlightIndex].id
+            } else if workout.highlightedPhotoId == nil {
+                workout.highlightedPhotoId = workout.photos.first?.id
+            }
 
             modelContext.insert(workout)
             try modelContext.save()

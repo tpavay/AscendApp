@@ -11,18 +11,32 @@ import PhotosUI
 import AVFoundation
 
 struct PhotoGalleryView: View {
-    @Binding var selectedImages: [SelectedPhotoItem] // Change this binding
+    @Binding private var selectedImages: [SelectedPhotoItem]
+    @Binding private var highlightedSelectedItemId: UUID?
     var existingMediaCount: Int = 0 // Count of existing media already in the workout
     var existingVideoCount: Int = 0 // Count of existing videos already in the workout
     
     @State private var selectedPhotos: [PhotosPickerItem] = [] // Make this local state
     @State private var photoToDelete: SelectedPhotoItem?
+    @State private var itemForActionSheet: SelectedPhotoItem?
     @State private var showErrorAlert = false
     @State private var errorMessage = ""
     @State private var videoToTrim: SelectedPhotoItem?
     @State private var showingVideoTrimmer = false
     @State private var pendingVideoItem: SelectedPhotoItem? // Video waiting to be trimmed
     @State private var isLoadingMedia = false // Loading state for media processing
+    
+    init(
+        selectedImages: Binding<[SelectedPhotoItem]>,
+        highlightedSelectedItemId: Binding<UUID?> = .constant(nil),
+        existingMediaCount: Int = 0,
+        existingVideoCount: Int = 0
+    ) {
+        self._selectedImages = selectedImages
+        self._highlightedSelectedItemId = highlightedSelectedItemId
+        self.existingMediaCount = existingMediaCount
+        self.existingVideoCount = existingVideoCount
+    }
     
     // Computed properties for validation
     private var videoCount: Int {
@@ -52,9 +66,16 @@ struct PhotoGalleryView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 12) {
                         ForEach(selectedImages) { item in
-                            ThumbnailPhotoView(photoItem: item) {
-                                photoToDelete = item
-                            }
+                            ThumbnailPhotoView(
+                                photoItem: item,
+                                isHighlighted: highlightedSelectedItemId == item.id,
+                                onTap: {
+                                    itemForActionSheet = item
+                                },
+                                onDelete: {
+                                    photoToDelete = item
+                                }
+                            )
                         }
 
                         // Picker at the end - only show if under limit
@@ -72,6 +93,25 @@ struct PhotoGalleryView: View {
             Task {
                 await processNewPhotos(selectedPhotos)
             }
+        }
+        .sheet(item: $itemForActionSheet) { item in
+            SelectedPhotoActionSheet(
+                isVideo: item.isVideo,
+                isHighlighted: highlightedSelectedItemId == item.id,
+                onMakeHighlighted: {
+                    highlightedSelectedItemId = item.id
+                    itemForActionSheet = nil
+                },
+                onDelete: {
+                    photoToDelete = item
+                    itemForActionSheet = nil
+                },
+                onCancel: {
+                    itemForActionSheet = nil
+                }
+            )
+            .presentationDetents([.height(actionSheetHeight(for: item))])
+            .presentationDragIndicator(.visible)
         }
         .sheet(item: $photoToDelete) { item in
             DeletePhotoConfirmationView(
@@ -103,6 +143,10 @@ struct PhotoGalleryView: View {
                 )
             }
         }
+    }
+    
+    private func actionSheetHeight(for item: SelectedPhotoItem) -> CGFloat {
+        highlightedSelectedItemId == item.id ? 220 : 240
     }
 }
 
@@ -244,6 +288,10 @@ extension PhotoGalleryView {
     private func deletePhoto(_ item: SelectedPhotoItem) {
         selectedImages.removeAll { $0.id == item.id }
         
+        if highlightedSelectedItemId == item.id {
+            highlightedSelectedItemId = nil
+        }
+        
         // Clean up trimmed video file if it exists
         if let trimmedURL = item.trimmedVideoURL {
             try? FileManager.default.removeItem(at: trimmedURL)
@@ -304,5 +352,120 @@ extension PhotoGalleryView {
             showErrorAlert = true
             showingVideoTrimmer = false
         }
+    }
+}
+
+private struct SelectedPhotoActionSheet: View {
+    let isVideo: Bool
+    let isHighlighted: Bool
+    let onMakeHighlighted: () -> Void
+    let onDelete: () -> Void
+    let onCancel: () -> Void
+    
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var themeManager = ThemeManager.shared
+    
+    private var effectiveColorScheme: ColorScheme {
+        themeManager.effectiveColorScheme(for: colorScheme)
+    }
+    
+    private var labels: (options: String, highlight: String, delete: String) {
+        if isVideo {
+            return ("Video Options", "Make Highlighted Video", "Delete Video")
+        } else {
+            return ("Photo Options", "Make Highlighted Photo", "Delete Photo")
+        }
+    }
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            VStack(spacing: 4) {
+                Text(labels.options)
+                    .font(.montserratBold(size: 20))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+            }
+            
+            VStack(spacing: 12) {
+                if !isHighlighted {
+                    Button(action: onMakeHighlighted) {
+                        actionRow(
+                            systemImage: "star.fill",
+                            text: labels.highlight,
+                            tint: .accent,
+                            textColor: effectiveColorScheme == .dark ? .white : .black
+                        )
+                    }
+                } else {
+                    highlightedRow
+                }
+                
+                Button(role: .destructive, action: onDelete) {
+                    actionRow(
+                        systemImage: "trash",
+                        text: labels.delete,
+                        tint: .red,
+                        textColor: .red
+                    )
+                }
+            }
+            
+            Button(action: onCancel) {
+                Text("Cancel")
+                    .font(.montserratMedium(size: 16))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(effectiveColorScheme == .dark ? .white.opacity(0.05) : .gray.opacity(0.05))
+                    )
+            }
+        }
+        .padding(20)
+        .themedBackground()
+    }
+    
+    private func actionRow(systemImage: String, text: String, tint: Color, textColor: Color) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.system(size: 18))
+                .foregroundStyle(tint)
+            
+            Text(text)
+                .font(.montserratMedium(size: 16))
+                .foregroundStyle(textColor)
+            
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
+        )
+    }
+    
+    private var highlightedRow: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "star.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(.accent)
+            
+            Text("Currently Highlighted")
+                .font(.montserratMedium(size: 16))
+                .foregroundStyle(.accent)
+            
+            Spacer()
+            
+            Image(systemName: "checkmark")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(.accent)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(.accent.opacity(0.15))
+        )
     }
 }

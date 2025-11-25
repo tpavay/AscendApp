@@ -35,6 +35,7 @@ struct EditWorkoutView: View {
     @State private var photosMarkedForDeletion: [Photo] = []
     @State private var photoPendingDeletion: Photo?
     @State private var photoForAction: Photo?
+    @State private var highlightSelection: HighlightSelection?
     @State private var updateErrorMessage: String?
     @State private var isSaving = false
     @State private var showMediaLimitAlert = false
@@ -59,6 +60,24 @@ struct EditWorkoutView: View {
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
+    }
+    
+    private var highlightedSelectedItemBinding: Binding<UUID?> {
+        Binding(
+            get: {
+                if case .selectedItem(let id) = highlightSelection {
+                    return id
+                }
+                return nil
+            },
+            set: { newValue in
+                if let id = newValue {
+                    highlightSelection = .selectedItem(id)
+                } else if case .selectedItem = highlightSelection {
+                    highlightSelection = fallbackHighlightSelection()
+                }
+            }
+        )
     }
     
     private var isFormValid: Bool {
@@ -171,6 +190,12 @@ struct EditWorkoutView: View {
         }
         .onAppear {
             populateFields()
+        }
+        .onChange(of: selectedImages.map(\.id)) { _ in
+            ensureHighlightSelectionIsValid()
+        }
+        .onChange(of: existingPhotos.map(\.id)) { _ in
+            ensureHighlightSelectionIsValid()
         }
     }
     
@@ -348,6 +373,7 @@ struct EditWorkoutView: View {
             
             PhotoGalleryView(
                 selectedImages: $selectedImages,
+                highlightedSelectedItemId: highlightedSelectedItemBinding,
                 existingMediaCount: existingPhotos.count,
                 existingVideoCount: existingPhotos.filter { $0.isVideo }.count
             )
@@ -569,15 +595,18 @@ struct EditWorkoutView: View {
     }
     
     private func isPhotoHighlighted(_ photo: Photo) -> Bool {
-        // Check if this photo is the highlighted one
-        if let highlightedId = workout.highlightedPhotoId {
-            return highlightedId == photo.id
+        switch highlightSelection {
+        case .existingPhoto(let id):
+            return id == photo.id
+        case .selectedItem:
+            return false
+        case .none:
+            return existingPhotos.first?.id == photo.id
         }
-        // Fallback: if no highlighted photo is set, the first photo is considered highlighted
-        return existingPhotos.first?.id == photo.id
     }
     
     private func makePhotoHighlighted(_ photo: Photo) {
+        highlightSelection = .existingPhoto(photo.id)
         workout.setHighlightedPhoto(photo.id)
         try? modelContext.save()
     }
@@ -617,6 +646,13 @@ struct EditWorkoutView: View {
         caloriesBurned = workout.caloriesBurned != nil ? String(workout.caloriesBurned!) : ""
         effortRating = workout.effortRating
         existingPhotos = workout.photos
+        if let highlightedId = workout.highlightedPhotoId {
+            highlightSelection = .existingPhoto(highlightedId)
+        } else if let firstPhoto = workout.photos.first {
+            highlightSelection = .existingPhoto(firstPhoto.id)
+        } else {
+            highlightSelection = nil
+        }
         photosMarkedForDeletion = []
         selectedImages = []
     }
@@ -817,6 +853,7 @@ struct EditWorkoutView: View {
             return
         }
         
+        ensureHighlightSelectionIsValid()
         isSaving = true
         updateErrorMessage = nil
         
@@ -828,11 +865,12 @@ struct EditWorkoutView: View {
         let maxHR = !maxHeartRate.isEmpty ? Int(maxHeartRate) : nil
         let calories = !caloriesBurned.isEmpty ? Int(caloriesBurned) : nil
         
+        let selectedImagesSnapshot = selectedImages
         var newlyUploadedPhotos: [Photo] = []
         
         do {
-            if !selectedImages.isEmpty {
-                newlyUploadedPhotos = try await photoService.uploadSelectedPhotos(selectedImages)
+            if !selectedImagesSnapshot.isEmpty {
+                newlyUploadedPhotos = try await photoService.uploadSelectedPhotos(selectedImagesSnapshot)
             }
             
             // Update the workout properties
@@ -850,11 +888,17 @@ struct EditWorkoutView: View {
             workout.floors = floors
             
             // Persist new/existing photos
-            workout.photos = existingPhotos + newlyUploadedPhotos
+            let combinedPhotos = existingPhotos + newlyUploadedPhotos
+            workout.photos = combinedPhotos
             
-            // Auto-set highlighted photo if none is set
-            if workout.highlightedPhotoId == nil, let firstPhoto = workout.photos.first {
-                workout.highlightedPhotoId = firstPhoto.id
+            if let resolvedHighlight = resolvedHighlightId(
+                combinedPhotos: combinedPhotos,
+                newlyUploadedPhotos: newlyUploadedPhotos,
+                selectedSnapshot: selectedImagesSnapshot
+            ) {
+                workout.highlightedPhotoId = resolvedHighlight
+            } else if workout.highlightedPhotoId == nil {
+                workout.highlightedPhotoId = combinedPhotos.first?.id
             }
             
             try modelContext.save()
@@ -889,6 +933,11 @@ struct EditWorkoutView: View {
             photosMarkedForDeletion.append(photo)
         }
         existingPhotos.removeAll { $0.id == photo.id }
+        
+        if case .existingPhoto(let id) = highlightSelection, id == photo.id {
+            highlightSelection = fallbackHighlightSelection()
+        }
+        
         photoPendingDeletion = nil
     }
     
@@ -903,6 +952,57 @@ struct EditWorkoutView: View {
                 try? FileManager.default.removeItem(at: originalURL)
             }
         }
+    }
+    
+    private func ensureHighlightSelectionIsValid() {
+        switch highlightSelection {
+        case .existingPhoto(let id):
+            if !existingPhotos.contains(where: { $0.id == id }) {
+                highlightSelection = fallbackHighlightSelection()
+            }
+        case .selectedItem(let id):
+            if !selectedImages.contains(where: { $0.id == id }) {
+                highlightSelection = fallbackHighlightSelection()
+            }
+        case .none:
+            highlightSelection = fallbackHighlightSelection()
+        }
+    }
+    
+    private func fallbackHighlightSelection() -> HighlightSelection? {
+        if let firstExisting = existingPhotos.first {
+            workout.highlightedPhotoId = firstExisting.id
+            return .existingPhoto(firstExisting.id)
+        } else if let firstSelected = selectedImages.first {
+            return .selectedItem(firstSelected.id)
+        } else {
+            workout.highlightedPhotoId = nil
+            return nil
+        }
+    }
+    
+    private func resolvedHighlightId(
+        combinedPhotos: [Photo],
+        newlyUploadedPhotos: [Photo],
+        selectedSnapshot: [SelectedPhotoItem]
+    ) -> UUID? {
+        switch highlightSelection {
+        case .existingPhoto(let id):
+            return combinedPhotos.first(where: { $0.id == id })?.id
+        case .selectedItem(let selectedId):
+            if let index = selectedSnapshot.firstIndex(where: { $0.id == selectedId }),
+               index < newlyUploadedPhotos.count {
+                return newlyUploadedPhotos[index].id
+            }
+            return nil
+        case .none:
+            return nil
+        }
+    }
+    
+    private enum HighlightSelection: Equatable {
+        case existingPhoto(UUID)
+        case selectedItem(UUID)
     }
 }
 

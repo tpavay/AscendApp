@@ -126,7 +126,13 @@ struct WorkoutFormView: View {
                     focusedField = nil
                 }
 
-            PhotoGalleryView(selectedImages: $viewModel.selectedImages)
+            PhotoGalleryView(
+                selectedImages: $viewModel.selectedImages,
+                highlightedSelectedItemId: Binding(
+                    get: { viewModel.highlightedSelectedItemId },
+                    set: { viewModel.highlightedSelectedItemId = $0 }
+                )
+            )
 
             // Section Header
             HStack {

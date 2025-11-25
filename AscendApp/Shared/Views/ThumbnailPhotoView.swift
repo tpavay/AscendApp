@@ -9,10 +9,12 @@ import SwiftUI
 
 struct ThumbnailPhotoView: View {
     let photoItem: SelectedPhotoItem
+    let isHighlighted: Bool
+    let onTap: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .topLeading) {
             photoItem.image
                 .resizable()
                 .aspectRatio(contentMode: .fill)
@@ -54,9 +56,36 @@ struct ThumbnailPhotoView: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             }
+            
+            if isHighlighted {
+                Image(systemName: "star.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white)
+                    .padding(4)
+                    .background(
+                        Circle()
+                            .fill(.accent)
+                    )
+                    .padding(6)
+            }
         }
+        .frame(width: 120, height: 120)
+        .contentShape(RoundedRectangle(cornerRadius: 8))
         .onTapGesture {
-            onDelete()
+            onTap()
+        }
+        .overlay(alignment: .topTrailing) {
+            Button {
+                onDelete()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 20))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.white, .black.opacity(0.7))
+                    .shadow(radius: 2)
+            }
+            .offset(x: 6, y: -6)
+            .buttonStyle(.plain)
         }
     }
     
