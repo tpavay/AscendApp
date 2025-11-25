@@ -280,6 +280,45 @@ class Workout {
         return streak
     }
     
+    static func calculateLongestWeeklyStreak(from workouts: [Workout]) -> Int {
+        let calendar = Calendar.current
+        guard !workouts.isEmpty else { return 0 }
+        
+        // Collect all week starts that have at least one workout
+        let weekStartsWithActivity: Set<Date> = Set(
+            workouts.compactMap { workout in
+                calendar.dateInterval(of: .weekOfYear, for: workout.date)?.start
+            }
+        )
+        
+        guard !weekStartsWithActivity.isEmpty else { return 0 }
+        
+        // Sort week starts ascending
+        let sortedWeekStarts = weekStartsWithActivity.sorted()
+        
+        var longestStreak = 1
+        var currentStreak = 1
+        
+        for i in 1..<sortedWeekStarts.count {
+            let previousWeek = sortedWeekStarts[i - 1]
+            let currentWeek = sortedWeekStarts[i]
+            
+            // Check if weeks are consecutive
+            let weeksDifference = calendar.dateComponents([.weekOfYear], from: previousWeek, to: currentWeek).weekOfYear ?? 0
+            
+            if weeksDifference == 1 {
+                // Consecutive week
+                currentStreak += 1
+                longestStreak = max(longestStreak, currentStreak)
+            } else {
+                // Gap in streak, reset
+                currentStreak = 1
+            }
+        }
+        
+        return longestStreak
+    }
+    
     static func getWeeklyActivity(from workouts: [Workout], for date: Date = Date()) -> [Date: Bool] {
         let calendar = Calendar.current
         let startOfWeek = calendar.dateInterval(of: .weekOfYear, for: date)?.start ?? date

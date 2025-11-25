@@ -29,6 +29,10 @@ struct ProgressSheet: View {
         Workout.calculateWeeklyStreak(from: workouts)
     }
     
+    private var longestWeeklyStreak: Int {
+        Workout.calculateLongestWeeklyStreak(from: workouts)
+    }
+    
     private var calendar: Calendar {
         Calendar.current
     }
@@ -280,54 +284,76 @@ struct ProgressSheet: View {
     
     private var weeklyStreakView: some View {
         HStack(spacing: 12) {
-            Image(systemName: "flame.fill")
-                .font(.system(size: 36, weight: .bold))
-                .foregroundStyle(
-                    LinearGradient(
-                        gradient: Gradient(colors: [.yellow, .orange, .red]),
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
+            // Current Week Streak Card
+            streakCard(
+                icon: "flame.fill",
+                title: "WEEK STREAK",
+                value: weeklyStreak,
+                subtitle: "Current streak",
+                gradientColors: [.yellow, .orange, .red]
+            )
             
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("WEEK STREAK")
-                        .font(.montserratBold(size: 14))
-                        .tracking(1.5)
-                        .foregroundStyle(
-                            LinearGradient(
-                                gradient: Gradient(colors: [.yellow, .orange]),
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                    
-                    Spacer()
-                    
-                    Text("\(weeklyStreak)")
-                        .font(.montserratBold(size: 24))
-                        .foregroundStyle(
-                            LinearGradient(
-                                gradient: Gradient(colors: [.yellow, .orange]),
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                }
-                
-                Text("Weeks in a row you worked out at least once")
-                    .font(.montserratSemiBold(size: 10))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .gray)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            // Longest Week Streak Card
+            streakCard(
+                icon: "trophy.fill",
+                title: "BEST WEEKS",
+                value: longestWeeklyStreak,
+                subtitle: "Longest streak",
+                gradientColors: [.purple, .pink, .orange]
+            )
         }
-        .padding(20)
+    }
+    
+    private func streakCard(icon: String, title: String, value: Int, subtitle: String, gradientColors: [Color]) -> some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(
+                        LinearGradient(
+                            gradient: Gradient(colors: gradientColors),
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                
+                Spacer()
+                
+                Text("\(value)")
+                    .font(.montserratBold(size: 28))
+                    .foregroundStyle(
+                        LinearGradient(
+                            gradient: Gradient(colors: Array(gradientColors.prefix(2))),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.montserratBold(size: 11))
+                    .tracking(1)
+                    .foregroundStyle(
+                        LinearGradient(
+                            gradient: Gradient(colors: Array(gradientColors.prefix(2))),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                
+                Text(subtitle)
+                    .font(.montserratMedium(size: 10))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 20)
+            RoundedRectangle(cornerRadius: 16)
                 .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.3) : .gray.opacity(0.08))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 20)
+                    RoundedRectangle(cornerRadius: 16)
                         .stroke(effectiveColorScheme == .dark ? .white.opacity(0.12) : .gray.opacity(0.18), lineWidth: 1)
                 )
         )
