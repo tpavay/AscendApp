@@ -13,6 +13,7 @@ struct AccountView: View {
     @Environment(\.colorScheme) private var colorScheme
     
     @State private var isShowingEditProfile = false
+    @State private var isShowingDeleteAccountConfirmation = false
 
     var body: some View {
         ScrollView {
@@ -45,6 +46,14 @@ struct AccountView: View {
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         .navigationDestination(isPresented: $isShowingEditProfile) {
             EditProfileView()
+        }
+        .fullScreenCover(isPresented: $isShowingDeleteAccountConfirmation) {
+            DeleteAccountConfirmationView(
+                onAccountDeleted: {
+                    // The auth state listener will automatically handle navigation
+                    // back to the landing screen when the account is deleted
+                }
+            )
         }
         .onChange(of: authVM.authenticationState) { oldValue, newValue in
             if newValue == .unauthenticated {
@@ -79,13 +88,6 @@ struct AccountView: View {
                 }
             ),
             SettingsOption(
-                icon: "bell",
-                title: "Notifications",
-                action: {
-                    // TODO: Navigate to notifications
-                }
-            ),
-            SettingsOption(
                 icon: "paintbrush",
                 title: "Appearance",
                 destination: ThemeSelectionView()
@@ -113,12 +115,14 @@ struct AccountView: View {
         )
         #endif
 
+        // Delete Account - destructive action at the end
         options.append(
             SettingsOption(
-                icon: "lock",
-                title: "Privacy",
+                icon: "trash",
+                title: "Delete Account",
+                isDestructive: true,
                 action: {
-                    // TODO: Navigate to privacy
+                    isShowingDeleteAccountConfirmation = true
                 }
             )
         )

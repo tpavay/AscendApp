@@ -15,6 +15,7 @@ struct SettingsOption: Identifiable {
     let iconColor: Color
     let destination: AnyView?
     let action: (() -> Void)?
+    let isDestructive: Bool
 
     // Private initializer
     private init(
@@ -22,13 +23,15 @@ struct SettingsOption: Identifiable {
         title: String,
         iconColor: Color,
         destination: AnyView?,
-        action: (() -> Void)?
+        action: (() -> Void)?,
+        isDestructive: Bool
     ) {
         self.icon = icon
         self.title = title
         self.iconColor = iconColor
         self.destination = destination
         self.action = action
+        self.isDestructive = isDestructive
     }
 
     // Convenience initializer for navigation
@@ -36,13 +39,15 @@ struct SettingsOption: Identifiable {
         icon: String,
         title: String,
         iconColor: Color = .accent,
+        isDestructive: Bool = false,
         destination: Destination
     ) {
         self.icon = icon
         self.title = title
-        self.iconColor = iconColor
+        self.iconColor = isDestructive ? .red : iconColor
         self.destination = AnyView(destination)
         self.action = nil
+        self.isDestructive = isDestructive
     }
 
     // Convenience initializer for actions
@@ -50,12 +55,14 @@ struct SettingsOption: Identifiable {
         icon: String,
         title: String,
         iconColor: Color = .accent,
+        isDestructive: Bool = false,
         action: @escaping () -> Void
     ) {
         self.icon = icon
         self.title = title
-        self.iconColor = iconColor
+        self.iconColor = isDestructive ? .red : iconColor
         self.destination = nil
         self.action = action
+        self.isDestructive = isDestructive
     }
 }

@@ -40,14 +40,14 @@ struct SettingsRow: View {
             // Title
             Text(option.title)
                 .font(.montserratMedium)
-                .foregroundStyle(colorScheme == .dark ? .white : .black)
+                .foregroundStyle(option.isDestructive ? .red : (colorScheme == .dark ? .white : .black))
             
             Spacer()
             
             // Chevron
             Image(systemName: "chevron.right")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                .foregroundStyle(option.isDestructive ? .red.opacity(0.6) : (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6)))
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
