@@ -389,9 +389,9 @@ struct HighlightedPhotoThumbnail: View {
                         }
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
         }
-        .frame(height: 180)
+        .frame(height: 260)
         .task {
             await loadMedia()
         }
