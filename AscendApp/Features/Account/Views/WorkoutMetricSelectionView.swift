@@ -16,6 +16,7 @@ struct WorkoutMetricSelectionView: View {
     @State private var showingStepHeightPicker = false
     @State private var showingStepsPerFloorPicker = false
     @State private var showingMetricExplanation = false
+    @State private var showingStepConfigExplanation = false
     
     var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: systemColorScheme)
@@ -130,6 +131,10 @@ struct WorkoutMetricSelectionView: View {
             WorkoutMetricExplanationView()
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showingStepConfigExplanation) {
+            StepConfigurationExplanationView()
+                .presentationDragIndicator(.visible)
+        }
     }
     
     private func metricOptionRow(metric: WorkoutMetric) -> some View {
@@ -188,15 +193,22 @@ struct WorkoutMetricSelectionView: View {
     
     private func stepConfigurationSection() -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Section Header
-            VStack(alignment: .leading, spacing: 4) {
+            // Section Header with Tooltip
+            HStack(spacing: 8) {
                 Text("Step Configuration")
                     .font(.montserratSemiBold(size: 20))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                 
-                Text("Configure your stair stepper settings for accurate climb calculations")
-                    .font(.montserratRegular(size: 14))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                Button(action: {
+                    showingStepConfigExplanation = true
+                }) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.accent.opacity(0.8))
+                }
+                .buttonStyle(.plain)
+                
+                Spacer()
             }
             
             VStack(spacing: 12) {
@@ -267,16 +279,9 @@ struct WorkoutMetricSelectionView: View {
     
     private func stepHeightRow() -> some View {
         HStack {
-            HStack(spacing: 6) {
-                Text("Step Height")
-                    .font(.montserratMedium)
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                
-                TooltipButton(
-                    title: "Step Height",
-                    content: "This is the height of each individual step on your stair stepper machine. Accurate step height helps calculate your total vertical climb distance."
-                )
-            }
+            Text("Step Height")
+                .font(.montserratMedium)
+                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
             
             Spacer()
             
@@ -306,16 +311,9 @@ struct WorkoutMetricSelectionView: View {
     
     private func stepsPerFloorRow() -> some View {
         HStack {
-            HStack(spacing: 6) {
-                Text("Steps Per Floor")
-                    .font(.montserratMedium)
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                
-                TooltipButton(
-                    title: "Steps Per Floor",
-                    content: "The number of individual steps that equal one floor on your stair stepper. This helps convert between steps and floors for tracking your workouts."
-                )
-            }
+            Text("Steps Per Floor")
+                .font(.montserratMedium)
+                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
             
             Spacer()
             
