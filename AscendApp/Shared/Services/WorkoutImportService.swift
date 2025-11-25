@@ -207,7 +207,12 @@ class WorkoutImportService {
             !isWorkoutImported(workout.uuid.uuidString)
         }
         
-        for workout in workoutsToImport {
+        // Sort workouts chronologically (oldest first) for correct PR calculation
+        // This ensures the first workout imported gets the initial PRs, and each
+        // subsequent workout is correctly compared against previous bests
+        let sortedWorkouts = workoutsToImport.sorted { $0.startDate < $1.startDate }
+        
+        for workout in sortedWorkouts {
             if await importWorkout(workout) {
                 successCount += 1
             }

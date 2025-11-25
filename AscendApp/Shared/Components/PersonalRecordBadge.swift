@@ -11,6 +11,7 @@ import SwiftUI
 struct PersonalRecordBadge: View {
     let recordType: PersonalRecordType
     let size: BadgeSize
+    @State private var showingTooltip = false
     
     enum BadgeSize {
         case small
@@ -67,6 +68,21 @@ struct PersonalRecordBadge: View {
         )
         .cornerRadius(size.padding * 2)
         .shadow(color: Color.black.opacity(0.2), radius: 2, x: 0, y: 1)
+        .onTapGesture {
+            showingTooltip = true
+        }
+        .popover(isPresented: $showingTooltip, arrowEdge: .bottom) {
+            VStack(spacing: 8) {
+                Text(recordType.emoji)
+                    .font(.system(size: 32))
+                Text(recordType.displayName)
+                    .font(.montserratSemiBold(size: 16))
+                    .foregroundColor(.primary)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .presentationCompactAdaptation(.popover)
+        }
     }
 }
 
@@ -75,19 +91,45 @@ struct PersonalRecordBadgeGroup: View {
     let workout: Workout
     let size: PersonalRecordBadge.BadgeSize
     let maxVisible: Int?
+    let respectMetricPreference: Bool
+    
+    @State private var settingsManager = SettingsManager.shared
     
     init(
         workout: Workout,
         size: PersonalRecordBadge.BadgeSize = .medium,
-        maxVisible: Int? = nil
+        maxVisible: Int? = nil,
+        respectMetricPreference: Bool = true
     ) {
         self.workout = workout
         self.size = size
         self.maxVisible = maxVisible
+        self.respectMetricPreference = respectMetricPreference
+    }
+    
+    /// Filters records to show only the preferred steps/floors metric
+    private var filteredRecords: [PersonalRecordType] {
+        let records = workout.achievedPersonalRecords
+        
+        guard respectMetricPreference else {
+            return records
+        }
+        
+        // Filter based on user's preferred metric - show only steps OR floors, not both
+        return records.filter { recordType in
+            switch recordType {
+            case .mostSteps:
+                return settingsManager.preferredWorkoutMetric == .steps
+            case .mostFloors:
+                return settingsManager.preferredWorkoutMetric == .floors
+            default:
+                return true
+            }
+        }
     }
     
     var body: some View {
-        let records = workout.achievedPersonalRecords
+        let records = filteredRecords
         
         if records.isEmpty {
             EmptyView()

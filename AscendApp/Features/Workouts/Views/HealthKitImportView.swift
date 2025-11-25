@@ -159,7 +159,12 @@ struct HealthKitImportView: View {
         importedCount = 0
         let settingsManager = SettingsManager.shared
         
-        for hkWorkout in foundWorkouts {
+        // Sort workouts chronologically (oldest first) for correct PR calculation
+        // This ensures the first workout imported gets the initial PRs, and each
+        // subsequent workout is correctly compared against previous bests
+        let sortedWorkouts = foundWorkouts.sorted { $0.startDate < $1.startDate }
+        
+        for hkWorkout in sortedWorkouts {
             let metrics = await healthKitService.fetchWorkoutMetrics(for: hkWorkout)
             let workout = hkWorkout.toAscendWorkout(with: metrics, stepsPerFloor: settingsManager.stepsPerFloor)
             

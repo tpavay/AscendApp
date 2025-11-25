@@ -72,6 +72,12 @@ struct WorkoutMetricExplanationView: View {
                             title: "Filters",
                             description: "Workout filters use your preferred metric for range selection."
                         )
+                        
+                        affectedAreaItem(
+                            icon: "star.fill",
+                            title: "Personal Record Badges",
+                            description: "PR badges show \"Most Steps\" or \"Most Floors\" based on your selection. Other PR types (duration, pace, etc.) always appear."
+                        )
                     }
                     .padding(.horizontal, 24)
                     
