@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import AVFoundation
 
 struct WorkoutListView: View {
     @Environment(\.colorScheme) private var colorScheme
@@ -312,6 +313,11 @@ struct WorkoutRowView: View {
                     }
                 }
             }
+            
+            // Highlighted Photo/Video
+            if let highlightedPhoto = workout.highlightedPhoto {
+                HighlightedPhotoThumbnail(photo: highlightedPhoto)
+            }
         }
         .padding(16)
         .background(
@@ -322,6 +328,128 @@ struct WorkoutRowView: View {
                         .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
                 )
         )
+    }
+}
+
+/// A compact thumbnail view for displaying the highlighted photo/video on workout cards
+struct HighlightedPhotoThumbnail: View {
+    let photo: Photo
+    
+    @State private var loadedImage: UIImage?
+    @State private var isLoading = true
+    
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                if let image = loadedImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                    
+                    // Video overlay
+                    if photo.isVideo {
+                        ZStack {
+                            Color.black.opacity(0.2)
+                            
+                            HStack(spacing: 6) {
+                                Image(systemName: "play.circle.fill")
+                                    .font(.system(size: 24))
+                                    .foregroundStyle(.white)
+                                
+                                if let duration = photo.duration {
+                                    Text(formatDuration(duration))
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(
+                                            Capsule()
+                                                .fill(Color.black.opacity(0.6))
+                                        )
+                                }
+                            }
+                        }
+                    }
+                } else if isLoading {
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.2))
+                        .overlay {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                        }
+                } else {
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.2))
+                        .overlay {
+                            Image(systemName: "photo")
+                                .font(.system(size: 20))
+                                .foregroundStyle(.gray)
+                        }
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .frame(height: 180)
+        .task {
+            await loadMedia()
+        }
+    }
+    
+    private func loadMedia() async {
+        if photo.isVideo {
+            await loadVideoThumbnail()
+        } else {
+            await loadPhoto()
+        }
+    }
+    
+    private func loadPhoto() async {
+        do {
+            let (data, _) = try await URLSession.shared.data(from: photo.url)
+            await MainActor.run {
+                if let image = UIImage(data: data) {
+                    self.loadedImage = image
+                }
+                self.isLoading = false
+            }
+        } catch {
+            await MainActor.run {
+                self.isLoading = false
+            }
+        }
+    }
+    
+    private func loadVideoThumbnail() async {
+        do {
+            let asset = AVURLAsset(url: photo.url)
+            let imageGenerator = AVAssetImageGenerator(asset: asset)
+            imageGenerator.appliesPreferredTrackTransform = true
+            
+            let cgImage = try await imageGenerator.image(at: .zero).image
+            
+            await MainActor.run {
+                self.loadedImage = UIImage(cgImage: cgImage)
+                self.isLoading = false
+            }
+        } catch {
+            await MainActor.run {
+                self.isLoading = false
+            }
+        }
+    }
+    
+    private func formatDuration(_ duration: TimeInterval) -> String {
+        let totalSeconds = Int(duration.rounded())
+        let minutes = totalSeconds / 60
+        let seconds = totalSeconds % 60
+        
+        if minutes > 0 {
+            return String(format: "%d:%02d", minutes, seconds)
+        } else {
+            return String(format: "0:%02d", seconds)
+        }
     }
 }
 

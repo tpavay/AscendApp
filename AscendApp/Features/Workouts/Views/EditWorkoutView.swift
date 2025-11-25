@@ -34,6 +34,7 @@ struct EditWorkoutView: View {
     @State private var existingPhotos: [Photo] = []
     @State private var photosMarkedForDeletion: [Photo] = []
     @State private var photoPendingDeletion: Photo?
+    @State private var photoForAction: Photo?
     @State private var updateErrorMessage: String?
     @State private var isSaving = false
     @State private var showMediaLimitAlert = false
@@ -134,6 +135,25 @@ struct EditWorkoutView: View {
                     photoPendingDeletion = nil
                 }
             )
+        }
+        .sheet(item: $photoForAction) { photo in
+            PhotoActionSheet(
+                photo: photo,
+                isHighlighted: isPhotoHighlighted(photo),
+                onMakeHighlighted: {
+                    makePhotoHighlighted(photo)
+                    photoForAction = nil
+                },
+                onDelete: {
+                    removeExistingPhoto(photo)
+                    photoForAction = nil
+                },
+                onCancel: {
+                    photoForAction = nil
+                }
+            )
+            .presentationDetents([.height(isPhotoHighlighted(photo) ? 260 : 280)])
+            .presentationDragIndicator(.visible)
         }
         .alert("Unable to Update", isPresented: Binding(
             get: { updateErrorMessage != nil },
@@ -491,22 +511,54 @@ struct EditWorkoutView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 12) {
                         ForEach(existingPhotos) { photo in
-                            LoadablePhotoView(
-                                photo: photo,
-                                size: CGSize(width: 120, height: 120),
-                                cornerRadius: 12
-                            )
-                            .overlay(alignment: .topTrailing) {
-                                Button {
+                            ZStack(alignment: .topLeading) {
+                                LoadablePhotoView(
+                                    photo: photo,
+                                    size: CGSize(width: 120, height: 120),
+                                    cornerRadius: 12
+                                ) {
+                                    photoForAction = photo
+                                }
+                                .overlay(alignment: .topTrailing) {
+                                    Button {
+                                        photoPendingDeletion = photo
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.system(size: 20))
+                                            .symbolRenderingMode(.hierarchical)
+                                            .foregroundStyle(.white, .black.opacity(0.7))
+                                            .shadow(radius: 2)
+                                    }
+                                    .offset(x: 6, y: -6)
+                                }
+                                
+                                // Highlighted indicator
+                                if isPhotoHighlighted(photo) {
+                                    Image(systemName: "star.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.white)
+                                        .padding(4)
+                                        .background(
+                                            Circle()
+                                                .fill(.accent)
+                                        )
+                                        .padding(6)
+                                }
+                            }
+                            .contextMenu {
+                                if !isPhotoHighlighted(photo) {
+                                    Button {
+                                        makePhotoHighlighted(photo)
+                                    } label: {
+                                        Label(photo.isVideo ? "Make Highlighted Video" : "Make Highlighted Photo", systemImage: "star.fill")
+                                    }
+                                }
+                                
+                                Button(role: .destructive) {
                                     photoPendingDeletion = photo
                                 } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .font(.system(size: 20))
-                                        .symbolRenderingMode(.hierarchical)
-                                        .foregroundStyle(.white, .black.opacity(0.7))
-                                        .shadow(radius: 2)
+                                    Label(photo.isVideo ? "Delete Video" : "Delete Photo", systemImage: "trash")
                                 }
-                                .offset(x: 6, y: -6)
                             }
                         }
                     }
@@ -514,6 +566,20 @@ struct EditWorkoutView: View {
                 }
             }
         }
+    }
+    
+    private func isPhotoHighlighted(_ photo: Photo) -> Bool {
+        // Check if this photo is the highlighted one
+        if let highlightedId = workout.highlightedPhotoId {
+            return highlightedId == photo.id
+        }
+        // Fallback: if no highlighted photo is set, the first photo is considered highlighted
+        return existingPhotos.first?.id == photo.id
+    }
+    
+    private func makePhotoHighlighted(_ photo: Photo) {
+        workout.setHighlightedPhoto(photo.id)
+        try? modelContext.save()
     }
     
     // MARK: - Helper Functions (Same as WorkoutFormView)
@@ -785,6 +851,11 @@ struct EditWorkoutView: View {
             
             // Persist new/existing photos
             workout.photos = existingPhotos + newlyUploadedPhotos
+            
+            // Auto-set highlighted photo if none is set
+            if workout.highlightedPhotoId == nil, let firstPhoto = workout.photos.first {
+                workout.highlightedPhotoId = firstPhoto.id
+            }
             
             try modelContext.save()
             print("✅ Successfully updated workout with \(workout.photos.count) photos")

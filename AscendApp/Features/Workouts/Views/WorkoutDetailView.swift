@@ -36,7 +36,7 @@ struct WorkoutDetailView: View {
 
                     // Photos (if available)
                     if !workout.photos.isEmpty {
-                        WorkoutPhotosSection(photos: workout.photos)
+                        WorkoutPhotosSection(workout: workout)
                     }
 
                     // Heart Rate Chart (if heart rate data is available)

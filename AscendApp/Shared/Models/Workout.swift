@@ -79,11 +79,12 @@ class Workout {
     var sourceMetadata: String? // Additional source-specific data (JSON string)
     var healthKitUUID: String? // HealthKit workout UUID for deduplication
     var photos: [Photo]
+    var highlightedPhotoId: UUID? // ID of the photo/video to display on workout cards
     
     // Personal Records tracking
     var personalRecordTypes: [String]? // Array of PersonalRecordType raw values achieved in this workout
 
-    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int, floors: Int, stepsPerFloor: Int = 16, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil, photos: [Photo] = [], personalRecordTypes: [String]? = nil) {
+    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int, floors: Int, stepsPerFloor: Int = 16, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil, photos: [Photo] = [], highlightedPhotoId: UUID? = nil, personalRecordTypes: [String]? = nil) {
         self.id = UUID()
         self.name = name.isEmpty ? "Workout" : name
         self.date = date
@@ -107,6 +108,8 @@ class Workout {
         self.sourceMetadata = sourceMetadata
         self.healthKitUUID = healthKitUUID
         self.photos = photos
+        // Default to first photo if not specified and photos exist
+        self.highlightedPhotoId = highlightedPhotoId ?? photos.first?.id
         self.personalRecordTypes = personalRecordTypes
     }
     
@@ -213,6 +216,25 @@ class Workout {
     /// Recalculates steps based on current floors value
     func recalculateStepsFromFloors() {
         steps = Workout.floorsToSteps(floors, stepsPerFloor: stepsPerFloor)
+    }
+    
+    // MARK: - Highlighted Photo
+    
+    /// Returns the highlighted photo for display on workout cards.
+    /// Falls back to the first photo if no highlighted photo is set or if the highlighted photo was deleted.
+    var highlightedPhoto: Photo? {
+        if let highlightedId = highlightedPhotoId,
+           let photo = photos.first(where: { $0.id == highlightedId }) {
+            return photo
+        }
+        // Fallback to first photo if highlighted photo doesn't exist
+        return photos.first
+    }
+    
+    /// Sets the highlighted photo ID and updates if the specified photo exists
+    func setHighlightedPhoto(_ photoId: UUID) {
+        guard photos.contains(where: { $0.id == photoId }) else { return }
+        highlightedPhotoId = photoId
     }
     
     // MARK: - Personal Records
