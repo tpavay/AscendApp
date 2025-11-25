@@ -34,6 +34,7 @@ final class WorkoutService {
             duration: request.duration,
             steps: request.steps,
             floors: request.floors,
+            stepsPerFloor: request.stepsPerFloor,
             notes: request.notes,
             avgHeartRate: request.avgHeartRate,
             maxHeartRate: request.maxHeartRate,
@@ -62,6 +63,7 @@ final class WorkoutService {
             duration: request.duration,
             steps: request.steps,
             floors: request.floors,
+            stepsPerFloor: request.stepsPerFloor,
             notes: request.notes,
             avgHeartRate: request.avgHeartRate,
             maxHeartRate: request.maxHeartRate,
@@ -80,8 +82,9 @@ struct CreateWorkoutRequest {
     let name: String
     let date: Date
     let duration: TimeInterval
-    let steps: Int?
-    let floors: Int?
+    let steps: Int
+    let floors: Int
+    let stepsPerFloor: Int
     let notes: String
     let avgHeartRate: Int?
     let maxHeartRate: Int?

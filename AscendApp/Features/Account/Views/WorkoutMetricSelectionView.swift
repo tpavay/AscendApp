@@ -15,6 +15,7 @@ struct WorkoutMetricSelectionView: View {
     @State private var stepsPerFloorText: String = ""
     @State private var showingStepHeightPicker = false
     @State private var showingStepsPerFloorPicker = false
+    @State private var showingMetricExplanation = false
     
     var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: systemColorScheme)
@@ -62,15 +63,22 @@ struct WorkoutMetricSelectionView: View {
                 
                 // Metric Options Section
                 VStack(alignment: .leading, spacing: 16) {
-                    // Section Header
-                    VStack(alignment: .leading, spacing: 4) {
+                    // Section Header with Tooltip
+                    HStack(spacing: 8) {
                         Text("Workout Metric")
                             .font(.montserratSemiBold(size: 20))
                             .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                         
-                        Text("Choose what you want to track during your workouts")
-                            .font(.montserratRegular(size: 14))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                        Button(action: {
+                            showingMetricExplanation = true
+                        }) {
+                            Image(systemName: "info.circle")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(.accent.opacity(0.8))
+                        }
+                        .buttonStyle(.plain)
+                        
+                        Spacer()
                     }
                     
                     VStack(spacing: 12) {
@@ -118,6 +126,10 @@ struct WorkoutMetricSelectionView: View {
                 .presentationDetents([.fraction(0.4)])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showingMetricExplanation) {
+            WorkoutMetricExplanationView()
+                .presentationDragIndicator(.visible)
+        }
     }
     
     private func metricOptionRow(metric: WorkoutMetric) -> some View {
@@ -129,23 +141,17 @@ struct WorkoutMetricSelectionView: View {
                 ZStack {
                     Circle()
                         .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.3) : .gray.opacity(0.1))
-                        .frame(width: 50, height: 50)
+                        .frame(width: 44, height: 44)
                     
                     Image(systemName: metric == .steps ? "figure.walk" : "building.2")
-                        .font(.system(size: 22, weight: .medium))
+                        .font(.system(size: 20, weight: .medium))
                         .foregroundStyle(.accent)
                 }
                 
-                // Metric Info
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(metric.displayName)
-                        .font(.montserratSemiBold)
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                    
-                    Text(metric.description)
-                        .font(.montserratRegular(size: 14))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                }
+                // Metric Name
+                Text(metric.displayName)
+                    .font(.montserratSemiBold)
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                 
                 Spacer()
                 
@@ -165,7 +171,7 @@ struct WorkoutMetricSelectionView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 16)
+            .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 12)
                     .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.15) : .gray.opacity(0.03))

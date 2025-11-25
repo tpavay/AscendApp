@@ -52,9 +52,11 @@ final class LeaderboardService {
                 // Reset stats for new period
                 stats.periodIdentifier = periodIdentifier
                 stats.totalSteps = 0
+                stats.totalFloors = 0
                 stats.totalWorkouts = 0
                 stats.totalDuration = 0
                 stats.averageStepsPerMinute = 0
+                stats.averageFloorsPerMinute = 0
             }
         } else {
             stats = LeaderboardStats(
@@ -86,7 +88,7 @@ final class LeaderboardService {
         }
     }
 
-    // Sync local stats to Firestore - FIXED VERSION
+    // Sync local stats to Firestore - includes both steps and floors
     func syncToFirestore(
         userId: String,
         displayName: String,
@@ -112,9 +114,11 @@ final class LeaderboardService {
             timeFrame: String,
             periodIdentifier: String,
             totalSteps: Int,
+            totalFloors: Int,
             totalWorkouts: Int,
             totalDuration: Double,
             averageStepsPerMinute: Double,
+            averageFloorsPerMinute: Double,
             lastUpdated: Date
         )] = statsToSync.map { stats in
             (
@@ -124,9 +128,11 @@ final class LeaderboardService {
                 timeFrame: stats.timeFrame,
                 periodIdentifier: stats.periodIdentifier,
                 totalSteps: stats.totalSteps,
+                totalFloors: stats.totalFloors,
                 totalWorkouts: stats.totalWorkouts,
                 totalDuration: stats.totalDuration,
                 averageStepsPerMinute: stats.averageStepsPerMinute,
+                averageFloorsPerMinute: stats.averageFloorsPerMinute,
                 lastUpdated: stats.lastUpdated
             )
         }
@@ -140,9 +146,11 @@ final class LeaderboardService {
                 timeFrame: data.timeFrame,
                 periodIdentifier: data.periodIdentifier,
                 totalSteps: data.totalSteps,
+                totalFloors: data.totalFloors,
                 totalWorkouts: data.totalWorkouts,
                 totalDuration: data.totalDuration,
                 averageStepsPerMinute: data.averageStepsPerMinute,
+                averageFloorsPerMinute: data.averageFloorsPerMinute,
                 lastUpdated: data.lastUpdated
             )
         }

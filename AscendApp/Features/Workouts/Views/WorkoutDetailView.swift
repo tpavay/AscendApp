@@ -220,6 +220,10 @@ struct WorkoutDetailView: View {
         }
     }
     
+    private var preferredMetric: WorkoutMetric {
+        settingsManager.preferredWorkoutMetric
+    }
+    
     private var squareMetricsGrid: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 2), spacing: 12) {
             // Duration
@@ -229,17 +233,12 @@ struct WorkoutDetailView: View {
                 value: workout.durationFormatted
             )
             
-            // Primary metric (Steps or Floors)
-            if let metricValue = workout.primaryMetricValue {
-                gridStatCard(
-                    icon: workout.metricType == .steps ? "figure.stairs" : "building",
-                    title: workout.metricType.displayName,
-                    value: "\(metricValue)"
-                )
-            } else {
-                // Empty placeholder
-                gridStatCard(icon: "minus", title: "No Data", value: "—")
-            }
+            // Primary metric based on user preference
+            gridStatCard(
+                icon: preferredMetric == .steps ? "figure.stairs" : "building.2",
+                title: preferredMetric.displayName,
+                value: "\(workout.metricValue(for: preferredMetric))"
+            )
             
             // Average Heart Rate
             if let avgHR = workout.avgHeartRate {
@@ -276,19 +275,15 @@ struct WorkoutDetailView: View {
                 value: workout.durationFormatted
             )
             
-            // Primary metric (Steps or Floors)
-            if let metricValue = workout.primaryMetricValue {
-                gridStatCard(
-                    icon: workout.metricType == .steps ? "figure.stairs" : "building",
-                    title: workout.metricType.displayName,
-                    value: "\(metricValue)"
-                )
-            } else {
-                gridStatCard(icon: "minus", title: "No Data", value: "—")
-            }
+            // Primary metric based on user preference
+            gridStatCard(
+                icon: preferredMetric == .steps ? "figure.stairs" : "building.2",
+                title: preferredMetric.displayName,
+                value: "\(workout.metricValue(for: preferredMetric))"
+            )
             
-            // Pace (if calculable)
-            if let pace = workout.pace {
+            // Pace based on user preference
+            if let pace = workout.pace(for: preferredMetric) {
                 gridStatCard(
                     icon: "speedometer",
                     title: "Pace",
@@ -302,13 +297,13 @@ struct WorkoutDetailView: View {
     
     private var additionalMetrics: some View {
         VStack(spacing: 16) {
-            // Pace (if calculable)
-            if let pace = workout.pace {
+            // Pace based on user preference
+            if let pace = workout.pace(for: preferredMetric) {
                 statCard(
                     icon: "speedometer",
                     title: "Pace",
                     value: String(format: "%.1f", pace),
-                    subtitle: "\(workout.metricType.unit)/min"
+                    subtitle: "\(preferredMetric.unit)/min"
                 )
             }
         }
@@ -614,7 +609,8 @@ struct SingleWorkoutDeleteConfirmationView: View {
         date: Date(),
         duration: 1800, // 30 minutes
         steps: 2500,
-        floors: nil,
+        floors: 156,
+        stepsPerFloor: 16,
         notes: "Great morning workout! Felt really strong and maintained a good pace throughout the entire session.",
         avgHeartRate: 145,
         maxHeartRate: 165,
@@ -630,8 +626,9 @@ struct SingleWorkoutDeleteConfirmationView: View {
         name: "Evening Floors Session",
         date: Date().addingTimeInterval(-86400), // Yesterday
         duration: 2400, // 40 minutes
-        steps: nil,
+        steps: 1360,
         floors: 85,
+        stepsPerFloor: 16,
         notes: "",
         avgHeartRate: nil,
         maxHeartRate: nil,

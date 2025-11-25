@@ -12,7 +12,7 @@ import Observation
 @MainActor
 @Observable
 class LeaderboardViewModel {
-    var selectedMetric: LeaderboardMetric = .steps
+    var selectedMetric: LeaderboardMetric = .climb
     var selectedTimeFrame: LeaderboardTimeFrame = .weekly
     var searchText: String = "" {
         didSet {
@@ -28,9 +28,15 @@ class LeaderboardViewModel {
     
     private let service = LeaderboardService.shared
     private let repository = LeaderboardRepository.shared
+    private let settingsManager = SettingsManager.shared
     private var currentUserId: String?
     private let pageSize = 25
     private(set) var visibleEntryLimit = 25
+    
+    /// The user's preferred workout metric (steps or floors)
+    var preferredWorkoutMetric: WorkoutMetric {
+        settingsManager.preferredWorkoutMetric
+    }
     
     func configure(userId: String, modelContext: ModelContext) {
         self.currentUserId = userId
@@ -90,14 +96,15 @@ class LeaderboardViewModel {
             let stats = try await repository.fetchLeaderboard(
                 metric: selectedMetric,
                 timeFrame: selectedTimeFrame,
-                limit: 100
+                limit: 100,
+                preferredWorkoutMetric: preferredWorkoutMetric
             )
             
             // Convert to leaderboard entries with rankings
             var entries: [LeaderboardEntry] = []
             var currentUserEntry: LeaderboardEntry?
             for (index, stat) in stats.enumerated() {
-                let value = stat.value(for: selectedMetric)
+                let value = stat.value(for: selectedMetric, preferredWorkoutMetric: preferredWorkoutMetric)
                 let entry = LeaderboardEntry(
                     userId: stat.userId,
                     displayName: stat.displayName,
@@ -120,7 +127,7 @@ class LeaderboardViewModel {
             // If user not in leaderboard yet, create a placeholder entry
             if currentUserEntry == nil {
                 if let localStats = try service.getLocalStats(for: userId, timeFrame: selectedTimeFrame) {
-                    let value = localStats.value(for: selectedMetric)
+                    let value = localStats.value(for: selectedMetric, preferredWorkoutMetric: preferredWorkoutMetric)
                     currentUserEntry = LeaderboardEntry(
                         userId: userId,
                         displayName: "You",
@@ -176,11 +183,11 @@ class LeaderboardViewModel {
     
     private func formatValue(_ value: Double, for metric: LeaderboardMetric) -> String {
         switch metric {
-        case .steps, .workouts:
+        case .climb, .workouts:
             return String(format: "%.0f", value)
         case .duration:
             return formatDuration(value)
-        case .stepsPerMinute:
+        case .pace:
             return String(format: "%.1f", value)
         }
     }

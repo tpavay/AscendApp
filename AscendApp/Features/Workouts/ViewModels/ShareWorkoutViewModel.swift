@@ -49,7 +49,8 @@ final class ShareWorkoutViewModel: ObservableObject {
 
     func renderCurrentPoster(
         measurementSystem: MeasurementSystem,
-        stepHeight: Double
+        stepHeight: Double,
+        preferredMetric: WorkoutMetric
     ) -> UIImage? {
         let poster = WorkoutSharePoster(
             workout: workout,
@@ -57,7 +58,8 @@ final class ShareWorkoutViewModel: ObservableObject {
             backgroundImage: backgroundImage,
             backgroundStyle: backgroundStyle,
             measurementSystem: measurementSystem,
-            stepHeight: stepHeight
+            stepHeight: stepHeight,
+            preferredMetric: preferredMetric
         )
 
         let content = poster
@@ -74,12 +76,14 @@ final class ShareWorkoutViewModel: ObservableObject {
 
     func shareText(
         measurementSystem: MeasurementSystem,
-        stepHeight: Double
+        stepHeight: Double,
+        preferredMetric: WorkoutMetric
     ) -> String {
         workoutShareText(
             for: workout,
             measurementSystem: measurementSystem,
-            stepHeight: stepHeight
+            stepHeight: stepHeight,
+            preferredMetric: preferredMetric
         )
     }
 

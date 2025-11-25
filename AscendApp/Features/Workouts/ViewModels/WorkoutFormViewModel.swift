@@ -343,13 +343,29 @@ class WorkoutFormViewModel {
         let avgHR = !avgHeartRate.isEmpty ? Int(avgHeartRate) : nil
         let maxHR = !maxHeartRate.isEmpty ? Int(maxHeartRate) : nil
         let calories = !caloriesBurned.isEmpty ? Int(caloriesBurned) : nil
+        
+        // Snapshot the current stepsPerFloor setting
+        let stepsPerFloor = settingsManager.stepsPerFloor
+        
+        // Calculate both steps and floors based on which metric user entered
+        let steps: Int
+        let floors: Int
+        
+        if settingsManager.preferredWorkoutMetric == .steps {
+            steps = value
+            floors = Workout.stepsToFloors(value, stepsPerFloor: stepsPerFloor)
+        } else {
+            floors = value
+            steps = Workout.floorsToSteps(value, stepsPerFloor: stepsPerFloor)
+        }
 
         return CreateWorkoutRequest(
             name: workoutName.isEmpty ? generateDefaultWorkoutName() : workoutName,
             date: workoutDate,
             duration: totalDuration,
-            steps: settingsManager.preferredWorkoutMetric == .steps ? value : nil,
-            floors: settingsManager.preferredWorkoutMetric == .floors ? value : nil,
+            steps: steps,
+            floors: floors,
+            stepsPerFloor: stepsPerFloor,
             notes: notes,
             avgHeartRate: avgHR,
             maxHeartRate: maxHR,

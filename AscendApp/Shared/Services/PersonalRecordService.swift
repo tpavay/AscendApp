@@ -22,24 +22,20 @@ final class PersonalRecordService {
         var results: [PersonalRecordResult] = []
         
         // Check steps PR
-        if let steps = workout.steps {
-            let result = checkRecord(
-                type: .mostSteps,
-                newValue: Double(steps),
-                currentRecords: allPersonalRecords
-            )
-            results.append(result)
-        }
+        let stepsResult = checkRecord(
+            type: .mostSteps,
+            newValue: Double(workout.steps),
+            currentRecords: allPersonalRecords
+        )
+        results.append(stepsResult)
         
         // Check floors PR
-        if let floors = workout.floors {
-            let result = checkRecord(
-                type: .mostFloors,
-                newValue: Double(floors),
-                currentRecords: allPersonalRecords
-            )
-            results.append(result)
-        }
+        let floorsResult = checkRecord(
+            type: .mostFloors,
+            newValue: Double(workout.floors),
+            currentRecords: allPersonalRecords
+        )
+        results.append(floorsResult)
         
         // Check duration PR
         let result = checkRecord(
@@ -59,11 +55,12 @@ final class PersonalRecordService {
             results.append(result)
         }
         
-        // Check vertical climb PR
-        if let verticalClimb = workout.totalVerticalClimb(
-            stepHeight: stepHeight,
-            measurementSystem: measurementSystem
-        ) {
+        // Check vertical climb PR (only if there are steps)
+        if workout.steps > 0 {
+            let verticalClimb = workout.totalVerticalClimb(
+                stepHeight: stepHeight,
+                measurementSystem: measurementSystem
+            )
             let result = checkRecord(
                 type: .highestVerticalClimb,
                 newValue: verticalClimb,

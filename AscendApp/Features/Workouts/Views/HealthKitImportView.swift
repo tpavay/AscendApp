@@ -161,7 +161,7 @@ struct HealthKitImportView: View {
         
         for hkWorkout in foundWorkouts {
             let metrics = await healthKitService.fetchWorkoutMetrics(for: hkWorkout)
-            let workout = hkWorkout.toAscendWorkout(with: metrics)
+            let workout = hkWorkout.toAscendWorkout(with: metrics, stepsPerFloor: settingsManager.stepsPerFloor)
             
             modelContext.insert(workout)
             

@@ -13,15 +13,20 @@ struct LastSevenDaysSummaryCard: View {
     
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
+    @State private var settingsManager = SettingsManager.shared
     @State private var selectedDate: Date?
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
     
-    private var summary: StairActivitySummary? {
+    private var preferredMetric: WorkoutMetric {
+        settingsManager.preferredWorkoutMetric
+    }
+    
+    private var summary: ClimbActivitySummary? {
         guard !workouts.isEmpty else { return nil }
-        return StairActivitySummaryCalculator(workouts: workouts).calculate()
+        return ClimbActivitySummaryCalculator(workouts: workouts, metric: preferredMetric).calculate()
     }
     
     var body: some View {
@@ -94,18 +99,18 @@ struct LastSevenDaysSummaryCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
     
-    private func contentView(_ summary: StairActivitySummary) -> some View {
+    private func contentView(_ summary: ClimbActivitySummary) -> some View {
         let selectedDay = selectedDay(in: summary)
         
         let activeDate = selectedDate ?? summary.preferredDefaultDate
         
         return VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("\(summary.last7TotalSteps.formatted()) steps • \(summary.last7WorkoutCount.formatted()) \(summary.last7WorkoutCount == 1 ? "workout" : "workouts")")
+                Text("\(summary.last7TotalValue.formatted()) \(preferredMetric.unit) • \(summary.last7WorkoutCount.formatted()) \(summary.last7WorkoutCount == 1 ? "workout" : "workouts")")
                     .font(.montserratBold(size: 22))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                 
-                if summary.prior7TotalSteps > 0, let percentChange = summary.percentChange {
+                if summary.prior7TotalValue > 0, let percentChange = summary.percentChange {
                     HStack(spacing: 8) {
                         Text("Change vs prior 7 days")
                             .font(.montserratSemiBold(size: 14))
@@ -120,13 +125,13 @@ struct LastSevenDaysSummaryCard: View {
                             .clipShape(Capsule())
                     }
                 } else {
-                    Text(summary.secondaryLine)
+                    Text(summary.secondaryLine(for: preferredMetric))
                         .font(.montserratSemiBold(size: 14))
                         .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
                 }
             }
             
-            MiniStairBarChart(
+            MiniClimbBarChart(
                 data: summary.dailyBars,
                 highlightedDate: activeDate
             ) { date in
@@ -138,7 +143,7 @@ struct LastSevenDaysSummaryCard: View {
             }
             
             if let selectedDay {
-                Text("\(detailedLabel(for: selectedDay.date)): \(selectedDay.steps.formatted()) steps")
+                Text("\(detailedLabel(for: selectedDay.date)): \(selectedDay.value.formatted()) \(preferredMetric.unit)")
                     .font(.montserratMedium(size: 13))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.85) : .gray)
                     .transition(.opacity)
@@ -162,7 +167,7 @@ struct LastSevenDaysSummaryCard: View {
         }
     }
     
-    private func selectedDay(in summary: StairActivitySummary) -> StairDailySteps? {
+    private func selectedDay(in summary: ClimbActivitySummary) -> DailyClimbData? {
         if let selectedDate,
            let match = summary.dailyBars.first(where: { Calendar.current.isDate($0.date, inSameDayAs: selectedDate) }) {
             return match
@@ -170,7 +175,7 @@ struct LastSevenDaysSummaryCard: View {
         return summary.preferredDefaultDay
     }
     
-    private func ensureSelectionExists(in summary: StairActivitySummary) {
+    private func ensureSelectionExists(in summary: ClimbActivitySummary) {
         guard selectedDate == nil else { return }
         selectedDate = summary.preferredDefaultDate
     }
@@ -201,8 +206,8 @@ struct LastSevenDaysSummaryCard: View {
 
 // MARK: - Chart
 
-private struct MiniStairBarChart: View {
-    let data: [StairDailySteps]
+private struct MiniClimbBarChart: View {
+    let data: [DailyClimbData]
     let highlightedDate: Date?
     let onSelect: (Date) -> Void
     
@@ -215,7 +220,7 @@ private struct MiniStairBarChart: View {
     }
     
     private var maxValue: Double {
-        Double(data.map(\.steps).max() ?? 0)
+        Double(data.map(\.value).max() ?? 0)
     }
     
     var body: some View {
@@ -233,7 +238,7 @@ private struct MiniStairBarChart: View {
                         } label: {
                             RoundedRectangle(cornerRadius: 4)
                                 .fill(barFill(for: day))
-                                .frame(height: barHeight(value: Double(day.steps), chartHeight: chartHeight, safeMax: safeMax))
+                                .frame(height: barHeight(value: Double(day.value), chartHeight: chartHeight, safeMax: safeMax))
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.plain)
@@ -264,14 +269,14 @@ private struct MiniStairBarChart: View {
         effectiveColorScheme == .dark ? .white.opacity(0.35) : .gray.opacity(0.35)
     }
     
-    private func labelColor(for day: StairDailySteps) -> Color {
+    private func labelColor(for day: DailyClimbData) -> Color {
         if isHighlighted(day) {
             return effectiveColorScheme == .dark ? .white : .black
         }
         return effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray
     }
     
-    private func barFill(for day: StairDailySteps) -> Color {
+    private func barFill(for day: DailyClimbData) -> Color {
         if isHighlighted(day) {
             return .accentColor
         }
@@ -286,7 +291,7 @@ private struct MiniStairBarChart: View {
         return max(minHeight, chartHeight * CGFloat(ratio))
     }
     
-    private func isHighlighted(_ day: StairDailySteps) -> Bool {
+    private func isHighlighted(_ day: DailyClimbData) -> Bool {
         guard let highlightedDate else { return false }
         return calendar.isDate(highlightedDate, inSameDayAs: day.date)
     }
@@ -294,24 +299,24 @@ private struct MiniStairBarChart: View {
 
 // MARK: - Summary Calculation
 
-private struct StairActivitySummary {
-    let dailyBars: [StairDailySteps]
-    let last7TotalSteps: Int
+private struct ClimbActivitySummary {
+    let dailyBars: [DailyClimbData]
+    let last7TotalValue: Int
     let last7WorkoutCount: Int
-    let prior7TotalSteps: Int
+    let prior7TotalValue: Int
     let percentChange: Int?
-    let weeklyAverageStepsPerWorkout: Int
+    let weeklyAverageValuePerWorkout: Int
     
-    var secondaryLine: String {
-        if prior7TotalSteps > 0, let percentChange {
+    func secondaryLine(for metric: WorkoutMetric) -> String {
+        if prior7TotalValue > 0, let percentChange {
             let sign = percentChange > 0 ? "+" : ""
             return "\(sign)\(percentChange)% vs prior 7 days"
         } else {
-            return "Weekly average: \(weeklyAverageStepsPerWorkout.formatted()) steps/workout"
+            return "Weekly average: \(weeklyAverageValuePerWorkout.formatted()) \(metric.unit)/workout"
         }
     }
     
-    var preferredDefaultDay: StairDailySteps? {
+    var preferredDefaultDay: DailyClimbData? {
         if let today = dailyBars.first(where: { Calendar.current.isDateInToday($0.date) }) {
             return today
         }
@@ -323,33 +328,34 @@ private struct StairActivitySummary {
     }
 }
 
-private struct StairDailySteps: Identifiable {
+private struct DailyClimbData: Identifiable {
     let date: Date
-    let steps: Int
+    let value: Int
     let label: String
     let isToday: Bool
     
     var id: Date { date }
 }
 
-private struct StairActivitySummaryCalculator {
+private struct ClimbActivitySummaryCalculator {
     let workouts: [Workout]
+    let metric: WorkoutMetric
     private let calendar = Calendar.current
     
-    func calculate(referenceDate: Date = Date()) -> StairActivitySummary {
+    func calculate(referenceDate: Date = Date()) -> ClimbActivitySummary {
         let today = calendar.startOfDay(for: referenceDate)
         guard let start28 = calendar.date(byAdding: .day, value: -27, to: today) else {
-            return StairActivitySummary(
+            return ClimbActivitySummary(
                 dailyBars: [],
-                last7TotalSteps: 0,
+                last7TotalValue: 0,
                 last7WorkoutCount: 0,
-                prior7TotalSteps: 0,
+                prior7TotalValue: 0,
                 percentChange: nil,
-                weeklyAverageStepsPerWorkout: 0
+                weeklyAverageValuePerWorkout: 0
             )
         }
         
-        var dailySteps: [Date: Int] = [:]
+        var dailyValues: [Date: Int] = [:]
         
         let filteredWorkouts = workouts.filter { workout in
             let day = calendar.startOfDay(for: workout.date)
@@ -358,33 +364,33 @@ private struct StairActivitySummaryCalculator {
         
         for workout in filteredWorkouts {
             let day = calendar.startOfDay(for: workout.date)
-            let steps = workout.steps ?? 0
-            dailySteps[day, default: 0] += steps
+            let value = workout.metricValue(for: metric)
+            dailyValues[day, default: 0] += value
         }
         
         let last7Start = calendar.date(byAdding: .day, value: -6, to: today)!
         let prior7Start = calendar.date(byAdding: .day, value: -13, to: today)!
         let prior7End = calendar.date(byAdding: .day, value: -7, to: today)!
         
-        var dailyBars: [StairDailySteps] = []
+        var dailyBars: [DailyClimbData] = []
         for offset in stride(from: -6, through: 0, by: 1) {
             guard let day = calendar.date(byAdding: .day, value: offset, to: today) else { continue }
-            let steps = dailySteps[day] ?? 0
+            let value = dailyValues[day] ?? 0
             dailyBars.append(
-                StairDailySteps(
+                DailyClimbData(
                     date: day,
-                    steps: steps,
+                    value: value,
                     label: dayLabel(for: day),
                     isToday: calendar.isDate(day, inSameDayAs: today)
                 )
             )
         }
         
-        let last7Total = dailySteps
+        let last7Total = dailyValues
             .filter { $0.key >= last7Start }
             .reduce(0) { $0 + $1.value }
         
-        let prior7Total = dailySteps
+        let prior7Total = dailyValues
             .filter { $0.key >= prior7Start && $0.key <= prior7End }
             .reduce(0) { $0 + $1.value }
         
@@ -401,20 +407,20 @@ private struct StairActivitySummaryCalculator {
             percentChange = nil
         }
         
-        let averageStepsPerWorkout: Int
+        let averageValuePerWorkout: Int
         if last7WorkoutCount > 0 {
-            averageStepsPerWorkout = Int((Double(last7Total) / Double(last7WorkoutCount)).rounded(.toNearestOrAwayFromZero))
+            averageValuePerWorkout = Int((Double(last7Total) / Double(last7WorkoutCount)).rounded(.toNearestOrAwayFromZero))
         } else {
-            averageStepsPerWorkout = 0
+            averageValuePerWorkout = 0
         }
         
-        return StairActivitySummary(
+        return ClimbActivitySummary(
             dailyBars: dailyBars,
-            last7TotalSteps: last7Total,
+            last7TotalValue: last7Total,
             last7WorkoutCount: last7WorkoutCount,
-            prior7TotalSteps: prior7Total,
+            prior7TotalValue: prior7Total,
             percentChange: percentChange,
-            weeklyAverageStepsPerWorkout: averageStepsPerWorkout
+            weeklyAverageValuePerWorkout: averageValuePerWorkout
         )
     }
     
@@ -440,7 +446,8 @@ private struct StairActivitySummaryCalculator {
             date: date,
             duration: 1800,
             steps: steps,
-            floors: steps / 20,
+            floors: Workout.stepsToFloors(steps, stepsPerFloor: 16),
+            stepsPerFloor: 16,
             notes: "Sample"
         )
     }

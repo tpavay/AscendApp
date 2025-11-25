@@ -12,6 +12,7 @@ struct ProgressSheet: View {
     
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
+    @State private var settingsManager = SettingsManager.shared
     @State private var selectedDate = Date()
     @State private var showIntensityExplanation = false
     @State private var selectedCalendarDay: CalendarDay?
@@ -62,8 +63,12 @@ struct ProgressSheet: View {
         currentMonthWorkouts.count
     }
 
-    private var totalStepsThisMonth: Int {
-        currentMonthWorkouts.compactMap(\.steps).reduce(0, +)
+    private var preferredMetric: WorkoutMetric {
+        settingsManager.preferredWorkoutMetric
+    }
+
+    private var totalMetricValueThisMonth: Int {
+        currentMonthWorkouts.reduce(0) { $0 + $1.metricValue(for: preferredMetric) }
     }
 
     private var totalCaloriesThisMonth: Int {
@@ -74,10 +79,10 @@ struct ProgressSheet: View {
         currentMonthWorkouts.map(\.duration).reduce(0, +)
     }
 
-    private var averageStepsPerMinuteThisMonth: Double {
+    private var averageMetricPerMinuteThisMonth: Double {
         let totalMinutes = totalDurationThisMonth / 60
         guard totalMinutes > 0 else { return 0 }
-        return Double(totalStepsThisMonth) / totalMinutes
+        return Double(totalMetricValueThisMonth) / totalMinutes
     }
 
     // MARK: - Best Efforts
@@ -270,13 +275,13 @@ struct ProgressSheet: View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
                 summaryItem(title: "Workouts", value: "\(totalWorkoutsThisMonth)")
-                summaryItem(title: "Steps", value: formattedNumber(totalStepsThisMonth))
+                summaryItem(title: preferredMetric.displayName, value: formattedNumber(totalMetricValueThisMonth))
                 summaryItem(title: "Calories", value: formattedNumber(totalCaloriesThisMonth))
             }
             
             HStack(spacing: 12) {
                 summaryItem(title: "Duration", value: formattedDuration(totalDurationThisMonth))
-                summaryItem(title: "Steps / Min", value: formattedStepsPerMinute(averageStepsPerMinuteThisMonth))
+                summaryItem(title: "\(preferredMetric.displayName) / Min", value: formattedMetricPerMinute(averageMetricPerMinuteThisMonth))
             }
         }
         .padding(.horizontal, 16)
@@ -530,7 +535,7 @@ struct ProgressSheet: View {
         }
     }
 
-    private func formattedStepsPerMinute(_ value: Double) -> String {
+    private func formattedMetricPerMinute(_ value: Double) -> String {
         let formatter = NumberFormatter()
         formatter.maximumFractionDigits = 0
         formatter.minimumFractionDigits = 0
@@ -905,10 +910,10 @@ struct CalendarDay {
 
 #Preview {
     let sampleWorkouts = [
-        Workout(name: "Morning Workout", date: Date(), duration: 1800, steps: 2500),
-        Workout(name: "Yesterday", date: Calendar.current.date(byAdding: .day, value: -1, to: Date())!, duration: 1200, steps: 1500),
-        Workout(name: "Two days ago", date: Calendar.current.date(byAdding: .day, value: -2, to: Date())!, duration: 2000, steps: 2000),
-        Workout(name: "Week ago", date: Calendar.current.date(byAdding: .day, value: -7, to: Date())!, duration: 1500, steps: 1800)
+        Workout(name: "Morning Workout", date: Date(), duration: 1800, steps: 2500, floors: 156, stepsPerFloor: 16),
+        Workout(name: "Yesterday", date: Calendar.current.date(byAdding: .day, value: -1, to: Date())!, duration: 1200, steps: 1500, floors: 94, stepsPerFloor: 16),
+        Workout(name: "Two days ago", date: Calendar.current.date(byAdding: .day, value: -2, to: Date())!, duration: 2000, steps: 2000, floors: 125, stepsPerFloor: 16),
+        Workout(name: "Week ago", date: Calendar.current.date(byAdding: .day, value: -7, to: Date())!, duration: 1500, steps: 1800, floors: 113, stepsPerFloor: 16)
     ]
     
     ProgressSheet(workouts: sampleWorkouts)
@@ -916,9 +921,9 @@ struct CalendarDay {
 
 #Preview("Dark Mode") {
     let sampleWorkouts = [
-        Workout(name: "Morning Workout", date: Date(), duration: 1800, steps: 2500),
-        Workout(name: "Yesterday", date: Calendar.current.date(byAdding: .day, value: -1, to: Date())!, duration: 1200, steps: 1500),
-        Workout(name: "Two days ago", date: Calendar.current.date(byAdding: .day, value: -2, to: Date())!, duration: 2000, steps: 2000)
+        Workout(name: "Morning Workout", date: Date(), duration: 1800, steps: 2500, floors: 156, stepsPerFloor: 16),
+        Workout(name: "Yesterday", date: Calendar.current.date(byAdding: .day, value: -1, to: Date())!, duration: 1200, steps: 1500, floors: 94, stepsPerFloor: 16),
+        Workout(name: "Two days ago", date: Calendar.current.date(byAdding: .day, value: -2, to: Date())!, duration: 2000, steps: 2000, floors: 125, stepsPerFloor: 16)
     ]
     
     ProgressSheet(workouts: sampleWorkouts)

@@ -15,11 +15,13 @@ class LeaderboardStats {
     var timeFrame: String // LeaderboardTimeFrame rawValue
     var periodIdentifier: String // e.g., "2025-W40" for week 40
 
-    // Aggregated metrics
+    // Aggregated metrics - track both steps and floors
     var totalSteps: Int
+    var totalFloors: Int
     var totalWorkouts: Int
     var totalDuration: TimeInterval
     var averageStepsPerMinute: Double
+    var averageFloorsPerMinute: Double
 
     // Metadata
     var lastUpdated: Date
@@ -31,18 +33,22 @@ class LeaderboardStats {
         timeFrame: LeaderboardTimeFrame,
         periodIdentifier: String,
         totalSteps: Int = 0,
+        totalFloors: Int = 0,
         totalWorkouts: Int = 0,
         totalDuration: TimeInterval = 0,
-        averageStepsPerMinute: Double = 0
+        averageStepsPerMinute: Double = 0,
+        averageFloorsPerMinute: Double = 0
     ) {
         self.id = UUID()
         self.userId = userId
         self.timeFrame = timeFrame.rawValue
         self.periodIdentifier = periodIdentifier
         self.totalSteps = totalSteps
+        self.totalFloors = totalFloors
         self.totalWorkouts = totalWorkouts
         self.totalDuration = totalDuration
         self.averageStepsPerMinute = averageStepsPerMinute
+        self.averageFloorsPerMinute = averageFloorsPerMinute
         self.lastUpdated = Date()
         self.lastSyncedToFirestore = nil
         self.needsSync = true
@@ -55,42 +61,44 @@ class LeaderboardStats {
 
     // Update stats from workouts
     func updateFromWorkouts(_ workouts: [Workout]) {
-        totalSteps = workouts.compactMap { $0.steps }.reduce(0, +)
+        totalSteps = workouts.map { $0.steps }.reduce(0, +)
+        totalFloors = workouts.map { $0.floors }.reduce(0, +)
         totalWorkouts = workouts.count
         totalDuration = workouts.map { $0.duration }.reduce(0, +)
 
-        // Calculate average steps per minute across all workouts
+        // Calculate average per minute across all workouts
         let totalMinutes = totalDuration / 60.0
         averageStepsPerMinute = totalMinutes > 0 ? Double(totalSteps) / totalMinutes : 0
+        averageFloorsPerMinute = totalMinutes > 0 ? Double(totalFloors) / totalMinutes : 0
 
         lastUpdated = Date()
         needsSync = true
     }
 
-    // Get value for specific metric
-    func value(for metric: LeaderboardMetric) -> Double {
+    // Get value for specific metric, respecting user's preferred workout metric
+    func value(for metric: LeaderboardMetric, preferredWorkoutMetric: WorkoutMetric = .steps) -> Double {
         switch metric {
-        case .steps:
-            return Double(totalSteps)
+        case .climb:
+            return preferredWorkoutMetric == .steps ? Double(totalSteps) : Double(totalFloors)
         case .workouts:
             return Double(totalWorkouts)
         case .duration:
             return totalDuration
-        case .stepsPerMinute:
-            return averageStepsPerMinute
+        case .pace:
+            return preferredWorkoutMetric == .steps ? averageStepsPerMinute : averageFloorsPerMinute
         }
     }
 
     // Format value for display
-    func formattedValue(for metric: LeaderboardMetric) -> String {
-        let value = value(for: metric)
+    func formattedValue(for metric: LeaderboardMetric, preferredWorkoutMetric: WorkoutMetric = .steps) -> String {
+        let value = value(for: metric, preferredWorkoutMetric: preferredWorkoutMetric)
 
         switch metric {
-        case .steps, .workouts:
+        case .climb, .workouts:
             return String(format: "%.0f", value)
         case .duration:
             return formatDuration(value)
-        case .stepsPerMinute:
+        case .pace:
             return String(format: "%.1f", value)
         }
     }

@@ -110,7 +110,8 @@ class WorkoutImportService {
         
         do {
             let metrics = await healthKitService.fetchWorkoutMetrics(for: hkWorkout)
-            let workout = hkWorkout.toAscendWorkout(with: metrics)
+            let stepsPerFloor = SettingsManager.shared.stepsPerFloor
+            let workout = hkWorkout.toAscendWorkout(with: metrics, stepsPerFloor: stepsPerFloor)
             
             modelContext.insert(workout)
             try modelContext.save()

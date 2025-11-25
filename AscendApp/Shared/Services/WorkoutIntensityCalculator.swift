@@ -260,7 +260,7 @@ extension Workout {
     
     /// Steps per minute helper
     var stepsPerMinute: Double? {
-        guard let steps = steps, duration > 0 else { return nil }
+        guard steps > 0, duration > 0 else { return nil }
         return Double(steps) / (duration / 60.0)
     }
 }

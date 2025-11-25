@@ -136,7 +136,8 @@ struct ShareWorkoutView: View {
             backgroundImage: viewModel.backgroundImage,
             backgroundStyle: viewModel.backgroundStyle,
             measurementSystem: settingsManager.measurementSystem,
-            stepHeight: settingsManager.stepHeight
+            stepHeight: settingsManager.stepHeight,
+            preferredMetric: settingsManager.preferredWorkoutMetric
         )
         .frame(
             width: ShareWorkoutViewModel.displayCardWidth,
@@ -204,7 +205,8 @@ struct ShareWorkoutView: View {
     private func sharePoster() {
         guard let image = viewModel.renderCurrentPoster(
             measurementSystem: settingsManager.measurementSystem,
-            stepHeight: settingsManager.stepHeight
+            stepHeight: settingsManager.stepHeight,
+            preferredMetric: settingsManager.preferredWorkoutMetric
         ) else {
             shareErrorMessage = "We couldn't render the poster. Please try again."
             return
@@ -213,7 +215,8 @@ struct ShareWorkoutView: View {
         var items: [Any] = [image]
         let text = viewModel.shareText(
             measurementSystem: settingsManager.measurementSystem,
-            stepHeight: settingsManager.stepHeight
+            stepHeight: settingsManager.stepHeight,
+            preferredMetric: settingsManager.preferredWorkoutMetric
         )
         items.append(ShareTextActivityItemSource(text: text))
 
@@ -223,7 +226,8 @@ struct ShareWorkoutView: View {
     private func savePosterToPhotos() {
         guard let image = viewModel.renderCurrentPoster(
             measurementSystem: settingsManager.measurementSystem,
-            stepHeight: settingsManager.stepHeight
+            stepHeight: settingsManager.stepHeight,
+            preferredMetric: settingsManager.preferredWorkoutMetric
         ) else {
             shareErrorMessage = "We couldn't render the poster. Please try again."
             return
@@ -255,7 +259,8 @@ struct ShareWorkoutView: View {
     private func copyShareText() {
         UIPasteboard.general.string = viewModel.shareText(
             measurementSystem: settingsManager.measurementSystem,
-            stepHeight: settingsManager.stepHeight
+            stepHeight: settingsManager.stepHeight,
+            preferredMetric: settingsManager.preferredWorkoutMetric
         )
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             copyConfirmationText = "Copied!"

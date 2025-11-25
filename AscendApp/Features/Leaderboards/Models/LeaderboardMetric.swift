@@ -8,62 +8,84 @@
 import Foundation
 
 enum LeaderboardMetric: String, CaseIterable, Codable, Identifiable {
-    case steps = "steps"
+    case climb = "climb"  // Shows steps or floors based on user preference
     case workouts = "workouts"
     case duration = "duration"
-    case stepsPerMinute = "steps_per_minute"
+    case pace = "pace"  // Shows steps/min or floors/min based on user preference
     
     var id: String { rawValue }
     
-    var displayName: String {
+    /// Display name based on user's preferred workout metric
+    func displayName(for preferredMetric: WorkoutMetric) -> String {
         switch self {
-        case .steps:
-            return "Steps"
+        case .climb:
+            return preferredMetric.displayName
         case .workouts:
             return "Workouts"
         case .duration:
             return "Duration"
-        case .stepsPerMinute:
-            return "Steps/Min"
+        case .pace:
+            return "\(preferredMetric.displayName)/Min"
         }
     }
     
-    var unit: String {
+    /// Unit label based on user's preferred workout metric
+    func unit(for preferredMetric: WorkoutMetric) -> String {
         switch self {
-        case .steps:
-            return "steps"
+        case .climb:
+            return preferredMetric.unit
         case .workouts:
             return "workouts"
         case .duration:
             return ""
-        case .stepsPerMinute:
-            return "steps/min"
+        case .pace:
+            return "\(preferredMetric.unit)/min"
         }
     }
     
-    var icon: String {
+    /// Icon for this metric
+    func icon(for preferredMetric: WorkoutMetric) -> String {
         switch self {
-        case .steps:
-            return "figure.stairs"
+        case .climb:
+            return preferredMetric == .steps ? "figure.stairs" : "building.2"
         case .workouts:
             return "flame.fill"
         case .duration:
             return "clock.fill"
-        case .stepsPerMinute:
+        case .pace:
             return "speedometer"
         }
     }
     
-    var shortName: String {
+    /// Short name based on user's preferred workout metric
+    func shortName(for preferredMetric: WorkoutMetric) -> String {
         switch self {
-        case .steps:
-            return "Steps"
+        case .climb:
+            return preferredMetric.displayName
         case .workouts:
             return "Workouts"
         case .duration:
             return "Duration"
-        case .stepsPerMinute:
+        case .pace:
             return "Pace"
         }
+    }
+    
+    // MARK: - Legacy convenience properties (use preference-aware methods when possible)
+    
+    var displayName: String {
+        displayName(for: .steps)
+    }
+    
+    var unit: String {
+        unit(for: .steps)
+    }
+    
+    var icon: String {
+        icon(for: .steps)
+    }
+    
+    var shortName: String {
+        shortName(for: .steps)
     }
 }

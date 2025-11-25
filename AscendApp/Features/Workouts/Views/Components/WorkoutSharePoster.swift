@@ -15,6 +15,7 @@ struct WorkoutSharePoster: View {
     let backgroundStyle: PosterBackgroundStyle
     let measurementSystem: MeasurementSystem
     let stepHeight: Double
+    var preferredMetric: WorkoutMetric = .steps
     private let cornerRadius: CGFloat = 32
     private let accent = Color.accent
     private let photoCornerRadius: CGFloat = 24
@@ -39,10 +40,7 @@ private extension WorkoutSharePoster {
     }
 
     var bigLineText: String {
-        guard let metricText = primaryMetricText else {
-            return workout.durationFormatted
-        }
-        return "\(workout.durationFormatted) • \(metricText)"
+        return "\(workout.durationFormatted) • \(primaryMetricText)"
     }
 
     var condensedSecondaryLine: String? {
@@ -62,23 +60,22 @@ private extension WorkoutSharePoster {
     }
 
     var paceDisplay: String? {
-        guard let pace = workout.pace else { return nil }
+        guard let pace = workout.pace(for: preferredMetric) else { return nil }
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.maximumFractionDigits = 1
         formatter.minimumFractionDigits = 1
         let paceValue = formatter.string(from: NSNumber(value: pace)) ?? String(format: "%.1f", pace)
-        let unit = workout.metricType == .steps ? "steps/min" : "floors/min"
+        let unit = "\(preferredMetric.unit)/min"
         return "\(paceValue) \(unit)"
     }
 
     var verticalDisplay: String? {
-        guard let vertical = workout.totalVerticalClimb(
+        guard workout.steps > 0 else { return nil }
+        let vertical = workout.totalVerticalClimb(
             stepHeight: stepHeight,
             measurementSystem: measurementSystem
-        ) else {
-            return nil
-        }
+        )
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.maximumFractionDigits = vertical < 100 ? 1 : 0
@@ -99,17 +96,12 @@ private extension WorkoutSharePoster {
         }
     }
 
-    var primaryMetricText: String? {
-        guard let value = workout.primaryMetricValue else { return nil }
+    var primaryMetricText: String {
+        let value = workout.metricValue(for: preferredMetric)
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         let formattedValue = formatter.string(from: NSNumber(value: value)) ?? "\(value)"
-        switch workout.metricType {
-        case .steps:
-            return "\(formattedValue) steps"
-        case .floors:
-            return "\(formattedValue) floors"
-        }
+        return "\(formattedValue) \(preferredMetric.unit)"
     }
 
     var photoSummaryCard: some View {
@@ -194,15 +186,13 @@ private extension WorkoutSharePoster {
                 isPR: hasPR(.longestDuration)
             )
 
-            if let stepsValue = stepsDisplay {
-                let prType: PersonalRecordType = workout.metricType == .steps ? .mostSteps : .mostFloors
-                statRow(
-                    icon: "figure.walk.motion",
-                    label: workout.metricType == .steps ? "Steps" : "Floors",
-                    value: stepsValue,
-                    isPR: hasPR(prType)
-                )
-            }
+            let prType: PersonalRecordType = preferredMetric == .steps ? .mostSteps : .mostFloors
+            statRow(
+                icon: preferredMetric == .steps ? "figure.stairs" : "building.2",
+                label: preferredMetric.displayName,
+                value: stepsDisplay,
+                isPR: hasPR(prType)
+            )
 
             if !hasPhoto {
                 if let stepsPerMinute = stepsPerMinuteDisplay {
@@ -245,23 +235,23 @@ private extension WorkoutSharePoster {
 }
 
 private extension WorkoutSharePoster {
-    var stepsDisplay: String? {
-        guard let steps = workout.steps else { return nil }
+    var stepsDisplay: String {
+        let metricValue = workout.metricValue(for: preferredMetric)
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
-        let value = formatter.string(from: NSNumber(value: steps)) ?? "\(steps)"
-        return "\(value) steps"
+        let value = formatter.string(from: NSNumber(value: metricValue)) ?? "\(metricValue)"
+        return "\(value) \(preferredMetric.unit)"
     }
 
     var stepsPerMinuteDisplay: (label: String, value: String)? {
-        guard let pace = workout.pace else { return nil }
+        guard let pace = workout.pace(for: preferredMetric) else { return nil }
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.maximumFractionDigits = 1
         formatter.minimumFractionDigits = 1
         let paceValue = formatter.string(from: NSNumber(value: pace)) ?? String(format: "%.1f", pace)
-        let label = workout.metricType == .steps ? "Steps per Minute" : "Floors per Minute"
-        let value = workout.metricType == .steps ? "\(paceValue) steps/min" : "\(paceValue) floors/min"
+        let label = "\(preferredMetric.displayName) per Minute"
+        let value = "\(paceValue) \(preferredMetric.unit)/min"
         return (label, value)
     }
 
@@ -335,6 +325,8 @@ struct WorkoutSharePoster_Previews: PreviewProvider {
         name: "Stair Climbing Workout",
         duration: 15 * 60 + 9,
         steps: 1_550,
+        floors: 97,
+        stepsPerFloor: 16,
         caloriesBurned: 200
     )
 

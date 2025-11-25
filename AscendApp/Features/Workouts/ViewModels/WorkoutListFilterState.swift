@@ -74,8 +74,8 @@ final class WorkoutListFilterState: ObservableObject {
     
     private func matchesStepsRange(_ workout: Workout) -> Bool {
         guard let range = stepsRange else { return true }
-        guard let metricValue = workout.steps ?? workout.primaryMetricValue else { return false }
-        return range.contains(Double(metricValue))
+        let preferredMetric = SettingsManager.shared.preferredWorkoutMetric
+        return range.contains(Double(workout.metricValue(for: preferredMetric)))
     }
     
     private func matchesDurationRange(_ workout: Workout) -> Bool {

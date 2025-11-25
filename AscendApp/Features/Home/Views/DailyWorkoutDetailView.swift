@@ -28,17 +28,15 @@ struct DailyWorkoutDetailView: View {
         sortedWorkouts.reduce(0) { $0 + $1.duration }
     }
     
-    private var totalSteps: Int? {
-        let steps = sortedWorkouts.compactMap { $0.steps }
-        return steps.isEmpty ? nil : steps.reduce(0, +)
+    private var totalSteps: Int {
+        sortedWorkouts.map { $0.steps }.reduce(0, +)
     }
     
-    private var totalFloors: Int? {
-        let floors = sortedWorkouts.compactMap { $0.floors }
-        return floors.isEmpty ? nil : floors.reduce(0, +)
+    private var totalFloors: Int {
+        sortedWorkouts.map { $0.floors }.reduce(0, +)
     }
     
-    private var primaryMetricTotal: Int? {
+    private var primaryMetricTotal: Int {
         if settingsManager.preferredWorkoutMetric == .steps {
             return totalSteps
         } else {
@@ -138,15 +136,13 @@ struct DailyWorkoutDetailView: View {
                     )
                     
                     // Primary Metric Total
-                    if let metricTotal = primaryMetricTotal {
-                        summaryStatCard(
-                            icon: primaryMetricType == .steps ? "figure.stairs" : "building",
-                            title: "Total \(primaryMetricType.displayName)",
-                            value: "\(metricTotal)",
-                            subtitle: primaryMetricType.unit,
-                            iconColor: .accent
-                        )
-                    }
+                    summaryStatCard(
+                        icon: primaryMetricType == .steps ? "figure.stairs" : "building.2",
+                        title: "Total \(primaryMetricType.displayName)",
+                        value: "\(primaryMetricTotal)",
+                        subtitle: primaryMetricType.unit,
+                        iconColor: .accent
+                    )
                 }
             }
         }
@@ -252,9 +248,14 @@ struct WorkoutRowCard: View {
     let workout: Workout
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
+    @State private var settingsManager = SettingsManager.shared
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
+    }
+    
+    private var preferredMetric: WorkoutMetric {
+        settingsManager.preferredWorkoutMetric
     }
     
     private var workoutTime: String {
@@ -303,15 +304,13 @@ struct WorkoutRowCard: View {
                         .font(.montserratMedium(size: 14))
                         .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.7))
                     
-                    if let metricValue = workout.primaryMetricValue {
-                        Text("•")
-                            .font(.montserratMedium(size: 14))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
-                        
-                        Text("\(metricValue) \(workout.metricType.unit)")
-                            .font(.montserratMedium(size: 14))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.7))
-                    }
+                    Text("•")
+                        .font(.montserratMedium(size: 14))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+                    
+                    Text("\(workout.metricValue(for: preferredMetric)) \(preferredMetric.unit)")
+                        .font(.montserratMedium(size: 14))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.7))
                 }
             }
             
@@ -342,6 +341,8 @@ struct WorkoutRowCard: View {
             date: Date(),
             duration: 1800, // 30 minutes
             steps: 2500,
+            floors: 156,
+            stepsPerFloor: 16,
             effortRating: 4.0
         ),
         Workout(
@@ -349,6 +350,8 @@ struct WorkoutRowCard: View {
             date: Calendar.current.date(byAdding: .hour, value: 8, to: Date()) ?? Date(),
             duration: 2400, // 40 minutes
             steps: 3000,
+            floors: 188,
+            stepsPerFloor: 16,
             effortRating: 3.0
         )
     ]

@@ -9,8 +9,13 @@ import SwiftUI
 
 struct LeaderboardRow: View {
     @Environment(\.colorScheme) private var colorScheme
+    @State private var settingsManager = SettingsManager.shared
     let entry: LeaderboardEntry
     let metric: LeaderboardMetric
+    
+    private var preferredMetric: WorkoutMetric {
+        settingsManager.preferredWorkoutMetric
+    }
     
     private var rankPalette: (text: Color, badge: Color) {
         let isDark = colorScheme == .dark
@@ -131,8 +136,9 @@ struct LeaderboardRow: View {
                     .font(.montserratBold(size: 18))
                     .foregroundStyle(entry.isCurrentUser ? .accent : (colorScheme == .dark ? .white : .black))
                 
-                if !metric.unit.isEmpty {
-                    Text(metric.unit)
+                let unitLabel = metric.unit(for: preferredMetric)
+                if !unitLabel.isEmpty {
+                    Text(unitLabel)
                         .font(.montserratRegular(size: 11))
                         .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .gray)
                 }
@@ -163,7 +169,7 @@ struct LeaderboardRow: View {
                 formattedValue: "15,000",
                 isCurrentUser: false
             ),
-            metric: .steps
+            metric: .climb
         )
         
         LeaderboardRow(
@@ -175,7 +181,7 @@ struct LeaderboardRow: View {
                 formattedValue: "12,000",
                 isCurrentUser: true
             ),
-            metric: .steps
+            metric: .climb
         )
     }
     .themedBackground()

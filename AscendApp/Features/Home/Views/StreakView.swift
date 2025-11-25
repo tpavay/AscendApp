@@ -270,6 +270,8 @@ struct StreakView: View {
             date: Date(),
             duration: 1800,
             steps: 2500,
+            floors: 156,
+            stepsPerFloor: 16,
             effortRating: 4.0
         ),
         Workout(
@@ -277,6 +279,8 @@ struct StreakView: View {
             date: Calendar.current.date(byAdding: .day, value: -1, to: Date())!,
             duration: 2400,
             steps: 3000,
+            floors: 188,
+            stepsPerFloor: 16,
             effortRating: 3.0
         ),
         Workout(
@@ -284,6 +288,8 @@ struct StreakView: View {
             date: Calendar.current.date(byAdding: .day, value: -2, to: Date())!,
             duration: 1200,
             steps: 1500,
+            floors: 94,
+            stepsPerFloor: 16,
             effortRating: 2.0
         )
     ]
@@ -300,6 +306,8 @@ struct StreakView: View {
             date: Date(),
             duration: 1800,
             steps: 2500,
+            floors: 156,
+            stepsPerFloor: 16,
             effortRating: 4.0
         ),
         Workout(
@@ -307,6 +315,8 @@ struct StreakView: View {
             date: Calendar.current.date(byAdding: .day, value: -1, to: Date())!,
             duration: 2400,
             steps: 3000,
+            floors: 188,
+            stepsPerFloor: 16,
             effortRating: 3.0
         )
     ]

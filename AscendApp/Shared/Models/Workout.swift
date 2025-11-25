@@ -60,8 +60,9 @@ class Workout {
     var name: String
     var date: Date
     var duration: TimeInterval // Duration in seconds
-    var steps: Int?
-    var floors: Int?
+    var steps: Int // Total steps climbed
+    var floors: Int // Total floors climbed
+    var stepsPerFloor: Int // Snapshot of conversion rate at workout creation (for historical accuracy)
     var notes: String
     var createdAt: Date
     var avgHeartRate: Int? // Average heart rate in BPM
@@ -82,13 +83,14 @@ class Workout {
     // Personal Records tracking
     var personalRecordTypes: [String]? // Array of PersonalRecordType raw values achieved in this workout
 
-    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int? = nil, floors: Int? = nil, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil, photos: [Photo] = [], personalRecordTypes: [String]? = nil) {
+    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int, floors: Int, stepsPerFloor: Int = 16, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil, photos: [Photo] = [], personalRecordTypes: [String]? = nil) {
         self.id = UUID()
         self.name = name.isEmpty ? "Workout" : name
         self.date = date
         self.duration = duration
         self.steps = steps
         self.floors = floors
+        self.stepsPerFloor = stepsPerFloor
         self.notes = notes
         self.createdAt = Date()
         self.avgHeartRate = avgHeartRate
@@ -122,30 +124,40 @@ class Workout {
         }
     }
     
-    var primaryMetricValue: Int? {
-        // Return the non-nil value, preferring steps if both exist
-        return steps ?? floors
-    }
-    
-    var metricType: WorkoutMetric {
-        if steps != nil {
-            return .steps
-        } else {
-            return .floors
+    /// Returns the metric value for the specified metric type
+    func metricValue(for metric: WorkoutMetric) -> Int {
+        switch metric {
+        case .steps:
+            return steps
+        case .floors:
+            return floors
         }
     }
     
-    // Calculate pace (steps or floors per minute)
-    var pace: Double? {
-        guard let metricValue = primaryMetricValue, duration > 0 else { return nil }
+    /// Calculate pace for the specified metric (steps or floors per minute)
+    func pace(for metric: WorkoutMetric) -> Double? {
+        guard duration > 0 else { return nil }
         let minutes = duration / 60.0
-        return Double(metricValue) / minutes
+        return Double(metricValue(for: metric)) / minutes
+    }
+    
+    /// Legacy computed property - returns steps (views should use metricValue(for:) with user's preference)
+    var primaryMetricValue: Int {
+        return steps
+    }
+    
+    /// Legacy computed property - returns .steps (views should use user's preferredWorkoutMetric directly)
+    var metricType: WorkoutMetric {
+        return .steps
+    }
+    
+    /// Legacy pace - returns steps per minute (use pace(for:) for preference-aware access)
+    var pace: Double? {
+        return pace(for: .steps)
     }
     
     // Calculate total vertical climb using settings
-    func totalVerticalClimb(stepHeight: Double, measurementSystem: MeasurementSystem) -> Double? {
-        guard let steps = steps else { return nil }
-        
+    func totalVerticalClimb(stepHeight: Double, measurementSystem: MeasurementSystem) -> Double {
         // Convert step height to meters first
         let stepHeightInMeters = measurementSystem.convertStepHeightToMeters(stepHeight)
         
@@ -178,6 +190,29 @@ class Workout {
     
     var integrityDisplayName: String {
         return integrityLevel.displayName
+    }
+    
+    // MARK: - Metric Conversion Helpers
+    
+    /// Converts steps to floors using the given stepsPerFloor rate, rounded to whole numbers
+    static func stepsToFloors(_ steps: Int, stepsPerFloor: Int) -> Int {
+        guard stepsPerFloor > 0 else { return 0 }
+        return Int((Double(steps) / Double(stepsPerFloor)).rounded())
+    }
+    
+    /// Converts floors to steps using the given stepsPerFloor rate
+    static func floorsToSteps(_ floors: Int, stepsPerFloor: Int) -> Int {
+        return floors * stepsPerFloor
+    }
+    
+    /// Recalculates floors based on current steps value
+    func recalculateFloorsFromSteps() {
+        floors = Workout.stepsToFloors(steps, stepsPerFloor: stepsPerFloor)
+    }
+    
+    /// Recalculates steps based on current floors value
+    func recalculateStepsFromFloors() {
+        steps = Workout.floorsToSteps(floors, stepsPerFloor: stepsPerFloor)
     }
     
     // MARK: - Personal Records

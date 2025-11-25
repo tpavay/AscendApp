@@ -9,8 +9,13 @@ import SwiftUI
 
 struct CurrentUserPositionCard: View {
     @Environment(\.colorScheme) private var colorScheme
+    @State private var settingsManager = SettingsManager.shared
     let entry: LeaderboardEntry
     let metric: LeaderboardMetric
+    
+    private var preferredMetric: WorkoutMetric {
+        settingsManager.preferredWorkoutMetric
+    }
     
     var body: some View {
         HStack(spacing: 16) {
@@ -54,8 +59,9 @@ struct CurrentUserPositionCard: View {
                     .font(.montserratBold(size: 20))
                     .foregroundStyle(.accent)
                 
-                if !metric.unit.isEmpty {
-                    Text(metric.unit)
+                let unitLabel = metric.unit(for: preferredMetric)
+                if !unitLabel.isEmpty {
+                    Text(unitLabel)
                         .font(.montserratRegular(size: 11))
                         .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .gray)
                 }
@@ -96,7 +102,7 @@ struct CurrentUserPositionCard: View {
             formattedValue: "8,500",
             isCurrentUser: true
         ),
-        metric: .steps
+        metric: .climb
     )
     .themedBackground()
 }

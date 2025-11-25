@@ -14,6 +14,7 @@ struct LeaderboardFilterBar: View {
     @Binding var selectedTimeFrame: LeaderboardTimeFrame
     @FocusState private var isSearchFocused: Bool
     @State private var activeSheet: FilterSheet?
+    @State private var settingsManager = SettingsManager.shared
 
     private enum FilterSheet: Identifiable {
         case timeFrame
@@ -25,6 +26,10 @@ struct LeaderboardFilterBar: View {
             case .metric: return "metric"
             }
         }
+    }
+    
+    private var preferredMetric: WorkoutMetric {
+        settingsManager.preferredWorkoutMetric
     }
 
     var body: some View {
@@ -42,7 +47,7 @@ struct LeaderboardFilterBar: View {
 
                     FilterChipButton(
                         title: "Metric",
-                        value: selectedMetric.displayName
+                        value: selectedMetric.displayName(for: preferredMetric)
                     ) {
                         activeSheet = .metric
                     }
@@ -80,7 +85,7 @@ struct LeaderboardFilterBar: View {
                     subtitle: "Choose the metric to rank competitors.",
                     options: LeaderboardMetric.allCases,
                     selectedOption: selectedMetric,
-                    displayName: { $0.displayName },
+                    displayName: { $0.displayName(for: preferredMetric) },
                     onSelect: { newSelection in
                         selectedMetric = newSelection
                     },
@@ -233,7 +238,7 @@ private struct LeaderboardSingleSelectSheet<Option: Identifiable & Equatable>: V
 #Preview {
     LeaderboardFilterBar(
         searchText: .constant(""),
-        selectedMetric: .constant(.steps),
+        selectedMetric: .constant(.climb),
         selectedTimeFrame: .constant(.weekly)
     )
     .padding()

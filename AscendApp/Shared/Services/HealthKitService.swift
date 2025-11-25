@@ -252,7 +252,7 @@ struct WorkoutMetrics {
 }
 
 extension HKWorkout {
-    func toAscendWorkout(with metrics: WorkoutMetrics) -> Workout {
+    func toAscendWorkout(with metrics: WorkoutMetrics, stepsPerFloor: Int) -> Workout {
         // Detect if workout came from Apple Watch based on source device
         let deviceName = sourceRevision.source.name
         let isFromAppleWatch = deviceName.contains("Apple Watch") || deviceName.contains("Watch")
@@ -267,12 +267,17 @@ extension HKWorkout {
         }
         """
         
+        // Calculate both steps and floors - Apple Health provides steps only
+        let steps = metrics.steps ?? 0
+        let floors = Workout.stepsToFloors(steps, stepsPerFloor: stepsPerFloor)
+        
         let workout = Workout(
             name: "Stair Climbing Workout",
             date: startDate,
             duration: duration,
-            steps: metrics.steps,
-            floors: nil, // Not available in Apple Health stair stepper workouts
+            steps: steps,
+            floors: floors,
+            stepsPerFloor: stepsPerFloor,
             avgHeartRate: metrics.avgHeartRate,
             maxHeartRate: metrics.maxHeartRate,
             caloriesBurned: metrics.caloriesBurned,

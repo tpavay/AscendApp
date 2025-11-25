@@ -246,9 +246,14 @@ struct WorkoutRowView: View {
     let workout: Workout
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
+    @State private var settingsManager = SettingsManager.shared
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
+    }
+    
+    private var preferredMetric: WorkoutMetric {
+        settingsManager.preferredWorkoutMetric
     }
     
     var body: some View {
@@ -279,7 +284,7 @@ struct WorkoutRowView: View {
                 // Workout Details
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("\(workout.primaryMetricValue ?? 0) \(workout.metricType.unit)")
+                        Text("\(workout.metricValue(for: preferredMetric)) \(preferredMetric.unit)")
                             .font(.montserratSemiBold)
                             .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                         

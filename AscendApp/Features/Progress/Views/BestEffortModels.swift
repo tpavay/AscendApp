@@ -78,45 +78,39 @@ struct BestEffortsBuilder {
     
     private static func mostSteps(in workouts: [Workout]) -> BestEffort? {
         guard let best = workouts
-            .filter({ $0.steps != nil })
+            .filter({ $0.steps > 0 })
             .max(by: { lhs, rhs in
-                let lhsSteps = lhs.steps ?? 0
-                let rhsSteps = rhs.steps ?? 0
-                if lhsSteps == rhsSteps {
+                if lhs.steps == rhs.steps {
                     return lhs.date < rhs.date
                 }
-                return lhsSteps < rhsSteps
+                return lhs.steps < rhs.steps
             }) else { return nil }
         
-        let steps = best.steps ?? 0
         return BestEffort(
             type: .mostSteps,
             title: "Most Steps in a Workout",
-            valueText: formattedNumber(steps) + " steps",
+            valueText: formattedNumber(best.steps) + " steps",
             detailText: formattedWorkoutDetail(for: best),
             date: best.date,
             workout: best,
-            iconName: "figure.walk"
+            iconName: "figure.stairs"
         )
     }
     
     private static func mostFloors(in workouts: [Workout]) -> BestEffort? {
         guard let best = workouts
-            .filter({ $0.floors != nil })
+            .filter({ $0.floors > 0 })
             .max(by: { lhs, rhs in
-                let lhsFloors = lhs.floors ?? 0
-                let rhsFloors = rhs.floors ?? 0
-                if lhsFloors == rhsFloors {
+                if lhs.floors == rhs.floors {
                     return lhs.date < rhs.date
                 }
-                return lhsFloors < rhsFloors
+                return lhs.floors < rhs.floors
             }) else { return nil }
         
-        let floors = best.floors ?? 0
         return BestEffort(
             type: .mostFloors,
             title: "Most Floors in a Workout",
-            valueText: formattedNumber(floors) + " floors",
+            valueText: formattedNumber(best.floors) + " floors",
             detailText: formattedWorkoutDetail(for: best),
             date: best.date,
             workout: best,
@@ -140,17 +134,17 @@ struct BestEffortsBuilder {
     
     private static func highestStepsPerMinute(in workouts: [Workout]) -> BestEffort? {
         guard let best = workouts
-            .filter({ $0.pace != nil })
+            .filter({ $0.pace(for: .steps) != nil && $0.pace(for: .steps)! > 0 })
             .max(by: { (lhs, rhs) in
-                let lhsPace = lhs.pace ?? 0
-                let rhsPace = rhs.pace ?? 0
+                let lhsPace = lhs.pace(for: .steps) ?? 0
+                let rhsPace = rhs.pace(for: .steps) ?? 0
                 if lhsPace == rhsPace {
                     return lhs.date < rhs.date
                 }
                 return lhsPace < rhsPace
             }) else { return nil }
         
-        let paceValue = best.pace ?? 0
+        let paceValue = best.pace(for: .steps) ?? 0
         let formatter = NumberFormatter()
         formatter.maximumFractionDigits = 0
         formatter.minimumFractionDigits = 0

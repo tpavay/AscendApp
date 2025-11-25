@@ -23,6 +23,10 @@ struct WorkoutCompletedView: View {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
     
+    private var preferredMetric: WorkoutMetric {
+        settingsManager.preferredWorkoutMetric
+    }
+    
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
@@ -85,32 +89,33 @@ struct WorkoutCompletedView: View {
                     Divider()
                         .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
                     
-                    // Steps/Floors
+                    // Steps/Floors based on user preference
                     statRow(
-                        title: workout.metricType.displayName,
-                        value: "\(workout.primaryMetricValue ?? 0)",
-                        icon: workout.metricType == .steps ? "figure.walk" : "building.2",
+                        title: preferredMetric.displayName,
+                        value: "\(workout.metricValue(for: preferredMetric))",
+                        icon: preferredMetric == .steps ? "figure.stairs" : "building.2",
                         color: .accent
                     )
                     
                     Divider()
                         .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
                     
-                    // Pace
+                    // Pace based on user preference
                     statRow(
                         title: "Pace",
                         value: String(format: "%.1f %@/min", 
-                               workout.pace ?? 0.0,
-                               workout.metricType.unit),
+                               workout.pace(for: preferredMetric) ?? 0.0,
+                               preferredMetric.unit),
                         icon: "speedometer",
                         color: .purple
                     )
                     
-                    // Vertical Climb (only if steps)
-                    if let verticalClimb = workout.totalVerticalClimb(
-                        stepHeight: settingsManager.stepHeight,
-                        measurementSystem: settingsManager.measurementSystem
-                    ) {
+                    // Vertical Climb (only if steps > 0)
+                    if workout.steps > 0 {
+                        let verticalClimb = workout.totalVerticalClimb(
+                            stepHeight: settingsManager.stepHeight,
+                            measurementSystem: settingsManager.measurementSystem
+                        )
                         Divider()
                             .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
                         
@@ -251,7 +256,8 @@ struct WorkoutCompletedView: View {
         date: Date(),
         duration: 1800, // 30 minutes
         steps: 2400,
-        floors: nil,
+        floors: 150,
+        stepsPerFloor: 16,
         notes: "Great session!",
         avgHeartRate: 145,
         maxHeartRate: 165,
@@ -266,8 +272,9 @@ struct WorkoutCompletedView: View {
         name: "Evening Workout", 
         date: Date(),
         duration: 2400, // 40 minutes
-        steps: nil,
+        steps: 2400,
         floors: 150,
+        stepsPerFloor: 16,
         notes: "",
         avgHeartRate: nil,
         maxHeartRate: 180,

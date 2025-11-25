@@ -41,7 +41,7 @@ struct LeaderboardEntry: Identifiable, Equatable {
     }
 }
 
-// Firestore representation
+// Firestore representation - stores both steps and floors
 struct FirestoreLeaderboardStats: Codable {
     let userId: String
     let displayName: String
@@ -49,9 +49,11 @@ struct FirestoreLeaderboardStats: Codable {
     let timeFrame: String
     let periodIdentifier: String
     let totalSteps: Int
+    let totalFloors: Int
     let totalWorkouts: Int
     let totalDuration: Double
     let averageStepsPerMinute: Double
+    let averageFloorsPerMinute: Double
     let lastUpdated: Date
 
     // Initializer for converting from local LeaderboardStats to upload to Firestore
@@ -62,9 +64,11 @@ struct FirestoreLeaderboardStats: Codable {
         self.timeFrame = stats.timeFrame
         self.periodIdentifier = stats.periodIdentifier
         self.totalSteps = stats.totalSteps
+        self.totalFloors = stats.totalFloors
         self.totalWorkouts = stats.totalWorkouts
         self.totalDuration = stats.totalDuration
         self.averageStepsPerMinute = stats.averageStepsPerMinute
+        self.averageFloorsPerMinute = stats.averageFloorsPerMinute
         self.lastUpdated = stats.lastUpdated
     }
 
@@ -76,9 +80,11 @@ struct FirestoreLeaderboardStats: Codable {
         timeFrame: String,
         periodIdentifier: String,
         totalSteps: Int,
+        totalFloors: Int,
         totalWorkouts: Int,
         totalDuration: Double,
         averageStepsPerMinute: Double,
+        averageFloorsPerMinute: Double,
         lastUpdated: Date
     ) {
         self.userId = userId
@@ -87,22 +93,25 @@ struct FirestoreLeaderboardStats: Codable {
         self.timeFrame = timeFrame
         self.periodIdentifier = periodIdentifier
         self.totalSteps = totalSteps
+        self.totalFloors = totalFloors
         self.totalWorkouts = totalWorkouts
         self.totalDuration = totalDuration
         self.averageStepsPerMinute = averageStepsPerMinute
+        self.averageFloorsPerMinute = averageFloorsPerMinute
         self.lastUpdated = lastUpdated
     }
 
-    func value(for metric: LeaderboardMetric) -> Double {
+    /// Get value for a specific metric, respecting user's preferred workout metric
+    func value(for metric: LeaderboardMetric, preferredWorkoutMetric: WorkoutMetric = .steps) -> Double {
         switch metric {
-        case .steps:
-            return Double(totalSteps)
+        case .climb:
+            return preferredWorkoutMetric == .steps ? Double(totalSteps) : Double(totalFloors)
         case .workouts:
             return Double(totalWorkouts)
         case .duration:
             return totalDuration
-        case .stepsPerMinute:
-            return averageStepsPerMinute
+        case .pace:
+            return preferredWorkoutMetric == .steps ? averageStepsPerMinute : averageFloorsPerMinute
         }
     }
 }

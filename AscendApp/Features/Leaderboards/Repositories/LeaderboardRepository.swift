@@ -22,9 +22,11 @@ final class LeaderboardRepository: Sendable {
         timeFrame: String,
         periodIdentifier: String,
         totalSteps: Int,
+        totalFloors: Int,
         totalWorkouts: Int,
         totalDuration: Double,
         averageStepsPerMinute: Double,
+        averageFloorsPerMinute: Double,
         lastUpdated: Date
     ) async throws {
         let docRef = db.collection("leaderboard_stats")
@@ -37,9 +39,11 @@ final class LeaderboardRepository: Sendable {
             "timeFrame": timeFrame,
             "periodIdentifier": periodIdentifier,
             "totalSteps": totalSteps,
+            "totalFloors": totalFloors,
             "totalWorkouts": totalWorkouts,
             "totalDuration": totalDuration,
             "averageStepsPerMinute": averageStepsPerMinute,
+            "averageFloorsPerMinute": averageFloorsPerMinute,
             "lastUpdated": FieldValue.serverTimestamp()
         ], merge: true)
     }
@@ -48,7 +52,8 @@ final class LeaderboardRepository: Sendable {
     func fetchLeaderboard(
         metric: LeaderboardMetric,
         timeFrame: LeaderboardTimeFrame,
-        limit: Int = 100
+        limit: Int = 100,
+        preferredWorkoutMetric: WorkoutMetric = .steps
     ) async throws -> [FirestoreLeaderboardStats] {
         let periodIdentifier = timeFrame.periodIdentifier()
 
@@ -78,6 +83,9 @@ final class LeaderboardRepository: Sendable {
             }
 
             let photoURLString = data["photoURL"] as? String
+            // Handle missing floors data gracefully (for backwards compatibility)
+            let totalFloors = data["totalFloors"] as? Int ?? 0
+            let averageFloorsPerMinute = data["averageFloorsPerMinute"] as? Double ?? 0
 
             let stat = FirestoreLeaderboardStats(
                 userId: userId,
@@ -86,17 +94,19 @@ final class LeaderboardRepository: Sendable {
                 timeFrame: timeFrame,
                 periodIdentifier: periodIdentifier,
                 totalSteps: totalSteps,
+                totalFloors: totalFloors,
                 totalWorkouts: totalWorkouts,
                 totalDuration: totalDuration,
                 averageStepsPerMinute: averageStepsPerMinute,
+                averageFloorsPerMinute: averageFloorsPerMinute,
                 lastUpdated: timestamp.dateValue()
             )
 
             stats.append(stat)
         }
 
-        // Sort by the requested metric
-        stats.sort { $0.value(for: metric) > $1.value(for: metric) }
+        // Sort by the requested metric using the user's preferred workout metric
+        stats.sort { $0.value(for: metric, preferredWorkoutMetric: preferredWorkoutMetric) > $1.value(for: metric, preferredWorkoutMetric: preferredWorkoutMetric) }
 
         return stats
     }
@@ -105,12 +115,14 @@ final class LeaderboardRepository: Sendable {
     func getUserRank(
         userId: String,
         metric: LeaderboardMetric,
-        timeFrame: LeaderboardTimeFrame
+        timeFrame: LeaderboardTimeFrame,
+        preferredWorkoutMetric: WorkoutMetric = .steps
     ) async throws -> (rank: Int, total: Int)? {
         let allStats = try await fetchLeaderboard(
             metric: metric,
             timeFrame: timeFrame,
-            limit: 1000
+            limit: 1000,
+            preferredWorkoutMetric: preferredWorkoutMetric
         )
 
         guard let userIndex = allStats.firstIndex(where: { $0.userId == userId }) else {

@@ -10,7 +10,8 @@ import Foundation
 func workoutShareText(
     for workout: Workout,
     measurementSystem: MeasurementSystem,
-    stepHeight: Double
+    stepHeight: Double,
+    preferredMetric: WorkoutMetric
 ) -> String {
     let workoutTitle = workout.name.isEmpty ? "Stair workout" : workout.name
     var lines: [String] = [
@@ -20,20 +21,21 @@ func workoutShareText(
 
     lines.append("Duration: \(workout.durationFormatted)")
 
-    if let metricLine = primaryMetricLine(for: workout) {
+    if let metricLine = primaryMetricLine(for: workout, preferredMetric: preferredMetric) {
         lines.append(metricLine)
     }
 
-    if let pace = workout.pace {
+    if let pace = workout.pace(for: preferredMetric) {
         let paceText = formattedDecimal(pace, decimals: 1)
-        let paceUnit = workout.metricType == .steps ? "steps/min" : "floors/min"
+        let paceUnit = preferredMetric == .steps ? "steps/min" : "floors/min"
         lines.append("Pace: \(paceText) \(paceUnit)")
     }
 
-    if let vertical = workout.totalVerticalClimb(
-        stepHeight: stepHeight,
-        measurementSystem: measurementSystem
-    ) {
+    if workout.steps > 0 {
+        let vertical = workout.totalVerticalClimb(
+            stepHeight: stepHeight,
+            measurementSystem: measurementSystem
+        )
         let verticalText = formattedDecimal(vertical, decimals: vertical < 100 ? 1 : 0)
         lines.append("Vertical Climb: \(verticalText) \(measurementSystem.distanceAbbreviation)")
     }
@@ -56,10 +58,10 @@ func workoutShareText(
     return lines.joined(separator: "\n")
 }
 
-private func primaryMetricLine(for workout: Workout) -> String? {
-    guard let value = workout.primaryMetricValue else { return nil }
+private func primaryMetricLine(for workout: Workout, preferredMetric: WorkoutMetric) -> String? {
+    let value = workout.metricValue(for: preferredMetric)
     let formattedValue = formattedInteger(value)
-    switch workout.metricType {
+    switch preferredMetric {
     case .steps:
         return "Steps: \(formattedValue)"
     case .floors:

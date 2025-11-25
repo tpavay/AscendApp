@@ -72,6 +72,7 @@ struct WorkoutFilterExplorerView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
     @State private var themeManager = ThemeManager.shared
+    @State private var settingsManager = SettingsManager.shared
     @State private var activeSheet: FilterSheet?
     @FocusState private var isSearchFocused: Bool
     
@@ -79,13 +80,17 @@ struct WorkoutFilterExplorerView: View {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
     
+    private var preferredMetric: WorkoutMetric {
+        settingsManager.preferredWorkoutMetric
+    }
+    
     private var filteredWorkouts: [Workout] {
         filterState.applyFilters(to: workouts)
     }
     
     private var stepsBounds: ClosedRange<Double> {
-        let maxSteps = workouts.compactMap { $0.steps ?? $0.primaryMetricValue }.max() ?? 0
-        let upper = maxSteps > 0 ? Double(maxSteps) : 1000
+        let maxValue = workouts.map { $0.metricValue(for: preferredMetric) }.max() ?? 0
+        let upper = maxValue > 0 ? Double(maxValue) : 1000
         return 0...max(upper, 1)
     }
     

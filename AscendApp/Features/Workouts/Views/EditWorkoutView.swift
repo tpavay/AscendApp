@@ -24,7 +24,10 @@ struct EditWorkoutView: View {
     @State private var durationHours: String = ""
     @State private var durationMinutes: String = ""
     @State private var durationSeconds: String = ""
-    @State private var metricValue: String = ""
+    @State private var stepsValue: String = ""
+    @State private var floorsValue: String = ""
+    @State private var isUpdatingSteps = false // Prevents infinite loop during recalculation
+    @State private var isUpdatingFloors = false // Prevents infinite loop during recalculation
     @State private var notes: String = ""
     @State private var showingMetricTooltip = false
     @State private var selectedImages: [SelectedPhotoItem] = []
@@ -62,10 +65,12 @@ struct EditWorkoutView: View {
         workoutName.count <= 50 &&
         !durationMinutes.isEmpty && 
         !durationSeconds.isEmpty &&
-        !metricValue.isEmpty &&
+        !stepsValue.isEmpty &&
+        !floorsValue.isEmpty &&
         Int(durationMinutes) != nil &&
         Int(durationSeconds) != nil &&
-        Int(metricValue) != nil &&
+        Int(stepsValue) != nil &&
+        Int(floorsValue) != nil &&
         (Int(durationMinutes) ?? 0) < 60 &&
         (Int(durationSeconds) ?? 0) < 60 &&
         (durationHours.isEmpty || (Int(durationHours) != nil && (Int(durationHours) ?? 0) <= 999))
@@ -392,32 +397,57 @@ struct EditWorkoutView: View {
             }
             .buttonStyle(.plain)
             
-            // Steps/Floors
+            // Steps field
             HStack {
-                TextField("Enter \(workout.metricType.unit)", text: $metricValue)
+                Image(systemName: "figure.stairs")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(.gray)
+                    .frame(width: 24)
+                
+                TextField("Steps", text: $stepsValue)
                     .focused($focusedField, equals: .metricValue)
                     .keyboardType(.numberPad)
                     .font(.montserratRegular(size: 16))
-                    .padding(16)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
-                    )
                     .onSubmit { focusedField = nil }
                 
-                Button(action: {
-                    showingMetricTooltip = true
-                }) {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(.accent)
-                        .padding(16)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
+                Text("steps")
+                    .font(.montserratRegular(size: 14))
+                    .foregroundStyle(.gray)
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
+            )
+            .onChange(of: stepsValue) { _, newValue in
+                stepsValue = filterNumericInput(newValue)
+                recalculateFloorsFromSteps()
+            }
+            
+            // Floors field
+            HStack {
+                Image(systemName: "building.2")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(.gray)
+                    .frame(width: 24)
+                
+                TextField("Floors", text: $floorsValue)
+                    .keyboardType(.numberPad)
+                    .font(.montserratRegular(size: 16))
+                    .onSubmit { focusedField = nil }
+                
+                Text("floors")
+                    .font(.montserratRegular(size: 14))
+                    .foregroundStyle(.gray)
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
+            )
+            .onChange(of: floorsValue) { _, newValue in
+                floorsValue = filterNumericInput(newValue)
+                recalculateStepsFromFloors()
             }
             
             // Effort Rating (Optional)
@@ -507,8 +537,13 @@ struct EditWorkoutView: View {
             durationFormatted = String(format: "%d:%02d:%02d", hours, minutes, seconds)
         }
         
-        // Metric value
-        metricValue = String(workout.primaryMetricValue ?? 0)
+        // Both metric values - prevent recalculation during initial population
+        isUpdatingSteps = true
+        isUpdatingFloors = true
+        stepsValue = String(workout.steps)
+        floorsValue = String(workout.floors)
+        isUpdatingSteps = false
+        isUpdatingFloors = false
         
         // Health metrics
         avgHeartRate = workout.avgHeartRate != nil ? String(workout.avgHeartRate!) : ""
@@ -518,6 +553,27 @@ struct EditWorkoutView: View {
         existingPhotos = workout.photos
         photosMarkedForDeletion = []
         selectedImages = []
+    }
+    
+    // MARK: - Bi-directional Metric Recalculation
+    private func recalculateFloorsFromSteps() {
+        guard !isUpdatingFloors else { return }
+        guard let steps = Int(stepsValue), steps > 0 else { return }
+        
+        isUpdatingFloors = true
+        let floors = Workout.stepsToFloors(steps, stepsPerFloor: workout.stepsPerFloor)
+        floorsValue = String(floors)
+        isUpdatingFloors = false
+    }
+    
+    private func recalculateStepsFromFloors() {
+        guard !isUpdatingSteps else { return }
+        guard let floors = Int(floorsValue), floors > 0 else { return }
+        
+        isUpdatingSteps = true
+        let steps = Workout.floorsToSteps(floors, stepsPerFloor: workout.stepsPerFloor)
+        stepsValue = String(steps)
+        isUpdatingSteps = false
     }
 
     private func syncDurationPicker() {
@@ -689,7 +745,8 @@ struct EditWorkoutView: View {
         guard !isSaving else { return }
         guard let minutes = Int(durationMinutes),
               let seconds = Int(durationSeconds),
-              let value = Int(metricValue) else {
+              let steps = Int(stepsValue),
+              let floors = Int(floorsValue) else {
             print("❌ Guard failed - invalid number conversion")
             return
         }
@@ -722,12 +779,9 @@ struct EditWorkoutView: View {
             workout.caloriesBurned = calories
             workout.effortRating = effortRating
             
-            // Update metric value based on workout's original type
-            if workout.metricType == .steps {
-                workout.steps = value
-            } else {
-                workout.floors = value
-            }
+            // Update both metric values
+            workout.steps = steps
+            workout.floors = floors
             
             // Persist new/existing photos
             workout.photos = existingPhotos + newlyUploadedPhotos
@@ -789,7 +843,8 @@ struct EditWorkoutView: View {
         date: Date(),
         duration: 1800, // 30 minutes
         steps: 2500,
-        floors: nil,
+        floors: 156,
+        stepsPerFloor: 16,
         notes: "Great morning workout!",
         avgHeartRate: 145,
         maxHeartRate: 165,
