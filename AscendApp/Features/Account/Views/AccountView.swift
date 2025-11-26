@@ -16,29 +16,27 @@ struct AccountView: View {
     @State private var isShowingDeleteAccountConfirmation = false
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                // Profile Header
-                ProfileHeaderView(
-                    photoURL: authVM.displayPhotoURL,
-                    displayName: authVM.displayName,
-                    onEditTap: {
-                        isShowingEditProfile = true
-                    }
-                )
-
-                // Settings Sections
-                settingsContent
-
-                // Error Message
-                if let errorMessage = authVM.errorMessage {
-                    errorMessageView(errorMessage)
+        VStack(spacing: 24) {
+            // Profile Header
+            ProfileHeaderView(
+                photoURL: authVM.displayPhotoURL,
+                displayName: authVM.displayName,
+                onEditTap: {
+                    isShowingEditProfile = true
                 }
+            )
 
-                Spacer(minLength: 40)
+            // Settings Sections
+            settingsContent
+
+            // Error Message
+            if let errorMessage = authVM.errorMessage {
+                errorMessageView(errorMessage)
             }
-            .padding(.horizontal, 20)
+
+            Spacer(minLength: 40)
         }
+        .padding(.horizontal, 20)
         .themedBackground()
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.large)
