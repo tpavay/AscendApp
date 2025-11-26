@@ -133,7 +133,8 @@ struct PersonalRecordBadgeGroup: View {
         
         if records.isEmpty {
             EmptyView()
-        } else {
+        } else if maxVisible != nil {
+            // Limited display with +N indicator (for list views)
             let displayRecords = maxVisible.map { Array(records.prefix($0)) } ?? records
             let remainingCount = records.count - displayRecords.count
             
@@ -152,6 +153,18 @@ struct PersonalRecordBadgeGroup: View {
                         .cornerRadius(size.padding)
                 }
             }
+        } else {
+            // Horizontal scroll for full display (for detail views)
+            // Extends edge-to-edge to show partial badges at screen edges
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(records, id: \.rawValue) { recordType in
+                        PersonalRecordBadge(recordType: recordType, size: size)
+                    }
+                }
+                .padding(.horizontal, 20) // Match parent container padding for content alignment
+            }
+            .padding(.horizontal, -20) // Extend scroll view to screen edges
         }
     }
 }
