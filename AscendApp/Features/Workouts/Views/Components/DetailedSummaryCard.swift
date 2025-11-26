@@ -46,23 +46,43 @@ struct DetailedSummaryCard: View {
     
     // MARK: - Stats Grid
     // Layout:
-    // Top left: Duration (always)
-    // Top right: Steps/Floors (always)
-    // Bottom left: PRs with badge (if any) OR Steps/Min or Floors/Min
-    // Bottom right: Calories OR Vertical Climb (if no calories)
-    
+    // Row 1: Duration (always) | Steps/Floors (always)
+    // Row 2: Steps/Min or Floors/Min | Calories or Vertical Climb
+    // Row 3 (if PRs): Records count with badge
+
     private var metricsGrid: some View {
         VStack(spacing: 28) {
-            // Top row: Duration | Steps/Floors
+            // Row 1: Duration | Steps/Floors
             HStack(spacing: 24) {
                 metricBlock(value: workout.durationFormatted, label: "Duration")
                 metricBlock(value: primaryMetricValue, label: preferredMetric.displayName)
             }
-            
-            // Bottom row: PRs or Pace | Calories or Vertical Climb
+
+            // Row 2: Pace | Calories or Vertical Climb
             HStack(spacing: 24) {
-                // Bottom left: PRs (if any) or Pace
-                if workout.hasPersonalRecords {
+                // Left: Pace (Steps/Min or Floors/Min)
+                if let paceInfo = paceValue {
+                    metricBlock(
+                        value: paceInfo.value,
+                        label: paceInfo.label
+                    )
+                } else {
+                    metricBlock(value: "—", label: preferredMetric == .steps ? "Steps/Min" : "Floors/Min")
+                }
+
+                // Right: Calories or Vertical Climb
+                if hasCalories {
+                    metricBlock(value: caloriesValue, label: "Calories")
+                } else if let vertical = verticalClimbValue {
+                    metricBlock(value: vertical, label: "Vertical Climb")
+                } else {
+                    metricBlock(value: "—", label: "Calories")
+                }
+            }
+
+            // Row 3: Personal Records (only if any)
+            if workout.hasPersonalRecords {
+                HStack(spacing: 24) {
                     metricBlock(
                         value: "\(workout.achievedPersonalRecords.count)",
                         label: "Records",
@@ -72,22 +92,9 @@ struct DetailedSummaryCard: View {
                                 .foregroundStyle(.yellow)
                         )
                     )
-                } else if let paceInfo = paceValue {
-                    metricBlock(
-                        value: paceInfo.value,
-                        label: paceInfo.label
-                    )
-                } else {
-                    metricBlock(value: "—", label: preferredMetric == .steps ? "Steps/Min" : "Floors/Min")
-                }
-                
-                // Bottom right: Calories or Vertical Climb
-                if hasCalories {
-                    metricBlock(value: caloriesValue, label: "Calories")
-                } else if let vertical = verticalClimbValue {
-                    metricBlock(value: vertical, label: "Vertical Climb")
-                } else {
-                    metricBlock(value: "—", label: "Calories")
+                    // Empty spacer to maintain grid alignment
+                    Spacer()
+                        .frame(maxWidth: .infinity)
                 }
             }
         }

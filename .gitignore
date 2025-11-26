@@ -69,3 +69,6 @@ Secrets/
 
 # iOS simulator artifacts
 *.simstate
+
+# Claude Code settings (user-specific)
+.claude/
