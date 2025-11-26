@@ -47,10 +47,10 @@ struct WorkoutFilterExplorerView: View {
         
         var id: String { rawValue }
         
-        var label: String {
+        func label(for metric: WorkoutMetric) -> String {
             switch self {
             case .source: return "Workout Source"
-            case .steps: return "Steps"
+            case .steps: return metric.displayName
             case .dates: return "Dates"
             case .duration: return "Duration"
             }
@@ -195,7 +195,8 @@ struct WorkoutFilterExplorerView: View {
                 StepsFilterSheet(
                     filterState: filterState,
                     bounds: stepsBounds,
-                    formatter: Self.stepsFormatter
+                    formatter: Self.stepsFormatter,
+                    preferredMetric: preferredMetric
                 )
                 .filterSheetPresentation(for: sheet)
             case .dates:
@@ -258,7 +259,7 @@ struct WorkoutFilterExplorerView: View {
                         activeSheet = chip.associatedSheet
                     } label: {
                         FilterChipView(
-                            title: chip.label,
+                            title: chip.label(for: preferredMetric),
                             isActive: isActive(chip),
                             colorScheme: effectiveColorScheme
                         )
@@ -415,6 +416,7 @@ private struct StepsFilterSheet: View {
     
     let bounds: ClosedRange<Double>
     let formatter: NumberFormatter
+    let preferredMetric: WorkoutMetric
     
     @State private var minValue: Double = 0
     @State private var maxValue: Double = 0
@@ -423,10 +425,11 @@ private struct StepsFilterSheet: View {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
     
-    init(filterState: WorkoutListFilterState, bounds: ClosedRange<Double>, formatter: NumberFormatter) {
+    init(filterState: WorkoutListFilterState, bounds: ClosedRange<Double>, formatter: NumberFormatter, preferredMetric: WorkoutMetric) {
         self._filterState = ObservedObject(wrappedValue: filterState)
         self.bounds = bounds
         self.formatter = formatter
+        self.preferredMetric = preferredMetric
         let initialRange = filterState.stepsRange ?? bounds
         let clampedLower = max(bounds.lowerBound, min(initialRange.lowerBound, bounds.upperBound))
         let clampedUpper = max(clampedLower, min(initialRange.upperBound, bounds.upperBound))
@@ -437,10 +440,10 @@ private struct StepsFilterSheet: View {
     var body: some View {
         VStack(spacing: 24) {
             VStack(spacing: 4) {
-                Text("Steps Range")
+                Text("\(preferredMetric.displayName) Range")
                     .font(.montserratSemiBold(size: 20))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                Text("Filter workouts by the recorded steps.")
+                Text("Filter workouts by the recorded \(preferredMetric.unit).")
                     .font(.montserratRegular(size: 14))
                     .foregroundStyle(.secondary)
             }
