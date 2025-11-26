@@ -73,6 +73,7 @@ Added fields:
 Located: `AscendApp/Shared/Services/PersonalRecordService.swift`
 
 Key Methods:
+- `recalculateAllPersonalRecords(modelContext:measurementSystem:stepHeight:)` - **Primary method** - Recalculates all PRs based on chronological workout order
 - `checkForPersonalRecords(workout:allPersonalRecords:measurementSystem:stepHeight:)` - Checks a workout for PRs without saving
 - `savePersonalRecords(results:workout:modelContext:)` - Saves new PRs and marks old ones as historical
 - `fetchCurrentPersonalRecords(modelContext:)` - Gets all current PRs
@@ -87,32 +88,40 @@ Location: `WorkoutFormViewModel.saveWorkout(to:)`
 Flow:
 1. User fills out workout form
 2. Workout is saved to database
-3. `checkAndSavePersonalRecords()` is called
-4. PRs are checked and saved
-5. Workout is updated with PR types
-6. Database is saved again
+3. `recalculateAllPersonalRecords()` is called
+4. All PRs are recalculated chronologically
 
-#### 2. Apple Health Import
+#### 2. Apple Health Import (Single)
 Location: `WorkoutImportService.importWorkout(_:)`
 
 Flow:
 1. HealthKit workout is fetched
 2. Workout is converted to Ascend format
 3. Workout is saved to database
-4. `checkAndSavePersonalRecords()` is called
-5. PRs are checked and saved
-6. Workout is updated with PR types
+4. `recalculateAllPersonalRecords()` is called
 
 #### 3. Batch HealthKit Import
-Location: `HealthKitImportView.importWorkouts()`
+Location: `HealthKitImportView.importWorkouts()` and `WorkoutImportService.importAllWorkouts()`
 
 Flow:
-1. Multiple HealthKit workouts are fetched
-2. For each workout:
-   - Convert to Ascend format
-   - Save to database
-   - Check and save PRs
-   - Update workout with PR types
+1. Multiple HealthKit workouts are fetched and sorted by date
+2. All workouts are imported (without individual PR checks)
+3. `recalculateAllPersonalRecords()` is called once at the end
+
+#### 4. Workout Edit
+Location: `EditWorkoutView.updateWorkout()`
+
+Flow:
+1. Workout metrics/date are updated
+2. Database is saved
+3. `recalculateAllPersonalRecords()` is called
+
+#### 5. Workout Deletion
+Locations: `WorkoutListView.deleteSelectedWorkouts()` and `WorkoutDetailView.deleteWorkout()`
+
+Flow:
+1. Workout is deleted from database
+2. `recalculateAllPersonalRecords()` is called to reassign PRs
 
 #### 4. Share Text Formatting
 Location: `WorkoutShareFormatter.workoutShareText(for:measurementSystem:stepHeight:)`
@@ -246,10 +255,39 @@ Track consecutive workouts with at least one PR achieved.
 
 ## Performance Considerations
 
-- PR checking happens after workout save, not during
-- Only current PRs are fetched for comparison (not historical)
-- Batch imports check PRs per workout to maintain accuracy
+- PR recalculation happens after workout operations (save/import/delete/edit)
+- Full recalculation ensures correctness regardless of workout import/logging order
+- All workouts are processed chronologically (oldest first) during recalculation
 - Database queries use predicates for efficient filtering
+
+## Chronological PR Recalculation
+
+The system uses a **full recalculation approach** to ensure PRs are always correct:
+
+### Why Recalculation?
+- Users may import older workouts after newer ones
+- Users may edit workout dates or metrics
+- Users may delete workouts that held PRs
+
+### How It Works
+`PersonalRecordService.recalculateAllPersonalRecords()` is called after:
+- Any workout is created (manual or imported)
+- Any workout is edited
+- Any workout is deleted
+- Batch imports complete
+
+The method:
+1. Fetches all workouts sorted by date (oldest first)
+2. Clears all existing PersonalRecord entries
+3. Clears all `personalRecordTypes` from workouts
+4. Processes each workout chronologically
+5. Marks workouts as PRs only if they beat all previous bests at that point in time
+
+### Benefits
+- ✅ Import order doesn't matter
+- ✅ Editing a workout's date correctly updates PRs
+- ✅ Deleting a PR workout correctly reassigns PRs
+- ✅ Simple, reliable logic
 
 ## Data Migration
 

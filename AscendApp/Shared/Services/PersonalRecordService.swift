@@ -203,5 +203,106 @@ final class PersonalRecordService {
         )
         return try modelContext.fetch(descriptor)
     }
+    
+    // MARK: - PR Recalculation
+    
+    /// Recalculate all personal records from scratch based on chronological workout order.
+    /// This ensures PRs are correct regardless of the order workouts were imported.
+    /// Call this after batch imports, workout deletions, or workout edits.
+    static func recalculateAllPersonalRecords(
+        modelContext: ModelContext,
+        measurementSystem: MeasurementSystem,
+        stepHeight: Double
+    ) throws {
+        // 1. Fetch all workouts sorted by date (oldest first)
+        let workoutDescriptor = FetchDescriptor<Workout>(
+            sortBy: [SortDescriptor(\.date, order: .forward)]
+        )
+        let allWorkouts = try modelContext.fetch(workoutDescriptor)
+        
+        // 2. Delete all existing PersonalRecord entries
+        let prDescriptor = FetchDescriptor<PersonalRecord>()
+        let existingPRs = try modelContext.fetch(prDescriptor)
+        for pr in existingPRs {
+            modelContext.delete(pr)
+        }
+        
+        // 3. Clear personalRecordTypes from all workouts
+        for workout in allWorkouts {
+            workout.personalRecordTypes = nil
+        }
+        
+        try modelContext.save()
+        
+        // 4. Process workouts chronologically, tracking the best values
+        var currentBests: [PersonalRecordType: (value: Double, recordId: UUID)] = [:]
+        
+        for workout in allWorkouts {
+            var newPRTypes: [String] = []
+            
+            // Build metrics to check for this workout
+            var metrics: [(type: PersonalRecordType, value: Double?)] = [
+                (.mostSteps, Double(workout.steps)),
+                (.mostFloors, Double(workout.floors)),
+                (.longestDuration, workout.duration),
+                (.highestAveragePace, workout.pace),
+                (.highestAverageHeartRate, workout.avgHeartRate.map { Double($0) }),
+                (.highestMaxHeartRate, workout.maxHeartRate.map { Double($0) }),
+                (.mostCaloriesBurned, workout.caloriesBurned.map { Double($0) })
+            ]
+            
+            // Add vertical climb only if there are steps
+            if workout.steps > 0 {
+                let verticalClimb = workout.totalVerticalClimb(
+                    stepHeight: stepHeight,
+                    measurementSystem: measurementSystem
+                )
+                metrics.append((.highestVerticalClimb, verticalClimb))
+            }
+            
+            for (type, optionalValue) in metrics {
+                guard let value = optionalValue, value > 0 else { continue }
+                
+                let previousBest = currentBests[type]
+                let isNewRecord = previousBest == nil || value > previousBest!.value
+                
+                if isNewRecord {
+                    // Mark previous record as no longer current
+                    if let prevId = previousBest?.recordId {
+                        let descriptor = FetchDescriptor<PersonalRecord>(
+                            predicate: #Predicate<PersonalRecord> { $0.id == prevId }
+                        )
+                        if let prevRecord = try modelContext.fetch(descriptor).first {
+                            prevRecord.isCurrent = false
+                        }
+                    }
+                    
+                    // Create new PR
+                    let newRecord = PersonalRecord(
+                        type: type,
+                        value: value,
+                        workoutId: workout.id,
+                        achievedAt: workout.date,
+                        isCurrent: true,
+                        previousRecordId: previousBest?.recordId,
+                        workoutName: workout.name,
+                        workoutDate: workout.date
+                    )
+                    modelContext.insert(newRecord)
+                    
+                    // Update tracking
+                    currentBests[type] = (value, newRecord.id)
+                    newPRTypes.append(type.rawValue)
+                }
+            }
+            
+            // Update workout with its PRs
+            if !newPRTypes.isEmpty {
+                workout.personalRecordTypes = newPRTypes
+            }
+        }
+        
+        try modelContext.save()
+    }
 }
 

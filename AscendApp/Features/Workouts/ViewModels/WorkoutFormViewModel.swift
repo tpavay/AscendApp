@@ -119,18 +119,13 @@ class WorkoutFormViewModel {
             modelContext.insert(workout)
             try modelContext.save()
             
-            // Check for personal records after the workout is saved
-            let prResults = try checkAndSavePersonalRecords(
-                for: workout,
-                modelContext: modelContext
+            // Recalculate all PRs based on chronological workout order
+            // This ensures PRs are correct even if the user logs a workout with an older date
+            try PersonalRecordService.recalculateAllPersonalRecords(
+                modelContext: modelContext,
+                measurementSystem: settingsManager.measurementSystem,
+                stepHeight: settingsManager.stepHeight
             )
-            
-            // Update workout with PR types if any were achieved
-            if !prResults.isEmpty {
-                let prTypes = prResults.map { $0.type.rawValue }
-                workout.personalRecordTypes = prTypes
-                try modelContext.save()
-            }
 
             isUploading = false
             
@@ -160,39 +155,6 @@ class WorkoutFormViewModel {
         }
     }
     
-    // MARK: - Personal Records
-    private func checkAndSavePersonalRecords(
-        for workout: Workout,
-        modelContext: ModelContext
-    ) throws -> [PersonalRecordResult] {
-        // Fetch all current personal records
-        let allRecords = try PersonalRecordService.fetchCurrentPersonalRecords(
-            modelContext: modelContext
-        )
-        
-        // Check for PRs in this workout
-        let prResults = PersonalRecordService.checkForPersonalRecords(
-            workout: workout,
-            allPersonalRecords: allRecords,
-            measurementSystem: settingsManager.measurementSystem,
-            stepHeight: settingsManager.stepHeight
-        )
-        
-        // Filter to only new records
-        let newRecords = prResults.filter { $0.isNewRecord }
-        
-        // Save the new personal records
-        if !newRecords.isEmpty {
-            try PersonalRecordService.savePersonalRecords(
-                results: newRecords,
-                workout: workout,
-                modelContext: modelContext
-            )
-        }
-        
-        return newRecords
-    }
-
     // MARK: - Form Processing Methods
     func formatDurationInput(_ newValue: String, oldValue: String) {
         let previousDigits = oldValue.filter { $0.isNumber }

@@ -159,11 +159,10 @@ struct HealthKitImportView: View {
         importedCount = 0
         let settingsManager = SettingsManager.shared
         
-        // Sort workouts chronologically (oldest first) for correct PR calculation
-        // This ensures the first workout imported gets the initial PRs, and each
-        // subsequent workout is correctly compared against previous bests
+        // Sort workouts chronologically (oldest first) for import
         let sortedWorkouts = foundWorkouts.sorted { $0.startDate < $1.startDate }
         
+        // Import all workouts first
         for hkWorkout in sortedWorkouts {
             let metrics = await healthKitService.fetchWorkoutMetrics(for: hkWorkout)
             let workout = hkWorkout.toAscendWorkout(with: metrics, stepsPerFloor: settingsManager.stepsPerFloor)
@@ -172,21 +171,6 @@ struct HealthKitImportView: View {
             
             do {
                 try modelContext.save()
-                
-                // Check for personal records after each workout is saved
-                let prResults = try checkAndSavePersonalRecords(
-                    for: workout,
-                    modelContext: modelContext,
-                    settingsManager: settingsManager
-                )
-                
-                // Update workout with PR types if any were achieved
-                if !prResults.isEmpty {
-                    let prTypes = prResults.map { $0.type.rawValue }
-                    workout.personalRecordTypes = prTypes
-                    try modelContext.save()
-                }
-                
                 importedCount += 1
             } catch {
                 errorMessage = "Failed to save workout: \(error.localizedDescription)"
@@ -195,41 +179,20 @@ struct HealthKitImportView: View {
             }
         }
         
-        importState = .completed
-    }
-    
-    // MARK: - Personal Records
-    private func checkAndSavePersonalRecords(
-        for workout: Workout,
-        modelContext: ModelContext,
-        settingsManager: SettingsManager
-    ) throws -> [PersonalRecordResult] {
-        // Fetch all current personal records
-        let allRecords = try PersonalRecordService.fetchCurrentPersonalRecords(
-            modelContext: modelContext
-        )
-        
-        // Check for PRs in this workout
-        let prResults = PersonalRecordService.checkForPersonalRecords(
-            workout: workout,
-            allPersonalRecords: allRecords,
-            measurementSystem: settingsManager.measurementSystem,
-            stepHeight: settingsManager.stepHeight
-        )
-        
-        // Filter to only new records
-        let newRecords = prResults.filter { $0.isNewRecord }
-        
-        // Save the new personal records
-        if !newRecords.isEmpty {
-            try PersonalRecordService.savePersonalRecords(
-                results: newRecords,
-                workout: workout,
-                modelContext: modelContext
+        // Recalculate all PRs once at the end based on chronological workout order
+        // This ensures PRs are correct regardless of any existing workouts in the database
+        do {
+            try PersonalRecordService.recalculateAllPersonalRecords(
+                modelContext: modelContext,
+                measurementSystem: settingsManager.measurementSystem,
+                stepHeight: settingsManager.stepHeight
             )
+        } catch {
+            print("❌ Failed to recalculate PRs: \(error)")
+            // Don't fail the import if PR recalculation fails
         }
         
-        return newRecords
+        importState = .completed
     }
 }
 

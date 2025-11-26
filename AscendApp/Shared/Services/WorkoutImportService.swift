@@ -105,7 +105,7 @@ class WorkoutImportService {
         }
     }
     
-    func importWorkout(_ hkWorkout: HKWorkout) async -> Bool {
+    func importWorkout(_ hkWorkout: HKWorkout, skipPRRecalculation: Bool = false) async -> Bool {
         guard let modelContext = modelContext else { return false }
         
         do {
@@ -116,17 +116,16 @@ class WorkoutImportService {
             modelContext.insert(workout)
             try modelContext.save()
             
-            // Check for personal records after the workout is saved
-            let prResults = try checkAndSavePersonalRecords(
-                for: workout,
-                modelContext: modelContext
-            )
-            
-            // Update workout with PR types if any were achieved
-            if !prResults.isEmpty {
-                let prTypes = prResults.map { $0.type.rawValue }
-                workout.personalRecordTypes = prTypes
-                try modelContext.save()
+            // Recalculate all PRs to ensure correctness regardless of import order
+            // The imported workout might be older than existing workouts, so we need
+            // to recalculate the entire PR history based on chronological order
+            if !skipPRRecalculation {
+                let settingsManager = SettingsManager.shared
+                try PersonalRecordService.recalculateAllPersonalRecords(
+                    modelContext: modelContext,
+                    measurementSystem: settingsManager.measurementSystem,
+                    stepHeight: settingsManager.stepHeight
+                )
             }
             
             // Update count to exclude imported workouts
@@ -144,42 +143,6 @@ class WorkoutImportService {
             return false
         }
     }
-    
-    // MARK: - Personal Records
-    private func checkAndSavePersonalRecords(
-        for workout: Workout,
-        modelContext: ModelContext
-    ) throws -> [PersonalRecordResult] {
-        let settingsManager = SettingsManager.shared
-        
-        // Fetch all current personal records
-        let allRecords = try PersonalRecordService.fetchCurrentPersonalRecords(
-            modelContext: modelContext
-        )
-        
-        // Check for PRs in this workout
-        let prResults = PersonalRecordService.checkForPersonalRecords(
-            workout: workout,
-            allPersonalRecords: allRecords,
-            measurementSystem: settingsManager.measurementSystem,
-            stepHeight: settingsManager.stepHeight
-        )
-        
-        // Filter to only new records
-        let newRecords = prResults.filter { $0.isNewRecord }
-        
-        // Save the new personal records
-        if !newRecords.isEmpty {
-            try PersonalRecordService.savePersonalRecords(
-                results: newRecords,
-                workout: workout,
-                modelContext: modelContext
-            )
-        }
-        
-        return newRecords
-    }
-    
     
     func isWorkoutImported(_ uuid: String) -> Bool {
         guard let modelContext = modelContext else { return false }
@@ -200,6 +163,8 @@ class WorkoutImportService {
     }
     
     func importAllWorkouts() async -> Int {
+        guard let modelContext = modelContext else { return 0 }
+        
         var successCount = 0
         
         // Only import workouts that haven't been imported yet
@@ -207,14 +172,29 @@ class WorkoutImportService {
             !isWorkoutImported(workout.uuid.uuidString)
         }
         
-        // Sort workouts chronologically (oldest first) for correct PR calculation
-        // This ensures the first workout imported gets the initial PRs, and each
-        // subsequent workout is correctly compared against previous bests
+        // Sort workouts chronologically (oldest first) for import
         let sortedWorkouts = workoutsToImport.sorted { $0.startDate < $1.startDate }
         
+        // Import all workouts first, skipping individual PR recalculation
         for workout in sortedWorkouts {
-            if await importWorkout(workout) {
+            if await importWorkout(workout, skipPRRecalculation: true) {
                 successCount += 1
+            }
+        }
+        
+        // Recalculate all PRs once at the end based on chronological workout order
+        // This ensures PRs are correct regardless of any existing workouts in the database
+        if successCount > 0 {
+            do {
+                let settingsManager = SettingsManager.shared
+                try PersonalRecordService.recalculateAllPersonalRecords(
+                    modelContext: modelContext,
+                    measurementSystem: settingsManager.measurementSystem,
+                    stepHeight: settingsManager.stepHeight
+                )
+                print("✅ Successfully recalculated all PRs after batch import")
+            } catch {
+                print("❌ Failed to recalculate PRs: \(error)")
             }
         }
         

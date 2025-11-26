@@ -535,6 +535,15 @@ struct WorkoutDetailView: View {
         modelContext.delete(workout)
         do {
             try modelContext.save()
+            
+            // Recalculate PRs after deletion since the deleted workout may have held a PR
+            let settingsManager = SettingsManager.shared
+            try PersonalRecordService.recalculateAllPersonalRecords(
+                modelContext: modelContext,
+                measurementSystem: settingsManager.measurementSystem,
+                stepHeight: settingsManager.stepHeight
+            )
+            
             await MainActor.run {
                 dismiss() // Navigate back to workout list
             }

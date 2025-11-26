@@ -229,6 +229,14 @@ struct WorkoutListView: View {
                 modelContext.delete(workout)
             }
             try modelContext.save()
+            
+            // Recalculate PRs after deletion since a deleted workout may have held a PR
+            let settingsManager = SettingsManager.shared
+            try PersonalRecordService.recalculateAllPersonalRecords(
+                modelContext: modelContext,
+                measurementSystem: settingsManager.measurementSystem,
+                stepHeight: settingsManager.stepHeight
+            )
 
             await MainActor.run {
                 exitDeleteMode()
