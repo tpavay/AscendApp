@@ -117,11 +117,9 @@ struct ProgressSheet: View {
                 .padding(.top, 24)
 
             // Best Efforts below calendar
-            if !recentBestEfforts.isEmpty {
-                bestEffortsPreviewSection
-                    .padding(.horizontal, 24)
-                    .padding(.top, 24)
-            }
+            bestEffortsPreviewSection
+                .padding(.horizontal, 24)
+                .padding(.top, 24)
 
             Spacer(minLength: 0)
         }
@@ -153,24 +151,30 @@ struct ProgressSheet: View {
                 
                 Spacer()
                 
-                NavigationLink {
-                    BestEffortsListView(workouts: workouts)
-                } label: {
-                    HStack(spacing: 4) {
-                        Text("View All")
-                            .font(.montserratMedium(size: 14))
-                            .foregroundStyle(.accent)
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.accent)
+                if !recentBestEfforts.isEmpty {
+                    NavigationLink {
+                        BestEffortsListView(workouts: workouts)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("View All")
+                                .font(.montserratMedium(size: 14))
+                                .foregroundStyle(.accent)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(.accent)
+                        }
                     }
+                    .buttonStyle(PlainButtonStyle())
                 }
-                .buttonStyle(PlainButtonStyle())
             }
             
-            VStack(spacing: 10) {
-                ForEach(recentBestEfforts) { effort in
-                    BestEffortRow(effort: effort, colorScheme: effectiveColorScheme)
+            if recentBestEfforts.isEmpty {
+                bestEffortsEmptyState
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(recentBestEfforts) { effort in
+                        BestEffortRow(effort: effort, colorScheme: effectiveColorScheme)
+                    }
                 }
             }
         }
@@ -183,6 +187,25 @@ struct ProgressSheet: View {
                         .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
                 )
         )
+    }
+    
+    private var bestEffortsEmptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "trophy")
+                .font(.system(size: 32, weight: .light))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.4))
+            
+            Text("No Best Efforts Yet")
+                .font(.montserratSemiBold(size: 16))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+            
+            Text("Log or import workouts and come back here to see your personal records for total steps, duration, heart rate, and more.")
+                .font(.montserratRegular(size: 13))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray.opacity(0.8))
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 20)
     }
     
     

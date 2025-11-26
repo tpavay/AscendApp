@@ -92,7 +92,7 @@ struct LastSevenDaysSummaryCard: View {
                 .font(.montserratMedium(size: 16))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.85) : .black)
             
-            Text("Your weekly summary will appear here after your first workout.")
+            Text("Log or import a workout, then come back here to see your \(preferredMetric.displayName.lowercased()) totals for the last 7 days.")
                 .font(.montserratRegular(size: 14))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
         }

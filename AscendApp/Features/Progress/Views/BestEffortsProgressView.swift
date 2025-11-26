@@ -16,6 +16,7 @@ struct BestEffortsProgressView: View {
     @State private var themeManager = ThemeManager.shared
     @State private var selectedMetric: BestEffort.MetricType = .mostSteps
     @State private var selectedDataPoint: ProgressionDataPoint?
+    @State private var showingInfoTooltip = false
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -82,6 +83,25 @@ struct BestEffortsProgressView: View {
         }
         .themedBackground()
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showingInfoTooltip = true
+                } label: {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.accent)
+                }
+            }
+        }
+        .sheet(isPresented: $showingInfoTooltip) {
+            TooltipView(
+                title: "Best Efforts Progress",
+                content: "This chart shows how your personal records have improved over time. Each point represents a workout where you set a new all-time best for the selected metric.\n\nTap on any point to see details about that record-setting workout. Use the tabs above to switch between different metrics like steps, floors, duration, and more."
+            )
+            .presentationDetents([.fraction(0.55)])
+            .presentationDragIndicator(.visible)
+        }
         .onAppear {
             if let initial = initialMetric, availableMetrics.contains(initial) {
                 selectedMetric = initial
