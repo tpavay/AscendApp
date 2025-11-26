@@ -148,4 +148,21 @@ final class LeaderboardRepository: Sendable {
             ])
         }
     }
+    
+    // Update display name across all user's leaderboard documents
+    func updateDisplayName(userId: String, displayName: String) async throws {
+        // Query all documents for this user
+        let query = db.collection("leaderboard_stats")
+            .whereField("userId", isEqualTo: userId)
+        
+        let snapshot = try await query.getDocuments()
+        
+        // Update each document
+        for document in snapshot.documents {
+            try await document.reference.updateData([
+                "displayName": displayName,
+                "lastUpdated": FieldValue.serverTimestamp()
+            ])
+        }
+    }
 }

@@ -151,4 +151,15 @@ final class UserDataRepository: Sendable {
         
         return getCachedProfilePictureURL()
     }
+    
+    func updateDisplayName(userId: String, displayName: String) async throws {
+        let userRef = db.collection("users").document(userId)
+        
+        try await userRef.setData([
+            "displayName": displayName,
+            "lastUpdated": FieldValue.serverTimestamp()
+        ], merge: true)
+        
+        cacheDisplayName(displayName)
+    }
 }

@@ -192,6 +192,14 @@ final class LeaderboardService {
             photoURL: photoURL?.absoluteString ?? ""
         )
     }
+    
+    // Update display name across all user's leaderboard documents in Firestore
+    func updateDisplayName(userId: String, displayName: String) async throws {
+        try await repository.updateDisplayName(
+            userId: userId,
+            displayName: displayName
+        )
+    }
 }
 
 enum LeaderboardError: LocalizedError {

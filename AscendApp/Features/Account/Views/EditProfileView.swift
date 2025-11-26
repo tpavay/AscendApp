@@ -17,6 +17,10 @@ struct EditProfileView: View {
     @State private var isUploadingPhoto = false
     @State private var imageForCropping: UIImage?
     @State private var showingCropView = false
+    @State private var isEditingDisplayName = false
+    @State private var editedDisplayName = ""
+    @State private var isSavingDisplayName = false
+    @FocusState private var isDisplayNameFocused: Bool
     
     var body: some View {
         ScrollView {
@@ -139,8 +143,8 @@ struct EditProfileView: View {
                 .font(.montserratSemiBold(size: 18))
                 .foregroundStyle(colorScheme == .dark ? .white : .black)
             
-            // Name
-            InfoRow(label: "Name", value: authVM.displayName.isEmpty ? "Not Set" : authVM.displayName)
+            // Display Name (Editable)
+            displayNameRow
             
             // Email
             if let email = authVM.user?.email {
@@ -148,6 +152,104 @@ struct EditProfileView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    
+    private var displayNameRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Display Name")
+                .font(.montserratMedium(size: 14))
+                .foregroundStyle(.secondary)
+            
+            if isEditingDisplayName {
+                HStack(spacing: 12) {
+                    TextField("Enter display name", text: $editedDisplayName)
+                        .font(.montserratRegular(size: 16))
+                        .foregroundStyle(colorScheme == .dark ? .white : .black)
+                        .textFieldStyle(.plain)
+                        .focused($isDisplayNameFocused)
+                        .submitLabel(.done)
+                        .onSubmit {
+                            saveDisplayName()
+                        }
+                    
+                    if isSavingDisplayName {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                    } else {
+                        Button {
+                            saveDisplayName()
+                        } label: {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 24))
+                                .foregroundStyle(.accent)
+                        }
+                        .disabled(editedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        
+                        Button {
+                            cancelEditing()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 24))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(colorScheme == .dark ? Color.jetLighter.opacity(0.3) : Color.gray.opacity(0.1))
+                )
+            } else {
+                Button {
+                    startEditing()
+                } label: {
+                    HStack {
+                        Text(authVM.displayName.isEmpty ? "Not Set" : authVM.displayName)
+                            .font(.montserratRegular(size: 16))
+                            .foregroundStyle(colorScheme == .dark ? .white : .black)
+                        
+                        Spacer()
+                        
+                        Image(systemName: "pencil")
+                            .font(.system(size: 16))
+                            .foregroundStyle(.accent)
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(colorScheme == .dark ? Color.jetLighter.opacity(0.3) : Color.gray.opacity(0.1))
+                    )
+                }
+            }
+        }
+    }
+    
+    private func startEditing() {
+        editedDisplayName = authVM.displayName
+        isEditingDisplayName = true
+        isDisplayNameFocused = true
+    }
+    
+    private func cancelEditing() {
+        isEditingDisplayName = false
+        editedDisplayName = ""
+        isDisplayNameFocused = false
+    }
+    
+    private func saveDisplayName() {
+        let trimmedName = editedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        
+        isSavingDisplayName = true
+        
+        Task {
+            await authVM.updateDisplayName(trimmedName)
+            isSavingDisplayName = false
+            isEditingDisplayName = false
+            isDisplayNameFocused = false
+        }
     }
     
     // MARK: - Actions

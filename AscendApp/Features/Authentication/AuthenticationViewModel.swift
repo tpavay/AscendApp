@@ -305,4 +305,45 @@ extension AuthenticationViewModel {
         // Prioritize custom profile picture, then fall back to OAuth provider photo
         return customProfilePictureURL ?? photoURL
     }
+    
+    func updateDisplayName(_ newDisplayName: String) async {
+        errorMessage = nil
+        
+        guard let user = user else {
+            errorMessage = "User not authenticated"
+            return
+        }
+        
+        let trimmedName = newDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard !trimmedName.isEmpty else {
+            errorMessage = "Display name cannot be empty"
+            return
+        }
+        
+        do {
+            // Update local state immediately for responsive UI
+            displayName = trimmedName
+            
+            // Save to Firestore user document
+            try await UserDataRepository.shared.updateDisplayName(
+                userId: user.uid,
+                displayName: trimmedName
+            )
+            
+            // Update all leaderboard entries with the new display name
+            do {
+                try await LeaderboardService.shared.updateDisplayName(
+                    userId: user.uid,
+                    displayName: trimmedName
+                )
+            } catch {
+                // Don't fail the whole operation if leaderboard update fails
+                print("Warning: Failed to update leaderboard display name: \(error)")
+            }
+            
+        } catch {
+            errorMessage = "Failed to update display name: \(error.localizedDescription)"
+        }
+    }
 }
