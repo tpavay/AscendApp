@@ -87,6 +87,18 @@ struct DebugToolsView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                
+                NavigationLink {
+                    HapticsTestView()
+                } label: {
+                    inspectionRow(
+                        title: "Haptics Test",
+                        description: "Test all haptic feedback types",
+                        icon: "waveform",
+                        iconColor: .purple
+                    )
+                }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 20)
         }

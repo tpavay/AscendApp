@@ -409,6 +409,9 @@ struct ProgressSheet: View {
         Group {
             if dayData.isCurrentMonth {
                 Button {
+                    if dayData.hasWorkout {
+                        HapticsManager.shared.trigger(.lightImpact)
+                    }
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                         if dayData.hasWorkout {
                             // Toggle selection
@@ -612,6 +615,7 @@ struct ProgressSheet: View {
     }
     
     private func previousMonth() {
+        HapticsManager.shared.trigger(.lightImpact)
         withAnimation(.easeInOut(duration: 0.3)) {
             selectedDate = calendar.date(byAdding: .month, value: -1, to: selectedDate) ?? selectedDate
             selectedCalendarDay = nil
@@ -619,12 +623,13 @@ struct ProgressSheet: View {
     }
     
     private func nextMonth() {
-        withAnimation(.easeInOut(duration: 0.3)) {
-            let nextMonthDate = calendar.date(byAdding: .month, value: 1, to: selectedDate) ?? selectedDate
-            let currentMonth = Date()
-            
-            // Only allow navigation if the next month is not in the future
-            if calendar.compare(nextMonthDate, to: currentMonth, toGranularity: .month) != .orderedDescending {
+        let nextMonthDate = calendar.date(byAdding: .month, value: 1, to: selectedDate) ?? selectedDate
+        let currentMonth = Date()
+        
+        // Only allow navigation if the next month is not in the future
+        if calendar.compare(nextMonthDate, to: currentMonth, toGranularity: .month) != .orderedDescending {
+            HapticsManager.shared.trigger(.lightImpact)
+            withAnimation(.easeInOut(duration: 0.3)) {
                 selectedDate = nextMonthDate
                 selectedCalendarDay = nil
             }

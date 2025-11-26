@@ -497,6 +497,9 @@ struct ImportCompletedView: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 60, weight: .light))
                 .foregroundStyle(.green)
+                .onAppear {
+                    HapticsManager.shared.trigger(.success)
+                }
             
             VStack(spacing: 12) {
                 Text("Import Complete")

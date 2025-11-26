@@ -168,6 +168,7 @@ struct WorkoutFilterExplorerView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if filterState.hasActiveFilters {
                     Button("Reset All") {
+                        HapticsManager.shared.trigger(.mediumImpact)
                         dismissSearchFocus()
                         withAnimation(.easeInOut) {
                             filterState.resetAll()
@@ -255,6 +256,7 @@ struct WorkoutFilterExplorerView: View {
             HStack(spacing: 10) {
                 ForEach(FilterChip.allCases) { chip in
                     Button {
+                        HapticsManager.shared.trigger(.lightImpact)
                         dismissSearchFocus()
                         activeSheet = chip.associatedSheet
                     } label: {
@@ -400,6 +402,7 @@ private struct WorkoutSourceFilterSheet: View {
     }
     
     private func toggleSelection(for source: WorkoutSource) {
+        HapticsManager.shared.trigger(.selection)
         if tempSelection.contains(source) {
             tempSelection.remove(source)
         } else {
@@ -610,6 +613,7 @@ private struct DatesFilterSheet: View {
                     .labelsHidden()
                     .tint(.accent)
                     .onChange(of: isRangeEnabled) { _, enabled in
+                        HapticsManager.shared.trigger(.selection)
                         if !enabled {
                             focusedField = .start
                             endDate = startDate
@@ -623,7 +627,10 @@ private struct DatesFilterSheet: View {
     }
     
     private func dateField(title: String, date: Date, isActive: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        Button(action: {
+            HapticsManager.shared.trigger(.selection)
+            action()
+        }) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title.uppercased())
@@ -802,6 +809,8 @@ private struct WorkoutFilterRangeSlider: View {
     let step: Double?
     
     private let handleSize: CGFloat = 28
+    @State private var lastLowerStep: Int = -1
+    @State private var lastUpperStep: Int = -1
     
     var body: some View {
         GeometryReader { geometry in
@@ -854,10 +863,34 @@ private struct WorkoutFilterRangeSlider: View {
     
     private func updateValue(for locationX: CGFloat, width: CGFloat, isLowerHandle: Bool) {
         let newValue = snappedValue(from: locationX, width: width)
+        let effectiveStep = step ?? 1
+        
         if isLowerHandle {
-            lowerValue = min(max(bounds.lowerBound, newValue), upperValue)
+            let clampedValue = min(max(bounds.lowerBound, newValue), upperValue)
+            let currentStep = Int(round((clampedValue - bounds.lowerBound) / effectiveStep))
+            if currentStep != lastLowerStep {
+                lastLowerStep = currentStep
+                // Stronger haptic at bounds
+                if clampedValue == bounds.lowerBound || clampedValue >= upperValue {
+                    HapticsManager.shared.trigger(.mediumImpact)
+                } else {
+                    HapticsManager.shared.trigger(.selection)
+                }
+            }
+            lowerValue = clampedValue
         } else {
-            upperValue = max(min(bounds.upperBound, newValue), lowerValue)
+            let clampedValue = max(min(bounds.upperBound, newValue), lowerValue)
+            let currentStep = Int(round((clampedValue - bounds.lowerBound) / effectiveStep))
+            if currentStep != lastUpperStep {
+                lastUpperStep = currentStep
+                // Stronger haptic at bounds
+                if clampedValue == bounds.upperBound || clampedValue <= lowerValue {
+                    HapticsManager.shared.trigger(.mediumImpact)
+                } else {
+                    HapticsManager.shared.trigger(.selection)
+                }
+            }
+            upperValue = clampedValue
         }
     }
     

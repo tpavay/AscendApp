@@ -336,6 +336,7 @@ struct DeleteAccountConfirmationView: View {
     // MARK: - Actions
     
     private func deleteAccount() {
+        HapticsManager.shared.trigger(.warning)
         isTextFieldFocused = false
         isDeleting = true
         

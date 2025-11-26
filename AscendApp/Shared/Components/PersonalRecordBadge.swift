@@ -69,6 +69,7 @@ struct PersonalRecordBadge: View {
         .cornerRadius(size.padding * 2)
         .shadow(color: Color.black.opacity(0.2), radius: 2, x: 0, y: 1)
         .onTapGesture {
+            HapticsManager.shared.trigger(.lightImpact)
             showingTooltip = true
         }
         .popover(isPresented: $showingTooltip, arrowEdge: .bottom) {

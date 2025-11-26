@@ -40,6 +40,7 @@ struct ThemeSelectionView: View {
     
     private func themeOptionRow(theme: AppTheme) -> some View {
         Button(action: {
+            HapticsManager.shared.trigger(.selection)
             themeManager.setTheme(theme)
         }) {
             HStack(spacing: 16) {

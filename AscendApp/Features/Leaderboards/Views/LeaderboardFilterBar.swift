@@ -145,7 +145,10 @@ private struct FilterChipButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        Button(action: {
+            HapticsManager.shared.trigger(.lightImpact)
+            action()
+        }) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title.uppercased())
                     .font(.montserratSemiBold(size: 11))
@@ -200,6 +203,7 @@ private struct LeaderboardSingleSelectSheet<Option: Identifiable & Equatable>: V
                 VStack(spacing: 12) {
                     ForEach(options) { option in
                         Button {
+                            HapticsManager.shared.trigger(.selection)
                             onSelect(option)
                             dismiss()
                         } label: {

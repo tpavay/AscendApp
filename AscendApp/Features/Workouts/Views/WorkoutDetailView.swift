@@ -595,6 +595,7 @@ struct SingleWorkoutDeleteConfirmationView: View {
                 .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                 
                 Button("Delete") {
+                    HapticsManager.shared.trigger(.warning)
                     onConfirm()
                 }
                 .frame(maxWidth: .infinity)

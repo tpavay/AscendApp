@@ -50,6 +50,14 @@ struct WorkoutCompletedView: View {
                 }
                 .padding(.top, 20)
                 .padding(.horizontal, 20)
+                .onAppear {
+                    // Strong haptic celebration for completing a workout
+                    HapticsManager.shared.trigger(.heavyImpact)
+                    // Follow up with success notification for extra feedback
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        HapticsManager.shared.trigger(.success)
+                    }
+                }
                 
                 // Personal Records Section
                 if workout.hasPersonalRecords {

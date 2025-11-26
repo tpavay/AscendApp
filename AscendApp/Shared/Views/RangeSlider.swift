@@ -17,6 +17,8 @@ struct RangeSlider: View {
     @State private var isDraggingLow = false
     @State private var isDraggingHigh = false
     @State private var sliderWidth: CGFloat = 0
+    @State private var lastHapticLowStep: Int = 0
+    @State private var lastHapticHighStep: Int = 0
     
     private let handleSize: CGFloat = 28
     private let trackHeight: CGFloat = 6
@@ -141,6 +143,18 @@ struct RangeSlider: View {
         // Clamp to range
         newValue = max(range.lowerBound, min(range.upperBound, newValue))
         
+        // Haptic feedback at step increments
+        let currentStep = Int(round((newValue - range.lowerBound) / step))
+        if currentStep != lastHapticLowStep {
+            lastHapticLowStep = currentStep
+            // Stronger haptic at bounds
+            if newValue == range.lowerBound || newValue >= highValue - minimumGap {
+                HapticsManager.shared.trigger(.mediumImpact)
+            } else {
+                HapticsManager.shared.trigger(.selection)
+            }
+        }
+        
         lowValue = newValue
     }
     
@@ -157,6 +171,18 @@ struct RangeSlider: View {
         
         // Clamp to range
         newValue = max(range.lowerBound, min(range.upperBound, newValue))
+        
+        // Haptic feedback at step increments
+        let currentStep = Int(round((newValue - range.lowerBound) / step))
+        if currentStep != lastHapticHighStep {
+            lastHapticHighStep = currentStep
+            // Stronger haptic at bounds
+            if newValue == range.upperBound || newValue <= lowValue + minimumGap {
+                HapticsManager.shared.trigger(.mediumImpact)
+            } else {
+                HapticsManager.shared.trigger(.selection)
+            }
+        }
         
         highValue = newValue
     }

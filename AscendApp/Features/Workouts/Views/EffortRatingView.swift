@@ -65,6 +65,9 @@ struct EffortRatingView: View {
                         
                         Slider(value: $tempRating, in: 1...5, step: 1)
                             .accentColor(.accent)
+                            .onChange(of: tempRating) { _, _ in
+                                HapticsManager.shared.trigger(.selection)
+                            }
                         
                         Text("5")
                             .font(.montserratRegular(size: 14))
