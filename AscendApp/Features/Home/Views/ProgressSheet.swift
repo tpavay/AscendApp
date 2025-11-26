@@ -428,36 +428,39 @@ struct ProgressSheet: View {
         let colorScheme: ColorScheme
         
         var body: some View {
-            HStack(spacing: 12) {
-                Image(systemName: effort.iconName)
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundStyle(.accent)
-                    .frame(width: 28)
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(effort.title)
-                        .font(.montserratSemiBold(size: 14))
-                        .foregroundStyle(colorScheme == .dark ? .white : .black)
-                        .lineLimit(1)
+            NavigationLink(destination: WorkoutDetailView(workout: effort.workout)) {
+                HStack(spacing: 12) {
+                    Image(systemName: effort.iconName)
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(.accent)
+                        .frame(width: 28)
                     
-                    Text(effort.detailText)
-                        .font(.montserratRegular(size: 12))
-                        .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
-                        .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(effort.title)
+                            .font(.montserratSemiBold(size: 14))
+                            .foregroundStyle(colorScheme == .dark ? .white : .black)
+                            .lineLimit(1)
+                        
+                        Text(effort.detailText)
+                            .font(.montserratRegular(size: 12))
+                            .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
+                            .lineLimit(1)
+                    }
+                    
+                    Spacer()
+                    
+                    Text(effort.valueText)
+                        .font(.montserratBold(size: 14))
+                        .foregroundStyle(colorScheme == .dark ? .white : .black)
+                        .multilineTextAlignment(.trailing)
                 }
-                
-                Spacer()
-                
-                Text(effort.valueText)
-                    .font(.montserratBold(size: 14))
-                    .foregroundStyle(colorScheme == .dark ? .white : .black)
-                    .multilineTextAlignment(.trailing)
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03))
+                )
             }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03))
-            )
+            .buttonStyle(PlainButtonStyle())
         }
     }
     

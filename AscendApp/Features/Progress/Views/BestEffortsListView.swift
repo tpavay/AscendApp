@@ -39,6 +39,15 @@ struct BestEffortsListView: View {
         .themedBackground()
         .navigationTitle("Best Efforts")
         .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                NavigationLink(destination: BestEffortsProgressView(workouts: workouts)) {
+                    Image(systemName: "chart.line.uptrend.xyaxis")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.accent)
+                }
+            }
+        }
     }
     
     private var effortsList: some View {

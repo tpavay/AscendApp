@@ -9,7 +9,7 @@ import Foundation
 
 /// Derived, in-memory representation of a personal record/best effort.
 struct BestEffort: Identifiable {
-    enum MetricType: String {
+    enum MetricType: String, CaseIterable, Identifiable {
         case mostSteps
         case mostFloors
         case longestWorkout
@@ -18,6 +18,46 @@ struct BestEffort: Identifiable {
         case highestAverageHeartRate
         case highestMaxHeartRate
         case highestAverageMETs
+        
+        var id: String { rawValue }
+        
+        var displayName: String {
+            switch self {
+            case .mostSteps: return "Steps"
+            case .mostFloors: return "Floors"
+            case .longestWorkout: return "Duration"
+            case .highestStepsPerMinute: return "Steps/Min"
+            case .highestCaloriesBurned: return "Calories"
+            case .highestAverageHeartRate: return "Avg HR"
+            case .highestMaxHeartRate: return "Max HR"
+            case .highestAverageMETs: return "METs"
+            }
+        }
+        
+        var iconName: String {
+            switch self {
+            case .mostSteps: return "figure.stairs"
+            case .mostFloors: return "building.2"
+            case .longestWorkout: return "stopwatch"
+            case .highestStepsPerMinute: return "speedometer"
+            case .highestCaloriesBurned: return "flame.fill"
+            case .highestAverageHeartRate: return "heart.fill"
+            case .highestMaxHeartRate: return "bolt.heart"
+            case .highestAverageMETs: return "waveform.path.ecg"
+            }
+        }
+        
+        var unitLabel: String {
+            switch self {
+            case .mostSteps: return "steps"
+            case .mostFloors: return "floors"
+            case .longestWorkout: return "min"
+            case .highestStepsPerMinute: return "/min"
+            case .highestCaloriesBurned: return "kcal"
+            case .highestAverageHeartRate, .highestMaxHeartRate: return "bpm"
+            case .highestAverageMETs: return "METs"
+            }
+        }
     }
     
     let id = UUID()
@@ -28,6 +68,14 @@ struct BestEffort: Identifiable {
     let date: Date
     let workout: Workout
     let iconName: String
+}
+
+/// A single data point in a best-effort progression timeline.
+struct ProgressionDataPoint: Identifiable {
+    let id = UUID()
+    let date: Date
+    let value: Double
+    let workout: Workout
 }
 
 // MARK: - Best Efforts Factory
@@ -287,6 +335,58 @@ struct BestEffortsBuilder {
             return String(format: "%d hr %02d min", hours, minutes)
         } else {
             return String(format: "%d min", minutes)
+        }
+    }
+    
+    // MARK: - Progression Data
+    
+    /// Returns all workouts that set a new record at their point in time for the given metric.
+    /// Sorted by date ascending to create the "staircase" progression.
+    static func progressionData(for metricType: BestEffort.MetricType, from workouts: [Workout]) -> [ProgressionDataPoint] {
+        // Sort workouts by date ascending
+        let sortedWorkouts = workouts.sorted { $0.date < $1.date }
+        
+        var progression: [ProgressionDataPoint] = []
+        var currentBest: Double = 0
+        
+        for workout in sortedWorkouts {
+            guard let value = metricValue(for: metricType, from: workout) else { continue }
+            
+            if value > currentBest {
+                currentBest = value
+                progression.append(ProgressionDataPoint(date: workout.date, value: value, workout: workout))
+            }
+        }
+        
+        return progression
+    }
+    
+    /// Returns the available metric types that have at least one valid data point.
+    static func availableMetricTypes(from workouts: [Workout]) -> [BestEffort.MetricType] {
+        BestEffort.MetricType.allCases.filter { metricType in
+            workouts.contains { metricValue(for: metricType, from: $0) != nil }
+        }
+    }
+    
+    /// Extracts the numeric value for a given metric type from a workout.
+    private static func metricValue(for metricType: BestEffort.MetricType, from workout: Workout) -> Double? {
+        switch metricType {
+        case .mostSteps:
+            return workout.steps > 0 ? Double(workout.steps) : nil
+        case .mostFloors:
+            return workout.floors > 0 ? Double(workout.floors) : nil
+        case .longestWorkout:
+            return workout.duration > 0 ? workout.duration / 60.0 : nil // Convert to minutes
+        case .highestStepsPerMinute:
+            return workout.pace(for: .steps)
+        case .highestCaloriesBurned:
+            return workout.caloriesBurned.map { Double($0) }
+        case .highestAverageHeartRate:
+            return workout.avgHeartRate.map { Double($0) }
+        case .highestMaxHeartRate:
+            return workout.maxHeartRate.map { Double($0) }
+        case .highestAverageMETs:
+            return workout.averageMETs
         }
     }
 }
