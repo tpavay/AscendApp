@@ -36,6 +36,7 @@ struct BestEffortsListView: View {
             .padding(.top, 20)
             .padding(.bottom, 32)
         }
+        .scrollIndicators(.hidden)
         .themedBackground()
         .navigationTitle("Best Efforts")
         .navigationBarTitleDisplayMode(.large)

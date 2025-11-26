@@ -81,6 +81,7 @@ struct BestEffortsProgressView: View {
             .padding(.horizontal, 24)
             .padding(.top, 20)
         }
+        .scrollIndicators(.hidden)
         .themedBackground()
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
