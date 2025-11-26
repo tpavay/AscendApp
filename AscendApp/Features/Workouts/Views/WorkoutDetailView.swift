@@ -12,6 +12,7 @@ struct WorkoutDetailView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(AuthenticationViewModel.self) private var authVM
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
     @State private var showingEditWorkout = false
@@ -79,7 +80,7 @@ struct WorkoutDetailView: View {
                 )
             }
             .sheet(isPresented: $showingShareWorkoutView) {
-                ShareWorkoutView(workout: workout)
+                WorkoutShareCarouselView(workout: workout, displayName: authVM.displayName)
             }
             .sheet(isPresented: $showingDeleteConfirmation) {
                 SingleWorkoutDeleteConfirmationView(

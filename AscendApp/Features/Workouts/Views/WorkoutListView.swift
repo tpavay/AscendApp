@@ -12,6 +12,7 @@ import AVFoundation
 struct WorkoutListView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
+    @Environment(AuthenticationViewModel.self) private var authVM
     @State private var themeManager = ThemeManager.shared
     @State private var importService = WorkoutImportService.shared
     @StateObject private var filterState = WorkoutListFilterState()
@@ -118,9 +119,10 @@ struct WorkoutListView: View {
             }
             .fullScreenCover(isPresented: $showingCompletedView) {
                 if let workout = completedWorkout {
-                    WorkoutCompletedView(
+                    WorkoutShareCarouselView(
                         workout: workout,
                         workoutCount: workouts.count,
+                        displayName: authVM.displayName,
                         onDismiss: {
                             showingCompletedView = false
                         }
