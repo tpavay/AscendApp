@@ -54,7 +54,7 @@ extension TabItem {
             TabItem(
                 identifier: .home,
                 title: "Home",
-                iconName: "Home",
+                iconName: "HomeFill",
                 selectedIconName: "HomeFill"
             ) {
                 NavigationStack {
@@ -102,7 +102,7 @@ extension TabItem {
             TabItem(
                 identifier: .settings,
                 title: "Settings",
-                iconName: "Settings",
+                iconName: "SettingsFill",
                 selectedIconName: "SettingsFill"
             ) {
                 NavigationStack {
