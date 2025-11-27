@@ -116,6 +116,15 @@ struct ProgressSheet: View {
             calendarSection
                 .padding(.top, 24)
 
+            // Monthly trends card
+            WorkoutTrendsCard(
+                workouts: workouts,
+                selectedDate: selectedDate,
+                preferredMetric: preferredMetric
+            )
+            .padding(.horizontal, 24)
+            .padding(.top, 24)
+
             // Best Efforts below calendar
             bestEffortsPreviewSection
                 .padding(.horizontal, 24)
