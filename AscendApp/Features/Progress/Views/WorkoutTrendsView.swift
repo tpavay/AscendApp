@@ -17,6 +17,7 @@ struct WorkoutTrendsView: View {
     @State private var settingsManager = SettingsManager.shared
     @State private var selectedRange: WorkoutTrendRange = .thisMonth
     @State private var trendAnchor: Date = Date()
+    @State private var showingInfoTooltip = false
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -196,6 +197,25 @@ struct WorkoutTrendsView: View {
         .themedBackground()
         .navigationTitle("Trends")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showingInfoTooltip = true
+                } label: {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.accent)
+                }
+            }
+        }
+        .sheet(isPresented: $showingInfoTooltip) {
+            TooltipView(
+                title: "Using Trends",
+                content: "Track your workout progress over time with interactive charts.\n\nTap any bar or point to see detailed stats for that period, including totals, averages, and heart rate data.\n\nSwipe left or right within the chart area to navigate between time periods. Use the Week, Month, or Year tabs to change the time range you're viewing."
+            )
+            .presentationDetents([.fraction(0.62)])
+            .presentationDragIndicator(.visible)
+        }
         .onAppear {
             selectedRange = .thisMonth
             trendAnchor = alignedAnchor(for: .thisMonth, base: Date())
