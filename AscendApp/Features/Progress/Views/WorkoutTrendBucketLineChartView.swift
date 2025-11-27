@@ -197,6 +197,17 @@ struct WorkoutTrendBucketLineChartView: View {
                     .font(.montserratBold(size: 16))
                     .foregroundStyle(.accent)
             }
+
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    selectedDate = nil
+                }
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.4) : .gray.opacity(0.5))
+            }
         }
         .padding(12)
         .background(
