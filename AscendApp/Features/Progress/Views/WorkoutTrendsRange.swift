@@ -61,8 +61,10 @@ enum WorkoutTrendRange: String, CaseIterable, Identifiable {
                   let end = calendar.date(byAdding: .month, value: 1, to: startOfMonth(for: anchor, calendar: calendar)) else { return nil }
             return DateInterval(start: start, end: end)
         case .lastYear:
-            guard let start = calendar.date(byAdding: .month, value: -11, to: startOfMonth(for: anchor, calendar: calendar)),
-                  let end = calendar.date(byAdding: .month, value: 1, to: startOfMonth(for: anchor, calendar: calendar)) else { return nil }
+            // Show full calendar year containing the anchor
+            let year = calendar.component(.year, from: anchor)
+            guard let start = calendar.date(from: DateComponents(year: year, month: 1, day: 1)),
+                  let end = calendar.date(from: DateComponents(year: year + 1, month: 1, day: 1)) else { return nil }
             return DateInterval(start: start, end: end)
         }
     }

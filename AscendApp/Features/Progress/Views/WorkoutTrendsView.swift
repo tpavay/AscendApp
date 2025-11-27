@@ -39,11 +39,11 @@ struct WorkoutTrendsView: View {
     }
     
     private var totalBuckets: [WorkoutTrendBucket] {
-        WorkoutTrendsBuilder.trendBuckets(from: filteredWorkouts, preferredMetric: activePreferredMetric, range: selectedRange, calendar: calendar, anchor: initialMonth)
+        WorkoutTrendsBuilder.trendBuckets(from: filteredWorkouts, preferredMetric: activePreferredMetric, range: selectedRange, calendar: calendar, anchor: trendAnchor)
     }
-    
+
     private var perMinuteBuckets: [WorkoutTrendBucket] {
-        WorkoutTrendsBuilder.trendBuckets(from: filteredWorkouts, preferredMetric: activePreferredMetric, range: selectedRange, calendar: calendar, anchor: initialMonth)
+        WorkoutTrendsBuilder.trendBuckets(from: filteredWorkouts, preferredMetric: activePreferredMetric, range: selectedRange, calendar: calendar, anchor: trendAnchor)
     }
     
     private var heartRatePoints: [WorkoutTrendPoint] {
@@ -66,8 +66,10 @@ struct WorkoutTrendsView: View {
         switch range {
         case .thisWeek:
             return calendar.startOfDay(for: base)
-        case .thisMonth, .lastSixMonths, .lastYear:
+        case .thisMonth, .lastSixMonths:
             return calendar.dateInterval(of: .month, for: base)?.start ?? base
+        case .lastYear:
+            return calendar.dateInterval(of: .year, for: base)?.start ?? base
         }
     }
     
