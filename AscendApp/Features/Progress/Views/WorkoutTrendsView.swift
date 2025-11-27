@@ -66,13 +66,13 @@ struct WorkoutTrendsView: View {
         switch range {
         case .thisWeek:
             return calendar.startOfDay(for: base)
-        case .thisMonth, .lastSixMonths:
+        case .thisMonth:
             return calendar.dateInterval(of: .month, for: base)?.start ?? base
         case .lastYear:
             return calendar.dateInterval(of: .year, for: base)?.start ?? base
         }
     }
-    
+
     private func stepBackward() {
         let newAnchor: Date
         switch selectedRange {
@@ -80,15 +80,13 @@ struct WorkoutTrendsView: View {
             newAnchor = calendar.date(byAdding: .weekOfYear, value: -1, to: trendAnchor) ?? trendAnchor
         case .thisMonth:
             newAnchor = calendar.date(byAdding: .month, value: -1, to: trendAnchor) ?? trendAnchor
-        case .lastSixMonths:
-            newAnchor = calendar.date(byAdding: .month, value: -6, to: trendAnchor) ?? trendAnchor
         case .lastYear:
             newAnchor = calendar.date(byAdding: .year, value: -1, to: trendAnchor) ?? trendAnchor
         }
         trendAnchor = alignedAnchor(for: selectedRange, base: newAnchor)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
-    
+
     private func stepForward() {
         let candidate: Date
         switch selectedRange {
@@ -96,12 +94,10 @@ struct WorkoutTrendsView: View {
             candidate = calendar.date(byAdding: .weekOfYear, value: 1, to: trendAnchor) ?? trendAnchor
         case .thisMonth:
             candidate = calendar.date(byAdding: .month, value: 1, to: trendAnchor) ?? trendAnchor
-        case .lastSixMonths:
-            candidate = calendar.date(byAdding: .month, value: 6, to: trendAnchor) ?? trendAnchor
         case .lastYear:
             candidate = calendar.date(byAdding: .year, value: 1, to: trendAnchor) ?? trendAnchor
         }
-        
+
         if let interval = selectedRange.dateInterval(using: calendar, anchor: candidate),
            interval.start <= Date() {
             trendAnchor = alignedAnchor(for: selectedRange, base: candidate)
@@ -124,7 +120,9 @@ struct WorkoutTrendsView: View {
                 }
                 
                 if usesBuckets {
+                    // Y (Year) view - bar chart for totals, line charts for trends
                     if hasEnoughBucketData {
+                        // Steps bar chart with rich tooltip
                         WorkoutTrendBarChartView(
                             title: activePreferredMetric.displayName,
                             unitLabel: activePreferredMetric.unit,
@@ -134,20 +132,31 @@ struct WorkoutTrendsView: View {
                             range: selectedRange,
                             colorScheme: effectiveColorScheme
                         )
-                        
-                        WorkoutTrendBarChartView(
+
+                        // Steps per Minute line chart
+                        WorkoutTrendBucketLineChartView(
                             title: "\(activePreferredMetric.displayName) per Minute",
                             unitLabel: "\(activePreferredMetric.unit)/min",
                             buckets: perMinuteBuckets,
                             valueType: .perMinute,
-                            bucketStyle: selectedRange.bucketStyle,
-                            range: selectedRange,
                             colorScheme: effectiveColorScheme
                         )
+
+                        // Heart Rate line chart (if data available)
+                        if totalBuckets.contains(where: { $0.averageHeartRate != nil }) {
+                            WorkoutTrendBucketLineChartView(
+                                title: "Average Heart Rate",
+                                unitLabel: "bpm",
+                                buckets: totalBuckets,
+                                valueType: .averageHeartRate,
+                                colorScheme: effectiveColorScheme
+                            )
+                        }
                     } else {
                         emptyState
                     }
                 } else {
+                    // W/M views - line charts for individual workouts
                     if hasEnoughPointData {
                         WorkoutTrendChartView(
                             title: activePreferredMetric.displayName,
@@ -157,7 +166,7 @@ struct WorkoutTrendsView: View {
                             preferredMetric: activePreferredMetric,
                             colorScheme: effectiveColorScheme
                         )
-                        
+
                         WorkoutTrendChartView(
                             title: "\(activePreferredMetric.displayName) per Minute",
                             unitLabel: "\(activePreferredMetric.unit)/min",
@@ -166,17 +175,6 @@ struct WorkoutTrendsView: View {
                             preferredMetric: activePreferredMetric,
                             colorScheme: effectiveColorScheme
                         )
-                        
-                        if heartRatePoints.count >= 2 {
-                            WorkoutTrendChartView(
-                                title: "Average Heart Rate",
-                                unitLabel: "bpm",
-                                points: heartRatePoints,
-                                metricType: .averageHeartRate,
-                                preferredMetric: activePreferredMetric,
-                                colorScheme: effectiveColorScheme
-                            )
-                        }
                     } else {
                         emptyState
                     }
@@ -225,16 +223,13 @@ struct WorkoutTrendsView: View {
     private var rangeDescription: String? {
         guard let interval = selectedRange.dateInterval(using: calendar, anchor: trendAnchor) else { return nil }
         let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d, yyyy"
         switch selectedRange {
         case .thisWeek:
+            formatter.dateFormat = "MMM d, yyyy"
             return "\(formatter.string(from: interval.start)) – \(formatter.string(from: interval.end.addingTimeInterval(-1)))"
         case .thisMonth:
             formatter.dateFormat = "MMMM yyyy"
             return formatter.string(from: interval.start)
-        case .lastSixMonths:
-            formatter.dateFormat = "MMM yyyy"
-            return "\(formatter.string(from: interval.start)) – \(formatter.string(from: interval.end.addingTimeInterval(-1)))"
         case .lastYear:
             formatter.dateFormat = "yyyy"
             return formatter.string(from: interval.start)

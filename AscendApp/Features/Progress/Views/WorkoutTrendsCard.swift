@@ -232,21 +232,11 @@ struct WorkoutTrendChartView: View {
                 }
             }
             .chartYScale(domain: yScaleDomain)
-            .chartOverlay { proxy in
-                GeometryReader { geometry in
-                    Rectangle()
-                        .fill(Color.clear)
-                        .contentShape(Rectangle())
-                        .gesture(
-                            DragGesture(minimumDistance: 0)
-                                .onChanged { value in
-                                    selectNearestPoint(at: value.location, proxy: proxy, geometry: geometry)
-                                }
-                        )
-                        .onTapGesture { location in
-                            selectNearestPoint(at: location, proxy: proxy, geometry: geometry)
-                        }
-                }
+            .chartGesture { proxy in
+                SpatialTapGesture()
+                    .onEnded { event in
+                        selectNearestPoint(at: event.location, proxy: proxy)
+                    }
             }
             .frame(height: 180)
         }
@@ -256,55 +246,96 @@ struct WorkoutTrendChartView: View {
                 .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03))
         )
     }
-    
-    private func selectNearestPoint(at location: CGPoint, proxy: ChartProxy, geometry: GeometryProxy) {
-        let plotFrame = geometry.frame(in: .local)
-        guard plotFrame.contains(location) else { return }
-        
+
+    private func selectNearestPoint(at location: CGPoint, proxy: ChartProxy) {
         var nearestPoint: WorkoutTrendPoint?
         var nearestDistance: CGFloat = .infinity
-        
+
         for point in points {
             guard let xPosition = proxy.position(forX: point.date),
                   let yPosition = proxy.position(forY: point.value) else { continue }
-            
+
             let pointLocation = CGPoint(x: xPosition, y: yPosition)
             let distance = hypot(location.x - pointLocation.x, location.y - pointLocation.y)
-            
+
             if distance < nearestDistance {
                 nearestDistance = distance
                 nearestPoint = point
             }
         }
-        
+
         if let point = nearestPoint, nearestDistance < 50 {
-            if selectedPoint?.id != point.id {
-                withAnimation(.easeOut(duration: 0.15)) {
+            withAnimation(.easeOut(duration: 0.15)) {
+                if selectedPoint?.id == point.id {
+                    // Tap same point to deselect
+                    selectedPoint = nil
+                } else {
                     selectedPoint = point
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 }
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            }
+        } else {
+            // Tapped far from any point - deselect
+            withAnimation(.easeOut(duration: 0.15)) {
+                selectedPoint = nil
             }
         }
     }
     
     private func tooltip(for point: WorkoutTrendPoint) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(dateFormatter.string(from: point.date))
-                    .font(.montserratSemiBold(size: 13))
-                    .foregroundStyle(colorScheme == .dark ? .white : .black)
-                
-                Text(point.workout.name)
-                    .font(.montserratRegular(size: 12))
-                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
-                    .lineLimit(1)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(dateFormatter.string(from: point.date))
+                        .font(.montserratSemiBold(size: 13))
+                        .foregroundStyle(colorScheme == .dark ? .white : .black)
+
+                    Text(point.workout.name)
+                        .font(.montserratRegular(size: 12))
+                        .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Text("\(formattedValue(point.value)) \(unitLabel)")
+                    .font(.montserratBold(size: 16))
+                    .foregroundStyle(.accent)
             }
-            
-            Spacer()
-            
-            Text("\(formattedValue(point.value)) \(unitLabel)")
-                .font(.montserratBold(size: 16))
-                .foregroundStyle(.accent)
+
+            // Show additional stats for total metric chart
+            if metricType == .preferredTotal {
+                Divider()
+                    .background(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1))
+
+                HStack(spacing: 16) {
+                    // Pace
+                    if let pace = point.workout.pace(for: preferredMetric) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(preferredMetric.unit)/min")
+                                .font(.montserratRegular(size: 10))
+                                .foregroundStyle(colorScheme == .dark ? .white.opacity(0.5) : .gray)
+                            Text(String(format: "%.1f", pace))
+                                .font(.montserratSemiBold(size: 13))
+                                .foregroundStyle(colorScheme == .dark ? .white : .black)
+                        }
+                    }
+
+                    // Heart Rate
+                    if let avgHR = point.workout.avgHeartRate {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Avg HR")
+                                .font(.montserratRegular(size: 10))
+                                .foregroundStyle(colorScheme == .dark ? .white.opacity(0.5) : .gray)
+                            Text("\(avgHR) bpm")
+                                .font(.montserratSemiBold(size: 13))
+                                .foregroundStyle(colorScheme == .dark ? .white : .black)
+                        }
+                    }
+
+                    Spacer()
+                }
+            }
         }
         .padding(12)
         .background(

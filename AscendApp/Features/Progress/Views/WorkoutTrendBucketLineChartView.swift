@@ -1,20 +1,18 @@
 //
-//  WorkoutTrendBarChartView.swift
+//  WorkoutTrendBucketLineChartView.swift
 //  AscendApp
 //
-//  Created by ChatGPT on 5/26/24.
+//  Line chart for displaying monthly aggregated trend data (Steps/min, Heart Rate)
 //
 
 import SwiftUI
 import Charts
 
-struct WorkoutTrendBarChartView: View {
+struct WorkoutTrendBucketLineChartView: View {
     let title: String
     let unitLabel: String
     let buckets: [WorkoutTrendBucket]
     let valueType: WorkoutTrendBucketValueType
-    let bucketStyle: TrendBucketStyle
-    let range: WorkoutTrendRange
     let colorScheme: ColorScheme
 
     @State private var selectedIndex: Int?
@@ -22,20 +20,21 @@ struct WorkoutTrendBarChartView: View {
     private var formatter: NumberFormatter {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
-        formatter.maximumFractionDigits = valueType == .perMinute ? 1 : 0
+        formatter.maximumFractionDigits = 1
         formatter.minimumFractionDigits = 0
         return formatter
     }
 
     private var yScaleDomain: ClosedRange<Double> {
-        let maxValue = buckets.map { valueForBucket($0) }.max() ?? 0
-        let upper = max(1, maxValue * 1.1)
-        return 0...upper
+        let values = buckets.compactMap { valueForBucket($0) }
+        let maxValue = values.max() ?? 0
+        let minValue = values.min() ?? 0
+        let padding = (maxValue - minValue) * 0.15
+        return max(0, minValue - padding)...(maxValue + padding)
     }
 
     private var latestValueText: String? {
-        guard let last = buckets.last else { return nil }
-        let value = valueForBucket(last)
+        guard let last = buckets.last, let value = valueForBucket(last) else { return nil }
         return "\(formattedValue(value)) \(unitLabel)"
     }
 
@@ -44,14 +43,14 @@ struct WorkoutTrendBarChartView: View {
         return buckets[index]
     }
 
-    private func valueForBucket(_ bucket: WorkoutTrendBucket) -> Double {
+    private func valueForBucket(_ bucket: WorkoutTrendBucket) -> Double? {
         switch valueType {
+        case .perMinute:
+            return bucket.workoutCount > 0 ? bucket.metricPerMinute : nil
+        case .averageHeartRate:
+            return bucket.averageHeartRate
         case .total:
             return bucket.totalMetric
-        case .perMinute:
-            return bucket.metricPerMinute
-        case .averageHeartRate:
-            return bucket.averageHeartRate ?? 0
         }
     }
 
@@ -92,19 +91,28 @@ struct WorkoutTrendBarChartView: View {
 
     private var chartView: some View {
         Chart {
-            // Bar marks for each bucket
+            // Line connecting monthly averages (only for months with data)
             ForEach(Array(buckets.enumerated()), id: \.element.id) { index, bucket in
-                BarMark(
-                    x: .value("Index", index),
-                    y: .value(title, valueForBucket(bucket)),
-                    width: .fixed(16)
-                )
-                .foregroundStyle(selectedIndex == index ? Color.accentColor : Color.accentColor.opacity(0.85))
-                .cornerRadius(4)
+                if let value = valueForBucket(bucket) {
+                    LineMark(
+                        x: .value("Index", index),
+                        y: .value(title, value)
+                    )
+                    .foregroundStyle(Color.accentColor)
+                    .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                    .interpolationMethod(.monotone)
+
+                    PointMark(
+                        x: .value("Index", index),
+                        y: .value(title, value)
+                    )
+                    .foregroundStyle(selectedIndex == index ? Color.accentColor : (colorScheme == .dark ? .white : .black))
+                    .symbolSize(selectedIndex == index ? 80 : 40)
+                }
             }
 
-            // Selection indicator (RuleMark outside ForEach to prevent rendering issues)
-            if let index = selectedIndex, buckets.indices.contains(index) {
+            // Selection indicator
+            if let index = selectedIndex, buckets.indices.contains(index), valueForBucket(buckets[index]) != nil {
                 RuleMark(x: .value("Selected", index))
                     .foregroundStyle(Color.accentColor.opacity(0.4))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [5]))
@@ -135,7 +143,6 @@ struct WorkoutTrendBarChartView: View {
         }
         .chartYScale(domain: yScaleDomain)
         .chartXScale(domain: -0.5...(Double(buckets.count) - 0.5))
-        // Use tap gesture for persistent selection (tap to select, tap again to deselect)
         .chartGesture { proxy in
             SpatialTapGesture()
                 .onEnded { event in
@@ -146,26 +153,22 @@ struct WorkoutTrendBarChartView: View {
     }
 
     private func handleTap(at location: CGPoint, proxy: ChartProxy) {
-        // Convert tap location to chart x value
         guard let xValue: Double = proxy.value(atX: location.x) else {
-            // Tapped outside chart - deselect
             withAnimation(.easeOut(duration: 0.15)) {
                 selectedIndex = nil
             }
             return
         }
 
-        // Round to nearest integer index
         let index = Int(round(xValue))
 
-        guard buckets.indices.contains(index) else {
+        guard buckets.indices.contains(index), valueForBucket(buckets[index]) != nil else {
             withAnimation(.easeOut(duration: 0.15)) {
                 selectedIndex = nil
             }
             return
         }
 
-        // Toggle selection
         withAnimation(.easeOut(duration: 0.15)) {
             if selectedIndex == index {
                 selectedIndex = nil
@@ -184,57 +187,28 @@ struct WorkoutTrendBarChartView: View {
     }
 
     private func tooltip(for bucket: WorkoutTrendBucket) -> some View {
-        let fullLabel = fullBucketLabel(for: bucket.startDate)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        let fullLabel = formatter.string(from: bucket.startDate)
         let workoutLabel = "\(bucket.workoutCount) workout\(bucket.workoutCount == 1 ? "" : "s")"
-        let valueLabel = "\(formattedValue(valueForBucket(bucket))) \(unitLabel)"
 
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(fullLabel)
-                        .font(.montserratSemiBold(size: 13))
-                        .foregroundStyle(colorScheme == .dark ? .white : .black)
+        return HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(fullLabel)
+                    .font(.montserratSemiBold(size: 13))
+                    .foregroundStyle(colorScheme == .dark ? .white : .black)
 
-                    Text(workoutLabel)
-                        .font(.montserratRegular(size: 12))
-                        .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
-                }
-
-                Spacer()
-
-                Text(valueLabel)
-                    .font(.montserratBold(size: 16))
-                    .foregroundStyle(.accent)
+                Text(workoutLabel)
+                    .font(.montserratRegular(size: 12))
+                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
             }
 
-            // Show additional stats for monthly buckets (Year view) in the total chart
-            if valueType == .total && bucket.workoutCount > 0 {
-                Divider()
-                    .background(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1))
+            Spacer()
 
-                HStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Avg \(unitLabel)/min")
-                            .font(.montserratRegular(size: 10))
-                            .foregroundStyle(colorScheme == .dark ? .white.opacity(0.5) : .gray)
-                        Text(String(format: "%.1f", bucket.metricPerMinute))
-                            .font(.montserratSemiBold(size: 13))
-                            .foregroundStyle(colorScheme == .dark ? .white : .black)
-                    }
-
-                    if let avgHR = bucket.averageHeartRate {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Avg HR")
-                                .font(.montserratRegular(size: 10))
-                                .foregroundStyle(colorScheme == .dark ? .white.opacity(0.5) : .gray)
-                            Text("\(Int(avgHR)) bpm")
-                                .font(.montserratSemiBold(size: 13))
-                                .foregroundStyle(colorScheme == .dark ? .white : .black)
-                        }
-                    }
-
-                    Spacer()
-                }
+            if let value = valueForBucket(bucket) {
+                Text("\(formattedValue(value)) \(unitLabel)")
+                    .font(.montserratBold(size: 16))
+                    .foregroundStyle(.accent)
             }
         }
         .padding(12)
@@ -246,12 +220,6 @@ struct WorkoutTrendBarChartView: View {
                         .stroke(Color.accentColor.opacity(0.25), lineWidth: 1)
                 )
         )
-    }
-
-    private func fullBucketLabel(for date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMMM yyyy"
-        return formatter.string(from: date)
     }
 
     private func formattedValue(_ value: Double) -> String {

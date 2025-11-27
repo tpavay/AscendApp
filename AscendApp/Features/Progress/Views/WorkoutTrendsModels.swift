@@ -15,7 +15,7 @@ struct WorkoutTrendPoint: Identifiable {
     let workout: Workout
 }
 
-/// A bucketed aggregate for trends (weekly or monthly).
+/// A bucketed aggregate for trends (monthly).
 struct WorkoutTrendBucket: Identifiable {
     let id = UUID()
     let startDate: Date
@@ -91,37 +91,25 @@ struct WorkoutTrendsBuilder {
         anchor: Date = Date()
     ) -> [WorkoutTrendBucket] {
         guard let interval = range.dateInterval(using: calendar, anchor: anchor) else { return [] }
-        guard range.bucketStyle != .perWorkout else { return [] }
-        
-        let bucketStyle = range.bucketStyle
-        let bucketStart = bucketStyle == .week
-            ? startOfWeek(for: interval.start, calendar: calendar)
-            : startOfMonth(for: interval.start, calendar: calendar)
-        
+        guard range.bucketStyle == .month else { return [] }
+
+        let bucketStart = startOfMonth(for: interval.start, calendar: calendar)
+
         var buckets: [WorkoutTrendBucket] = []
         var cursor = bucketStart
-        
+
         while cursor < interval.end {
-            let next: Date
-            switch bucketStyle {
-            case .week:
-                next = calendar.date(byAdding: .weekOfYear, value: 1, to: cursor) ?? interval.end
-            case .month:
-                next = calendar.date(byAdding: .month, value: 1, to: cursor) ?? interval.end
-            case .perWorkout:
-                // Not used for per-workout; guard against misuse.
-                next = interval.end
-            }
-            
+            let next = calendar.date(byAdding: .month, value: 1, to: cursor) ?? interval.end
+
             let bucketWorkouts = workouts.filter { $0.date >= cursor && $0.date < next }
             let totalMetric = bucketWorkouts.reduce(0.0) { $0 + Double($1.metricValue(for: preferredMetric)) }
             let totalDuration = bucketWorkouts.reduce(0.0) { $0 + $1.duration }
             let minutes = totalDuration / 60.0
             let metricPerMinute = minutes > 0 ? totalMetric / minutes : 0
-            
+
             let heartRates = bucketWorkouts.compactMap(\.avgHeartRate).map(Double.init)
             let averageHeartRate = heartRates.isEmpty ? nil : heartRates.reduce(0, +) / Double(heartRates.count)
-            
+
             buckets.append(WorkoutTrendBucket(
                 startDate: cursor,
                 endDate: next,
@@ -130,17 +118,13 @@ struct WorkoutTrendsBuilder {
                 averageHeartRate: averageHeartRate,
                 workoutCount: bucketWorkouts.count
             ))
-            
+
             cursor = next
         }
-        
+
         return buckets
     }
-    
-    private static func startOfWeek(for date: Date, calendar: Calendar) -> Date {
-        calendar.dateInterval(of: .weekOfYear, for: date)?.start ?? date
-    }
-    
+
     private static func startOfMonth(for date: Date, calendar: Calendar) -> Date {
         calendar.dateInterval(of: .month, for: date)?.start ?? date
     }
