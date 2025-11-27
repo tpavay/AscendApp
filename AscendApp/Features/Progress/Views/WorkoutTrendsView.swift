@@ -57,7 +57,11 @@ struct WorkoutTrendsView: View {
     private var hasEnoughBucketData: Bool {
         min(totalBuckets.count, perMinuteBuckets.count) >= 2
     }
-    
+
+    private var hasEnoughTotalWorkouts: Bool {
+        workouts.count >= 2
+    }
+
     private var usesBuckets: Bool {
         selectedRange.bucketStyle != .perWorkout
     }
@@ -119,9 +123,14 @@ struct WorkoutTrendsView: View {
                     }
                 }
                 
-                if usesBuckets {
+                if !hasEnoughTotalWorkouts {
+                    // User hasn't logged enough workouts overall
+                    emptyState
+                } else if usesBuckets {
                     // Y (Year) view - bar chart for totals, line charts for trends
-                    if hasEnoughBucketData {
+                    if filteredWorkouts.isEmpty {
+                        noDataInTimeframeState
+                    } else {
                         // Steps bar chart with rich tooltip
                         WorkoutTrendBarChartView(
                             title: activePreferredMetric.displayName,
@@ -152,8 +161,6 @@ struct WorkoutTrendsView: View {
                                 colorScheme: effectiveColorScheme
                             )
                         }
-                    } else {
-                        emptyState
                     }
                 } else {
                     // W/M views - line charts for individual workouts
@@ -176,7 +183,7 @@ struct WorkoutTrendsView: View {
                             colorScheme: effectiveColorScheme
                         )
                     } else {
-                        emptyState
+                        noDataInTimeframeState
                     }
                 }
                 
@@ -241,8 +248,27 @@ struct WorkoutTrendsView: View {
             Image(systemName: "chart.line.uptrend.xyaxis")
                 .font(.system(size: 48, weight: .light))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5))
-            
+
             Text("Log 2 or more workouts to see your trends.")
+                .font(.montserratSemiBold(size: 16))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(32)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
+        )
+    }
+
+    private var noDataInTimeframeState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "calendar.badge.exclamationmark")
+                .font(.system(size: 48, weight: .light))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5))
+
+            Text("No workouts logged during this time period.")
                 .font(.montserratSemiBold(size: 16))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                 .multilineTextAlignment(.center)

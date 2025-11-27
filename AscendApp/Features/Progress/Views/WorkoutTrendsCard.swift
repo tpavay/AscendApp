@@ -156,11 +156,6 @@ struct WorkoutTrendChartView: View {
         return formatter
     }
     
-    private var latestValueText: String? {
-        guard let last = points.last else { return nil }
-        return "\(formattedValue(last.value)) \(unitLabel)"
-    }
-    
     private var yScaleDomain: ClosedRange<Double> {
         let maxValue = points.map(\.value).max() ?? 0
         let upper = max(1, maxValue * 1.15)
@@ -170,21 +165,13 @@ struct WorkoutTrendChartView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.montserratSemiBold(size: 15))
-                        .foregroundStyle(colorScheme == .dark ? .white : .black)
-                    
-                    if let latestValueText = latestValueText {
-                        Text("Latest: \(latestValueText)")
-                            .font(.montserratRegular(size: 12))
-                            .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .gray)
-                    }
-                }
-                
+                Text(title)
+                    .font(.montserratSemiBold(size: 15))
+                    .foregroundStyle(colorScheme == .dark ? .white : .black)
+
                 Spacer()
             }
-            
+
             if let selectedPoint = selectedPoint {
                 tooltip(for: selectedPoint)
             }

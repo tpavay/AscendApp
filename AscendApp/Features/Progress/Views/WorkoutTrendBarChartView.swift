@@ -17,7 +17,7 @@ struct WorkoutTrendBarChartView: View {
     let range: WorkoutTrendRange
     let colorScheme: ColorScheme
 
-    @State private var selectedIndex: Int?
+    @State private var selectedDate: Date?
 
     private var formatter: NumberFormatter {
         let formatter = NumberFormatter()
@@ -33,15 +33,12 @@ struct WorkoutTrendBarChartView: View {
         return 0...upper
     }
 
-    private var latestValueText: String? {
-        guard let last = buckets.last else { return nil }
-        let value = valueForBucket(last)
-        return "\(formattedValue(value)) \(unitLabel)"
-    }
-
     private var selectedBucket: WorkoutTrendBucket? {
-        guard let index = selectedIndex, buckets.indices.contains(index) else { return nil }
-        return buckets[index]
+        guard let selectedDate = selectedDate else { return nil }
+        // Find bucket that contains this date
+        return buckets.first { bucket in
+            Calendar.current.isDate(selectedDate, equalTo: bucket.startDate, toGranularity: .month)
+        }
     }
 
     private func valueForBucket(_ bucket: WorkoutTrendBucket) -> Double {
@@ -74,17 +71,9 @@ struct WorkoutTrendBarChartView: View {
 
     private var headerView: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.montserratSemiBold(size: 15))
-                    .foregroundStyle(colorScheme == .dark ? .white : .black)
-
-                if let latestValueText = latestValueText {
-                    Text("Latest: \(latestValueText)")
-                        .font(.montserratRegular(size: 12))
-                        .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .gray)
-                }
-            }
+            Text(title)
+                .font(.montserratSemiBold(size: 15))
+                .foregroundStyle(colorScheme == .dark ? .white : .black)
 
             Spacer()
         }
@@ -92,36 +81,31 @@ struct WorkoutTrendBarChartView: View {
 
     private var chartView: some View {
         Chart {
-            // Bar marks for each bucket
-            ForEach(Array(buckets.enumerated()), id: \.element.id) { index, bucket in
+            // Bar marks for each bucket using Date with unit: .month
+            ForEach(buckets) { bucket in
                 BarMark(
-                    x: .value("Index", index),
-                    y: .value(title, valueForBucket(bucket)),
-                    width: .fixed(16)
+                    x: .value("Month", bucket.startDate, unit: .month),
+                    y: .value(title, valueForBucket(bucket))
                 )
-                .foregroundStyle(selectedIndex == index ? Color.accentColor : Color.accentColor.opacity(0.85))
+                .foregroundStyle(isSelected(bucket) ? Color.accentColor : Color.accentColor.opacity(0.85))
                 .cornerRadius(4)
             }
 
-            // Selection indicator (RuleMark outside ForEach to prevent rendering issues)
-            if let index = selectedIndex, buckets.indices.contains(index) {
-                RuleMark(x: .value("Selected", index))
+            // Selection indicator
+            if let selectedDate = selectedDate, let bucket = selectedBucket {
+                RuleMark(x: .value("Selected", bucket.startDate, unit: .month))
                     .foregroundStyle(Color.accentColor.opacity(0.4))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [5]))
                     .zIndex(-1)
             }
         }
         .chartXAxis {
-            AxisMarks(values: Array(buckets.indices)) { value in
+            AxisMarks(values: .stride(by: .month)) { value in
                 AxisGridLine()
                     .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.08))
-                AxisValueLabel {
-                    if let index = value.as(Int.self), buckets.indices.contains(index) {
-                        Text(bucketLabel(for: buckets[index].startDate))
-                            .font(.montserratRegular(size: 10))
-                            .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .gray)
-                    }
-                }
+                AxisValueLabel(format: .dateTime.month(.narrow), centered: true)
+                    .font(.montserratRegular(size: 10))
+                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .gray)
             }
         }
         .chartYAxis {
@@ -134,8 +118,7 @@ struct WorkoutTrendBarChartView: View {
             }
         }
         .chartYScale(domain: yScaleDomain)
-        .chartXScale(domain: -0.5...(Double(buckets.count) - 0.5))
-        // Use tap gesture for persistent selection (tap to select, tap again to deselect)
+        // Use tap gesture for persistent selection
         .chartGesture { proxy in
             SpatialTapGesture()
                 .onEnded { event in
@@ -145,42 +128,42 @@ struct WorkoutTrendBarChartView: View {
         .frame(height: 200)
     }
 
+    private func isSelected(_ bucket: WorkoutTrendBucket) -> Bool {
+        guard let selectedDate = selectedDate else { return false }
+        return Calendar.current.isDate(selectedDate, equalTo: bucket.startDate, toGranularity: .month)
+    }
+
     private func handleTap(at location: CGPoint, proxy: ChartProxy) {
-        // Convert tap location to chart x value
-        guard let xValue: Double = proxy.value(atX: location.x) else {
-            // Tapped outside chart - deselect
+        // Convert tap location to Date
+        guard let tappedDate: Date = proxy.value(atX: location.x) else {
             withAnimation(.easeOut(duration: 0.15)) {
-                selectedIndex = nil
+                selectedDate = nil
             }
             return
         }
 
-        // Round to nearest integer index
-        let index = Int(round(xValue))
+        // Find the bucket for this date
+        let tappedBucket = buckets.first { bucket in
+            Calendar.current.isDate(tappedDate, equalTo: bucket.startDate, toGranularity: .month)
+        }
 
-        guard buckets.indices.contains(index) else {
+        guard tappedBucket != nil else {
             withAnimation(.easeOut(duration: 0.15)) {
-                selectedIndex = nil
+                selectedDate = nil
             }
             return
         }
 
         // Toggle selection
         withAnimation(.easeOut(duration: 0.15)) {
-            if selectedIndex == index {
-                selectedIndex = nil
+            if let current = selectedDate,
+               Calendar.current.isDate(current, equalTo: tappedDate, toGranularity: .month) {
+                selectedDate = nil
             } else {
-                selectedIndex = index
+                selectedDate = tappedDate
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
             }
         }
-    }
-
-    private func bucketLabel(for date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM"
-        let month = formatter.string(from: date)
-        return String(month.prefix(1))
     }
 
     private func tooltip(for bucket: WorkoutTrendBucket) -> some View {
