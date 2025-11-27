@@ -6,19 +6,24 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct MainTabView: View {
     @Environment(\.colorScheme) private var systemColorScheme
+    @Environment(\.modelContext) private var modelContext
     @State private var themeManager = ThemeManager.shared
     @StateObject private var tabRouter = TabRouter()
-    
+    @State private var hasCheckedRatingOnLaunch = false
+
+    @Query private var workouts: [Workout]
+
     // Easy configuration - just change this array to modify tabs
     private let tabs = TabItem.activeTabs
-    
+
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: systemColorScheme)
     }
-    
+
     var body: some View {
         TabView(selection: $tabRouter.selectedTab) {
             ForEach(tabs) { tab in
@@ -26,7 +31,7 @@ struct MainTabView: View {
                     .tabItem {
                         let isSelected = tabRouter.selectedTab == tab.identifier
                         let iconToUse = getIconName(for: tab, isSelected: isSelected)
-                        
+
                         if tab.iconName.starts(with: "Home") || tab.iconName.starts(with: "Settings") {
                             Image(iconToUse)
                                 .renderingMode(.template)
@@ -42,11 +47,22 @@ struct MainTabView: View {
         .environmentObject(tabRouter)
         .onAppear {
             setupTabBarAppearance()
+            checkForRatingPromptOnLaunch()
         }
         .onChange(of: effectiveColorScheme) { _, _ in
             setupTabBarAppearance()
         }
         .themeAware()
+    }
+
+    private func checkForRatingPromptOnLaunch() {
+        // Only check once per app session
+        guard !hasCheckedRatingOnLaunch else { return }
+        hasCheckedRatingOnLaunch = true
+
+        // Check if user is eligible for rating prompt based on workout count
+        // This handles cases where user imported workouts and became eligible
+        AppStoreRatingManager.shared.checkAndRequestReviewIfNeeded(currentWorkoutCount: workouts.count)
     }
     
     private func getIconName(for tab: TabItem, isSelected: Bool) -> String {

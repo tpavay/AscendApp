@@ -46,22 +46,20 @@ enum ShareCardTheme: String, CaseIterable {
 enum ShareCardType: Identifiable, Equatable {
     case photoMedia
     case detailedSummary
-    case verticalClimbFunFact
-    
+
     var id: String {
         switch self {
         case .photoMedia: return "photoMedia"
         case .detailedSummary: return "detailedSummary"
-        case .verticalClimbFunFact: return "verticalClimbFunFact"
         }
     }
-    
+
     /// Whether this card type supports theme toggling
     var supportsThemeToggle: Bool {
         switch self {
         case .photoMedia:
             return false
-        case .detailedSummary, .verticalClimbFunFact:
+        case .detailedSummary:
             return true
         }
     }
@@ -130,20 +128,15 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
     
     private static func determineAvailableCards(for workout: Workout) -> [ShareCardType] {
         var cards: [ShareCardType] = []
-        
+
         // Photo card only if workout has media
         if workout.highlightedPhoto != nil {
             cards.append(.photoMedia)
         }
-        
+
         // Always include detailed summary
         cards.append(.detailedSummary)
-        
-        // Fun fact card only if we have steps (for vertical climb calculation)
-        if workout.steps > 0 {
-            cards.append(.verticalClimbFunFact)
-        }
-        
+
         return cards
     }
     
@@ -245,14 +238,6 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
                 measurementSystem: measurementSystem,
                 stepHeight: stepHeight,
                 preferredMetric: preferredMetric,
-                displayName: displayName
-            )
-        case .verticalClimbFunFact:
-            VerticalClimbFunFactCard(
-                workout: workout,
-                theme: cardTheme,
-                measurementSystem: measurementSystem,
-                stepHeight: stepHeight,
                 displayName: displayName
             )
         }

@@ -163,11 +163,12 @@ struct WorkoutShareCarouselView: View {
         )
     }
     
-    @ViewBuilder
-    private func cardView(for cardType: ShareCardType) -> some View {
-        Group {
-            switch cardType {
-            case .photoMedia:
+    private func cardView(for cardType: ShareCardType) -> AnyView {
+        let shadowColor = effectiveColorScheme == .dark ? Color.black.opacity(0.3) : Color.black.opacity(0.1)
+
+        switch cardType {
+        case .photoMedia:
+            return AnyView(
                 PhotoMediaCard(
                     workout: viewModel.workout,
                     image: viewModel.photoImage,
@@ -176,7 +177,11 @@ struct WorkoutShareCarouselView: View {
                     preferredMetric: settingsManager.preferredWorkoutMetric,
                     displayName: viewModel.displayName
                 )
-            case .detailedSummary:
+                .frame(width: WorkoutShareCarouselViewModel.displayCardWidth)
+                .shadow(color: shadowColor, radius: 20, x: 0, y: 10)
+            )
+        case .detailedSummary:
+            return AnyView(
                 DetailedSummaryCard(
                     workout: viewModel.workout,
                     theme: viewModel.cardTheme,
@@ -185,23 +190,10 @@ struct WorkoutShareCarouselView: View {
                     preferredMetric: settingsManager.preferredWorkoutMetric,
                     displayName: viewModel.displayName
                 )
-            case .verticalClimbFunFact:
-                VerticalClimbFunFactCard(
-                    workout: viewModel.workout,
-                    theme: viewModel.cardTheme,
-                    measurementSystem: settingsManager.measurementSystem,
-                    stepHeight: settingsManager.stepHeight,
-                    displayName: viewModel.displayName
-                )
-            }
+                .frame(width: WorkoutShareCarouselViewModel.displayCardWidth)
+                .shadow(color: shadowColor, radius: 20, x: 0, y: 10)
+            )
         }
-        .frame(width: WorkoutShareCarouselViewModel.displayCardWidth)
-        .shadow(
-            color: effectiveColorScheme == .dark ? .black.opacity(0.3) : .black.opacity(0.1),
-            radius: 20,
-            x: 0,
-            y: 10
-        )
     }
     
     // MARK: - Page Indicator
@@ -286,9 +278,14 @@ struct WorkoutShareCarouselView: View {
     }
     
     // MARK: - Done Button
-    
+
     private var doneButton: some View {
         Button(action: {
+            // Check if we should prompt for a rating
+            if let workoutCount = viewModel.workoutCount {
+                AppStoreRatingManager.shared.checkAndRequestReviewIfNeeded(currentWorkoutCount: workoutCount)
+            }
+
             onDismiss?()
         }) {
             Text("Done")
