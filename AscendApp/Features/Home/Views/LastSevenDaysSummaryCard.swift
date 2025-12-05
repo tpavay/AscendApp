@@ -91,8 +91,8 @@ struct LastSevenDaysSummaryCard: View {
             Text("No stair workouts yet.")
                 .font(.montserratMedium(size: 16))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.85) : .black)
-            
-            Text("Log or import a workout, then come back here to see your \(preferredMetric.displayName.lowercased()) totals for the last 7 days.")
+
+            Text("Log or import a workout to see your last 7 days on the stairs.")
                 .font(.montserratRegular(size: 14))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
         }
@@ -110,24 +110,16 @@ struct LastSevenDaysSummaryCard: View {
                     .font(.montserratBold(size: 22))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                 
-                if summary.prior7TotalValue > 0, let percentChange = summary.percentChange {
-                    HStack(spacing: 8) {
-                        Text("Change vs prior 7 days")
+                if summary.hasTypicalWeekData {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(summary.comparisonLabel)
                             .font(.montserratSemiBold(size: 14))
                             .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.85) : .black)
-                        
-                        Text(formattedPercentChange(percentChange))
-                            .font(.montserratBold(size: 15))
-                            .foregroundStyle(percentChangeColor(percentChange))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(percentChangeBackground(percentChange))
-                            .clipShape(Capsule())
+
+                        Text(summary.typicalWeekDescription(for: preferredMetric))
+                            .font(.montserratRegular(size: 13))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
                     }
-                } else {
-                    Text(summary.secondaryLine(for: preferredMetric))
-                        .font(.montserratSemiBold(size: 14))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
                 }
             }
             
@@ -184,23 +176,6 @@ struct LastSevenDaysSummaryCard: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEEE"
         return formatter.string(from: date)
-    }
-    
-    private func formattedPercentChange(_ percentChange: Int) -> String {
-        percentChange > 0 ? "+\(percentChange)%" : "\(percentChange)%"
-    }
-    
-    private func percentChangeColor(_ percentChange: Int) -> Color {
-        if percentChange > 0 {
-            return .green
-        } else if percentChange < 0 {
-            return .red
-        }
-        return effectiveColorScheme == .dark ? .white.opacity(0.85) : .gray
-    }
-    
-    private func percentChangeBackground(_ percentChange: Int) -> Color {
-        percentChangeColor(percentChange).opacity(effectiveColorScheme == .dark ? 0.28 : 0.12)
     }
 }
 
@@ -306,26 +281,49 @@ private struct ClimbActivitySummary {
     let dailyBars: [DailyClimbData]
     let last7TotalValue: Int
     let last7WorkoutCount: Int
-    let prior7TotalValue: Int
-    let percentChange: Int?
-    let weeklyAverageValuePerWorkout: Int
-    
-    func secondaryLine(for metric: WorkoutMetric) -> String {
-        if prior7TotalValue > 0, let percentChange {
-            let sign = percentChange > 0 ? "+" : ""
-            return "\(sign)\(percentChange)% vs prior 7 days"
-        } else {
-            return "Weekly average: \(weeklyAverageValuePerWorkout.formatted()) \(metric.unit)/workout"
+    let typicalWeekAvgValue: Int
+    let typicalWeekAvgWorkouts: Int
+    let hasTypicalWeekData: Bool
+
+    enum ComparisonType {
+        case above
+        case below
+        case inLine
+    }
+
+    var comparisonType: ComparisonType {
+        guard hasTypicalWeekData, typicalWeekAvgValue > 0 else { return .inLine }
+        let threshold = Double(typicalWeekAvgValue) * 0.1
+        let difference = Double(last7TotalValue) - Double(typicalWeekAvgValue)
+
+        if difference > threshold {
+            return .above
+        } else if difference < -threshold {
+            return .below
+        }
+        return .inLine
+    }
+
+    var comparisonLabel: String {
+        switch comparisonType {
+        case .above: return "Above your typical week"
+        case .below: return "Below your typical week"
+        case .inLine: return "In line with your typical week"
         }
     }
-    
+
+    func typicalWeekDescription(for metric: WorkoutMetric) -> String {
+        let workoutText = typicalWeekAvgWorkouts == 1 ? "workout" : "workouts"
+        return "Typical active week: \(typicalWeekAvgValue.formatted()) \(metric.unit) • \(typicalWeekAvgWorkouts) \(workoutText)"
+    }
+
     var preferredDefaultDay: DailyClimbData? {
         if let today = dailyBars.first(where: { Calendar.current.isDateInToday($0.date) }) {
             return today
         }
         return dailyBars.last
     }
-    
+
     var preferredDefaultDate: Date? {
         preferredDefaultDay?.date
     }
@@ -344,37 +342,44 @@ private struct ClimbActivitySummaryCalculator {
     let workouts: [Workout]
     let metric: WorkoutMetric
     private let calendar = Calendar.current
-    
+
     func calculate(referenceDate: Date = Date()) -> ClimbActivitySummary {
         let today = calendar.startOfDay(for: referenceDate)
-        guard let start28 = calendar.date(byAdding: .day, value: -27, to: today) else {
+
+        // We need 35 days of data: 7 days current week + 28 days (4 weeks) for typical average
+        guard let start35 = calendar.date(byAdding: .day, value: -34, to: today) else {
             return ClimbActivitySummary(
                 dailyBars: [],
                 last7TotalValue: 0,
                 last7WorkoutCount: 0,
-                prior7TotalValue: 0,
-                percentChange: nil,
-                weeklyAverageValuePerWorkout: 0
+                typicalWeekAvgValue: 0,
+                typicalWeekAvgWorkouts: 0,
+                hasTypicalWeekData: false
             )
         }
-        
+
         var dailyValues: [Date: Int] = [:]
-        
+        var dailyWorkoutCounts: [Date: Int] = [:]
+
         let filteredWorkouts = workouts.filter { workout in
             let day = calendar.startOfDay(for: workout.date)
-            return day >= start28 && day <= today
+            return day >= start35 && day <= today
         }
-        
+
         for workout in filteredWorkouts {
             let day = calendar.startOfDay(for: workout.date)
             let value = workout.metricValue(for: metric)
             dailyValues[day, default: 0] += value
+            dailyWorkoutCounts[day, default: 0] += 1
         }
-        
+
+        // Current week: days 0 to -6
         let last7Start = calendar.date(byAdding: .day, value: -6, to: today)!
-        let prior7Start = calendar.date(byAdding: .day, value: -13, to: today)!
-        let prior7End = calendar.date(byAdding: .day, value: -7, to: today)!
-        
+
+        // Typical week period: days -7 to -34 (4 weeks prior to current week)
+        let typicalStart = calendar.date(byAdding: .day, value: -34, to: today)!
+        let typicalEnd = calendar.date(byAdding: .day, value: -7, to: today)!
+
         var dailyBars: [DailyClimbData] = []
         for offset in stride(from: -6, through: 0, by: 1) {
             guard let day = calendar.date(byAdding: .day, value: offset, to: today) else { continue }
@@ -388,45 +393,64 @@ private struct ClimbActivitySummaryCalculator {
                 )
             )
         }
-        
+
+        // Current week totals
         let last7Total = dailyValues
             .filter { $0.key >= last7Start }
             .reduce(0) { $0 + $1.value }
-        
-        let prior7Total = dailyValues
-            .filter { $0.key >= prior7Start && $0.key <= prior7End }
-            .reduce(0) { $0 + $1.value }
-        
+
         let last7WorkoutCount = filteredWorkouts.filter { workout in
             let day = calendar.startOfDay(for: workout.date)
             return day >= last7Start
         }.count
-        
-        let percentChange: Int?
-        if prior7Total > 0 {
-            let change = Double(last7Total - prior7Total) / Double(prior7Total) * 100
-            percentChange = Int(change.rounded(.toNearestOrAwayFromZero))
-        } else {
-            percentChange = nil
+
+        // Typical week calculation (4 weeks prior)
+        let typicalPeriodWorkouts = filteredWorkouts.filter { workout in
+            let day = calendar.startOfDay(for: workout.date)
+            return day >= typicalStart && day <= typicalEnd
         }
-        
-        let averageValuePerWorkout: Int
-        if last7WorkoutCount > 0 {
-            averageValuePerWorkout = Int((Double(last7Total) / Double(last7WorkoutCount)).rounded(.toNearestOrAwayFromZero))
-        } else {
-            averageValuePerWorkout = 0
+
+        // Group workouts by week to find weeks with activity
+        var weeklyTotals: [Int: (value: Int, workouts: Int)] = [:]
+        for workout in typicalPeriodWorkouts {
+            let weekOfYear = calendar.component(.weekOfYear, from: workout.date)
+            let year = calendar.component(.yearForWeekOfYear, from: workout.date)
+            let weekKey = year * 100 + weekOfYear
+            let value = workout.metricValue(for: metric)
+            let existing = weeklyTotals[weekKey] ?? (0, 0)
+            weeklyTotals[weekKey] = (existing.value + value, existing.workouts + 1)
         }
-        
+
+        let weeksWithActivity = weeklyTotals.count
+
+        let typicalPeriodTotal = weeklyTotals.values.reduce(0) { $0 + $1.value }
+        let typicalPeriodWorkoutCount = weeklyTotals.values.reduce(0) { $0 + $1.workouts }
+
+        // Require at least 1 week with workouts in the typical period to show comparison
+        let hasTypicalWeekData = weeksWithActivity >= 1
+
+        // Calculate weekly average (divide by weeks with activity, not 4)
+        let typicalWeekAvgValue: Int
+        let typicalWeekAvgWorkouts: Int
+
+        if hasTypicalWeekData {
+            typicalWeekAvgValue = Int((Double(typicalPeriodTotal) / Double(weeksWithActivity)).rounded(.toNearestOrAwayFromZero))
+            typicalWeekAvgWorkouts = Int((Double(typicalPeriodWorkoutCount) / Double(weeksWithActivity)).rounded(.toNearestOrAwayFromZero))
+        } else {
+            typicalWeekAvgValue = 0
+            typicalWeekAvgWorkouts = 0
+        }
+
         return ClimbActivitySummary(
             dailyBars: dailyBars,
             last7TotalValue: last7Total,
             last7WorkoutCount: last7WorkoutCount,
-            prior7TotalValue: prior7Total,
-            percentChange: percentChange,
-            weeklyAverageValuePerWorkout: averageValuePerWorkout
+            typicalWeekAvgValue: typicalWeekAvgValue,
+            typicalWeekAvgWorkouts: typicalWeekAvgWorkouts,
+            hasTypicalWeekData: hasTypicalWeekData
         )
     }
-    
+
     private func dayLabel(for date: Date) -> String {
         let weekday = calendar.component(.weekday, from: date)
         if weekday - 1 >= 0 && weekday - 1 < calendar.shortWeekdaySymbols.count {
