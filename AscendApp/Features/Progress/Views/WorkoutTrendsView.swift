@@ -183,8 +183,10 @@ struct WorkoutTrendsView: View {
                             preferredMetric: activePreferredMetric,
                             colorScheme: effectiveColorScheme
                         )
-                    } else {
+                    } else if filteredWorkouts.isEmpty {
                         noDataInTimeframeState
+                    } else {
+                        needMoreDataInTimeframeState
                     }
                 }
                 
@@ -282,16 +284,76 @@ struct WorkoutTrendsView: View {
         )
     }
 
+    private var isCurrentPeriod: Bool {
+        guard let interval = selectedRange.dateInterval(using: calendar, anchor: trendAnchor) else { return false }
+        return interval.contains(Date())
+    }
+
+    private var periodName: String {
+        switch selectedRange {
+        case .thisWeek: return "week"
+        case .thisMonth: return "month"
+        case .lastYear: return "year"
+        }
+    }
+
     private var noDataInTimeframeState: some View {
         VStack(spacing: 16) {
             Image(systemName: "calendar.badge.exclamationmark")
                 .font(.system(size: 48, weight: .light))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5))
 
-            Text("No workouts logged during this time period.")
-                .font(.montserratSemiBold(size: 16))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                .multilineTextAlignment(.center)
+            if isCurrentPeriod {
+                VStack(spacing: 4) {
+                    Text("No workouts logged yet this \(periodName).")
+                        .font(.montserratSemiBold(size: 16))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                        .multilineTextAlignment(.center)
+
+                    Text("Log 2 or more workouts to see trends.")
+                        .font(.montserratRegular(size: 14))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                        .multilineTextAlignment(.center)
+                }
+            } else {
+                Text("No workouts were logged during this time period.")
+                    .font(.montserratSemiBold(size: 16))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(32)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
+        )
+    }
+
+    private var needMoreDataInTimeframeState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "chart.line.uptrend.xyaxis")
+                .font(.system(size: 48, weight: .light))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5))
+
+            if isCurrentPeriod {
+                Text("Log 1 more workout this \(periodName) to see trends (2+ needed).")
+                    .font(.montserratSemiBold(size: 16))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    .multilineTextAlignment(.center)
+            } else {
+                VStack(spacing: 4) {
+                    Text("Only 1 workout was logged during this period.")
+                        .font(.montserratSemiBold(size: 16))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                        .multilineTextAlignment(.center)
+
+                    Text("2 or more are needed to show trends.")
+                        .font(.montserratRegular(size: 14))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                        .multilineTextAlignment(.center)
+                }
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(32)
