@@ -228,20 +228,23 @@ private struct MiniClimbBarChart: View {
             GeometryReader { geometry in
                 let chartHeight = geometry.size.height
                 let safeMax = max(maxValue, 1)
-                
-                HStack(alignment: .bottom, spacing: 10) {
-                    ForEach(data) { day in
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                onSelect(day.date)
+
+                VStack {
+                    Spacer(minLength: 0)
+                    HStack(alignment: .bottom, spacing: 10) {
+                        ForEach(data) { day in
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    onSelect(day.date)
+                                }
+                            } label: {
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(barFill(for: day))
+                                    .frame(height: barHeight(value: Double(day.value), chartHeight: chartHeight, safeMax: safeMax))
+                                    .frame(maxWidth: .infinity)
                             }
-                        } label: {
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(barFill(for: day))
-                                .frame(height: barHeight(value: Double(day.value), chartHeight: chartHeight, safeMax: safeMax))
-                                .frame(maxWidth: .infinity)
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }
