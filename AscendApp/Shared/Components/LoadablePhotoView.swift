@@ -128,9 +128,12 @@ struct LoadablePhotoView: View {
     private func loadVideoThumbnail() async {
         do {
             let asset = AVURLAsset(url: photo.url)
+            // Preload to ensure asset is ready for thumbnail generation
+            try await asset.load(.isReadable, .tracks)
+
             let imageGenerator = AVAssetImageGenerator(asset: asset)
             imageGenerator.appliesPreferredTrackTransform = true
-            
+
             let cgImage = try await imageGenerator.image(at: .zero).image
             
             await MainActor.run {

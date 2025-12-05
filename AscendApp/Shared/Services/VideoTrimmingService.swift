@@ -27,7 +27,9 @@ actor VideoTrimmingService {
         }
         
         let asset = AVURLAsset(url: sourceURL)
-        
+        // Preload essential properties to avoid synchronous blocking
+        try await asset.load(.isExportable, .duration, .tracks)
+
         // Create output URL
         let outputURL = URL.temporaryDirectory
             .appending(path: "trimmed_\(UUID().uuidString).\(sourceURL.pathExtension)")
@@ -52,13 +54,15 @@ actor VideoTrimmingService {
         exportSession.outputFileType = .mov
         exportSession.timeRange = timeRange
         
-        // Export
+        // Export the video
+        // Note: export() and status are deprecated in iOS 18 but the replacement API
+        // states(updateInterval:) has limited documentation. Using deprecated API for now.
         await exportSession.export()
-        
+
         guard exportSession.status == .completed else {
             throw TrimmingError.exportFailed
         }
-        
+
         return outputURL
     }
     
@@ -69,6 +73,9 @@ actor VideoTrimmingService {
     /// - Returns: A UIImage thumbnail
     func generateThumbnail(from url: URL, at time: TimeInterval) async throws -> UIImage {
         let asset = AVURLAsset(url: url)
+        // Preload to ensure asset is ready for thumbnail generation
+        try await asset.load(.isReadable, .tracks)
+
         let imageGenerator = AVAssetImageGenerator(asset: asset)
         imageGenerator.appliesPreferredTrackTransform = true
         imageGenerator.requestedTimeToleranceAfter = .zero

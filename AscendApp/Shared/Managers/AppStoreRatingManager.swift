@@ -64,8 +64,15 @@ final class AppStoreRatingManager {
         // - User's "In-App Ratings & Reviews" setting
         // - System-wide rate limiting (3 prompts per 365 days)
         // - Recent rating activity across all apps
-        if let scene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene {
-            SKStoreReviewController.requestReview(in: scene)
+        if #available(iOS 18.0, *) {
+            // Use new AppStore API for iOS 18+
+            AppStore.requestReview(in: UIApplication.shared.connectedScenes.first { $0.activationState == .foregroundActive } as! UIWindowScene)
+
+        } else {
+            // Fall back to SKStoreReviewController for iOS 17
+            if let scene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene {
+                SKStoreReviewController.requestReview(in: scene)
+            }
         }
     }
 

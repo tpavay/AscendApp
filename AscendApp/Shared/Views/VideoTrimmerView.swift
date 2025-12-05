@@ -197,10 +197,19 @@ struct VideoTrimmerView: View {
     }
     
     private func setupPlayer() {
-        let playerItem = AVPlayerItem(url: videoURL)
-        let newPlayer = AVPlayer(playerItem: playerItem)
-        newPlayer.seek(to: .zero)
-        self.player = newPlayer
+        Task {
+            let asset = AVURLAsset(url: videoURL)
+            // Preload essential properties to avoid blocking main thread
+            try? await asset.load(.isPlayable, .duration)
+
+            let playerItem = AVPlayerItem(asset: asset)
+
+            await MainActor.run {
+                let newPlayer = AVPlayer(playerItem: playerItem)
+                newPlayer.seek(to: .zero)
+                self.player = newPlayer
+            }
+        }
     }
     
     private func seekToStartTime() {

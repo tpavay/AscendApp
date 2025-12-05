@@ -81,8 +81,23 @@ class Workout {
     var photos: [Photo]
     var highlightedPhotoId: UUID? // ID of the photo/video to display on workout cards
     
-    // Personal Records tracking
-    var personalRecordTypes: [String]? // Array of PersonalRecordType raw values achieved in this workout
+    // Personal Records tracking - stored as JSON for reliable CoreData serialization
+    var personalRecordTypesData: Data?
+
+    // Computed property for easy access to personal record types
+    var personalRecordTypes: [String]? {
+        get {
+            guard let data = personalRecordTypesData else { return nil }
+            return try? JSONDecoder().decode([String].self, from: data)
+        }
+        set {
+            if let newValue = newValue {
+                personalRecordTypesData = try? JSONEncoder().encode(newValue)
+            } else {
+                personalRecordTypesData = nil
+            }
+        }
+    }
 
     init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int, floors: Int, stepsPerFloor: Int = 16, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil, photos: [Photo] = [], highlightedPhotoId: UUID? = nil, personalRecordTypes: [String]? = nil) {
         self.id = UUID()

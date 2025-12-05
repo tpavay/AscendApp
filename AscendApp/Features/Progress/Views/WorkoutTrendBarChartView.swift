@@ -92,7 +92,7 @@ struct WorkoutTrendBarChartView: View {
             }
 
             // Selection indicator
-            if let selectedDate = selectedDate, let bucket = selectedBucket {
+            if selectedDate != nil, let bucket = selectedBucket {
                 RuleMark(x: .value("Selected", bucket.startDate, unit: .month))
                     .foregroundStyle(Color.accentColor.opacity(0.4))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [5]))

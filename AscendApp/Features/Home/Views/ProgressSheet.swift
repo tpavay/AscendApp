@@ -605,8 +605,7 @@ struct ProgressSheet: View {
         while currentDate <= endDate {
             let dayOfMonth = calendar.component(.day, from: currentDate)
             let isCurrentMonth = calendar.isDate(currentDate, equalTo: selectedDate, toGranularity: .month)
-            let dayStart = calendar.startOfDay(for: currentDate)
-            
+
             // Get all workouts for this day
             let workoutsForDay = workouts.filter { calendar.isDate($0.date, inSameDayAs: currentDate) }
             

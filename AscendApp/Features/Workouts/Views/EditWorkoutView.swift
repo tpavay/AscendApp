@@ -191,10 +191,10 @@ struct EditWorkoutView: View {
         .onAppear {
             populateFields()
         }
-        .onChange(of: selectedImages.map(\.id)) { _ in
+        .onChange(of: selectedImages.map(\.id)) {
             ensureHighlightSelectionIsValid()
         }
-        .onChange(of: existingPhotos.map(\.id)) { _ in
+        .onChange(of: existingPhotos.map(\.id)) {
             ensureHighlightSelectionIsValid()
         }
     }

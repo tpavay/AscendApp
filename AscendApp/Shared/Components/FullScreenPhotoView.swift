@@ -231,8 +231,14 @@ struct FullScreenPhotoView: View {
     }
     
     private func loadVideo() async {
+        let asset = AVURLAsset(url: photo.url)
+        // Preload to avoid main thread blocking
+        try? await asset.load(.isPlayable)
+
+        let playerItem = AVPlayerItem(asset: asset)
+
         await MainActor.run {
-            self.player = AVPlayer(url: photo.url)
+            self.player = AVPlayer(playerItem: playerItem)
             self.isLoading = false
         }
     }
