@@ -101,25 +101,36 @@ struct LastSevenDaysSummaryCard: View {
     
     private func contentView(_ summary: ClimbActivitySummary) -> some View {
         let selectedDay = selectedDay(in: summary)
-        
-        let activeDate = selectedDate ?? summary.preferredDefaultDate
-        
-        return VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("\(summary.last7TotalValue.formatted()) \(preferredMetric.unit) • \(summary.last7WorkoutCount.formatted()) \(summary.last7WorkoutCount == 1 ? "workout" : "workouts")")
-                    .font(.montserratBold(size: 22))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                
-                if summary.hasTypicalWeekData {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(summary.comparisonLabel)
-                            .font(.montserratSemiBold(size: 14))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.85) : .black)
 
-                        Text(summary.typicalWeekDescription(for: preferredMetric))
-                            .font(.montserratRegular(size: 13))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
+        let activeDate = selectedDate ?? summary.preferredDefaultDate
+
+        return VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\(summary.last7TotalValue.formatted()) \(preferredMetric.unit) • \(summary.last7WorkoutCount.formatted()) \(summary.last7WorkoutCount == 1 ? "workout" : "workouts")")
+                        .font(.montserratBold(size: 22))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+                    if summary.hasTypicalWeekData {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(summary.comparisonLabel)
+                                .font(.montserratSemiBold(size: 14))
+                                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.85) : .black)
+
+                            Text(summary.typicalWeekDescription(for: preferredMetric))
+                                .font(.montserratRegular(size: 13))
+                                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
+                        }
                     }
+                }
+
+                Spacer()
+
+                if summary.hasTypicalWeekData {
+                    TooltipButton(
+                        title: "Typical Active Week",
+                        content: "This compares your current week to your average weekly activity from weeks where you logged at least one workout in the past year."
+                    )
                 }
             }
             
@@ -346,8 +357,8 @@ private struct ClimbActivitySummaryCalculator {
     func calculate(referenceDate: Date = Date()) -> ClimbActivitySummary {
         let today = calendar.startOfDay(for: referenceDate)
 
-        // We need 35 days of data: 7 days current week + 28 days (4 weeks) for typical average
-        guard let start35 = calendar.date(byAdding: .day, value: -34, to: today) else {
+        // We need up to 1 year of data for typical week calculation
+        guard let startYear = calendar.date(byAdding: .year, value: -1, to: today) else {
             return ClimbActivitySummary(
                 dailyBars: [],
                 last7TotalValue: 0,
@@ -359,25 +370,22 @@ private struct ClimbActivitySummaryCalculator {
         }
 
         var dailyValues: [Date: Int] = [:]
-        var dailyWorkoutCounts: [Date: Int] = [:]
 
         let filteredWorkouts = workouts.filter { workout in
             let day = calendar.startOfDay(for: workout.date)
-            return day >= start35 && day <= today
+            return day >= startYear && day <= today
         }
 
         for workout in filteredWorkouts {
             let day = calendar.startOfDay(for: workout.date)
             let value = workout.metricValue(for: metric)
             dailyValues[day, default: 0] += value
-            dailyWorkoutCounts[day, default: 0] += 1
         }
 
         // Current week: days 0 to -6
         let last7Start = calendar.date(byAdding: .day, value: -6, to: today)!
 
-        // Typical week period: days -7 to -34 (4 weeks prior to current week)
-        let typicalStart = calendar.date(byAdding: .day, value: -34, to: today)!
+        // Typical week period: all weeks in the past year excluding current week
         let typicalEnd = calendar.date(byAdding: .day, value: -7, to: today)!
 
         var dailyBars: [DailyClimbData] = []
@@ -404,10 +412,10 @@ private struct ClimbActivitySummaryCalculator {
             return day >= last7Start
         }.count
 
-        // Typical week calculation (4 weeks prior)
+        // Typical week calculation (past year excluding current week)
         let typicalPeriodWorkouts = filteredWorkouts.filter { workout in
             let day = calendar.startOfDay(for: workout.date)
-            return day >= typicalStart && day <= typicalEnd
+            return day >= startYear && day <= typicalEnd
         }
 
         // Group workouts by week to find weeks with activity
