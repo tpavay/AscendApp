@@ -117,9 +117,12 @@ struct LeaderboardRow: View {
     }
     
     var body: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 14) {
             rankBadge
-            
+
+            // Profile picture
+            profileImage
+
             // User info
             VStack(alignment: .leading, spacing: 0) {
                 Text(entry.displayName)
@@ -127,15 +130,15 @@ struct LeaderboardRow: View {
                     .foregroundStyle(entry.isCurrentUser ? .accent : (colorScheme == .dark ? .white : .black))
                     .lineLimit(1)
             }
-            
+
             Spacer()
-            
+
             // Value
             VStack(alignment: .trailing, spacing: 4) {
                 Text(entry.formattedValue)
                     .font(.montserratBold(size: 18))
                     .foregroundStyle(entry.isCurrentUser ? .accent : (colorScheme == .dark ? .white : .black))
-                
+
                 let unitLabel = metric.unit(for: preferredMetric)
                 if !unitLabel.isEmpty {
                     Text(unitLabel)
@@ -155,6 +158,46 @@ struct LeaderboardRow: View {
                 .stroke(rowBorderColor, lineWidth: 2)
         )
         .padding(.horizontal, 20)
+    }
+
+    @ViewBuilder
+    private var profileImage: some View {
+        if let photoURL = entry.photoURL {
+            AsyncImage(url: photoURL) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 40, height: 40)
+                        .clipShape(Circle())
+                case .failure:
+                    defaultAvatar
+                case .empty:
+                    defaultAvatar
+                        .overlay(
+                            ProgressView()
+                                .scaleEffect(0.5)
+                        )
+                @unknown default:
+                    defaultAvatar
+                }
+            }
+        } else {
+            defaultAvatar
+        }
+    }
+
+    private var defaultAvatar: some View {
+        ZStack {
+            Circle()
+                .fill(entry.isCurrentUser ? Color.accent.opacity(0.2) : (colorScheme == .dark ? Color.white.opacity(0.1) : Color.gray.opacity(0.15)))
+                .frame(width: 40, height: 40)
+
+            Image(systemName: "person.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(entry.isCurrentUser ? .accent : (colorScheme == .dark ? .white.opacity(0.5) : .gray))
+        }
     }
 }
 

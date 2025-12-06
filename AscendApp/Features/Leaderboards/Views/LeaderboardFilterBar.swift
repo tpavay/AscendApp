@@ -12,46 +12,92 @@ struct LeaderboardFilterBar: View {
     @Binding var searchText: String
     @Binding var selectedMetric: LeaderboardMetric
     @Binding var selectedTimeFrame: LeaderboardTimeFrame
+    let resetStatusText: String
+
     @FocusState private var isSearchFocused: Bool
-    @State private var activeSheet: FilterSheet?
+    @State private var isSearchExpanded = false
+    @State private var showFilterSheet = false
     @State private var settingsManager = SettingsManager.shared
 
-    private enum FilterSheet: Identifiable {
-        case timeFrame
-        case metric
-
-        var id: String {
-            switch self {
-            case .timeFrame: return "timeFrame"
-            case .metric: return "metric"
-            }
-        }
-    }
-    
     private var preferredMetric: WorkoutMetric {
         settingsManager.preferredWorkoutMetric
     }
 
+    private var filterPillText: String {
+        "\(selectedTimeFrame.displayName) · \(selectedMetric.displayName(for: preferredMetric))"
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            searchField
+        VStack(alignment: .leading, spacing: 12) {
+            // Main filter row
+            HStack(spacing: 12) {
+                // Reset text (left)
+                Text(resetStatusText)
+                    .font(.montserratRegular(size: 13))
+                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
+                    .lineLimit(1)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    FilterChipButton(
-                        title: "Time Frame",
-                        value: selectedTimeFrame.displayName
-                    ) {
-                        activeSheet = .timeFrame
-                    }
+                Spacer()
 
-                    FilterChipButton(
-                        title: "Metric",
-                        value: selectedMetric.displayName(for: preferredMetric)
-                    ) {
-                        activeSheet = .metric
+                // Search icon button
+                Button {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        isSearchExpanded.toggle()
+                        if isSearchExpanded {
+                            isSearchFocused = true
+                        } else {
+                            searchText = ""
+                            isSearchFocused = false
+                        }
                     }
+                    HapticsManager.shared.trigger(.lightImpact)
+                } label: {
+                    Image(systemName: isSearchExpanded ? "xmark" : "magnifyingglass")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(colorScheme == .dark ? .white : .black)
+                        .frame(width: 36, height: 36)
+                        .background(
+                            Circle()
+                                .fill(colorScheme == .dark ? Color("Jet") : Color.gray.opacity(0.1))
+                        )
                 }
+                .buttonStyle(.plain)
+
+                // Combined filter pill
+                Button {
+                    showFilterSheet = true
+                    HapticsManager.shared.trigger(.lightImpact)
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(filterPillText)
+                            .font(.montserratMedium(size: 14))
+                            .foregroundStyle(colorScheme == .dark ? .white : .black)
+
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(
+                        Capsule()
+                            .fill(colorScheme == .dark ? Color("Jet") : Color.white)
+                    )
+                    .overlay(
+                        Capsule()
+                            .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.gray.opacity(0.25), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Expandable search field
+            if isSearchExpanded {
+                searchField
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .top)),
+                        removal: .opacity.combined(with: .move(edge: .top))
+                    ))
             }
         }
         .toolbar {
@@ -65,33 +111,11 @@ struct LeaderboardFilterBar: View {
                 }
             }
         }
-        .sheet(item: $activeSheet) { sheet in
-            switch sheet {
-            case .timeFrame:
-                LeaderboardSingleSelectSheet(
-                    title: "Time Frame",
-                    subtitle: "Choose which period to view.",
-                    options: LeaderboardTimeFrame.allCases,
-                    selectedOption: selectedTimeFrame,
-                    displayName: { $0.displayName },
-                    onSelect: { newSelection in
-                        selectedTimeFrame = newSelection
-                    },
-                    detents: [.height(420)]
-                )
-            case .metric:
-                LeaderboardSingleSelectSheet(
-                    title: "Metric",
-                    subtitle: "Choose the metric to rank competitors.",
-                    options: LeaderboardMetric.allCases,
-                    selectedOption: selectedMetric,
-                    displayName: { $0.displayName(for: preferredMetric) },
-                    onSelect: { newSelection in
-                        selectedMetric = newSelection
-                    },
-                    detents: [.height(420)]
-                )
-            }
+        .sheet(isPresented: $showFilterSheet) {
+            LeaderboardFilterSheet(
+                selectedTimeFrame: $selectedTimeFrame,
+                selectedMetric: $selectedMetric
+            )
         }
     }
 
@@ -104,7 +128,7 @@ struct LeaderboardFilterBar: View {
                 .textInputAutocapitalization(.words)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
-                .font(.montserratRegular(size: 15))
+                .font(.montserratRegular(size: 14))
                 .focused($isSearchFocused)
 
             if !searchText.isEmpty {
@@ -117,125 +141,142 @@ struct LeaderboardFilterBar: View {
                 .accessibilityLabel("Clear search")
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
         .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(searchBackgroundColor)
+            RoundedRectangle(cornerRadius: 12)
+                .fill(colorScheme == .dark ? Color("Jet") : Color.gray.opacity(0.08))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(searchBorderColor, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.05), lineWidth: 1)
         )
     }
-
-    private var searchBackgroundColor: Color {
-        colorScheme == .dark ? Color("Jet") : Color.gray.opacity(0.08)
-    }
-
-    private var searchBorderColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.05)
-    }
 }
 
-private struct FilterChipButton: View {
-    @Environment(\.colorScheme) private var colorScheme
-    let title: String
-    let value: String
-    let action: () -> Void
+// MARK: - Filter Sheet
 
-    var body: some View {
-        Button(action: {
-            HapticsManager.shared.trigger(.lightImpact)
-            action()
-        }) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title.uppercased())
-                    .font(.montserratSemiBold(size: 11))
-                    .foregroundStyle(.secondary)
-
-                Text(value)
-                    .font(.montserratMedium(size: 15))
-                    .foregroundStyle(colorScheme == .dark ? .white : .black)
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(colorScheme == .dark ? Color("Jet") : Color.white)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : Color.gray.opacity(0.25), lineWidth: 1)
-            )
-            .shadow(color: .black.opacity(colorScheme == .dark ? 0.4 : 0.05), radius: 8, x: 0, y: 4)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-private struct LeaderboardSingleSelectSheet<Option: Identifiable & Equatable>: View {
+struct LeaderboardFilterSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @State private var settingsManager = SettingsManager.shared
 
-    let title: String
-    let subtitle: String
-    let options: [Option]
-    let selectedOption: Option
-    let displayName: (Option) -> String
-    let onSelect: (Option) -> Void
-    let detents: Set<PresentationDetent>
+    @Binding var selectedTimeFrame: LeaderboardTimeFrame
+    @Binding var selectedMetric: LeaderboardMetric
+
+    private var preferredMetric: WorkoutMetric {
+        settingsManager.preferredWorkoutMetric
+    }
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 24) {
+            // Header
             VStack(spacing: 4) {
-                Text(title)
+                Text("Filters")
                     .font(.montserratBold(size: 20))
                     .foregroundStyle(colorScheme == .dark ? .white : .black)
 
-                Text(subtitle)
+                Text("Choose how to view the leaderboard")
                     .font(.montserratRegular(size: 14))
                     .foregroundStyle(.secondary)
             }
 
             ScrollView {
-                VStack(spacing: 12) {
-                    ForEach(options) { option in
-                        Button {
-                            HapticsManager.shared.trigger(.selection)
-                            onSelect(option)
-                            dismiss()
-                        } label: {
-                            HStack {
-                                Text(displayName(option))
-                                    .font(.montserratMedium(size: 16))
-                                    .foregroundStyle(colorScheme == .dark ? .white : .black)
-                                    .lineLimit(1)
+                VStack(spacing: 24) {
+                    // Time Frame Section
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("TIME FRAME")
+                            .font(.montserratSemiBold(size: 12))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
 
-                                Spacer()
-
-                                Image(systemName: option == selectedOption ? "largecircle.fill.circle" : "circle")
-                                    .font(.system(size: 20))
-                                    .foregroundStyle(option == selectedOption ? Color.accent : .secondary)
+                        VStack(spacing: 8) {
+                            ForEach(LeaderboardTimeFrame.allCases) { timeFrame in
+                                FilterOptionRow(
+                                    title: timeFrame.displayName,
+                                    isSelected: selectedTimeFrame == timeFrame
+                                ) {
+                                    HapticsManager.shared.trigger(.selection)
+                                    selectedTimeFrame = timeFrame
+                                }
                             }
-                            .padding()
-                            .background(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(colorScheme == .dark ? Color("Jet") : Color.gray.opacity(0.1))
-                            )
                         }
-                        .buttonStyle(.plain)
+                    }
+
+                    // Metric Section
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("METRIC")
+                            .font(.montserratSemiBold(size: 12))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+
+                        VStack(spacing: 8) {
+                            ForEach(LeaderboardMetric.allCases) { metric in
+                                FilterOptionRow(
+                                    title: metric.displayName(for: preferredMetric),
+                                    isSelected: selectedMetric == metric
+                                ) {
+                                    HapticsManager.shared.trigger(.selection)
+                                    selectedMetric = metric
+                                }
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 16)
             }
+
+            // Done button
+            Button {
+                dismiss()
+            } label: {
+                Text("Done")
+                    .font(.montserratSemiBold(size: 16))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .padding(.horizontal, 20)
         }
         .padding(.top, 32)
         .padding(.bottom, 12)
-        .presentationDetents(detents)
+        .presentationDetents([.height(520)])
         .presentationDragIndicator(.visible)
+    }
+}
+
+private struct FilterOptionRow: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                Text(title)
+                    .font(.montserratMedium(size: 16))
+                    .foregroundStyle(colorScheme == .dark ? .white : .black)
+                    .lineLimit(1)
+
+                Spacer()
+
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 22))
+                    .foregroundStyle(isSelected ? Color.accent : .secondary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(colorScheme == .dark ? Color("Jet") : Color.gray.opacity(0.08))
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -243,7 +284,8 @@ private struct LeaderboardSingleSelectSheet<Option: Identifiable & Equatable>: V
     LeaderboardFilterBar(
         searchText: .constant(""),
         selectedMetric: .constant(.climb),
-        selectedTimeFrame: .constant(.weekly)
+        selectedTimeFrame: .constant(.weekly),
+        resetStatusText: "Leaderboard resets in 2 days"
     )
     .padding()
     .themedBackground()

@@ -24,6 +24,7 @@ class LeaderboardViewModel {
     var userEntry: LeaderboardEntry?
     var isLoading = false
     var errorMessage: String?
+    var isOffline = false
     var showingTopLeaders = true
     
     private let service = LeaderboardService.shared
@@ -66,32 +67,34 @@ class LeaderboardViewModel {
     ) async {
         isLoading = true
         errorMessage = nil
-        
+        isOffline = false
+
         do {
             // 1. Update local stats from workouts
             try service.updateAllTimeFrames(for: userId, workouts: workouts)
-            
+
             // 2. Sync to Firestore
             try await service.syncToFirestore(
                 userId: userId,
                 displayName: displayName,
                 photoURL: photoURL
             )
-            
+
             // 3. Fetch leaderboard from Firestore
             await loadLeaderboard(userId: userId)
-            
+
         } catch {
-            errorMessage = "Failed to refresh leaderboard: \(error.localizedDescription)"
+            handleError(error, context: "refresh")
         }
-        
+
         isLoading = false
     }
     
     func loadLeaderboard(userId: String) async {
         isLoading = true
         errorMessage = nil
-        
+        isOffline = false
+
         do {
             let stats = try await repository.fetchLeaderboard(
                 metric: selectedMetric,
@@ -99,7 +102,7 @@ class LeaderboardViewModel {
                 limit: 100,
                 preferredWorkoutMetric: preferredWorkoutMetric
             )
-            
+
             // Convert to leaderboard entries with rankings
             var entries: [LeaderboardEntry] = []
             var currentUserEntry: LeaderboardEntry?
@@ -114,16 +117,16 @@ class LeaderboardViewModel {
                     formattedValue: formatValue(value, for: selectedMetric),
                     isCurrentUser: stat.userId == userId
                 )
-                
+
                 entries.append(entry)
-                
+
                 if stat.userId == userId {
                     currentUserEntry = entry
                 }
             }
-            
+
             leaderboardEntries = entries
-            
+
             // If user not in leaderboard yet, create a placeholder entry
             if currentUserEntry == nil {
                 if let localStats = try service.getLocalStats(for: userId, timeFrame: selectedTimeFrame) {
@@ -142,12 +145,37 @@ class LeaderboardViewModel {
 
             userEntry = currentUserEntry
             resetPagination()
-            
+
         } catch {
-            errorMessage = "Failed to load leaderboard: \(error.localizedDescription)"
+            handleError(error, context: "load")
         }
-        
+
         isLoading = false
+    }
+
+    private func handleError(_ error: Error, context: String) {
+        let nsError = error as NSError
+
+        // Check for network-related errors
+        let networkErrorCodes = [
+            NSURLErrorNotConnectedToInternet,
+            NSURLErrorNetworkConnectionLost,
+            NSURLErrorTimedOut,
+            NSURLErrorCannotConnectToHost,
+            NSURLErrorCannotFindHost,
+            NSURLErrorDNSLookupFailed
+        ]
+
+        if networkErrorCodes.contains(nsError.code) || nsError.domain == NSURLErrorDomain {
+            isOffline = true
+            if hasCachedEntries {
+                errorMessage = "Offline - showing cached data"
+            } else {
+                errorMessage = "No internet connection. Please check your network and try again."
+            }
+        } else {
+            errorMessage = "Failed to \(context) leaderboard: \(error.localizedDescription)"
+        }
     }
     
     func toggleView() {
