@@ -35,7 +35,7 @@ struct Top5CarouselView: View {
             // Horizontal carousel with centered paging
             GeometryReader { geometry in
                 let screenWidth = geometry.size.width
-                let cardWidth = screenWidth - 80 // Leave 40pt on each side for peeking
+                let cardWidth = screenWidth - 120 // Leave 60pt on each side for peeking adjacent cards
                 let horizontalPadding = (screenWidth - cardWidth) / 2
 
                 ScrollView(.horizontal, showsIndicators: false) {
