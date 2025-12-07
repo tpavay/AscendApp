@@ -144,6 +144,7 @@ struct WorkoutImportSheet: View {
             isImportingAll = true
 
             // Import workouts one by one so we can update UI as each completes
+            // Bulk import skips review - imports all valid workouts directly
             let workoutsToImport = importService.pendingWorkouts.filter { workout in
                 !importService.isWorkoutImported(workout.uuid.uuidString)
             }
