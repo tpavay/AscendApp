@@ -245,14 +245,14 @@ struct LeaderboardView: View {
         return userEntry.rank <= 5
     }
 
-    /// Entries for the top 5 carousel
+    /// Entries for the top 5 carousel (only original top 5 that match search)
     private var top5Entries: [LeaderboardEntry] {
-        Array(viewModel.displayedEntries.prefix(5))
+        viewModel.displayedEntries.filter { $0.rank <= 5 }
     }
 
-    /// Entries for the rankings list (#6+)
+    /// Entries for the rankings list (#6+, only original rank 6+ that match search)
     private var remainingEntries: [LeaderboardEntry] {
-        Array(viewModel.displayedEntries.dropFirst(5))
+        viewModel.displayedEntries.filter { $0.rank > 5 }
     }
 
     @ViewBuilder
