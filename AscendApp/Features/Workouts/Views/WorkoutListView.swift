@@ -56,6 +56,16 @@ struct WorkoutListView: View {
                     onEnterDeleteMode: enterDeleteMode
                 )
 
+                // Workout count
+                if !workouts.isEmpty && !isInDeleteMode {
+                    Text("Showing \(filteredWorkouts.count) workout\(filteredWorkouts.count == 1 ? "" : "s")")
+                        .font(.montserratMedium(size: 13))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 12)
+                }
+
                 if workouts.isEmpty {
                     WorkoutListEmptyStateView(
                         effectiveColorScheme: effectiveColorScheme,
