@@ -20,6 +20,7 @@ struct LeaderboardView: View {
     @State private var scrollProxy: ScrollViewProxy?
     @State private var isSearchExpanded = false
     @State private var showFilterSheet = false
+    @FocusState private var isSearchFocused: Bool
 
     private enum ScrollTarget: Hashable {
         case top
@@ -88,6 +89,17 @@ struct LeaderboardView: View {
         .onChange(of: tabRouter.selectedTab) { _, newTab in
             guard newTab == .leaderboard else { return }
             resetScrollPosition()
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button {
+                    isSearchFocused = false
+                } label: {
+                    Text("Done")
+                        .font(.montserratSemiBold(size: 16))
+                }
+            }
         }
     }
 
@@ -170,6 +182,7 @@ struct LeaderboardView: View {
                 .autocorrectionDisabled()
                 .submitLabel(.search)
                 .font(.montserratRegular(size: 14))
+                .focused($isSearchFocused)
 
             if !viewModel.searchText.isEmpty {
                 Button {
