@@ -13,105 +13,150 @@ struct WorkoutImportSheet: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
     @State private var importService = WorkoutImportService.shared
-    @State private var isImporting = false
-    @State private var importedCount = 0
-    
+    @State private var importingWorkoutId: UUID? = nil  // Currently importing single workout
+    @State private var isImportingAll = false  // Bulk import in progress
+
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
-    
+
+    private var unimportedCount: Int {
+        importService.pendingWorkouts.filter { workout in
+            !importService.isWorkoutImported(workout.uuid.uuidString)
+        }.count
+    }
+
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                if importService.pendingWorkouts.isEmpty {
-                    // No workouts to import
-                    ContentUnavailableView(
-                        "No New Workouts",
-                        systemImage: "checkmark.circle",
-                        description: Text("All your Apple Health workouts have already been imported.")
-                    )
-                } else {
-                    // Header with import all button
-                    VStack(spacing: 16) {
-                        HStack {
-                            Text("\(importService.pendingWorkoutsCount) New Workouts")
-                                .font(.montserratBold(size: 20))
-                                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                            
-                            Spacer()
-                            
-                            let unimportedCount = importService.pendingWorkouts.filter { workout in
-                                !importService.isWorkoutImported(workout.uuid.uuidString)
-                            }.count
-                            
-                            Button(unimportedCount > 0 ? "Import All (\(unimportedCount))" : "All Imported") {
-                                if unimportedCount > 0 {
-                                    importAllWorkouts()
-                                }
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(isImporting || unimportedCount == 0)
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.top, 16)
-                        
-                        if isImporting {
-                            ProgressView("Importing workouts...")
-                                .font(.montserratRegular(size: 14))
-                                .foregroundStyle(.secondary)
-                        }
-                        
-                        Divider()
-                            .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
+            ScrollView {
+                VStack(spacing: 0) {
+                    // Content
+                    if importService.pendingWorkouts.isEmpty {
+                        emptyStateView
+                    } else {
+                        workoutListSection
                     }
-                    
-                    // Workout list
-                    List {
-                        ForEach(importService.pendingWorkouts, id: \.uuid) { workout in
-                            WorkoutImportRow(
-                                workout: workout,
-                                isImporting: isImporting,
-                                onImport: { importWorkout(workout) }
-                            )
-                        }
-                    }
-                    .listStyle(PlainListStyle())
                 }
             }
             .navigationTitle("Import Workouts")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
                         dismiss()
                     }
                     .font(.montserratMedium(size: 16))
+                    .foregroundStyle(.accent)
                 }
             }
         }
         .themedBackground()
     }
-    
-    private func importWorkout(_ hkWorkout: HKWorkout) {
-        Task {
-            isImporting = true
-            let success = await importService.importWorkout(hkWorkout)
-            isImporting = false
-            
-            if success {
-                importedCount += 1
+
+    // MARK: - Empty State
+
+    private var emptyStateView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "checkmark.circle")
+                .font(.system(size: 48))
+                .foregroundStyle(.accent)
+
+            Text("No New Workouts")
+                .font(.montserratBold(size: 20))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+            Text("All your Apple Health workouts have already been imported.")
+                .font(.montserratRegular(size: 14))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 40)
+        .padding(.top, 60)
+    }
+
+    // MARK: - Workout List Section
+
+    private var workoutListSection: some View {
+        VStack(spacing: 0) {
+            // Header
+            VStack(spacing: 12) {
+                HStack {
+                    Text("\(unimportedCount) NEW WORKOUTS")
+                        .font(.montserratSemiBold(size: 12))
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    if isImportingAll {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                    } else if unimportedCount > 0 {
+                        Button {
+                            importAllWorkouts()
+                        } label: {
+                            Text("Import All")
+                                .font(.montserratSemiBold(size: 14))
+                                .foregroundStyle(.accent)
+                        }
+                        .disabled(importingWorkoutId != nil)
+                    }
+                }
+                .padding(.horizontal, 20)
+
+                Rectangle()
+                    .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
+                    .frame(height: 1)
+            }
+            .padding(.bottom, 8)
+
+            // Workout rows
+            LazyVStack(spacing: 0) {
+                ForEach(importService.pendingWorkouts, id: \.uuid) { workout in
+                    WorkoutImportRow(
+                        workout: workout,
+                        isImportingThis: importingWorkoutId == workout.uuid,
+                        isImportingAny: importingWorkoutId != nil || isImportingAll,
+                        effectiveColorScheme: effectiveColorScheme,
+                        onImport: { importWorkout(workout) }
+                    )
+
+                    Rectangle()
+                        .fill(effectiveColorScheme == .dark ? .white.opacity(0.08) : .gray.opacity(0.15))
+                        .frame(height: 1)
+                        .padding(.horizontal, 20)
+                }
             }
         }
     }
-    
+
+    // MARK: - Actions
+
+    private func importWorkout(_ hkWorkout: HKWorkout) {
+        Task {
+            importingWorkoutId = hkWorkout.uuid
+            _ = await importService.importWorkout(hkWorkout)
+            importingWorkoutId = nil
+        }
+    }
+
     private func importAllWorkouts() {
         Task {
-            isImporting = true
-            let count = await importService.importAllWorkouts()
-            isImporting = false
-            importedCount = count
-            
-            if importService.pendingWorkoutsCount == 0 {
+            isImportingAll = true
+
+            // Import workouts one by one so we can update UI as each completes
+            let workoutsToImport = importService.pendingWorkouts.filter { workout in
+                !importService.isWorkoutImported(workout.uuid.uuidString)
+            }
+
+            for workout in workoutsToImport {
+                importingWorkoutId = workout.uuid
+                _ = await importService.importWorkout(workout)
+                importingWorkoutId = nil
+            }
+
+            isImportingAll = false
+
+            if unimportedCount == 0 {
                 // All imported, dismiss after a brief delay
                 try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
                 dismiss()
@@ -120,91 +165,90 @@ struct WorkoutImportSheet: View {
     }
 }
 
+// MARK: - Workout Import Row
+
 struct WorkoutImportRow: View {
     let workout: HKWorkout
-    let isImporting: Bool
+    let isImportingThis: Bool  // This specific workout is being imported
+    let isImportingAny: Bool   // Any import is in progress (disable button)
+    let effectiveColorScheme: ColorScheme
     let onImport: () -> Void
-    
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var themeManager = ThemeManager.shared
+
     @State private var importService = WorkoutImportService.shared
-    
+
     private var isImported: Bool {
         importService.isWorkoutImported(workout.uuid.uuidString)
     }
-    
-    private var effectiveColorScheme: ColorScheme {
-        themeManager.effectiveColorScheme(for: colorScheme)
-    }
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            // Workout icon
-            Image(systemName: "figure.stair.stepper")
-                .font(.system(size: 24))
-                .foregroundStyle(.blue)
-                .frame(width: 40, height: 40)
-                .background(
-                    Circle()
-                        .fill(.blue.opacity(0.1))
-                )
-            
-            // Workout info  
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(workout.startDate.formatted(date: .numeric, time: .shortened))
-                        .font(.montserratRegular(size: 13))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    
-                    Text("•")
-                        .font(.montserratRegular(size: 13))
-                        .foregroundStyle(.secondary)
-                    
-                    Text(formatDuration(workout.duration))
-                        .font(.montserratRegular(size: 13))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Text("From \(workout.sourceRevision.source.name)")
-                    .font(.montserratRegular(size: 12))
-                    .foregroundStyle(.blue)
-                    .lineLimit(1)
 
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            // Left side - Date, time, source
+            VStack(alignment: .leading, spacing: 4) {
+                Text(workout.startDate.formatted(.dateTime.month().day().year()))
+                    .font(.montserratSemiBold(size: 16))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+                HStack(spacing: 6) {
+                    Text(workout.startDate.formatted(.dateTime.hour().minute()))
+                        .font(.montserratRegular(size: 14))
+                        .foregroundStyle(.secondary)
+
+                    Text("•")
+                        .font(.montserratRegular(size: 14))
+                        .foregroundStyle(.secondary)
+
+                    Text(formatDuration(workout.duration))
+                        .font(.montserratRegular(size: 14))
+                        .foregroundStyle(.secondary)
+                }
+
+                Text(workout.sourceRevision.source.name)
+                    .font(.montserratRegular(size: 13))
+                    .foregroundStyle(.secondary)
             }
-            
+
             Spacer()
-            
-            // Import button
+
+            // Right side - Spinner, Import button, or Imported status
             if isImported {
                 HStack(spacing: 4) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 16))
-                        .foregroundStyle(.green)
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 12, weight: .semibold))
                     Text("Imported")
                         .font(.montserratMedium(size: 13))
-                        .foregroundStyle(.green)
                 }
+                .foregroundStyle(.accent)
+            } else if isImportingThis {
+                ProgressView()
+                    .scaleEffect(0.8)
             } else {
-                Button("Import") {
+                Button {
                     onImport()
+                } label: {
+                    Text("Import")
+                        .font(.montserratSemiBold(size: 14))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(
+                            Capsule()
+                                .fill(.accent)
+                        )
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .disabled(isImporting)
+                .disabled(isImportingAny)
+                .opacity(isImportingAny ? 0.6 : 1)
             }
         }
-        .padding(.vertical, 8)
-        .listRowBackground(Color.clear)
-        .listRowSeparator(.hidden)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
     }
-    
+
     private func formatDuration(_ duration: TimeInterval) -> String {
         let totalSeconds = Int(duration)
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60
         let seconds = totalSeconds % 60
-        
+
         if hours > 0 {
             return String(format: "%d:%02d:%02d", hours, minutes, seconds)
         } else {
