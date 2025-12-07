@@ -47,22 +47,14 @@ struct WorkoutListView: View {
                     effectiveColorScheme: effectiveColorScheme,
                     pendingImportCount: importService.pendingWorkoutsCount,
                     canDelete: !selectedWorkouts.isEmpty,
+                    workouts: workouts,
+                    filterState: filterState,
                     onToggleSelectAll: toggleSelectAllWorkouts,
                     onCancelDelete: exitDeleteMode,
                     onDeleteTapped: handleDeleteTapped,
                     onImportTapped: handleImportTapped,
                     onEnterDeleteMode: enterDeleteMode
-                ) {
-                    WorkoutListSearchTriggerView(
-                        filterState: filterState,
-                        effectiveColorScheme: effectiveColorScheme
-                    ) {
-                        WorkoutFilterExplorerView(
-                            workouts: workouts,
-                            filterState: filterState
-                        )
-                    }
-                }
+                )
 
                 if workouts.isEmpty {
                     WorkoutListEmptyStateView(
