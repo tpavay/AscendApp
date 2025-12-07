@@ -25,6 +25,7 @@ struct WorkoutListHeaderView: View {
 
     @State private var isSearchExpanded = false
     @State private var activeSheet: FilterSheet?
+    @State private var showingSortSheet = false
     @FocusState private var isSearchFocused: Bool
     @State private var settingsManager = SettingsManager.shared
 
@@ -179,6 +180,15 @@ struct WorkoutListHeaderView: View {
                     .presentationDragIndicator(.visible)
             }
         }
+        .sheet(isPresented: $showingSortSheet) {
+            SortOptionSheet(
+                filterState: filterState,
+                effectiveColorScheme: effectiveColorScheme,
+                preferredMetric: preferredMetric
+            )
+            .presentationDetents([.height(520)])
+            .presentationDragIndicator(.visible)
+        }
     }
 
     private var headerRow: some View {
@@ -223,6 +233,16 @@ struct WorkoutListHeaderView: View {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 18, weight: .medium))
                             .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    }
+
+                    // Sort button
+                    Button {
+                        showingSortSheet = true
+                        HapticsManager.shared.trigger(.lightImpact)
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundStyle(filterState.sortOption != .dateNewest ? .accent : (effectiveColorScheme == .dark ? .white : .black))
                     }
 
                     // Overflow menu
@@ -836,6 +856,65 @@ private struct DurationFilterSheet: View {
                 .font(.montserratSemiBold(size: 18))
                 .foregroundStyle(.accent)
         }
+    }
+}
+
+// MARK: - Sort Option Sheet
+
+private struct SortOptionSheet: View {
+    @ObservedObject var filterState: WorkoutListFilterState
+    @Environment(\.dismiss) private var dismiss
+    let effectiveColorScheme: ColorScheme
+    let preferredMetric: WorkoutMetric
+
+    var body: some View {
+        VStack(spacing: 24) {
+            VStack(spacing: 4) {
+                Text("Sort By")
+                    .font(.montserratSemiBold(size: 20))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                Text("Choose how to order your workouts")
+                    .font(.montserratRegular(size: 14))
+                    .foregroundStyle(.secondary)
+            }
+            .multilineTextAlignment(.center)
+
+            VStack(spacing: 8) {
+                ForEach(WorkoutSortOption.allCases) { option in
+                    Button {
+                        HapticsManager.shared.trigger(.selection)
+                        filterState.sortOption = option
+                    } label: {
+                        HStack {
+                            Image(systemName: option.iconName)
+                                .font(.system(size: 16))
+                                .frame(width: 24)
+                                .foregroundStyle(filterState.sortOption == option ? .accent : .secondary)
+                            Text(option.displayName(for: preferredMetric))
+                                .font(.montserratMedium(size: 16))
+                                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                            Spacer()
+                            if filterState.sortOption == option {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.accent)
+                            }
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(filterState.sortOption == option
+                                    ? Color.accent.opacity(0.15)
+                                    : (effectiveColorScheme == .dark ? Color.white.opacity(0.08) : Color.gray.opacity(0.08)))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(20)
+        .padding(.bottom, 12)
+        .themedBackground()
     }
 }
 

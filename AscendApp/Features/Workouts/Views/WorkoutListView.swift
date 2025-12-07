@@ -15,6 +15,7 @@ struct WorkoutListView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @State private var themeManager = ThemeManager.shared
     @State private var importService = WorkoutImportService.shared
+    @State private var settingsManager = SettingsManager.shared
     @StateObject private var filterState = WorkoutListFilterState()
     
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
@@ -29,7 +30,8 @@ struct WorkoutListView: View {
     @State private var deleteErrorMessage = ""
 
     private var filteredWorkouts: [Workout] {
-        filterState.applyFilters(to: workouts)
+        let filtered = filterState.applyFilters(to: workouts)
+        return filterState.applySorting(to: filtered, preferredMetric: settingsManager.preferredWorkoutMetric)
     }
 
     private var effectiveColorScheme: ColorScheme {
@@ -235,7 +237,6 @@ struct WorkoutListView: View {
             try modelContext.save()
             
             // Recalculate PRs after deletion since a deleted workout may have held a PR
-            let settingsManager = SettingsManager.shared
             try PersonalRecordService.recalculateAllPersonalRecords(
                 modelContext: modelContext,
                 measurementSystem: settingsManager.measurementSystem,

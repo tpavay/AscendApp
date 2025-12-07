@@ -7,6 +7,36 @@
 
 import Foundation
 
+enum WorkoutSortOption: String, CaseIterable, Identifiable {
+    case dateNewest = "Date (Newest)"
+    case dateOldest = "Date (Oldest)"
+    case stepsHighest = "Steps (Highest)"
+    case stepsLowest = "Steps (Lowest)"
+    case durationLongest = "Duration (Longest)"
+    case durationShortest = "Duration (Shortest)"
+
+    var id: String { rawValue }
+
+    var iconName: String {
+        switch self {
+        case .dateNewest, .dateOldest: return "calendar"
+        case .stepsHighest, .stepsLowest: return "figure.stairs"
+        case .durationLongest, .durationShortest: return "clock"
+        }
+    }
+
+    func displayName(for metric: WorkoutMetric) -> String {
+        switch self {
+        case .dateNewest: return "Date (Newest)"
+        case .dateOldest: return "Date (Oldest)"
+        case .stepsHighest: return "\(metric.displayName) (Highest)"
+        case .stepsLowest: return "\(metric.displayName) (Lowest)"
+        case .durationLongest: return "Duration (Longest)"
+        case .durationShortest: return "Duration (Shortest)"
+        }
+    }
+}
+
 @MainActor
 final class WorkoutListFilterState: ObservableObject {
     @Published var searchText: String = ""
@@ -14,6 +44,7 @@ final class WorkoutListFilterState: ObservableObject {
     @Published var stepsRange: ClosedRange<Double>? = nil
     @Published var dateFilter: WorkoutDateFilter? = nil
     @Published var durationRange: ClosedRange<Double>? = nil
+    @Published var sortOption: WorkoutSortOption = .dateNewest
     
     var normalizedSearchText: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -41,6 +72,23 @@ final class WorkoutListFilterState: ObservableObject {
             matchesDurationRange(workout) &&
             matchesDateRange(workout) &&
             matchesSearch(workout)
+        }
+    }
+
+    func applySorting(to workouts: [Workout], preferredMetric: WorkoutMetric) -> [Workout] {
+        switch sortOption {
+        case .dateNewest:
+            return workouts.sorted { $0.date > $1.date }
+        case .dateOldest:
+            return workouts.sorted { $0.date < $1.date }
+        case .stepsHighest:
+            return workouts.sorted { $0.metricValue(for: preferredMetric) > $1.metricValue(for: preferredMetric) }
+        case .stepsLowest:
+            return workouts.sorted { $0.metricValue(for: preferredMetric) < $1.metricValue(for: preferredMetric) }
+        case .durationLongest:
+            return workouts.sorted { $0.duration > $1.duration }
+        case .durationShortest:
+            return workouts.sorted { $0.duration < $1.duration }
         }
     }
     
