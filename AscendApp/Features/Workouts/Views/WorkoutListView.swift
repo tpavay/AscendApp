@@ -142,7 +142,7 @@ struct WorkoutListView: View {
                         }
                     }
                 )
-                .presentationDetents([.height(220)])
+                .presentationDetents([.height(270)])
             }
             .fullScreenCover(isPresented: $showingScanner) {
                 ConsoleScannerContainerView(

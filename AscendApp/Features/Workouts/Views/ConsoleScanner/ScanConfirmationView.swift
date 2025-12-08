@@ -29,6 +29,24 @@ struct ScanConfirmationView: View {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
 
+    private var hasAnyDetectedValues: Bool {
+        result.stepsClimbed != nil ||
+        result.floorsClimbed != nil ||
+        result.elapsedTimeSeconds != nil ||
+        result.calories != nil ||
+        result.heartRateBpm != nil
+    }
+
+    private var notDetectedItems: [String] {
+        var items: [String] = []
+        if result.stepsClimbed == nil { items.append("Steps") }
+        if result.floorsClimbed == nil { items.append("Floors") }
+        if result.elapsedTimeSeconds == nil { items.append("Duration") }
+        if result.calories == nil { items.append("Calories") }
+        if result.heartRateBpm == nil { items.append("Heart Rate") }
+        return items
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
@@ -62,85 +80,105 @@ struct ScanConfirmationView: View {
                     }
                 }
 
-                // Extracted metrics
-                VStack(spacing: 16) {
-                    Text("Extracted Values")
-                        .font(.montserratBold(size: 18))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                // Extracted values (only show detected ones)
+                if hasAnyDetectedValues {
+                    VStack(spacing: 16) {
+                        Text("Extracted Values")
+                            .font(.montserratBold(size: 18))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                            .frame(maxWidth: .infinity, alignment: .leading)
 
-                    // Steps
-                    MetricRow(
-                        label: "Steps",
-                        value: $stepsValue,
-                        placeholder: "Not detected",
-                        icon: "figure.stairs",
-                        effectiveColorScheme: effectiveColorScheme
-                    )
+                        // Steps (if detected)
+                        if result.stepsClimbed != nil {
+                            MetricRow(
+                                label: "Steps",
+                                value: $stepsValue,
+                                icon: "figure.stairs",
+                                effectiveColorScheme: effectiveColorScheme
+                            )
+                        }
 
-                    // Floors
-                    MetricRow(
-                        label: "Floors",
-                        value: $floorsValue,
-                        placeholder: "Not detected",
-                        icon: "building.2",
-                        effectiveColorScheme: effectiveColorScheme
-                    )
+                        // Floors (if detected)
+                        if result.floorsClimbed != nil {
+                            MetricRow(
+                                label: "Floors",
+                                value: $floorsValue,
+                                icon: "building.2",
+                                effectiveColorScheme: effectiveColorScheme
+                            )
+                        }
 
-                    // Duration
-                    MetricRow(
-                        label: "Duration",
-                        value: $durationValue,
-                        placeholder: "Not detected",
-                        icon: "clock",
-                        effectiveColorScheme: effectiveColorScheme,
-                        isTime: true
-                    )
+                        // Duration (if detected)
+                        if result.elapsedTimeSeconds != nil {
+                            MetricRow(
+                                label: "Duration",
+                                value: $durationValue,
+                                icon: "clock",
+                                effectiveColorScheme: effectiveColorScheme,
+                                isTime: true
+                            )
+                        }
 
-                    // Calories (optional)
-                    MetricRow(
-                        label: "Calories",
-                        value: $caloriesValue,
-                        placeholder: "Not detected",
-                        icon: "flame",
-                        effectiveColorScheme: effectiveColorScheme
-                    )
+                        // Calories (if detected)
+                        if result.calories != nil {
+                            MetricRow(
+                                label: "Calories",
+                                value: $caloriesValue,
+                                icon: "flame",
+                                effectiveColorScheme: effectiveColorScheme
+                            )
+                        }
 
-                    // Heart Rate (optional)
-                    MetricRow(
-                        label: "Heart Rate",
-                        value: $heartRateValue,
-                        placeholder: "Not detected",
-                        icon: "heart",
-                        effectiveColorScheme: effectiveColorScheme
+                        // Heart Rate (if detected)
+                        if result.heartRateBpm != nil {
+                            MetricRow(
+                                label: "Heart Rate",
+                                value: $heartRateValue,
+                                icon: "heart",
+                                effectiveColorScheme: effectiveColorScheme
+                            )
+                        }
+                    }
+                    .padding(16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
                     )
                 }
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
-                )
 
-                // Notes from AI (if any)
-                if let notes = result.notes, !notes.isEmpty {
+                // Not detected values
+                if !notDetectedItems.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Notes")
-                            .font(.montserratSemiBold(size: 14))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                        Text(notes)
-                            .font(.montserratRegular(size: 14))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.7))
+                        Text("Not Detected")
+                            .font(.montserratBold(size: 18))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Text(notDetectedItems.joined(separator: ", "))
+                            .font(.montserratMedium(size: 14))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.4) : .gray.opacity(0.7))
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
+                    .padding(16)
                     .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(effectiveColorScheme == .dark ? .blue.opacity(0.1) : .blue.opacity(0.05))
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.1) : .gray.opacity(0.03))
                     )
                 }
 
                 // Action buttons
-                VStack(spacing: 12) {
+                HStack(spacing: 12) {
+                    Button {
+                        onRescan()
+                    } label: {
+                        Text("Rescan")
+                            .font(.montserratSemiBold(size: 16))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+
                     Button {
                         let updatedResult = buildUpdatedResult()
                         onConfirm(updatedResult)
@@ -151,18 +189,6 @@ struct ScanConfirmationView: View {
                             .frame(height: 50)
                             .background(.accent)
                             .foregroundStyle(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                    }
-
-                    Button {
-                        onRescan()
-                    } label: {
-                        Text("Rescan")
-                            .font(.montserratSemiBold(size: 16))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
                 }
@@ -246,7 +272,6 @@ struct ScanConfirmationView: View {
 struct MetricRow: View {
     let label: String
     @Binding var value: String
-    let placeholder: String
     let icon: String
     let effectiveColorScheme: ColorScheme
     var isTime: Bool = false
@@ -263,13 +288,21 @@ struct MetricRow: View {
                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
                 .frame(width: 80, alignment: .leading)
 
-            TextField(placeholder, text: $value)
+            TextField("", text: $value)
                 .font(.montserratSemiBold(size: 16))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                 .keyboardType(isTime ? .numbersAndPunctuation : .numberPad)
                 .multilineTextAlignment(.trailing)
-                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(effectiveColorScheme == .dark ? .white.opacity(0.05) : .gray.opacity(0.08))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.2) : .gray.opacity(0.3), lineWidth: 1)
+                )
         }
-        .padding(.vertical, 4)
     }
 }

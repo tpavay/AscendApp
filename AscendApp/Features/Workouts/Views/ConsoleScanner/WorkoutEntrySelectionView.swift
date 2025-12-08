@@ -21,11 +21,16 @@ struct WorkoutEntrySelectionView: View {
 
     var body: some View {
         VStack(spacing: 20) {
+            // Swipe indicator
+            RoundedRectangle(cornerRadius: 2.5)
+                .fill(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.4))
+                .frame(width: 36, height: 5)
+                .padding(.top, 10)
+
             // Header
             Text("Add Workout")
                 .font(.montserratBold(size: 20))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                .padding(.top, 8)
 
             VStack(spacing: 12) {
                 // Manual Entry option
@@ -40,14 +45,14 @@ struct WorkoutEntrySelectionView: View {
                     )
                 }
 
-                // Scan Console option
+                // Scan Machine Screen option
                 Button {
                     onScanConsole()
                 } label: {
                     SelectionRow(
                         icon: "camera.viewfinder",
-                        title: "Scan Console",
-                        subtitle: "Take a photo of your machine's display",
+                        title: "Scan Machine Screen",
+                        subtitle: "Use a photo of the display",
                         effectiveColorScheme: effectiveColorScheme,
                         isAccent: true
                     )
