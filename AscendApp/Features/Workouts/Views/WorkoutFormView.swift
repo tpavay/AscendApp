@@ -12,6 +12,7 @@ import SwiftData
 struct WorkoutFormView: View {
     @Binding var showingWorkoutForm: Bool
     let onWorkoutCompleted: (Workout) -> Void
+    var prefillResult: ConsoleScanResult? = nil
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -88,6 +89,10 @@ struct WorkoutFormView: View {
         .onAppear {
             if viewModel.workoutName.isEmpty {
                 viewModel.workoutName = generateDefaultWorkoutName()
+            }
+            // Apply prefill from console scan if provided
+            if let result = prefillResult {
+                viewModel.prefillFromScan(result)
             }
         }
     }

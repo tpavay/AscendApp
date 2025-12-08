@@ -29,6 +29,11 @@ struct WorkoutListView: View {
     @State private var showingDeleteError = false
     @State private var deleteErrorMessage = ""
 
+    // Console scanner state
+    @State private var showingEntrySelection = false
+    @State private var showingScanner = false
+    @State private var scanPrefillResult: ConsoleScanResult? = nil
+
     private var filteredWorkouts: [Workout] {
         let filtered = filterState.applyFilters(to: workouts)
         return filterState.applySorting(to: filtered, preferredMetric: settingsManager.preferredWorkoutMetric)
@@ -89,7 +94,7 @@ struct WorkoutListView: View {
             .overlay(alignment: .bottomTrailing) {
                 // Floating Action Button
                 Button(action: {
-                    showingWorkoutForm = true
+                    showingEntrySelection = true
                 }) {
                     Image(systemName: "plus")
                         .font(.system(size: 20, weight: .medium))
@@ -103,6 +108,38 @@ struct WorkoutListView: View {
                 }
                 .padding(20)
             }
+            .sheet(isPresented: $showingEntrySelection) {
+                WorkoutEntrySelectionView(
+                    onManualEntry: {
+                        showingEntrySelection = false
+                        scanPrefillResult = nil
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            showingWorkoutForm = true
+                        }
+                    },
+                    onScanConsole: {
+                        showingEntrySelection = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            showingScanner = true
+                        }
+                    }
+                )
+                .presentationDetents([.height(220)])
+            }
+            .fullScreenCover(isPresented: $showingScanner) {
+                ConsoleScannerContainerView(
+                    onScanConfirmed: { result in
+                        showingScanner = false
+                        scanPrefillResult = result
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            showingWorkoutForm = true
+                        }
+                    },
+                    onCancel: {
+                        showingScanner = false
+                    }
+                )
+            }
             .fullScreenCover(isPresented: $showingWorkoutForm) {
                 WorkoutFormView(
                     showingWorkoutForm: $showingWorkoutForm,
@@ -113,12 +150,16 @@ struct WorkoutListView: View {
                         // Dismiss the form first
                         showingWorkoutForm = false
 
+                        // Clear prefill result
+                        scanPrefillResult = nil
+
                         // Then show completed view after a brief delay
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                             showingCompletedView = true
                             print("🔍 WorkoutListView: Set showingCompletedView = true")
                         }
-                    }
+                    },
+                    prefillResult: scanPrefillResult
                 )
             }
             .fullScreenCover(isPresented: $showingCompletedView) {

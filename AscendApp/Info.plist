@@ -24,9 +24,13 @@
 		<string>Montserrat-Light.ttf</string>
 		<string>Montserrat-Italic.ttf</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Ascend uses your camera to scan stair stepper console displays and automatically log your workout data.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Ascend needs access to your Health data to import your stair climbing workouts, including steps, flights climbed, heart rate, and calories burned.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Ascend saves your workout posters to your Photos library.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Ascend needs access to your photo library to select stair stepper console images for automatic workout logging.</string>
 </dict>
 </plist>

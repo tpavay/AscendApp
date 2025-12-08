@@ -72,3 +72,7 @@ Secrets/
 
 # Claude Code settings (user-specific)
 .claude/
+
+# Node.js / Firebase Functions
+node_modules/
+/package-lock.json
