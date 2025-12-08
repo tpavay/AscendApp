@@ -9,6 +9,26 @@ import SwiftUI
 import SwiftData
 import AVFoundation
 
+/// Represents how the workout form is being presented
+enum WorkoutFormPresentation: Identifiable {
+    case manual
+    case fromScan(ConsoleScanResult)
+
+    var id: String {
+        switch self {
+        case .manual: return "manual"
+        case .fromScan(_): return "scan"
+        }
+    }
+
+    var prefillResult: ConsoleScanResult? {
+        switch self {
+        case .manual: return nil
+        case .fromScan(let result): return result
+        }
+    }
+}
+
 struct WorkoutListView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
@@ -19,7 +39,7 @@ struct WorkoutListView: View {
     @StateObject private var filterState = WorkoutListFilterState()
     
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
-    @State private var showingWorkoutForm = false
+    @State private var workoutFormPresentation: WorkoutFormPresentation? = nil
     @State private var showingCompletedView = false
     @State private var completedWorkout: Workout?
     @State private var isInDeleteMode = false
@@ -32,7 +52,6 @@ struct WorkoutListView: View {
     // Console scanner state
     @State private var showingEntrySelection = false
     @State private var showingScanner = false
-    @State private var scanPrefillResult: ConsoleScanResult? = nil
 
     private var filteredWorkouts: [Workout] {
         let filtered = filterState.applyFilters(to: workouts)
@@ -112,9 +131,8 @@ struct WorkoutListView: View {
                 WorkoutEntrySelectionView(
                     onManualEntry: {
                         showingEntrySelection = false
-                        scanPrefillResult = nil
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            showingWorkoutForm = true
+                            workoutFormPresentation = .manual
                         }
                     },
                     onScanConsole: {
@@ -130,9 +148,8 @@ struct WorkoutListView: View {
                 ConsoleScannerContainerView(
                     onScanConfirmed: { result in
                         showingScanner = false
-                        scanPrefillResult = result
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            showingWorkoutForm = true
+                            workoutFormPresentation = .fromScan(result)
                         }
                     },
                     onCancel: {
@@ -140,18 +157,18 @@ struct WorkoutListView: View {
                     }
                 )
             }
-            .fullScreenCover(isPresented: $showingWorkoutForm) {
+            .fullScreenCover(item: $workoutFormPresentation) { presentation in
                 WorkoutFormView(
-                    showingWorkoutForm: $showingWorkoutForm,
+                    showingWorkoutForm: Binding(
+                        get: { workoutFormPresentation != nil },
+                        set: { if !$0 { workoutFormPresentation = nil } }
+                    ),
                     onWorkoutCompleted: { workout in
                         print("🔍 WorkoutListView: onWorkoutCompleted called")
                         completedWorkout = workout
 
-                        // Dismiss the form first
-                        showingWorkoutForm = false
-
-                        // Clear prefill result
-                        scanPrefillResult = nil
+                        // Dismiss the form
+                        workoutFormPresentation = nil
 
                         // Then show completed view after a brief delay
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -159,7 +176,7 @@ struct WorkoutListView: View {
                             print("🔍 WorkoutListView: Set showingCompletedView = true")
                         }
                     },
-                    prefillResult: scanPrefillResult
+                    prefillResult: presentation.prefillResult
                 )
             }
             .fullScreenCover(isPresented: $showingCompletedView) {
