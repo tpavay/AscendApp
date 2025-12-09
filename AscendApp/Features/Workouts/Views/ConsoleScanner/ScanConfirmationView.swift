@@ -12,6 +12,7 @@ struct ScanConfirmationView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
+    @FocusState private var isTextFieldFocused: Bool
 
     let result: ConsoleScanResult
     let image: UIImage
@@ -54,7 +55,8 @@ struct ScanConfirmationView: View {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
-                    .frame(height: 150)
+                    .frame(maxWidth: .infinity)
+                    .frame(maxHeight: 250)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)
@@ -94,7 +96,8 @@ struct ScanConfirmationView: View {
                                 label: "Steps",
                                 value: $stepsValue,
                                 icon: "figure.stairs",
-                                effectiveColorScheme: effectiveColorScheme
+                                effectiveColorScheme: effectiveColorScheme,
+                                isFocused: $isTextFieldFocused
                             )
                         }
 
@@ -104,7 +107,8 @@ struct ScanConfirmationView: View {
                                 label: "Floors",
                                 value: $floorsValue,
                                 icon: "building.2",
-                                effectiveColorScheme: effectiveColorScheme
+                                effectiveColorScheme: effectiveColorScheme,
+                                isFocused: $isTextFieldFocused
                             )
                         }
 
@@ -115,7 +119,8 @@ struct ScanConfirmationView: View {
                                 value: $durationValue,
                                 icon: "clock",
                                 effectiveColorScheme: effectiveColorScheme,
-                                isTime: true
+                                isTime: true,
+                                isFocused: $isTextFieldFocused
                             )
                         }
 
@@ -125,7 +130,8 @@ struct ScanConfirmationView: View {
                                 label: "Calories",
                                 value: $caloriesValue,
                                 icon: "flame",
-                                effectiveColorScheme: effectiveColorScheme
+                                effectiveColorScheme: effectiveColorScheme,
+                                isFocused: $isTextFieldFocused
                             )
                         }
 
@@ -135,7 +141,8 @@ struct ScanConfirmationView: View {
                                 label: "Heart Rate",
                                 value: $heartRateValue,
                                 icon: "heart",
-                                effectiveColorScheme: effectiveColorScheme
+                                effectiveColorScheme: effectiveColorScheme,
+                                isFocused: $isTextFieldFocused
                             )
                         }
                     }
@@ -194,6 +201,16 @@ struct ScanConfirmationView: View {
                 }
             }
             .padding(20)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    isTextFieldFocused = false
+                }
+                .font(.montserratSemiBold(size: 16))
+            }
         }
         .onAppear {
             populateFields()
@@ -275,6 +292,7 @@ struct MetricRow: View {
     let icon: String
     let effectiveColorScheme: ColorScheme
     var isTime: Bool = false
+    var isFocused: FocusState<Bool>.Binding
 
     var body: some View {
         HStack(spacing: 12) {
@@ -293,6 +311,7 @@ struct MetricRow: View {
                 .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                 .keyboardType(isTime ? .numbersAndPunctuation : .numberPad)
                 .multilineTextAlignment(.trailing)
+                .focused(isFocused)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
                 .background(

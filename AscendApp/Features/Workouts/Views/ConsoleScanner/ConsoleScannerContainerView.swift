@@ -37,18 +37,8 @@ struct ConsoleScannerContainerView: View {
                     case .cropping(let image):
                         ConsoleCropView(
                             image: image,
-                            onCrop: { croppedImage in
-                                Task {
-                                    await viewModel.processCroppedImage(croppedImage)
-                                }
-                            },
-                            onCancel: {
-                                viewModel.rescan()
-                            }
+                            viewModel: viewModel
                         )
-
-                    case .processing:
-                        processingView
 
                     case .confirmation(let result, let image):
                         ScanConfirmationView(
@@ -76,10 +66,17 @@ struct ConsoleScannerContainerView: View {
         VStack(spacing: 0) {
             HStack {
                 Button("Cancel") {
-                    onCancel()
+                    // On crop view, go back to camera; otherwise dismiss
+                    if case .cropping = viewModel.state {
+                        viewModel.rescan()
+                    } else {
+                        onCancel()
+                    }
                 }
                 .font(.montserratRegular)
                 .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                .opacity(viewModel.isProcessing ? 0.3 : 1.0)
+                .disabled(viewModel.isProcessing)
 
                 Spacer()
 
@@ -110,9 +107,7 @@ struct ConsoleScannerContainerView: View {
         case .selectingSource:
             return "Scan Console"
         case .cropping:
-            return "Crop Image"
-        case .processing:
-            return "Processing"
+            return "Adjust Crop"
         case .confirmation:
             return "Review Results"
         case .error:
@@ -120,35 +115,17 @@ struct ConsoleScannerContainerView: View {
         }
     }
 
-    private var processingView: some View {
-        VStack(spacing: 24) {
-            Spacer()
-
-            ProgressView()
-                .scaleEffect(1.5)
-                .progressViewStyle(CircularProgressViewStyle(tint: .accent))
-
-            Text("Analyzing console image...")
-                .font(.montserratMedium(size: 16))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-            Text("This may take a few seconds")
-                .font(.montserratRegular(size: 14))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
-
-            Spacer()
-        }
-    }
-
     private func errorView(message: String) -> some View {
-        VStack(spacing: 24) {
+        let isRateLimitError = message.lowercased().contains("limit")
+
+        return VStack(spacing: 24) {
             Spacer()
 
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 48))
                 .foregroundStyle(.orange)
 
-            Text("Unable to Scan")
+            Text(isRateLimitError ? "Limit Reached" : "Unable to Scan")
                 .font(.montserratBold(size: 20))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
 
@@ -161,27 +138,30 @@ struct ConsoleScannerContainerView: View {
             Spacer()
 
             VStack(spacing: 12) {
-                Button {
-                    viewModel.rescan()
-                } label: {
-                    Text("Try Again")
-                        .font(.montserratSemiBold(size: 16))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 50)
-                        .background(.accent)
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                // Don't show Try Again for rate limit errors
+                if !isRateLimitError {
+                    Button {
+                        viewModel.rescan()
+                    } label: {
+                        Text("Try Again")
+                            .font(.montserratSemiBold(size: 16))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(.accent)
+                            .foregroundStyle(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
                 }
 
                 Button {
                     onCancel()
                 } label: {
-                    Text("Cancel")
+                    Text(isRateLimitError ? "OK" : "Cancel")
                         .font(.montserratSemiBold(size: 16))
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
-                        .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                        .background(isRateLimitError ? .accent : (effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1)))
+                        .foregroundStyle(isRateLimitError ? .white : (effectiveColorScheme == .dark ? .white : .black))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
             }

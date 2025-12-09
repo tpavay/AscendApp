@@ -13,8 +13,7 @@ struct ConsoleCropView: View {
     @State private var themeManager = ThemeManager.shared
 
     let image: UIImage
-    let onCrop: (UIImage) -> Void
-    let onCancel: () -> Void
+    @Bindable var viewModel: ConsoleScanViewModel
 
     // Gesture state
     @State private var scale: CGFloat = 1.0
@@ -37,12 +36,21 @@ struct ConsoleCropView: View {
                 // Background
                 Color.black.ignoresSafeArea()
 
-                // Image with gestures
+                // Image clipped to crop box - only visible within the frame
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
                     .scaleEffect(scale)
                     .offset(offset)
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .clipShape(
+                        RoundedRectangle(cornerRadius: 8)
+                            .size(width: cropBoxSize.width, height: cropBoxSize.height)
+                            .offset(
+                                x: (geometry.size.width - cropBoxSize.width) / 2,
+                                y: (geometry.size.height - cropBoxSize.height) / 2
+                            )
+                    )
                     .gesture(
                         SimultaneousGesture(
                             MagnificationGesture()
@@ -67,13 +75,15 @@ struct ConsoleCropView: View {
                         )
                     )
 
-                // Overlay with crop box cutout
-                CropOverlay(cropBoxSize: cropBoxSize, containerSize: geometry.size)
+                // Crop box border
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(Color.white, lineWidth: 2)
+                    .frame(width: cropBoxSize.width, height: cropBoxSize.height)
 
                 // Instructions and buttons
                 VStack {
                     // Top instruction
-                    Text("Center your stair stepper screen in the frame")
+                    Text("Adjust the frame to capture your stats")
                         .font(.montserratMedium(size: 14))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 20)
@@ -84,42 +94,34 @@ struct ConsoleCropView: View {
 
                     Spacer()
 
-                    // Bottom buttons
-                    HStack(spacing: 20) {
-                        Button {
-                            onCancel()
-                        } label: {
-                            Text("Cancel")
-                                .font(.montserratSemiBold(size: 16))
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 50)
-                                .background(Color.white.opacity(0.2))
-                                .foregroundStyle(.white)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                    // Bottom button
+                    Button {
+                        if let croppedImage = cropImage(
+                            image: image,
+                            cropBoxSize: cropBoxSize,
+                            containerSize: geometry.size,
+                            scale: scale,
+                            offset: offset
+                        ) {
+                            viewModel.processCroppedImage(croppedImage)
                         }
-
-                        Button {
-                            if let croppedImage = cropImage(
-                                image: image,
-                                cropBoxSize: cropBoxSize,
-                                containerSize: geometry.size,
-                                scale: scale,
-                                offset: offset
-                            ) {
-                                onCrop(croppedImage)
-                            }
-                        } label: {
-                            Text("Use This Area")
-                                .font(.montserratSemiBold(size: 16))
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 50)
-                                .background(.accent)
-                                .foregroundStyle(.white)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                        }
+                    } label: {
+                        Text("Process Image")
+                            .font(.montserratSemiBold(size: 16))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(.accent)
+                            .foregroundStyle(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
+                    .disabled(viewModel.isProcessing)
                     .padding(.horizontal, 20)
                     .padding(.bottom, 40)
+                }
+
+                // Processing overlay
+                if viewModel.isProcessing {
+                    ProcessingOverlay()
                 }
             }
         }
@@ -217,33 +219,3 @@ struct ConsoleCropView: View {
     }
 }
 
-// MARK: - Crop Overlay
-
-/// Overlay with a transparent cutout for the crop area
-struct CropOverlay: View {
-    let cropBoxSize: CGSize
-    let containerSize: CGSize
-
-    var body: some View {
-        ZStack {
-            // Semi-transparent overlay
-            Rectangle()
-                .fill(Color.black.opacity(0.5))
-                .mask(
-                    ZStack {
-                        Rectangle()
-                        RoundedRectangle(cornerRadius: 8)
-                            .frame(width: cropBoxSize.width, height: cropBoxSize.height)
-                            .blendMode(.destinationOut)
-                    }
-                    .compositingGroup()
-                )
-
-            // Crop box border
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(Color.white, lineWidth: 2)
-                .frame(width: cropBoxSize.width, height: cropBoxSize.height)
-        }
-        .allowsHitTesting(false)
-    }
-}

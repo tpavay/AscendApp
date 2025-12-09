@@ -17,7 +17,6 @@ class ConsoleScanViewModel {
     enum ScanState: Equatable {
         case selectingSource
         case cropping(UIImage)
-        case processing
         case confirmation(ConsoleScanResult, UIImage)
         case error(String)
 
@@ -26,8 +25,6 @@ class ConsoleScanViewModel {
             case (.selectingSource, .selectingSource):
                 return true
             case (.cropping, .cropping):
-                return true
-            case (.processing, .processing):
                 return true
             case (.confirmation, .confirmation):
                 return true
@@ -40,6 +37,10 @@ class ConsoleScanViewModel {
     }
 
     var state: ScanState = .selectingSource
+
+    // Processing state (shown as overlay, not separate view)
+    var isProcessing = false
+    private var currentScanTask: Task<Void, Never>?
 
     // For PhotosPicker
     var selectedPhotoItem: PhotosPickerItem?
@@ -76,21 +77,40 @@ class ConsoleScanViewModel {
     }
 
     /// Process the cropped image
-    func processCroppedImage(_ croppedImage: UIImage) async {
-        state = .processing
+    func processCroppedImage(_ croppedImage: UIImage) {
+        isProcessing = true
         hapticsManager.trigger(.mediumImpact)
 
-        do {
-            let result = try await scanService.scanConsole(image: croppedImage)
-            hapticsManager.trigger(.success)
-            state = .confirmation(result, croppedImage)
-        } catch let error as ConsoleScanError {
-            hapticsManager.trigger(.error)
-            state = .error(error.localizedDescription)
-        } catch {
-            hapticsManager.trigger(.error)
-            state = .error("An unexpected error occurred")
+        currentScanTask = Task {
+            do {
+                let result = try await scanService.scanConsole(image: croppedImage)
+
+                // Check if cancelled before updating state
+                guard !Task.isCancelled else { return }
+
+                hapticsManager.trigger(.success)
+                isProcessing = false
+                state = .confirmation(result, croppedImage)
+            } catch let error as ConsoleScanError {
+                guard !Task.isCancelled else { return }
+                hapticsManager.trigger(.error)
+                isProcessing = false
+                state = .error(error.localizedDescription)
+            } catch {
+                guard !Task.isCancelled else { return }
+                hapticsManager.trigger(.error)
+                isProcessing = false
+                state = .error("An unexpected error occurred")
+            }
         }
+    }
+
+    /// Cancel the current scanning operation
+    func cancelScanning() {
+        currentScanTask?.cancel()
+        currentScanTask = nil
+        isProcessing = false
+        // Stay on current view (don't change state)
     }
 
     /// Go back to source selection
@@ -102,6 +122,9 @@ class ConsoleScanViewModel {
 
     /// Reset to initial state
     func reset() {
+        currentScanTask?.cancel()
+        currentScanTask = nil
+        isProcessing = false
         selectedPhotoItem = nil
         capturedImage = nil
         showingCamera = false
