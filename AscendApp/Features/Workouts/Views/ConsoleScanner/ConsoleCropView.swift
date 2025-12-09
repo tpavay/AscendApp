@@ -150,72 +150,94 @@ struct ConsoleCropView: View {
         scale: CGFloat,
         offset: CGSize
     ) -> UIImage? {
-        guard let cgImage = image.cgImage else { return nil }
+        // First, normalize the image orientation by redrawing it
+        // This ensures CGImage pixels match the displayed orientation
+        guard let normalizedImage = normalizeImageOrientation(image),
+              let cgImage = normalizedImage.cgImage else {
+            return nil
+        }
 
-        let imageSize = image.size
+        let imageSize = normalizedImage.size
 
-        // Calculate the visible image size on screen
-        let aspectRatio = imageSize.width / imageSize.height
-        var displayedSize: CGSize
-        if aspectRatio > containerSize.width / containerSize.height {
-            displayedSize = CGSize(
+        // Calculate the base displayed size when using .scaledToFit()
+        let imageAspect = imageSize.width / imageSize.height
+        let containerAspect = containerSize.width / containerSize.height
+
+        var baseDisplayedSize: CGSize
+        if imageAspect > containerAspect {
+            // Image is wider than container - width fills, height is smaller
+            baseDisplayedSize = CGSize(
                 width: containerSize.width,
-                height: containerSize.width / aspectRatio
+                height: containerSize.width / imageAspect
             )
         } else {
-            displayedSize = CGSize(
-                width: containerSize.height * aspectRatio,
+            // Image is taller than container - height fills, width is smaller
+            baseDisplayedSize = CGSize(
+                width: containerSize.height * imageAspect,
                 height: containerSize.height
             )
         }
 
-        // Apply scale
-        displayedSize.width *= scale
-        displayedSize.height *= scale
-
-        // Calculate the center of the crop box in container coordinates
-        let cropBoxCenter = CGPoint(
-            x: containerSize.width / 2,
-            y: containerSize.height / 2
+        // Apply user's scale factor
+        let scaledDisplayedSize = CGSize(
+            width: baseDisplayedSize.width * scale,
+            height: baseDisplayedSize.height * scale
         )
 
-        // Calculate the image center after offset
-        let imageCenter = CGPoint(
-            x: containerSize.width / 2 + offset.width,
-            y: containerSize.height / 2 + offset.height
-        )
+        // The image is centered in the container, then offset by user drag
+        let imageCenterX = containerSize.width / 2 + offset.width
+        let imageCenterY = containerSize.height / 2 + offset.height
 
-        // Calculate crop box position relative to image
-        let cropBoxInImage = CGPoint(
-            x: (cropBoxCenter.x - imageCenter.x + displayedSize.width / 2) / displayedSize.width,
-            y: (cropBoxCenter.y - imageCenter.y + displayedSize.height / 2) / displayedSize.height
-        )
+        // Crop box is always centered in container
+        let cropBoxCenterX = containerSize.width / 2
+        let cropBoxCenterY = containerSize.height / 2
 
-        // Convert to actual image pixels
-        let cropRectOrigin = CGPoint(
-            x: (cropBoxInImage.x - (cropBoxSize.width / displayedSize.width) / 2) * imageSize.width,
-            y: (cropBoxInImage.y - (cropBoxSize.height / displayedSize.height) / 2) * imageSize.height
-        )
+        // Calculate crop box bounds in container coordinates
+        let cropBoxLeft = cropBoxCenterX - cropBoxSize.width / 2
+        let cropBoxTop = cropBoxCenterY - cropBoxSize.height / 2
 
-        let cropRectSize = CGSize(
-            width: (cropBoxSize.width / displayedSize.width) * imageSize.width,
-            height: (cropBoxSize.height / displayedSize.height) * imageSize.height
+        // Calculate image bounds in container coordinates
+        let imageLeft = imageCenterX - scaledDisplayedSize.width / 2
+        let imageTop = imageCenterY - scaledDisplayedSize.height / 2
+
+        // Calculate crop box position relative to the displayed image (0-1 normalized)
+        let relativeX = (cropBoxLeft - imageLeft) / scaledDisplayedSize.width
+        let relativeY = (cropBoxTop - imageTop) / scaledDisplayedSize.height
+        let relativeWidth = cropBoxSize.width / scaledDisplayedSize.width
+        let relativeHeight = cropBoxSize.height / scaledDisplayedSize.height
+
+        // Convert to actual image pixel coordinates
+        let cropRect = CGRect(
+            x: relativeX * imageSize.width,
+            y: relativeY * imageSize.height,
+            width: relativeWidth * imageSize.width,
+            height: relativeHeight * imageSize.height
         )
 
         // Clamp to image bounds
-        var cropRect = CGRect(origin: cropRectOrigin, size: cropRectSize)
-        cropRect = cropRect.intersection(CGRect(origin: .zero, size: imageSize))
+        let clampedRect = cropRect.intersection(CGRect(origin: .zero, size: imageSize))
 
-        // Validate minimum size (300x200 pixels)
-        if cropRect.width < 300 || cropRect.height < 200 {
+        // Validate we have a reasonable crop area
+        guard clampedRect.width >= 50 && clampedRect.height >= 50,
+              let croppedCGImage = cgImage.cropping(to: clampedRect) else {
             return nil
         }
 
-        guard let croppedCGImage = cgImage.cropping(to: cropRect) else {
-            return nil
+        return UIImage(cgImage: croppedCGImage, scale: normalizedImage.scale, orientation: .up)
+    }
+
+    /// Normalize image orientation by redrawing it with .up orientation
+    /// This ensures CGImage pixel coordinates match displayed coordinates
+    private func normalizeImageOrientation(_ image: UIImage) -> UIImage? {
+        guard image.imageOrientation != .up else {
+            return image // Already normalized
         }
 
-        return UIImage(cgImage: croppedCGImage, scale: image.scale, orientation: image.imageOrientation)
+        UIGraphicsBeginImageContextWithOptions(image.size, false, image.scale)
+        defer { UIGraphicsEndImageContext() }
+
+        image.draw(in: CGRect(origin: .zero, size: image.size))
+        return UIGraphicsGetImageFromCurrentImageContext()
     }
 }
 
