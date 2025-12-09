@@ -42,6 +42,7 @@ fastlane/test_output
 fastlane/readme.md
 
 # Firebase / Google
+.firebase/
 # Keep the real config out of git; provide an example file instead
 GoogleService-Info.plist
 GoogleService-Info*.plist
