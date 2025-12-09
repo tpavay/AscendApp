@@ -26,25 +26,32 @@ struct ScanConfirmationView: View {
     @State private var caloriesValue: String = ""
     @State private var heartRateValue: String = ""
 
+    // Track discarded fields
+    @State private var stepsDiscarded = false
+    @State private var floorsDiscarded = false
+    @State private var durationDiscarded = false
+    @State private var caloriesDiscarded = false
+    @State private var heartRateDiscarded = false
+
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
 
     private var hasAnyDetectedValues: Bool {
-        result.stepsClimbed != nil ||
-        result.floorsClimbed != nil ||
-        result.elapsedTimeSeconds != nil ||
-        result.calories != nil ||
-        result.heartRateBpm != nil
+        (result.stepsClimbed != nil && !stepsDiscarded) ||
+        (result.floorsClimbed != nil && !floorsDiscarded) ||
+        (result.elapsedTimeSeconds != nil && !durationDiscarded) ||
+        (result.calories != nil && !caloriesDiscarded) ||
+        (result.heartRateBpm != nil && !heartRateDiscarded)
     }
 
     private var notDetectedItems: [String] {
         var items: [String] = []
-        if result.stepsClimbed == nil { items.append("Steps") }
-        if result.floorsClimbed == nil { items.append("Floors") }
-        if result.elapsedTimeSeconds == nil { items.append("Duration") }
-        if result.calories == nil { items.append("Calories") }
-        if result.heartRateBpm == nil { items.append("Heart Rate") }
+        if result.stepsClimbed == nil || stepsDiscarded { items.append("Steps") }
+        if result.floorsClimbed == nil || floorsDiscarded { items.append("Floors") }
+        if result.elapsedTimeSeconds == nil || durationDiscarded { items.append("Duration") }
+        if result.calories == nil || caloriesDiscarded { items.append("Calories") }
+        if result.heartRateBpm == nil || heartRateDiscarded { items.append("Heart Rate") }
         return items
     }
 
@@ -90,59 +97,64 @@ struct ScanConfirmationView: View {
                             .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                             .frame(maxWidth: .infinity, alignment: .leading)
 
-                        // Steps (if detected)
-                        if result.stepsClimbed != nil {
+                        // Steps (if detected and not discarded)
+                        if result.stepsClimbed != nil && !stepsDiscarded {
                             MetricRow(
                                 label: "Steps",
                                 value: $stepsValue,
                                 icon: "figure.stairs",
                                 effectiveColorScheme: effectiveColorScheme,
-                                isFocused: $isTextFieldFocused
+                                isFocused: $isTextFieldFocused,
+                                onDiscard: { stepsDiscarded = true }
                             )
                         }
 
-                        // Floors (if detected)
-                        if result.floorsClimbed != nil {
+                        // Floors (if detected and not discarded)
+                        if result.floorsClimbed != nil && !floorsDiscarded {
                             MetricRow(
                                 label: "Floors",
                                 value: $floorsValue,
                                 icon: "building.2",
                                 effectiveColorScheme: effectiveColorScheme,
-                                isFocused: $isTextFieldFocused
+                                isFocused: $isTextFieldFocused,
+                                onDiscard: { floorsDiscarded = true }
                             )
                         }
 
-                        // Duration (if detected)
-                        if result.elapsedTimeSeconds != nil {
+                        // Duration (if detected and not discarded)
+                        if result.elapsedTimeSeconds != nil && !durationDiscarded {
                             MetricRow(
                                 label: "Duration",
                                 value: $durationValue,
                                 icon: "clock",
                                 effectiveColorScheme: effectiveColorScheme,
                                 isTime: true,
-                                isFocused: $isTextFieldFocused
+                                isFocused: $isTextFieldFocused,
+                                onDiscard: { durationDiscarded = true }
                             )
                         }
 
-                        // Calories (if detected)
-                        if result.calories != nil {
+                        // Calories (if detected and not discarded)
+                        if result.calories != nil && !caloriesDiscarded {
                             MetricRow(
                                 label: "Calories",
                                 value: $caloriesValue,
                                 icon: "flame",
                                 effectiveColorScheme: effectiveColorScheme,
-                                isFocused: $isTextFieldFocused
+                                isFocused: $isTextFieldFocused,
+                                onDiscard: { caloriesDiscarded = true }
                             )
                         }
 
-                        // Heart Rate (if detected)
-                        if result.heartRateBpm != nil {
+                        // Heart Rate (if detected and not discarded)
+                        if result.heartRateBpm != nil && !heartRateDiscarded {
                             MetricRow(
                                 label: "Heart Rate",
                                 value: $heartRateValue,
                                 icon: "heart",
                                 effectiveColorScheme: effectiveColorScheme,
-                                isFocused: $isTextFieldFocused
+                                isFocused: $isTextFieldFocused,
+                                onDiscard: { heartRateDiscarded = true }
                             )
                         }
                     }
@@ -264,12 +276,12 @@ struct ScanConfirmationView: View {
 
     /// Build updated result from edited values
     private func buildUpdatedResult() -> ConsoleScanResult {
-        // Parse edited values from text fields
-        let steps = Int(stepsValue)
-        let floors = Double(floorsValue)
-        let duration = parseDuration(durationValue)
-        let cals = Double(caloriesValue)
-        let hr = Int(heartRateValue)
+        // Parse edited values from text fields, respecting discarded fields
+        let steps = stepsDiscarded ? nil : Int(stepsValue)
+        let floors = floorsDiscarded ? nil : Double(floorsValue)
+        let duration = durationDiscarded ? nil : parseDuration(durationValue)
+        let cals = caloriesDiscarded ? nil : Double(caloriesValue)
+        let hr = heartRateDiscarded ? nil : Int(heartRateValue)
 
         return ConsoleScanResult(
             stepsClimbed: steps,
@@ -293,6 +305,7 @@ struct MetricRow: View {
     let effectiveColorScheme: ColorScheme
     var isTime: Bool = false
     var isFocused: FocusState<Bool>.Binding
+    var onDiscard: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -304,7 +317,7 @@ struct MetricRow: View {
             Text(label)
                 .font(.montserratMedium(size: 14))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                .frame(width: 80, alignment: .leading)
+                .frame(width: 60, alignment: .leading)
 
             TextField("", text: $value)
                 .font(.montserratSemiBold(size: 16))
@@ -322,6 +335,15 @@ struct MetricRow: View {
                     RoundedRectangle(cornerRadius: 8)
                         .stroke(effectiveColorScheme == .dark ? .white.opacity(0.2) : .gray.opacity(0.3), lineWidth: 1)
                 )
+
+            // Discard button
+            Button {
+                onDiscard()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 22))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.4) : .gray.opacity(0.5))
+            }
         }
     }
 }
