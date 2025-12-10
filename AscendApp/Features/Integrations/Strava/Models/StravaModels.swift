@@ -53,8 +53,9 @@ struct StravaWorkoutPayload: Encodable {
     let floors: Int
     let steps: Int
     let notes: String?
+    let tcxContent: String  // Base64-encoded TCX file content
 
-    init(workout: Workout) {
+    init(workout: Workout, stepHeightMeters: Double = 0.2032) {
         self.workoutId = workout.id.uuidString
         self.name = workout.name
         self.date = ISO8601DateFormatter().string(from: workout.date)
@@ -62,6 +63,10 @@ struct StravaWorkoutPayload: Encodable {
         self.floors = workout.floors
         self.steps = workout.steps
         self.notes = workout.notes.isEmpty ? nil : workout.notes
+
+        // Generate TCX file and encode as base64
+        let tcxString = TCXGenerator.generate(from: workout, stepHeightMeters: stepHeightMeters)
+        self.tcxContent = Data(tcxString.utf8).base64EncodedString()
     }
 }
 

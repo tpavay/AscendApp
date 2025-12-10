@@ -33,12 +33,13 @@ interface StravaTokenResponse {
   };
 }
 
-interface StravaActivityResponse {
-  id: number;
-  name: string;
-  type: string;
-  sport_type: string;
-}
+// StravaActivityResponse kept for potential future use
+// interface StravaActivityResponse {
+//   id: number;
+//   name: string;
+//   type: string;
+//   sport_type: string;
+// }
 
 interface WorkoutPayload {
   workoutId: string;
@@ -48,6 +49,16 @@ interface WorkoutPayload {
   floors: number;
   steps: number;
   notes?: string;
+  tcxContent: string; // Base64-encoded TCX file content
+}
+
+interface StravaUploadResponse {
+  id: number;
+  id_str: string;
+  external_id: string;
+  error: string | null;
+  status: string;
+  activity_id: number | null;
 }
 
 // ============================================
@@ -294,7 +305,106 @@ export const stravaCallback = onRequest(
 );
 
 // ============================================
-// CALLABLE: Create Activity
+// HELPER: Build multipart form data
+// ============================================
+
+/**
+ * Builds a multipart/form-data body for file upload.
+ * @param {string} boundary - The multipart boundary string
+ * @param {Record<string, string>} fields - Form fields to include
+ * @param {object} file - File to upload with name, content, and filename
+ * @return {Buffer} The complete multipart form data body
+ */
+function buildMultipartFormData(
+  boundary: string,
+  fields: Record<string, string>,
+  file: {name: string; content: Buffer; filename: string}
+): Buffer {
+  const parts: Buffer[] = [];
+
+  // Add text fields
+  for (const [key, value] of Object.entries(fields)) {
+    parts.push(Buffer.from(
+      `--${boundary}\r\n` +
+      "Content-Disposition: form-data; name=\"" + key + "\"\r\n\r\n" +
+      `${value}\r\n`
+    ));
+  }
+
+  // Add file field
+  parts.push(Buffer.from(
+    `--${boundary}\r\n` +
+    "Content-Disposition: form-data; name=\"" + file.name + "\"; " +
+    "filename=\"" + file.filename + "\"\r\n" +
+    "Content-Type: application/octet-stream\r\n\r\n"
+  ));
+  parts.push(file.content);
+  parts.push(Buffer.from("\r\n"));
+
+  // Add closing boundary
+  parts.push(Buffer.from(`--${boundary}--\r\n`));
+
+  return Buffer.concat(parts);
+}
+
+/**
+ * Polls Strava upload status until complete or error.
+ * @param {number} uploadId - The Strava upload ID to poll
+ * @param {string} accessToken - Valid Strava access token
+ * @param {number} maxAttempts - Maximum polling attempts (default 30)
+ * @param {number} delayMs - Delay between polls in ms (default 2000)
+ * @return {Promise<object>} Object with activityId or error
+ */
+async function pollUploadStatus(
+  uploadId: number,
+  accessToken: string,
+  maxAttempts = 30,
+  delayMs = 2000
+): Promise<{activityId: number | null; error: string | null}> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const response = await fetch(
+      `${STRAVA_API_BASE}/uploads/${uploadId}`,
+      {
+        headers: {"Authorization": `Bearer ${accessToken}`},
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error("Upload status check failed:", response.status, error);
+      throw new Error(`Upload status check failed: ${response.status}`);
+    }
+
+    const status: StravaUploadResponse = await response.json();
+    console.log(
+      "Upload status:", status.status,
+      "activity_id:", status.activity_id,
+      "error:", status.error
+    );
+
+    // Check if processing is complete
+    if (status.activity_id) {
+      return {activityId: status.activity_id, error: null};
+    }
+
+    // Check for error
+    if (status.error) {
+      // Check for duplicate
+      if (status.error.includes("duplicate")) {
+        return {activityId: null, error: "duplicate"};
+      }
+      return {activityId: null, error: status.error};
+    }
+
+    // Wait before next poll
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+
+  throw new Error("Upload processing timed out");
+}
+
+// ============================================
+// CALLABLE: Create Activity (via TCX Upload)
 // ============================================
 
 export const stravaCreateActivity = onCall(
@@ -312,9 +422,16 @@ export const stravaCreateActivity = onCall(
       throw new HttpsError("invalid-argument", "Missing workout data");
     }
 
+    if (!workout.tcxContent) {
+      throw new HttpsError("invalid-argument", "Missing TCX content");
+    }
+
     try {
       // Get valid access token (refreshing if needed)
       const accessToken = await refreshTokensIfNeeded(userId);
+
+      // Decode base64 TCX content
+      const tcxBuffer = Buffer.from(workout.tcxContent, "base64");
 
       // Build description
       const description = workout.notes ?
@@ -324,31 +441,80 @@ export const stravaCreateActivity = onCall(
           "\n\nLogged with Ascend";
 
       // Build external_id for idempotency
-      const externalId = `ascend:${userId}:${workout.workoutId}`;
+      const externalId = `ascend_${userId}_${workout.workoutId}`;
 
-      // Create activity on Strava
-      const response = await fetch(`${STRAVA_API_BASE}/activities`, {
+      // Build multipart form data
+      const boundary = `----AscendUpload${Date.now()}`;
+      const formData = buildMultipartFormData(
+        boundary,
+        {
+          name: workout.name || "Stair Climbing",
+          description: description,
+          sport_type: "StairStepper",
+          trainer: "1",
+          data_type: "tcx",
+          external_id: externalId,
+        },
+        {
+          name: "file",
+          content: tcxBuffer,
+          filename: `${externalId}.tcx`,
+        }
+      );
+
+      // Upload to Strava
+      console.log(
+        "Uploading TCX to Strava for user:", userId,
+        "external_id:", externalId,
+        "size:", tcxBuffer.length, "bytes"
+      );
+
+      const response = await fetch(`${STRAVA_API_BASE}/uploads`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
+          "Content-Type": `multipart/form-data; boundary=${boundary}`,
         },
-        body: JSON.stringify({
-          name: workout.name || "Stair Climbing",
-          type: "Workout",
-          sport_type: "StairStepper",
-          start_date_local: workout.date,
-          elapsed_time: workout.duration,
-          description,
-          trainer: 1, // Indoor activity
-          external_id: externalId,
-        }),
+        body: new Uint8Array(formData),
       });
 
-      // Handle duplicate (409 Conflict)
-      if (response.status === 409) {
+      if (!response.ok) {
+        const error = await response.text();
+        console.error(
+          "Strava upload failed:",
+          response.status,
+          error,
+          "userId:", userId,
+          "external_id:", externalId
+        );
+
+        // Check for duplicate in error response
+        if (response.status === 409 || error.includes("duplicate")) {
+          return {
+            success: true,
+            alreadyExists: true,
+            message: "Activity already synced to Strava",
+          };
+        }
+
+        throw new HttpsError(
+          "internal",
+          `Failed to upload to Strava: ${response.status}`
+        );
+      }
+
+      const uploadResponse: StravaUploadResponse = await response.json();
+      console.log(
+        "Upload initiated:",
+        uploadResponse.id,
+        "status:", uploadResponse.status
+      );
+
+      // Poll for completion
+      const result = await pollUploadStatus(uploadResponse.id, accessToken);
+
+      if (result.error === "duplicate") {
         console.log("Activity already exists for:", externalId);
-        // Return success - the activity was already created
         return {
           success: true,
           alreadyExists: true,
@@ -356,33 +522,25 @@ export const stravaCreateActivity = onCall(
         };
       }
 
-      if (!response.ok) {
-        const error = await response.text();
-        console.error(
-          "Strava create activity failed:",
-          response.status,
-          error,
-          "userId:", userId,
-          "external_id:", externalId
-        );
-        throw new HttpsError(
-          "internal",
-          `Failed to create Strava activity: ${response.status}`
-        );
+      if (result.error) {
+        console.error("Upload processing error:", result.error);
+        throw new HttpsError("internal", `Upload failed: ${result.error}`);
       }
 
-      const activity: StravaActivityResponse = await response.json();
+      if (!result.activityId) {
+        throw new HttpsError("internal", "Upload completed but no activity ID");
+      }
 
       console.log(
         "Strava activity created:",
-        activity.id,
+        result.activityId,
         "for user:", userId,
         "external_id:", externalId
       );
 
       return {
         success: true,
-        stravaActivityId: activity.id,
+        stravaActivityId: result.activityId,
       };
     } catch (err) {
       if (err instanceof HttpsError) {
