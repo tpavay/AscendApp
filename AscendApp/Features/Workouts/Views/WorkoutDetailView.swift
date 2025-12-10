@@ -20,6 +20,10 @@ struct WorkoutDetailView: View {
     @State private var showingDeleteConfirmation = false
     @State private var showingDeleteError = false
     @State private var deleteErrorMessage = ""
+    @State private var stravaManager = StravaManager.shared
+    @State private var isSyncingToStrava = false
+    @State private var showingStravaSyncSuccess = false
+    @State private var stravaSyncError: String? = nil
 
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -125,13 +129,30 @@ struct WorkoutDetailView: View {
                     }) {
                         Label("Share", systemImage: "square.and.arrow.up")
                     }
-                    
+
+                    // Strava sync option
+                    if stravaManager.isConnected {
+                        if workout.isSyncedToStrava {
+                            // Show synced state (non-actionable)
+                            Label("Synced to Strava", systemImage: "checkmark.circle.fill")
+                        } else {
+                            Button(action: shareToStrava) {
+                                if isSyncingToStrava {
+                                    Label("Syncing...", systemImage: "arrow.triangle.2.circlepath")
+                                } else {
+                                    Label("Share to Strava", systemImage: "figure.stairs")
+                                }
+                            }
+                            .disabled(isSyncingToStrava)
+                        }
+                    }
+
                     Button(action: {
                         showingEditWorkout = true
                     }) {
                         Label("Edit Workout", systemImage: "pencil")
                     }
-                    
+
                     Button(role: .destructive, action: {
                         showingDeleteConfirmation = true
                     }) {
@@ -173,7 +194,24 @@ struct WorkoutDetailView: View {
                 )
                 .padding(.top, 4)
             }
-            
+
+            // Strava sync indicator
+            if workout.isSyncedToStrava {
+                HStack(spacing: 6) {
+                    Image(systemName: "figure.stairs")
+                        .font(.system(size: 12, weight: .medium))
+                    Text("Synced to Strava")
+                        .font(.montserratRegular(size: 12))
+                }
+                .foregroundStyle(Color(red: 252/255, green: 76/255, blue: 2/255)) // Strava orange
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule()
+                        .fill(Color(red: 252/255, green: 76/255, blue: 2/255).opacity(0.15))
+                )
+            }
+
             // Date & time
             VStack(spacing: 4) {
                 Text(formatWorkoutDateTime())
@@ -516,6 +554,37 @@ struct WorkoutDetailView: View {
         }
     }
     
+    private func shareToStrava() {
+        guard !workout.isSyncedToStrava else { return }
+
+        Task {
+            isSyncingToStrava = true
+            stravaSyncError = nil
+
+            do {
+                let activityId = try await stravaManager.syncWorkout(workout)
+
+                // Update workout with sync metadata
+                let metadata = StravaSyncMetadata(stravaActivityId: activityId)
+                workout.setStravaSyncMetadata(metadata)
+                try? modelContext.save()
+
+                HapticsManager.shared.trigger(.success)
+                showingStravaSyncSuccess = true
+
+                // Auto-dismiss the success message after 2 seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    showingStravaSyncSuccess = false
+                }
+            } catch {
+                stravaSyncError = error.localizedDescription
+                HapticsManager.shared.trigger(.error)
+            }
+
+            isSyncingToStrava = false
+        }
+    }
+
     private func deleteWorkout() async {
         // Delete photos from Firebase first
         if !workout.photos.isEmpty {

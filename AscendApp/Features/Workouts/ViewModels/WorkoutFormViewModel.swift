@@ -162,6 +162,21 @@ class WorkoutFormViewModel {
                 stepHeight: settingsManager.stepHeight
             )
 
+            // Fire-and-forget Strava auto-sync (doesn't block save)
+            let stravaManager = StravaManager.shared
+            if stravaManager.isConnected && stravaManager.autoSyncEnabled {
+                Task {
+                    do {
+                        guard !workout.isSyncedToStrava else { return }
+                        let activityId = try await stravaManager.syncWorkout(workout)
+                        workout.setStravaSyncMetadata(StravaSyncMetadata(stravaActivityId: activityId))
+                        try? modelContext.save()
+                    } catch {
+                        print("Strava auto-sync failed: \(error)")
+                    }
+                }
+            }
+
             isUploading = false
             
             // Clean up trimmed video files after successful upload

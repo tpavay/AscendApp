@@ -23,9 +23,21 @@ struct AscendApp: App {
             NavigationStack {
                 RootView()
             }
+            .onOpenURL { url in
+                handleDeepLink(url: url)
+            }
         }
         .environment(authVM)
         .modelContainer(createModelContainer())
+    }
+
+    private func handleDeepLink(url: URL) {
+        // Handle Strava OAuth callback
+        if url.scheme == "ascendapp" && url.host == "strava-callback" {
+            Task { @MainActor in
+                StravaManager.shared.handleOAuthCallback(url: url)
+            }
+        }
     }
     
     private func createModelContainer() -> ModelContainer {

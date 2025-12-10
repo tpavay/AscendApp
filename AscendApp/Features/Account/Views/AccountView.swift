@@ -99,6 +99,11 @@ struct AccountView: View {
                 icon: "ruler",
                 title: "Measurement System",
                 destination: MeasurementSystemSelectionView()
+            ),
+            SettingsOption(
+                icon: "link",
+                title: "Integrations",
+                destination: IntegrationsView()
             )
         ]
 

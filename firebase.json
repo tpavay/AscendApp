@@ -23,6 +23,12 @@
       "firebase.json",
       "**/.*",
       "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/strava/callback",
+        "function": "stravaCallback"
+      }
     ]
   }
 }

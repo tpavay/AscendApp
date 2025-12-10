@@ -1,8 +1,8 @@
 /**
- * Console Scan Cloud Function
+ * Cloud Functions for AscendApp
  *
- * Scans stair stepper console photos using OpenAI Vision API
- * and extracts workout metrics (steps, floors, time, etc.)
+ * - Console Scan: OCR for stair stepper consoles using Vision API
+ * - Strava: OAuth and activity sync integration
  */
 
 import {onRequest} from "firebase-functions/v2/https";
@@ -10,7 +10,19 @@ import {setGlobalOptions} from "firebase-functions/v2";
 import * as admin from "firebase-admin";
 import OpenAI from "openai";
 
+// Initialize Firebase Admin (only once)
 admin.initializeApp();
+
+// ============================================
+// RE-EXPORT STRAVA FUNCTIONS
+// ============================================
+
+export {
+  stravaCallback,
+  stravaCreateOAuthState,
+  stravaCreateActivity,
+  stravaDisconnect,
+} from "./strava";
 
 // Global options for cost control
 setGlobalOptions({maxInstances: 10});

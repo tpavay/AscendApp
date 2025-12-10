@@ -80,7 +80,10 @@ class Workout {
     var healthKitUUID: String? // HealthKit workout UUID for deduplication
     var photos: [Photo]
     var highlightedPhotoId: UUID? // ID of the photo/video to display on workout cards
-    
+
+    // Strava sync tracking - stored as JSON for Codable compatibility
+    var stravaSyncData: String?
+
     // Personal Records tracking - stored as JSON for reliable CoreData serialization
     var personalRecordTypesData: Data?
 
@@ -96,6 +99,32 @@ class Workout {
             } else {
                 personalRecordTypesData = nil
             }
+        }
+    }
+
+    // MARK: - Strava Sync
+
+    /// Parsed Strava sync metadata
+    var stravaSyncMetadata: StravaSyncMetadata? {
+        guard let json = stravaSyncData,
+              let data = json.data(using: .utf8) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try? decoder.decode(StravaSyncMetadata.self, from: data)
+    }
+
+    /// Whether this workout has been synced to Strava
+    var isSyncedToStrava: Bool {
+        stravaSyncMetadata != nil
+    }
+
+    /// Set Strava sync metadata after successful sync
+    func setStravaSyncMetadata(_ metadata: StravaSyncMetadata) {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        if let data = try? encoder.encode(metadata),
+           let json = String(data: data, encoding: .utf8) {
+            stravaSyncData = json
         }
     }
 
