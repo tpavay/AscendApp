@@ -4,69 +4,221 @@
   <meta charset="utf-8" />
   <title>Ascend – Stair Workout Tracker</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Ascend is an iOS app for tracking StairMaster and stair-stepper workouts, with Ghost Mode pacing and optional Strava export." />
+  <meta name="description" content="Ascend is an iOS app used for tracking and analyzing stair-stepper workouts." />
   <style>
     :root {
-      --accent: #C79B43;
-      --bg: #050608;
-      --card: #101317;
+      /* From iOS color assets */
+      --accent: #B4CC00;          /* AccentColor */
+      --accent-soft: rgba(180, 204, 0, 0.12);
+      --bg: #0B0B0B;              /* Night */
+      --bg-soft: #141414;         /* NightLighter */
+      --surface: #1F1F1F;         /* JetDarker */
       --text: #f5f5f5;
+      --muted: #a6a8b0;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: radial-gradient(circle at top, #171b23 0, var(--bg) 55%);
+      background:
+        radial-gradient(circle at top left, #2a2f3c 0, #0B0B0B 55%);
       color: var(--text);
       font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      padding: 0;
     }
     main {
-      max-width: 520px;
       width: 100%;
-      padding: 32px 28px;
-      border-radius: 20px;
-      background: var(--card);
-      box-shadow: 0 18px 50px rgba(0,0,0,0.7);
+      min-height: 100vh;
+      padding: 32px 72px 48px;
+      margin: 0;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      row-gap: 32px;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand img {
+      width: 32px;
+      height: 32px;
+      display: block;
+    }
+    .brand-name {
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-size: 14px;
+    }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+      column-gap: 56px;
+      align-items: center;
     }
     h1 {
-      margin: 0 0 8px;
-      font-size: 28px;
-      letter-spacing: 0.04em;
+      margin: 0 0 12px;
+      font-size: 64px;
+      line-height: 1.02;
+      letter-spacing: 0.02em;
     }
-    .tagline {
+    .headline-accent {
       color: var(--accent);
+    }
+    .hero-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 11px;
       font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
       margin-bottom: 16px;
     }
-    p { margin: 8px 0; line-height: 1.5; }
+    p {
+      margin: 8px 0;
+      line-height: 1.6;
+      font-size: 16px;
+    }
     .meta {
       margin-top: 20px;
       font-size: 14px;
       opacity: 0.8;
+    }
+    .hero-copy {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      max-width: 540px;
+    }
+    .hero-bullets {
+      margin-top: 12px;
+      padding-left: 18px;
+      font-size: 15px;
+      color: var(--muted);
+    }
+    .hero-bullets li {
+      margin: 4px 0;
+    }
+    .hero-images {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 40px;
+      padding-right: 8px;
+    }
+    .phone {
+      position: relative;
+      border-radius: 32px;
+      overflow: hidden;
+      box-shadow:
+        0 25px 60px rgba(0, 0, 0, 0.9),
+        0 0 0 1px rgba(255, 255, 255, 0.02);
+      max-height: 580px;
+      aspect-ratio: 9 / 19.5;
+      background: radial-gradient(circle at top, rgba(0,0,0,0.9), #000);
+    }
+    .phone img {
+      height: 100%;
+      width: auto;
+      display: block;
+    }
+    .phone-secondary {
+      transform: translateY(26px) scale(0.96);
+      opacity: 0.95;
+    }
+    .phone-tertiary {
+      display: none;
     }
     a {
       color: var(--accent);
       text-decoration: none;
     }
     a:hover { text-decoration: underline; }
+    @media (max-width: 900px) {
+      main {
+        padding: 24px 16px 32px;
+      }
+      .hero {
+        grid-template-columns: 1fr;
+        padding: 32px 20px 40px;
+        min-height: auto;
+      }
+      .hero-images {
+        justify-content: center;
+      }
+      .phone-secondary {
+        display: none;
+      }
+    }
+    @media (max-width: 600px) {
+      h1 {
+        font-size: 32px;
+      }
+      .tagline {
+        font-size: 22px;
+      }
+      .phone {
+        max-height: 440px;
+      }
+    }
   </style>
 </head>
 <body>
   <main>
-    <h1>Ascend</h1>
-    <p class="tagline">StairMaster training, made measurable.</p>
-    <p>
-      Ascend is an iOS app focused on StairMaster and stair-stepper workouts.
-      Log sessions, track pace with Ghost Mode, and optionally share completed
-      workouts to your Strava profile as manual activities.
-    </p>
-    <p class="meta">
-      Built by Tyler Pavay ·
-      Contact: <a href="mailto:pavayt@gmail.com">pavayt@gmail.com</a>
-    </p>
+    <header>
+      <div class="brand">
+        <img src="/images/StairmasterIconAccent.png" alt="Ascend stair icon" />
+        <span class="brand-name">Ascend</span>
+      </div>
+    </header>
+    <section class="hero">
+      <div class="hero-copy">
+        <div class="hero-label">iOS app · Coming soon</div>
+        <h1>
+          Climb Higher.<br />
+          Track <span class="headline-accent">Smarter.</span>
+        </h1>
+      <p>
+        Ascend is an iOS app focused stair-stepper workouts.
+        Log stair stepper workouts, track detailed trends, stay consistent with streaks,
+        compete on leaderboards, and more.
+      </p>
+      <ul class="hero-bullets">
+        <li>Track workouts, steps, floors, and streaks over time</li>
+        <li>See trends and best efforts at a glance</li>
+        <li>Designed for any and all stair stepper users</li>
+      </ul>
+      <p class="meta">
+        Built by Tyler Pavay ·
+        Contact: <a href="mailto:pavayt@gmail.com">pavayt@gmail.com</a>
+      </p>
+      </div>
+      <section class="hero-images" aria-label="Ascend app screenshots">
+        <figure class="phone phone-secondary">
+          <img src="/images/WorkoutScreen.jpg" alt="Ascend workouts list" loading="lazy" />
+        </figure>
+        <figure class="phone">
+          <img src="/images/ProgressScreen.jpg" alt="Ascend progress calendar" loading="eager" />
+        </figure>
+        <!-- Optional extra phone if you add another screenshot asset:
+        <figure class="phone phone-tertiary">
+          <img src="/images/TrendsScreen.jpg" alt="Ascend workout trends" loading="lazy" />
+        </figure>
+        -->
+      </section>
+    </section>
   </main>
 </body>
 </html>
