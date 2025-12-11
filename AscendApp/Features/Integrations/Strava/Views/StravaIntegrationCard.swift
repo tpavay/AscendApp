@@ -21,37 +21,53 @@ struct StravaIntegrationCard: View {
     }
 
     var body: some View {
-        VStack(spacing: 20) {
-            // Header with Strava branding
+        VStack(spacing: 16) {
+            // Main row: Icon | Strava | (i) | Connect/Disconnect
             HStack(spacing: 12) {
-                // Strava icon placeholder (use SF Symbol as fallback)
-                ZStack {
-                    Circle()
-                        .fill(stravaOrange.opacity(0.15))
-                        .frame(width: 50, height: 50)
+                // Strava icon
+                Image("strava-icon")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 44, height: 44)
+                    .cornerRadius(8)
 
-                    Image(systemName: "figure.stairs")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(stravaOrange)
-                }
+                Text("Strava")
+                    .font(.montserratSemiBold(size: 17))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Strava")
-                        .font(.montserratSemiBold(size: 18))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                    Text("Push workouts to Strava")
-                        .font(.montserratRegular(size: 14))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                }
+                // Info button with tooltip sheet
+                TooltipButton(
+                    title: "Strava Integration",
+                    content: "When connected, your workouts will be synced to your Strava feed, allowing you to share with your Strava community.\n\nWith auto-sync enabled, new workouts are automatically pushed to Strava. If auto-sync is off, you can manually sync any workout from the workout detail view using the menu."
+                )
 
                 Spacer()
+
+                // Connect/Disconnect button
+                if stravaManager.isConnecting {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                } else if stravaManager.isConnected {
+                    Button("Disconnect") {
+                        showingDisconnectConfirmation = true
+                    }
+                    .font(.montserratMedium(size: 15))
+                    .foregroundStyle(.red)
+                } else {
+                    Button("Connect") {
+                        connectToStrava()
+                    }
+                    .font(.montserratMedium(size: 15))
+                    .foregroundStyle(stravaOrange)
+                }
             }
 
-            if stravaManager.isConnected {
-                connectedContent
-            } else {
-                disconnectedContent
+            // Description (when not connected)
+            if !stravaManager.isConnected && !stravaManager.isConnecting {
+                Text("Connect your Strava account to automatically share your stair climbing workouts.")
+                    .font(.montserratRegular(size: 14))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             // Error message
@@ -59,7 +75,29 @@ struct StravaIntegrationCard: View {
                 Text(error)
                     .font(.montserratRegular(size: 13))
                     .foregroundStyle(.red.opacity(0.9))
-                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // Auto-sync section (when connected)
+            if stravaManager.isConnected {
+                Divider()
+                    .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
+
+                Toggle(isOn: Binding(
+                    get: { stravaManager.autoSyncEnabled },
+                    set: { stravaManager.autoSyncEnabled = $0 }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Auto-sync workouts")
+                            .font(.montserratMedium(size: 15))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+                        Text("Automatically push new workouts to Strava")
+                            .font(.montserratRegular(size: 13))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
+                    }
+                }
+                .tint(stravaOrange)
             }
         }
         .padding(20)
@@ -87,93 +125,6 @@ struct StravaIntegrationCard: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Your Strava connection will be removed. You can reconnect at any time.")
-        }
-    }
-
-    // MARK: - Connected State
-
-    @ViewBuilder
-    private var connectedContent: some View {
-        VStack(spacing: 16) {
-            // Connection status
-            HStack(spacing: 8) {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-
-                Text("Connected as \(stravaManager.athleteName)")
-                    .font(.montserratMedium(size: 15))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                Spacer()
-            }
-
-            Divider()
-                .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
-
-            // Auto-sync toggle
-            Toggle(isOn: Binding(
-                get: { stravaManager.autoSyncEnabled },
-                set: { stravaManager.autoSyncEnabled = $0 }
-            )) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Auto-sync workouts")
-                        .font(.montserratMedium(size: 15))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                    Text("Automatically push new workouts to Strava")
-                        .font(.montserratRegular(size: 13))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
-                }
-            }
-            .tint(stravaOrange)
-
-            // Disconnect button
-            Button(action: {
-                showingDisconnectConfirmation = true
-            }) {
-                Text("Disconnect")
-                    .font(.montserratMedium(size: 15))
-                    .foregroundStyle(.red)
-            }
-            .padding(.top, 8)
-        }
-    }
-
-    // MARK: - Disconnected State
-
-    @ViewBuilder
-    private var disconnectedContent: some View {
-        VStack(spacing: 16) {
-            Text("Connect your Strava account to automatically share your stair climbing workouts.")
-                .font(.montserratRegular(size: 14))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                .multilineTextAlignment(.center)
-
-            // Connect button
-            Button(action: connectToStrava) {
-                HStack(spacing: 10) {
-                    if stravaManager.isConnecting {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            .scaleEffect(0.8)
-                    } else {
-                        Image(systemName: "link")
-                            .font(.system(size: 16, weight: .semibold))
-                    }
-
-                    Text(stravaManager.isConnecting ? "Connecting..." : "Connect with Strava")
-                        .font(.montserratSemiBold(size: 16))
-                }
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(stravaOrange)
-                )
-            }
-            .disabled(stravaManager.isConnecting)
-            .opacity(stravaManager.isConnecting ? 0.7 : 1.0)
         }
     }
 

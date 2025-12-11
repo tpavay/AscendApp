@@ -26,10 +26,23 @@ final class StravaManager: NSObject {
         "https://\(region)-\(projectId).cloudfunctions.net"
     }
 
+    // MARK: - Cache Keys
+
+    private nonisolated let isConnectedKey = "stravaIsConnected"
+    private nonisolated let athleteNameKey = "stravaAthleteName"
+
     // MARK: - UI State
 
-    var isConnected: Bool = false
-    var athleteName: String = ""
+    var isConnected: Bool = false {
+        didSet {
+            UserDefaults.standard.set(isConnected, forKey: isConnectedKey)
+        }
+    }
+    var athleteName: String = "" {
+        didSet {
+            UserDefaults.standard.set(athleteName, forKey: athleteNameKey)
+        }
+    }
     var isConnecting: Bool = false
     var connectionError: String? = nil
 
@@ -38,7 +51,6 @@ final class StravaManager: NSObject {
     var autoSyncEnabled: Bool {
         didSet {
             UserDefaults.standard.set(autoSyncEnabled, forKey: "stravaAutoSyncEnabled")
-            UserDefaults.standard.synchronize()
         }
     }
 
@@ -53,8 +65,12 @@ final class StravaManager: NSObject {
         self.autoSyncEnabled = UserDefaults.standard.bool(forKey: "stravaAutoSyncEnabled")
         super.init()
 
-        // Check connection status on init
-        print("🔶 Strava: StravaManager init, scheduling refreshConnectionStatus")
+        // Load cached connection status immediately for instant UI
+        isConnected = UserDefaults.standard.bool(forKey: isConnectedKey)
+        athleteName = UserDefaults.standard.string(forKey: athleteNameKey) ?? ""
+
+        // Refresh from Firestore in background to ensure cache is up-to-date
+        print("🔶 Strava: StravaManager init, cached isConnected=\(isConnected), scheduling refreshConnectionStatus")
         Task {
             await refreshConnectionStatus()
         }
@@ -151,6 +167,7 @@ final class StravaManager: NSObject {
     /// Disconnect from Strava
     func disconnect() async throws {
         try await callDisconnect()
+        // Setting these will trigger didSet which updates the cache
         isConnected = false
         athleteName = ""
     }
