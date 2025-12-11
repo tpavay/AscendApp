@@ -50,6 +50,8 @@ interface WorkoutPayload {
   steps: number;
   notes?: string;
   tcxContent: string; // Base64-encoded TCX file content
+  primaryMetric: "steps" | "floors"; // User's preferred metric
+  avgSPM: number; // Average steps per minute
 }
 
 interface StravaUploadResponse {
@@ -433,12 +435,17 @@ export const stravaCreateActivity = onCall(
       // Decode base64 TCX content
       const tcxBuffer = Buffer.from(workout.tcxContent, "base64");
 
-      // Build description
-      const description = workout.notes ?
-        `${workout.floors} floors, ${workout.steps} steps - ${workout.notes}` +
-          "\n\nLogged with Ascend" :
-        `${workout.floors} floors, ${workout.steps} steps` +
-          "\n\nLogged with Ascend";
+      // Build description based on user's preferred metric
+      const isSteps = workout.primaryMetric === "steps";
+      const primaryValue = isSteps ? workout.steps : workout.floors;
+      const primaryLabel = isSteps ? "steps" : "floors";
+
+      let description = `${primaryValue} ${primaryLabel}\n`;
+      description += `Avg SPM: ${workout.avgSPM}`;
+
+      if (workout.notes) {
+        description += `\n\n${workout.notes}`;
+      }
 
       // Build external_id for idempotency
       const externalId = `ascend_${userId}_${workout.workoutId}`;

@@ -562,7 +562,10 @@ struct WorkoutDetailView: View {
             stravaSyncError = nil
 
             do {
-                let activityId = try await stravaManager.syncWorkout(workout)
+                let activityId = try await stravaManager.syncWorkout(
+                    workout,
+                    primaryMetric: settingsManager.preferredWorkoutMetric
+                )
 
                 // Update workout with sync metadata
                 let metadata = StravaSyncMetadata(stravaActivityId: activityId)

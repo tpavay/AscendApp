@@ -156,9 +156,12 @@ final class StravaManager: NSObject {
     }
 
     /// Sync a workout to Strava
+    /// - Parameters:
+    ///   - workout: The workout to sync
+    ///   - primaryMetric: The user's preferred primary metric for display
     /// - Returns: The Strava activity ID
-    func syncWorkout(_ workout: Workout) async throws -> Int {
-        let payload = StravaWorkoutPayload(workout: workout)
+    func syncWorkout(_ workout: Workout, primaryMetric: WorkoutMetric) async throws -> Int {
+        let payload = StravaWorkoutPayload(workout: workout, primaryMetric: primaryMetric)
         let response = try await callCreateActivity(workout: payload)
 
         if response.success {

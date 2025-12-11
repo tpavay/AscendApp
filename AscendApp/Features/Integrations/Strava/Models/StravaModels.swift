@@ -54,8 +54,10 @@ struct StravaWorkoutPayload: Encodable {
     let steps: Int
     let notes: String?
     let tcxContent: String  // Base64-encoded TCX file content
+    let primaryMetric: String  // "steps" or "floors"
+    let avgSPM: Int  // Average steps per minute
 
-    init(workout: Workout, stepHeightMeters: Double = 0.2032) {
+    init(workout: Workout, primaryMetric: WorkoutMetric, stepHeightMeters: Double = 0.2032) {
         self.workoutId = workout.id.uuidString
         self.name = workout.name
         self.date = ISO8601DateFormatter().string(from: workout.date)
@@ -63,6 +65,11 @@ struct StravaWorkoutPayload: Encodable {
         self.floors = workout.floors
         self.steps = workout.steps
         self.notes = workout.notes.isEmpty ? nil : workout.notes
+        self.primaryMetric = primaryMetric.rawValue
+
+        // Calculate average steps per minute
+        let minutes = workout.duration / 60.0
+        self.avgSPM = minutes > 0 ? Int((Double(workout.steps) / minutes).rounded()) : 0
 
         // Generate TCX file and encode as base64
         let tcxString = TCXGenerator.generate(from: workout, stepHeightMeters: stepHeightMeters)
