@@ -40,5 +40,12 @@
 	<string>Ascend saves your workout posters to your Photos library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Ascend needs access to your photo library to select stair stepper console images for automatic workout logging.</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>instagram-stories</string>
+		<string>twitter</string>
+	</array>
+	<key>FacebookAppID</key>
+	<string>1546524626613679</string>
 </dict>
 </plist>

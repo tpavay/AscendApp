@@ -225,10 +225,11 @@ struct WorkoutShareCarouselView: View {
             
             // Instagram Stories
             CarouselActionButton(
-                icon: "camera.fill",
+                icon: "instagram-icon",
                 label: "Stories",
                 foregroundColor: actionForeground,
-                backgroundColor: actionBackground
+                backgroundColor: actionBackground,
+                isAssetImage: true
             ) {
                 shareToInstagramStories()
             }
@@ -259,10 +260,11 @@ struct WorkoutShareCarouselView: View {
             
             // Twitter/X
             CarouselActionButton(
-                icon: "xmark",
-                label: "Twitter",
+                icon: "x-icon",
+                label: "X",
                 foregroundColor: .white,
-                backgroundColor: .black
+                backgroundColor: .black,
+                isAssetImage: true
             ) {
                 shareToTwitter()
             }
@@ -355,31 +357,39 @@ struct WorkoutShareCarouselView: View {
             return
         }
         
-        guard let instagramURL = URL(string: "instagram-stories://share"),
+        // Facebook App ID is required for Instagram Stories sharing (as of January 2023)
+        guard let facebookAppID = Bundle.main.object(forInfoDictionaryKey: "FacebookAppID") as? String,
+              !facebookAppID.isEmpty else {
+            viewModel.shareErrorMessage = "Instagram sharing is not configured. Missing Facebook App ID."
+            showingShareError = true
+            return
+        }
+
+        guard let instagramURL = URL(string: "instagram-stories://share?source_application=\(facebookAppID)"),
               UIApplication.shared.canOpenURL(instagramURL) else {
             viewModel.shareErrorMessage = "Instagram is not installed on this device."
             showingShareError = true
             return
         }
-        
+
         guard let imageData = image.pngData() else {
             viewModel.shareErrorMessage = "We couldn't process the image. Please try again."
             showingShareError = true
             return
         }
-        
+
         let pasteboardItems: [[String: Any]] = [[
             "com.instagram.sharedSticker.stickerImage": imageData,
-            "com.instagram.sharedSticker.backgroundTopColor": "#1a1a2e",
-            "com.instagram.sharedSticker.backgroundBottomColor": "#16213e"
+            "com.instagram.sharedSticker.backgroundTopColor": "#000000",
+            "com.instagram.sharedSticker.backgroundBottomColor": "#000000"
         ]]
-        
+
         let pasteboardOptions: [UIPasteboard.OptionsKey: Any] = [
             .expirationDate: Date().addingTimeInterval(60 * 5)
         ]
-        
+
         UIPasteboard.general.setItems(pasteboardItems, options: pasteboardOptions)
-        UIApplication.shared.open(instagramURL)
+        UIApplication.shared.open(instagramURL, options: [:], completionHandler: nil)
     }
     
     private func shareToTwitter() {
@@ -424,8 +434,9 @@ private struct CarouselActionButton: View {
     let foregroundColor: Color
     let backgroundColor: Color
     var isDisabled: Bool = false
+    var isAssetImage: Bool = false
     let action: () -> Void
-    
+
     var body: some View {
         Button(action: action) {
             VStack(spacing: 6) {
@@ -433,10 +444,19 @@ private struct CarouselActionButton: View {
                     Circle()
                         .fill(backgroundColor)
                         .frame(width: 48, height: 48)
-                    
-                    Image(systemName: icon)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(foregroundColor)
+
+                    if isAssetImage {
+                        Image(icon)
+                            .renderingMode(.template)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 18, height: 18)
+                            .foregroundStyle(foregroundColor)
+                    } else {
+                        Image(systemName: icon)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(foregroundColor)
+                    }
                 }
                 
                 Text(label)
