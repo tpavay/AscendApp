@@ -198,8 +198,11 @@ struct WorkoutDetailView: View {
             // Strava sync indicator
             if workout.isSyncedToStrava {
                 HStack(spacing: 6) {
-                    Image(systemName: "figure.stairs")
-                        .font(.system(size: 12, weight: .medium))
+                    Image("strava-icon")
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 12, height: 12)
                     Text("Synced to Strava")
                         .font(.montserratRegular(size: 12))
                 }

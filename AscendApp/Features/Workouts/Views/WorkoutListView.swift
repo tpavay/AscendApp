@@ -330,11 +330,21 @@ struct WorkoutRowView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Workout Name (prominent)
-            Text(workout.name)
-                .font(.montserratBold(size: 18))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // Workout Name with optional Strava icon on the right
+            HStack(spacing: 8) {
+                Text(workout.name)
+                    .font(.montserratBold(size: 18))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                Spacer()
+                if workout.isSyncedToStrava {
+                    Image("strava-icon")
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 18, height: 18)
+                        .foregroundStyle(Color(red: 252/255, green: 76/255, blue: 2/255))
+                }
+            }
             
             HStack(spacing: 16) {
                 // Date
