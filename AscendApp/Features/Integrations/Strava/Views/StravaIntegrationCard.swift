@@ -22,7 +22,7 @@ struct StravaIntegrationCard: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            // Main row: Icon | Strava | (i) | Connect/Disconnect
+            // Main row: Icon | Strava | Connect/Disconnect
             HStack(spacing: 12) {
                 // Strava icon
                 Image("strava-icon")
@@ -34,12 +34,6 @@ struct StravaIntegrationCard: View {
                 Text("Strava")
                     .font(.montserratSemiBold(size: 17))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                // Info button with tooltip sheet
-                TooltipButton(
-                    title: "Strava Integration",
-                    content: "When connected, your workouts will be synced to your Strava feed, allowing you to share with your Strava community.\n\nWith auto-sync enabled, new workouts are automatically pushed to Strava. If auto-sync is off, you can manually sync any workout from the workout detail view using the menu."
-                )
 
                 Spacer()
 
@@ -64,7 +58,7 @@ struct StravaIntegrationCard: View {
 
             // Description (when not connected)
             if !stravaManager.isConnected && !stravaManager.isConnecting {
-                Text("Connect your Strava account to automatically share your stair climbing workouts.")
+                Text("Connect your Strava account to share your workouts with your Strava community.")
                     .font(.montserratRegular(size: 14))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
                     .frame(maxWidth: .infinity, alignment: .leading)

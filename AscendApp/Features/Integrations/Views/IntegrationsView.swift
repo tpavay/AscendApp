@@ -35,7 +35,7 @@ struct IntegrationsView: View {
         .themedBackground()
         .preferredColorScheme(effectiveColorScheme)
         .navigationTitle("Integrations")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.clear, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
     }

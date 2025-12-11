@@ -113,7 +113,7 @@ final class StravaManager: NSObject {
 
                         if let error = error as? ASWebAuthenticationSessionError,
                            error.code == .canceledLogin {
-                            self.connectionError = "Connection cancelled"
+                            // User cancelled - no need to show error
                             self.isConnecting = false
                         } else if error != nil {
                             self.connectionError = "Connection failed"
