@@ -99,7 +99,7 @@ struct WorkoutShareCarouselView: View {
         }
         .themedBackground()
         .sheet(item: $sharePayload) { payload in
-            ActivityView(activityItems: payload.items)
+            ActivityView(activityItems: payload.items, excludedActivityTypes: payload.excludedTypes)
                 .ignoresSafeArea()
         }
         .alert("Unable to Share", isPresented: $showingShareError) {
@@ -393,34 +393,22 @@ struct WorkoutShareCarouselView: View {
     }
     
     private func shareToTwitter() {
-        guard let image = viewModel.renderCurrentCard(
-            measurementSystem: settingsManager.measurementSystem,
-            stepHeight: settingsManager.stepHeight,
-            preferredMetric: settingsManager.preferredWorkoutMetric
-        ) else {
-            viewModel.shareErrorMessage = "We couldn't render the card. Please try again."
-            showingShareError = true
-            return
-        }
-        
-        // Save image temporarily and share via Twitter
         let text = viewModel.shareText(
             measurementSystem: settingsManager.measurementSystem,
             stepHeight: settingsManager.stepHeight,
             preferredMetric: settingsManager.preferredWorkoutMetric
         )
-        
-        // Try Twitter app first, fall back to web
-        if let twitterURL = URL(string: "twitter://post"),
-           UIApplication.shared.canOpenURL(twitterURL) {
-            // Use share sheet with Twitter as the destination
-            let items: [Any] = [image, text]
-            sharePayload = ActivitySharePayload(items: items)
+
+        let encodedText = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+
+        // Try X/Twitter app first
+        if let twitterAppURL = URL(string: "twitter://post?message=\(encodedText)"),
+           UIApplication.shared.canOpenURL(URL(string: "twitter://")!) {
+            UIApplication.shared.open(twitterAppURL, options: [:], completionHandler: nil)
         } else {
             // Fall back to web intent
-            let encodedText = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-            if let webURL = URL(string: "https://twitter.com/intent/tweet?text=\(encodedText)") {
-                UIApplication.shared.open(webURL)
+            if let webURL = URL(string: "https://x.com/intent/tweet?text=\(encodedText)") {
+                UIApplication.shared.open(webURL, options: [:], completionHandler: nil)
             }
         }
     }
@@ -476,6 +464,7 @@ private struct CarouselActionButton: View {
 private struct ActivitySharePayload: Identifiable {
     let id = UUID()
     let items: [Any]
+    var excludedTypes: [UIActivity.ActivityType]? = nil
 }
 
 // MARK: - Int Extension for Ordinals

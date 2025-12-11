@@ -15,7 +15,7 @@ func workoutShareText(
 ) -> String {
     let workoutTitle = workout.name.isEmpty ? "Stair workout" : workout.name
     var lines: [String] = [
-        "\(workoutTitle) logged with Ascend 🧗‍♂️",
+        workoutTitle,
         ""
     ]
 
@@ -54,6 +54,10 @@ func workoutShareText(
         lines.append("")
         lines.append(prText)
     }
+
+    // Add attribution at the bottom
+    lines.append("")
+    lines.append("Logged with Ascend")
 
     return lines.joined(separator: "\n")
 }
