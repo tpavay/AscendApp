@@ -22,6 +22,7 @@ struct WorkoutDetailView: View {
     @State private var deleteErrorMessage = ""
     @State private var stravaManager = StravaManager.shared
     @State private var isSyncingToStrava = false
+    @State private var syncingIconOpacity: Double = 1.0
     @State private var showingStravaSyncSuccess = false
     @State private var stravaSyncError: String? = nil
 
@@ -196,14 +197,15 @@ struct WorkoutDetailView: View {
             }
 
             // Strava sync indicator
-            if workout.isSyncedToStrava {
+            if isSyncingToStrava || workout.isSyncedToStrava {
                 HStack(spacing: 6) {
                     Image("strava-icon")
                         .renderingMode(.template)
                         .resizable()
                         .scaledToFit()
                         .frame(width: 12, height: 12)
-                    Text("Synced to Strava")
+                        .opacity(isSyncingToStrava ? syncingIconOpacity : 1.0)
+                    Text(isSyncingToStrava ? "Syncing..." : "Synced to Strava")
                         .font(.montserratRegular(size: 12))
                 }
                 .foregroundStyle(Color(red: 252/255, green: 76/255, blue: 2/255)) // Strava orange
@@ -213,6 +215,17 @@ struct WorkoutDetailView: View {
                     Capsule()
                         .fill(Color(red: 252/255, green: 76/255, blue: 2/255).opacity(0.15))
                 )
+                .onChange(of: isSyncingToStrava) { _, syncing in
+                    if syncing {
+                        withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
+                            syncingIconOpacity = 0.3
+                        }
+                    } else {
+                        withAnimation(.default) {
+                            syncingIconOpacity = 1.0
+                        }
+                    }
+                }
             }
 
             // Date & time

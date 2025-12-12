@@ -88,7 +88,7 @@ struct WorkoutFormView: View {
         }
         .onAppear {
             if viewModel.workoutName.isEmpty {
-                viewModel.workoutName = generateDefaultWorkoutName()
+                viewModel.workoutName = Workout.generateDefaultName(for: viewModel.workoutDate)
             }
             // Apply prefill from console scan if provided
             if let result = prefillResult {
@@ -100,7 +100,7 @@ struct WorkoutFormView: View {
     private var workoutInfoCard: some View {
         VStack(spacing: 16) {
             // Workout Name
-            TextField(generateDefaultWorkoutName(), text: $viewModel.workoutName)
+            TextField(Workout.generateDefaultName(for: viewModel.workoutDate), text: $viewModel.workoutName)
                 .focused($focusedField, equals: .workoutName)
                 .font(.montserratRegular(size: 18))
                 .padding(16)
@@ -400,19 +400,6 @@ struct WorkoutFormView: View {
         } catch {
             print("❌ Error saving workout: \(error)")
             // Error is already set in viewModel
-        }
-    }
-
-    private func generateDefaultWorkoutName() -> String {
-        let hour = Calendar.current.component(.hour, from: Date())
-
-        switch hour {
-        case 5..<12:
-            return "Morning Workout"
-        case 12..<18:
-            return "Afternoon Workout"
-        default:
-            return "Evening Workout"
         }
     }
 

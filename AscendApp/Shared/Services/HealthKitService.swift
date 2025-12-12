@@ -272,7 +272,7 @@ extension HKWorkout {
         let floors = Workout.stepsToFloors(steps, stepsPerFloor: stepsPerFloor)
         
         let workout = Workout(
-            name: "Stair Climbing Workout",
+            name: Workout.generateDefaultName(for: startDate),
             date: startDate,
             duration: duration,
             steps: steps,

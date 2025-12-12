@@ -58,9 +58,9 @@ class WorkoutFormViewModel {
         self.workoutService = workoutService
         self.settingsManager = settingsManager
 
-        // Set default workout name
+        // Set default workout name based on workout date
         if workoutName.isEmpty {
-            workoutName = generateDefaultWorkoutName()
+            workoutName = Workout.generateDefaultName(for: workoutDate)
         }
     }
 
@@ -396,7 +396,7 @@ class WorkoutFormViewModel {
         }
 
         return CreateWorkoutRequest(
-            name: workoutName.isEmpty ? generateDefaultWorkoutName() : workoutName,
+            name: workoutName.isEmpty ? Workout.generateDefaultName(for: workoutDate) : workoutName,
             date: workoutDate,
             duration: totalDuration,
             steps: steps,
@@ -408,15 +408,6 @@ class WorkoutFormViewModel {
             caloriesBurned: calories,
             effortRating: effortRating
         )
-    }
-
-    private func generateDefaultWorkoutName() -> String {
-        let hour = Calendar.current.component(.hour, from: Date())
-        switch hour {
-        case 5..<12: return "Morning Workout"
-        case 12..<18: return "Afternoon Workout"
-        default: return "Evening Workout"
-        }
     }
 
     private func effortDescription(for rating: Double) -> String {

@@ -251,7 +251,17 @@ class Workout {
     static func floorsToSteps(_ floors: Int, stepsPerFloor: Int) -> Int {
         return floors * stepsPerFloor
     }
-    
+
+    /// Generates a default workout name based on time of day
+    static func generateDefaultName(for date: Date) -> String {
+        let hour = Calendar.current.component(.hour, from: date)
+        switch hour {
+        case 5..<12: return "Morning Stair Stepper"
+        case 12..<18: return "Afternoon Stair Stepper"
+        default: return "Evening Stair Stepper"
+        }
+    }
+
     /// Recalculates floors based on current steps value
     func recalculateFloorsFromSteps() {
         floors = Workout.stepsToFloors(steps, stepsPerFloor: stepsPerFloor)
