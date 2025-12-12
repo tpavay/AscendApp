@@ -49,6 +49,11 @@ struct WorkoutFormView: View {
             }
             .themedBackground()
             .navigationBarHidden(true)
+            .toolbar {
+                ToolbarItem(placement: .keyboard) {
+                    KeyboardDismissButton()
+                }
+            }
         }
         .sheet(isPresented: $showingMetricTooltip) {
             MetricTooltipView()
@@ -343,6 +348,7 @@ struct WorkoutFormView: View {
                     viewModel.caloriesBurned = viewModel.validateCaloriesOnSubmit(viewModel.caloriesBurned)
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
         }
 
     private var permanentHeader: some View {

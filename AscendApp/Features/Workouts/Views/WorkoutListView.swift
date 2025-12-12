@@ -157,7 +157,7 @@ struct WorkoutListView: View {
                     }
                 )
             }
-            .fullScreenCover(item: $workoutFormPresentation) { presentation in
+            .sheet(item: $workoutFormPresentation) { presentation in
                 WorkoutFormView(
                     showingWorkoutForm: Binding(
                         get: { workoutFormPresentation != nil },
@@ -178,6 +178,7 @@ struct WorkoutListView: View {
                     },
                     prefillResult: presentation.prefillResult
                 )
+                .interactiveDismissDisabled()
             }
             .fullScreenCover(isPresented: $showingCompletedView) {
                 if let workout = completedWorkout {

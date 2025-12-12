@@ -116,6 +116,11 @@ struct EditWorkoutView: View {
             }
             .themedBackground()
             .navigationBarHidden(true)
+            .toolbar {
+                ToolbarItem(placement: .keyboard) {
+                    KeyboardDismissButton()
+                }
+            }
         }
         .sheet(isPresented: $showingMetricTooltip) {
             MetricTooltipView()
@@ -328,8 +333,9 @@ struct EditWorkoutView: View {
                     validateCaloriesOnSubmit()
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
         }
-    
+
     private var workoutInfoCard: some View {
         VStack(spacing: 16) {
             // Workout Name

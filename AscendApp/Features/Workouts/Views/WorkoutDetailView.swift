@@ -78,11 +78,12 @@ struct WorkoutDetailView: View {
                     Spacer()
                 }
             )
-            .fullScreenCover(isPresented: $showingEditWorkout) {
+            .sheet(isPresented: $showingEditWorkout) {
                 EditWorkoutView(
                     workout: workout,
                     showingEditWorkout: $showingEditWorkout
                 )
+                .interactiveDismissDisabled()
             }
             .sheet(isPresented: $showingShareWorkoutView) {
                 WorkoutShareCarouselView(workout: workout, displayName: authVM.displayName)
