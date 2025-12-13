@@ -203,7 +203,7 @@ struct EditWorkoutView: View {
         VStack(spacing: 0) {
             HStack {
                 Button("Cancel") {
-                    cleanupTrimmedVideos()
+                    cleanupVideoFiles()
                     showingEditWorkout = false
                 }
                 .font(.montserratRegular)
@@ -876,9 +876,9 @@ struct EditWorkoutView: View {
                 }
             }
             
-            // Clean up trimmed video files
-            cleanupTrimmedVideos()
-            
+            // Clean up video files
+            cleanupVideoFiles()
+
             showingEditWorkout = false
         } catch {
             if !newlyUploadedPhotos.isEmpty {
@@ -886,10 +886,12 @@ struct EditWorkoutView: View {
                     try? await photoService.deletePhotos(newlyUploadedPhotos)
                 }
             }
+            // Clean up temp video files on failure
+            cleanupVideoFiles()
             print("❌ Error updating workout: \(error)")
             updateErrorMessage = "We couldn't update this workout. Please try again.\n\n\(error.localizedDescription)"
         }
-        
+
         isSaving = false
     }
     
@@ -906,15 +908,10 @@ struct EditWorkoutView: View {
         photoPendingDeletion = nil
     }
     
-    private func cleanupTrimmedVideos() {
+    private func cleanupVideoFiles() {
         for item in selectedImages {
-            // Clean up trimmed video if exists
-            if let trimmedURL = item.trimmedVideoURL {
-                try? FileManager.default.removeItem(at: trimmedURL)
-            }
-            // Clean up original video temporary file if exists
-            if let originalURL = item.originalVideoURL {
-                try? FileManager.default.removeItem(at: originalURL)
+            if let videoURL = item.videoURL {
+                try? FileManager.default.removeItem(at: videoURL)
             }
         }
     }

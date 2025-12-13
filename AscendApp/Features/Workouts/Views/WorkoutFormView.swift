@@ -355,7 +355,7 @@ struct WorkoutFormView: View {
         VStack(spacing: 0) {
             HStack {
                 Button("Cancel") {
-                    viewModel.cleanupTrimmedVideos()
+                    viewModel.cleanupVideoFiles()
                     showingWorkoutForm = false
                 }
                 .font(.montserratRegular)

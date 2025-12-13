@@ -21,9 +21,6 @@ struct PhotoGalleryView: View {
     @State private var itemForActionSheet: SelectedPhotoItem?
     @State private var showErrorAlert = false
     @State private var errorMessage = ""
-    @State private var videoToTrim: SelectedPhotoItem?
-    @State private var showingVideoTrimmer = false
-    @State private var pendingVideoItem: SelectedPhotoItem? // Video waiting to be trimmed
     @State private var isLoadingMedia = false // Loading state for media processing
     
     init(
@@ -124,25 +121,6 @@ struct PhotoGalleryView: View {
         } message: {
             Text(errorMessage)
         }
-        .sheet(isPresented: $showingVideoTrimmer) {
-            if let videoToTrim = videoToTrim,
-               let videoURL = videoToTrim.originalVideoURL,
-               let duration = videoToTrim.duration {
-                VideoTrimmerView(
-                    videoURL: videoURL,
-                    videoDuration: duration,
-                    onTrim: { startTime, endTime in
-                        await trimVideo(item: videoToTrim, startTime: startTime, endTime: endTime)
-                    },
-                    onCancel: {
-                        // Don't add the video if user cancels trimming
-                        self.videoToTrim = nil
-                        self.pendingVideoItem = nil
-                        showingVideoTrimmer = false
-                    }
-                )
-            }
-        }
     }
     
     private func actionSheetHeight(for item: SelectedPhotoItem) -> CGFloat {
@@ -200,33 +178,38 @@ extension PhotoGalleryView {
             }
             return results
         }
-        
-        // Check if any videos need trimming
-        var videosNeedingTrim: [SelectedPhotoItem] = []
-        var readyToAddItems: [SelectedPhotoItem] = []
-        
+
+        // Check if any videos exceed 15 seconds or have unknown duration
+        var validItems: [SelectedPhotoItem] = []
+        var hasInvalidVideo = false
+
         for item in newSelectedImages {
-            if item.isVideo && (item.duration ?? 0) > 15 {
-                videosNeedingTrim.append(item)
-            } else {
-                readyToAddItems.append(item)
+            if item.isVideo {
+                // Reject if duration is unknown (nil) or exceeds 15 seconds
+                guard let duration = item.duration, duration <= 15 else {
+                    hasInvalidVideo = true
+                    // Clean up the temporary file
+                    if let videoURL = item.videoURL {
+                        try? FileManager.default.removeItem(at: videoURL)
+                    }
+                    continue
+                }
             }
+            validItems.append(item)
         }
-        
-        // Add items that don't need trimming
-        selectedImages.append(contentsOf: readyToAddItems)
-        
-        // If there's a video that needs trimming, show trimmer
-        if let videoNeedingTrim = videosNeedingTrim.first {
-            // Only handle first video (since we only allow 1 video total)
-            pendingVideoItem = videoNeedingTrim
-            videoToTrim = videoNeedingTrim
-            showingVideoTrimmer = true
+
+        // Show error if any video was invalid
+        if hasInvalidVideo {
+            errorMessage = "Video must be 15 seconds or less."
+            showErrorAlert = true
         }
-        
+
+        // Add valid items
+        selectedImages.append(contentsOf: validItems)
+
         // Clear loading state
         isLoadingMedia = false
-        selectedPhotos.removeAll() // Clear picker - this is now safe!
+        selectedPhotos.removeAll()
     }
 
     private func createSelectedPhotoItem(from item: PhotosPickerItem) async -> SelectedPhotoItem? {
@@ -279,79 +262,23 @@ extension PhotoGalleryView {
             localIdentifier: item.itemIdentifier ?? UUID().uuidString,
             isVideo: true,
             duration: duration,
-            trimmedVideoURL: nil,
-            originalVideoURL: movie.url,
-            trimmedDuration: nil
+            videoURL: movie.url
         )
     }
 
     private func deletePhoto(_ item: SelectedPhotoItem) {
         selectedImages.removeAll { $0.id == item.id }
-        
+
         if highlightedSelectedItemId == item.id {
             highlightedSelectedItemId = nil
         }
-        
-        // Clean up trimmed video file if it exists
-        if let trimmedURL = item.trimmedVideoURL {
-            try? FileManager.default.removeItem(at: trimmedURL)
+
+        // Clean up video temporary file if it exists
+        if let videoURL = item.videoURL {
+            try? FileManager.default.removeItem(at: videoURL)
         }
-        
-        // Clean up original video temporary file if it exists
-        if let originalURL = item.originalVideoURL {
-            try? FileManager.default.removeItem(at: originalURL)
-        }
-        
+
         photoToDelete = nil
-    }
-    
-    @MainActor
-    private func trimVideo(item: SelectedPhotoItem, startTime: TimeInterval, endTime: TimeInterval) async {
-        guard let originalURL = item.originalVideoURL else {
-            showingVideoTrimmer = false
-            return
-        }
-        
-        let trimmingService = VideoTrimmingService()
-        
-        do {
-            // Trim the video
-            let trimmedURL = try await trimmingService.trimVideo(
-                sourceURL: originalURL,
-                startTime: startTime,
-                endTime: endTime
-            )
-            
-            let trimmedDuration = endTime - startTime
-            
-            // Generate new thumbnail from trimmed video
-            let thumbnailImage = try await trimmingService.generateThumbnail(from: trimmedURL, at: 0)
-            
-            // Create updated item with trimmed video
-            let updatedItem = SelectedPhotoItem(
-                pickerItem: item.pickerItem,
-                image: Image(uiImage: thumbnailImage),
-                localIdentifier: item.localIdentifier,
-                isVideo: true,
-                duration: item.duration,
-                trimmedVideoURL: trimmedURL,
-                originalVideoURL: originalURL,
-                trimmedDuration: trimmedDuration
-            )
-            
-            // Add to selected images
-            selectedImages.append(updatedItem)
-            
-            // Clear pending state
-            pendingVideoItem = nil
-            videoToTrim = nil
-            showingVideoTrimmer = false
-            
-        } catch {
-            errorMessage = "Failed to trim video. Please try again."
-            showErrorAlert = true
-            showingVideoTrimmer = false
-        }
     }
 }
 

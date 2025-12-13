@@ -139,8 +139,6 @@ class WorkoutFormViewModel {
 
         do {
             let request = try createWorkoutRequest()
-
-            // Use SelectedPhotoItems which includes trimmed videos
             let workout = try await workoutService.createWorkout(from: request, with: selectedImages)
             
             if let highlightedId = highlightedSelectedItemId,
@@ -183,28 +181,25 @@ class WorkoutFormViewModel {
 
             isUploading = false
             
-            // Clean up trimmed video files after successful upload
-            cleanupTrimmedVideos()
-            
+            // Clean up video files after successful upload
+            cleanupVideoFiles()
+
             return workout
 
         } catch {
             isUploading = false
+            // Clean up temp video files on failure
+            cleanupVideoFiles()
             uploadError = error.localizedDescription
             throw error
         }
     }
     
-    /// Clean up temporary video files (both original and trimmed)
-    func cleanupTrimmedVideos() {
+    /// Clean up temporary video files
+    func cleanupVideoFiles() {
         for item in selectedImages {
-            // Clean up trimmed video if exists
-            if let trimmedURL = item.trimmedVideoURL {
-                try? FileManager.default.removeItem(at: trimmedURL)
-            }
-            // Clean up original video temporary file if exists
-            if let originalURL = item.originalVideoURL {
-                try? FileManager.default.removeItem(at: originalURL)
+            if let videoURL = item.videoURL {
+                try? FileManager.default.removeItem(at: videoURL)
             }
         }
     }

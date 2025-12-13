@@ -26,31 +26,24 @@ struct ThumbnailPhotoView: View {
                 ZStack {
                     // Semi-transparent background
                     Color.black.opacity(0.3)
-                    
+
                     VStack(spacing: 4) {
                         // Play icon
                         Image(systemName: "play.circle.fill")
                             .font(.system(size: 32))
                             .foregroundStyle(.white)
-                        
-                        // Duration label - use effective duration (trimmed if available)
-                        if let duration = photoItem.effectiveDuration {
-                            HStack(spacing: 4) {
-                                // Show scissors icon if video was trimmed
-                                if photoItem.trimmedVideoURL != nil {
-                                    Image(systemName: "scissors")
-                                        .font(.system(size: 10, weight: .semibold))
-                                }
-                                Text(formatDuration(duration))
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(
-                                Capsule()
-                                    .fill(Color.black.opacity(0.7))
-                            )
+
+                        // Duration label
+                        if let duration = photoItem.duration {
+                            Text(formatDuration(duration))
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(
+                                    Capsule()
+                                        .fill(Color.black.opacity(0.7))
+                                )
                         }
                     }
                 }

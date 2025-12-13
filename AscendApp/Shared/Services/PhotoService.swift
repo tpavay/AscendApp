@@ -36,54 +36,50 @@ actor PhotoService {
         }
     }
     
-    /// Upload photos from SelectedPhotoItems (supports trimmed videos)
+    /// Upload photos from SelectedPhotoItems
     func uploadSelectedPhotos(_ items: [SelectedPhotoItem]) async throws -> [Photo] {
         struct UploadResult {
             let photo: Photo?
             let itemId: UUID
-            let trimmedURL: URL?
-            let originalURL: URL?
         }
-        
+
+        // Collect all video URLs upfront for cleanup regardless of success/failure
+        let videoURLsToCleanup = items.compactMap { $0.videoURL }
+
+        // Ensure temp video files are always cleaned up
+        defer {
+            for videoURL in videoURLsToCleanup {
+                try? FileManager.default.removeItem(at: videoURL)
+            }
+        }
+
         let repo = self.repo
         return try await withThrowingTaskGroup(of: UploadResult.self) { group in
             for item in items {
                 group.addTask {
                     if item.isVideo {
-                        // Use trimmed video if available, otherwise load from picker
-                        if let trimmedURL = item.trimmedVideoURL,
-                           let trimmedDuration = item.trimmedDuration {
-                            let photo = try await self.uploadVideoFromURL(trimmedURL, duration: trimmedDuration, repo: repo)
-                            return UploadResult(photo: photo, itemId: item.id, trimmedURL: trimmedURL, originalURL: item.originalVideoURL)
-                        } else if let originalURL = item.originalVideoURL {
-                            let photo = try await self.uploadVideoFromURL(originalURL, duration: item.duration ?? 0, repo: repo)
-                            return UploadResult(photo: photo, itemId: item.id, trimmedURL: nil, originalURL: originalURL)
+                        if let videoURL = item.videoURL {
+                            let photo = try await self.uploadVideoFromURL(videoURL, duration: item.duration ?? 0, repo: repo)
+                            return UploadResult(photo: photo, itemId: item.id)
                         } else {
                             let photo = try await self.uploadVideo(item.pickerItem, repo: repo)
-                            return UploadResult(photo: photo, itemId: item.id, trimmedURL: nil, originalURL: nil)
+                            return UploadResult(photo: photo, itemId: item.id)
                         }
                     } else {
                         let photo = try await self.uploadPhoto(item.pickerItem, repo: repo)
-                        return UploadResult(photo: photo, itemId: item.id, trimmedURL: nil, originalURL: nil)
+                        return UploadResult(photo: photo, itemId: item.id)
                     }
                 }
             }
-            
+
             var uploadedPhotosById: [UUID: Photo] = [:]
-            
+
             for try await result in group {
                 if let photo = result.photo {
                     uploadedPhotosById[result.itemId] = photo
                 }
-                // Clean up temporary files after successful upload
-                if let trimmedURL = result.trimmedURL {
-                    try? FileManager.default.removeItem(at: trimmedURL)
-                }
-                if let originalURL = result.originalURL {
-                    try? FileManager.default.removeItem(at: originalURL)
-                }
             }
-            
+
             return items.compactMap { uploadedPhotosById[$0.id] }
         }
     }
