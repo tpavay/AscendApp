@@ -14,6 +14,8 @@ struct ConfirmationView: View {
     let cancelButtonText: String
     let confirmButtonText: String
     let isDestructive: Bool
+    let isLoading: Bool
+    let isCancelling: Bool
     let onCancel: () -> Void
     let onConfirm: () -> Void
 
@@ -30,6 +32,8 @@ struct ConfirmationView: View {
         cancelButtonText: String = "Cancel",
         confirmButtonText: String = "Confirm",
         isDestructive: Bool = false,
+        isLoading: Bool = false,
+        isCancelling: Bool = false,
         onCancel: @escaping () -> Void,
         onConfirm: @escaping () -> Void
     ) {
@@ -38,6 +42,8 @@ struct ConfirmationView: View {
         self.cancelButtonText = cancelButtonText
         self.confirmButtonText = confirmButtonText
         self.isDestructive = isDestructive
+        self.isLoading = isLoading
+        self.isCancelling = isCancelling
         self.onCancel = onCancel
         self.onConfirm = onConfirm
     }
@@ -62,9 +68,20 @@ struct ConfirmationView: View {
 
             // Action buttons
             HStack(spacing: 12) {
-                // Cancel button
-                Button(cancelButtonText) {
+                // Cancel button - enabled during loading so user can cancel
+                Button {
                     onCancel()
+                } label: {
+                    if isCancelling {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .tint(effectiveColorScheme == .dark ? .white : .black)
+                                .scaleEffect(0.8)
+                            Text("Stopping...")
+                        }
+                    } else {
+                        Text(cancelButtonText)
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
@@ -73,12 +90,20 @@ struct ConfirmationView: View {
                         .fill(effectiveColorScheme == .dark ?
                             .white.opacity(0.1) : .gray.opacity(0.1))
                 )
-                .foregroundStyle(effectiveColorScheme == .dark ? .white :
-                        .black)
+                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                .disabled(isCancelling)
+                .opacity(isLoading && !isCancelling ? 0.7 : 1)
 
                 // Confirm button
-                Button(confirmButtonText) {
+                Button {
                     onConfirm()
+                } label: {
+                    if isLoading {
+                        ProgressView()
+                            .tint(.white)
+                    } else {
+                        Text(confirmButtonText)
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
@@ -87,6 +112,7 @@ struct ConfirmationView: View {
                         .fill(isDestructive ? .red : .accent)
                 )
                 .foregroundStyle(.white)
+                .disabled(isLoading || isCancelling)
             }
         }
         .padding(20)

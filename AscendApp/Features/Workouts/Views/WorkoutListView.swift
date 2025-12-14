@@ -48,6 +48,9 @@ struct WorkoutListView: View {
     @State private var showingImportSheet = false
     @State private var showingDeleteError = false
     @State private var deleteErrorMessage = ""
+    @State private var isDeleting = false
+    @State private var isCancelling = false
+    @State private var deleteTask: Task<Void, Never>? = nil
 
     // Console scanner state
     @State private var showingEntrySelection = false
@@ -195,17 +198,34 @@ struct WorkoutListView: View {
             .sheet(isPresented: $showingDeleteConfirmation) {
                 DeleteWorkoutConfirmationView(
                     selectedCount: selectedWorkouts.count,
+                    isLoading: isDeleting,
+                    isCancelling: isCancelling,
                     onConfirm: {
-                        Task {
+                        // Guard against double-starting
+                        guard deleteTask == nil else { return }
+                        deleteTask = Task {
                             await deleteSelectedWorkouts()
+                            deleteTask = nil
                         }
-                        showingDeleteConfirmation = false
                     },
                     onCancel: {
+                        if isDeleting {
+                            // Cancel in-flight deletion
+                            isCancelling = true
+                            deleteTask?.cancel()
+                            deleteTask = nil
+                            isDeleting = false
+                            isCancelling = false
+                        }
                         showingDeleteConfirmation = false
                     }
                 )
                 .presentationDetents([.height(200)])
+                .interactiveDismissDisabled(isDeleting || isCancelling)
+                .onDisappear {
+                    deleteTask?.cancel()
+                    deleteTask = nil
+                }
             }
             .sheet(isPresented: $showingImportSheet) {
                 WorkoutImportSheet()
@@ -269,23 +289,47 @@ struct WorkoutListView: View {
     }
     
     private func deleteSelectedWorkouts() async {
+        await MainActor.run {
+            isDeleting = true
+        }
+
         let workoutsToDelete = workouts.filter { selectedWorkouts.contains($0.id) }
 
         // Delete photos from Firebase first - ALL must succeed
         let photoService = PhotoService()
-        do {
-            for workout in workoutsToDelete {
-                if !workout.photos.isEmpty {
-                    try await photoService.deletePhotos(workout.photos)
+        let allPhotos = workoutsToDelete.flatMap { $0.photos }
+
+        if !allPhotos.isEmpty {
+            do {
+                try await photoService.deletePhotos(allPhotos)
+            } catch let error as PhotoDeletionError {
+                print("❌ Failed to delete photos: \(error)")
+                await MainActor.run {
+                    isDeleting = false
+                    showingDeleteConfirmation = false
+                    switch error {
+                    case .partialFailure(let result):
+                        deleteErrorMessage = "Failed to delete \(result.failedCount) photo(s) from cloud storage. Please check your internet connection and try again."
+                    case .timeout:
+                        deleteErrorMessage = "Photo deletion timed out. Please check your internet connection and try again."
+                    case .allRetriesExhausted:
+                        deleteErrorMessage = "Failed to delete photos after multiple attempts. Please try again later."
+                    }
+                    showingDeleteError = true
+                    HapticsManager.shared.trigger(.error)
                 }
+                return // Don't delete any workouts
+            } catch {
+                print("❌ Failed to delete photos from Firebase: \(error)")
+                await MainActor.run {
+                    isDeleting = false
+                    showingDeleteConfirmation = false
+                    deleteErrorMessage = "Failed to delete photos from cloud storage. Please check your internet connection and try again."
+                    showingDeleteError = true
+                    HapticsManager.shared.trigger(.error)
+                }
+                return // Don't delete any workouts
             }
-        } catch {
-            print("❌ Failed to delete photos from Firebase: \(error)")
-            await MainActor.run {
-                deleteErrorMessage = "Failed to delete photos from cloud storage. Please check your internet connection and try again."
-                showingDeleteError = true
-            }
-            return // Don't delete any workouts
         }
 
         // Only delete workouts if ALL photo deletions succeeded
@@ -294,7 +338,7 @@ struct WorkoutListView: View {
                 modelContext.delete(workout)
             }
             try modelContext.save()
-            
+
             // Recalculate PRs after deletion since a deleted workout may have held a PR
             try PersonalRecordService.recalculateAllPersonalRecords(
                 modelContext: modelContext,
@@ -303,13 +347,19 @@ struct WorkoutListView: View {
             )
 
             await MainActor.run {
+                isDeleting = false
+                showingDeleteConfirmation = false
+                HapticsManager.shared.trigger(.success)
                 exitDeleteMode()
             }
         } catch {
             print("❌ Error deleting workouts: \(error)")
             await MainActor.run {
+                isDeleting = false
+                showingDeleteConfirmation = false
                 deleteErrorMessage = "Failed to delete workouts from local storage. Please try again."
                 showingDeleteError = true
+                HapticsManager.shared.trigger(.error)
             }
         }
     }

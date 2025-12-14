@@ -12,8 +12,14 @@ import UniformTypeIdentifiers
 
 actor PhotoService {
     private let repo: any PhotoRepositoryProtocol
-    init(repo: any PhotoRepositoryProtocol = FirebasePhotoRepository()) {
+    private let deletionConfig: PhotoDeletionConfig
+
+    init(
+        repo: any PhotoRepositoryProtocol = FirebasePhotoRepository(),
+        deletionConfig: PhotoDeletionConfig = .default
+    ) {
         self.repo = repo
+        self.deletionConfig = deletionConfig
     }
 
     func uploadPhotos(_ items: [PhotosPickerItem]) async throws -> [Photo] {
@@ -129,15 +135,129 @@ actor PhotoService {
         return Photo(url: url, type: .video, duration: duration)
     }
 
+    // MARK: - Photo Deletion with Retry
+
+    /// Deletes photos with automatic retry and timeout handling
+    /// - Parameter photos: Photos to delete
+    /// - Throws: PhotoDeletionError.partialFailure if any deletions fail after retries
     func deletePhotos(_ photos: [Photo]) async throws {
+        let result = await deletePhotosWithResult(photos)
+
+        if !result.allSucceeded {
+            throw PhotoDeletionError.partialFailure(result: result)
+        }
+    }
+
+    /// Deletes photos and returns detailed results (success/failure for each)
+    /// - Parameter photos: Photos to delete
+    /// - Returns: PhotoDeletionResult with successful and failed deletions
+    func deletePhotosWithResult(_ photos: [Photo]) async -> PhotoDeletionResult {
         let repo = self.repo
-        try await withThrowingTaskGroup(of: Void.self) { group in
+        let config = self.deletionConfig
+
+        return await withTaskGroup(of: (Photo, (any Error)?).self) { group in
             for photo in photos {
                 group.addTask {
-                    try await repo.delete(url: photo.url)
+                    do {
+                        try await self.deletePhotoWithRetry(photo, repo: repo, config: config)
+                        return (photo, nil)
+                    } catch {
+                        return (photo, error)
+                    }
                 }
             }
-            try await group.waitForAll()
+
+            var successful: [Photo] = []
+            var failed: [(Photo, any Error)] = []
+
+            for await (photo, error) in group {
+                if let error = error {
+                    failed.append((photo, error))
+                } else {
+                    successful.append(photo)
+                }
+            }
+
+            return PhotoDeletionResult(
+                successfulDeletions: successful,
+                failedDeletions: failed
+            )
+        }
+    }
+
+    /// Deletes a single photo with retry logic
+    private func deletePhotoWithRetry(
+        _ photo: Photo,
+        repo: any PhotoRepositoryProtocol,
+        config: PhotoDeletionConfig
+    ) async throws {
+        var lastError: (any Error)?
+        var currentDelay = config.initialDelaySeconds
+
+        for attempt in 0..<config.maxRetries {
+            // Check cancellation BEFORE each attempt
+            try Task.checkCancellation()
+
+            do {
+                try await deletePhotoWithTimeout(photo, repo: repo, timeout: config.timeoutSeconds)
+                return // Success
+            } catch is CancellationError {
+                // Don't swallow cancellation - re-throw immediately
+                throw CancellationError()
+            } catch {
+                lastError = error
+
+                // Check cancellation after failure before retrying
+                if Task.isCancelled { throw CancellationError() }
+
+                // Don't wait after the last attempt
+                if attempt < config.maxRetries - 1 {
+                    let delayNanoseconds = UInt64(currentDelay * 1_000_000_000)
+                    try? await Task.sleep(nanoseconds: delayNanoseconds)
+                    currentDelay *= config.backoffMultiplier
+                }
+            }
+        }
+
+        throw PhotoDeletionError.allRetriesExhausted(
+            url: photo.url,
+            lastError: lastError ?? NSError(domain: "PhotoService", code: -1)
+        )
+    }
+
+    /// Deletes a single photo with a timeout
+    private func deletePhotoWithTimeout(
+        _ photo: Photo,
+        repo: any PhotoRepositoryProtocol,
+        timeout: Double
+    ) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            // Deletion task
+            group.addTask {
+                // Check cancellation inside task group
+                try Task.checkCancellation()
+                try await repo.delete(url: photo.url)
+            }
+
+            // Timeout task
+            group.addTask {
+                let timeoutNanoseconds = UInt64(timeout * 1_000_000_000)
+                try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                throw PhotoDeletionError.timeout(url: photo.url)
+            }
+
+            // Wait for first to complete (either deletion succeeds or timeout fires)
+            do {
+                try await group.next()
+                group.cancelAll()
+            } catch is CancellationError {
+                // Preserve cancellation error
+                group.cancelAll()
+                throw CancellationError()
+            } catch {
+                group.cancelAll()
+                throw error
+            }
         }
     }
 }

@@ -25,6 +25,9 @@ struct WorkoutDetailView: View {
     @State private var syncingIconOpacity: Double = 1.0
     @State private var showingStravaSyncSuccess = false
     @State private var stravaSyncError: String? = nil
+    @State private var isDeleting = false
+    @State private var isCancelling = false
+    @State private var deleteTask: Task<Void, Never>? = nil
 
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -91,17 +94,34 @@ struct WorkoutDetailView: View {
             .sheet(isPresented: $showingDeleteConfirmation) {
                 SingleWorkoutDeleteConfirmationView(
                     workout: workout,
+                    isLoading: isDeleting,
+                    isCancelling: isCancelling,
                     onConfirm: {
-                        Task {
+                        // Guard against double-starting
+                        guard deleteTask == nil else { return }
+                        deleteTask = Task {
                             await deleteWorkout()
+                            deleteTask = nil
                         }
-                        showingDeleteConfirmation = false
                     },
                     onCancel: {
+                        if isDeleting {
+                            // Cancel in-flight deletion
+                            isCancelling = true
+                            deleteTask?.cancel()
+                            deleteTask = nil
+                            isDeleting = false
+                            isCancelling = false
+                        }
                         showingDeleteConfirmation = false
                     }
                 )
                 .presentationDetents([.height(200)])
+                .interactiveDismissDisabled(isDeleting || isCancelling)
+                .onDisappear {
+                    deleteTask?.cancel()
+                    deleteTask = nil
+                }
             }
         }
     }
@@ -606,16 +626,40 @@ struct WorkoutDetailView: View {
     }
 
     private func deleteWorkout() async {
+        await MainActor.run {
+            isDeleting = true
+        }
+
         // Delete photos from Firebase first
         if !workout.photos.isEmpty {
+            let photoService = PhotoService()
             do {
-                let photoService = PhotoService()
                 try await photoService.deletePhotos(workout.photos)
+            } catch let error as PhotoDeletionError {
+                print("❌ Failed to delete photos: \(error)")
+                await MainActor.run {
+                    isDeleting = false
+                    showingDeleteConfirmation = false
+                    switch error {
+                    case .partialFailure(let result):
+                        deleteErrorMessage = "Failed to delete \(result.failedCount) photo(s) from cloud storage. Please check your internet connection and try again."
+                    case .timeout:
+                        deleteErrorMessage = "Photo deletion timed out. Please check your internet connection and try again."
+                    case .allRetriesExhausted:
+                        deleteErrorMessage = "Failed to delete photos after multiple attempts. Please try again later."
+                    }
+                    showingDeleteError = true
+                    HapticsManager.shared.trigger(.error)
+                }
+                return // Don't delete the workout
             } catch {
                 print("❌ Failed to delete photos from Firebase: \(error)")
                 await MainActor.run {
+                    isDeleting = false
+                    showingDeleteConfirmation = false
                     deleteErrorMessage = "Failed to delete photos from cloud storage. Please check your internet connection and try again."
                     showingDeleteError = true
+                    HapticsManager.shared.trigger(.error)
                 }
                 return // Don't delete the workout
             }
@@ -625,7 +669,7 @@ struct WorkoutDetailView: View {
         modelContext.delete(workout)
         do {
             try modelContext.save()
-            
+
             // Recalculate PRs after deletion since the deleted workout may have held a PR
             let settingsManager = SettingsManager.shared
             try PersonalRecordService.recalculateAllPersonalRecords(
@@ -633,15 +677,21 @@ struct WorkoutDetailView: View {
                 measurementSystem: settingsManager.measurementSystem,
                 stepHeight: settingsManager.stepHeight
             )
-            
+
             await MainActor.run {
+                isDeleting = false
+                showingDeleteConfirmation = false
+                HapticsManager.shared.trigger(.success)
                 dismiss() // Navigate back to workout list
             }
         } catch {
             print("❌ Error deleting workout: \(error)")
             await MainActor.run {
+                isDeleting = false
+                showingDeleteConfirmation = false
                 deleteErrorMessage = "Failed to delete workout from local storage. Please try again."
                 showingDeleteError = true
+                HapticsManager.shared.trigger(.error)
             }
         }
     }
@@ -649,32 +699,46 @@ struct WorkoutDetailView: View {
 
 struct SingleWorkoutDeleteConfirmationView: View {
     let workout: Workout
+    let isLoading: Bool
+    let isCancelling: Bool
     let onConfirm: () -> Void
     let onCancel: () -> Void
-    
+
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
-    
+
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
-    
+
     var body: some View {
         VStack(spacing: 20) {
             VStack(spacing: 8) {
                 Text("Delete Workout")
                     .font(.montserratBold(size: 20))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                
+
                 Text("Are you sure you want to delete \"\(workout.name)\"? This action cannot be undone.")
                     .font(.montserratRegular(size: 16))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .gray)
                     .multilineTextAlignment(.center)
             }
-            
+
             HStack(spacing: 12) {
-                Button("Cancel") {
+                // Cancel button - enabled during loading so user can cancel
+                Button {
                     onCancel()
+                } label: {
+                    if isCancelling {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .tint(effectiveColorScheme == .dark ? .white : .black)
+                                .scaleEffect(0.8)
+                            Text("Stopping...")
+                        }
+                    } else {
+                        Text("Cancel")
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
@@ -683,10 +747,18 @@ struct SingleWorkoutDeleteConfirmationView: View {
                         .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
                 )
                 .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                
-                Button("Delete") {
-                    HapticsManager.shared.trigger(.warning)
+                .disabled(isCancelling)
+                .opacity(isLoading && !isCancelling ? 0.7 : 1)
+
+                Button {
                     onConfirm()
+                } label: {
+                    if isLoading {
+                        ProgressView()
+                            .tint(.white)
+                    } else {
+                        Text("Delete")
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
@@ -695,6 +767,7 @@ struct SingleWorkoutDeleteConfirmationView: View {
                         .fill(.red)
                 )
                 .foregroundStyle(.white)
+                .disabled(isLoading || isCancelling)
             }
         }
         .padding(20)
