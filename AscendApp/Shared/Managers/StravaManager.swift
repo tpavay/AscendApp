@@ -82,6 +82,7 @@ final class StravaManager: NSObject {
     func startOAuthFlow(presentationAnchor: ASPresentationAnchor) async {
         isConnecting = true
         connectionError = nil
+        TelemetryManager.shared.log(.stravaConnectStarted)
 
         do {
             // 1. Get state ID from Cloud Function
@@ -152,12 +153,14 @@ final class StravaManager: NSObject {
         let status = components?.queryItems?.first(where: { $0.name == "status" })?.value
 
         if status == "success" {
+            TelemetryManager.shared.log(.stravaConnectSuccess)
             // Refresh connection status from Firestore
             Task {
                 await self.refreshConnectionStatus()
                 self.isConnecting = false
             }
         } else {
+            TelemetryManager.shared.log(.stravaConnectFailed)
             let message = components?.queryItems?.first(where: { $0.name == "message" })?.value
             connectionError = message ?? "Connection failed"
             isConnecting = false
@@ -178,18 +181,34 @@ final class StravaManager: NSObject {
     ///   - primaryMetric: The user's preferred primary metric for display
     /// - Returns: The Strava activity ID
     func syncWorkout(_ workout: Workout, primaryMetric: WorkoutMetric) async throws -> Int {
-        let payload = StravaWorkoutPayload(workout: workout, primaryMetric: primaryMetric)
-        let response = try await callCreateActivity(workout: payload)
+        TelemetryManager.shared.log(.stravaSyncStarted)
 
+        let payload = StravaWorkoutPayload(workout: workout, primaryMetric: primaryMetric)
+
+        let response: CreateActivityResponse
+        do {
+            response = try await callCreateActivity(workout: payload)
+        } catch {
+            // Network/API error - log failure and record non-fatal
+            TelemetryManager.shared.log(.stravaSyncFailed)
+            TelemetryManager.shared.recordError(error, context: .strava, code: "sync_failed")
+            throw error
+        }
+
+        // Handle response cases
         if response.success {
             if let activityId = response.stravaActivityId {
+                TelemetryManager.shared.log(.stravaSyncCompleted)
                 return activityId
             } else if response.alreadyExists == true {
-                // Activity was already synced - this is fine
+                // Activity was already synced - this is a success, not a failure
+                TelemetryManager.shared.log(.stravaSyncCompleted)
                 throw StravaError.activityCreationFailed("Already synced")
             }
         }
 
+        // Response indicated failure (but not a network error)
+        TelemetryManager.shared.log(.stravaSyncFailed)
         throw StravaError.activityCreationFailed(response.message ?? "Unknown error")
     }
 

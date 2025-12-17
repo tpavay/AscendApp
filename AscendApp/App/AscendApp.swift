@@ -15,6 +15,8 @@ struct AscendApp: App {
 
     init() {
         FirebaseApp.configure()
+        TelemetryManager.shared.configure()
+        TelemetryManager.shared.setAppMetadata()
         authVM = AuthenticationViewModel()
     }
 

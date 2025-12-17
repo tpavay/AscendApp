@@ -70,8 +70,9 @@ final class UserDataRepository: Sendable {
             }
         } catch {
             print("Error fetching user from Firestore: \(error)")
+            TelemetryManager.shared.recordError(error, context: .firestore, code: "user_fetch_failed")
         }
-        
+
         return getCachedDisplayName()
     }
     
@@ -147,8 +148,9 @@ final class UserDataRepository: Sendable {
             }
         } catch {
             print("Error fetching profile picture URL from Firestore: \(error)")
+            TelemetryManager.shared.recordError(error, context: .firestore, code: "profile_picture_fetch_failed")
         }
-        
+
         return getCachedProfilePictureURL()
     }
     

@@ -11,6 +11,7 @@
 		9A4D66FD2E49447800EEAE1D /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 9A4D66FC2E49447800EEAE1D /* GoogleSignIn */; };
 		9A4D66FF2E49447800EEAE1D /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 9A4D66FE2E49447800EEAE1D /* GoogleSignInSwift */; };
 		9A6A00D42E7F36E70015F349 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 9A6A00D32E7F36E70015F349 /* FirebaseStorage */; };
+		9A8C9A352EEF22F800C94089 /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = 9A8C9A342EEF22F800C94089 /* FirebaseCrashlytics */; };
 		9A8E4CE62E2418D200C78912 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 9A8E4CE52E2418D200C78912 /* FirebaseAnalytics */; };
 		9AF20E5E2E64DCFF00044C25 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 9AF20E5D2E64DCFF00044C25 /* FirebaseFirestore */; };
 /* End PBXBuildFile section */
@@ -48,6 +49,7 @@
 				9A8E4CE62E2418D200C78912 /* FirebaseAnalytics in Frameworks */,
 				9A4D66F82E4817BD00EEAE1D /* FirebaseAuth in Frameworks */,
 				9A4D66FD2E49447800EEAE1D /* GoogleSignIn in Frameworks */,
+				9A8C9A352EEF22F800C94089 /* FirebaseCrashlytics in Frameworks */,
 				9AF20E5E2E64DCFF00044C25 /* FirebaseFirestore in Frameworks */,
 				9A4D66FF2E49447800EEAE1D /* GoogleSignInSwift in Frameworks */,
 				9A6A00D42E7F36E70015F349 /* FirebaseStorage in Frameworks */,
@@ -91,6 +93,7 @@
 				9A5E4D7E2E2406F8008DE803 /* Sources */,
 				9A5E4D7F2E2406F8008DE803 /* Frameworks */,
 				9A5E4D802E2406F8008DE803 /* Resources */,
+				9A8C9A362EEF27F000C94089 /* ShellScript */,
 			);
 			buildRules = (
 			);
@@ -107,6 +110,7 @@
 				9A4D66FE2E49447800EEAE1D /* GoogleSignInSwift */,
 				9AF20E5D2E64DCFF00044C25 /* FirebaseFirestore */,
 				9A6A00D32E7F36E70015F349 /* FirebaseStorage */,
+				9A8C9A342EEF22F800C94089 /* FirebaseCrashlytics */,
 			);
 			productName = AscendApp;
 			productReference = 9A5E4D822E2406F8008DE803 /* AscendApp.app */;
@@ -159,6 +163,32 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		9A8C9A362EEF27F000C94089 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}",
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Resources/DWARF/${PRODUCT_NAME}",
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Info.plist",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/GoogleService-Info.plist",
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_PATH)",
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Resources/DWARF/${PRODUCT_NAME}.debug.dylib",
+			);
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Type a script or drag a script file from your workspace to insert its path.\n\"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		9A5E4D7E2E2406F8008DE803 /* Sources */ = {
@@ -302,15 +332,22 @@
 				CODE_SIGN_ENTITLEMENTS = AscendApp/AscendApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = QWGVB7TN4T;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AscendApp/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Ascend;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Ascend uses your camera to scan stair stepper console displays and automatically log your workout data.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, flights climbed, heart rate, and calories burned.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Ascend saves your workout posters to your Photos library.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend needs access to your photo library to select stair stepper console images for automatic workout logging.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -340,11 +377,17 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AscendApp/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Ascend;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Ascend uses your camera to scan stair stepper console displays and automatically log your workout data.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, flights climbed, heart rate, and calories burned.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Ascend saves your workout posters to your Photos library.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend needs access to your photo library to select stair stepper console images for automatic workout logging.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -424,6 +467,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 9A8E4CE42E2418D200C78912 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseStorage;
+		};
+		9A8C9A342EEF22F800C94089 /* FirebaseCrashlytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9A8E4CE42E2418D200C78912 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCrashlytics;
 		};
 		9A8E4CE52E2418D200C78912 /* FirebaseAnalytics */ = {
 			isa = XCSwiftPackageProductDependency;

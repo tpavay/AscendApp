@@ -174,6 +174,8 @@ class WorkoutImportService {
             return true
         } catch {
             print("❌ Failed to import workout: \(error)")
+            TelemetryManager.shared.log(.workoutImportFailed)
+            TelemetryManager.shared.recordError(error, context: .healthKit, code: "workout_import_failed")
             return false
         }
     }
@@ -199,6 +201,7 @@ class WorkoutImportService {
     func importAllWorkouts() async -> Int {
         guard let modelContext = modelContext else { return 0 }
 
+        TelemetryManager.shared.log(.workoutImportStarted)
         var successCount = 0
 
         // Only import workouts that haven't been imported yet
@@ -229,9 +232,11 @@ class WorkoutImportService {
                 print("✅ Successfully recalculated all PRs after batch import")
             } catch {
                 print("❌ Failed to recalculate PRs: \(error)")
+                TelemetryManager.shared.recordError(error, context: .healthKit, code: "pr_recalculation_failed")
             }
         }
 
+        TelemetryManager.shared.log(.workoutImportCompleted)
         return successCount
     }
 }

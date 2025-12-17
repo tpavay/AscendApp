@@ -16,8 +16,12 @@ struct RootView: View {
             case .authenticated:
                 MainTabView()
             case .authenticatingWithApple,
-                .authenticatingWithGoogle:
+                 .authenticatingWithGoogle:
                 ProgressView("Signing In...")
+                    .themedBackground()
+            case .restoringSession:
+                // Brief loading state while fetching profile on cold launch
+                ProgressView()
                     .themedBackground()
             case .unauthenticated:
                 LandingScreen()

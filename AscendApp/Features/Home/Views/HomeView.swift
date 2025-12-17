@@ -29,9 +29,12 @@ struct HomeView: View {
                         .font(.montserratBold(size: 28))
                         .foregroundStyle(colorScheme == .dark ? .white : .black)
                 }
-                
+
                 Spacer()
-                
+
+                Button("Click me") {
+                    fatalError()
+                }
                 // Notification bell for workout imports
                 NotificationBellView(pendingImports: importService.pendingWorkoutsCount) {
                     Task {

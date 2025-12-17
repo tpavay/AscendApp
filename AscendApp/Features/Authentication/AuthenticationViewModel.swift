@@ -12,16 +12,19 @@ import PhotosUI
 import SwiftUI
 
 enum AuthenticationState {
-      case authenticated
-      case authenticatingWithApple
-      case authenticatingWithGoogle
-      case unauthenticated
+    case authenticated
+    case authenticatingWithApple
+    case authenticatingWithGoogle
+    case unauthenticated
+
+    /// Shown while restoring a session on app launch (waiting for profile fetch)
+    case restoringSession
 
     /// Specific case for when a user signs in with apple. Apple is very big on privacy so we
     /// are unable to retrieve the user's name when they authenticate with apple. So, once
     /// they are authenticated we can use this state if we don't have their name yet.
     case needsName
-  }
+}
 
 
 
@@ -35,6 +38,10 @@ class AuthenticationViewModel {
     var isErrorAlertPresented: Bool = false
     var photoURL: URL?
     var customProfilePictureURL: URL?
+
+    /// Indicates whether the profile data has been loaded from Firestore/cache after auth restore.
+    /// Used to avoid showing NameInputView before we know if the user has a name.
+    private(set) var isProfileLoaded: Bool = false
 
     private var authenticationService = AuthenticationService()
     private var photoService = PhotoService()
@@ -57,40 +64,73 @@ class AuthenticationViewModel {
             authStateHandle = Auth.auth().addStateDidChangeListener({ auth, user in
                 self.user = user
                 self.photoURL = user?.photoURL ?? URL(string: "")
-                
+
                 if let user = user {
-                    // Update authentication state immediately for responsive UI
+                    // Set telemetry user ID and log session restored
+                    TelemetryManager.shared.setUserId(user.uid)
+                    TelemetryManager.shared.log(.authSessionRestored)
+
+                    // Check if we're in an interactive sign-in flow (already showing progress)
+                    let isInteractiveSignIn = self.authenticationState == .authenticatingWithGoogle ||
+                                               self.authenticationState == .authenticatingWithApple
+
+                    // Load cached display name immediately
                     let cachedDisplayName = UserDataRepository.shared.getCachedDisplayName() ?? user.displayName ?? ""
                     self.displayName = cachedDisplayName
-                    self.authenticationState = self.getAuthenticationState()
-                    
+
+                    // If we have a cached name, we can show authenticated immediately
+                    // Otherwise, show restoring session while we fetch from Firestore
+                    if !cachedDisplayName.isEmpty {
+                        self.isProfileLoaded = true
+                        self.authenticationState = .authenticated
+                    } else if !isInteractiveSignIn {
+                        // Only show restoringSession for cold launch, not during interactive sign-in
+                        self.isProfileLoaded = false
+                        self.authenticationState = .restoringSession
+                    }
+
                     // Handle Firestore operations in background
                     Task {
                         // Save/update user in Firestore first
                         try? await self.saveUserToFirestore(user: user)
-                        
-                        // Then fetch the latest display name from Firestore
-                        if let firestoreDisplayName = await UserDataRepository.shared.getDisplayName(userId: user.uid) {
-                            await MainActor.run {
-                                // Only update if different from what we currently have
-                                if self.displayName != firestoreDisplayName {
-                                    self.displayName = firestoreDisplayName
-                                    self.authenticationState = self.getAuthenticationState()
-                                }
-                            }
-                        }
-                        
+
+                        // Fetch the authoritative display name from Firestore
+                        let firestoreDisplayName = await UserDataRepository.shared.getDisplayName(userId: user.uid)
+
                         // Fetch custom profile picture URL from Firestore
-                        if let profilePictureURLString = await UserDataRepository.shared.getProfilePictureURL(userId: user.uid) {
-                            await MainActor.run {
+                        let profilePictureURLString = await UserDataRepository.shared.getProfilePictureURL(userId: user.uid)
+
+                        await MainActor.run {
+                            // Update display name if we got one from Firestore
+                            if let firestoreDisplayName, !firestoreDisplayName.isEmpty {
+                                self.displayName = firestoreDisplayName
+                            }
+
+                            // Update profile picture URL
+                            if let profilePictureURLString {
                                 self.customProfilePictureURL = URL(string: profilePictureURLString)
+                            }
+
+                            // Now that profile is loaded, evaluate the final auth state
+                            self.isProfileLoaded = true
+                            let finalState = self.getAuthenticationState()
+                            self.authenticationState = finalState
+
+                            // Log the outcome for debugging
+                            TelemetryManager.shared.log(.authProfileLoaded)
+                            if finalState == .needsName {
+                                TelemetryManager.shared.log(.authNeedsName)
                             }
                         }
                     }
                 } else {
-                    // User signed out
+                    // User signed out - reset all state
+                    TelemetryManager.shared.log(.authSignOut)
+                    TelemetryManager.shared.clearUserId()
+
                     self.displayName = ""
                     self.customProfilePictureURL = nil
+                    self.isProfileLoaded = false
                     self.authenticationState = .unauthenticated
                     UserDataRepository.shared.clearUserCache()
                 }
@@ -114,15 +154,18 @@ extension AuthenticationViewModel {
     func signInWithGoogle() async {
         authenticationState = .authenticatingWithGoogle
         errorMessage = nil
-        
+
         do {
             _ = try await authenticationService.signInWithGoogle()
+            TelemetryManager.shared.log(.authInteractiveSignInSuccess)
         } catch {
             // Don't show error for user cancellation
             if error is CancellationError {
                 // User canceled - just reset state without showing error
                 authenticationState = .unauthenticated
             } else {
+                TelemetryManager.shared.log(.authSignInFailed)
+                TelemetryManager.shared.recordError(error, context: .auth, code: "google_sign_in_failed", additionalInfo: ["provider": "google"])
                 errorMessage = error.localizedDescription
                 authenticationState = .unauthenticated
             }
@@ -135,12 +178,15 @@ extension AuthenticationViewModel {
 
         do {
             _ = try await authenticationService.signInWithApple()
+            TelemetryManager.shared.log(.authInteractiveSignInSuccess)
         } catch {
             // Don't show error for user cancellation
             if error is CancellationError {
                 // User canceled - just reset state without showing error
                 authenticationState = .unauthenticated
             } else {
+                TelemetryManager.shared.log(.authSignInFailed)
+                TelemetryManager.shared.recordError(error, context: .auth, code: "apple_sign_in_failed", additionalInfo: ["provider": "apple"])
                 errorMessage = error.localizedDescription
                 authenticationState = .unauthenticated
             }
