@@ -14,6 +14,8 @@ struct WorkoutEntrySelectionView: View {
 
     let onManualEntry: () -> Void
     let onScanConsole: () -> Void
+    let onImportWorkouts: () -> Void
+    let pendingImportCount: Int
 
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -57,6 +59,21 @@ struct WorkoutEntrySelectionView: View {
                         isAccent: true
                     )
                 }
+
+                // Import from Apple Health option
+                Button {
+                    onImportWorkouts()
+                } label: {
+                    SelectionRow(
+                        icon: "square.and.arrow.down",
+                        title: "Import from Apple Health",
+                        subtitle: pendingImportCount > 0
+                            ? "\(pendingImportCount) workout\(pendingImportCount == 1 ? "" : "s") available"
+                            : "Sync workouts from HealthKit",
+                        effectiveColorScheme: effectiveColorScheme,
+                        badgeCount: pendingImportCount
+                    )
+                }
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
@@ -73,18 +90,30 @@ struct SelectionRow: View {
     let subtitle: String
     let effectiveColorScheme: ColorScheme
     var isAccent: Bool = false
+    var badgeCount: Int = 0
 
     var body: some View {
         HStack(spacing: 16) {
-            // Icon
-            Image(systemName: icon)
-                .font(.system(size: 24))
-                .foregroundStyle(isAccent ? .accent : (effectiveColorScheme == .dark ? .white : .black))
-                .frame(width: 44, height: 44)
-                .background(
-                    Circle()
-                        .fill(isAccent ? .accent.opacity(0.15) : (effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1)))
-                )
+            // Icon with optional badge
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: icon)
+                    .font(.system(size: 24))
+                    .foregroundStyle(isAccent ? .accent : (effectiveColorScheme == .dark ? .white : .black))
+                    .frame(width: 44, height: 44)
+                    .background(
+                        Circle()
+                            .fill(isAccent ? .accent.opacity(0.15) : (effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1)))
+                    )
+
+                if badgeCount > 0 {
+                    Text("\(badgeCount)")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(minWidth: 16, minHeight: 16)
+                        .background(Circle().fill(.red))
+                        .offset(x: 4, y: -4)
+                }
+            }
 
             // Text
             VStack(alignment: .leading, spacing: 4) {

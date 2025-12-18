@@ -19,11 +19,6 @@ enum AuthenticationState {
 
     /// Shown while restoring a session on app launch (waiting for profile fetch)
     case restoringSession
-
-    /// Specific case for when a user signs in with apple. Apple is very big on privacy so we
-    /// are unable to retrieve the user's name when they authenticate with apple. So, once
-    /// they are authenticated we can use this state if we don't have their name yet.
-    case needsName
 }
 
 
@@ -118,9 +113,6 @@ class AuthenticationViewModel {
 
                             // Log the outcome for debugging
                             TelemetryManager.shared.log(.authProfileLoaded)
-                            if finalState == .needsName {
-                                TelemetryManager.shared.log(.authNeedsName)
-                            }
                         }
                     }
                 } else {
@@ -224,11 +216,6 @@ extension AuthenticationViewModel {
     private func getAuthenticationState() -> AuthenticationState {
         if user == nil {
             return .unauthenticated
-        }
-
-        // Check if we have a display name (from Firestore, cache, or Firebase Auth)
-        if displayName.isEmpty {
-            return .needsName
         }
 
         return .authenticated

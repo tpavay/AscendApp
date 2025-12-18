@@ -190,7 +190,7 @@ class WorkoutFormViewModel {
             isUploading = false
             // Clean up temp video files on failure
             cleanupVideoFiles()
-            uploadError = error.localizedDescription
+            uploadError = error.userFriendlyMessage
             throw error
         }
     }

@@ -13,20 +13,14 @@ struct RootView: View {
     var body: some View {
         Group {
             switch authVM.authenticationState {
-            case .authenticated:
+            case .authenticated, .restoringSession:
                 MainTabView()
             case .authenticatingWithApple,
                  .authenticatingWithGoogle:
                 ProgressView("Signing In...")
                     .themedBackground()
-            case .restoringSession:
-                // Brief loading state while fetching profile on cold launch
-                ProgressView()
-                    .themedBackground()
             case .unauthenticated:
                 LandingScreen()
-            case .needsName:
-                NameInputView()
             }
         }
         .animation(.easeInOut(duration: 0.25), value: authVM.authenticationState)

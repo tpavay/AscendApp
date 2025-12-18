@@ -97,9 +97,7 @@ struct WorkoutListView: View {
 
                 if workouts.isEmpty {
                     WorkoutListEmptyStateView(
-                        effectiveColorScheme: effectiveColorScheme,
-                        pendingImportCount: importService.pendingWorkoutsCount,
-                        onImportTapped: handleImportTapped
+                        effectiveColorScheme: effectiveColorScheme
                     )
                 } else {
                     WorkoutResultsListView(
@@ -143,9 +141,16 @@ struct WorkoutListView: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                             showingScanner = true
                         }
-                    }
+                    },
+                    onImportWorkouts: {
+                        showingEntrySelection = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            handleImportTapped()
+                        }
+                    },
+                    pendingImportCount: importService.pendingWorkoutsCount
                 )
-                .presentationDetents([.height(270)])
+                .presentationDetents([.height(350)])
             }
             .fullScreenCover(isPresented: $showingScanner) {
                 ConsoleScannerContainerView(
@@ -370,15 +375,22 @@ struct WorkoutRowView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
-    
+    @State private var isNotesExpanded = false
+
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
-    
+
     private var preferredMetric: WorkoutMetric {
         settingsManager.preferredWorkoutMetric
     }
-    
+
+    /// Check if notes need truncation (more than 2 lines worth of text)
+    private var notesNeedsTruncation: Bool {
+        // Approximate check: if notes have more than ~80 characters, likely needs truncation
+        workout.notes.count > 80 || workout.notes.contains("\n")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Workout Name with optional Strava icon on the right
@@ -396,45 +408,38 @@ struct WorkoutRowView: View {
                         .foregroundStyle(Color(red: 252/255, green: 76/255, blue: 2/255))
                 }
             }
-            
+
             HStack(spacing: 16) {
                 // Date
                 VStack(alignment: .leading, spacing: 4) {
                     Text(workout.date.formatted(.dateTime.month().day()))
                         .font(.montserratBold(size: 16))
                         .foregroundStyle(.accent)
-                    
+
                     Text(workout.date.formatted(.dateTime.year()))
                         .font(.montserratRegular(size: 12))
                         .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                    
+
                     Text(workout.date.formatted(.dateTime.hour().minute()))
                         .font(.montserratRegular(size: 12))
                         .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
                 }
                 .frame(width: 60, alignment: .leading)
-                
-                // Workout Details
+
+                // Workout Details (without notes)
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text("\(workout.metricValue(for: preferredMetric)) \(preferredMetric.unit)")
                             .font(.montserratSemiBold)
                             .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                        
+
                         Spacer()
-                        
+
                         Text(workout.durationFormatted)
                             .font(.montserratMedium)
                             .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.7))
                     }
-                    
-                    if !workout.notes.isEmpty {
-                        Text(workout.notes)
-                            .font(.montserratRegular(size: 14))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                            .lineLimit(2)
-                    }
-                    
+
                     // Personal Record Badges
                     if workout.hasPersonalRecords {
                         PersonalRecordBadgeGroup(
@@ -445,8 +450,31 @@ struct WorkoutRowView: View {
                     }
                 }
             }
-            
-            // Highlighted Photo/Video
+
+            // Notes section (full width, above photo if present)
+            if !workout.notes.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(workout.notes)
+                        .font(.montserratRegular(size: 14))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                        .lineLimit(isNotesExpanded ? nil : 2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if notesNeedsTruncation {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isNotesExpanded.toggle()
+                            }
+                        } label: {
+                            Text(isNotesExpanded ? "Show less" : "Read more")
+                                .font(.montserratMedium(size: 13))
+                                .foregroundStyle(.accent)
+                        }
+                    }
+                }
+            }
+
+            // Highlighted Photo/Video (at the bottom)
             if let highlightedPhoto = workout.highlightedPhoto {
                 HighlightedPhotoThumbnail(photo: highlightedPhoto)
             }

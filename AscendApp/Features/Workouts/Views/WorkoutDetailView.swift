@@ -28,6 +28,7 @@ struct WorkoutDetailView: View {
     @State private var isDeleting = false
     @State private var isCancelling = false
     @State private var deleteTask: Task<Void, Never>? = nil
+    @State private var isNotesExpanded = false
 
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -39,7 +40,12 @@ struct WorkoutDetailView: View {
                 VStack(spacing: 24) {
                     // Header with workout name and date
                     headerSection
-                    
+
+                    // Notes (if available) - shown after PRs, before stats
+                    if !workout.notes.isEmpty {
+                        notesSection
+                    }
+
                     // Workout Details
                     workoutDetailsSection
 
@@ -56,22 +62,18 @@ struct WorkoutDetailView: View {
                             workoutDuration: workout.duration
                         )
                     }
-                    
+
                     // Additional metrics (e.g., calories, METs, vertical climb)
                     if hasAdditionalMetrics {
                         additionalMetricsSection
                     }
-                    
-                    // Notes (if available)
-                    if !workout.notes.isEmpty {
-                        notesSection
-                    }
-                    
+
                     Spacer(minLength: 20)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)
             }
+            .scrollIndicators(.hidden)
             .themedBackground()
             .navigationBarHidden(true)
             .overlay(
@@ -162,7 +164,14 @@ struct WorkoutDetailView: View {
                                 if isSyncingToStrava {
                                     Label("Syncing...", systemImage: "arrow.triangle.2.circlepath")
                                 } else {
-                                    Label("Share to Strava", systemImage: "figure.stairs")
+                                    HStack {
+                                        Image("strava-icon")
+                                            .renderingMode(.template)
+                                            .resizable()
+                                            .scaledToFit()
+                                            .frame(width: 13, height: 13)
+                                        Text("Sync to Strava")
+                                    }
                                 }
                             }
                             .disabled(isSyncingToStrava)
@@ -301,7 +310,7 @@ struct WorkoutDetailView: View {
     }
     
     private var squareMetricsGrid: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 2), spacing: 12) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 2), spacing: 10) {
             // Duration
             gridStatCard(
                 icon: "stopwatch",
@@ -343,7 +352,7 @@ struct WorkoutDetailView: View {
     }
     
     private var fullWorkoutMetricsGrid: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 2), spacing: 12) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 2), spacing: 10) {
             // Duration
             gridStatCard(
                 icon: "stopwatch",
@@ -437,6 +446,12 @@ struct WorkoutDetailView: View {
         )
     }
     
+    /// Check if notes need truncation (more than ~4 lines worth of text)
+    private var notesNeedsTruncation: Bool {
+        // Approximate check: ~60 chars per line at this font size, so ~240 for 4 lines
+        workout.notes.count > 240 || workout.notes.components(separatedBy: "\n").count > 4
+    }
+
     private var notesSection: some View {
         VStack(spacing: 16) {
             // Section header
@@ -446,12 +461,25 @@ struct WorkoutDetailView: View {
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                 Spacer()
             }
-            
+
             VStack(alignment: .leading, spacing: 8) {
                 Text(workout.notes)
                     .font(.montserratRegular(size: 16))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .lineLimit(isNotesExpanded ? nil : 4)
+
+                if notesNeedsTruncation {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isNotesExpanded.toggle()
+                        }
+                    } label: {
+                        Text(isNotesExpanded ? "Show less" : "Read more")
+                            .font(.montserratMedium(size: 14))
+                            .foregroundStyle(.accent)
+                    }
+                }
             }
             .padding(20)
             .background(
@@ -518,35 +546,35 @@ struct WorkoutDetailView: View {
         value: String,
         iconColor: Color = .accent
     ) -> some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             // Icon
             Image(systemName: icon)
-                .font(.system(size: 20, weight: .medium))
+                .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(iconColor)
-                .frame(height: 24)
-            
+                .frame(height: 20)
+
             // Content
-            VStack(spacing: 4) {
+            VStack(spacing: 2) {
                 Text(title)
-                    .font(.montserratMedium(size: 12))
+                    .font(.montserratMedium(size: 11))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
-                
+
                 Text(value)
-                    .font(.montserratBold(size: 18))
+                    .font(.montserratBold(size: 16))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                     .multilineTextAlignment(.center)
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 100)
-        .padding(12)
+        .frame(height: 80)
+        .padding(10)
         .background(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: 14)
                 .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 16)
+                    RoundedRectangle(cornerRadius: 14)
                         .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
                 )
         )

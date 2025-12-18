@@ -52,6 +52,10 @@ struct MainTabView: View {
         .onChange(of: effectiveColorScheme) { _, _ in
             setupTabBarAppearance()
         }
+        .onChange(of: tabRouter.selectedTab) { _, _ in
+            let generator = UIImpactFeedbackGenerator(style: .heavy)
+            generator.impactOccurred()
+        }
         .themeAware()
     }
 

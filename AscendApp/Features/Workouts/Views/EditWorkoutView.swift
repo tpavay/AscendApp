@@ -357,18 +357,28 @@ struct EditWorkoutView: View {
                 }
             
             // Description
-            TextField("Add an optional description describing your workout", text: $notes, axis: .vertical)
-                .focused($focusedField, equals: .notes)
-                .font(.montserratRegular(size: 16))
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
-                )
-                .lineLimit(3...6)
-                .onSubmit {
-                    focusedField = nil
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: $notes)
+                    .focused($focusedField, equals: .notes)
+                    .font(.montserratRegular(size: 16))
+                    .frame(minHeight: 80, maxHeight: 150)
+                    .scrollContentBackground(.hidden)
+                    .background(.clear)
+
+                if notes.isEmpty {
+                    Text("Add an optional description describing your workout")
+                        .font(.montserratRegular(size: 16))
+                        .foregroundStyle(.gray.opacity(0.6))
+                        .padding(.top, 8)
+                        .padding(.leading, 5)
+                        .allowsHitTesting(false)
                 }
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
+            )
             
             existingPhotosSection
             
@@ -889,7 +899,7 @@ struct EditWorkoutView: View {
             // Clean up temp video files on failure
             cleanupVideoFiles()
             print("❌ Error updating workout: \(error)")
-            updateErrorMessage = "We couldn't update this workout. Please try again.\n\n\(error.localizedDescription)"
+            updateErrorMessage = error.userFriendlyMessage
         }
 
         isSaving = false

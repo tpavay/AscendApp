@@ -14,45 +14,51 @@ func workoutShareText(
     preferredMetric: WorkoutMetric
 ) -> String {
     let workoutTitle = workout.name.isEmpty ? "Stair workout" : workout.name
+    let achievedPRs = Set(workout.achievedPersonalRecords)
+
     var lines: [String] = [
         workoutTitle,
         ""
     ]
 
-    lines.append("Duration: \(workout.durationFormatted)")
+    // Duration
+    let durationPR = achievedPRs.contains(.longestDuration) ? " (PR)" : ""
+    lines.append("Duration: \(workout.durationFormatted)\(durationPR)")
 
-    if let metricLine = primaryMetricLine(for: workout, preferredMetric: preferredMetric) {
+    // Primary metric (steps or floors)
+    if let metricLine = primaryMetricLine(for: workout, preferredMetric: preferredMetric, achievedPRs: achievedPRs) {
         lines.append(metricLine)
     }
 
+    // Pace
     if let pace = workout.pace(for: preferredMetric) {
         let paceText = formattedDecimal(pace, decimals: 1)
         let paceUnit = preferredMetric == .steps ? "steps/min" : "floors/min"
-        lines.append("Pace: \(paceText) \(paceUnit)")
+        let pacePR = achievedPRs.contains(.highestAveragePace) ? " (PR)" : ""
+        lines.append("Pace: \(paceText) \(paceUnit)\(pacePR)")
     }
 
+    // Vertical climb
     if workout.steps > 0 {
         let vertical = workout.totalVerticalClimb(
             stepHeight: stepHeight,
             measurementSystem: measurementSystem
         )
         let verticalText = formattedDecimal(vertical, decimals: vertical < 100 ? 1 : 0)
-        lines.append("Vertical Climb: \(verticalText) \(measurementSystem.distanceAbbreviation)")
+        let verticalPR = achievedPRs.contains(.highestVerticalClimb) ? " (PR)" : ""
+        lines.append("Vertical Climb: \(verticalText) \(measurementSystem.distanceAbbreviation)\(verticalPR)")
     }
 
+    // Avg heart rate
     if let avgHR = workout.avgHeartRate {
-        lines.append("Avg Heart Rate: \(avgHR) BPM")
+        let avgHRPR = achievedPRs.contains(.highestAverageHeartRate) ? " (PR)" : ""
+        lines.append("Avg Heart Rate: \(avgHR) BPM\(avgHRPR)")
     }
 
+    // Max heart rate
     if let maxHR = workout.maxHeartRate {
-        lines.append("Max Heart Rate: \(maxHR) BPM")
-    }
-    
-    // Add personal records if any were achieved
-    let prText = personalRecordsText(for: workout)
-    if !prText.isEmpty {
-        lines.append("")
-        lines.append(prText)
+        let maxHRPR = achievedPRs.contains(.highestMaxHeartRate) ? " (PR)" : ""
+        lines.append("Max Heart Rate: \(maxHR) BPM\(maxHRPR)")
     }
 
     // Add attribution at the bottom
@@ -62,14 +68,16 @@ func workoutShareText(
     return lines.joined(separator: "\n")
 }
 
-private func primaryMetricLine(for workout: Workout, preferredMetric: WorkoutMetric) -> String? {
+private func primaryMetricLine(for workout: Workout, preferredMetric: WorkoutMetric, achievedPRs: Set<PersonalRecordType>) -> String? {
     let value = workout.metricValue(for: preferredMetric)
     let formattedValue = formattedInteger(value)
     switch preferredMetric {
     case .steps:
-        return "Steps: \(formattedValue)"
+        let stepsPR = achievedPRs.contains(.mostSteps) ? " (PR)" : ""
+        return "Steps: \(formattedValue)\(stepsPR)"
     case .floors:
-        return "Floors: \(formattedValue)"
+        let floorsPR = achievedPRs.contains(.mostFloors) ? " (PR)" : ""
+        return "Floors: \(formattedValue)\(floorsPR)"
     }
 }
 
@@ -86,23 +94,4 @@ private func formattedDecimal(_ value: Double, decimals: Int) -> String {
     formatter.maximumFractionDigits = decimals
     formatter.minimumFractionDigits = decimals
     return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.\(decimals)f", value)
-}
-
-private func personalRecordsText(for workout: Workout) -> String {
-    let achievedRecords = workout.achievedPersonalRecords
-    
-    guard !achievedRecords.isEmpty else {
-        return ""
-    }
-    
-    // Create PR text with emojis
-    let prLines = achievedRecords.map { recordType in
-        "\(recordType.emoji) PR: \(recordType.displayName)"
-    }
-    
-    if prLines.count == 1 {
-        return prLines[0]
-    } else {
-        return "Personal Records:\n" + prLines.map { "  • \($0)" }.joined(separator: "\n")
-    }
 }

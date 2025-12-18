@@ -44,6 +44,7 @@ struct WorkoutResultsListView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
         }
+        .scrollIndicators(.hidden)
     }
     
     private var emptyResultsView: some View {
