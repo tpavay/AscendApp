@@ -8,6 +8,7 @@
 import Foundation
 import SwiftUI
 import UIKit
+import AVFoundation
 
 /// Theme options for shareable cards
 enum ShareCardTheme: String, CaseIterable {
@@ -44,12 +45,12 @@ enum ShareCardTheme: String, CaseIterable {
 
 /// Types of cards available in the carousel
 enum ShareCardType: Identifiable, Equatable {
-    case photoMedia
+    case photoMedia(photoId: UUID)
     case detailedSummary
 
     var id: String {
         switch self {
-        case .photoMedia: return "photoMedia"
+        case .photoMedia(let photoId): return "photoMedia_\(photoId.uuidString)"
         case .detailedSummary: return "detailedSummary"
         }
     }
@@ -61,6 +62,14 @@ enum ShareCardType: Identifiable, Equatable {
             return false
         case .detailedSummary:
             return true
+        }
+    }
+
+    /// Returns the photo ID if this is a photo card
+    var photoId: UUID? {
+        switch self {
+        case .photoMedia(let photoId): return photoId
+        case .detailedSummary: return nil
         }
     }
 }
@@ -76,17 +85,17 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
     // MARK: - Published Properties
     @Published var currentCardIndex: Int = 0
     @Published var cardTheme: ShareCardTheme = .dark
-    @Published var isLoadingPhoto: Bool = false
-    @Published var photoImage: UIImage?
+    @Published var isLoadingPhotos: Bool = false
+    @Published var photoImages: [UUID: UIImage] = [:]
     @Published var copyConfirmationText: String?
     @Published var shareErrorMessage: String?
-    
+
     // MARK: - Properties
     let workout: Workout
     let workoutCount: Int?
     let displayName: String
     let availableCards: [ShareCardType]
-    private var photoLoadTask: Task<Void, Never>?
+    private var photoLoadTasks: [Task<Void, Never>] = []
     
     // MARK: - Computed Properties
     var currentCardType: ShareCardType {
@@ -99,29 +108,35 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
     var canToggleTheme: Bool {
         currentCardType.supportsThemeToggle
     }
-    
-    var hasPhoto: Bool {
-        workout.highlightedPhoto != nil
+
+    var hasPhotos: Bool {
+        !workout.photos.isEmpty
+    }
+
+    /// Returns the image for the current photo card (if applicable)
+    var currentPhotoImage: UIImage? {
+        guard let photoId = currentCardType.photoId else { return nil }
+        return photoImages[photoId]
     }
     
     // MARK: - Initialization
-    
+
     /// Initialize for workout completion flow
     init(workout: Workout, workoutCount: Int, displayName: String) {
         self.workout = workout
         self.workoutCount = workoutCount
         self.displayName = displayName
         self.availableCards = Self.determineAvailableCards(for: workout)
-        preloadPhotoIfNeeded()
+        preloadAllPhotos()
     }
-    
+
     /// Initialize for share flow (no workout count)
     init(workout: Workout, displayName: String) {
         self.workout = workout
         self.workoutCount = nil
         self.displayName = displayName
         self.availableCards = Self.determineAvailableCards(for: workout)
-        preloadPhotoIfNeeded()
+        preloadAllPhotos()
     }
     
     // MARK: - Card Logic
@@ -129,9 +144,18 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
     private static func determineAvailableCards(for workout: Workout) -> [ShareCardType] {
         var cards: [ShareCardType] = []
 
-        // Photo card only if workout has media
-        if workout.highlightedPhoto != nil {
-            cards.append(.photoMedia)
+        // Add a photo card for each photo/video in the workout
+        // Put highlighted photo first, then the rest
+        var orderedPhotos = workout.photos
+        if let highlightedId = workout.highlightedPhotoId,
+           let highlightedIndex = orderedPhotos.firstIndex(where: { $0.id == highlightedId }),
+           highlightedIndex != 0 {
+            let highlighted = orderedPhotos.remove(at: highlightedIndex)
+            orderedPhotos.insert(highlighted, at: 0)
+        }
+
+        for photo in orderedPhotos {
+            cards.append(.photoMedia(photoId: photo.id))
         }
 
         // Always include detailed summary
@@ -149,35 +173,63 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
     }
     
     // MARK: - Photo Loading
-    
-    private func preloadPhotoIfNeeded() {
-        guard let photo = workout.highlightedPhoto else { return }
-        loadPhoto(from: photo.url)
-    }
-    
-    private func loadPhoto(from url: URL) {
-        photoLoadTask?.cancel()
-        isLoadingPhoto = true
-        
-        photoLoadTask = Task { [weak self] in
-            let image = await Self.loadImage(from: url)
-            
-            guard !Task.isCancelled else {
-                await MainActor.run {
-                    self?.isLoadingPhoto = false
-                }
-                return
-            }
-            
-            await MainActor.run {
-                self?.photoImage = image
-                self?.isLoadingPhoto = false
+
+    private func preloadAllPhotos() {
+        guard !workout.photos.isEmpty else { return }
+
+        var needsLoading = false
+        for photo in workout.photos {
+            // Check cache first
+            if let cached = ImageCache.shared.image(for: photo.url) {
+                photoImages[photo.id] = cached
+            } else {
+                needsLoading = true
             }
         }
+
+        // If all images were cached, we're done
+        if photoImages.count == workout.photos.count {
+            return
+        }
+
+        isLoadingPhotos = true
+
+        for photo in workout.photos {
+            // Skip if already loaded from cache
+            if photoImages[photo.id] != nil { continue }
+
+            let task = Task { [weak self] in
+                let image: UIImage?
+
+                if photo.isVideo {
+                    // Extract thumbnail from video at 25%
+                    image = await Self.extractVideoThumbnail(from: photo.url)
+                } else {
+                    // Load image normally
+                    image = await Self.loadImage(from: photo.url)
+                }
+
+                guard !Task.isCancelled else { return }
+
+                await MainActor.run {
+                    self?.photoImages[photo.id] = image
+                    // Check if all photos are loaded
+                    if self?.photoImages.count == self?.workout.photos.count {
+                        self?.isLoadingPhotos = false
+                    }
+                }
+            }
+            photoLoadTasks.append(task)
+        }
     }
-    
+
     private static func loadImage(from url: URL) async -> UIImage? {
-        await Task.detached(priority: .utility) { () -> UIImage? in
+        // Check cache first
+        if let cached = ImageCache.shared.image(for: url) {
+            return cached
+        }
+
+        return await Task.detached(priority: .utility) { () -> UIImage? in
             do {
                 let data: Data
                 if url.isFileURL {
@@ -186,8 +238,48 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
                     let (remoteData, _) = try await URLSession.shared.data(from: url)
                     data = remoteData
                 }
-                return UIImage(data: data)
+                if let image = UIImage(data: data) {
+                    // Store in cache
+                    await MainActor.run {
+                        ImageCache.shared.store(image, for: url)
+                    }
+                    return image
+                }
+                return nil
             } catch {
+                return nil
+            }
+        }.value
+    }
+
+    private static func extractVideoThumbnail(from url: URL) async -> UIImage? {
+        // Check cache first (video thumbnails are cached by video URL)
+        if let cached = ImageCache.shared.image(for: url) {
+            return cached
+        }
+
+        return await Task.detached(priority: .utility) { () -> UIImage? in
+            let asset = AVURLAsset(url: url)
+            let imageGenerator = AVAssetImageGenerator(asset: asset)
+            imageGenerator.appliesPreferredTrackTransform = true
+            imageGenerator.maximumSize = CGSize(width: 1080, height: 1350) // Match poster export size
+
+            do {
+                // Get duration and extract thumbnail at 25%
+                let duration = try await asset.load(.duration)
+                let targetTime = CMTime(
+                    seconds: duration.seconds * 0.25,
+                    preferredTimescale: 600
+                )
+                let cgImage = try imageGenerator.copyCGImage(at: targetTime, actualTime: nil)
+                let image = UIImage(cgImage: cgImage)
+                // Store in cache
+                await MainActor.run {
+                    ImageCache.shared.store(image, for: url)
+                }
+                return image
+            } catch {
+                print("Failed to extract video thumbnail: \(error)")
                 return nil
             }
         }.value
@@ -222,10 +314,10 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
         preferredMetric: WorkoutMetric
     ) -> some View {
         switch currentCardType {
-        case .photoMedia:
+        case .photoMedia(let photoId):
             PhotoMediaCard(
                 workout: workout,
-                image: photoImage,
+                image: photoImages[photoId],
                 measurementSystem: measurementSystem,
                 stepHeight: stepHeight,
                 preferredMetric: preferredMetric,
@@ -286,9 +378,11 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
     }
     
     // MARK: - Cleanup
-    
+
     deinit {
-        photoLoadTask?.cancel()
+        for task in photoLoadTasks {
+            task.cancel()
+        }
     }
 }
 

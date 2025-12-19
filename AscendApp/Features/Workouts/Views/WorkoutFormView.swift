@@ -80,7 +80,8 @@ struct WorkoutFormView: View {
                 )
                 showingDurationPicker = false
             }
-            .presentationDetents([.height(320)])
+            .presentationDetents([.height(340)])
+            .interactiveDismissDisabled()
         }
         .alert("Upload Error", isPresented: .constant(viewModel.uploadError != nil)) {
             Button("OK") {

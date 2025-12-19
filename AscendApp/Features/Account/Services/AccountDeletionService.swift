@@ -120,7 +120,8 @@ final class AccountDeletionService {
         
         // Clear all cached data
         clearUserDefaults()
-        
+        ImageCache.shared.clearAll()
+
         updateProgress("Account deleted successfully")
     }
     

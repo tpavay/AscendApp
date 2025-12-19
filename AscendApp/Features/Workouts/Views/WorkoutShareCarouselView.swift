@@ -167,11 +167,11 @@ struct WorkoutShareCarouselView: View {
         let shadowColor = effectiveColorScheme == .dark ? Color.black.opacity(0.3) : Color.black.opacity(0.1)
 
         switch cardType {
-        case .photoMedia:
+        case .photoMedia(let photoId):
             return AnyView(
                 PhotoMediaCard(
                     workout: viewModel.workout,
-                    image: viewModel.photoImage,
+                    image: viewModel.photoImages[photoId],
                     measurementSystem: settingsManager.measurementSystem,
                     stepHeight: settingsManager.stepHeight,
                     preferredMetric: settingsManager.preferredWorkoutMetric,

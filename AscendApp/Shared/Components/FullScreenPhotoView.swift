@@ -244,11 +244,21 @@ struct FullScreenPhotoView: View {
     }
 
     private func loadPhoto() async {
+        // Check cache first
+        if let cached = ImageCache.shared.image(for: photo.url) {
+            await MainActor.run {
+                self.loadedImage = cached
+                self.isLoading = false
+            }
+            return
+        }
+
         do {
             let (data, _) = try await URLSession.shared.data(from: photo.url)
 
             await MainActor.run {
                 if let image = UIImage(data: data) {
+                    ImageCache.shared.store(image, for: photo.url)
                     self.loadedImage = image
                 } else {
                     self.loadError = PhotoLoadError.invalidImageData

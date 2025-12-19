@@ -469,19 +469,27 @@ struct WorkoutDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .lineLimit(isNotesExpanded ? nil : 4)
 
-                if notesNeedsTruncation {
+                if isNotesExpanded {
                     Button {
                         withAnimation(.easeInOut(duration: 0.2)) {
-                            isNotesExpanded.toggle()
+                            isNotesExpanded = false
                         }
                     } label: {
-                        Text(isNotesExpanded ? "Show less" : "Read more")
+                        Text("Show less")
                             .font(.montserratMedium(size: 14))
                             .foregroundStyle(.accent)
                     }
                 }
             }
             .padding(20)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if notesNeedsTruncation && !isNotesExpanded {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isNotesExpanded = true
+                    }
+                }
+            }
             .background(
                 RoundedRectangle(cornerRadius: 16)
                     .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))

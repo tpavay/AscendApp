@@ -106,11 +106,21 @@ struct LoadablePhotoView: View {
     }
     
     private func loadPhoto() async {
+        // Check cache first
+        if let cached = ImageCache.shared.image(for: photo.url) {
+            await MainActor.run {
+                self.loadedImage = cached
+                self.isLoading = false
+            }
+            return
+        }
+
         do {
             let (data, _) = try await URLSession.shared.data(from: photo.url)
-            
+
             await MainActor.run {
                 if let image = UIImage(data: data) {
+                    ImageCache.shared.store(image, for: photo.url)
                     self.loadedImage = image
                 } else {
                     self.loadError = PhotoLoadError.invalidImageData
@@ -124,8 +134,17 @@ struct LoadablePhotoView: View {
             }
         }
     }
-    
+
     private func loadVideoThumbnail() async {
+        // Check cache first
+        if let cached = ImageCache.shared.image(for: photo.url) {
+            await MainActor.run {
+                self.loadedImage = cached
+                self.isLoading = false
+            }
+            return
+        }
+
         do {
             let asset = AVURLAsset(url: photo.url)
             // Preload to ensure asset is ready for thumbnail generation
@@ -135,9 +154,11 @@ struct LoadablePhotoView: View {
             imageGenerator.appliesPreferredTrackTransform = true
 
             let cgImage = try await imageGenerator.image(at: .zero).image
-            
+            let image = UIImage(cgImage: cgImage)
+
             await MainActor.run {
-                self.loadedImage = UIImage(cgImage: cgImage)
+                ImageCache.shared.store(image, for: photo.url)
+                self.loadedImage = image
                 self.isLoading = false
             }
         } catch {

@@ -375,7 +375,6 @@ struct WorkoutRowView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
-    @State private var isNotesExpanded = false
 
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -385,98 +384,137 @@ struct WorkoutRowView: View {
         settingsManager.preferredWorkoutMetric
     }
 
-    /// Check if notes need truncation (more than 2 lines worth of text)
-    private var notesNeedsTruncation: Bool {
-        // Approximate check: if notes have more than ~80 characters, likely needs truncation
-        workout.notes.count > 80 || workout.notes.contains("\n")
+    private var formattedDateTime: String {
+        let calendar = Calendar.current
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "h:mm a"
+
+        if calendar.isDateInToday(workout.date) {
+            return "Today at \(timeFormatter.string(from: workout.date))"
+        } else if calendar.isDateInYesterday(workout.date) {
+            return "Yesterday at \(timeFormatter.string(from: workout.date))"
+        } else {
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "MMM d, yyyy"
+            return "\(dateFormatter.string(from: workout.date)) at \(timeFormatter.string(from: workout.date))"
+        }
+    }
+
+    private var paceText: String? {
+        guard let pace = workout.pace(for: preferredMetric) else { return nil }
+        let unit = preferredMetric == .steps ? "spm" : "fpm"
+        return "\(Int(pace)) \(unit)"
+    }
+
+    /// Formats metric value compactly for large numbers (100K+)
+    private var compactMetricValue: String {
+        let value = workout.metricValue(for: preferredMetric)
+        if value >= 100_000 {
+            // Round to nearest hundred, then format as K
+            let rounded = (Double(value) / 100).rounded() * 100
+            let inK = rounded / 1000
+            // Remove trailing .0 if whole number
+            if inK.truncatingRemainder(dividingBy: 1) == 0 {
+                return "\(Int(inK))K"
+            } else {
+                return String(format: "%.1fK", inK)
+            }
+        } else {
+            return value.formatted()
+        }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Workout Name with optional Strava icon on the right
-            HStack(spacing: 8) {
+            // Header: Title (left) + Date/Time/Strava (right)
+            HStack(alignment: .top, spacing: 8) {
                 Text(workout.name)
+                    .font(.montserratSemiBold(size: 14))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer()
+
+                HStack(spacing: 6) {
+                    Text(formattedDateTime)
+                        .font(.montserratRegular(size: 11))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
+
+                    if workout.isSyncedToStrava {
+                        Image("strava-icon")
+                            .renderingMode(.template)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 14, height: 14)
+                            .foregroundStyle(Color(red: 252/255, green: 76/255, blue: 2/255))
+                    }
+                }
+                .fixedSize(horizontal: true, vertical: false)
+            }
+
+            // Separator line
+            Rectangle()
+                .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
+                .frame(height: 1)
+
+            // Main stats row
+            HStack(spacing: 6) {
+                // Primary metric
+                Text("\(compactMetricValue) \(preferredMetric.unit)")
                     .font(.montserratBold(size: 18))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+
+                Text("•")
+                    .font(.system(size: 10))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.4) : .gray.opacity(0.6))
+
+                // Duration
+                Text(workout.durationFormatted)
+                    .font(.montserratMedium(size: 14))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+
+                if let pace = paceText {
+                    Text("•")
+                        .font(.system(size: 10))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.4) : .gray.opacity(0.6))
+                    Text(pace)
+                        .font(.montserratMedium(size: 14))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                }
+
                 Spacer()
-                if workout.isSyncedToStrava {
-                    Image("strava-icon")
-                        .renderingMode(.template)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 18, height: 18)
-                        .foregroundStyle(Color(red: 252/255, green: 76/255, blue: 2/255))
-                }
-            }
 
-            HStack(spacing: 16) {
-                // Date
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(workout.date.formatted(.dateTime.month().day()))
-                        .font(.montserratBold(size: 16))
-                        .foregroundStyle(.accent)
-
-                    Text(workout.date.formatted(.dateTime.year()))
-                        .font(.montserratRegular(size: 12))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-
-                    Text(workout.date.formatted(.dateTime.hour().minute()))
-                        .font(.montserratRegular(size: 12))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                }
-                .frame(width: 60, alignment: .leading)
-
-                // Workout Details (without notes)
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("\(workout.metricValue(for: preferredMetric)) \(preferredMetric.unit)")
-                            .font(.montserratSemiBold)
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                        Spacer()
-
-                        Text(workout.durationFormatted)
-                            .font(.montserratMedium)
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.7))
-                    }
-
-                    // Personal Record Badges
-                    if workout.hasPersonalRecords {
-                        PersonalRecordBadgeGroup(
-                            workout: workout,
-                            size: .small,
-                            maxVisible: 3
+                // Personal Records pill - aligned right
+                if workout.hasPersonalRecords {
+                    let prCount = workout.achievedPersonalRecords.count
+                    Text("🏆 \(prCount)")
+                        .font(.montserratSemiBold(size: 12))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(
+                            Capsule()
+                                .fill(.accent)
                         )
-                    }
+                        .fixedSize(horizontal: true, vertical: false)
                 }
             }
 
-            // Notes section (full width, above photo if present)
+            // Notes section
             if !workout.notes.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(workout.notes)
-                        .font(.montserratRegular(size: 14))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                        .lineLimit(isNotesExpanded ? nil : 2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                    if notesNeedsTruncation {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                isNotesExpanded.toggle()
-                            }
-                        } label: {
-                            Text(isNotesExpanded ? "Show less" : "Read more")
-                                .font(.montserratMedium(size: 13))
-                                .foregroundStyle(.accent)
-                        }
-                    }
-                }
+                Text(workout.notes)
+                    .font(.montserratRegular(size: 12))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            // Highlighted Photo/Video (at the bottom)
-            if let highlightedPhoto = workout.highlightedPhoto {
-                HighlightedPhotoThumbnail(photo: highlightedPhoto)
+            // Photo/Video section
+            if !workout.photos.isEmpty {
+                WorkoutCardMediaSection(workout: workout)
             }
         }
         .padding(16)
@@ -485,9 +523,418 @@ struct WorkoutRowView: View {
                 .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
-                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
+                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1.5)
                 )
         )
+    }
+}
+
+/// Media section for workout cards - handles single full-width or carousel for multiple
+struct WorkoutCardMediaSection: View {
+    let workout: Workout
+
+    private var sortedPhotos: [Photo] {
+        // Put highlighted photo first, then the rest
+        var photos = workout.photos
+        if let highlightedId = workout.highlightedPhotoId,
+           let highlightedIndex = photos.firstIndex(where: { $0.id == highlightedId }),
+           highlightedIndex != 0 {
+            let highlighted = photos.remove(at: highlightedIndex)
+            photos.insert(highlighted, at: 0)
+        }
+        return photos
+    }
+
+    var body: some View {
+        if workout.photos.count == 1, let photo = workout.photos.first {
+            // Single photo/video - full width
+            SingleMediaView(photo: photo)
+        } else {
+            // Multiple photos/videos - horizontal carousel
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(sortedPhotos) { photo in
+                        CarouselMediaThumbnail(photo: photo)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Full-width single media view with autoplay video support
+struct SingleMediaView: View {
+    let photo: Photo
+
+    @State private var loadedImage: UIImage?
+    @State private var isLoading = true
+    @State private var isVisible = false
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                if photo.isVideo {
+                    AutoPlayVideoView(photo: photo, isVisible: $isVisible)
+                } else if let image = loadedImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                } else if isLoading {
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.2))
+                        .overlay {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                        }
+                } else {
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.2))
+                        .overlay {
+                            Image(systemName: "photo")
+                                .font(.system(size: 20))
+                                .foregroundStyle(.gray)
+                        }
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .onAppear { isVisible = true }
+            .onDisappear { isVisible = false }
+        }
+        .frame(height: 220)
+        .task {
+            if !photo.isVideo {
+                await loadPhoto()
+            }
+        }
+    }
+
+    private func loadPhoto() async {
+        // Check cache first
+        if let cached = ImageCache.shared.image(for: photo.url) {
+            await MainActor.run {
+                self.loadedImage = cached
+                self.isLoading = false
+            }
+            return
+        }
+
+        do {
+            let (data, _) = try await URLSession.shared.data(from: photo.url)
+            await MainActor.run {
+                if let image = UIImage(data: data) {
+                    ImageCache.shared.store(image, for: photo.url)
+                    self.loadedImage = image
+                }
+                self.isLoading = false
+            }
+        } catch {
+            await MainActor.run {
+                self.isLoading = false
+            }
+        }
+    }
+}
+
+/// Auto-playing video view that plays when visible and resets when not
+struct AutoPlayVideoView: View {
+    let photo: Photo
+    @Binding var isVisible: Bool
+
+    @State private var player: AVPlayer?
+    @State private var thumbnail: UIImage?
+    @State private var isLoading = true
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                if let player = player {
+                    VideoPlayerView(player: player)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .onChange(of: isVisible) { _, visible in
+                            if visible {
+                                player.seek(to: .zero)
+                                player.play()
+                            } else {
+                                player.pause()
+                                player.seek(to: .zero)
+                            }
+                        }
+                } else if let thumbnail = thumbnail {
+                    Image(uiImage: thumbnail)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                        .overlay {
+                            if isLoading {
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                            }
+                        }
+                } else if isLoading {
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.2))
+                        .overlay {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                        }
+                }
+
+                // Duration badge
+                if let duration = photo.duration {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            Text(formatVideoDuration(duration))
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(
+                                    Capsule()
+                                        .fill(Color.black.opacity(0.7))
+                                )
+                                .padding(8)
+                        }
+                    }
+                }
+            }
+        }
+        .task {
+            await loadVideo()
+        }
+        .onDisappear {
+            player?.pause()
+        }
+    }
+
+    private func loadVideo() async {
+        // First check cache for thumbnail
+        if let cached = ImageCache.shared.image(for: photo.url) {
+            await MainActor.run {
+                self.thumbnail = cached
+            }
+        } else {
+            // Load thumbnail
+            let asset = AVURLAsset(url: photo.url)
+            let imageGenerator = AVAssetImageGenerator(asset: asset)
+            imageGenerator.appliesPreferredTrackTransform = true
+
+            do {
+                let cgImage = try await imageGenerator.image(at: .zero).image
+                let image = UIImage(cgImage: cgImage)
+                await MainActor.run {
+                    ImageCache.shared.store(image, for: photo.url)
+                    self.thumbnail = image
+                }
+            } catch {
+                print("Failed to generate thumbnail: \(error)")
+            }
+        }
+
+        // Then set up player
+        let newPlayer = AVPlayer(url: photo.url)
+        newPlayer.isMuted = true
+        newPlayer.actionAtItemEnd = .none
+
+        // Loop video
+        NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: newPlayer.currentItem,
+            queue: .main
+        ) { _ in
+            newPlayer.seek(to: .zero)
+            if self.isVisible {
+                newPlayer.play()
+            }
+        }
+
+        await MainActor.run {
+            self.player = newPlayer
+            self.isLoading = false
+            if isVisible {
+                newPlayer.play()
+            }
+        }
+    }
+
+    private func formatVideoDuration(_ duration: TimeInterval) -> String {
+        let minutes = Int(duration) / 60
+        let seconds = Int(duration) % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+}
+
+/// Simple AVPlayer wrapper view
+struct VideoPlayerView: UIViewRepresentable {
+    let player: AVPlayer
+
+    func makeUIView(context: Context) -> UIView {
+        let view = PlayerUIView()
+        view.player = player
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {}
+
+    class PlayerUIView: UIView {
+        var player: AVPlayer? {
+            didSet {
+                playerLayer.player = player
+            }
+        }
+
+        private var playerLayer: AVPlayerLayer {
+            layer as! AVPlayerLayer
+        }
+
+        override static var layerClass: AnyClass {
+            AVPlayerLayer.self
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            playerLayer.videoGravity = .resizeAspectFill
+        }
+    }
+}
+
+/// Carousel thumbnail for multiple media
+struct CarouselMediaThumbnail: View {
+    let photo: Photo
+
+    @State private var loadedImage: UIImage?
+    @State private var isLoading = true
+
+    var body: some View {
+        ZStack {
+            if let image = loadedImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 140, height: 140)
+                    .clipped()
+
+                // Video overlay
+                if photo.isVideo {
+                    ZStack {
+                        Color.black.opacity(0.2)
+
+                        VStack {
+                            Image(systemName: "play.circle.fill")
+                                .font(.system(size: 28))
+                                .foregroundStyle(.white)
+
+                            if let duration = photo.duration {
+                                Text(formatDuration(duration))
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 2)
+                                    .background(
+                                        Capsule()
+                                            .fill(Color.black.opacity(0.6))
+                                    )
+                            }
+                        }
+                    }
+                }
+            } else if isLoading {
+                Rectangle()
+                    .fill(Color.gray.opacity(0.2))
+                    .frame(width: 140, height: 140)
+                    .overlay {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                    }
+            } else {
+                Rectangle()
+                    .fill(Color.gray.opacity(0.2))
+                    .frame(width: 140, height: 140)
+                    .overlay {
+                        Image(systemName: "photo")
+                            .font(.system(size: 16))
+                            .foregroundStyle(.gray)
+                    }
+            }
+        }
+        .frame(width: 140, height: 140)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .task {
+            await loadMedia()
+        }
+    }
+
+    private func loadMedia() async {
+        if photo.isVideo {
+            await loadVideoThumbnail()
+        } else {
+            await loadPhoto()
+        }
+    }
+
+    private func loadPhoto() async {
+        // Check cache first
+        if let cached = ImageCache.shared.image(for: photo.url) {
+            await MainActor.run {
+                self.loadedImage = cached
+                self.isLoading = false
+            }
+            return
+        }
+
+        do {
+            let (data, _) = try await URLSession.shared.data(from: photo.url)
+            await MainActor.run {
+                if let image = UIImage(data: data) {
+                    ImageCache.shared.store(image, for: photo.url)
+                    self.loadedImage = image
+                }
+                self.isLoading = false
+            }
+        } catch {
+            await MainActor.run {
+                self.isLoading = false
+            }
+        }
+    }
+
+    private func loadVideoThumbnail() async {
+        // Check cache first
+        if let cached = ImageCache.shared.image(for: photo.url) {
+            await MainActor.run {
+                self.loadedImage = cached
+                self.isLoading = false
+            }
+            return
+        }
+
+        let asset = AVURLAsset(url: photo.url)
+        let imageGenerator = AVAssetImageGenerator(asset: asset)
+        imageGenerator.appliesPreferredTrackTransform = true
+
+        do {
+            let cgImage = try await imageGenerator.image(at: .zero).image
+            let image = UIImage(cgImage: cgImage)
+            await MainActor.run {
+                ImageCache.shared.store(image, for: photo.url)
+                self.loadedImage = image
+                self.isLoading = false
+            }
+        } catch {
+            await MainActor.run {
+                self.isLoading = false
+            }
+        }
+    }
+
+    private func formatDuration(_ duration: TimeInterval) -> String {
+        let minutes = Int(duration) / 60
+        let seconds = Int(duration) % 60
+        return String(format: "%d:%02d", minutes, seconds)
     }
 }
 
@@ -566,10 +1013,20 @@ struct HighlightedPhotoThumbnail: View {
     }
     
     private func loadPhoto() async {
+        // Check cache first
+        if let cached = ImageCache.shared.image(for: photo.url) {
+            await MainActor.run {
+                self.loadedImage = cached
+                self.isLoading = false
+            }
+            return
+        }
+
         do {
             let (data, _) = try await URLSession.shared.data(from: photo.url)
             await MainActor.run {
                 if let image = UIImage(data: data) {
+                    ImageCache.shared.store(image, for: photo.url)
                     self.loadedImage = image
                 }
                 self.isLoading = false
@@ -580,17 +1037,28 @@ struct HighlightedPhotoThumbnail: View {
             }
         }
     }
-    
+
     private func loadVideoThumbnail() async {
+        // Check cache first
+        if let cached = ImageCache.shared.image(for: photo.url) {
+            await MainActor.run {
+                self.loadedImage = cached
+                self.isLoading = false
+            }
+            return
+        }
+
         do {
             let asset = AVURLAsset(url: photo.url)
             let imageGenerator = AVAssetImageGenerator(asset: asset)
             imageGenerator.appliesPreferredTrackTransform = true
-            
+
             let cgImage = try await imageGenerator.image(at: .zero).image
-            
+            let image = UIImage(cgImage: cgImage)
+
             await MainActor.run {
-                self.loadedImage = UIImage(cgImage: cgImage)
+                ImageCache.shared.store(image, for: photo.url)
+                self.loadedImage = image
                 self.isLoading = false
             }
         } catch {
@@ -599,7 +1067,7 @@ struct HighlightedPhotoThumbnail: View {
             }
         }
     }
-    
+
     private func formatDuration(_ duration: TimeInterval) -> String {
         let totalSeconds = Int(duration.rounded())
         let minutes = totalSeconds / 60

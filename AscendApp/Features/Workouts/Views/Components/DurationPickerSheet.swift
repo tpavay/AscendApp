@@ -13,58 +13,56 @@ struct DurationPickerSheet: View {
     @Binding var seconds: Int
     var onDone: () -> Void
 
-    private let hourRange = Array(0...23)
+    // Support up to 99 hours (over 4 days) for long challenges
+    private let hourRange = Array(0...99)
     private let minuteSecondRange = Array(0...59)
 
     var body: some View {
-        VStack(spacing: 16) {
-            Capsule()
-                .fill(.secondary)
-                .frame(width: 40, height: 5)
-                .padding(.top, 8)
+        VStack(spacing: 12) {
+            Text("Duration")
+                .font(.montserratMedium(size: 14))
+                .foregroundStyle(.secondary)
+                .padding(.top, 16)
 
-            HStack {
-                Text("Duration")
-                    .font(.montserratSemiBold(size: 18))
-                    .foregroundStyle(.primary)
+            Divider()
+                .padding(.horizontal)
 
-                Spacer()
-
-                Button("Done") {
-                    onDone()
-                }
-                .font(.montserratSemiBold(size: 16))
-            }
-            .padding(.horizontal)
-
-            HStack(alignment: .center) {
+            HStack(alignment: .center, spacing: 0) {
                 pickerColumn(title: "Hours", range: hourRange, selection: $hours, unit: "hr")
                 pickerColumn(title: "Minutes", range: minuteSecondRange, selection: $minutes, unit: "min")
                 pickerColumn(title: "Seconds", range: minuteSecondRange, selection: $seconds, unit: "sec")
             }
-            .padding(.horizontal)
+            .padding(.horizontal, 8)
 
-            Spacer()
+            Button {
+                onDone()
+            } label: {
+                Text("Done")
+                    .font(.montserratSemiBold(size: 16))
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(.accent)
+                    )
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 8)
         }
-        .padding(.bottom)
     }
 
     private func pickerColumn(title: String, range: [Int], selection: Binding<Int>, unit: String) -> some View {
-        VStack(spacing: 8) {
-            Text(title)
-                .font(.montserratRegular(size: 14))
-                .foregroundStyle(.secondary)
-
-            Picker(title, selection: selection) {
-                ForEach(range, id: \.self) { value in
-                    Text("\(value) \(unit)")
-                        .font(.montserratRegular(size: 16))
-                        .tag(value)
-                }
+        Picker(title, selection: selection) {
+            ForEach(range, id: \.self) { value in
+                Text("\(value) \(unit)")
+                    .font(.montserratMedium(size: 22))
+                    .foregroundStyle(.white)
+                    .tag(value)
             }
-            .pickerStyle(.wheel)
-            .frame(maxWidth: .infinity)
         }
+        .pickerStyle(.wheel)
+        .frame(maxWidth: .infinity)
     }
 }
 

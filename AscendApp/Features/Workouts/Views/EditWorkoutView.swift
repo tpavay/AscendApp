@@ -143,7 +143,8 @@ struct EditWorkoutView: View {
                 setDuration(hours: durationPickerHours, minutes: durationPickerMinutes, seconds: durationPickerSeconds)
                 showingDurationPicker = false
             }
-            .presentationDetents([.height(320)])
+            .presentationDetents([.height(340)])
+            .interactiveDismissDisabled()
         }
         .sheet(item: $photoPendingDeletion) { photo in
             DeletePhotoConfirmationView(
