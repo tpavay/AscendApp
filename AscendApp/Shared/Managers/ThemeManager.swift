@@ -22,12 +22,12 @@ final class ThemeManager {
     }
     
     private init() {
-        // Load saved theme or default to system
+        // Load saved theme or default to dark
         if let savedTheme = UserDefaults.standard.string(forKey: themeKey),
            let theme = AppTheme(rawValue: savedTheme) {
             self.selectedTheme = theme
         } else {
-            self.selectedTheme = .system
+            self.selectedTheme = .dark
         }
     }
     

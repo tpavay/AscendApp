@@ -45,9 +45,10 @@ extension AuthenticationError {
 
 @MainActor
 class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
-    
+
     private var currentNonce: String?
     private var signInContinuation: CheckedContinuation<User, Error>?
+    private var credentialContinuation: CheckedContinuation<AuthCredential, Error>?
 
     func signInWithGoogle() async throws -> User {
         // Get Firebase client ID
@@ -182,6 +183,20 @@ class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
 // MARK: - ASAuthorizationControllerDelegate
 extension AuthenticationService {
     func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+        // Check if this is a reauthentication flow (credential-only)
+        if let credentialContinuation = credentialContinuation {
+            do {
+                let credential = try handleAppleAuthorizationForReauth(authorization)
+                self.credentialContinuation = nil
+                credentialContinuation.resume(returning: credential)
+            } catch {
+                self.credentialContinuation = nil
+                credentialContinuation.resume(throwing: error)
+            }
+            return
+        }
+
+        // Regular sign-in flow
         guard let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential else {
             signInContinuation?.resume(throwing: AuthenticationError.invalidAppleCredential)
             return
@@ -194,27 +209,27 @@ extension AuthenticationService {
             signInContinuation?.resume(throwing: AuthenticationError.appleSignInFailed("Invalid state: A login callback was received, but no login request was sent."))
             return
         }
-        
+
         guard let appleIDToken = appleIDCredential.identityToken else {
             signInContinuation?.resume(throwing: AuthenticationError.appleSignInFailed("Unable to fetch identity token"))
             return
         }
-        
+
         guard let idTokenString = String(data: appleIDToken, encoding: .utf8) else {
             signInContinuation?.resume(throwing: AuthenticationError.appleSignInFailed("Unable to serialize token string from data"))
             return
         }
-        
+
         let credential = OAuthProvider.credential(providerID: AuthProviderID.apple,
                                                   idToken: idTokenString,
                                                   rawNonce: nonce)
-        
+
         Task {
             do {
                 let result = try await Auth.auth().signIn(with: credential)
                 let firebaseUser = result.user
                 print("User \(firebaseUser.uid) signed in with Apple ID \(appleIDCredential.user)")
-                
+
                 // Save Apple Sign In names to Firestore immediately since we won't get them again
                 if !firstName.isEmpty && !lastName.isEmpty {
                     let displayName = "\(firstName) \(lastName)"
@@ -227,49 +242,156 @@ extension AuthenticationService {
                     )
                     UserDataRepository.shared.cacheDisplayName(displayName)
                 }
-                
+
                 signInContinuation?.resume(returning: firebaseUser)
             } catch {
                 signInContinuation?.resume(throwing: AuthenticationError.appleSignInFailed(error.localizedDescription))
             }
         }
     }
-    
+
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
-        // Check if the error is user cancellation
-        if let authError = error as? ASAuthorizationError {
+        let authError = error as? ASAuthorizationError
+        let errorToThrow: Error
+
+        if let authError = authError {
             switch authError.code {
             case .canceled:
-                // User canceled - this is not an error, just reset state silently
-                signInContinuation?.resume(throwing: CancellationError())
+                errorToThrow = CancellationError()
             case .unknown:
-                signInContinuation?.resume(throwing: AuthenticationError.appleSignInFailed("Apple Sign-in failed with unknown error"))
+                errorToThrow = AuthenticationError.appleSignInFailed("Apple Sign-in failed with unknown error")
             case .invalidResponse:
-                signInContinuation?.resume(throwing: AuthenticationError.appleSignInFailed("Apple Sign-in received invalid response"))
+                errorToThrow = AuthenticationError.appleSignInFailed("Apple Sign-in received invalid response")
             case .notHandled:
-                signInContinuation?.resume(throwing: AuthenticationError.appleSignInFailed("Apple Sign-in request not handled"))
+                errorToThrow = AuthenticationError.appleSignInFailed("Apple Sign-in request not handled")
             case .failed:
-                signInContinuation?.resume(throwing: AuthenticationError.appleSignInFailed("Apple Sign-in failed"))
+                errorToThrow = AuthenticationError.appleSignInFailed("Apple Sign-in failed")
             case .notInteractive:
-                signInContinuation?.resume(throwing: AuthenticationError.appleSignInFailed("Apple Sign-in requires user interaction"))
+                errorToThrow = AuthenticationError.appleSignInFailed("Apple Sign-in requires user interaction")
             @unknown default:
-                signInContinuation?.resume(throwing: AuthenticationError.appleSignInFailed("Apple Sign-in failed with unknown error"))
+                errorToThrow = AuthenticationError.appleSignInFailed("Apple Sign-in failed with unknown error")
             }
-            return
+        } else {
+            errorToThrow = AuthenticationError.appleSignInFailed(error.localizedDescription)
         }
-        
-        // For other types of errors
-        signInContinuation?.resume(throwing: AuthenticationError.appleSignInFailed(error.localizedDescription))
+
+        // Resume whichever continuation is active
+        if let credentialContinuation = credentialContinuation {
+            self.credentialContinuation = nil
+            credentialContinuation.resume(throwing: errorToThrow)
+        } else {
+            signInContinuation?.resume(throwing: errorToThrow)
+        }
     }
 
     func updateUserDisplayName(firstName: String, lastName: String) async throws {
         guard let user = Auth.auth().currentUser else {
             throw AuthenticationError.signInFailed("No authenticated user found")
         }
-        
+
         let changeRequest = user.createProfileChangeRequest()
         changeRequest.displayName = "\(firstName) \(lastName)"
-        
+
         try await changeRequest.commitChanges()
+    }
+
+    // MARK: - Reauthentication
+
+    /// Reauthenticate the current user with Google
+    func reauthenticateWithGoogle() async throws {
+        guard let user = Auth.auth().currentUser else {
+            throw AuthenticationError.signInFailed("No authenticated user found")
+        }
+
+        guard let clientID = FirebaseApp.app()?.options.clientID else {
+            throw AuthenticationError.noClientID
+        }
+
+        let config = GIDConfiguration(clientID: clientID)
+        GIDSignIn.sharedInstance.configuration = config
+
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = windowScene.windows.first,
+              let rootViewController = window.rootViewController else {
+            throw AuthenticationError.noRootViewController
+        }
+
+        do {
+            let userAuthentication = try await GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController)
+
+            let googleUser = userAuthentication.user
+            guard let idToken = googleUser.idToken else {
+                throw AuthenticationError.noIDToken
+            }
+
+            let credential = GoogleAuthProvider.credential(
+                withIDToken: idToken.tokenString,
+                accessToken: googleUser.accessToken.tokenString
+            )
+
+            try await user.reauthenticate(with: credential)
+            print("User reauthenticated with Google")
+        } catch let error as GIDSignInError where error.code == .canceled {
+            throw CancellationError()
+        } catch let error as AuthenticationError {
+            throw error
+        } catch {
+            throw AuthenticationError.signInFailed(error.localizedDescription)
+        }
+    }
+
+    /// Reauthenticate the current user with Apple
+    func reauthenticateWithApple() async throws {
+        guard let user = Auth.auth().currentUser else {
+            throw AuthenticationError.signInFailed("No authenticated user found")
+        }
+
+        // Get fresh Apple credential
+        let credential = try await getAppleCredential()
+
+        try await user.reauthenticate(with: credential)
+        print("User reauthenticated with Apple")
+    }
+
+    /// Get Apple credential without signing in (for reauthentication)
+    private func getAppleCredential() async throws -> AuthCredential {
+        return try await withCheckedThrowingContinuation { continuation in
+            let nonce = randomNonceString()
+            self.currentNonce = nonce
+
+            let appleIDProvider = ASAuthorizationAppleIDProvider()
+            let request = appleIDProvider.createRequest()
+            request.requestedScopes = [.fullName, .email]
+            request.nonce = sha256(nonce)
+
+            // Store continuation for credential-only flow
+            self.credentialContinuation = continuation
+
+            let authorizationController = ASAuthorizationController(authorizationRequests: [request])
+            authorizationController.delegate = self
+            authorizationController.performRequests()
+        }
+    }
+
+    /// Helper to handle Apple authorization for reauthentication
+    private func handleAppleAuthorizationForReauth(_ authorization: ASAuthorization) throws -> AuthCredential {
+        guard let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential else {
+            throw AuthenticationError.invalidAppleCredential
+        }
+
+        guard let nonce = currentNonce else {
+            throw AuthenticationError.appleSignInFailed("Invalid state: no nonce")
+        }
+
+        guard let appleIDToken = appleIDCredential.identityToken,
+              let idTokenString = String(data: appleIDToken, encoding: .utf8) else {
+            throw AuthenticationError.appleSignInFailed("Unable to fetch identity token")
+        }
+
+        return OAuthProvider.credential(
+            providerID: AuthProviderID.apple,
+            idToken: idTokenString,
+            rawNonce: nonce
+        )
     }
 }

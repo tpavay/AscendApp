@@ -93,6 +93,10 @@ struct WorkoutDetailView: View {
             .sheet(isPresented: $showingShareWorkoutView) {
                 WorkoutShareCarouselView(workout: workout, displayName: authVM.displayName)
             }
+            .onAppear {
+                // Preload share card templates in background (anticipate sharing)
+                ShareCardTemplateService.shared.preloadIfNeeded()
+            }
             .sheet(isPresented: $showingDeleteConfirmation) {
                 SingleWorkoutDeleteConfirmationView(
                     workout: workout,

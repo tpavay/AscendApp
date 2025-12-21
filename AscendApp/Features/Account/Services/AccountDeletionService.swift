@@ -15,15 +15,16 @@ import SwiftData
 /// Deletes data from: Firebase Auth, Firestore, Firebase Storage, and local SwiftData
 @MainActor
 final class AccountDeletionService {
-    
+
     enum DeletionError: LocalizedError {
         case notAuthenticated
         case firestoreDeletionFailed(String)
         case storageDeletionFailed(String)
         case authDeletionFailed(String)
         case localDataDeletionFailed(String)
-        case requiresRecentLogin
-        
+        case reauthenticationFailed(String)
+        case reauthenticationCancelled
+
         var errorDescription: String? {
             switch self {
             case .notAuthenticated:
@@ -36,11 +37,15 @@ final class AccountDeletionService {
                 return "Failed to delete account: \(message)"
             case .localDataDeletionFailed(let message):
                 return "Failed to delete local data: \(message)"
-            case .requiresRecentLogin:
-                return "For security, please sign out and sign back in, then try deleting your account again."
+            case .reauthenticationFailed(let message):
+                return "Failed to verify your identity: \(message)"
+            case .reauthenticationCancelled:
+                return "Account deletion cancelled."
             }
         }
     }
+
+    private let authService = AuthenticationService()
     
     struct DeletionProgress {
         var currentStep: String
@@ -107,15 +112,7 @@ final class AccountDeletionService {
         
         // Step 6: Delete Firebase Auth account
         updateProgress("Deleting account...")
-        do {
-            try await user.delete()
-        } catch let error as NSError {
-            // Check if re-authentication is required
-            if error.code == AuthErrorCode.requiresRecentLogin.rawValue {
-                throw DeletionError.requiresRecentLogin
-            }
-            throw DeletionError.authDeletionFailed(error.localizedDescription)
-        }
+        try await deleteAuthAccount()
         completedSteps += 1
         
         // Clear all cached data
@@ -126,7 +123,52 @@ final class AccountDeletionService {
     }
     
     // MARK: - Private Deletion Methods
-    
+
+    /// Deletes Firebase Auth account, handling reauthentication if needed
+    private func deleteAuthAccount() async throws {
+        guard let user = Auth.auth().currentUser else {
+            throw DeletionError.notAuthenticated
+        }
+
+        do {
+            try await user.delete()
+        } catch let error as NSError {
+            // Check if re-authentication is required
+            if error.code == AuthErrorCode.requiresRecentLogin.rawValue {
+                // Get provider IDs before reauthentication
+                let providerIDs = user.providerData.map { $0.providerID }
+                // Reauthenticate based on provider
+                try await reauthenticateUser(providerIDs: providerIDs)
+                // Re-fetch user after reauthentication and retry deletion
+                guard let refreshedUser = Auth.auth().currentUser else {
+                    throw DeletionError.notAuthenticated
+                }
+                try await refreshedUser.delete()
+            } else {
+                throw DeletionError.authDeletionFailed(error.localizedDescription)
+            }
+        }
+    }
+
+    /// Reauthenticate user based on their sign-in provider
+    private func reauthenticateUser(providerIDs: [String]) async throws {
+        do {
+            if providerIDs.contains("google.com") {
+                try await authService.reauthenticateWithGoogle()
+            } else if providerIDs.contains("apple.com") {
+                try await authService.reauthenticateWithApple()
+            } else {
+                throw DeletionError.reauthenticationFailed("Unknown sign-in provider")
+            }
+        } catch is CancellationError {
+            throw DeletionError.reauthenticationCancelled
+        } catch let error as DeletionError {
+            throw error
+        } catch {
+            throw DeletionError.reauthenticationFailed(error.localizedDescription)
+        }
+    }
+
     /// Deletes all workout photos and videos from Firebase Storage
     private func deleteWorkoutMedia(modelContext: ModelContext) async throws {
         // Fetch all workouts to get their photos

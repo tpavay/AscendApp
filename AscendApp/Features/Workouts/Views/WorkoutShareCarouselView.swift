@@ -180,6 +180,19 @@ struct WorkoutShareCarouselView: View {
                 .frame(width: WorkoutShareCarouselViewModel.displayCardWidth)
                 .shadow(color: shadowColor, radius: 20, x: 0, y: 10)
             )
+        case .template(let templateId):
+            return AnyView(
+                TemplateMediaCard(
+                    workout: viewModel.workout,
+                    image: viewModel.templateImages[templateId],
+                    measurementSystem: settingsManager.measurementSystem,
+                    stepHeight: settingsManager.stepHeight,
+                    preferredMetric: settingsManager.preferredWorkoutMetric,
+                    displayName: viewModel.displayName
+                )
+                .frame(width: WorkoutShareCarouselViewModel.displayCardWidth)
+                .shadow(color: shadowColor, radius: 20, x: 0, y: 10)
+            )
         case .detailedSummary:
             return AnyView(
                 DetailedSummaryCard(

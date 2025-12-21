@@ -46,11 +46,13 @@ enum ShareCardTheme: String, CaseIterable {
 /// Types of cards available in the carousel
 enum ShareCardType: Identifiable, Equatable {
     case photoMedia(photoId: UUID)
+    case template(templateId: String)
     case detailedSummary
 
     var id: String {
         switch self {
         case .photoMedia(let photoId): return "photoMedia_\(photoId.uuidString)"
+        case .template(let templateId): return "template_\(templateId)"
         case .detailedSummary: return "detailedSummary"
         }
     }
@@ -58,7 +60,7 @@ enum ShareCardType: Identifiable, Equatable {
     /// Whether this card type supports theme toggling
     var supportsThemeToggle: Bool {
         switch self {
-        case .photoMedia:
+        case .photoMedia, .template:
             return false
         case .detailedSummary:
             return true
@@ -69,7 +71,15 @@ enum ShareCardType: Identifiable, Equatable {
     var photoId: UUID? {
         switch self {
         case .photoMedia(let photoId): return photoId
-        case .detailedSummary: return nil
+        case .template, .detailedSummary: return nil
+        }
+    }
+
+    /// Returns the template ID if this is a template card
+    var templateId: String? {
+        switch self {
+        case .template(let templateId): return templateId
+        case .photoMedia, .detailedSummary: return nil
         }
     }
 }
@@ -87,6 +97,7 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
     @Published var cardTheme: ShareCardTheme = .dark
     @Published var isLoadingPhotos: Bool = false
     @Published var photoImages: [UUID: UIImage] = [:]
+    @Published var templateImages: [String: UIImage] = [:]
     @Published var copyConfirmationText: String?
     @Published var shareErrorMessage: String?
 
@@ -94,8 +105,9 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
     let workout: Workout
     let workoutCount: Int?
     let displayName: String
-    let availableCards: [ShareCardType]
+    var availableCards: [ShareCardType]
     private var photoLoadTasks: [Task<Void, Never>] = []
+    private let templateService = ShareCardTemplateService.shared
     
     // MARK: - Computed Properties
     var currentCardType: ShareCardType {
@@ -118,6 +130,12 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
         guard let photoId = currentCardType.photoId else { return nil }
         return photoImages[photoId]
     }
+
+    /// Returns the image for the current template card (if applicable)
+    var currentTemplateImage: UIImage? {
+        guard let templateId = currentCardType.templateId else { return nil }
+        return templateImages[templateId]
+    }
     
     // MARK: - Initialization
 
@@ -126,8 +144,9 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
         self.workout = workout
         self.workoutCount = workoutCount
         self.displayName = displayName
-        self.availableCards = Self.determineAvailableCards(for: workout)
+        self.availableCards = Self.determineAvailableCards(for: workout, templates: [])
         preloadAllPhotos()
+        loadTemplateCards()
     }
 
     /// Initialize for share flow (no workout count)
@@ -135,17 +154,20 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
         self.workout = workout
         self.workoutCount = nil
         self.displayName = displayName
-        self.availableCards = Self.determineAvailableCards(for: workout)
+        self.availableCards = Self.determineAvailableCards(for: workout, templates: [])
         preloadAllPhotos()
+        loadTemplateCards()
     }
     
     // MARK: - Card Logic
-    
-    private static func determineAvailableCards(for workout: Workout) -> [ShareCardType] {
+
+    private static func determineAvailableCards(
+        for workout: Workout,
+        templates: [ShareCardTemplate]
+    ) -> [ShareCardType] {
         var cards: [ShareCardType] = []
 
-        // Add a photo card for each photo/video in the workout
-        // Put highlighted photo first, then the rest
+        // 1. Add user's photos (highlighted first, then rest)
         var orderedPhotos = workout.photos
         if let highlightedId = workout.highlightedPhotoId,
            let highlightedIndex = orderedPhotos.firstIndex(where: { $0.id == highlightedId }),
@@ -158,10 +180,47 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
             cards.append(.photoMedia(photoId: photo.id))
         }
 
-        // Always include detailed summary
+        // 2. Add template cards
+        for template in templates {
+            cards.append(.template(templateId: template.id))
+        }
+
+        // 3. Always include detailed summary last
         cards.append(.detailedSummary)
 
         return cards
+    }
+
+    /// Load template cards from the template service
+    private func loadTemplateCards() {
+        Task {
+            // Wait for the service to finish loading (poll until done or timeout)
+            var attempts = 0
+            let maxAttempts = 50 // 5 seconds max (50 * 100ms)
+
+            while templateService.isLoading && attempts < maxAttempts {
+                try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                attempts += 1
+            }
+
+            print("📸 ViewModel: Service finished loading after \(attempts * 100)ms")
+
+            let templates = templateService.loadedTemplates
+            let images = templateService.loadedTemplateImages
+
+            print("📸 ViewModel: Found \(templates.count) templates, \(images.count) images from service")
+
+            // Update template images
+            self.templateImages = images
+
+            // Rebuild available cards with templates
+            self.availableCards = Self.determineAvailableCards(
+                for: workout,
+                templates: templates
+            )
+
+            print("📸 ViewModel: availableCards now has \(self.availableCards.count) cards")
+        }
     }
     
     // MARK: - Theme
@@ -318,6 +377,15 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
             PhotoMediaCard(
                 workout: workout,
                 image: photoImages[photoId],
+                measurementSystem: measurementSystem,
+                stepHeight: stepHeight,
+                preferredMetric: preferredMetric,
+                displayName: displayName
+            )
+        case .template(let templateId):
+            TemplateMediaCard(
+                workout: workout,
+                image: templateImages[templateId],
                 measurementSystem: measurementSystem,
                 stepHeight: stepHeight,
                 preferredMetric: preferredMetric,
