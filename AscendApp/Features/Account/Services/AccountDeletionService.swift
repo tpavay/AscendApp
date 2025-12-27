@@ -243,7 +243,7 @@ final class AccountDeletionService {
         }
     }
     
-    /// Deletes all local SwiftData (Workouts, LeaderboardStats, PersonalRecords)
+    /// Deletes all local SwiftData (Workouts, LeaderboardStats, PersonalRecords, Goals)
     private func deleteLocalData(modelContext: ModelContext) throws {
         do {
             // Delete all Workouts
@@ -252,21 +252,28 @@ final class AccountDeletionService {
             for workout in workouts {
                 modelContext.delete(workout)
             }
-            
+
             // Delete all LeaderboardStats
             let statsDescriptor = FetchDescriptor<LeaderboardStats>()
             let stats = try modelContext.fetch(statsDescriptor)
             for stat in stats {
                 modelContext.delete(stat)
             }
-            
+
             // Delete all PersonalRecords
             let recordsDescriptor = FetchDescriptor<PersonalRecord>()
             let records = try modelContext.fetch(recordsDescriptor)
             for record in records {
                 modelContext.delete(record)
             }
-            
+
+            // Delete all Goals
+            let goalDescriptor = FetchDescriptor<Goal>()
+            let goals = try modelContext.fetch(goalDescriptor)
+            for goal in goals {
+                modelContext.delete(goal)
+            }
+
             try modelContext.save()
         } catch {
             throw DeletionError.localDataDeletionFailed(error.localizedDescription)
@@ -276,20 +283,29 @@ final class AccountDeletionService {
     /// Clears all UserDefaults data related to the user
     private func clearUserDefaults() {
         let keysToRemove = [
+            // User profile
             "displayName",
             "profilePictureURL",
+            // Settings
             "preferredWorkoutMetric",
             "measurementSystem",
             "stepHeight",
             "stepsPerFloor",
+            "selectedTheme",
+            // Import tracking
             "lastHealthKitImportDate",
-            "selectedTheme"
+            // App state
+            "firstLaunchDate",
+            // Strava connection
+            "stravaIsConnected",
+            "stravaAthleteName",
+            "stravaAutoSyncEnabled"
         ]
-        
+
         for key in keysToRemove {
             UserDefaults.standard.removeObject(forKey: key)
         }
-        
+
         UserDefaults.standard.synchronize()
     }
 }

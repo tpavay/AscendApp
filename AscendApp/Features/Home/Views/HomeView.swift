@@ -43,20 +43,21 @@ struct HomeView: View {
         }
     }
 
+    private var greetingWithName: String {
+        if authVM.displayName.isEmpty {
+            return greeting
+        }
+        return "\(greeting), \(authVM.displayName)"
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
                 // Header Section
                 HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(greeting)
-                            .font(.montserratRegular(size: 18))
-                            .foregroundStyle(colorScheme == .dark ? .white.opacity(0.8) : .gray)
-
-                        Text(authVM.displayName.isEmpty ? "User" : authVM.displayName)
-                            .font(.montserratBold(size: 28))
-                            .foregroundStyle(colorScheme == .dark ? .white : .black)
-                    }
+                    Text(greetingWithName)
+                        .font(.montserratSemiBold(size: 20))
+                        .foregroundStyle(colorScheme == .dark ? .white : .black)
 
                     Spacer()
 
@@ -74,19 +75,14 @@ struct HomeView: View {
 
                 // Main Content Area
                 VStack(spacing: 20) {
+                    // This Week Card (retrospective - what happened)
+                    ThisWeekCard(workouts: workouts)
+
+                    // Weekly Goal Card (intention - what I'm working toward)
+                    WeeklyGoalCard(workouts: workouts, showGoalsSheet: $showingGoalsSheet)
+
                     // Streak & Activity Section
                     StreakView(workouts: workouts)
-
-                    // Weekly Goal Section
-                    GoalsCard(workouts: workouts, showGoalsSheet: $showingGoalsSheet)
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Last 7 Days")
-                            .font(.montserratSemiBold(size: 20))
-                            .foregroundStyle(colorScheme == .dark ? .white : .black)
-
-                        LastSevenDaysSummaryCard(workouts: workouts)
-                    }
                 }
             }
             .padding(20)
@@ -97,8 +93,7 @@ struct HomeView: View {
             WorkoutImportSheet()
         }
         .sheet(isPresented: $showingGoalsSheet) {
-            GoalsSheet(isPresented: $showingGoalsSheet)
-                .presentationDetents([.medium, .large])
+            GoalsSheet(isPresented: $showingGoalsSheet, workouts: workouts)
         }
         .task {
             // Set first launch date if not already set

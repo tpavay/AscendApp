@@ -8,6 +8,7 @@ class GoalsViewModel {
 
     var activeGoal: Goal?
     var progress: GoalProgress?
+    var lastWeekProgress: GoalProgress?
     var isLoading = false
     var errorMessage: String?
 
@@ -36,10 +37,12 @@ class GoalsViewModel {
     func calculateProgress(from workouts: [Workout]) {
         guard let goal = activeGoal else {
             progress = nil
+            lastWeekProgress = nil
             return
         }
 
         progress = GoalProgressService.calculateProgress(for: goal, from: workouts)
+        lastWeekProgress = GoalProgressService.calculateLastWeekProgress(for: goal, from: workouts)
     }
 
     /// Create a new goal (replaces any existing active goal)
@@ -69,6 +72,7 @@ class GoalsViewModel {
             try goalService.deactivateGoal(goal)
             activeGoal = nil
             progress = nil
+            lastWeekProgress = nil
         } catch {
             errorMessage = "Failed to deactivate goal: \(error.localizedDescription)"
         }
@@ -87,6 +91,7 @@ class GoalsViewModel {
             try goalService.deleteGoal(goal)
             activeGoal = nil
             progress = nil
+            lastWeekProgress = nil
         } catch {
             errorMessage = "Failed to delete goal: \(error.localizedDescription)"
         }

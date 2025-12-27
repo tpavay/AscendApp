@@ -79,4 +79,62 @@ struct GoalProgressService {
             weekInterval: interval
         )
     }
+
+    /// Calculate progress for the previous week
+    /// - Parameters:
+    ///   - goal: The goal to calculate progress for
+    ///   - workouts: All workouts to filter and aggregate
+    /// - Returns: The calculated progress for last week, or nil if no data
+    static func calculateLastWeekProgress(
+        for goal: Goal,
+        from workouts: [Workout]
+    ) -> GoalProgress? {
+        let currentInterval = weekInterval(for: goal)
+
+        // Calculate last week's interval by shifting back 7 days
+        let lastWeekStart = currentInterval.start.addingTimeInterval(-7 * 24 * 60 * 60)
+        let lastWeekEnd = currentInterval.start
+        let lastWeekInterval = DateInterval(start: lastWeekStart, end: lastWeekEnd)
+
+        // Filter workouts to last week
+        let weekWorkouts = workouts.filter { workout in
+            lastWeekInterval.contains(workout.date)
+        }
+
+        // If no workouts last week, return nil
+        guard !weekWorkouts.isEmpty else { return nil }
+
+        // Calculate current value based on metric
+        let current: Int
+        switch goal.metric {
+        case .steps:
+            current = weekWorkouts.reduce(0) { $0 + $1.steps }
+        case .floors:
+            current = weekWorkouts.reduce(0) { $0 + $1.floors }
+        case .duration:
+            // duration is stored in seconds, convert to minutes
+            let totalSeconds = weekWorkouts.reduce(0.0) { $0 + $1.duration }
+            current = Int(totalSeconds / 60)
+        case .workouts:
+            current = weekWorkouts.count
+        }
+
+        // Calculate percentage (can exceed 100%)
+        let percent = goal.target > 0 ? Double(current) / Double(goal.target) : 0
+
+        // Calculate remaining (minimum 0)
+        let remaining = max(0, goal.target - current)
+
+        // Determine status
+        let status: GoalStatus = current >= goal.target ? .complete : .onTrack
+
+        return GoalProgress(
+            current: current,
+            target: goal.target,
+            percent: percent,
+            remaining: remaining,
+            status: status,
+            weekInterval: lastWeekInterval
+        )
+    }
 }

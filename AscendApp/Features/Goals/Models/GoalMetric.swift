@@ -33,4 +33,43 @@ enum GoalMetric: String, CaseIterable, Codable {
         case .workouts: return "workout"
         }
     }
+
+    var icon: String {
+        switch self {
+        case .steps: return "figure.stairs"
+        case .floors: return "building.2"
+        case .duration: return "clock"
+        case .workouts: return "flame"
+        }
+    }
+
+    /// Step amount for the stepper control
+    var stepAmount: Int {
+        switch self {
+        case .steps: return 1000
+        case .floors: return 25
+        case .duration: return 10
+        case .workouts: return 1
+        }
+    }
+
+    /// Default starting value
+    var defaultValue: Int {
+        switch self {
+        case .steps: return 10000
+        case .floors: return 100
+        case .duration: return 60
+        case .workouts: return 3
+        }
+    }
+
+    /// Minimum value
+    var minValue: Int {
+        switch self {
+        case .steps: return 1000
+        case .floors: return 25
+        case .duration: return 10
+        case .workouts: return 1
+        }
+    }
 }
