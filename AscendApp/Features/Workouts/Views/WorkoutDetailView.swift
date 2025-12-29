@@ -68,6 +68,11 @@ struct WorkoutDetailView: View {
                         additionalMetricsSection
                     }
 
+                    // Weights section (if weights were used)
+                    if workout.hasWeights {
+                        weightsUsedSection
+                    }
+
                     Spacer(minLength: 20)
                 }
                 .padding(.horizontal, 20)
@@ -416,7 +421,7 @@ struct WorkoutDetailView: View {
                     subtitle: workout.verticalClimbUnit(measurementSystem: settingsManager.measurementSystem)
                 )
             }
-            
+
             if let calories = workout.caloriesBurned {
                 statCard(
                     icon: "flame.fill",
@@ -426,7 +431,7 @@ struct WorkoutDetailView: View {
                     iconColor: .orange
                 )
             }
-            
+
             if let averageMETs = workout.averageMETs {
                 statCard(
                     icon: "bolt.circle.fill",
@@ -436,6 +441,108 @@ struct WorkoutDetailView: View {
                     iconColor: .green
                 )
             }
+        }
+    }
+
+    private var weightsUsedSection: some View {
+        VStack(spacing: 16) {
+            // Section header
+            HStack {
+                Text("Weights Used")
+                    .font(.montserratSemiBold(size: 20))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                Spacer()
+            }
+
+            VStack(spacing: 0) {
+                if let config = workout.weightConfiguration {
+                    ForEach(Array(config.entries.filter { $0.isEnabled }.enumerated()), id: \.element.id) { index, entry in
+                        if index > 0 {
+                            Divider()
+                                .padding(.leading, 48)
+                        }
+
+                        weightEntryRow(entry: entry)
+                    }
+
+                    // Total weight footer
+                    Divider()
+                        .padding(.vertical, 8)
+
+                    HStack {
+                        Text("Total Added Weight")
+                            .font(.montserratMedium(size: 15))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
+
+                        Spacer()
+
+                        Text(settingsManager.measurementSystem.formatWeight(config.totalWeight))
+                            .font(.montserratSemiBold(size: 16))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
+            )
+        }
+    }
+
+    private func weightEntryRow(entry: WeightEntry) -> some View {
+        HStack(spacing: 12) {
+            // Icon
+            weightEquipmentIcon(for: entry.equipmentType)
+                .frame(width: 24, height: 24)
+
+            // Equipment name
+            Text(entry.equipmentType.displayName)
+                .font(.montserratMedium(size: 15))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+            Spacer()
+
+            // Weight value
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(entry.formattedWeight(unit: settingsManager.measurementSystem.weightAbbreviation))
+                    .font(.montserratSemiBold(size: 15))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+                if entry.equipmentType.isPaired {
+                    Text("(\(settingsManager.measurementSystem.formatWeight(entry.totalWeight)) total)")
+                        .font(.montserratRegular(size: 12))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+                }
+            }
+        }
+        .padding(16)
+    }
+
+    @ViewBuilder
+    private func weightEquipmentIcon(for type: WeightEquipmentType) -> some View {
+        // Try custom icon first, fall back to SF Symbol
+        if let _ = UIImage(named: type.iconName) {
+            Image(type.iconName)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 20, height: 20)
+        } else {
+            // Fallback SF Symbols
+            Image(systemName: weightFallbackSFSymbol(for: type))
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(.accent)
+        }
+    }
+
+    private func weightFallbackSFSymbol(for type: WeightEquipmentType) -> String {
+        switch type {
+        case .weightedVest: return "tshirt.fill"
+        case .dumbbells: return "dumbbell.fill"
+        case .barbell: return "figure.strengthtraining.traditional"
+        case .ankleWeights: return "shoe.fill"
+        case .wristWeights: return "hand.raised.fill"
         }
     }
 

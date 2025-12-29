@@ -342,6 +342,21 @@ struct WorkoutFormView: View {
                                 viewModel.caloriesBurned = viewModel.validateCaloriesOnSubmit(viewModel.caloriesBurned)
                                 focusedField = nil
                             }
+
+                        // Weights Section Header
+                        HStack {
+                            Text("Weights Used (Optional)")
+                                .font(.montserratSemiBold(size: 18))
+                                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+                            Spacer()
+                        }
+                        .padding(.top, 16)
+
+                        WeightEntryView(
+                            configuration: $viewModel.weightConfiguration,
+                            measurementSystem: settingsManager.measurementSystem
+                        )
                     }
 
                     Spacer(minLength: 40)

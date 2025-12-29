@@ -18,6 +18,10 @@ struct IntervalEditorSheet: View {
     @State private var backwardStep: Bool = false
     @State private var holdingBars: Bool = false
 
+    // Weight override state
+    @State private var useDefaultWeights: Bool = true
+    @State private var enabledWeightTypes: Set<WeightEquipmentType> = []
+
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
@@ -42,6 +46,7 @@ struct IntervalEditorSheet: View {
                     durationSection
                     intensitySection
                     modifiersSection
+                    weightOverrideSection
                 }
                 .padding(20)
             }
@@ -288,6 +293,104 @@ struct IntervalEditorSheet: View {
         .padding(16)
     }
 
+    // MARK: - Weight Override Section
+
+    private var weightOverrideSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Weights (Optional)")
+
+            VStack(spacing: 0) {
+                // Use defaults vs custom picker
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Weight settings for this interval")
+                        .font(.montserratRegular(size: 12))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+
+                    Picker("Weight Settings", selection: $useDefaultWeights) {
+                        Text("Use Defaults").tag(true)
+                        Text("Custom").tag(false)
+                    }
+                    .pickerStyle(.segmented)
+                }
+                .padding(16)
+
+                // Custom weight toggles (shown when not using defaults)
+                if !useDefaultWeights {
+                    Divider()
+
+                    VStack(spacing: 0) {
+                        ForEach(Array(WeightEquipmentType.allCases.enumerated()), id: \.element.id) { index, equipmentType in
+                            if index > 0 {
+                                Divider()
+                                    .padding(.leading, 48)
+                            }
+
+                            weightTypeToggle(equipmentType: equipmentType)
+                        }
+                    }
+                }
+            }
+            .background(sectionBackground)
+        }
+    }
+
+    private func weightTypeToggle(equipmentType: WeightEquipmentType) -> some View {
+        Toggle(isOn: Binding(
+            get: { enabledWeightTypes.contains(equipmentType) },
+            set: { isEnabled in
+                if isEnabled {
+                    enabledWeightTypes.insert(equipmentType)
+                } else {
+                    enabledWeightTypes.remove(equipmentType)
+                }
+            }
+        )) {
+            HStack(spacing: 12) {
+                // Icon
+                weightEquipmentIcon(for: equipmentType)
+                    .frame(width: 24, height: 24)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(equipmentType.displayName)
+                        .font(.montserratMedium(size: 15))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+                    Text("Use \(equipmentType.shortDescription.lowercased()) weights for this interval")
+                        .font(.montserratRegular(size: 12))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+                }
+            }
+        }
+        .toggleStyle(SwitchToggleStyle(tint: .accent))
+        .padding(16)
+    }
+
+    @ViewBuilder
+    private func weightEquipmentIcon(for type: WeightEquipmentType) -> some View {
+        // Try custom icon first, fall back to SF Symbol
+        if let _ = UIImage(named: type.iconName) {
+            Image(type.iconName)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 20, height: 20)
+        } else {
+            // Fallback SF Symbols
+            Image(systemName: weightFallbackSFSymbol(for: type))
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(.accent)
+        }
+    }
+
+    private func weightFallbackSFSymbol(for type: WeightEquipmentType) -> String {
+        switch type {
+        case .weightedVest: return "tshirt.fill"
+        case .dumbbells: return "dumbbell.fill"
+        case .barbell: return "figure.strengthtraining.traditional"
+        case .ankleWeights: return "shoe.fill"
+        case .wristWeights: return "hand.raised.fill"
+        }
+    }
+
     // MARK: - Helpers
 
     private func sectionHeader(_ title: String) -> some View {
@@ -316,15 +419,31 @@ struct IntervalEditorSheet: View {
         skipStep = interval.modifiers.skipStep
         backwardStep = interval.modifiers.backwardStep
         holdingBars = interval.modifiers.holdingBars
+
+        // Load weight override
+        if let override = interval.modifiers.weightOverride {
+            useDefaultWeights = override.usesRoutineDefaults
+            enabledWeightTypes = override.enabledEquipmentTypes ?? []
+        } else {
+            useDefaultWeights = true
+            enabledWeightTypes = []
+        }
     }
 
     private func saveInterval() {
         let duration = TimeInterval(minutes * 60 + seconds)
+
+        // Build weight override (nil if using defaults)
+        let weightOverride: IntervalWeightOverride? = useDefaultWeights
+            ? nil
+            : IntervalWeightOverride(enabledEquipmentTypes: enabledWeightTypes)
+
         let modifiers = IntervalModifiers(
             sidewaysDirection: sidewaysDirection,
             skipStep: skipStep,
             backwardStep: backwardStep,
-            holdingBars: holdingBars
+            holdingBars: holdingBars,
+            weightOverride: weightOverride
         )
 
         let newInterval = RoutineInterval(

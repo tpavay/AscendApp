@@ -43,6 +43,9 @@ struct EditWorkoutView: View {
     @State private var maxHeartRate: String = ""
     @State private var caloriesBurned: String = ""
     @State private var durationFormatted: String = ""
+
+    // Weight Equipment
+    @State private var weightConfiguration: WeightConfiguration = .empty
     @State private var showingDatePicker = false
     @State private var effortRating: Double? = nil
     @State private var showingEffortRating = false
@@ -312,12 +315,27 @@ struct EditWorkoutView: View {
                             .onChange(of: caloriesBurned) { _, newValue in
                                 caloriesBurned = filterNumericInput(newValue)
                             }
-                            .onSubmit { 
+                            .onSubmit {
                                 validateCaloriesOnSubmit()
-                                focusedField = nil 
+                                focusedField = nil
                             }
+
+                        // Weights Section Header
+                        HStack {
+                            Text("Weights Used (Optional)")
+                                .font(.montserratSemiBold(size: 18))
+                                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+                            Spacer()
+                        }
+                        .padding(.top, 16)
+
+                        WeightEntryView(
+                            configuration: $weightConfiguration,
+                            measurementSystem: settingsManager.measurementSystem
+                        )
                     }
-                    
+
                     Spacer(minLength: 40)
                 }
             }
@@ -625,6 +643,10 @@ struct EditWorkoutView: View {
         maxHeartRate = workout.maxHeartRate != nil ? String(workout.maxHeartRate!) : ""
         caloriesBurned = workout.caloriesBurned != nil ? String(workout.caloriesBurned!) : ""
         effortRating = workout.effortRating
+
+        // Weight configuration
+        weightConfiguration = workout.weightConfiguration ?? .empty
+
         existingPhotos = workout.photos
         if let highlightedId = workout.highlightedPhotoId {
             highlightSelection = .existingPhoto(highlightedId)
@@ -851,7 +873,10 @@ struct EditWorkoutView: View {
             workout.maxHeartRate = maxHR
             workout.caloriesBurned = calories
             workout.effortRating = effortRating
-            
+
+            // Update weight configuration
+            workout.weightConfiguration = weightConfiguration.isEmpty ? nil : weightConfiguration
+
             // Update both metric values
             workout.steps = steps
             workout.floors = floors

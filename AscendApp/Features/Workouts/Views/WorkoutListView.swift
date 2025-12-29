@@ -486,6 +486,11 @@ struct WorkoutRowView: View {
 
                 Spacer()
 
+                // Weight indicator badge (if weights were used)
+                if workout.hasWeights {
+                    WeightIndicatorBadge(size: .small)
+                }
+
                 // Personal Records pill - aligned right
                 if workout.hasPersonalRecords {
                     let prCount = workout.achievedPersonalRecords.count

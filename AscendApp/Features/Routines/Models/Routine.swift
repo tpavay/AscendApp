@@ -15,6 +15,9 @@ final class Routine {
     // Stored as JSON for reliable SwiftData serialization
     var intervalsData: Data?
 
+    // Default weight configuration for this routine (stored as JSON)
+    var defaultWeightConfigurationData: Data?
+
     // Template metadata (for built-in templates)
     var templateId: String?
     var difficulty: Int?
@@ -35,6 +38,21 @@ final class Routine {
         set {
             intervalsData = try? JSONEncoder().encode(newValue)
         }
+    }
+
+    // Computed property for default weight configuration
+    var defaultWeightConfiguration: WeightConfiguration? {
+        get {
+            WeightConfiguration.decode(from: defaultWeightConfigurationData)
+        }
+        set {
+            defaultWeightConfigurationData = newValue?.encoded
+        }
+    }
+
+    /// Whether this routine has default weights configured
+    var hasDefaultWeights: Bool {
+        !(defaultWeightConfiguration?.isEmpty ?? true)
     }
 
     var totalDuration: TimeInterval {
@@ -72,7 +90,8 @@ final class Routine {
         folderId: UUID? = nil,
         templateId: String? = nil,
         difficulty: Int? = nil,
-        estimatedCalories: Int? = nil
+        estimatedCalories: Int? = nil,
+        defaultWeightConfiguration: WeightConfiguration? = nil
     ) {
         self.id = id
         self.name = name
@@ -86,6 +105,7 @@ final class Routine {
         self.difficulty = difficulty
         self.estimatedCalories = estimatedCalories
         self.intervals = intervals
+        self.defaultWeightConfiguration = defaultWeightConfiguration
     }
 
     /// Creates a user copy of a built-in routine
@@ -97,7 +117,37 @@ final class Routine {
             intervals: intervals,
             templateId: templateId,
             difficulty: difficulty,
-            estimatedCalories: estimatedCalories
+            estimatedCalories: estimatedCalories,
+            defaultWeightConfiguration: defaultWeightConfiguration
         )
+    }
+
+    /// Resolves the effective weight configuration for a specific interval
+    /// - Parameter interval: The interval to resolve weights for
+    /// - Returns: The weight configuration to use (routine defaults filtered by interval override)
+    func resolvedWeightConfiguration(for interval: RoutineInterval) -> WeightConfiguration? {
+        guard let defaults = defaultWeightConfiguration, !defaults.isEmpty else {
+            return nil
+        }
+
+        guard let override = interval.modifiers.weightOverride,
+              let enabledTypes = override.enabledEquipmentTypes else {
+            // No override = use routine defaults as-is
+            return defaults
+        }
+
+        // Empty set means no weights for this interval
+        if enabledTypes.isEmpty {
+            return nil
+        }
+
+        // Apply override: filter defaults to only enabled types
+        var resolved = defaults
+        resolved.entries = defaults.entries.map { entry in
+            var modified = entry
+            modified.isEnabled = enabledTypes.contains(entry.equipmentType)
+            return modified
+        }
+        return resolved.isEmpty ? nil : resolved
     }
 }

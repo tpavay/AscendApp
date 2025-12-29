@@ -73,7 +73,8 @@ final class RoutineService {
         description: String = "",
         intervals: [RoutineInterval],
         folderId: UUID? = nil,
-        difficulty: Int? = nil
+        difficulty: Int? = nil,
+        defaultWeightConfiguration: WeightConfiguration? = nil
     ) throws -> Routine {
         let routine = Routine(
             name: name,
@@ -81,7 +82,8 @@ final class RoutineService {
             source: .userCreated,
             intervals: intervals,
             folderId: folderId,
-            difficulty: difficulty
+            difficulty: difficulty,
+            defaultWeightConfiguration: defaultWeightConfiguration
         )
         modelContext.insert(routine)
         try modelContext.save()

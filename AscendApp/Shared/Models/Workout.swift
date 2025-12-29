@@ -87,6 +87,9 @@ class Workout {
     // Personal Records tracking - stored as JSON for reliable CoreData serialization
     var personalRecordTypesData: Data?
 
+    // Weight equipment tracking - stored as JSON
+    var weightConfigurationData: Data?
+
     // Computed property for easy access to personal record types
     var personalRecordTypes: [String]? {
         get {
@@ -100,6 +103,26 @@ class Workout {
                 personalRecordTypesData = nil
             }
         }
+    }
+
+    // Computed property for easy access to weight configuration
+    var weightConfiguration: WeightConfiguration? {
+        get {
+            WeightConfiguration.decode(from: weightConfigurationData)
+        }
+        set {
+            weightConfigurationData = newValue?.encoded
+        }
+    }
+
+    /// Whether this workout has any weight equipment configured
+    var hasWeights: Bool {
+        !(weightConfiguration?.isEmpty ?? true)
+    }
+
+    /// Total weight used in this workout (for display)
+    var totalWeightUsed: Double {
+        weightConfiguration?.totalWeight ?? 0
     }
 
     // MARK: - Strava Sync
@@ -128,7 +151,7 @@ class Workout {
         }
     }
 
-    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int, floors: Int, stepsPerFloor: Int = 16, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil, photos: [Photo] = [], highlightedPhotoId: UUID? = nil, personalRecordTypes: [String]? = nil) {
+    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int, floors: Int, stepsPerFloor: Int = 16, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil, photos: [Photo] = [], highlightedPhotoId: UUID? = nil, personalRecordTypes: [String]? = nil, weightConfiguration: WeightConfiguration? = nil) {
         self.id = UUID()
         self.name = name.isEmpty ? "Workout" : name
         self.date = date
@@ -155,6 +178,7 @@ class Workout {
         // Default to first photo if not specified and photos exist
         self.highlightedPhotoId = highlightedPhotoId ?? photos.first?.id
         self.personalRecordTypes = personalRecordTypes
+        self.weightConfiguration = weightConfiguration
     }
     
     // Computed properties for convenience

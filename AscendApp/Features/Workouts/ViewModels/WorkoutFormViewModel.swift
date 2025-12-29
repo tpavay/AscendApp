@@ -41,6 +41,9 @@ class WorkoutFormViewModel {
     var caloriesBurned: String = ""
     var effortRating: Double? = nil
 
+    // Weight Equipment
+    var weightConfiguration: WeightConfiguration = .empty
+
     // UI State
     var isUploading = false
     var uploadError: String? = nil
@@ -390,6 +393,9 @@ class WorkoutFormViewModel {
             steps = Workout.floorsToSteps(value, stepsPerFloor: stepsPerFloor)
         }
 
+        // Only include weight configuration if it has enabled entries
+        let weights = weightConfiguration.isEmpty ? nil : weightConfiguration
+
         return CreateWorkoutRequest(
             name: workoutName.isEmpty ? Workout.generateDefaultName(for: workoutDate) : workoutName,
             date: workoutDate,
@@ -401,7 +407,8 @@ class WorkoutFormViewModel {
             avgHeartRate: avgHR,
             maxHeartRate: maxHR,
             caloriesBurned: calories,
-            effortRating: effortRating
+            effortRating: effortRating,
+            weightConfiguration: weights
         )
     }
 

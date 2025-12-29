@@ -79,7 +79,7 @@ enum MeasurementSystem: String, CaseIterable, Identifiable {
             return value * 0.01 // cm to meters
         }
     }
-    
+
     func convertMetersToDistanceUnit(_ meters: Double) -> Double {
         switch self {
         case .imperial:
@@ -87,5 +87,50 @@ enum MeasurementSystem: String, CaseIterable, Identifiable {
         case .metric:
             return meters // already in meters
         }
+    }
+
+    // MARK: - Weight Units
+
+    /// Full weight unit name (e.g., "pounds" or "kilograms")
+    var weightUnit: String {
+        switch self {
+        case .imperial: return "pounds"
+        case .metric: return "kilograms"
+        }
+    }
+
+    /// Abbreviated weight unit (e.g., "lb" or "kg")
+    var weightAbbreviation: String {
+        switch self {
+        case .imperial: return "lb"
+        case .metric: return "kg"
+        }
+    }
+
+    /// Convert weight from this system to the target system
+    /// - Parameters:
+    ///   - value: The weight value to convert
+    ///   - target: The target measurement system
+    /// - Returns: The converted weight value
+    func convertWeight(_ value: Double, to target: MeasurementSystem) -> Double {
+        if self == target { return value }
+        switch (self, target) {
+        case (.imperial, .metric):
+            return value * 0.453592 // pounds to kilograms
+        case (.metric, .imperial):
+            return value / 0.453592 // kilograms to pounds
+        default:
+            return value
+        }
+    }
+
+    /// Format a weight value with the appropriate unit abbreviation
+    /// - Parameter value: The weight value
+    /// - Returns: Formatted string (e.g., "20 lb" or "9.1 kg")
+    func formatWeight(_ value: Double) -> String {
+        let formatted = value.truncatingRemainder(dividingBy: 1) == 0
+            ? String(format: "%.0f", value)
+            : String(format: "%.1f", value)
+        return "\(formatted) \(weightAbbreviation)"
     }
 }

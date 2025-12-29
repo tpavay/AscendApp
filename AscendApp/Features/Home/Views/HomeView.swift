@@ -47,7 +47,9 @@ struct HomeView: View {
         if authVM.displayName.isEmpty {
             return greeting
         }
-        return "\(greeting), \(authVM.displayName)"
+        // Use just the first name (first part before space)
+        let firstName = authVM.displayName.split(separator: " ").first.map(String.init) ?? authVM.displayName
+        return "\(greeting), \(firstName)"
     }
 
     var body: some View {

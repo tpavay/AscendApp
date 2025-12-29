@@ -54,6 +54,7 @@ struct IntervalModifiers: Codable, Equatable {
     var skipStep: Bool = false
     var backwardStep: Bool = false
     var holdingBars: Bool = false
+    var weightOverride: IntervalWeightOverride? = nil
 
     var activeModifiers: [String] {
         var result: [String] = []
@@ -63,11 +64,24 @@ struct IntervalModifiers: Codable, Equatable {
         if skipStep { result.append("Skip Step") }
         if backwardStep { result.append("Backward") }
         if holdingBars { result.append("Holding Bars") }
+        if let override = weightOverride, !override.usesRoutineDefaults {
+            if let types = override.enabledEquipmentTypes, !types.isEmpty {
+                result.append("Custom Weights")
+            } else {
+                result.append("No Weights")
+            }
+        }
         return result
     }
 
     var hasAnyActive: Bool {
-        sidewaysDirection != nil || skipStep || backwardStep || holdingBars
+        sidewaysDirection != nil || skipStep || backwardStep || holdingBars || hasWeightOverride
+    }
+
+    /// Whether this interval has a weight override (not using routine defaults)
+    var hasWeightOverride: Bool {
+        guard let override = weightOverride else { return false }
+        return !override.usesRoutineDefaults
     }
 
     static let none = IntervalModifiers()
@@ -77,12 +91,14 @@ struct IntervalModifiers: Codable, Equatable {
         sidewaysDirection: SidewaysDirection? = nil,
         skipStep: Bool = false,
         backwardStep: Bool = false,
-        holdingBars: Bool = false
+        holdingBars: Bool = false,
+        weightOverride: IntervalWeightOverride? = nil
     ) {
         self.sidewaysDirection = sidewaysDirection
         self.skipStep = skipStep
         self.backwardStep = backwardStep
         self.holdingBars = holdingBars
+        self.weightOverride = weightOverride
     }
 }
 

@@ -6,6 +6,7 @@ struct RoutineEditorView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @State private var themeManager = ThemeManager.shared
+    @State private var settingsManager = SettingsManager.shared
 
     @State private var viewModel = RoutineEditorViewModel()
     @State private var showIntervalEditor = false
@@ -33,6 +34,7 @@ struct RoutineEditorView: View {
                     nameSection
                     descriptionSection
                     difficultySection
+                    defaultWeightsSection
                     intervalsSection
                 }
                 .padding(20)
@@ -61,6 +63,7 @@ struct RoutineEditorView: View {
                     Spacer()
                     Button("Done") {
                         isTextFieldFocused = false
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                     }
                     .font(.montserratMedium(size: 16))
                     .foregroundStyle(.accent)
@@ -177,6 +180,26 @@ struct RoutineEditorView: View {
         case 4: return .orange
         case 5: return .red
         default: return .accent
+        }
+    }
+
+    // MARK: - Default Weights Section
+
+    private var defaultWeightsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("Default Weights (Optional)")
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Configure weights that apply to all intervals by default. Individual intervals can override these settings.")
+                    .font(.montserratRegular(size: 12))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+                    .padding(.horizontal, 4)
+
+                WeightEntryView(
+                    configuration: $viewModel.defaultWeightConfiguration,
+                    measurementSystem: settingsManager.measurementSystem
+                )
+            }
         }
     }
 

@@ -12,6 +12,7 @@ final class RoutineEditorViewModel {
     var routineDescription: String = ""
     var intervals: [RoutineInterval] = []
     var difficulty: Int? = nil
+    var defaultWeightConfiguration: WeightConfiguration = .empty
 
     // UI state
     var isSaving = false
@@ -62,6 +63,7 @@ final class RoutineEditorViewModel {
             self.routineDescription = routine.routineDescription
             self.intervals = routine.intervals
             self.difficulty = routine.difficulty
+            self.defaultWeightConfiguration = routine.defaultWeightConfiguration ?? .empty
         }
     }
 
@@ -133,12 +135,16 @@ final class RoutineEditorViewModel {
 
         defer { isSaving = false }
 
+        // Only include weight config if it has entries
+        let weights = defaultWeightConfiguration.isEmpty ? nil : defaultWeightConfiguration
+
         if let existing = existingRoutine {
             // Update existing routine
             existing.name = name.trimmingCharacters(in: .whitespaces)
             existing.routineDescription = routineDescription.trimmingCharacters(in: .whitespaces)
             existing.intervals = intervals
             existing.difficulty = difficulty
+            existing.defaultWeightConfiguration = weights
             try service.updateRoutine(existing)
             return existing
         } else {
@@ -147,7 +153,8 @@ final class RoutineEditorViewModel {
                 name: name.trimmingCharacters(in: .whitespaces),
                 description: routineDescription.trimmingCharacters(in: .whitespaces),
                 intervals: intervals,
-                difficulty: difficulty
+                difficulty: difficulty,
+                defaultWeightConfiguration: weights
             )
             return routine
         }

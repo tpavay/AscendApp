@@ -42,10 +42,11 @@ final class WorkoutService {
             effortRating: request.effortRating,
             source: .manual,
             deviceModel: model,
-            photos: uploadedPhotos
+            photos: uploadedPhotos,
+            weightConfiguration: request.weightConfiguration
         )
     }
-    
+
     // New method that supports trimmed videos
     @MainActor
     func createWorkout(from request: CreateWorkoutRequest,
@@ -71,7 +72,8 @@ final class WorkoutService {
             effortRating: request.effortRating,
             source: .manual,
             deviceModel: model,
-            photos: uploadedPhotos
+            photos: uploadedPhotos,
+            weightConfiguration: request.weightConfiguration
         )
     }
 }
@@ -90,6 +92,7 @@ struct CreateWorkoutRequest {
     let maxHeartRate: Int?
     let caloriesBurned: Int?
     let effortRating: Double?
+    let weightConfiguration: WeightConfiguration?
 }
 
 enum WorkoutServiceError: LocalizedError {
