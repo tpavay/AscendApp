@@ -22,9 +22,14 @@ struct ScanConfirmationView: View {
     // Editable values (in case user wants to adjust)
     @State private var stepsValue: String = ""
     @State private var floorsValue: String = ""
-    @State private var durationValue: String = ""
     @State private var caloriesValue: String = ""
     @State private var heartRateValue: String = ""
+
+    // Duration picker state
+    @State private var showingDurationPicker = false
+    @State private var durationHours = 0
+    @State private var durationMinutes = 0
+    @State private var durationSeconds = 0
 
     // Track discarded fields
     @State private var stepsDiscarded = false
@@ -121,15 +126,14 @@ struct ScanConfirmationView: View {
                             )
                         }
 
-                        // Duration (if detected and not discarded)
+                        // Duration (if detected and not discarded) - uses picker sheet
                         if result.elapsedTimeSeconds != nil && !durationDiscarded {
-                            MetricRow(
-                                label: "Duration",
-                                value: $durationValue,
-                                icon: "clock",
+                            DurationMetricRow(
                                 effectiveColorScheme: effectiveColorScheme,
-                                isTime: true,
-                                isFocused: $isTextFieldFocused,
+                                hours: durationHours,
+                                minutes: durationMinutes,
+                                seconds: durationSeconds,
+                                onTap: { showingDurationPicker = true },
                                 onDiscard: { durationDiscarded = true }
                             )
                         }
@@ -227,6 +231,17 @@ struct ScanConfirmationView: View {
         .onAppear {
             populateFields()
         }
+        .sheet(isPresented: $showingDurationPicker) {
+            DurationPickerSheet(
+                hours: $durationHours,
+                minutes: $durationMinutes,
+                seconds: $durationSeconds
+            ) {
+                showingDurationPicker = false
+            }
+            .presentationDetents([.height(340)])
+            .interactiveDismissDisabled()
+        }
     }
 
     /// Populate editable fields from scan result
@@ -237,8 +252,10 @@ struct ScanConfirmationView: View {
         if let floors = result.floorsClimbed {
             floorsValue = String(Int(floors))
         }
-        if let seconds = result.elapsedTimeSeconds {
-            durationValue = formatDuration(seconds)
+        if let totalSeconds = result.elapsedTimeSeconds {
+            durationHours = totalSeconds / 3600
+            durationMinutes = (totalSeconds % 3600) / 60
+            durationSeconds = totalSeconds % 60
         }
         if let calories = result.calories {
             caloriesValue = String(Int(calories))
@@ -248,30 +265,9 @@ struct ScanConfirmationView: View {
         }
     }
 
-    /// Format seconds as MM:SS or H:MM:SS
-    private func formatDuration(_ totalSeconds: Int) -> String {
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        let seconds = totalSeconds % 60
-
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
-        } else {
-            return String(format: "%02d:%02d", minutes, seconds)
-        }
-    }
-
-    /// Parse duration string back to seconds
-    private func parseDuration(_ string: String) -> Int? {
-        let parts = string.split(separator: ":").compactMap { Int($0) }
-        switch parts.count {
-        case 2: // MM:SS
-            return parts[0] * 60 + parts[1]
-        case 3: // H:MM:SS
-            return parts[0] * 3600 + parts[1] * 60 + parts[2]
-        default:
-            return nil
-        }
+    /// Calculate total duration in seconds from picker values
+    private var totalDurationSeconds: Int {
+        durationHours * 3600 + durationMinutes * 60 + durationSeconds
     }
 
     /// Build updated result from edited values
@@ -279,7 +275,7 @@ struct ScanConfirmationView: View {
         // Parse edited values from text fields, respecting discarded fields
         let steps = stepsDiscarded ? nil : Int(stepsValue)
         let floors = floorsDiscarded ? nil : Double(floorsValue)
-        let duration = durationDiscarded ? nil : parseDuration(durationValue)
+        let duration = durationDiscarded ? nil : totalDurationSeconds
         let cals = caloriesDiscarded ? nil : Double(caloriesValue)
         let hr = heartRateDiscarded ? nil : Int(heartRateValue)
 
@@ -303,7 +299,6 @@ struct MetricRow: View {
     @Binding var value: String
     let icon: String
     let effectiveColorScheme: ColorScheme
-    var isTime: Bool = false
     var isFocused: FocusState<Bool>.Binding
     var onDiscard: () -> Void
 
@@ -317,12 +312,13 @@ struct MetricRow: View {
             Text(label)
                 .font(.montserratMedium(size: 14))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                .frame(width: 60, alignment: .leading)
+                .frame(width: 80, alignment: .leading)
+                .lineLimit(1)
 
             TextField("", text: $value)
                 .font(.montserratSemiBold(size: 16))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                .keyboardType(isTime ? .numbersAndPunctuation : .numberPad)
+                .keyboardType(.numberPad)
                 .multilineTextAlignment(.trailing)
                 .focused(isFocused)
                 .padding(.horizontal, 12)
@@ -340,6 +336,64 @@ struct MetricRow: View {
             Button {
                 onDiscard()
             } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 22))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.4) : .gray.opacity(0.5))
+            }
+        }
+    }
+}
+
+// MARK: - Duration Metric Row
+
+struct DurationMetricRow: View {
+    let effectiveColorScheme: ColorScheme
+    let hours: Int
+    let minutes: Int
+    let seconds: Int
+    let onTap: () -> Void
+    let onDiscard: () -> Void
+
+    private var formattedDuration: String {
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            return String(format: "%d:%02d", minutes, seconds)
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "clock")
+                .font(.system(size: 20))
+                .foregroundStyle(.accent)
+                .frame(width: 32)
+
+            Text("Duration")
+                .font(.montserratMedium(size: 14))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                .frame(width: 80, alignment: .leading)
+                .lineLimit(1)
+
+            Button(action: onTap) {
+                Text(formattedDuration)
+                    .font(.montserratSemiBold(size: 16))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(effectiveColorScheme == .dark ? .white.opacity(0.05) : .gray.opacity(0.08))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(effectiveColorScheme == .dark ? .white.opacity(0.2) : .gray.opacity(0.3), lineWidth: 1)
+                    )
+            }
+
+            // Discard button
+            Button(action: onDiscard) {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 22))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.4) : .gray.opacity(0.5))

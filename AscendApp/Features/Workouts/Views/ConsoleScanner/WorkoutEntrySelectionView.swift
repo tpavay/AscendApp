@@ -47,18 +47,18 @@ struct WorkoutEntrySelectionView: View {
                     )
                 }
 
-                // Scan Machine Screen option
-                Button {
-                    onScanConsole()
-                } label: {
-                    SelectionRow(
-                        icon: "camera.viewfinder",
-                        title: "Scan Machine Screen",
-                        subtitle: "Use a photo of the display",
-                        effectiveColorScheme: effectiveColorScheme,
-                        isAccent: true
-                    )
-                }
+                // Scan Machine Screen option - temporarily hidden
+                // Button {
+                //     onScanConsole()
+                // } label: {
+                //     SelectionRow(
+                //         icon: "camera.viewfinder",
+                //         title: "Scan Machine Screen",
+                //         subtitle: "Use a photo of the display",
+                //         effectiveColorScheme: effectiveColorScheme,
+                //         isAccent: true
+                //     )
+                // }
 
                 // Import from Apple Health option
                 Button {

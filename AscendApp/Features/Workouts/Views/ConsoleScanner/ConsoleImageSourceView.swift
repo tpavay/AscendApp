@@ -20,8 +20,8 @@ struct ConsoleImageSourceView: View {
     // Camera state
     @State private var cameraManager = CameraManager()
     @State private var cameraAccessState: CameraAuthorizationState = .notDetermined
-    @State private var isShowingCameraAccessCard = true
     @State private var isPresentingPhotoPicker = false
+    @State private var capturedPreviewImage: UIImage?
 
     // Crop box aspect ratio (16:9 for most console displays)
     private let cropAspectRatio: CGFloat = 16.0 / 9.0
@@ -38,20 +38,30 @@ struct ConsoleImageSourceView: View {
                 // Black background
                 Color.black.ignoresSafeArea()
 
-                // Camera preview clipped to crop box
-                CameraPreviewView(
-                    cameraManager: cameraManager,
-                    layerVersion: cameraManager.previewLayerVersion
-                )
-                    .frame(width: geometry.size.width, height: geometry.size.height)
-                    .clipShape(
-                        RoundedRectangle(cornerRadius: 8)
-                            .size(width: cropBoxSize.width, height: cropBoxSize.height)
-                            .offset(
-                                x: (geometry.size.width - cropBoxSize.width) / 2,
-                                y: (geometry.size.height - cropBoxSize.height) / 2
-                            )
+                // Show captured image when processing, otherwise show live camera preview
+                if let capturedImage = capturedPreviewImage {
+                    // Frozen captured image while processing
+                    Image(uiImage: capturedImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: cropBoxSize.width, height: cropBoxSize.height)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                } else {
+                    // Live camera preview clipped to crop box
+                    CameraPreviewView(
+                        cameraManager: cameraManager,
+                        layerVersion: cameraManager.previewLayerVersion
                     )
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipShape(
+                            RoundedRectangle(cornerRadius: 8)
+                                .size(width: cropBoxSize.width, height: cropBoxSize.height)
+                                .offset(
+                                    x: (geometry.size.width - cropBoxSize.width) / 2,
+                                    y: (geometry.size.height - cropBoxSize.height) / 2
+                                )
+                        )
+                }
 
                 // Crop box border
                 RoundedRectangle(cornerRadius: 8)
@@ -74,14 +84,14 @@ struct ConsoleImageSourceView: View {
 
                     // Bottom buttons
                     VStack(spacing: 16) {
-                        // Take Photo button
+                        // Take Photo / Enable Camera button
                         Button {
-                            capturePhoto(cropBoxSize: cropBoxSize, containerSize: geometry.size)
+                            handleTakePhotoTap(cropBoxSize: cropBoxSize, containerSize: geometry.size)
                         } label: {
                             HStack(spacing: 12) {
-                                Image(systemName: "camera.fill")
+                                Image(systemName: takePhotoButtonIcon)
                                     .font(.system(size: 20))
-                                Text("Take Photo")
+                                Text(takePhotoButtonTitle)
                                     .font(.montserratSemiBold(size: 16))
                             }
                             .frame(maxWidth: .infinity)
@@ -119,24 +129,6 @@ struct ConsoleImageSourceView: View {
                     .padding(.bottom, 40)
                 }
 
-                if shouldShowCameraAccessCard {
-                    AccessPromptCard(
-                        icon: "camera.fill",
-                        title: "Allow camera access",
-                        message: cameraAccessMessage,
-                        primaryButtonTitle: cameraPrimaryButtonTitle,
-                        onPrimary: handleCameraPrimaryAction,
-                        secondaryButtonTitle: cameraSecondaryButtonTitle,
-                        onSecondary: {
-                            isShowingCameraAccessCard = false
-                        },
-                        primaryColor: .orange
-                    )
-                    .frame(width: min(cropBoxSize.width - 32, 360))
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 140)
-                }
-
                 // Processing overlay
                 if viewModel.isProcessing {
                     ProcessingOverlay()
@@ -144,8 +136,14 @@ struct ConsoleImageSourceView: View {
             }
         }
         .onAppear {
-            Task {
-                await refreshCameraAccessStatus(requestIfNeeded: false)
+            // Clear any previously captured image (e.g., after rescan)
+            capturedPreviewImage = nil
+
+            // Check current status without requesting - this enables preview if already authorized
+            let status = cameraManager.currentAuthorizationState()
+            cameraAccessState = status
+            if status == .authorized {
+                Task { await cameraManager.requestPermissionAndSetup() }
             }
         }
         .onDisappear {
@@ -153,8 +151,11 @@ struct ConsoleImageSourceView: View {
         }
         .onChange(of: scenePhase) { _, newValue in
             guard newValue == .active else { return }
-            Task {
-                await refreshCameraAccessStatus(requestIfNeeded: false)
+            // Re-check status when returning from Settings
+            let status = cameraManager.currentAuthorizationState()
+            cameraAccessState = status
+            if status == .authorized && !cameraManager.isSessionRunning {
+                Task { await cameraManager.requestPermissionAndSetup() }
             }
         }
         .onChange(of: viewModel.selectedPhotoItem) { _, _ in
@@ -182,9 +183,8 @@ struct ConsoleImageSourceView: View {
     /// Capture burst of photos and crop the best one to frame bounds
     /// Uses burst capture to handle digital display refresh rates
     private func capturePhoto(cropBoxSize: CGSize, containerSize: CGSize) {
-        guard cameraAccessState == .authorized, cameraManager.canCapture else {
-            // Show permission overlay if we can't capture
-            Task { await refreshCameraAccessStatus(requestIfNeeded: false) }
+        guard cameraManager.canCapture else {
+            // Camera not ready yet
             return
         }
 
@@ -206,10 +206,13 @@ struct ConsoleImageSourceView: View {
                 cropBoxSize: cropBoxSize,
                 containerSize: containerSize
             ) {
+                // Show the captured image while processing
+                capturedPreviewImage = croppedImage
                 // Skip crop view, go straight to processing
                 viewModel.processCroppedImage(croppedImage)
             } else {
                 // Fallback: use full image and go to crop view
+                capturedPreviewImage = bestImage
                 viewModel.handleCameraCapture(bestImage)
             }
         }
@@ -337,90 +340,46 @@ struct ConsoleImageSourceView: View {
 
     // MARK: - Camera permission handling
 
-    private var shouldShowCameraAccessCard: Bool {
-        guard isShowingCameraAccessCard else { return false }
+    private var takePhotoButtonTitle: String {
         switch cameraAccessState {
-        case .denied, .restricted, .unavailable, .notDetermined:
-            return true
+        case .denied, .restricted:
+            return "Enable Camera"
         default:
-            return false
+            return "Take Photo"
         }
     }
 
-    private var cameraAccessMessage: String {
+    private var takePhotoButtonIcon: String {
         switch cameraAccessState {
+        case .denied, .restricted:
+            return "camera.badge.ellipsis"
+        default:
+            return "camera.fill"
+        }
+    }
+
+    private func handleTakePhotoTap(cropBoxSize: CGSize, containerSize: CGSize) {
+        switch cameraAccessState {
+        case .authorized:
+            // Camera ready - capture photo
+            capturePhoto(cropBoxSize: cropBoxSize, containerSize: containerSize)
+
         case .notDetermined:
-            return "Allow camera access to take a console photo."
-        case .denied:
-            return "Camera access is turned off. Enable it to take a photo."
-        case .restricted:
-            return "Camera access is restricted on this device."
-        case .unavailable:
-            return "This device does not have a camera available."
-        default:
-            return ""
-        }
-    }
-
-    private func checkCameraAccess() async {
-        let status = await cameraManager.requestPermissionAndSetup()
-        await MainActor.run {
-            cameraAccessState = status
-            if status == .authorized {
-                isShowingCameraAccessCard = false
-            } else if status != .notDetermined {
-                isShowingCameraAccessCard = true
+            // First time - request permission, then show preview (don't auto-capture)
+            Task {
+                let status = await cameraManager.requestPermissionAndSetup()
+                cameraAccessState = status
+                // If denied, button will update to show "Enable Camera"
+                // If authorized, camera preview will now be visible for user to frame their shot
             }
-            if status != .authorized {
-                viewModel.isProcessing = false
-            }
-        }
-    }
 
-    private func refreshCameraAccessStatus(requestIfNeeded: Bool) async {
-        let status = cameraManager.currentAuthorizationState()
-        await MainActor.run {
-            cameraAccessState = status
-            if status == .authorized {
-                isShowingCameraAccessCard = false
-            } else if status != .notDetermined {
-                isShowingCameraAccessCard = true
-            }
-        }
-
-        if requestIfNeeded, status == .notDetermined {
-            await checkCameraAccess()
-        }
-    }
-
-    private var cameraPrimaryButtonTitle: String {
-        switch cameraAccessState {
-        case .notDetermined:
-            return "Allow Camera"
-        case .denied:
-            return "Open Settings"
-        default:
-            return "OK"
-        }
-    }
-
-    private var cameraSecondaryButtonTitle: String? {
-        switch cameraAccessState {
-        case .notDetermined, .denied:
-            return "Not Now"
-        default:
-            return nil
-        }
-    }
-
-    private func handleCameraPrimaryAction() {
-        switch cameraAccessState {
-        case .notDetermined:
-            Task { await checkCameraAccess() }
-        case .denied:
+        case .denied, .restricted:
+            // Permission denied - open Settings
             openSettings()
-        default:
-            isShowingCameraAccessCard = false
+
+        case .unavailable:
+            // No camera available - do nothing (user can use photo library)
+            break
         }
     }
 
@@ -470,72 +429,6 @@ struct ProcessingOverlay: View {
                 }
             }
         }
-    }
-}
-
-// MARK: - Camera access UI
-
-struct AccessPromptCard: View {
-    let icon: String
-    let title: String
-    let message: String
-    let primaryButtonTitle: String
-    let onPrimary: () -> Void
-    let secondaryButtonTitle: String?
-    let onSecondary: (() -> Void)?
-    let primaryColor: Color
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: icon)
-                .font(.system(size: 28))
-                .foregroundStyle(.white)
-
-            VStack(spacing: 6) {
-                Text(title)
-                    .font(.montserratSemiBold(size: 18))
-                    .foregroundStyle(.white)
-
-                Text(message)
-                    .font(.montserratRegular(size: 14))
-                    .foregroundStyle(.white.opacity(0.8))
-                    .multilineTextAlignment(.center)
-            }
-
-            VStack(spacing: 12) {
-                Button(action: onPrimary) {
-                    Text(primaryButtonTitle)
-                        .font(.montserratSemiBold(size: 16))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
-                        .background(primaryColor)
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                }
-
-                if let secondaryButtonTitle, let onSecondary {
-                    Button(action: onSecondary) {
-                        Text(secondaryButtonTitle)
-                            .font(.montserratSemiBold(size: 16))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .background(Color.white.opacity(0.12))
-                            .foregroundStyle(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                    }
-                }
-            }
-        }
-        .padding(20)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.black.opacity(0.75))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                )
-        )
-        .shadow(color: .black.opacity(0.4), radius: 16, x: 0, y: 8)
     }
 }
 

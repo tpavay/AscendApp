@@ -150,7 +150,7 @@ struct WorkoutListView: View {
                     },
                     pendingImportCount: importService.pendingWorkoutsCount
                 )
-                .presentationDetents([.height(350)])
+                .presentationDetents([.height(280)])
             }
             .fullScreenCover(isPresented: $showingScanner) {
                 ConsoleScannerContainerView(
