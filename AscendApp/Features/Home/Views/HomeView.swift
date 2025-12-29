@@ -80,6 +80,9 @@ struct HomeView: View {
 
                     // Weekly Goal Card (intention - what I'm working toward)
                     WeeklyGoalCard(workouts: workouts, showGoalsSheet: $showingGoalsSheet)
+
+                    // Routines Card (guided workouts)
+                    RoutinesHomeCard()
                 }
             }
             .padding(20)
