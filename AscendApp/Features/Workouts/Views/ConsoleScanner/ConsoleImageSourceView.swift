@@ -8,15 +8,20 @@
 import SwiftUI
 import PhotosUI
 import AVFoundation
+import UIKit
 
 /// View with live camera preview and crop frame overlay for scanning console
 struct ConsoleImageSourceView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
     @State private var themeManager = ThemeManager.shared
     @Bindable var viewModel: ConsoleScanViewModel
 
     // Camera state
     @State private var cameraManager = CameraManager()
+    @State private var cameraAccessState: CameraAuthorizationState = .notDetermined
+    @State private var isShowingCameraAccessCard = true
+    @State private var isPresentingPhotoPicker = false
 
     // Crop box aspect ratio (16:9 for most console displays)
     private let cropAspectRatio: CGFloat = 16.0 / 9.0
@@ -34,7 +39,10 @@ struct ConsoleImageSourceView: View {
                 Color.black.ignoresSafeArea()
 
                 // Camera preview clipped to crop box
-                CameraPreviewView(cameraManager: cameraManager)
+                CameraPreviewView(
+                    cameraManager: cameraManager,
+                    layerVersion: cameraManager.previewLayerVersion
+                )
                     .frame(width: geometry.size.width, height: geometry.size.height)
                     .clipShape(
                         RoundedRectangle(cornerRadius: 8)
@@ -85,10 +93,9 @@ struct ConsoleImageSourceView: View {
                         .disabled(viewModel.isProcessing)
 
                         // Choose from Library button
-                        PhotosPicker(
-                            selection: $viewModel.selectedPhotoItem,
-                            matching: .images
-                        ) {
+                        Button {
+                            handlePhotoPickerTap()
+                        } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: "photo.on.rectangle")
                                     .font(.system(size: 20))
@@ -101,10 +108,33 @@ struct ConsoleImageSourceView: View {
                             .foregroundStyle(.white)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
+                        .photosPicker(
+                            isPresented: $isPresentingPhotoPicker,
+                            selection: $viewModel.selectedPhotoItem,
+                            matching: .images
+                        )
                         .disabled(viewModel.isProcessing)
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 40)
+                }
+
+                if shouldShowCameraAccessCard {
+                    AccessPromptCard(
+                        icon: "camera.fill",
+                        title: "Allow camera access",
+                        message: cameraAccessMessage,
+                        primaryButtonTitle: cameraPrimaryButtonTitle,
+                        onPrimary: handleCameraPrimaryAction,
+                        secondaryButtonTitle: cameraSecondaryButtonTitle,
+                        onSecondary: {
+                            isShowingCameraAccessCard = false
+                        },
+                        primaryColor: .orange
+                    )
+                    .frame(width: min(cropBoxSize.width - 32, 360))
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 140)
                 }
 
                 // Processing overlay
@@ -115,11 +145,17 @@ struct ConsoleImageSourceView: View {
         }
         .onAppear {
             Task {
-                await cameraManager.requestPermissionAndSetup()
+                await refreshCameraAccessStatus(requestIfNeeded: false)
             }
         }
         .onDisappear {
             cameraManager.stopSession()
+        }
+        .onChange(of: scenePhase) { _, newValue in
+            guard newValue == .active else { return }
+            Task {
+                await refreshCameraAccessStatus(requestIfNeeded: false)
+            }
         }
         .onChange(of: viewModel.selectedPhotoItem) { _, _ in
             Task {
@@ -143,14 +179,30 @@ struct ConsoleImageSourceView: View {
         }
     }
 
-    /// Capture photo and crop to frame bounds
+    /// Capture burst of photos and crop the best one to frame bounds
+    /// Uses burst capture to handle digital display refresh rates
     private func capturePhoto(cropBoxSize: CGSize, containerSize: CGSize) {
-        cameraManager.capturePhoto { image in
-            guard let image = image else { return }
+        guard cameraAccessState == .authorized, cameraManager.canCapture else {
+            // Show permission overlay if we can't capture
+            Task { await refreshCameraAccessStatus(requestIfNeeded: false) }
+            return
+        }
+
+        viewModel.isProcessing = true
+
+        cameraManager.captureBurst { images in
+            guard !images.isEmpty else {
+                viewModel.isProcessing = false
+                return
+            }
+
+            // Select the best image from the burst
+            // For digital displays, we want the sharpest image with most visible content
+            let bestImage = selectBestImage(from: images)
 
             // Crop the captured image to the frame area
             if let croppedImage = cropImageToFrame(
-                image: image,
+                image: bestImage,
                 cropBoxSize: cropBoxSize,
                 containerSize: containerSize
             ) {
@@ -158,9 +210,73 @@ struct ConsoleImageSourceView: View {
                 viewModel.processCroppedImage(croppedImage)
             } else {
                 // Fallback: use full image and go to crop view
-                viewModel.handleCameraCapture(image)
+                viewModel.handleCameraCapture(bestImage)
             }
         }
+    }
+
+    /// Select the best image from a burst for digital display scanning
+    /// Prioritizes images with higher contrast/sharpness
+    private func selectBestImage(from images: [UIImage]) -> UIImage {
+        guard images.count > 1 else { return images.first! }
+
+        // Score each image based on brightness variance (indicates visible content)
+        var bestImage = images.first!
+        var bestScore: CGFloat = 0
+
+        for image in images {
+            let score = calculateImageScore(image)
+            if score > bestScore {
+                bestScore = score
+                bestImage = image
+            }
+        }
+
+        return bestImage
+    }
+
+    /// Calculate a quality score for an image based on brightness variance
+    /// Higher variance typically means more visible content on digital displays
+    private func calculateImageScore(_ image: UIImage) -> CGFloat {
+        guard let cgImage = image.cgImage else { return 0 }
+
+        // Sample the center portion of the image (where console display would be)
+        let width = cgImage.width
+        let height = cgImage.height
+        let sampleSize = min(width, height) / 4
+        let centerX = (width - sampleSize) / 2
+        let centerY = (height - sampleSize) / 2
+
+        guard let croppedCGImage = cgImage.cropping(to: CGRect(
+            x: centerX, y: centerY,
+            width: sampleSize, height: sampleSize
+        )) else { return 0 }
+
+        // Create a small bitmap to analyze
+        let bitmapSize = 50
+        let colorSpace = CGColorSpaceCreateDeviceGray()
+        var pixels = [UInt8](repeating: 0, count: bitmapSize * bitmapSize)
+
+        guard let context = CGContext(
+            data: &pixels,
+            width: bitmapSize,
+            height: bitmapSize,
+            bitsPerComponent: 8,
+            bytesPerRow: bitmapSize,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.none.rawValue
+        ) else { return 0 }
+
+        context.draw(croppedCGImage, in: CGRect(x: 0, y: 0, width: bitmapSize, height: bitmapSize))
+
+        // Calculate variance in brightness
+        let mean = CGFloat(pixels.reduce(0) { $0 + Int($1) }) / CGFloat(pixels.count)
+        let variance = pixels.reduce(0.0) { sum, pixel in
+            let diff = CGFloat(pixel) - mean
+            return sum + diff * diff
+        } / CGFloat(pixels.count)
+
+        return variance
     }
 
     /// Crop the captured image to match the visible frame area
@@ -218,6 +334,114 @@ struct ConsoleImageSourceView: View {
 
         return UIImage(cgImage: croppedCGImage, scale: image.scale, orientation: image.imageOrientation)
     }
+
+    // MARK: - Camera permission handling
+
+    private var shouldShowCameraAccessCard: Bool {
+        guard isShowingCameraAccessCard else { return false }
+        switch cameraAccessState {
+        case .denied, .restricted, .unavailable, .notDetermined:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var cameraAccessMessage: String {
+        switch cameraAccessState {
+        case .notDetermined:
+            return "Allow camera access to take a console photo."
+        case .denied:
+            return "Camera access is turned off. Enable it to take a photo."
+        case .restricted:
+            return "Camera access is restricted on this device."
+        case .unavailable:
+            return "This device does not have a camera available."
+        default:
+            return ""
+        }
+    }
+
+    private func checkCameraAccess() async {
+        let status = await cameraManager.requestPermissionAndSetup()
+        await MainActor.run {
+            cameraAccessState = status
+            if status == .authorized {
+                isShowingCameraAccessCard = false
+            } else if status != .notDetermined {
+                isShowingCameraAccessCard = true
+            }
+            if status != .authorized {
+                viewModel.isProcessing = false
+            }
+        }
+    }
+
+    private func refreshCameraAccessStatus(requestIfNeeded: Bool) async {
+        let status = cameraManager.currentAuthorizationState()
+        await MainActor.run {
+            cameraAccessState = status
+            if status == .authorized {
+                isShowingCameraAccessCard = false
+            } else if status != .notDetermined {
+                isShowingCameraAccessCard = true
+            }
+        }
+
+        if requestIfNeeded, status == .notDetermined {
+            await checkCameraAccess()
+        }
+    }
+
+    private var cameraPrimaryButtonTitle: String {
+        switch cameraAccessState {
+        case .notDetermined:
+            return "Allow Camera"
+        case .denied:
+            return "Open Settings"
+        default:
+            return "OK"
+        }
+    }
+
+    private var cameraSecondaryButtonTitle: String? {
+        switch cameraAccessState {
+        case .notDetermined, .denied:
+            return "Not Now"
+        default:
+            return nil
+        }
+    }
+
+    private func handleCameraPrimaryAction() {
+        switch cameraAccessState {
+        case .notDetermined:
+            Task { await checkCameraAccess() }
+        case .denied:
+            openSettings()
+        default:
+            isShowingCameraAccessCard = false
+        }
+    }
+
+    private func handlePhotoPickerTap() {
+        isPresentingPhotoPicker = true
+    }
+
+    private func openSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+    }
+}
+
+// MARK: - Camera permission types
+
+enum CameraAuthorizationState {
+    case authorized
+    case denied
+    case restricted
+    case notDetermined
+    case unavailable
 }
 
 // MARK: - Processing Overlay
@@ -249,6 +473,72 @@ struct ProcessingOverlay: View {
     }
 }
 
+// MARK: - Camera access UI
+
+struct AccessPromptCard: View {
+    let icon: String
+    let title: String
+    let message: String
+    let primaryButtonTitle: String
+    let onPrimary: () -> Void
+    let secondaryButtonTitle: String?
+    let onSecondary: (() -> Void)?
+    let primaryColor: Color
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: icon)
+                .font(.system(size: 28))
+                .foregroundStyle(.white)
+
+            VStack(spacing: 6) {
+                Text(title)
+                    .font(.montserratSemiBold(size: 18))
+                    .foregroundStyle(.white)
+
+                Text(message)
+                    .font(.montserratRegular(size: 14))
+                    .foregroundStyle(.white.opacity(0.8))
+                    .multilineTextAlignment(.center)
+            }
+
+            VStack(spacing: 12) {
+                Button(action: onPrimary) {
+                    Text(primaryButtonTitle)
+                        .font(.montserratSemiBold(size: 16))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(primaryColor)
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+
+                if let secondaryButtonTitle, let onSecondary {
+                    Button(action: onSecondary) {
+                        Text(secondaryButtonTitle)
+                            .font(.montserratSemiBold(size: 16))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(Color.white.opacity(0.12))
+                            .foregroundStyle(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                }
+            }
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.black.opacity(0.75))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                )
+        )
+        .shadow(color: .black.opacity(0.4), radius: 16, x: 0, y: 8)
+    }
+}
+
 // MARK: - Camera Manager
 
 @MainActor
@@ -256,34 +546,68 @@ struct ProcessingOverlay: View {
 class CameraManager: NSObject {
     private var captureSession: AVCaptureSession?
     private var photoOutput: AVCapturePhotoOutput?
-    private var captureCompletion: ((UIImage?) -> Void)?
+    private var captureCompletion: (([UIImage]) -> Void)?
+
+    // Burst capture settings for digital displays
+    private var burstImages: [UIImage] = []
+    private var burstCount = 0
+    private var targetBurstCount = 5 // Capture 5 frames to handle refresh rate issues
 
     var isSessionRunning = false
     var previewLayer: AVCaptureVideoPreviewLayer?
 
-    func requestPermissionAndSetup() async {
+    // This triggers SwiftUI updates when preview layer changes
+    var previewLayerVersion = 0
+    var canCapture: Bool {
+        photoOutput != nil && isSessionRunning
+    }
+
+    func currentAuthorizationState() -> CameraAuthorizationState {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            return .authorized
+        case .notDetermined:
+            return .notDetermined
+        case .denied:
+            return .denied
+        case .restricted:
+            return .restricted
+        @unknown default:
+            return .restricted
+        }
+    }
+
+    func requestPermissionAndSetup() async -> CameraAuthorizationState {
         let status = AVCaptureDevice.authorizationStatus(for: .video)
 
         switch status {
         case .authorized:
-            setupSession()
+            let setupResult = await setupSession()
+            return setupResult ? .authorized : .unavailable
         case .notDetermined:
             let granted = await AVCaptureDevice.requestAccess(for: .video)
             if granted {
-                setupSession()
+                let setupResult = await setupSession()
+                return setupResult ? .authorized : .unavailable
+            } else {
+                return .denied
             }
-        default:
-            break
+        case .denied:
+            return .denied
+        case .restricted:
+            return .restricted
+        @unknown default:
+            return .restricted
         }
     }
 
-    private func setupSession() {
+    private func setupSession() async -> Bool {
         let session = AVCaptureSession()
         session.sessionPreset = .photo
 
         guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
               let input = try? AVCaptureDeviceInput(device: camera) else {
-            return
+            return false
         }
 
         if session.canAddInput(input) {
@@ -301,13 +625,20 @@ class CameraManager: NSObject {
         let layer = AVCaptureVideoPreviewLayer(session: session)
         layer.videoGravity = .resizeAspectFill
         previewLayer = layer
+        previewLayerVersion += 1 // Trigger SwiftUI update
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            session.startRunning()
-            DispatchQueue.main.async {
-                self?.isSessionRunning = session.isRunning
+        // Start session on background thread and wait for it
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                session.startRunning()
+                DispatchQueue.main.async {
+                    self?.isSessionRunning = session.isRunning
+                    continuation.resume()
+                }
             }
         }
+
+        return isSessionRunning
     }
 
     func stopSession() {
@@ -319,13 +650,33 @@ class CameraManager: NSObject {
         }
     }
 
-    func capturePhoto(completion: @escaping (UIImage?) -> Void) {
+    /// Capture a burst of photos to handle digital display refresh rates
+    /// Digital displays refresh at varying rates, so a single photo may capture
+    /// the display mid-refresh with missing segments. Burst capture gives us
+    /// multiple frames to choose from.
+    func captureBurst(completion: @escaping ([UIImage]) -> Void) {
         guard let photoOutput = photoOutput else {
-            completion(nil)
+            completion([])
             return
         }
 
+        burstImages = []
+        burstCount = 0
         captureCompletion = completion
+
+        // Capture multiple frames in rapid succession
+        captureNextBurstFrame(photoOutput: photoOutput)
+    }
+
+    private func captureNextBurstFrame(photoOutput: AVCapturePhotoOutput) {
+        guard burstCount < targetBurstCount else {
+            // All burst frames captured, return results
+            let images = burstImages
+            burstImages = []
+            captureCompletion?(images)
+            captureCompletion = nil
+            return
+        }
 
         let settings = AVCapturePhotoSettings()
         settings.flashMode = .off // LED displays are self-lit
@@ -339,19 +690,35 @@ extension CameraManager: AVCapturePhotoCaptureDelegate {
         didFinishProcessingPhoto photo: AVCapturePhoto,
         error: Error?
     ) {
-        guard error == nil,
-              let data = photo.fileDataRepresentation(),
-              let image = UIImage(data: data) else {
-            Task { @MainActor in
-                captureCompletion?(nil)
-                captureCompletion = nil
-            }
-            return
+        // Extract data on the callback thread before switching to MainActor
+        let imageData: Data?
+        if error == nil {
+            imageData = photo.fileDataRepresentation()
+        } else {
+            imageData = nil
         }
 
         Task { @MainActor in
-            captureCompletion?(image)
-            captureCompletion = nil
+            if let data = imageData,
+               let image = UIImage(data: data) {
+                burstImages.append(image)
+            }
+
+            burstCount += 1
+
+            // Small delay between burst captures to catch different refresh phases
+            if burstCount < targetBurstCount {
+                try? await Task.sleep(for: .milliseconds(50))
+                if let photoOutput = photoOutput {
+                    captureNextBurstFrame(photoOutput: photoOutput)
+                }
+            } else {
+                // All frames captured
+                let images = burstImages
+                burstImages = []
+                captureCompletion?(images)
+                captureCompletion = nil
+            }
         }
     }
 }
@@ -360,6 +727,8 @@ extension CameraManager: AVCapturePhotoCaptureDelegate {
 
 struct CameraPreviewView: UIViewRepresentable {
     let cameraManager: CameraManager
+    // Observe version changes to trigger updateUIView when layer becomes available
+    let layerVersion: Int
 
     func makeUIView(context: Context) -> CameraPreviewUIView {
         let view = CameraPreviewUIView()

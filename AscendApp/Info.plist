@@ -30,6 +30,10 @@
 		<string>instagram-stories</string>
 		<string>twitter</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Ascend uses your camera to scan stair stepper console displays.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Ascend needs access to your photo library to select stair stepper console images.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Montserrat-Regular.ttf</string>
