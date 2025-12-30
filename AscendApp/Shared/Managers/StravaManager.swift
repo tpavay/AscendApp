@@ -9,6 +9,7 @@ import Foundation
 import Observation
 import AuthenticationServices
 import FirebaseAuth
+import FirebaseCore
 @preconcurrency import FirebaseFirestore
 
 /// Manages Strava integration state and communication with Cloud Functions
@@ -19,11 +20,13 @@ final class StravaManager: NSObject {
 
     // MARK: - Configuration
 
-    private nonisolated let projectId = "ascend-f2e4f"
     private nonisolated let region = "us-central1"
 
     private nonisolated var baseURL: String {
-        "https://\(region)-\(projectId).cloudfunctions.net"
+        guard let projectId = FirebaseApp.app()?.options.projectID else {
+            fatalError("Firebase not configured")
+        }
+        return "https://\(region)-\(projectId).cloudfunctions.net"
     }
 
     // MARK: - Cache Keys

@@ -7,6 +7,7 @@
 
 import UIKit
 import FirebaseAuth
+import FirebaseCore
 
 /// Service for scanning stair stepper console images via the Cloud Function
 actor ConsoleScanService {
@@ -14,25 +15,19 @@ actor ConsoleScanService {
 
     // MARK: - Configuration
 
-    /// Cloud Function URL - update this after deploying
-    /// Format: https://<region>-<project-id>.cloudfunctions.net/consoleScan
-    /// Or for v2: https://consolescan-<hash>-uc.a.run.app
-    private let functionURL: URL
+    /// Cloud Function URL - dynamically constructed from Firebase project ID
+    private var functionURL: URL {
+        guard let projectId = FirebaseApp.app()?.options.projectID else {
+            fatalError("Firebase not configured")
+        }
+        return URL(string: "https://us-central1-\(projectId).cloudfunctions.net/consoleScan")!
+    }
 
     /// Maximum image dimension (longest edge) for upload
     private let maxImageDimension: CGFloat = 1200
 
     /// JPEG compression quality
     private let jpegQuality: CGFloat = 0.7
-
-    // MARK: - Initialization
-
-    init() {
-        // TODO: Update this URL after deploying the Cloud Function
-        // You can find it in the Firebase Console under Functions
-        // Or run: firebase functions:list
-        self.functionURL = URL(string: "https://us-central1-ascend-f2e4f.cloudfunctions.net/consoleScan")!
-    }
 
     // MARK: - Public API
 
