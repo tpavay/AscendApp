@@ -10,6 +10,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>com.googleusercontent.apps.808186881002-ncqmrtrc05021fm2ekdlv2u6cjltbr14</string>
+				<string>com.googleusercontent.apps.699362062754-btv2ounn0dvd3omgkjpfhcg3ppsclnh0</string>
 			</array>
 		</dict>
 		<dict>
@@ -23,8 +24,6 @@
 	</array>
 	<key>FacebookAppID</key>
 	<string>1546524626613679</string>
-	<key>GIDClientID</key>
-	<string>350684217869-kpq9gh1mpeki1ngbij5fmcieqvsaim69.apps.googleusercontent.com</string>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>instagram-stories</string>
