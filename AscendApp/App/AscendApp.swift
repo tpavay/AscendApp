@@ -14,10 +14,26 @@ struct AscendApp: App {
     @State private var authVM: AuthenticationViewModel
 
     init() {
-        FirebaseApp.configure()
+        Self.configureFirebase()
         TelemetryManager.shared.configure()
         TelemetryManager.shared.setAppMetadata()
         authVM = AuthenticationViewModel()
+    }
+
+    private static func configureFirebase() {
+        #if DEBUG
+        let configFile = "GoogleService-Info-Dev"
+        #elseif STAGING
+        let configFile = "GoogleService-Info-Staging"
+        #else
+        let configFile = "GoogleService-Info-Production"
+        #endif
+
+        guard let filePath = Bundle.main.path(forResource: configFile, ofType: "plist"),
+              let options = FirebaseOptions(contentsOfFile: filePath) else {
+            fatalError("Missing Firebase config: \(configFile).plist")
+        }
+        FirebaseApp.configure(options: options)
     }
 
     var body: some Scene {
