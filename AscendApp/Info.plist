@@ -34,6 +34,10 @@
 	<string>Ascend uses your camera to scan stair stepper console displays.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Ascend needs access to your photo library to select stair stepper console images.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Ascend reads your workout data to track your stair climbing progress and display your stats.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Ascend saves your stair stepper workouts to Apple Health to keep all your fitness data in one place.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Montserrat-Regular.ttf</string>
