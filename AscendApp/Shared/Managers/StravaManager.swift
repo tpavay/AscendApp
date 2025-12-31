@@ -22,11 +22,15 @@ final class StravaManager: NSObject {
 
     private nonisolated let region = "us-central1"
 
-    private nonisolated var baseURL: String {
+    private nonisolated var projectId: String {
         guard let projectId = FirebaseApp.app()?.options.projectID else {
             fatalError("Firebase not configured")
         }
-        return "https://\(region)-\(projectId).cloudfunctions.net"
+        return projectId
+    }
+
+    private nonisolated var baseURL: String {
+        "https://\(region)-\(projectId).cloudfunctions.net"
     }
 
     // MARK: - Cache Keys

@@ -15,8 +15,6 @@ struct MainTabView: View {
     @StateObject private var tabRouter = TabRouter()
     @State private var hasCheckedRatingOnLaunch = false
 
-    @Query private var workouts: [Workout]
-
     // Easy configuration - just change this array to modify tabs
     private let tabs = TabItem.activeTabs
 
@@ -66,7 +64,10 @@ struct MainTabView: View {
 
         // Check if user is eligible for rating prompt based on workout count
         // This handles cases where user imported workouts and became eligible
-        AppStoreRatingManager.shared.checkAndRequestReviewIfNeeded(currentWorkoutCount: workouts.count)
+        // Note: We fetch count on-demand rather than using @Query to avoid crashes
+        // when workouts are deleted (e.g., during account deletion) while this view is in the hierarchy
+        let workoutCount = (try? modelContext.fetchCount(FetchDescriptor<Workout>())) ?? 0
+        AppStoreRatingManager.shared.checkAndRequestReviewIfNeeded(currentWorkoutCount: workoutCount)
     }
     
     private func getIconName(for tab: TabItem, isSelected: Bool) -> String {
