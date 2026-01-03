@@ -78,8 +78,11 @@ class AuthenticationViewModel {
                     if !cachedDisplayName.isEmpty {
                         self.isProfileLoaded = true
                         self.authenticationState = .authenticated
-                    } else if !isInteractiveSignIn {
-                        // Only show restoringSession for cold launch, not during interactive sign-in
+                    } else if isInteractiveSignIn {
+                        // Interactive sign-in: set authenticated immediately even without display name
+                        self.authenticationState = .authenticated
+                    } else {
+                        // Cold launch without cached name: show restoring session
                         self.isProfileLoaded = false
                         self.authenticationState = .restoringSession
                     }
