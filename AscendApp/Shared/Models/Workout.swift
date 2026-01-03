@@ -14,7 +14,8 @@ enum WorkoutSource: String, CaseIterable, Codable {
     case garmin = "garmin"           // Future: Garmin Connect
     case strava = "strava"           // Future: Strava
     case fitbit = "fitbit"           // Future: Fitbit
-    
+    case hevy = "hevy"               // Imported from Hevy app
+
     var displayName: String {
         switch self {
         case .manual:
@@ -27,14 +28,16 @@ enum WorkoutSource: String, CaseIterable, Codable {
             return "Strava"
         case .fitbit:
             return "Fitbit"
+        case .hevy:
+            return "Hevy"
         }
     }
-    
+
     var isVerified: Bool {
         switch self {
         case .manual:
             return false
-        case .appleHealth, .garmin, .strava, .fitbit:
+        case .appleHealth, .garmin, .strava, .fitbit, .hevy:
             return true
         }
     }
@@ -78,6 +81,7 @@ class Workout {
     var deviceModel: String? // "Apple Watch Series 9", "iPhone 15 Pro", etc.
     var sourceMetadata: String? // Additional source-specific data (JSON string)
     var healthKitUUID: String? // HealthKit workout UUID for deduplication
+    var hevyWorkoutId: String? // Hevy workout ID for deduplication
     var photos: [Photo]
     var highlightedPhotoId: UUID? // ID of the photo/video to display on workout cards
 
@@ -151,7 +155,7 @@ class Workout {
         }
     }
 
-    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int, floors: Int, stepsPerFloor: Int = 16, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil, photos: [Photo] = [], highlightedPhotoId: UUID? = nil, personalRecordTypes: [String]? = nil, weightConfiguration: WeightConfiguration? = nil) {
+    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int, floors: Int, stepsPerFloor: Int = 16, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil, hevyWorkoutId: String? = nil, photos: [Photo] = [], highlightedPhotoId: UUID? = nil, personalRecordTypes: [String]? = nil, weightConfiguration: WeightConfiguration? = nil) {
         self.id = UUID()
         self.name = name.isEmpty ? "Workout" : name
         self.date = date
@@ -174,6 +178,7 @@ class Workout {
         self.deviceModel = deviceModel
         self.sourceMetadata = sourceMetadata
         self.healthKitUUID = healthKitUUID
+        self.hevyWorkoutId = hevyWorkoutId
         self.photos = photos
         // Default to first photo if not specified and photos exist
         self.highlightedPhotoId = highlightedPhotoId ?? photos.first?.id

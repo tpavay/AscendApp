@@ -14,6 +14,7 @@ struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
     @State private var importService = WorkoutImportService.shared
+    @State private var hevyImportService = HevyImportService.shared
     @State private var showingImportSheet = false
     @State private var showingGoalsSheet = false
     @AppStorage("firstLaunchDate") private var firstLaunchDate: Double = 0
@@ -103,11 +104,15 @@ struct HomeView: View {
                 firstLaunchDate = Date().timeIntervalSince1970
             }
 
-            // Configure the import service with model context
+            // Configure the import services with model context
             importService.configure(modelContext: modelContext)
+            hevyImportService.configure(modelContext: modelContext)
 
             // Check for workouts on app launch
             await importService.checkForNewWorkoutsInBackground()
+
+            // Check for new Hevy exercises if connected
+            await hevyImportService.checkForNewExercises()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             // Check for new workouts when app comes to foreground (throttled to prevent spam)

@@ -24,6 +24,9 @@ struct IntegrationsView: View {
                 // Strava Integration
                 StravaIntegrationCard()
 
+                // Hevy Integration
+                HevyIntegrationCard()
+
                 // Future integrations can be added here
                 // GarminIntegrationCard()
                 // FitbitIntegrationCard()
