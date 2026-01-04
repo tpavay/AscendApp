@@ -45,7 +45,7 @@ struct AccountView: View {
         .navigationDestination(isPresented: $isShowingEditProfile) {
             EditProfileView()
         }
-        .fullScreenCover(isPresented: $isShowingDeleteAccountConfirmation) {
+        .sheet(isPresented: $isShowingDeleteAccountConfirmation) {
             DeleteAccountConfirmationView(
                 onAccountDeleted: {
                     // The auth state listener will automatically handle navigation

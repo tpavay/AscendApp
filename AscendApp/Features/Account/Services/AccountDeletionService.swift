@@ -244,7 +244,7 @@ final class AccountDeletionService {
         }
     }
     
-    /// Deletes all local SwiftData (Workouts, LeaderboardStats, PersonalRecords, Goals)
+    /// Deletes all local SwiftData (Workouts, LeaderboardStats, PersonalRecords, Goals, Routines, RoutineFolders)
     private func deleteLocalData(modelContext: ModelContext) throws {
         do {
             // Delete all Workouts
@@ -273,6 +273,20 @@ final class AccountDeletionService {
             let goals = try modelContext.fetch(goalDescriptor)
             for goal in goals {
                 modelContext.delete(goal)
+            }
+
+            // Delete all Routines
+            let routineDescriptor = FetchDescriptor<Routine>()
+            let routines = try modelContext.fetch(routineDescriptor)
+            for routine in routines {
+                modelContext.delete(routine)
+            }
+
+            // Delete all RoutineFolders
+            let folderDescriptor = FetchDescriptor<RoutineFolder>()
+            let folders = try modelContext.fetch(folderDescriptor)
+            for folder in folders {
+                modelContext.delete(folder)
             }
 
             try modelContext.save()
