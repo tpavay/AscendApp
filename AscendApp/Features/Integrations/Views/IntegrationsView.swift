@@ -27,9 +27,8 @@ struct IntegrationsView: View {
                 // Hevy Integration
                 HevyIntegrationCard()
 
-                // Future integrations can be added here
-                // GarminIntegrationCard()
-                // FitbitIntegrationCard()
+                // Apple Health Integration
+                AppleHealthIntegrationCard()
 
                 Spacer()
             }
