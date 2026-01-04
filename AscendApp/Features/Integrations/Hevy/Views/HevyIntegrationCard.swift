@@ -15,6 +15,8 @@ struct HevyIntegrationCard: View {
     @State private var showingApiKeyEntry = false
     @State private var showingDisconnectConfirmation = false
     @State private var importedCount: Int?
+    @State private var linkedCount: Int?
+    @State private var linkingAttempted = false  // Tracks if linking was attempted (even with 0 matches)
 
     // Hevy brand color (dark purple/blue)
     private let hevyColor = Color(red: 45/255, green: 51/255, blue: 107/255)
@@ -130,6 +132,55 @@ struct HevyIntegrationCard: View {
                         .foregroundStyle(hevyColor.opacity(0.8))
                     }
                 }
+
+                // Apple Health linking section
+                if let count = linkedCount, count > 0 {
+                    Divider()
+                        .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
+
+                    HStack {
+                        Image(systemName: "heart.circle.fill")
+                            .foregroundStyle(.green)
+                        Text("Linked Apple Health data to \(count) workout\(count == 1 ? "" : "s")")
+                            .font(.montserratMedium(size: 14))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else if hevyImportService.isLinking {
+                    Divider()
+                        .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
+
+                    HStack {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                        Text("Linking Apple Health data...")
+                            .font(.montserratRegular(size: 14))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else if hevyImportService.linkableHevyWorkoutsCount > 0 && !linkingAttempted {
+                    Divider()
+                        .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
+
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(hevyImportService.linkableHevyWorkoutsCount) workout\(hevyImportService.linkableHevyWorkoutsCount == 1 ? "" : "s") can be enhanced")
+                                .font(.montserratMedium(size: 14))
+                                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                            Text("Link Apple Health data to Hevy workouts")
+                                .font(.montserratRegular(size: 12))
+                                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
+                        }
+
+                        Spacer()
+
+                        Button("Link") {
+                            linkAppleHealthData()
+                        }
+                        .font(.montserratMedium(size: 14))
+                        .foregroundStyle(.green)
+                    }
+                }
             }
 
             // Retry button when there's an error
@@ -180,6 +231,9 @@ struct HevyIntegrationCard: View {
         .onAppear {
             if hevyManager.isConnected {
                 checkForWorkouts()
+                Task {
+                    await hevyImportService.checkForLinkableWorkouts()
+                }
             }
         }
     }
@@ -189,17 +243,33 @@ struct HevyIntegrationCard: View {
     private func checkForWorkouts() {
         hevyImportService.lastError = nil
         importedCount = nil
+        linkedCount = nil
+        linkingAttempted = false
         Task {
             await hevyImportService.checkForNewExercises()
         }
     }
 
     private func importWorkouts() {
+        linkedCount = nil
+        linkingAttempted = false
         Task {
             let count = await hevyImportService.importAllExercises()
             if count > 0 {
                 importedCount = count
+                // Check for linkable workouts after import
+                _ = await hevyImportService.checkForLinkableWorkouts()
             }
+        }
+    }
+
+    private func linkAppleHealthData() {
+        linkedCount = nil
+        linkingAttempted = false
+        Task {
+            let result = await hevyImportService.linkAppleHealthData()
+            linkingAttempted = true
+            linkedCount = result.linkedCount
         }
     }
 }

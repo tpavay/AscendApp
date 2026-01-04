@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftData
+import HealthKit
 
 @MainActor
 @Observable
@@ -18,10 +19,22 @@ class HevyImportService {
     var pendingExercises: [HevyExerciseHistory] = []
     var lastError: HevyError?
 
+    // Apple Health linking
+    var isLinking = false
+    var linkableHevyWorkoutsCount = 0
+
     private let hevyManager = HevyManager.shared
+    private let healthKitService = HealthKitService.shared
     private var modelContext: ModelContext?
 
     private init() {}
+
+    /// Result of a linking operation
+    struct LinkingResult {
+        let linkedCount: Int
+        let totalHevyWorkouts: Int
+        let errors: [String]
+    }
 
     func configure(modelContext: ModelContext) {
         self.modelContext = modelContext
@@ -225,5 +238,192 @@ class HevyImportService {
             HevySyncState.lastSyncAt = maxDate
             print("📅 Updated lastHevySyncAt to: \(maxDate)")
         }
+    }
+
+    // MARK: - Apple Health Linking
+
+    /// Finds Hevy workouts that have matching Apple Health workouts available
+    func checkForLinkableWorkouts() async -> Int {
+        guard let modelContext = modelContext else { return 0 }
+
+        // Request HealthKit permission first
+        let _ = await healthKitService.requestPermission()
+
+        // Fetch all Hevy workouts without healthKitUUID (not yet linked)
+        let descriptor = FetchDescriptor<Workout>(
+            predicate: #Predicate<Workout> { workout in
+                workout.hevyWorkoutId != nil && workout.healthKitUUID == nil
+            }
+        )
+
+        do {
+            let hevyWorkouts = try modelContext.fetch(descriptor)
+
+            // Actually check which ones have matching Apple Health workouts
+            var matchCount = 0
+            for hevyWorkout in hevyWorkouts {
+                if await findBestAppleHealthMatch(for: hevyWorkout) != nil {
+                    matchCount += 1
+                }
+            }
+
+            linkableHevyWorkoutsCount = matchCount
+            print("📊 Found \(matchCount) Hevy workouts with matching Apple Health data (out of \(hevyWorkouts.count) unlinked)")
+            return matchCount
+        } catch {
+            print("❌ Error fetching linkable Hevy workouts: \(error)")
+            return 0
+        }
+    }
+
+    /// Links Apple Health data to all eligible Hevy workouts
+    func linkAppleHealthData() async -> LinkingResult {
+        guard let modelContext = modelContext else {
+            return LinkingResult(linkedCount: 0, totalHevyWorkouts: 0, errors: ["No model context"])
+        }
+
+        isLinking = true
+        defer { isLinking = false }
+
+        var linkedCount = 0
+        let errors: [String] = []
+
+        // Request HealthKit permission
+        let _ = await healthKitService.requestPermission()
+
+        // Fetch all Hevy workouts without healthKitUUID
+        let descriptor = FetchDescriptor<Workout>(
+            predicate: #Predicate<Workout> { workout in
+                workout.hevyWorkoutId != nil && workout.healthKitUUID == nil
+            },
+            sortBy: [SortDescriptor(\.date, order: .forward)]
+        )
+
+        do {
+            let hevyWorkouts = try modelContext.fetch(descriptor)
+            let totalCount = hevyWorkouts.count
+
+            for hevyWorkout in hevyWorkouts {
+                if let match = await findBestAppleHealthMatch(for: hevyWorkout) {
+                    // Merge Apple Health data into Hevy workout
+                    await mergeHealthKitData(from: match, into: hevyWorkout)
+                    linkedCount += 1
+                    print("✅ Linked Apple Health data to Hevy workout: \(hevyWorkout.name)")
+                }
+            }
+
+            // Save all changes
+            try modelContext.save()
+
+            // Reset linkable count
+            linkableHevyWorkoutsCount = max(0, linkableHevyWorkoutsCount - linkedCount)
+
+            return LinkingResult(linkedCount: linkedCount, totalHevyWorkouts: totalCount, errors: errors)
+
+        } catch {
+            print("❌ Error linking Apple Health data: \(error)")
+            return LinkingResult(linkedCount: 0, totalHevyWorkouts: 0, errors: [error.localizedDescription])
+        }
+    }
+
+    /// Finds the best matching Apple Health workout for a Hevy workout
+    private func findBestAppleHealthMatch(for hevyWorkout: Workout) async -> HKWorkout? {
+        let hevyStart = hevyWorkout.date
+        let hevyEnd = hevyWorkout.date.addingTimeInterval(hevyWorkout.duration)
+
+        // Fetch potential matches with 15-minute tolerance
+        let candidates = await healthKitService.fetchWorkoutsInTimeRange(
+            start: hevyStart,
+            end: hevyEnd,
+            toleranceMinutes: 15
+        )
+
+        guard !candidates.isEmpty else { return nil }
+
+        // Skip candidates that are already linked to another workout
+        let unlinkedCandidates = candidates.filter { hkWorkout in
+            !isHealthKitUUIDUsed(hkWorkout.uuid.uuidString)
+        }
+
+        guard !unlinkedCandidates.isEmpty else { return nil }
+
+        // Try strict matching first (5-minute tolerance)
+        let strictTolerance: TimeInterval = 5 * 60 // 5 minutes in seconds
+        let strictMatches = unlinkedCandidates.filter { hkWorkout in
+            let startDiff = abs(hkWorkout.startDate.timeIntervalSince(hevyStart))
+            let endDiff = abs(hkWorkout.endDate.timeIntervalSince(hevyEnd))
+            return startDiff <= strictTolerance && endDiff <= strictTolerance
+        }
+
+        if !strictMatches.isEmpty {
+            // Return the one with closest start time
+            return strictMatches.min { a, b in
+                abs(a.startDate.timeIntervalSince(hevyStart)) < abs(b.startDate.timeIntervalSince(hevyStart))
+            }
+        }
+
+        // Fall back to relaxed matching (15-minute tolerance)
+        let relaxedTolerance: TimeInterval = 15 * 60 // 15 minutes in seconds
+        let relaxedMatches = unlinkedCandidates.filter { hkWorkout in
+            let startDiff = abs(hkWorkout.startDate.timeIntervalSince(hevyStart))
+            let endDiff = abs(hkWorkout.endDate.timeIntervalSince(hevyEnd))
+            return startDiff <= relaxedTolerance && endDiff <= relaxedTolerance
+        }
+
+        // Return the one with closest start time
+        return relaxedMatches.min { a, b in
+            abs(a.startDate.timeIntervalSince(hevyStart)) < abs(b.startDate.timeIntervalSince(hevyStart))
+        }
+    }
+
+    /// Checks if a HealthKit UUID is already used by any workout
+    private func isHealthKitUUIDUsed(_ uuid: String) -> Bool {
+        guard let modelContext = modelContext else { return false }
+
+        let descriptor = FetchDescriptor<Workout>(
+            predicate: #Predicate<Workout> { workout in
+                workout.healthKitUUID == uuid
+            }
+        )
+
+        do {
+            let existing = try modelContext.fetch(descriptor)
+            return !existing.isEmpty
+        } catch {
+            return false
+        }
+    }
+
+    /// Merges heart rate and calorie data from Apple Health workout into Hevy workout
+    private func mergeHealthKitData(from hkWorkout: HKWorkout, into hevyWorkout: Workout) async {
+        let metrics = await healthKitService.fetchWorkoutMetrics(for: hkWorkout)
+
+        // Update heart rate data (only if not already set)
+        if hevyWorkout.avgHeartRate == nil {
+            hevyWorkout.avgHeartRate = metrics.avgHeartRate
+        }
+        if hevyWorkout.maxHeartRate == nil {
+            hevyWorkout.maxHeartRate = metrics.maxHeartRate
+        }
+
+        // Update heart rate time series
+        if hevyWorkout.heartRateData == nil && !metrics.heartRateTimeSeries.isEmpty {
+            hevyWorkout.heartRateData = metrics.heartRateTimeSeries.encoded
+        }
+
+        // Update calories (only if not already set)
+        if hevyWorkout.caloriesBurned == nil {
+            hevyWorkout.caloriesBurned = metrics.caloriesBurned
+        }
+
+        // Update METs (only if not already set)
+        if hevyWorkout.averageMETs == nil {
+            hevyWorkout.averageMETs = metrics.averageMETs
+        }
+
+        // Set healthKitUUID to prevent duplicate Apple Health imports
+        hevyWorkout.healthKitUUID = hkWorkout.uuid.uuidString
+
+        print("📊 Merged: HR \(metrics.avgHeartRate ?? 0)/\(metrics.maxHeartRate ?? 0), Cal \(metrics.caloriesBurned ?? 0), METs \(metrics.averageMETs ?? 0)")
     }
 }

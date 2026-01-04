@@ -119,8 +119,38 @@ class HealthKitService: ObservableObject {
             healthStore.execute(query)
         }
     }
-    
-    
+
+    /// Fetches stair climbing workouts that overlap with a given time range
+    /// Used for linking Apple Health data to Hevy workouts
+    func fetchWorkoutsInTimeRange(start: Date, end: Date, toleranceMinutes: Int = 15) async -> [HKWorkout] {
+        guard isHealthDataAvailable else { return [] }
+
+        let workoutType = HKObjectType.workoutType()
+        let stairClimbingPredicate = HKQuery.predicateForWorkouts(with: .stairClimbing)
+
+        // Expand the search range by tolerance
+        let expandedStart = Calendar.current.date(byAdding: .minute, value: -toleranceMinutes, to: start)!
+        let expandedEnd = Calendar.current.date(byAdding: .minute, value: toleranceMinutes, to: end)!
+
+        let datePredicate = HKQuery.predicateForSamples(withStart: expandedStart, end: expandedEnd, options: .strictStartDate)
+        let compoundPredicate = NSCompoundPredicate(andPredicateWithSubpredicates: [stairClimbingPredicate, datePredicate])
+
+        let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
+
+        return await withCheckedContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: workoutType,
+                predicate: compoundPredicate,
+                limit: 100,
+                sortDescriptors: [sortDescriptor]
+            ) { _, samples, _ in
+                let workouts = samples as? [HKWorkout] ?? []
+                continuation.resume(returning: workouts)
+            }
+            healthStore.execute(query)
+        }
+    }
+
     func fetchWorkoutMetrics(for workout: HKWorkout) async -> WorkoutMetrics {
         var metrics = WorkoutMetrics()
         

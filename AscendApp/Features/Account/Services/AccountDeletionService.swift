@@ -115,8 +115,9 @@ final class AccountDeletionService {
         try await deleteAuthAccount()
         completedSteps += 1
         
-        // Clear all cached data
+        // Clear all cached data and integrations
         clearUserDefaults()
+        clearIntegrations()
         ImageCache.shared.clearAll()
 
         updateProgress("Account deleted successfully")
@@ -299,7 +300,11 @@ final class AccountDeletionService {
             // Strava connection
             "stravaIsConnected",
             "stravaAthleteName",
-            "stravaAutoSyncEnabled"
+            "stravaAutoSyncEnabled",
+            // Hevy connection
+            "lastHevySyncAt",
+            "hevyTemplateId",
+            "hevyTemplateType"
         ]
 
         for key in keysToRemove {
@@ -307,6 +312,18 @@ final class AccountDeletionService {
         }
 
         UserDefaults.standard.synchronize()
+    }
+
+    /// Clears all integration connections (Hevy, Strava, etc.)
+    private func clearIntegrations() {
+        // Disconnect Hevy (clears Keychain API key and UserDefaults)
+        HevyManager.shared.disconnect()
+
+        // Disconnect Strava (clears Keychain tokens)
+        // This is async but we don't need to wait - account is being deleted
+        Task {
+            try? await StravaManager.shared.disconnect()
+        }
     }
 }
 
