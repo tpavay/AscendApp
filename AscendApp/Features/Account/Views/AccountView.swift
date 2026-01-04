@@ -118,6 +118,15 @@ struct AccountView: View {
         )
         #endif
 
+        // Contact Us - before destructive actions
+        options.append(
+            SettingsOption(
+                icon: "envelope",
+                title: "Contact Us",
+                destination: ContactUsView()
+            )
+        )
+
         // Delete Account - destructive action at the end
         options.append(
             SettingsOption(
