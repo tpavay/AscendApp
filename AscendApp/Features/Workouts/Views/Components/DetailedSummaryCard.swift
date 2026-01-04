@@ -15,7 +15,18 @@ struct DetailedSummaryCard: View {
     let stepHeight: Double
     let preferredMetric: WorkoutMetric
     let displayName: String
-    
+
+    // MARK: - Weight Formatting
+
+    private var formattedTotalWeight: String? {
+        guard workout.hasWeights else { return nil }
+        let weight = workout.totalWeightUsed
+        let formatted = weight.truncatingRemainder(dividingBy: 1) == 0
+            ? String(format: "%.0f", weight)
+            : String(format: "%.1f", weight)
+        return "\(formatted) \(measurementSystem.weightAbbreviation)"
+    }
+
     var body: some View {
         ShareableCardContainer(theme: theme, displayName: displayName) {
             VStack(alignment: .leading, spacing: 24) {
@@ -80,7 +91,25 @@ struct DetailedSummaryCard: View {
                 }
             }
 
-            // Row 3: Personal Records (only if any)
+            // Row 3: Added Weight (only if weights used)
+            if let weightText = formattedTotalWeight {
+                HStack(spacing: 24) {
+                    metricBlock(
+                        value: weightText,
+                        label: "Added Weight",
+                        accessory: AnyView(
+                            Image(systemName: "dumbbell.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.accent)
+                        )
+                    )
+                    // Empty spacer to maintain grid alignment
+                    Spacer()
+                        .frame(maxWidth: .infinity)
+                }
+            }
+
+            // Row 4: Personal Records (only if any)
             if workout.hasPersonalRecords {
                 HStack(spacing: 24) {
                     metricBlock(

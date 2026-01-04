@@ -16,9 +16,20 @@ struct PhotoMediaCard: View {
     let stepHeight: Double
     let preferredMetric: WorkoutMetric
     let displayName: String
-    
+
     private let cornerRadius: CGFloat = 32
-    
+
+    // MARK: - Weight Formatting
+
+    private var formattedTotalWeight: String? {
+        guard workout.hasWeights else { return nil }
+        let weight = workout.totalWeightUsed
+        let formatted = weight.truncatingRemainder(dividingBy: 1) == 0
+            ? String(format: "%.0f", weight)
+            : String(format: "%.1f", weight)
+        return "+\(formatted) \(measurementSystem.weightAbbreviation)"
+    }
+
     var body: some View {
         ZStack {
             // Photo background
@@ -97,18 +108,28 @@ struct PhotoMediaCard: View {
         HStack(spacing: 0) {
             // Duration
             statItem(label: "Duration", value: workout.durationFormatted)
-            
+
             Spacer()
-            
+
             // Primary metric (Steps/Floors)
             statItem(
                 label: preferredMetric.displayName,
                 value: formattedMetricValue
             )
-            
+
+            // Added Weight (if any)
+            if let weightText = formattedTotalWeight {
+                Spacer()
+
+                statItem(
+                    label: "Weight",
+                    value: weightText
+                )
+            }
+
             Spacer()
-            
-            // Records (if any)
+
+            // Records (if any) or Pace
             if workout.hasPersonalRecords {
                 statItem(
                     label: "Records",

@@ -19,6 +19,17 @@ struct TemplateMediaCard: View {
 
     private let cornerRadius: CGFloat = 32
 
+    // MARK: - Weight Formatting
+
+    private var formattedTotalWeight: String? {
+        guard workout.hasWeights else { return nil }
+        let weight = workout.totalWeightUsed
+        let formatted = weight.truncatingRemainder(dividingBy: 1) == 0
+            ? String(format: "%.0f", weight)
+            : String(format: "%.1f", weight)
+        return "+\(formatted) \(measurementSystem.weightAbbreviation)"
+    }
+
     var body: some View {
         ZStack {
             // Template background
@@ -104,6 +115,18 @@ struct TemplateMediaCard: View {
                                         .font(.system(size: 12, weight: .medium))
                                         .foregroundStyle(.accent)
                                     Text("\(formattedPaceValue(pace)) \(paceLabel)")
+                                        .font(.montserratSemiBold(size: 13))
+                                        .foregroundStyle(.white.opacity(0.9))
+                                }
+                            }
+
+                            // Added Weight
+                            if let weightText = formattedTotalWeight {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "dumbbell.fill")
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundStyle(.accent)
+                                    Text(weightText)
                                         .font(.montserratSemiBold(size: 13))
                                         .foregroundStyle(.white.opacity(0.9))
                                 }

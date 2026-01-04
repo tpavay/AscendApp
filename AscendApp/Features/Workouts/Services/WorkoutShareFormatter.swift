@@ -30,6 +30,15 @@ func workoutShareText(
         lines.append(metricLine)
     }
 
+    // Added Weight
+    if workout.hasWeights {
+        let weight = workout.totalWeightUsed
+        let formatted = weight.truncatingRemainder(dividingBy: 1) == 0
+            ? String(format: "%.0f", weight)
+            : String(format: "%.1f", weight)
+        lines.append("Added Weight: \(formatted) \(measurementSystem.weightAbbreviation)")
+    }
+
     // Pace
     if let pace = workout.pace(for: preferredMetric) {
         let paceText = formattedDecimal(pace, decimals: 1)
