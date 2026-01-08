@@ -36,14 +36,6 @@ struct RoutineCard: View {
                     }
                 }
 
-                // Description (if exists)
-                if !routine.routineDescription.isEmpty {
-                    Text(routine.routineDescription)
-                        .font(.montserratRegular(size: 14))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                        .lineLimit(2)
-                }
-
                 // Stats row
                 HStack(spacing: 16) {
                     // Duration
@@ -71,11 +63,6 @@ struct RoutineCard: View {
                         DifficultyIndicator(level: difficulty)
                     }
                 }
-
-                // Interval preview
-                if !routine.intervals.isEmpty {
-                    intervalPreview
-                }
             }
             .padding(16)
             .background(
@@ -88,38 +75,6 @@ struct RoutineCard: View {
             )
         }
         .buttonStyle(.plain)
-    }
-
-    private var intervalPreview: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(routine.intervals.prefix(5)) { interval in
-                    VStack(spacing: 2) {
-                        Text(interval.intensityDisplayShort)
-                            .font(.montserratSemiBold(size: 12))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                        Text(interval.durationFormattedShort)
-                            .font(.montserratRegular(size: 10))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
-                    )
-                }
-
-                if routine.intervals.count > 5 {
-                    Text("+\(routine.intervals.count - 5)")
-                        .font(.montserratMedium(size: 12))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                }
-            }
-        }
     }
 }
 
@@ -137,11 +92,11 @@ struct DifficultyIndicator: View {
 
     private var label: String {
         switch level {
-        case 1: return "Easy"
+        case 1: return "Minimal"
         case 2: return "Light"
         case 3: return "Moderate"
-        case 4: return "Hard"
-        case 5: return "Intense"
+        case 4: return "High"
+        case 5: return "Maximum"
         default: return "Unknown"
         }
     }

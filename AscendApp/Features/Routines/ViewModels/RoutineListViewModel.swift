@@ -1,6 +1,30 @@
 import Foundation
 import SwiftData
 
+// MARK: - Folder Group Model
+
+struct RoutineFolderGroup: Identifiable {
+    let id: String
+    let folder: RoutineFolder?
+    let routines: [Routine]
+
+    init(folder: RoutineFolder?, routines: [Routine]) {
+        self.id = folder?.id.uuidString ?? "unfiled"
+        self.folder = folder
+        self.routines = routines
+    }
+
+    var isUnfiled: Bool {
+        folder == nil
+    }
+
+    var name: String {
+        folder?.name ?? "Unfiled"
+    }
+}
+
+// MARK: - View Model
+
 @MainActor
 @Observable
 final class RoutineListViewModel {
@@ -51,6 +75,47 @@ final class RoutineListViewModel {
 
     var totalRoutineCount: Int {
         builtInRoutines.count + userRoutines.count
+    }
+
+    /// Groups user routines by folder for organized display
+    var routinesByFolder: [RoutineFolderGroup] {
+        var grouped: [UUID?: [Routine]] = [:]
+
+        // Initialize with nil key for unfiled routines
+        grouped[nil] = []
+
+        // Group routines by folderId
+        for routine in userRoutines {
+            if grouped[routine.folderId] != nil {
+                grouped[routine.folderId]?.append(routine)
+            } else {
+                grouped[routine.folderId] = [routine]
+            }
+        }
+
+        // Build result array
+        var result: [RoutineFolderGroup] = []
+
+        // Add unfiled routines first (nil folder = "My Routines" default)
+        if let unfiled = grouped[nil], !unfiled.isEmpty {
+            // Sort routines by order within the folder
+            let sortedRoutines = unfiled.sorted { $0.order < $1.order }
+            result.append(RoutineFolderGroup(folder: nil, routines: sortedRoutines))
+        }
+
+        // Add folder groups sorted by order
+        for folder in folders.sorted(by: { $0.order < $1.order }) {
+            if let routines = grouped[folder.id] {
+                // Sort routines by order within the folder
+                let sortedRoutines = routines.sorted { $0.order < $1.order }
+                result.append(RoutineFolderGroup(folder: folder, routines: sortedRoutines))
+            } else {
+                // Include empty folders too so users can see them
+                result.append(RoutineFolderGroup(folder: folder, routines: []))
+            }
+        }
+
+        return result
     }
 
     /// Configure the view model with a model context
@@ -145,6 +210,118 @@ final class RoutineListViewModel {
             }
         } catch {
             errorMessage = "Failed to refresh routine: \(error.localizedDescription)"
+        }
+    }
+
+    /// Save the order of folders after reordering
+    func saveFolderOrder(_ reorderedFolders: [RoutineFolder]) {
+        guard let service = routineService else { return }
+
+        // Update local state
+        folders = reorderedFolders
+
+        // Update order values and persist
+        for (index, folder) in folders.enumerated() {
+            folder.order = index
+        }
+
+        do {
+            try service.saveFolderOrder(folders)
+        } catch {
+            errorMessage = "Failed to save folder order: \(error.localizedDescription)"
+        }
+    }
+
+    /// Reorder folders by moving one folder before another
+    func reorderFolder(from sourceId: String, to destinationId: String) {
+        guard let service = routineService else { return }
+
+        // Don't reorder if source is "unfiled"
+        guard sourceId != "unfiled" else { return }
+
+        // Find the source folder
+        guard let sourceUUID = UUID(uuidString: sourceId),
+              let sourceIndex = folders.firstIndex(where: { $0.id == sourceUUID }) else { return }
+
+        // Find destination index
+        let destinationIndex: Int
+        if destinationId == "unfiled" {
+            destinationIndex = 0
+        } else if let destUUID = UUID(uuidString: destinationId),
+                  let destIdx = folders.firstIndex(where: { $0.id == destUUID }) {
+            destinationIndex = destIdx
+        } else {
+            return
+        }
+
+        // Move the folder
+        let folder = folders.remove(at: sourceIndex)
+        let newIndex = sourceIndex < destinationIndex ? destinationIndex : destinationIndex
+        folders.insert(folder, at: newIndex)
+
+        // Update order values
+        for (index, folder) in folders.enumerated() {
+            folder.order = index
+        }
+
+        do {
+            try service.saveFolderOrder(folders)
+        } catch {
+            errorMessage = "Failed to reorder folders: \(error.localizedDescription)"
+        }
+    }
+
+    /// Reorder routines within a folder with animation and persistence
+    func reorderRoutine(from sourceId: UUID, to destinationId: UUID, inFolder folderId: UUID?) {
+        guard let service = routineService else { return }
+
+        // Get routines in this specific folder
+        let routinesInFolder = userRoutines.filter { $0.folderId == folderId }
+
+        // Find source and destination indices within the folder's routines
+        guard let sourceIndex = routinesInFolder.firstIndex(where: { $0.id == sourceId }),
+              let destinationIndex = routinesInFolder.firstIndex(where: { $0.id == destinationId }) else { return }
+
+        // Create a mutable copy of folder routines for reordering
+        var reorderedRoutines = routinesInFolder
+        let movedRoutine = reorderedRoutines.remove(at: sourceIndex)
+        reorderedRoutines.insert(movedRoutine, at: destinationIndex)
+
+        // Update order values
+        for (index, routine) in reorderedRoutines.enumerated() {
+            routine.order = index
+        }
+
+        // Update the main userRoutines array to reflect new order
+        // First, remove all routines from this folder
+        userRoutines.removeAll { $0.folderId == folderId }
+        // Then add back the reordered routines
+        userRoutines.append(contentsOf: reorderedRoutines)
+
+        // Persist the order
+        do {
+            try service.saveRoutineOrder(reorderedRoutines)
+        } catch {
+            errorMessage = "Failed to save routine order: \(error.localizedDescription)"
+        }
+    }
+
+    /// Save the order of routines after reordering via List onMove
+    func saveRoutineOrder(_ reorderedRoutines: [Routine]) {
+        guard let service = routineService else { return }
+
+        // Get the folderId from the first routine (all should be in same folder)
+        let folderId = reorderedRoutines.first?.folderId
+
+        // Update the main userRoutines array to reflect new order
+        userRoutines.removeAll { $0.folderId == folderId }
+        userRoutines.append(contentsOf: reorderedRoutines)
+
+        // Persist the order
+        do {
+            try service.saveRoutineOrder(reorderedRoutines)
+        } catch {
+            errorMessage = "Failed to save routine order: \(error.localizedDescription)"
         }
     }
 }

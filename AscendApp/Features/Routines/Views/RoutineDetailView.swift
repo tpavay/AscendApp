@@ -92,6 +92,9 @@ struct RoutineDetailView: View {
                 Spacer()
             }
 
+            // Completion stats
+            completionStatsView
+
             // Description
             if !routine.routineDescription.isEmpty {
                 Text(routine.routineDescription)
@@ -116,6 +119,39 @@ struct RoutineDetailView: View {
                 )
             }
         }
+    }
+
+    private var completionStatsView: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 14))
+                .foregroundStyle(routine.completionCount > 0 ? .green : .gray)
+
+            if routine.completionCount == 0 {
+                Text("Not yet completed")
+                    .font(.montserratRegular(size: 14))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+            } else {
+                Text("Completed \(routine.completionCount) \(routine.completionCount == 1 ? "time" : "times")")
+                    .font(.montserratMedium(size: 14))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
+
+                if let lastCompleted = routine.lastCompletedAt {
+                    Text("•")
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray)
+                    Text(lastCompleted.relativeFormatted)
+                        .font(.montserratRegular(size: 14))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(effectiveColorScheme == .dark ? .white.opacity(0.05) : .gray.opacity(0.08))
+        )
     }
 
     private func statItem(icon: String, value: String, label: String) -> some View {
@@ -273,4 +309,15 @@ struct IntervalDetailRow: View {
         onCopy: {}
     )
     .preferredColorScheme(.dark)
+}
+
+// MARK: - Date Extension
+
+extension Date {
+    /// Returns a relative formatted string like "2 days ago", "Just now", etc.
+    var relativeFormatted: String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: self, relativeTo: Date())
+    }
 }

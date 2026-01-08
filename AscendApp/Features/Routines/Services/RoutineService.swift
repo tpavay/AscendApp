@@ -28,7 +28,7 @@ final class RoutineService {
             predicate: #Predicate {
                 !$0.isArchived && $0.sourceRawValue != builtinRaw
             },
-            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
+            sortBy: [SortDescriptor(\.order), SortDescriptor(\.updatedAt, order: .reverse)]
         )
         return try modelContext.fetch(descriptor)
     }
@@ -51,7 +51,7 @@ final class RoutineService {
             predicate: #Predicate {
                 !$0.isArchived && $0.folderId == folderId
             },
-            sortBy: [SortDescriptor(\.name)]
+            sortBy: [SortDescriptor(\.order), SortDescriptor(\.name)]
         )
         return try modelContext.fetch(descriptor)
     }
@@ -159,6 +159,22 @@ final class RoutineService {
             routine.folderId = nil
         }
         modelContext.delete(folder)
+        try modelContext.save()
+    }
+
+    /// Saves the order of folders
+    func saveFolderOrder(_ folders: [RoutineFolder]) throws {
+        for (index, folder) in folders.enumerated() {
+            folder.order = index
+        }
+        try modelContext.save()
+    }
+
+    /// Saves the order of routines within a folder
+    func saveRoutineOrder(_ routines: [Routine]) throws {
+        for (index, routine) in routines.enumerated() {
+            routine.order = index
+        }
         try modelContext.save()
     }
 

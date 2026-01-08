@@ -20,6 +20,9 @@ struct ProgressSheet: View {
     @State private var workoutToEdit: Workout?
     @State private var showingGoalsSheet = false
     @State private var goalsViewModel = GoalsViewModel()
+    @State private var selectedHeatMapMetric: HeatMapMetric = .effortScore
+    @State private var showMoreMetrics = false
+    @State private var heatMapAnimationID = UUID()
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -433,31 +436,186 @@ struct ProgressSheet: View {
                 }
             }
             .padding(.horizontal, 16)
-            
-            // Calendar days
+
+            // Calendar days with heat map coloring
+            // Animation type is easily swappable by changing the animation below
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 8) {
                 ForEach(calendarDays, id: \.date) { dayData in
                     calendarDay(dayData)
                 }
             }
             .padding(.horizontal, 16)
+            .animation(.easeInOut(duration: 0.4), value: heatMapAnimationID)
         }
     }
     
     private var monthSummary: some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
-                summaryItem(title: "Workouts", value: "\(totalWorkoutsThisMonth)")
-                summaryItem(title: preferredMetric.displayName, value: formattedNumber(totalMetricValueThisMonth))
-                summaryItem(title: "Calories", value: formattedNumber(totalCaloriesThisMonth))
+                heatMapStatCard(
+                    metric: .effortScore,
+                    title: "Effort",
+                    value: averageEffortScoreThisMonth
+                )
+                heatMapStatCard(
+                    metric: .primaryMetric,
+                    title: preferredMetric.displayName,
+                    value: formattedNumber(totalMetricValueThisMonth)
+                )
+                heatMapStatCard(
+                    metric: .calories,
+                    title: "Calories",
+                    value: formattedNumber(totalCaloriesThisMonth)
+                )
             }
-            
+
             HStack(spacing: 12) {
-                summaryItem(title: "Duration", value: formattedDuration(totalDurationThisMonth))
-                summaryItem(title: "\(preferredMetric.displayName) / Min", value: formattedMetricPerMinute(averageMetricPerMinuteThisMonth))
+                heatMapStatCard(
+                    metric: .duration,
+                    title: "Duration",
+                    value: formattedDuration(totalDurationThisMonth)
+                )
+                heatMapStatCard(
+                    metric: .stepsPerMinute,
+                    title: "\(preferredMetric.displayName) / Min",
+                    value: formattedMetricPerMinute(averageMetricPerMinuteThisMonth)
+                )
+                moreMetricsButton
             }
         }
         .padding(.horizontal, 16)
+    }
+
+    private var averageEffortScoreThisMonth: String {
+        guard !currentMonthWorkouts.isEmpty else { return "0.0" }
+        let totalScore = currentMonthWorkouts.reduce(0.0) { sum, workout in
+            sum + HeatMapScoreCalculator.score(for: workout, metric: .effortScore, using: settingsManager)
+        }
+        let average = totalScore / Double(currentMonthWorkouts.count)
+        return String(format: "%.1f", average * 10) // Display as 0.0-10.0
+    }
+
+    private func heatMapStatCard(metric: HeatMapMetric, title: String, value: String) -> some View {
+        let isSelected = selectedHeatMapMetric == metric
+
+        return Button {
+            withAnimation(.easeInOut(duration: 0.4)) {
+                selectedHeatMapMetric = metric
+                heatMapAnimationID = UUID()
+            }
+            HapticsManager.shared.trigger(.lightImpact)
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title.uppercased())
+                    .font(.montserratMedium(size: 11))
+                    .foregroundStyle(isSelected ? .accent : (effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray))
+                Text(value)
+                    .font(.montserratBold(size: 18))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(effectiveColorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.04))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(isSelected ? Color.accent : Color.clear, lineWidth: 2)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var moreMetricsButton: some View {
+        Button {
+            showMoreMetrics = true
+            HapticsManager.shared.trigger(.lightImpact)
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("MORE")
+                    .font(.montserratMedium(size: 11))
+                    .foregroundStyle(HeatMapMetric.moreMetrics.contains(selectedHeatMapMetric) ? .accent : (effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray))
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(effectiveColorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.04))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(HeatMapMetric.moreMetrics.contains(selectedHeatMapMetric) ? Color.accent : Color.clear, lineWidth: 2)
+            )
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showMoreMetrics) {
+            moreMetricsSheet
+                .presentationDetents([.height(300)])
+        }
+    }
+
+    private var moreMetricsSheet: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                ForEach(HeatMapMetric.moreMetrics) { metric in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.4)) {
+                            selectedHeatMapMetric = metric
+                            heatMapAnimationID = UUID()
+                        }
+                        showMoreMetrics = false
+                        HapticsManager.shared.trigger(.lightImpact)
+                    } label: {
+                        HStack {
+                            Image(systemName: metric.icon)
+                                .font(.system(size: 20))
+                                .foregroundStyle(selectedHeatMapMetric == metric ? .accent : .gray)
+                                .frame(width: 32)
+
+                            Text(metric.displayName)
+                                .font(.montserratMedium(size: 16))
+                                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+                            Spacer()
+
+                            if selectedHeatMapMetric == metric {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.accent)
+                            }
+                        }
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(selectedHeatMapMetric == metric ?
+                                    (effectiveColorScheme == .dark ? Color.accent.opacity(0.15) : Color.accent.opacity(0.1)) :
+                                    (effectiveColorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.04)))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Spacer()
+            }
+            .padding(20)
+            .background(effectiveColorScheme == .dark ? Color.jet : Color.white)
+            .navigationTitle("Heat Map Metric")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        showMoreMetrics = false
+                    }
+                    .foregroundStyle(.accent)
+                }
+            }
+        }
     }
     
     private var weeklyStreakView: some View {
@@ -573,22 +731,23 @@ struct ProgressSheet: View {
                         }
                     }
                 } label: {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(dayData.hasWorkout ?
-                                  AnyShapeStyle(dayData.intensityGradient(for: effectiveColorScheme)) :
-                              AnyShapeStyle(effectiveColorScheme == .dark ? Color.white.opacity(0.1) : Color.gray.opacity(0.1))
-                        )
-                        .frame(height: 44)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(dayData.hasWorkout ?
+                                      AnyShapeStyle(dayData.heatMapGradient(for: selectedHeatMapMetric, colorScheme: effectiveColorScheme)) :
+                                  AnyShapeStyle(effectiveColorScheme == .dark ? Color.white.opacity(0.1) : Color.gray.opacity(0.1))
+                            )
+                            .frame(height: 44)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 16)
                                     .stroke(selectedCalendarDay?.date == dayData.date ? Color.white : Color.clear, lineWidth: 3)
                             )
-                    
-                    Text("\(dayData.day)")
-                        .font(.montserratBold(size: 16))
-                        .foregroundStyle(dayData.hasWorkout ? .white : (effectiveColorScheme == .dark ? .white : .black))
-                }
+
+                        Text("\(dayData.day)")
+                            .font(.montserratBold(size: 16))
+                            .foregroundStyle(dayData.hasWorkout ? .white : (effectiveColorScheme == .dark ? .white : .black))
+                    }
+                    .id("\(dayData.date)-\(heatMapAnimationID)")
                 }
                 .buttonStyle(PlainButtonStyle())
             } else {
@@ -789,13 +948,20 @@ struct ProgressSheet: View {
     
     private func workoutIntensityDetail(for day: CalendarDay) -> some View {
         VStack(spacing: 16) {
+            // Header with metric name and close button
             HStack {
-                Text("Intensity Breakdown")
-                    .font(.montserratBold(size: 16))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                
+                HStack(spacing: 8) {
+                    Image(systemName: selectedHeatMapMetric.icon)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.accent)
+
+                    Text(selectedHeatMapMetric.displayName)
+                        .font(.montserratBold(size: 16))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                }
+
                 Spacer()
-                
+
                 Button {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                         selectedCalendarDay = nil
@@ -806,9 +972,10 @@ struct ProgressSheet: View {
                         .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
                 }
             }
-            
+
+            // Workout cards with metric value
             ForEach(day.workouts, id: \.id) { workout in
-                workoutIntensityCard(workout: workout)
+                workoutMetricCard(workout: workout)
             }
         }
         .padding(16)
@@ -823,228 +990,61 @@ struct ProgressSheet: View {
         .padding(.horizontal, 16)
         .padding(.top, 8)
     }
-    
-    private func workoutIntensityCard(workout: Workout) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Workout header
-            HStack {
+
+    private func workoutMetricCard(workout: Workout) -> some View {
+        NavigationLink(destination: WorkoutDetailView(workout: workout)) {
+            HStack(spacing: 12) {
+                // Metric value badge with gradient
+                let score = HeatMapScoreCalculator.score(for: workout, metric: selectedHeatMapMetric, using: settingsManager)
+                let displayValue = HeatMapScoreCalculator.displayValue(for: workout, metric: selectedHeatMapMetric, using: settingsManager)
+                let unitSuffix = HeatMapScoreCalculator.unitSuffix(for: selectedHeatMapMetric, using: settingsManager)
+
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.heatMapGradient(for: score, colorScheme: effectiveColorScheme))
+                        .frame(width: 56, height: 56)
+
+                    VStack(spacing: 0) {
+                        Text(displayValue)
+                            .font(.montserratBold(size: 16))
+                            .foregroundStyle(.white)
+                        if !unitSuffix.trimmingCharacters(in: .whitespaces).isEmpty && selectedHeatMapMetric != .duration {
+                            Text(unitSuffix.trimmingCharacters(in: .whitespaces))
+                                .font(.montserratMedium(size: 9))
+                                .foregroundStyle(.white.opacity(0.8))
+                        }
+                    }
+                }
+
+                // Workout info
                 VStack(alignment: .leading, spacing: 4) {
                     Text(workout.name)
-                        .font(.montserratBold(size: 14))
+                        .font(.montserratSemiBold(size: 14))
                         .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                    
+                        .lineLimit(1)
+
                     Text(workout.date.formatted(date: .omitted, time: .shortened))
                         .font(.montserratRegular(size: 12))
                         .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
                 }
-                
+
                 Spacer()
-                
-                // Intensity badge
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(Color.intensityGradient(for: workout.intensity, colorScheme: effectiveColorScheme))
-                        .frame(width: 12, height: 12)
-                    
-                    Text(workout.intensity.displayName)
-                        .font(.montserratBold(size: 13))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(
-                    Capsule()
-                        .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .black.opacity(0.06))
-                )
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.4) : .gray)
             }
-            
-            Divider()
-            
-            // Data points used
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Data Used")
-                    .font(.montserratBold(size: 12))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                    .textCase(.uppercase)
-                
-                VStack(spacing: 6) {
-                    if let effortRating = workout.effortRating {
-                        dataPointRow(
-                            icon: "star.fill",
-                            label: "Your Effort Rating",
-                            value: String(format: "%.1f / 5.0", effortRating),
-                            isPrimary: true
-                        )
-                    }
-                    
-                    if let avgHR = workout.avgHeartRate {
-                        dataPointRow(
-                            icon: "heart.fill",
-                            label: "Average Heart Rate",
-                            value: "\(avgHR) BPM",
-                            isPrimary: workout.effortRating == nil
-                        )
-                    }
-                    
-                    if let mets = workout.averageMETs {
-                        dataPointRow(
-                            icon: "flame.fill",
-                            label: "Apple Health Intensity",
-                            value: String(format: "%.1f METs", mets),
-                            isPrimary: false
-                        )
-                    }
-                    
-                    if let spm = workout.stepsPerMinute {
-                        dataPointRow(
-                            icon: "figure.stairs",
-                            label: "Steps per Minute",
-                            value: String(format: "%.0f", spm),
-                            isPrimary: workout.avgHeartRate == nil && workout.effortRating == nil
-                        )
-                    }
-                    
-                    dataPointRow(
-                        icon: "clock.fill",
-                        label: "Duration",
-                        value: workout.durationFormatted,
-                        isPrimary: false
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(effectiveColorScheme == .dark ? .white.opacity(0.05) : .white)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
                     )
-                }
-            }
-            
-            // Explanation
-            if let explanation = intensityExplanation(for: workout) {
-                Divider()
-                
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "info.circle.fill")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.accent)
-                    
-                    Text(explanation)
-                        .font(.montserratRegular(size: 13))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .gray)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            
-            // Update effort rating button
-            if workout.effortRating == nil {
-                Divider()
-                
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "lightbulb.fill")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.accent.opacity(0.8))
-                        
-                        Text("Think this intensity is wrong?")
-                            .font(.montserratMedium(size: 12))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                    }
-                    
-                    Button {
-                        workoutToEdit = workout
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "star.circle.fill")
-                                .font(.system(size: 16, weight: .medium))
-                            
-                            Text("Add Your Effort Rating")
-                                .font(.montserratSemiBold(size: 14))
-                            
-                            Spacer()
-                            
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 12, weight: .semibold))
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(.accent)
-                        )
-                    }
-                }
-            } else {
-                Divider()
-                
-                Button {
-                    workoutToEdit = workout
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "pencil.circle.fill")
-                            .font(.system(size: 16, weight: .medium))
-                        
-                        Text("Update Effort Rating")
-                            .font(.montserratSemiBold(size: 14))
-                        
-                        Spacer()
-                        
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                    .padding(.vertical, 8)
-                }
-            }
+            )
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(effectiveColorScheme == .dark ? .white.opacity(0.05) : .white)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
-                )
-        )
-    }
-    
-    private func dataPointRow(icon: String, label: String, value: String, isPrimary: Bool) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: icon)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(isPrimary ? .accent : (effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray))
-                .frame(width: 16)
-            
-            Text(label)
-                .font(.montserratMedium(size: 13))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
-            
-            Spacer()
-            
-            Text(value)
-                .font(.montserratBold(size: 13))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-            
-            if isPrimary {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.accent)
-            }
-        }
-    }
-    
-    private func intensityExplanation(for workout: Workout) -> String? {
-        if workout.effortRating != nil {
-            return "Intensity based on your manual effort rating, which is the most accurate indicator of how you felt."
-        } else if workout.avgHeartRate != nil {
-            if workout.averageMETs != nil {
-                return "Heart rate is the primary indicator, enhanced with Apple Health's metabolic data for accuracy."
-            } else if workout.stepsPerMinute != nil {
-                return "Heart rate combined with your climbing cadence provides an accurate intensity measurement."
-            } else {
-                return "Heart rate is the most reliable physiological indicator of workout intensity."
-            }
-        } else if workout.averageMETs != nil {
-            return "Apple Health's metabolic intensity rating helps estimate your effort level."
-        } else if workout.stepsPerMinute != nil {
-            return "Intensity estimated from your climbing cadence and workout duration."
-        } else {
-            return "Intensity estimated from workout duration."
-        }
+        .buttonStyle(PlainButtonStyle())
     }
 }
 
@@ -1103,37 +1103,46 @@ struct CalendarDay {
     let day: Int
     let isCurrentMonth: Bool
     let workouts: [Workout]
-    
+
     var hasWorkout: Bool {
         !workouts.isEmpty
     }
-    
-    /// Calculate the overall intensity for this day
-    /// If multiple workouts, uses the highest intensity
-    var intensity: WorkoutIntensity? {
-        guard !workouts.isEmpty else { return nil }
-        
-        let intensities = workouts.map { $0.intensity }
-        
-        // Return the highest intensity
-        if intensities.contains(.veryHard) { return .veryHard }
-        if intensities.contains(.hard) { return .hard }
-        if intensities.contains(.moderate) { return .moderate }
-        if intensities.contains(.light) { return .light }
-        return .veryLight
+
+    /// Calculate the heat map score for this day based on the selected metric
+    /// Returns nil if no workouts, otherwise returns the highest score (0.0 to 1.0)
+    @MainActor
+    func heatMapScore(for metric: HeatMapMetric, using settings: SettingsManager = .shared) -> Double? {
+        HeatMapScoreCalculator.score(for: workouts, metric: metric, using: settings)
     }
-    
-    /// Get the intensity gradient for this day
-    func intensityGradient(for colorScheme: ColorScheme) -> LinearGradient {
-        guard let intensity = intensity else {
+
+    /// Get the heat map gradient for this day based on the selected metric
+    @MainActor
+    func heatMapGradient(for metric: HeatMapMetric, colorScheme: ColorScheme, using settings: SettingsManager = .shared) -> LinearGradient {
+        guard let score = heatMapScore(for: metric, using: settings) else {
             return LinearGradient(
-                gradient: Gradient(colors: [.gray, .gray]),
+                gradient: Gradient(colors: [.gray.opacity(0.3), .gray.opacity(0.3)]),
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
         }
-        
-        return Color.intensityGradient(for: intensity, colorScheme: colorScheme)
+
+        return Color.heatMapGradient(for: score, colorScheme: colorScheme)
+    }
+
+    /// Get the display value for this day's metric (shows highest value if multiple workouts)
+    @MainActor
+    func metricDisplayValue(for metric: HeatMapMetric, using settings: SettingsManager = .shared) -> String? {
+        guard !workouts.isEmpty else { return nil }
+
+        // Find the workout with the highest score for this metric
+        let workoutWithHighestScore = workouts.max { workout1, workout2 in
+            let score1 = HeatMapScoreCalculator.score(for: workout1, metric: metric, using: settings)
+            let score2 = HeatMapScoreCalculator.score(for: workout2, metric: metric, using: settings)
+            return score1 < score2
+        }
+
+        guard let workout = workoutWithHighestScore else { return nil }
+        return HeatMapScoreCalculator.displayValue(for: workout, metric: metric, using: settings)
     }
 }
 

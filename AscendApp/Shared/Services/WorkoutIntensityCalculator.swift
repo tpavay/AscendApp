@@ -16,11 +16,11 @@ enum WorkoutIntensity: String, CaseIterable, Codable {
     
     var displayName: String {
         switch self {
-        case .veryLight: return "Very Light"
+        case .veryLight: return "Minimal"
         case .light: return "Light"
         case .moderate: return "Moderate"
-        case .hard: return "Hard"
-        case .veryHard: return "Very Hard"
+        case .hard: return "High"
+        case .veryHard: return "Maximum"
         }
     }
     

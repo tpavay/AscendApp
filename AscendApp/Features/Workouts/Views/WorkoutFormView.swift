@@ -9,10 +9,19 @@ import PhotosUI
 import SwiftUI
 import SwiftData
 
+/// Data to prefill the workout form from a completed routine
+struct RoutinePrefillData {
+    let name: String
+    let duration: TimeInterval
+    let weightConfiguration: WeightConfiguration?
+    let difficulty: Int?
+}
+
 struct WorkoutFormView: View {
     @Binding var showingWorkoutForm: Bool
     let onWorkoutCompleted: (Workout) -> Void
     var prefillResult: ConsoleScanResult? = nil
+    var routinePrefill: RoutinePrefillData? = nil
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -99,6 +108,15 @@ struct WorkoutFormView: View {
             // Apply prefill from console scan if provided
             if let result = prefillResult {
                 viewModel.prefillFromScan(result)
+            }
+            // Apply prefill from routine completion if provided
+            if let routine = routinePrefill {
+                viewModel.prefillFromRoutine(
+                    name: routine.name,
+                    duration: routine.duration,
+                    weightConfiguration: routine.weightConfiguration,
+                    difficulty: routine.difficulty
+                )
             }
         }
     }

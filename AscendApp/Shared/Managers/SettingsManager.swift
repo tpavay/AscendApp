@@ -18,6 +18,7 @@ final class SettingsManager {
     private let measurementSystemKey = "measurementSystem"
     private let stepHeightKey = "stepHeight"
     private let stepsPerFloorKey = "stepsPerFloor"
+    private let fitnessLevelKey = "userFitnessLevel"
     
     var preferredWorkoutMetric: WorkoutMetric {
         didSet {
@@ -45,8 +46,13 @@ final class SettingsManager {
             saveStepsPerFloor()
         }
     }
-    
-    
+
+    var fitnessLevel: FitnessLevel {
+        didSet {
+            saveFitnessLevel()
+        }
+    }
+
     private init() {
         // Load saved metric or default to steps
         if let savedMetric = UserDefaults.standard.string(forKey: preferredMetricKey),
@@ -74,9 +80,17 @@ final class SettingsManager {
         }
         
         // Load saved steps per floor or default to 16
-        self.stepsPerFloor = UserDefaults.standard.object(forKey: stepsPerFloorKey) != nil 
+        self.stepsPerFloor = UserDefaults.standard.object(forKey: stepsPerFloorKey) != nil
             ? UserDefaults.standard.integer(forKey: stepsPerFloorKey)
             : 16
+
+        // Load saved fitness level or default to intermediate
+        if let savedLevel = UserDefaults.standard.string(forKey: fitnessLevelKey),
+           let level = FitnessLevel(rawValue: savedLevel) {
+            self.fitnessLevel = level
+        } else {
+            self.fitnessLevel = .intermediate
+        }
     }
     
     private func savePreferredMetric() {
@@ -96,6 +110,11 @@ final class SettingsManager {
     
     private func saveStepsPerFloor() {
         UserDefaults.standard.set(stepsPerFloor, forKey: stepsPerFloorKey)
+        UserDefaults.standard.synchronize()
+    }
+
+    private func saveFitnessLevel() {
+        UserDefaults.standard.set(fitnessLevel.rawValue, forKey: fitnessLevelKey)
         UserDefaults.standard.synchronize()
     }
     
@@ -133,5 +152,11 @@ final class SettingsManager {
     
     func setStepsPerFloor(_ steps: Int) {
         stepsPerFloor = steps
+    }
+
+    func setFitnessLevel(_ level: FitnessLevel) {
+        withAnimation(.easeInOut(duration: 0.3)) {
+            fitnessLevel = level
+        }
     }
 }

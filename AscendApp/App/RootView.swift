@@ -9,12 +9,21 @@ import SwiftUI
 
 struct RootView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
+    @AppStorage("hasCompletedFitnessOnboarding") private var hasCompletedFitnessOnboarding = false
 
     var body: some View {
         Group {
             switch authVM.authenticationState {
             case .authenticated, .restoringSession:
-                MainTabView()
+                if hasCompletedFitnessOnboarding {
+                    MainTabView()
+                } else {
+                    FitnessLevelOnboardingView {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            hasCompletedFitnessOnboarding = true
+                        }
+                    }
+                }
             case .authenticatingWithApple,
                  .authenticatingWithGoogle:
                 ProgressView("Signing In...")
@@ -24,6 +33,7 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: authVM.authenticationState)
+        .animation(.easeInOut(duration: 0.25), value: hasCompletedFitnessOnboarding)
         .themeAware()
     }
 }

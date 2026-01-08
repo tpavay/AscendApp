@@ -96,6 +96,11 @@ struct AccountView: View {
                 destination: WorkoutMetricSelectionView()
             ),
             SettingsOption(
+                icon: "figure.stairs",
+                title: "Fitness Level",
+                destination: FitnessLevelSelectionView()
+            ),
+            SettingsOption(
                 icon: "ruler",
                 title: "Measurement System",
                 destination: MeasurementSystemSelectionView()

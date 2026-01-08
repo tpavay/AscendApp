@@ -650,6 +650,7 @@ struct AutoPlayVideoView: View {
     @State private var player: AVPlayer?
     @State private var thumbnail: UIImage?
     @State private var isLoading = true
+    @State private var loopObserver: NSObjectProtocol?
 
     var body: some View {
         GeometryReader { geometry in
@@ -713,6 +714,11 @@ struct AutoPlayVideoView: View {
         }
         .onDisappear {
             player?.pause()
+            if let observer = loopObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            loopObserver = nil
+            player = nil
         }
     }
 
@@ -745,19 +751,18 @@ struct AutoPlayVideoView: View {
         newPlayer.isMuted = true
         newPlayer.actionAtItemEnd = .none
 
-        // Loop video
-        NotificationCenter.default.addObserver(
+        // Loop video - store observer token for cleanup
+        let observer = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: newPlayer.currentItem,
             queue: .main
-        ) { _ in
-            newPlayer.seek(to: .zero)
-            if self.isVisible {
-                newPlayer.play()
-            }
+        ) { [weak newPlayer] _ in
+            newPlayer?.seek(to: .zero)
+            newPlayer?.play()
         }
 
         await MainActor.run {
+            self.loopObserver = observer
             self.player = newPlayer
             self.isLoading = false
             if isVisible {

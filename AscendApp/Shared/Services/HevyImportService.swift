@@ -112,11 +112,21 @@ class HevyImportService {
         )
 
         do {
+            // Calculate percentile scores for heat map before inserting
+            let settingsManager = SettingsManager.shared
+            let existingWorkouts = try fetchAllWorkouts(from: modelContext)
+            let percentileScores = PercentileScoreService.calculateAllPercentiles(
+                for: workout,
+                existingWorkouts: existingWorkouts,
+                fitnessLevel: settingsManager.fitnessLevel,
+                preferredMetric: settingsManager.preferredWorkoutMetric
+            )
+            workout.percentileScores = percentileScores
+
             modelContext.insert(workout)
             try modelContext.save()
 
             if !skipPRRecalculation {
-                let settingsManager = SettingsManager.shared
                 try PersonalRecordService.recalculateAllPersonalRecords(
                     modelContext: modelContext,
                     measurementSystem: settingsManager.measurementSystem,
@@ -425,5 +435,13 @@ class HevyImportService {
         hevyWorkout.healthKitUUID = hkWorkout.uuid.uuidString
 
         print("📊 Merged: HR \(metrics.avgHeartRate ?? 0)/\(metrics.maxHeartRate ?? 0), Cal \(metrics.caloriesBurned ?? 0), METs \(metrics.averageMETs ?? 0)")
+    }
+
+    /// Fetch all workouts from the model context for percentile calculation
+    private func fetchAllWorkouts(from modelContext: ModelContext) throws -> [Workout] {
+        let descriptor = FetchDescriptor<Workout>(
+            sortBy: [SortDescriptor(\.date, order: .forward)]
+        )
+        return try modelContext.fetch(descriptor)
     }
 }

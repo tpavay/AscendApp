@@ -11,6 +11,12 @@ struct RoutinesView: View {
     @State private var selectedRoutine: Routine?
     @State private var routineToEdit: Routine?
     @State private var activeRoutine: Routine?
+    @State private var showingCreateFolderDialog = false
+    @State private var showingFolderSelection = false
+    @State private var showingExploreRoutines = false
+    @State private var showingReorderFolders = false
+    @State private var selectedFolderForNewRoutine: UUID?
+    @State private var expandedFolderIds: Set<String> = []
 
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -19,19 +25,15 @@ struct RoutinesView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
-                // Built-in Templates Section
-                if !viewModel.filteredBuiltInRoutines.isEmpty {
-                    BuiltInRoutineSection(
-                        routines: viewModel.filteredBuiltInRoutines,
-                        onRoutineSelected: { routine in
-                            selectedRoutine = routine
-                        },
-                        onCopyRoutine: { routine in
-                            viewModel.copyBuiltInRoutine(routine)
-                            HapticsManager.shared.trigger(.success)
-                        }
-                    )
-                }
+                // Action Buttons
+                RoutineActionButtons(
+                    onCreateRoutine: {
+                        showingFolderSelection = true
+                    },
+                    onExploreRoutines: {
+                        showingExploreRoutines = true
+                    }
+                )
 
                 // My Routines Section
                 myRoutinesSection
@@ -43,9 +45,9 @@ struct RoutinesView: View {
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button(action: { showingEditor = true }) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 16, weight: .semibold))
+                Button(action: { showingCreateFolderDialog = true }) {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(.accent)
                 }
             }
@@ -78,8 +80,10 @@ struct RoutinesView: View {
         }
         .sheet(isPresented: $showingEditor) {
             RoutineEditorView(
+                folderId: selectedFolderForNewRoutine,
                 onSave: { routine in
                     viewModel.loadRoutines()
+                    selectedFolderForNewRoutine = nil
                 }
             )
         }
@@ -90,6 +94,50 @@ struct RoutinesView: View {
                     viewModel.refreshRoutine(updatedRoutine.id)
                 }
             )
+        }
+        .sheet(isPresented: $showingFolderSelection) {
+            FolderSelectionSheet(folders: viewModel.folders) { folderId in
+                selectedFolderForNewRoutine = folderId
+                showingFolderSelection = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    showingEditor = true
+                }
+            }
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showingExploreRoutines) {
+            ExploreRoutinesView(
+                routines: viewModel.builtInRoutines,
+                onRoutineSelected: { routine in
+                    showingExploreRoutines = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        selectedRoutine = routine
+                    }
+                },
+                onCopyRoutine: { routine in
+                    viewModel.copyBuiltInRoutine(routine)
+                    HapticsManager.shared.trigger(.success)
+                }
+            )
+        }
+        .sheet(isPresented: $showingCreateFolderDialog) {
+            CreateFolderDialog(isPresented: $showingCreateFolderDialog) { folderName in
+                viewModel.createFolder(name: folderName)
+                HapticsManager.shared.trigger(.success)
+            }
+            .presentationDetents([.height(220)])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showingReorderFolders) {
+            ReorderFoldersSheet(
+                folders: $viewModel.folders,
+                hasUnfiledRoutines: !viewModel.userRoutines.filter { $0.folderId == nil }.isEmpty
+            ) { reorderedFolders in
+                viewModel.saveFolderOrder(reorderedFolders)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
         .fullScreenCover(item: $activeRoutine) { routine in
             ActiveRoutineView(routine: routine)
@@ -104,39 +152,103 @@ struct RoutinesView: View {
 
     private var myRoutinesSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Section header
-            HStack {
-                Text("My Routines")
-                    .font(.montserratSemiBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                Spacer()
-
-                if viewModel.userRoutineCount > 0 {
-                    Text("\(viewModel.userRoutineCount) routine\(viewModel.userRoutineCount == 1 ? "" : "s")")
-                        .font(.montserratRegular(size: 14))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
-                }
-            }
-
             // Content
             if viewModel.isLoading {
                 loadingState
-            } else if viewModel.filteredUserRoutines.isEmpty {
+            } else if viewModel.filteredUserRoutines.isEmpty && viewModel.folders.isEmpty {
                 if viewModel.searchText.isEmpty {
-                    EmptyRoutinesView(onCreateRoutine: { showingEditor = true })
+                    EmptyRoutinesView(onCreateRoutine: { showingFolderSelection = true })
                 } else {
                     noSearchResultsView
                 }
             } else {
-                LazyVStack(spacing: 12) {
-                    ForEach(viewModel.filteredUserRoutines) { routine in
-                        RoutineCard(routine: routine) {
-                            selectedRoutine = routine
-                        }
+                VStack(spacing: 16) {
+                    ForEach(viewModel.routinesByFolder) { group in
+                        folderSection(group: group)
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func folderSection(group: RoutineFolderGroup) -> some View {
+        let filteredRoutines = filterRoutines(group.routines)
+        let isExpanded = expandedFolderIds.contains(group.id)
+        let displayName = group.isUnfiled ? "My Routines" : group.name
+
+        // Don't show empty unfiled section
+        if !filteredRoutines.isEmpty || !group.isUnfiled {
+            VStack(alignment: .leading, spacing: 12) {
+                // Folder header - show for all sections including unfiled
+                Button(action: { toggleFolderExpanded(group.id) }) {
+                    HStack {
+                        Text(displayName)
+                            .font(.montserratSemiBold(size: 20))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+                        Spacer()
+
+                        HStack(spacing: 8) {
+                            Text("\(filteredRoutines.count) routine\(filteredRoutines.count == 1 ? "" : "s")")
+                                .font(.montserratRegular(size: 14))
+                                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+
+                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 0.5)
+                        .onEnded { _ in
+                            HapticsManager.shared.trigger(.mediumImpact)
+                            showingReorderFolders = true
+                        }
+                )
+
+                // Routines in this folder (collapsible)
+                if isExpanded {
+                    if filteredRoutines.isEmpty {
+                        Text("No routines in this folder")
+                            .font(.montserratRegular(size: 14))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.4) : .gray)
+                            .padding(.vertical, 8)
+                    } else {
+                        ReorderableRoutineList(
+                            initialRoutines: filteredRoutines,
+                            onRoutineTapped: { routine in
+                                selectedRoutine = routine
+                            },
+                            onReorder: { reorderedRoutines in
+                                viewModel.saveRoutineOrder(reorderedRoutines)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func toggleFolderExpanded(_ folderId: String) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            if expandedFolderIds.contains(folderId) {
+                expandedFolderIds.remove(folderId)
+            } else {
+                expandedFolderIds.insert(folderId)
+            }
+        }
+        HapticsManager.shared.trigger(.lightImpact)
+    }
+
+    private func filterRoutines(_ routines: [Routine]) -> [Routine] {
+        if viewModel.searchText.isEmpty {
+            return routines
+        }
+        return routines.filter {
+            $0.name.localizedCaseInsensitiveContains(viewModel.searchText)
         }
     }
 

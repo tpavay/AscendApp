@@ -102,6 +102,36 @@ class WorkoutFormViewModel {
         }
     }
 
+    // MARK: - Prefill from Routine Completion
+
+    /// Prefill form fields from a completed routine session
+    func prefillFromRoutine(
+        name: String,
+        duration: TimeInterval,
+        weightConfiguration: WeightConfiguration?,
+        difficulty: Int?
+    ) {
+        // Use routine name as workout name
+        workoutName = name
+
+        // Set duration from elapsed time
+        let totalSeconds = Int(duration)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+        setDuration(hours: hours, minutes: minutes, seconds: seconds)
+
+        // Set weight configuration if available
+        if let config = weightConfiguration {
+            self.weightConfiguration = config
+        }
+
+        // Map routine difficulty to effort rating (1:1 with unified labels)
+        if let difficulty = difficulty {
+            self.effortRating = Double(difficulty)
+        }
+    }
+
     // MARK: - Computed Properties
     var isFormValid: Bool {
         let basicValidation = !workoutName.isEmpty &&
@@ -143,7 +173,7 @@ class WorkoutFormViewModel {
         do {
             let request = try createWorkoutRequest()
             let workout = try await workoutService.createWorkout(from: request, with: selectedImages)
-            
+
             if let highlightedId = highlightedSelectedItemId,
                let highlightIndex = selectedImages.firstIndex(where: { $0.id == highlightedId }),
                highlightIndex < workout.photos.count {
@@ -151,6 +181,16 @@ class WorkoutFormViewModel {
             } else if workout.highlightedPhotoId == nil {
                 workout.highlightedPhotoId = workout.photos.first?.id
             }
+
+            // Calculate and store percentile scores for heat map
+            let existingWorkouts = try fetchAllWorkouts(from: modelContext)
+            let percentileScores = PercentileScoreService.calculateAllPercentiles(
+                for: workout,
+                existingWorkouts: existingWorkouts,
+                fitnessLevel: settingsManager.fitnessLevel,
+                preferredMetric: settingsManager.preferredWorkoutMetric
+            )
+            workout.percentileScores = percentileScores
 
             modelContext.insert(workout)
             try modelContext.save()
@@ -421,6 +461,14 @@ class WorkoutFormViewModel {
         case 5: return "Maximum"
         default: return "Moderate"
         }
+    }
+
+    /// Fetch all workouts from the model context for percentile calculation
+    private func fetchAllWorkouts(from modelContext: ModelContext) throws -> [Workout] {
+        let descriptor = FetchDescriptor<Workout>(
+            sortBy: [SortDescriptor(\.date, order: .forward)]
+        )
+        return try modelContext.fetch(descriptor)
     }
 }
 

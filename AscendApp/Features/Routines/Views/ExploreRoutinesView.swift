@@ -1,51 +1,61 @@
 import SwiftUI
 
-struct BuiltInRoutineSection: View {
+struct ExploreRoutinesView: View {
     let routines: [Routine]
     var onRoutineSelected: ((Routine) -> Void)? = nil
     var onCopyRoutine: ((Routine) -> Void)? = nil
 
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
+    @State private var searchText = ""
 
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
 
+    private var filteredRoutines: [Routine] {
+        if searchText.isEmpty {
+            return routines
+        }
+        return routines.filter {
+            $0.name.localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Section header
-            HStack {
-                Text("Built-in Templates")
-                    .font(.montserratSemiBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                Spacer()
-
-                Text("\(routines.count) templates")
-                    .font(.montserratRegular(size: 14))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
-            }
-
-            // Horizontal scroll of template cards
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(routines) { routine in
-                        BuiltInTemplateCard(
+        NavigationStack {
+            ScrollView {
+                LazyVStack(spacing: 12) {
+                    ForEach(filteredRoutines) { routine in
+                        ExploreRoutineCard(
                             routine: routine,
                             onTap: { onRoutineSelected?(routine) },
                             onCopy: { onCopyRoutine?(routine) }
                         )
                     }
                 }
+                .padding(20)
+            }
+            .background(effectiveColorScheme == .dark ? Color.jet : Color.white)
+            .navigationTitle("Explore Routines")
+            .navigationBarTitleDisplayMode(.large)
+            .searchable(text: $searchText, prompt: "Search templates")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                    .foregroundStyle(.accent)
+                }
             }
         }
     }
 }
 
-// MARK: - Built-in Template Card
+// MARK: - Explore Routine Card
 
-struct BuiltInTemplateCard: View {
+struct ExploreRoutineCard: View {
     let routine: Routine
     var onTap: (() -> Void)? = nil
     var onCopy: (() -> Void)? = nil
@@ -62,9 +72,8 @@ struct BuiltInTemplateCard: View {
             // Header
             HStack {
                 Text(routine.name)
-                    .font(.montserratSemiBold(size: 16))
+                    .font(.montserratSemiBold(size: 18))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                    .lineLimit(1)
 
                 Spacer()
 
@@ -73,15 +82,21 @@ struct BuiltInTemplateCard: View {
                 }
             }
 
-            Spacer()
-
             // Stats
-            HStack(spacing: 12) {
-                Label(routine.totalDurationFormatted, systemImage: "clock")
-                    .font(.montserratMedium(size: 12))
+            HStack(spacing: 16) {
+                HStack(spacing: 4) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 12, weight: .medium))
+                    Text(routine.totalDurationFormatted)
+                        .font(.montserratMedium(size: 14))
+                }
 
-                Label("\(routine.intervalCount)", systemImage: "list.bullet")
-                    .font(.montserratMedium(size: 12))
+                HStack(spacing: 4) {
+                    Image(systemName: "list.bullet")
+                        .font(.system(size: 12, weight: .medium))
+                    Text("\(routine.intervalCount) intervals")
+                        .font(.montserratMedium(size: 14))
+                }
             }
             .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
 
@@ -89,10 +104,10 @@ struct BuiltInTemplateCard: View {
             HStack(spacing: 8) {
                 Button(action: { onTap?() }) {
                     Text("View")
-                        .font(.montserratMedium(size: 12))
+                        .font(.montserratMedium(size: 14))
                         .foregroundStyle(.accent)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, 10)
                         .background(
                             RoundedRectangle(cornerRadius: 8)
                                 .stroke(.accent, lineWidth: 1)
@@ -102,10 +117,10 @@ struct BuiltInTemplateCard: View {
 
                 Button(action: { onCopy?() }) {
                     Text("Copy")
-                        .font(.montserratMedium(size: 12))
+                        .font(.montserratMedium(size: 14))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, 10)
                         .background(
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(.accent)
@@ -115,10 +130,9 @@ struct BuiltInTemplateCard: View {
             }
         }
         .padding(16)
-        .frame(width: 220, height: 150)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.3) : .gray.opacity(0.08))
+                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
                         .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
@@ -128,20 +142,8 @@ struct BuiltInTemplateCard: View {
 }
 
 #Preview {
-    BuiltInRoutineSection(
-        routines: BuiltInRoutines.templates,
-        onRoutineSelected: { _ in },
-        onCopyRoutine: { _ in }
+    ExploreRoutinesView(
+        routines: BuiltInRoutines.templates
     )
-    .padding(20)
-}
-
-#Preview("Dark Mode") {
-    BuiltInRoutineSection(
-        routines: BuiltInRoutines.templates,
-        onRoutineSelected: { _ in },
-        onCopyRoutine: { _ in }
-    )
-    .padding(20)
     .preferredColorScheme(.dark)
 }

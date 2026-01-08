@@ -119,6 +119,9 @@ final class StravaManager: NSObject {
                     Task { @MainActor [weak self] in
                         guard let self = self else { return }
 
+                        // Clear the session reference to release memory
+                        self.authSession = nil
+
                         if let error = error as? ASWebAuthenticationSessionError,
                            error.code == .canceledLogin {
                             // User cancelled - no need to show error
@@ -140,6 +143,7 @@ final class StravaManager: NSObject {
                 self.authSession = session
 
                 if !session.start() {
+                    self.authSession = nil
                     Task {
                         self.connectionError = "Failed to start authentication"
                         self.isConnecting = false

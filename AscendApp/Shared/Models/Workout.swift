@@ -94,6 +94,9 @@ class Workout {
     // Weight equipment tracking - stored as JSON
     var weightConfigurationData: Data?
 
+    // Heat map percentile scores - stored as JSON (snapshot at workout save time)
+    var percentileScoresData: Data?
+
     // Computed property for easy access to personal record types
     var personalRecordTypes: [String]? {
         get {
@@ -122,6 +125,33 @@ class Workout {
     /// Whether this workout has any weight equipment configured
     var hasWeights: Bool {
         !(weightConfiguration?.isEmpty ?? true)
+    }
+
+    // Computed property for easy access to percentile scores
+    var percentileScores: [String: Double]? {
+        get {
+            guard let data = percentileScoresData else { return nil }
+            return try? JSONDecoder().decode([String: Double].self, from: data)
+        }
+        set {
+            if let newValue = newValue {
+                percentileScoresData = try? JSONEncoder().encode(newValue)
+            } else {
+                percentileScoresData = nil
+            }
+        }
+    }
+
+    /// Get the stored percentile score for a specific heat map metric
+    func percentileScore(for metric: HeatMapMetric) -> Double? {
+        percentileScores?[metric.rawValue]
+    }
+
+    /// Set the percentile score for a specific heat map metric
+    func setPercentileScore(_ score: Double, for metric: HeatMapMetric) {
+        var scores = percentileScores ?? [:]
+        scores[metric.rawValue] = score
+        percentileScores = scores
     }
 
     /// Total weight used in this workout (for display)

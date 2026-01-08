@@ -23,6 +23,13 @@ final class Routine {
     var difficulty: Int?
     var estimatedCalories: Int?
 
+    // Completion tracking
+    var completionCount: Int = 0
+    var lastCompletedAt: Date?
+
+    // Order within folder for drag-and-drop reordering
+    var order: Int = 0
+
     // Computed property for source enum
     var source: RoutineSource {
         get { RoutineSource(rawValue: sourceRawValue) ?? .userCreated }

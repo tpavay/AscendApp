@@ -13,6 +13,7 @@ final class RoutineEditorViewModel {
     var intervals: [RoutineInterval] = []
     var difficulty: Int? = nil
     var defaultWeightConfiguration: WeightConfiguration = .empty
+    var folderId: UUID? = nil
 
     // UI state
     var isSaving = false
@@ -54,8 +55,9 @@ final class RoutineEditorViewModel {
     }
 
     /// Configure the view model with a model context and optional existing routine
-    func configure(modelContext: ModelContext, routine: Routine? = nil) {
+    func configure(modelContext: ModelContext, routine: Routine? = nil, folderId: UUID? = nil) {
         self.routineService = RoutineService(modelContext: modelContext)
+        self.folderId = folderId
 
         if let routine = routine {
             self.existingRoutine = routine
@@ -64,6 +66,7 @@ final class RoutineEditorViewModel {
             self.intervals = routine.intervals
             self.difficulty = routine.difficulty
             self.defaultWeightConfiguration = routine.defaultWeightConfiguration ?? .empty
+            self.folderId = routine.folderId
         }
     }
 
@@ -153,6 +156,7 @@ final class RoutineEditorViewModel {
                 name: name.trimmingCharacters(in: .whitespaces),
                 description: routineDescription.trimmingCharacters(in: .whitespaces),
                 intervals: intervals,
+                folderId: folderId,
                 difficulty: difficulty,
                 defaultWeightConfiguration: weights
             )

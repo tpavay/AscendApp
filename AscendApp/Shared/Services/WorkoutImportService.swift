@@ -144,8 +144,19 @@ class WorkoutImportService {
 
         do {
             let metrics = await healthKitService.fetchWorkoutMetrics(for: hkWorkout)
-            let stepsPerFloor = SettingsManager.shared.stepsPerFloor
+            let settingsManager = SettingsManager.shared
+            let stepsPerFloor = settingsManager.stepsPerFloor
             let workout = hkWorkout.toAscendWorkout(with: metrics, stepsPerFloor: stepsPerFloor)
+
+            // Calculate percentile scores for heat map before inserting
+            let existingWorkouts = try fetchAllWorkouts(from: modelContext)
+            let percentileScores = PercentileScoreService.calculateAllPercentiles(
+                for: workout,
+                existingWorkouts: existingWorkouts,
+                fitnessLevel: settingsManager.fitnessLevel,
+                preferredMetric: settingsManager.preferredWorkoutMetric
+            )
+            workout.percentileScores = percentileScores
 
             modelContext.insert(workout)
             try modelContext.save()
@@ -238,5 +249,13 @@ class WorkoutImportService {
 
         TelemetryManager.shared.log(.workoutImportCompleted)
         return successCount
+    }
+
+    /// Fetch all workouts from the model context for percentile calculation
+    private func fetchAllWorkouts(from modelContext: ModelContext) throws -> [Workout] {
+        let descriptor = FetchDescriptor<Workout>(
+            sortBy: [SortDescriptor(\.date, order: .forward)]
+        )
+        return try modelContext.fetch(descriptor)
     }
 }

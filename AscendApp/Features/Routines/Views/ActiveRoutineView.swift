@@ -1,9 +1,11 @@
 import SwiftUI
+import SwiftData
 
 struct ActiveRoutineView: View {
     let routine: Routine
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
 
     // All state is local to avoid concurrency issues
     @State private var phase: WorkoutPhase = .countdown
@@ -14,6 +16,9 @@ struct ActiveRoutineView: View {
     @State private var isPaused = false
     @State private var showStopConfirmation = false
     @State private var showCompletionSheet = false
+    @State private var showWorkoutForm = false
+    @State private var completedWorkout: Workout?
+    @State private var shouldDismissAfterForm = false
 
     // Timer
     @State private var timerTask: Task<Void, Never>?
@@ -75,15 +80,29 @@ struct ActiveRoutineView: View {
         }
         .alert("Stop Workout?", isPresented: $showStopConfirmation) {
             Button("Continue", role: .cancel) {}
-            Button("Stop", role: .destructive) {
+            Button("Save & Log Workout") {
+                stopTimer()
+                recordCompletion()
+                shouldDismissAfterForm = true
+                showWorkoutForm = true
+            }
+            Button("Discard", role: .destructive) {
                 stopTimer()
                 dismiss()
             }
         } message: {
-            Text("Are you sure you want to stop this workout?")
+            Text("Would you like to log your progress before stopping?")
         }
-        .sheet(isPresented: $showCompletionSheet, onDismiss: { dismiss() }) {
+        .sheet(isPresented: $showCompletionSheet) {
             completionSheet
+        }
+        .sheet(isPresented: $showWorkoutForm, onDismiss: {
+            // After workout form is dismissed (saved or cancelled), dismiss the routine view
+            if shouldDismissAfterForm {
+                dismiss()
+            }
+        }) {
+            workoutFormSheet
         }
     }
 
@@ -312,15 +331,29 @@ struct ActiveRoutineView: View {
 
                 Spacer()
 
-                Button {
-                    dismiss()
-                } label: {
-                    Text("Done")
-                        .font(.montserratSemiBold(size: 16))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(.accent))
+                VStack(spacing: 12) {
+                    Button {
+                        recordCompletion()
+                        showCompletionSheet = false
+                        shouldDismissAfterForm = true
+                        showWorkoutForm = true
+                    } label: {
+                        Text("Log Workout")
+                            .font(.montserratSemiBold(size: 16))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(RoundedRectangle(cornerRadius: 12).fill(.accent))
+                    }
+
+                    Button {
+                        recordCompletion()
+                        dismiss()
+                    } label: {
+                        Text("Skip")
+                            .font(.montserratMedium(size: 14))
+                            .foregroundStyle(.white.opacity(0.6))
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 20)
@@ -328,6 +361,31 @@ struct ActiveRoutineView: View {
             .background(Color.jet)
         }
         .interactiveDismissDisabled()
+    }
+
+    // MARK: - Workout Form Sheet
+
+    private var workoutFormSheet: some View {
+        WorkoutFormView(
+            showingWorkoutForm: $showWorkoutForm,
+            onWorkoutCompleted: { workout in
+                completedWorkout = workout
+            },
+            routinePrefill: RoutinePrefillData(
+                name: routine.name,
+                duration: totalElapsed,
+                weightConfiguration: routine.defaultWeightConfiguration,
+                difficulty: routine.difficulty
+            )
+        )
+    }
+
+    // MARK: - Record Completion
+
+    private func recordCompletion() {
+        routine.completionCount += 1
+        routine.lastCompletedAt = Date()
+        try? modelContext.save()
     }
 
     // MARK: - Helpers

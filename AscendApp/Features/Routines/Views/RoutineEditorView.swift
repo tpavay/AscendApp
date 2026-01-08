@@ -16,14 +16,16 @@ struct RoutineEditorView: View {
     @State private var draggingInterval: RoutineInterval?
 
     let routine: Routine?
+    let folderId: UUID?
     var onSave: ((Routine) -> Void)?
 
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
 
-    init(routine: Routine? = nil, onSave: ((Routine) -> Void)? = nil) {
+    init(routine: Routine? = nil, folderId: UUID? = nil, onSave: ((Routine) -> Void)? = nil) {
         self.routine = routine
+        self.folderId = folderId
         self.onSave = onSave
     }
 
@@ -90,7 +92,7 @@ struct RoutineEditorView: View {
             }
         }
         .onAppear {
-            viewModel.configure(modelContext: modelContext, routine: routine)
+            viewModel.configure(modelContext: modelContext, routine: routine, folderId: folderId)
         }
     }
 
@@ -145,12 +147,12 @@ struct RoutineEditorView: View {
                 }
 
                 Picker("Difficulty", selection: $viewModel.difficulty) {
-                    Text("Custom").tag(Int?.none)
-                    Text("Easy").tag(Int?.some(1))
+                    Text("None").tag(Int?.none)
+                    Text("Minimal").tag(Int?.some(1))
                     Text("Light").tag(Int?.some(2))
                     Text("Moderate").tag(Int?.some(3))
-                    Text("Hard").tag(Int?.some(4))
-                    Text("Intense").tag(Int?.some(5))
+                    Text("High").tag(Int?.some(4))
+                    Text("Maximum").tag(Int?.some(5))
                 }
                 .pickerStyle(.segmented)
             }
@@ -160,14 +162,14 @@ struct RoutineEditorView: View {
     }
 
     private var difficultyLabel: String {
-        guard let level = viewModel.difficulty else { return "Custom" }
+        guard let level = viewModel.difficulty else { return "None" }
         switch level {
-        case 1: return "Easy"
+        case 1: return "Minimal"
         case 2: return "Light"
         case 3: return "Moderate"
-        case 4: return "Hard"
-        case 5: return "Intense"
-        default: return "Custom"
+        case 4: return "High"
+        case 5: return "Maximum"
+        default: return "None"
         }
     }
 
