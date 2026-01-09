@@ -18,12 +18,11 @@ struct ReorderableRoutineList: View {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
 
-    // Approximate height per card
-    private let cardHeight: CGFloat = 100
-    private let rowVerticalPadding: CGFloat = 12
+    // Card height: content ~88 + row insets (6+6) = ~100 per row
+    private let rowHeight: CGFloat = 100
 
     private var listHeight: CGFloat {
-        CGFloat(routines.count) * (cardHeight + rowVerticalPadding)
+        CGFloat(routines.count) * rowHeight
     }
 
     var body: some View {

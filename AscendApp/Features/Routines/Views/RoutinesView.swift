@@ -1,13 +1,18 @@
 import SwiftUI
 import SwiftData
 
+// Wrapper to hold selected folder for new routine creation
+struct NewRoutineFolderSelection: Identifiable {
+    let id = UUID()
+    let folderId: UUID?
+}
+
 struct RoutinesView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @State private var themeManager = ThemeManager.shared
     @State private var viewModel = RoutineListViewModel()
 
-    @State private var showingEditor = false
     @State private var selectedRoutine: Routine?
     @State private var routineToEdit: Routine?
     @State private var activeRoutine: Routine?
@@ -15,7 +20,7 @@ struct RoutinesView: View {
     @State private var showingFolderSelection = false
     @State private var showingExploreRoutines = false
     @State private var showingReorderFolders = false
-    @State private var selectedFolderForNewRoutine: UUID?
+    @State private var newRoutineFolderSelection: NewRoutineFolderSelection?
     @State private var expandedFolderIds: Set<String> = []
 
     private var effectiveColorScheme: ColorScheme {
@@ -78,12 +83,11 @@ struct RoutinesView: View {
             )
             .presentationDetents([.large])
         }
-        .sheet(isPresented: $showingEditor) {
+        .sheet(item: $newRoutineFolderSelection) { selection in
             RoutineEditorView(
-                folderId: selectedFolderForNewRoutine,
+                folderId: selection.folderId,
                 onSave: { routine in
                     viewModel.loadRoutines()
-                    selectedFolderForNewRoutine = nil
                 }
             )
         }
@@ -96,11 +100,13 @@ struct RoutinesView: View {
             )
         }
         .sheet(isPresented: $showingFolderSelection) {
-            FolderSelectionSheet(folders: viewModel.folders) { folderId in
-                selectedFolderForNewRoutine = folderId
+            FolderSelectionSheet(
+                folders: viewModel.folders,
+                myRoutinesOrder: viewModel.myRoutinesOrder
+            ) { folderId in
                 showingFolderSelection = false
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    showingEditor = true
+                    newRoutineFolderSelection = NewRoutineFolderSelection(folderId: folderId)
                 }
             }
             .presentationDetents([.medium])
@@ -132,9 +138,13 @@ struct RoutinesView: View {
         .sheet(isPresented: $showingReorderFolders) {
             ReorderFoldersSheet(
                 folders: $viewModel.folders,
-                hasUnfiledRoutines: !viewModel.userRoutines.filter { $0.folderId == nil }.isEmpty
-            ) { reorderedFolders in
-                viewModel.saveFolderOrder(reorderedFolders)
+                hasUnfiledRoutines: !viewModel.userRoutines.filter { $0.folderId == nil }.isEmpty,
+                myRoutinesOrder: Binding(
+                    get: { viewModel.myRoutinesOrder },
+                    set: { viewModel.myRoutinesOrder = $0 }
+                )
+            ) { reorderedFolders, myRoutinesPosition in
+                viewModel.saveFolderOrder(reorderedFolders, myRoutinesPosition: myRoutinesPosition)
             }
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)

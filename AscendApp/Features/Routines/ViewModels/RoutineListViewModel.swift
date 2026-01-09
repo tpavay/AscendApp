@@ -40,6 +40,12 @@ final class RoutineListViewModel {
     var searchText: String = ""
     var selectedFolderId: UUID?
 
+    // My Routines folder position (0 = first, persisted in UserDefaults)
+    var myRoutinesOrder: Int {
+        get { UserDefaults.standard.integer(forKey: "myRoutinesOrder") }
+        set { UserDefaults.standard.set(newValue, forKey: "myRoutinesOrder") }
+    }
+
     var filteredUserRoutines: [Routine] {
         var routines = userRoutines
 
@@ -93,26 +99,44 @@ final class RoutineListViewModel {
             }
         }
 
-        // Build result array
+        // Build result array with My Routines at the correct position
         var result: [RoutineFolderGroup] = []
 
-        // Add unfiled routines first (nil folder = "My Routines" default)
+        // Prepare My Routines group
+        var myRoutinesGroup: RoutineFolderGroup?
         if let unfiled = grouped[nil], !unfiled.isEmpty {
-            // Sort routines by order within the folder
             let sortedRoutines = unfiled.sorted { $0.order < $1.order }
-            result.append(RoutineFolderGroup(folder: nil, routines: sortedRoutines))
+            myRoutinesGroup = RoutineFolderGroup(folder: nil, routines: sortedRoutines)
         }
 
-        // Add folder groups sorted by order
-        for folder in folders.sorted(by: { $0.order < $1.order }) {
-            if let routines = grouped[folder.id] {
-                // Sort routines by order within the folder
-                let sortedRoutines = routines.sorted { $0.order < $1.order }
-                result.append(RoutineFolderGroup(folder: folder, routines: sortedRoutines))
-            } else {
-                // Include empty folders too so users can see them
-                result.append(RoutineFolderGroup(folder: folder, routines: []))
+        // Get sorted folders
+        let sortedFolders = folders.sorted { $0.order < $1.order }
+
+        // Insert groups respecting myRoutinesOrder position
+        var folderIndex = 0
+        for position in 0...(sortedFolders.count) {
+            // Check if My Routines should be inserted at this position
+            if let group = myRoutinesGroup, position == myRoutinesOrder {
+                result.append(group)
+                myRoutinesGroup = nil // Mark as inserted
             }
+
+            // Add the next folder if available
+            if folderIndex < sortedFolders.count {
+                let folder = sortedFolders[folderIndex]
+                if let routines = grouped[folder.id] {
+                    let sortedRoutines = routines.sorted { $0.order < $1.order }
+                    result.append(RoutineFolderGroup(folder: folder, routines: sortedRoutines))
+                } else {
+                    result.append(RoutineFolderGroup(folder: folder, routines: []))
+                }
+                folderIndex += 1
+            }
+        }
+
+        // If My Routines wasn't inserted (position beyond array), append at end
+        if let group = myRoutinesGroup {
+            result.append(group)
         }
 
         return result
@@ -219,6 +243,26 @@ final class RoutineListViewModel {
 
         // Update local state
         folders = reorderedFolders
+
+        // Update order values and persist
+        for (index, folder) in folders.enumerated() {
+            folder.order = index
+        }
+
+        do {
+            try service.saveFolderOrder(folders)
+        } catch {
+            errorMessage = "Failed to save folder order: \(error.localizedDescription)"
+        }
+    }
+
+    /// Save the order of folders and My Routines position after reordering
+    func saveFolderOrder(_ reorderedFolders: [RoutineFolder], myRoutinesPosition: Int) {
+        guard let service = routineService else { return }
+
+        // Update local state
+        folders = reorderedFolders
+        myRoutinesOrder = myRoutinesPosition
 
         // Update order values and persist
         for (index, folder) in folders.enumerated() {
