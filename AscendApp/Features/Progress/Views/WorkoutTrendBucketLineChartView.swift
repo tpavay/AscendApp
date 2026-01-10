@@ -27,7 +27,7 @@ struct WorkoutTrendBucketLineChartView: View {
 
     private var xScaleDomain: ClosedRange<Date> {
         guard let first = buckets.first?.startDate,
-              let last = buckets.last?.startDate else {
+              let last = buckets.last?.endDate else {
             return Date()...Date()
         }
         return first...last
