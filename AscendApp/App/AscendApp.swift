@@ -60,10 +60,22 @@ struct AscendApp: App {
     
     private func createModelContainer() -> ModelContainer {
         do {
-            let config = ModelConfiguration(schema: Schema([Workout.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self]))
-            return try ModelContainer(for: Workout.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self, configurations: config)
+            let config = ModelConfiguration(schema: Schema([
+                Workout.self,
+                LeaderboardStats.self,
+                PersonalRecord.self,
+                Goal.self,
+                Routine.self,
+                RoutineFolder.self,
+                WeightPersonalRecord.self,
+                AggregateWeightRecord.self
+            ]))
+            return try ModelContainer(
+                for: Workout.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self, WeightPersonalRecord.self, AggregateWeightRecord.self,
+                configurations: config
+            )
         } catch {
-            print("❌ Failed to create model container: \(error)")
+            print("Failed to create model container: \(error)")
             // If migration fails, try deleting all database files and recreating
             do {
                 let appSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -74,13 +86,25 @@ struct AscendApp: App {
                     let fileURL = appSupportURL.appendingPathComponent(fileName)
                     if FileManager.default.fileExists(atPath: fileURL.path) {
                         try FileManager.default.removeItem(at: fileURL)
-                        print("🗑️ Deleted \(fileName)")
+                        print("Deleted \(fileName)")
                     }
                 }
 
                 // Create a clean container
-                let config = ModelConfiguration(schema: Schema([Workout.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self]))
-                return try ModelContainer(for: Workout.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self, configurations: config)
+                let config = ModelConfiguration(schema: Schema([
+                    Workout.self,
+                    LeaderboardStats.self,
+                    PersonalRecord.self,
+                    Goal.self,
+                    Routine.self,
+                    RoutineFolder.self,
+                    WeightPersonalRecord.self,
+                    AggregateWeightRecord.self
+                ]))
+                return try ModelContainer(
+                    for: Workout.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self, WeightPersonalRecord.self, AggregateWeightRecord.self,
+                    configurations: config
+                )
             } catch {
                 fatalError("Could not create model container after cleanup: \(error)")
             }

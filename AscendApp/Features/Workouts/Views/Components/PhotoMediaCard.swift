@@ -129,11 +129,11 @@ struct PhotoMediaCard: View {
 
             Spacer()
 
-            // Records (if any) or Pace
-            if workout.hasPersonalRecords {
+            // Records (if any, including weight PRs) or Pace
+            if workout.totalPRCount > 0 {
                 statItem(
                     label: "Records",
-                    value: "\(workout.achievedPersonalRecords.count)",
+                    value: "\(workout.totalPRCount)",
                     showPRBadge: true
                 )
             } else {

@@ -109,11 +109,11 @@ struct DetailedSummaryCard: View {
                 }
             }
 
-            // Row 4: Personal Records (only if any)
-            if workout.hasPersonalRecords {
+            // Row 4: Personal Records (only if any - includes weight PRs)
+            if workout.totalPRCount > 0 {
                 HStack(spacing: 24) {
                     metricBlock(
-                        value: "\(workout.achievedPersonalRecords.count)",
+                        value: "\(workout.totalPRCount)",
                         label: "Records",
                         accessory: AnyView(
                             Image(systemName: "medal.fill")

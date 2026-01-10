@@ -6,30 +6,48 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct BestEffortsListView: View {
     let workouts: [Workout]
-    
+
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.modelContext) private var modelContext
     @State private var themeManager = ThemeManager.shared
-    
+    @State private var settingsManager = SettingsManager.shared
+
+    // Weight records state
+    @State private var weightRecordsSections: [WeightRecordsSection] = []
+    @State private var aggregateEfforts: [AggregateWeightBestEffort] = []
+
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
-    
+
     private var efforts: [BestEffort] {
         BestEffortsBuilder.bestEfforts(from: workouts)
+    }
+
+    private var hasWeightRecords: Bool {
+        !weightRecordsSections.isEmpty || !aggregateEfforts.isEmpty
     }
     
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                if efforts.isEmpty {
+                if efforts.isEmpty && !hasWeightRecords {
                     emptyState
                 } else {
-                    effortsList
+                    if !efforts.isEmpty {
+                        effortsList
+                    }
+
+                    // Weight Records Section
+                    if hasWeightRecords {
+                        weightRecordsSection
+                    }
                 }
-                
+
                 Spacer(minLength: 20)
             }
             .padding(.horizontal, 24)
@@ -49,6 +67,9 @@ struct BestEffortsListView: View {
                 }
             }
         }
+        .onAppear {
+            loadWeightRecords()
+        }
     }
     
     private var effortsList: some View {
@@ -67,7 +88,7 @@ struct BestEffortsListView: View {
             Text("No Best Efforts Yet")
                 .font(.montserratSemiBold(size: 18))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-            
+
             Text("Start logging workouts to see your all‑time best sessions for steps, duration, heart rate, and more.")
                 .font(.montserratRegular(size: 14))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
@@ -78,6 +99,246 @@ struct BestEffortsListView: View {
         .background(
             RoundedRectangle(cornerRadius: 20)
                 .fill(effectiveColorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+        )
+    }
+
+    // MARK: - Weight Records Section
+
+    // Only show "Most Total Weight" as a standalone card
+    private var mostTotalWeightEffort: AggregateWeightBestEffort? {
+        aggregateEfforts.first { $0.recordType == .mostTotalWeight }
+    }
+
+    private var weightRecordsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Only show "Most Total Weight" as a standalone card
+            if let totalWeightEffort = mostTotalWeightEffort {
+                NavigationLink(destination: WorkoutDetailView(workout: totalWeightEffort.workout)) {
+                    AggregateWeightEffortCard(effort: totalWeightEffort, colorScheme: effectiveColorScheme)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+
+            // Per-combo records grouped by equipment type
+            ForEach(weightRecordsSections) { section in
+                WeightEquipmentSection(
+                    section: section,
+                    colorScheme: effectiveColorScheme,
+                    measurementSystem: settingsManager.measurementSystem
+                )
+            }
+        }
+    }
+
+    // MARK: - Load Weight Records
+
+    private func loadWeightRecords() {
+        do {
+            let weightRecords = try WeightPersonalRecordService.fetchCurrentWeightPersonalRecords(modelContext: modelContext)
+            let aggregateRecords = try WeightPersonalRecordService.fetchCurrentAggregateRecords(modelContext: modelContext)
+
+            weightRecordsSections = WeightBestEffortsBuilder.buildWeightRecordsSections(
+                from: weightRecords,
+                workouts: workouts,
+                measurementSystem: settingsManager.measurementSystem
+            )
+
+            aggregateEfforts = WeightBestEffortsBuilder.buildAggregateEfforts(
+                from: aggregateRecords,
+                workouts: workouts,
+                measurementSystem: settingsManager.measurementSystem
+            )
+        } catch {
+            print("Error loading weight records: \(error)")
+        }
+    }
+}
+
+// MARK: - Weight Equipment Section (Compact Horizontal Layout)
+
+private struct WeightEquipmentSection: View {
+    let section: WeightRecordsSection
+    let colorScheme: ColorScheme
+    let measurementSystem: MeasurementSystem
+
+    @State private var isExpanded = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Equipment type header with chevron
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack {
+                    Text(section.equipmentType.displayName)
+                        .font(.montserratSemiBold(size: 16))
+                        .foregroundStyle(colorScheme == .dark ? .white : .black)
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(colorScheme == .dark ? .white.opacity(0.5) : .gray)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+                .padding(.vertical, 12)
+                .padding(.horizontal, 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04))
+                )
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            // Weight combo rows
+            if isExpanded {
+                VStack(spacing: 0) {
+                    ForEach(section.weightCombos) { combo in
+                        WeightComboRow(
+                            combo: combo,
+                            colorScheme: colorScheme,
+                            measurementSystem: measurementSystem
+                        )
+
+                        if combo.id != section.weightCombos.last?.id {
+                            Divider()
+                                .background(colorScheme == .dark ? Color.white.opacity(0.1) : Color.gray.opacity(0.2))
+                        }
+                    }
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.02))
+                )
+                .padding(.top, 8)
+            }
+        }
+        .padding(.top, 12)
+    }
+}
+
+private struct WeightComboRow: View {
+    let combo: WeightComboSection
+    let colorScheme: ColorScheme
+    let measurementSystem: MeasurementSystem
+
+    // Get record value by type
+    private func recordValue(for type: WeightRecordType) -> String {
+        combo.records.first { $0.recordType == type }?.valueText ?? "--"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Weight combo label (e.g., "20 lbs Vest")
+            Text(combo.displayName)
+                .font(.montserratSemiBold(size: 14))
+                .foregroundStyle(colorScheme == .dark ? .white : .black)
+
+            // Metrics row - all 4 metrics horizontally
+            HStack(spacing: 0) {
+                MetricCell(
+                    label: "Longest Duration",
+                    value: recordValue(for: .longestDuration),
+                    colorScheme: colorScheme
+                )
+
+                MetricCell(
+                    label: "Most Steps",
+                    value: recordValue(for: .mostSteps),
+                    colorScheme: colorScheme
+                )
+
+                MetricCell(
+                    label: "Most Floors",
+                    value: recordValue(for: .mostFloors),
+                    colorScheme: colorScheme
+                )
+
+                MetricCell(
+                    label: "Highest SPM",
+                    value: recordValue(for: .bestPace),
+                    colorScheme: colorScheme,
+                    isLast: true
+                )
+            }
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
+    }
+}
+
+private struct MetricCell: View {
+    let label: String
+    let value: String
+    let colorScheme: ColorScheme
+    var isLast: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.montserratRegular(size: 10))
+                .foregroundStyle(colorScheme == .dark ? .white.opacity(0.5) : .gray)
+                .lineLimit(1)
+
+            Text(value)
+                .font(.montserratSemiBold(size: 14))
+                .foregroundStyle(colorScheme == .dark ? .white : .black)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct AggregateWeightEffortCard: View {
+    let effort: AggregateWeightBestEffort
+    let colorScheme: ColorScheme
+
+    var body: some View {
+        HStack(spacing: 16) {
+            // Use system icon for most total weight, custom icon for equipment types
+            if effort.recordType == .mostTotalWeight {
+                Image(systemName: "scalemass.fill")
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundStyle(.accent)
+                    .frame(width: 32)
+            } else {
+                Image(effort.iconName)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 28, height: 28)
+                    .foregroundStyle(.accent)
+                    .frame(width: 32)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(effort.title)
+                    .font(.montserratSemiBold(size: 16))
+                    .foregroundStyle(colorScheme == .dark ? .white : .black)
+                    .lineLimit(2)
+
+                Text(effort.detailText)
+                    .font(.montserratRegular(size: 13))
+                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            Text(effort.valueText)
+                .font(.montserratBold(size: 16))
+                .foregroundStyle(colorScheme == .dark ? .white : .black)
+                .multilineTextAlignment(.trailing)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(colorScheme == .dark ? .white.opacity(0.08) : .gray.opacity(0.15), lineWidth: 1)
+                )
         )
     }
 }

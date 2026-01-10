@@ -91,6 +91,9 @@ class Workout {
     // Personal Records tracking - stored as JSON for reliable CoreData serialization
     var personalRecordTypesData: Data?
 
+    // Weight Personal Records tracking - stored as JSON
+    var weightPersonalRecordTypesData: Data?
+
     // Weight equipment tracking - stored as JSON
     var weightConfigurationData: Data?
 
@@ -367,6 +370,34 @@ class Workout {
         if !(personalRecordTypes?.contains(type.rawValue) ?? false) {
             personalRecordTypes?.append(type.rawValue)
         }
+    }
+
+    // MARK: - Weight Personal Records
+
+    /// Computed property for easy access to weight personal record types
+    var weightPersonalRecordTypes: [String]? {
+        get {
+            guard let data = weightPersonalRecordTypesData else { return nil }
+            return try? JSONDecoder().decode([String].self, from: data)
+        }
+        set {
+            if let newValue = newValue {
+                weightPersonalRecordTypesData = try? JSONEncoder().encode(newValue)
+            } else {
+                weightPersonalRecordTypesData = nil
+            }
+        }
+    }
+
+    var hasWeightPersonalRecords: Bool {
+        return !(weightPersonalRecordTypes?.isEmpty ?? true)
+    }
+
+    /// Total PR count combining standard and weight PRs (for share cards)
+    var totalPRCount: Int {
+        let standardPRs = personalRecordTypes?.count ?? 0
+        let weightPRs = weightPersonalRecordTypes?.count ?? 0
+        return standardPRs + weightPRs
     }
     
     // MARK: - Streak Calculations

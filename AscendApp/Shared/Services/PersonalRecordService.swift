@@ -301,8 +301,14 @@ final class PersonalRecordService {
                 workout.personalRecordTypes = newPRTypes
             }
         }
-        
+
         try modelContext.save()
+
+        // Also recalculate weight personal records
+        try WeightPersonalRecordService.recalculateAllWeightPersonalRecords(
+            modelContext: modelContext,
+            measurementSystem: measurementSystem
+        )
     }
 }
 

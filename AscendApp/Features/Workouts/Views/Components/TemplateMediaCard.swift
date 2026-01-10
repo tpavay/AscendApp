@@ -137,10 +137,10 @@ struct TemplateMediaCard: View {
 
                     Spacer()
 
-                    // Right: PRs badge (if any)
-                    if workout.hasPersonalRecords {
+                    // Right: PRs badge (if any, including weight PRs)
+                    if workout.totalPRCount > 0 {
                         HStack(spacing: 4) {
-                            Text("\(workout.achievedPersonalRecords.count)")
+                            Text("\(workout.totalPRCount)")
                                 .font(.montserratBold(size: 16))
                                 .foregroundStyle(.white)
                             Image(systemName: "medal.fill")

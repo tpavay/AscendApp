@@ -6,28 +6,54 @@
 //
 
 import SwiftUI
+import SwiftData
 import Charts
 
 struct BestEffortsProgressView: View {
     let workouts: [Workout]
     let initialMetric: BestEffort.MetricType?
-    
+
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.modelContext) private var modelContext
     @State private var themeManager = ThemeManager.shared
+    @State private var settingsManager = SettingsManager.shared
     @State private var selectedMetric: BestEffort.MetricType = .mostSteps
     @State private var selectedDataPoint: ProgressionDataPoint?
     @State private var showingInfoTooltip = false
-    
+
+    // Weight records section
+    @State private var showingWeightRecords = false
+    @State private var weightRecords: [WeightPersonalRecord] = []
+    @State private var aggregateRecords: [AggregateWeightRecord] = []
+    @State private var availableWeightCombos: [WeightComboKey] = []
+    @State private var selectedWeightCombo: WeightComboKey?
+    @State private var selectedWeightRecordType: WeightRecordType = .longestDuration
+    @State private var selectedWeightDataPoint: WeightProgressionDataPoint?
+
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
-    
+
     private var availableMetrics: [BestEffort.MetricType] {
         BestEffortsBuilder.availableMetricTypes(from: workouts)
     }
-    
+
     private var progressionData: [ProgressionDataPoint] {
         BestEffortsBuilder.progressionData(for: selectedMetric, from: workouts)
+    }
+
+    private var weightProgressionData: [WeightProgressionDataPoint] {
+        guard let combo = selectedWeightCombo else { return [] }
+        return WeightBestEffortsBuilder.buildProgressionData(
+            from: weightRecords,
+            comboKey: combo,
+            recordType: selectedWeightRecordType,
+            workouts: workouts
+        )
+    }
+
+    private var hasWeightRecords: Bool {
+        !availableWeightCombos.isEmpty
     }
     
     /// Computed time range description for the chart
@@ -63,19 +89,42 @@ struct BestEffortsProgressView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
-                if availableMetrics.isEmpty {
-                    emptyState
-                } else {
-                    metricPicker
-                    
-                    if progressionData.count < 2 {
-                        insufficientDataState
+                // Segment control for Standard vs Weight records
+                if hasWeightRecords {
+                    recordTypeSegment
+                }
+
+                if showingWeightRecords {
+                    // Weight Records Progression
+                    if availableWeightCombos.isEmpty {
+                        weightEmptyState
                     } else {
-                        chartSection
-                        legendSection
+                        weightComboPicker
+                        weightRecordTypePicker
+
+                        if weightProgressionData.count < 2 {
+                            weightInsufficientDataState
+                        } else {
+                            weightChartSection
+                            weightLegendSection
+                        }
+                    }
+                } else {
+                    // Standard Records Progression
+                    if availableMetrics.isEmpty {
+                        emptyState
+                    } else {
+                        metricPicker
+
+                        if progressionData.count < 2 {
+                            insufficientDataState
+                        } else {
+                            chartSection
+                            legendSection
+                        }
                     }
                 }
-                
+
                 Spacer(minLength: 40)
             }
             .padding(.horizontal, 24)
@@ -104,11 +153,26 @@ struct BestEffortsProgressView: View {
             .presentationDragIndicator(.visible)
         }
         .onAppear {
+            loadWeightRecords()
             if let initial = initialMetric, availableMetrics.contains(initial) {
                 selectedMetric = initial
             } else if let first = availableMetrics.first {
                 selectedMetric = first
             }
+        }
+    }
+
+    // MARK: - Record Type Segment
+
+    private var recordTypeSegment: some View {
+        Picker("Record Type", selection: $showingWeightRecords) {
+            Text("Standard").tag(false)
+            Text("Weight").tag(true)
+        }
+        .pickerStyle(.segmented)
+        .onChange(of: showingWeightRecords) { _, _ in
+            selectedDataPoint = nil
+            selectedWeightDataPoint = nil
         }
     }
     
@@ -526,6 +590,337 @@ struct BestEffortsProgressView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d, yyyy"
         return formatter.string(from: date)
+    }
+
+    // MARK: - Weight Records Loading
+
+    private func loadWeightRecords() {
+        do {
+            weightRecords = try WeightPersonalRecordService.fetchCurrentWeightPersonalRecords(modelContext: modelContext)
+            aggregateRecords = try WeightPersonalRecordService.fetchCurrentAggregateRecords(modelContext: modelContext)
+            availableWeightCombos = WeightBestEffortsBuilder.getAllWeightCombos(from: weightRecords)
+
+            // Select first combo if available
+            if selectedWeightCombo == nil, let first = availableWeightCombos.first {
+                selectedWeightCombo = first
+            }
+        } catch {
+            print("Error loading weight records: \(error)")
+        }
+    }
+
+    // MARK: - Weight Combo Picker
+
+    private var weightComboPicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(availableWeightCombos, id: \.keyString) { combo in
+                    weightComboButton(for: combo)
+                }
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+
+    private func weightComboButton(for combo: WeightComboKey) -> some View {
+        let isSelected = selectedWeightCombo == combo
+        let unit = settingsManager.measurementSystem.weightAbbreviation
+
+        return Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                selectedWeightCombo = combo
+                selectedWeightDataPoint = nil
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(combo.equipmentType.iconName)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 16, height: 16)
+
+                Text(combo.shortDisplayName(unit: unit))
+                    .font(.montserratMedium(size: 14))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                Capsule()
+                    .fill(isSelected
+                          ? Color.accentColor
+                          : (effectiveColorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05)))
+            )
+            .foregroundStyle(isSelected
+                             ? .white
+                             : (effectiveColorScheme == .dark ? .white : .black))
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    // MARK: - Weight Record Type Picker
+
+    private var weightRecordTypePicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(WeightRecordType.allCases, id: \.rawValue) { recordType in
+                    weightRecordTypeButton(for: recordType)
+                }
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+
+    private func weightRecordTypeButton(for recordType: WeightRecordType) -> some View {
+        let isSelected = selectedWeightRecordType == recordType
+
+        return Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                selectedWeightRecordType = recordType
+                selectedWeightDataPoint = nil
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: recordType.iconName)
+                    .font(.system(size: 14, weight: .medium))
+
+                Text(recordType.displayName)
+                    .font(.montserratMedium(size: 13))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                Capsule()
+                    .fill(isSelected
+                          ? Color.accentColor.opacity(0.8)
+                          : (effectiveColorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.04)))
+            )
+            .foregroundStyle(isSelected
+                             ? .white
+                             : (effectiveColorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8)))
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    // MARK: - Weight Chart Section
+
+    private var weightChartSection: some View {
+        let data = weightProgressionData
+        let unit = settingsManager.measurementSystem.weightAbbreviation
+
+        return VStack(alignment: .leading, spacing: 16) {
+            // Header
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let combo = selectedWeightCombo {
+                        Text("\(combo.displayName(unit: unit)) - \(selectedWeightRecordType.displayName)")
+                            .font(.montserratBold(size: 18))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    }
+
+                    if let latest = data.last {
+                        Text("Current: \(formattedWeightValue(latest.value, recordType: selectedWeightRecordType))")
+                            .font(.montserratMedium(size: 14))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                    }
+                }
+
+                Spacer()
+
+                // Improvement percentage
+                if data.count >= 2,
+                   let first = data.first,
+                   let last = data.last,
+                   first.value > 0 {
+                    let improvement = ((last.value - first.value) / first.value) * 100
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 12, weight: .bold))
+                        Text("+\(Int(improvement))%")
+                            .font(.montserratBold(size: 16))
+                    }
+                    .foregroundStyle(.green)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule()
+                            .fill(Color.green.opacity(0.15))
+                    )
+                }
+            }
+
+            // Chart
+            Chart {
+                ForEach(data) { point in
+                    LineMark(
+                        x: .value("Date", point.date),
+                        y: .value("Value", point.value)
+                    )
+                    .foregroundStyle(Color.accentColor)
+                    .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                    .interpolationMethod(.monotone)
+
+                    PointMark(
+                        x: .value("Date", point.date),
+                        y: .value("Value", point.value)
+                    )
+                    .foregroundStyle(
+                        selectedWeightDataPoint?.id == point.id
+                        ? Color.accentColor
+                        : (point.id == data.last?.id
+                           ? Color.accentColor
+                           : (effectiveColorScheme == .dark ? Color.white.opacity(0.8) : Color.black.opacity(0.6)))
+                    )
+                    .symbolSize(selectedWeightDataPoint?.id == point.id ? 140 : (point.id == data.last?.id ? 100 : 60))
+                }
+            }
+            .chartYScale(domain: .automatic(includesZero: false))
+            .frame(height: 220)
+            .padding(.top, 8)
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
+                )
+        )
+    }
+
+    // MARK: - Weight Legend Section
+
+    private var weightLegendSection: some View {
+        let data = weightProgressionData
+
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("Record History")
+                .font(.montserratBold(size: 18))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+            VStack(spacing: 8) {
+                ForEach(data.reversed()) { point in
+                    NavigationLink(destination: WorkoutDetailView(workout: point.workout)) {
+                        weightRecordRow(for: point, isLatest: point.id == data.last?.id)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
+                )
+        )
+    }
+
+    private func weightRecordRow(for point: WeightProgressionDataPoint, isLatest: Bool) -> some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(isLatest ? Color.accentColor : (effectiveColorScheme == .dark ? Color.white.opacity(0.3) : Color.gray.opacity(0.4)))
+                .frame(width: 10, height: 10)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(point.workout.name)
+                    .font(.montserratSemiBold(size: 14))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    .lineLimit(1)
+
+                Text(formattedDate(point.date))
+                    .font(.montserratRegular(size: 12))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
+            }
+
+            Spacer()
+
+            Text(formattedWeightValue(point.value, recordType: selectedWeightRecordType))
+                .font(.montserratBold(size: 14))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.4) : .gray.opacity(0.6))
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(effectiveColorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.02))
+        )
+    }
+
+    // MARK: - Weight Empty States
+
+    private var weightEmptyState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "dumbbell.fill")
+                .font(.system(size: 48, weight: .light))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.4) : .gray.opacity(0.5))
+
+            Text("No Weight Records Yet")
+                .font(.montserratBold(size: 20))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+            Text("Log workouts with weight equipment to track your weight-based personal records.")
+                .font(.montserratRegular(size: 14))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(40)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
+        )
+    }
+
+    private var weightInsufficientDataState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "chart.line.uptrend.xyaxis")
+                .font(.system(size: 40, weight: .light))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.4) : .gray.opacity(0.5))
+
+            Text("Not Enough Records")
+                .font(.montserratBold(size: 18))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+            Text("You need at least 2 personal records for this weight combination to see your progression chart.")
+                .font(.montserratRegular(size: 14))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(32)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
+        )
+    }
+
+    // MARK: - Weight Formatting
+
+    private func formattedWeightValue(_ value: Double, recordType: WeightRecordType) -> String {
+        switch recordType {
+        case .longestDuration:
+            let totalSeconds = Int(value)
+            let hours = totalSeconds / 3600
+            let minutes = (totalSeconds % 3600) / 60
+            let secs = totalSeconds % 60
+            if hours > 0 {
+                return String(format: "%d:%02d:%02d", hours, minutes, secs)
+            } else {
+                return String(format: "%d:%02d", minutes, secs)
+            }
+        case .mostSteps, .mostFloors:
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .decimal
+            formatter.maximumFractionDigits = 0
+            return formatter.string(from: NSNumber(value: value)) ?? "\(Int(value))"
+        case .bestPace:
+            return String(format: "%.1f/min", value)
+        }
     }
 }
 
