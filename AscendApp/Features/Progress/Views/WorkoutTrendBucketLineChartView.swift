@@ -25,10 +25,26 @@ struct WorkoutTrendBucketLineChartView: View {
         return formatter
     }
 
+    private var xScaleDomain: ClosedRange<Date> {
+        guard let first = buckets.first?.startDate,
+              let last = buckets.last?.startDate else {
+            return Date()...Date()
+        }
+        return first...last
+    }
+
     private var yScaleDomain: ClosedRange<Double> {
         let values = buckets.compactMap { valueForBucket($0) }
         let maxValue = values.max() ?? 0
         let minValue = values.min() ?? 0
+
+        // Handle single data point or equal min/max by using percentage-based padding
+        if maxValue == minValue {
+            let padding = maxValue * 0.2
+            let effectivePadding = max(padding, 1.0) // Ensure at least some padding
+            return max(0, minValue - effectivePadding)...(maxValue + effectivePadding)
+        }
+
         let padding = (maxValue - minValue) * 0.15
         return max(0, minValue - padding)...(maxValue + padding)
     }
@@ -126,6 +142,7 @@ struct WorkoutTrendBucketLineChartView: View {
                     .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .gray)
             }
         }
+        .chartXScale(domain: xScaleDomain)
         .chartYScale(domain: yScaleDomain)
         .chartGesture { proxy in
             SpatialTapGesture()
