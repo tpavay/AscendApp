@@ -281,6 +281,17 @@ struct WorkoutShareCarouselView: View {
             ) {
                 shareToTwitter()
             }
+
+            // Strava Sync (only shown when connected, auto-sync off, and not already synced)
+            if viewModel.shouldShowStravaSyncButton {
+                StravaActionButton(
+                    syncState: viewModel.stravaSyncState,
+                    foregroundColor: actionForeground,
+                    backgroundColor: actionBackground
+                ) {
+                    viewModel.syncToStrava(preferredMetric: settingsManager.preferredWorkoutMetric)
+                }
+            }
         }
     }
     
@@ -469,6 +480,96 @@ private struct CarouselActionButton: View {
         .buttonStyle(.plain)
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.5 : 1)
+    }
+}
+
+// MARK: - Strava Action Button
+
+private struct StravaActionButton: View {
+    let syncState: WorkoutShareCarouselViewModel.StravaSyncState
+    let foregroundColor: Color
+    let backgroundColor: Color
+    let action: () -> Void
+
+    private let stravaOrange = Color(red: 252/255, green: 76/255, blue: 2/255)
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                ZStack {
+                    Circle()
+                        .fill(circleBackground)
+                        .frame(width: 48, height: 48)
+
+                    content
+                }
+
+                Text(label)
+                    .font(.montserratMedium(size: 10))
+                    .foregroundStyle(foregroundColor)
+                    .lineLimit(1)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch syncState {
+        case .idle:
+            Image("strava-icon")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 20, height: 20)
+                .foregroundStyle(stravaOrange)
+        case .syncing:
+            ProgressView()
+                .progressViewStyle(CircularProgressViewStyle(tint: stravaOrange))
+                .scaleEffect(0.9)
+        case .synced:
+            Image(systemName: "checkmark")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(.green)
+        case .error:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.red)
+        }
+    }
+
+    private var circleBackground: Color {
+        switch syncState {
+        case .synced:
+            return .green.opacity(0.15)
+        case .error:
+            return .red.opacity(0.15)
+        default:
+            return backgroundColor
+        }
+    }
+
+    private var label: String {
+        switch syncState {
+        case .idle:
+            return "Strava"
+        case .syncing:
+            return "Syncing..."
+        case .synced:
+            return "Synced!"
+        case .error:
+            return "Failed"
+        }
+    }
+
+    private var isDisabled: Bool {
+        switch syncState {
+        case .idle:
+            return false
+        case .syncing, .synced, .error:
+            return true
+        }
     }
 }
 

@@ -22,7 +22,9 @@ struct IntegrationsView: View {
                     .frame(height: 8)
 
                 // Strava Integration
-                StravaIntegrationCard()
+                if FeatureFlags.isStravaEnabled {
+                    StravaIntegrationCard()
+                }
 
                 // Hevy Integration
                 HevyIntegrationCard()

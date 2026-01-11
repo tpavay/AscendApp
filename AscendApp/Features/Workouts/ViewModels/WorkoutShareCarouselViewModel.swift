@@ -101,6 +101,16 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
     @Published var copyConfirmationText: String?
     @Published var shareErrorMessage: String?
 
+    // MARK: - Strava Sync State
+    @Published var stravaSyncState: StravaSyncState = .idle
+
+    enum StravaSyncState {
+        case idle
+        case syncing
+        case synced
+        case error(String)
+    }
+
     // MARK: - Properties
     let workout: Workout
     let workoutCount: Int?
@@ -437,14 +447,60 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             copyConfirmationText = text
         }
-        
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
             withAnimation(.easeOut(duration: 0.3)) {
                 self?.copyConfirmationText = nil
             }
         }
     }
-    
+
+    // MARK: - Strava Sync
+
+    /// Whether to show the manual Strava sync button
+    /// Shows only when: feature enabled, connected, auto-sync disabled, and workout not already synced
+    var shouldShowStravaSyncButton: Bool {
+        guard FeatureFlags.isStravaEnabled else { return false }
+        let stravaManager = StravaManager.shared
+        return stravaManager.isConnected &&
+               !stravaManager.autoSyncEnabled &&
+               !workout.isSyncedToStrava
+    }
+
+    /// Sync the workout to Strava
+    func syncToStrava(preferredMetric: WorkoutMetric) {
+        guard case .idle = stravaSyncState else { return }
+
+        stravaSyncState = .syncing
+        HapticsManager.shared.trigger(.lightImpact)
+
+        Task {
+            do {
+                let activityId = try await StravaManager.shared.syncWorkout(workout, primaryMetric: preferredMetric)
+                workout.setStravaSyncMetadata(StravaSyncMetadata(stravaActivityId: activityId, syncedAt: Date()))
+
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    stravaSyncState = .synced
+                }
+                HapticsManager.shared.trigger(.success)
+            } catch {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    stravaSyncState = .error(error.localizedDescription)
+                }
+                HapticsManager.shared.trigger(.error)
+
+                // Reset to idle after a delay so user can try again
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                    if case .error = self?.stravaSyncState {
+                        withAnimation {
+                            self?.stravaSyncState = .idle
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Cleanup
 
     deinit {

@@ -205,7 +205,7 @@ class WorkoutFormViewModel {
 
             // Fire-and-forget Strava auto-sync (doesn't block save)
             let stravaManager = StravaManager.shared
-            if stravaManager.isConnected && stravaManager.autoSyncEnabled {
+            if FeatureFlags.isStravaEnabled && stravaManager.isConnected && stravaManager.autoSyncEnabled {
                 let primaryMetric = settingsManager.preferredWorkoutMetric
                 Task {
                     do {

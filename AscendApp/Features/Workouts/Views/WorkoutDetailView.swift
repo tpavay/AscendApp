@@ -164,7 +164,7 @@ struct WorkoutDetailView: View {
                     }
 
                     // Strava sync option
-                    if stravaManager.isConnected {
+                    if FeatureFlags.isStravaEnabled && stravaManager.isConnected {
                         if workout.isSyncedToStrava {
                             // Show synced state (non-actionable)
                             Label("Synced to Strava", systemImage: "checkmark.circle.fill")
@@ -236,7 +236,7 @@ struct WorkoutDetailView: View {
             }
 
             // Strava sync indicator
-            if isSyncingToStrava || workout.isSyncedToStrava {
+            if FeatureFlags.isStravaEnabled && (isSyncingToStrava || workout.isSyncedToStrava) {
                 HStack(spacing: 6) {
                     Image("strava-icon")
                         .renderingMode(.template)

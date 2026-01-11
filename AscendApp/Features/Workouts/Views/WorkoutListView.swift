@@ -440,7 +440,7 @@ struct WorkoutRowView: View {
                         .font(.montserratRegular(size: 11))
                         .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
 
-                    if workout.isSyncedToStrava {
+                    if FeatureFlags.isStravaEnabled && workout.isSyncedToStrava {
                         Image("strava-icon")
                             .renderingMode(.template)
                             .resizable()
