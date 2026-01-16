@@ -172,15 +172,9 @@ class WorkoutFormViewModel {
 
         do {
             let request = try createWorkoutRequest()
-            let workout = try await workoutService.createWorkout(from: request, with: selectedImages)
 
-            if let highlightedId = highlightedSelectedItemId,
-               let highlightIndex = selectedImages.firstIndex(where: { $0.id == highlightedId }),
-               highlightIndex < workout.photos.count {
-                workout.highlightedPhotoId = workout.photos[highlightIndex].id
-            } else if workout.highlightedPhotoId == nil {
-                workout.highlightedPhotoId = workout.photos.first?.id
-            }
+            // Create workout without photos - they'll be uploaded asynchronously
+            let workout = try await workoutService.createWorkout(from: request)
 
             // Calculate and store percentile scores for heat map
             let existingWorkouts = try fetchAllWorkouts(from: modelContext)
@@ -194,7 +188,7 @@ class WorkoutFormViewModel {
 
             modelContext.insert(workout)
             try modelContext.save()
-            
+
             // Recalculate all PRs based on chronological workout order
             // This ensures PRs are correct even if the user logs a workout with an older date
             try PersonalRecordService.recalculateAllPersonalRecords(
@@ -202,6 +196,24 @@ class WorkoutFormViewModel {
                 measurementSystem: settingsManager.measurementSystem,
                 stepHeight: settingsManager.stepHeight
             )
+
+            // Queue media uploads asynchronously (fire-and-forget)
+            // This happens in background so form can close immediately
+            if !selectedImages.isEmpty {
+                let highlightedIndex = highlightedSelectedItemId.flatMap { id in
+                    selectedImages.firstIndex(where: { $0.id == id })
+                }
+                let imagesToUpload = selectedImages
+                let workoutId = workout.id
+                Task {
+                    try? await MediaUploadManager.shared.queueUploads(
+                        for: workoutId,
+                        photos: imagesToUpload,
+                        highlightedIndex: highlightedIndex,
+                        modelContext: modelContext
+                    )
+                }
+            }
 
             // Fire-and-forget Strava auto-sync (doesn't block save)
             let stravaManager = StravaManager.shared
@@ -223,15 +235,15 @@ class WorkoutFormViewModel {
             }
 
             isUploading = false
-            
-            // Clean up video files after successful upload
-            cleanupVideoFiles()
+
+            // Don't clean up video files here - MediaUploadManager needs them
+            // They'll be cleaned up after successful upload
 
             return workout
 
         } catch {
             isUploading = false
-            // Clean up temp video files on failure
+            // Clean up temp video files on failure (since we won't be uploading)
             cleanupVideoFiles()
             uploadError = error.userFriendlyMessage
             throw error

@@ -46,6 +46,7 @@ struct AscendApp: App {
             }
         }
         .environment(authVM)
+        .environment(MediaUploadManager.shared)  // For async media upload status observation
         .modelContainer(createModelContainer())
     }
 
@@ -68,10 +69,11 @@ struct AscendApp: App {
                 Routine.self,
                 RoutineFolder.self,
                 WeightPersonalRecord.self,
-                AggregateWeightRecord.self
+                AggregateWeightRecord.self,
+                PendingMediaUpload.self
             ]))
             return try ModelContainer(
-                for: Workout.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self, WeightPersonalRecord.self, AggregateWeightRecord.self,
+                for: Workout.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self, WeightPersonalRecord.self, AggregateWeightRecord.self, PendingMediaUpload.self,
                 configurations: config
             )
         } catch {
@@ -99,10 +101,11 @@ struct AscendApp: App {
                     Routine.self,
                     RoutineFolder.self,
                     WeightPersonalRecord.self,
-                    AggregateWeightRecord.self
+                    AggregateWeightRecord.self,
+                    PendingMediaUpload.self
                 ]))
                 return try ModelContainer(
-                    for: Workout.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self, WeightPersonalRecord.self, AggregateWeightRecord.self,
+                    for: Workout.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self, WeightPersonalRecord.self, AggregateWeightRecord.self, PendingMediaUpload.self,
                     configurations: config
                 )
             } catch {

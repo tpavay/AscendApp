@@ -30,64 +30,38 @@ struct WorkoutDetailView: View {
     @State private var deleteTask: Task<Void, Never>? = nil
     @State private var isNotesExpanded = false
 
+    // Strava-style layout state
+    @State private var sheetPosition: SheetPosition = .middle
+    @State private var currentPhotoIndex: Int = 0
+    @State private var selectedPhoto: Photo? = nil
+    @State private var sheetOffset: CGFloat = 0  // For smooth hero animation during drag
+
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
-    
+
+    /// Whether the workout has media (photos or pending uploads)
+    private var hasMedia: Bool {
+        !workout.photos.isEmpty
+    }
+
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    // Header with workout name and date
-                    headerSection
+            ZStack {
+                // Background
+                (effectiveColorScheme == .dark ? Color.black : Color.white)
+                    .ignoresSafeArea()
 
-                    // Notes (if available) - shown after PRs, before stats
-                    if !workout.notes.isEmpty {
-                        notesSection
-                    }
-
-                    // Workout Details
-                    workoutDetailsSection
-
-                    // Photos (if available)
-                    if !workout.photos.isEmpty {
-                        WorkoutPhotosSection(workout: workout)
-                    }
-
-                    // Heart Rate Chart (if heart rate data is available)
-                    if !workout.heartRateTimeSeries.isEmpty {
-                        HeartRateChartView(
-                            heartRateData: workout.heartRateTimeSeries,
-                            workoutStartTime: workout.date,
-                            workoutDuration: workout.duration
-                        )
-                    }
-
-                    // Additional metrics (e.g., calories, METs, vertical climb)
-                    if hasAdditionalMetrics {
-                        additionalMetricsSection
-                    }
-
-                    // Weights section (if weights were used)
-                    if workout.hasWeights {
-                        weightsUsedSection
-                    }
-
-                    Spacer(minLength: 20)
+                if hasMedia {
+                    stravaStyleLayout
+                } else {
+                    traditionalLayout
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
             }
-            .scrollIndicators(.hidden)
-            .themedBackground()
             .navigationBarHidden(true)
-            .overlay(
-                // Custom header bar
-                VStack {
-                    customHeader
-                    Spacer()
-                }
-            )
+            .overlay(alignment: .top) {
+                adaptiveHeader
+            }
             .sheet(isPresented: $showingEditWorkout) {
                 EditWorkoutView(
                     workout: workout,
@@ -134,9 +108,356 @@ struct WorkoutDetailView: View {
                     deleteTask = nil
                 }
             }
+            .fullScreenCover(item: $selectedPhoto) { photo in
+                FullScreenPhotoView(photo: photo) {
+                    selectedPhoto = nil
+                }
+            }
         }
     }
-    
+
+    // MARK: - Strava-Style Layout
+
+    @ViewBuilder
+    private var stravaStyleLayout: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .top) {
+                // Photo/Video Hero (behind sheet)
+                // Use sheetOffset for smooth height during drag, fall back to position-based height
+                // sheetOffset > 0 means we're actively dragging; use the live offset for immediate feedback
+                // sheetOffset == 0 means drag ended; use position-based height which animates via .animation modifier
+                let heroHeight = sheetOffset > 0 ? sheetOffset : sheetPosition.photoHeight(in: geometry)
+                let heroOpacity: Double = {
+                    if sheetOffset > 0 {
+                        // During drag: fade based on how much hero is visible
+                        return min(1.0, sheetOffset / (geometry.size.height * 0.1))
+                    } else {
+                        return sheetPosition.photoOpacity
+                    }
+                }()
+
+                WorkoutDetailHeroView(
+                    photos: workout.photos,
+                    currentIndex: $currentPhotoIndex,
+                    sheetPosition: sheetPosition,
+                    onPhotoTap: { photo in
+                        selectedPhoto = photo
+                    }
+                )
+                .frame(height: heroHeight)
+                .opacity(heroOpacity)
+                .animation(.spring(response: 0.35, dampingFraction: 0.8), value: sheetPosition)
+
+                // Draggable Detail Sheet (overlays photo)
+                DraggableDetailSheet(position: $sheetPosition, currentOffset: $sheetOffset) {
+                    sheetDetailContent(in: geometry)
+                }
+            }
+        }
+    }
+
+    private func sheetDetailContent(in geometry: GeometryProxy) -> some View {
+        ScrollableDetailContent(sheetPosition: $sheetPosition) {
+            VStack(spacing: 24) {
+                // Media upload status banner at top
+                MediaUploadBanner(workoutId: workout.id) {
+                    Task {
+                        await MediaUploadManager.shared.retryFailedUploads(
+                            for: workout.id,
+                            modelContext: modelContext
+                        )
+                    }
+                }
+
+                // Header section (without top padding since sheet handles it)
+                sheetHeaderSection
+
+                // Notes (if available)
+                if !workout.notes.isEmpty {
+                    notesSection
+                }
+
+                // Workout Details
+                workoutDetailsSection
+
+                // Heart Rate Chart (if available)
+                if !workout.heartRateTimeSeries.isEmpty {
+                    HeartRateChartView(
+                        heartRateData: workout.heartRateTimeSeries,
+                        workoutStartTime: workout.date,
+                        workoutDuration: workout.duration
+                    )
+                }
+
+                // Additional metrics
+                if hasAdditionalMetrics {
+                    additionalMetricsSection
+                }
+
+                // Weights section
+                if workout.hasWeights {
+                    weightsUsedSection
+                }
+
+                Spacer(minLength: 40)
+            }
+            .padding(.horizontal, 20)
+            // Add top padding when expanded to account for header overlay
+            .padding(.top, sheetPosition == .expanded ? 60 : 8)
+        }
+    }
+
+    /// Header section for sheet (without top padding)
+    private var sheetHeaderSection: some View {
+        VStack(spacing: 16) {
+            // Workout name
+            Text(workout.name)
+                .font(.montserratBold(size: 24))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                .multilineTextAlignment(.center)
+
+            // Personal Records Badges
+            if workout.hasPersonalRecords {
+                PersonalRecordBadgeGroup(
+                    workout: workout,
+                    size: .medium,
+                    maxVisible: nil
+                )
+                .padding(.top, 4)
+            }
+
+            // Strava sync indicator
+            if FeatureFlags.isStravaEnabled && (isSyncingToStrava || workout.isSyncedToStrava) {
+                stravaSyncBadge
+            }
+
+            // Date & time
+            VStack(spacing: 4) {
+                Text(formatWorkoutDateTime())
+                    .font(.montserratRegular(size: 16))
+                    .foregroundStyle(.accent)
+            }
+        }
+    }
+
+    private var stravaSyncBadge: some View {
+        HStack(spacing: 6) {
+            Image("strava-icon")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 12, height: 12)
+                .opacity(isSyncingToStrava ? syncingIconOpacity : 1.0)
+            Text(isSyncingToStrava ? "Syncing..." : "Synced to Strava")
+                .font(.montserratRegular(size: 12))
+        }
+        .foregroundStyle(Color(red: 252/255, green: 76/255, blue: 2/255)) // Strava orange
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(
+            Capsule()
+                .fill(Color(red: 252/255, green: 76/255, blue: 2/255).opacity(0.15))
+        )
+        .onChange(of: isSyncingToStrava) { _, syncing in
+            if syncing {
+                withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
+                    syncingIconOpacity = 0.3
+                }
+            } else {
+                withAnimation(.default) {
+                    syncingIconOpacity = 1.0
+                }
+            }
+        }
+    }
+
+    // MARK: - Traditional Layout (No Media)
+
+    private var traditionalLayout: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                // Header with workout name and date
+                headerSection
+
+                // Media upload status banner
+                MediaUploadBanner(workoutId: workout.id) {
+                    Task {
+                        await MediaUploadManager.shared.retryFailedUploads(
+                            for: workout.id,
+                            modelContext: modelContext
+                        )
+                    }
+                }
+
+                // Notes (if available)
+                if !workout.notes.isEmpty {
+                    notesSection
+                }
+
+                // Workout Details
+                workoutDetailsSection
+
+                // Photos section - show if there are photos or pending uploads
+                WorkoutPhotosSection(workout: workout)
+
+                // Heart Rate Chart
+                if !workout.heartRateTimeSeries.isEmpty {
+                    HeartRateChartView(
+                        heartRateData: workout.heartRateTimeSeries,
+                        workoutStartTime: workout.date,
+                        workoutDuration: workout.duration
+                    )
+                }
+
+                // Additional metrics
+                if hasAdditionalMetrics {
+                    additionalMetricsSection
+                }
+
+                // Weights section
+                if workout.hasWeights {
+                    weightsUsedSection
+                }
+
+                Spacer(minLength: 20)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    // MARK: - Adaptive Header
+
+    private var adaptiveHeader: some View {
+        VStack(spacing: 0) {
+            HStack {
+                // Back button
+                Button(action: { dismiss() }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(headerForegroundColor)
+                        .padding(10)
+                        .background(
+                            Circle()
+                                .fill(headerBackgroundColor)
+                        )
+                }
+
+                Spacer()
+
+                // Title (fades in as sheet expands)
+                Text("Workout Details")
+                    .font(.montserratSemiBold(size: 18))
+                    .foregroundStyle(headerForegroundColor)
+                    .opacity(hasMedia ? headerTitleOpacity : 1.0)
+
+                Spacer()
+
+                // Menu button
+                Menu {
+                    menuContent
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(headerForegroundColor)
+                        .padding(10)
+                        .background(
+                            Circle()
+                                .fill(headerBackgroundColor)
+                        )
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, hasMedia && sheetPosition != .expanded ? 8 : 16)
+
+            // Divider only when not over photo
+            if !hasMedia || sheetPosition == .expanded {
+                Divider()
+                    .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
+            }
+        }
+        .background(headerBackground)
+        .animation(.easeOut(duration: 0.2), value: sheetPosition)
+    }
+
+    private var headerForegroundColor: Color {
+        if hasMedia && sheetPosition != .expanded {
+            return .white
+        }
+        return effectiveColorScheme == .dark ? .white : .black
+    }
+
+    private var headerBackgroundColor: Color {
+        if hasMedia && sheetPosition != .expanded {
+            return Color.black.opacity(0.3)
+        }
+        return .clear
+    }
+
+    private var headerTitleOpacity: Double {
+        switch sheetPosition {
+        case .collapsed, .middle: return 0.0
+        case .expanded: return 1.0
+        }
+    }
+
+    @ViewBuilder
+    private var headerBackground: some View {
+        if hasMedia && sheetPosition != .expanded {
+            Color.clear
+        } else {
+            effectiveColorScheme == .dark ? Color.black : Color.white
+        }
+    }
+
+    @ViewBuilder
+    private var menuContent: some View {
+        Button(action: {
+            showingShareWorkoutView = true
+        }) {
+            Label("Share", systemImage: "square.and.arrow.up")
+        }
+
+        // Strava sync option
+        if FeatureFlags.isStravaEnabled && stravaManager.isConnected {
+            if workout.isSyncedToStrava {
+                Label("Synced to Strava", systemImage: "checkmark.circle.fill")
+            } else {
+                Button(action: shareToStrava) {
+                    if isSyncingToStrava {
+                        Label("Syncing...", systemImage: "arrow.triangle.2.circlepath")
+                    } else {
+                        HStack {
+                            Image("strava-icon")
+                                .renderingMode(.template)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 13, height: 13)
+                            Text("Sync to Strava")
+                        }
+                    }
+                }
+                .disabled(isSyncingToStrava)
+            }
+        }
+
+        Button(action: {
+            showingEditWorkout = true
+        }) {
+            Label("Edit Workout", systemImage: "pencil")
+        }
+
+        Button(role: .destructive, action: {
+            showingDeleteConfirmation = true
+        }) {
+            Label("Delete Workout", systemImage: "trash")
+        }
+    }
+
+    // MARK: - Original Custom Header (keeping for reference)
+
     private var customHeader: some View {
         VStack(spacing: 0) {
             HStack {
@@ -274,9 +595,9 @@ struct WorkoutDetailView: View {
                     .foregroundStyle(.accent)
             }
         }
-        .padding(.top, 80) // Account for custom header
+        .padding(.top, 80) // Account for custom header overlay
     }
-    
+
     private var workoutDetailsSection: some View {
         VStack(spacing: 16) {
             // Section header
@@ -777,7 +1098,10 @@ struct WorkoutDetailView: View {
             isDeleting = true
         }
 
-        // Delete photos from Firebase first
+        // Cancel any pending uploads first (deletes local files and records)
+        await MediaUploadManager.shared.cancelUploads(for: workout.id, modelContext: modelContext)
+
+        // Delete uploaded photos from Firebase
         if !workout.photos.isEmpty {
             let photoService = PhotoService()
             do {

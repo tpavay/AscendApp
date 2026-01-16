@@ -76,6 +76,31 @@ final class WorkoutService {
             weightConfiguration: request.weightConfiguration
         )
     }
+
+    /// Create workout without photos - for async upload flow.
+    /// Photos will be uploaded asynchronously via MediaUploadManager.
+    @MainActor
+    func createWorkout(from request: CreateWorkoutRequest) async throws -> Workout {
+        let model = UIDevice.current.model
+
+        return Workout(
+            name: request.name,
+            date: request.date,
+            duration: request.duration,
+            steps: request.steps,
+            floors: request.floors,
+            stepsPerFloor: request.stepsPerFloor,
+            notes: request.notes,
+            avgHeartRate: request.avgHeartRate,
+            maxHeartRate: request.maxHeartRate,
+            caloriesBurned: request.caloriesBurned,
+            effortRating: request.effortRating,
+            source: .manual,
+            deviceModel: model,
+            photos: [],  // Empty - will be populated by MediaUploadManager
+            weightConfiguration: request.weightConfiguration
+        )
+    }
 }
 
 
