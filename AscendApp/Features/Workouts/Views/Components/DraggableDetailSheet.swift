@@ -16,10 +16,7 @@ struct DraggableDetailSheet<Content: View>: View {
     @State private var themeManager = ThemeManager.shared
 
     /// Current drag offset during gesture
-    @State private var dragOffset: CGFloat = 0
-
-    /// Whether the sheet is being dragged
-    @State private var isDragging: Bool = false
+    @GestureState private var dragOffset: CGFloat = 0
 
     let content: () -> Content
 
@@ -35,13 +32,15 @@ struct DraggableDetailSheet<Content: View>: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let offset = calculateOffset(in: geometry)
+            let baseOffset = position.offset(in: geometry)
+            let totalOffset = baseOffset + dragOffset
+            let minOffset: CGFloat = 0
+            let maxOffset = geometry.size.height * 0.85
+            let clampedOffset = min(max(totalOffset, minOffset), maxOffset)
 
             VStack(spacing: 0) {
-                // Drag handle
-                dragHandle
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
+                // Drag handle area - always draggable
+                dragHandleArea
 
                 // Sheet content
                 content()
@@ -49,66 +48,47 @@ struct DraggableDetailSheet<Content: View>: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(sheetBackground)
             .clipShape(RoundedCorner(radius: 16, corners: [.topLeft, .topRight]))
-            .offset(y: offset)
-            .gesture(dragGesture(in: geometry))
-            .animation(isDragging ? nil : .spring(response: 0.35, dampingFraction: 0.8), value: position)
-            .onChange(of: isDragging) { _, dragging in
-                if !dragging {
-                    // Reset currentOffset to 0 when drag ends so hero uses position-based animation
-                    currentOffset = 0
-                }
+            .offset(y: clampedOffset)
+            .conditionalGesture(enabled: position != .expanded, gesture: dragGesture(in: geometry))
+            .animation(dragOffset == 0 ? .spring(response: 0.35, dampingFraction: 0.8) : nil, value: position)
+            .onChange(of: clampedOffset) { _, newOffset in
+                // Update currentOffset for hero animation during drag
+                currentOffset = dragOffset != 0 ? newOffset : 0
             }
         }
     }
 
     // MARK: - View Components
 
-    private var dragHandle: some View {
-        RoundedRectangle(cornerRadius: 2.5)
-            .fill(effectiveColorScheme == .dark ? Color.white.opacity(0.3) : Color.gray.opacity(0.4))
-            .frame(width: 36, height: 5)
+    /// Larger drag handle area for easier grabbing
+    private var dragHandleArea: some View {
+        VStack(spacing: 0) {
+            RoundedRectangle(cornerRadius: 2.5)
+                .fill(effectiveColorScheme == .dark ? Color.white.opacity(0.3) : Color.gray.opacity(0.4))
+                .frame(width: 36, height: 5)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 24)
+        .contentShape(Rectangle())
     }
 
     private var sheetBackground: some View {
         effectiveColorScheme == .dark ? Color.black : Color.white
     }
 
-    // MARK: - Calculations
-
-    private func calculateOffset(in geometry: GeometryProxy) -> CGFloat {
-        let baseOffset = position.offset(in: geometry)
-        let totalOffset = baseOffset + dragOffset
-
-        // Clamp to prevent dragging beyond bounds
-        let minOffset: CGFloat = 0  // Fully expanded
-        let maxOffset = geometry.size.height * 0.85  // Don't go below screen
-
-        let clampedOffset = min(max(totalOffset, minOffset), maxOffset)
-
-        // Update the binding so hero can animate smoothly with drag
-        DispatchQueue.main.async {
-            currentOffset = clampedOffset
-        }
-
-        return clampedOffset
-    }
-
     // MARK: - Gestures
 
     private func dragGesture(in geometry: GeometryProxy) -> some Gesture {
         DragGesture()
-            .onChanged { value in
-                isDragging = true
-                dragOffset = value.translation.height
+            .updating($dragOffset) { value, state, _ in
+                state = value.translation.height
             }
             .onEnded { value in
-                isDragging = false
-
                 let velocity = value.predictedEndTranslation.height - value.translation.height
 
                 let targetPosition = SheetPosition.targetPosition(
                     from: position,
-                    dragOffset: dragOffset,
+                    dragOffset: value.translation.height,
                     velocity: velocity,
                     in: geometry
                 )
@@ -119,7 +99,6 @@ struct DraggableDetailSheet<Content: View>: View {
                 }
 
                 position = targetPosition
-                dragOffset = 0
             }
     }
 }
@@ -136,5 +115,17 @@ struct RoundedCorner: Shape {
             cornerRadii: CGSize(width: radius, height: radius)
         )
         return Path(path.cgPath)
+    }
+}
+
+/// Extension to conditionally apply a gesture
+extension View {
+    @ViewBuilder
+    func conditionalGesture<G: Gesture>(enabled: Bool, gesture: G) -> some View {
+        if enabled {
+            self.gesture(gesture)
+        } else {
+            self
+        }
     }
 }

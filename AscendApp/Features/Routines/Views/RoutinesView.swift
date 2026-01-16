@@ -23,6 +23,10 @@ struct RoutinesView: View {
     @State private var newRoutineFolderSelection: NewRoutineFolderSelection?
     @State private var expandedFolderIds: Set<String> = []
 
+    // Folder options state
+    @State private var selectedFolderForOptions: RoutineFolder?
+    @State private var folderToRename: RoutineFolder?
+
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
@@ -149,6 +153,53 @@ struct RoutinesView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
+        .sheet(item: $selectedFolderForOptions) { folder in
+            FolderOptionsSheet(
+                folderName: folder.name,
+                onReorderFolders: {
+                    selectedFolderForOptions = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        showingReorderFolders = true
+                    }
+                },
+                onRenameFolder: {
+                    let folderToRename = folder
+                    selectedFolderForOptions = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        self.folderToRename = folderToRename
+                    }
+                },
+                onAddNewRoutine: {
+                    let folderId = folder.id
+                    selectedFolderForOptions = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        newRoutineFolderSelection = NewRoutineFolderSelection(folderId: folderId)
+                    }
+                },
+                onDeleteFolder: {
+                    viewModel.deleteFolder(folder)
+                    selectedFolderForOptions = nil
+                    HapticsManager.shared.trigger(.mediumImpact)
+                }
+            )
+            .presentationDetents([.height(340)])
+            .presentationDragIndicator(.hidden)
+        }
+        .sheet(item: $folderToRename) { folder in
+            RenameFolderDialog(
+                isPresented: Binding(
+                    get: { folderToRename != nil },
+                    set: { if !$0 { folderToRename = nil } }
+                ),
+                currentName: folder.name
+            ) { newName in
+                viewModel.renameFolder(folder, newName: newName)
+                folderToRename = nil
+                HapticsManager.shared.trigger(.success)
+            }
+            .presentationDetents([.height(220)])
+            .presentationDragIndicator(.visible)
+        }
         .fullScreenCover(item: $activeRoutine) { routine in
             ActiveRoutineView(routine: routine)
         }
@@ -191,33 +242,48 @@ struct RoutinesView: View {
         if !filteredRoutines.isEmpty || !group.isUnfiled {
             VStack(alignment: .leading, spacing: 12) {
                 // Folder header - show for all sections including unfiled
-                Button(action: { toggleFolderExpanded(group.id) }) {
-                    HStack {
-                        Text(displayName)
-                            .font(.montserratSemiBold(size: 20))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                        Spacer()
-
+                HStack {
+                    Button(action: { toggleFolderExpanded(group.id) }) {
                         HStack(spacing: 8) {
-                            Text("\(filteredRoutines.count) routine\(filteredRoutines.count == 1 ? "" : "s")")
-                                .font(.montserratRegular(size: 14))
-                                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
-
-                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+
+                            Text(displayName)
+                                .font(.montserratSemiBold(size: 20))
+                                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+                            Text("(\(filteredRoutines.count))")
+                                .font(.montserratRegular(size: 16))
+                                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+
+                            Spacer()
                         }
                     }
-                }
-                .buttonStyle(.plain)
-                .simultaneousGesture(
-                    LongPressGesture(minimumDuration: 0.5)
-                        .onEnded { _ in
-                            HapticsManager.shared.trigger(.mediumImpact)
-                            showingReorderFolders = true
+                    .buttonStyle(.plain)
+                    .simultaneousGesture(
+                        LongPressGesture(minimumDuration: 0.5)
+                            .onEnded { _ in
+                                HapticsManager.shared.trigger(.mediumImpact)
+                                showingReorderFolders = true
+                            }
+                    )
+
+                    // Three-dot menu button (only for user folders, not "My Routines")
+                    if let folder = group.folder {
+                        Button {
+                            selectedFolderForOptions = folder
+                            HapticsManager.shared.trigger(.lightImpact)
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+                                .frame(width: 32, height: 32)
+                                .contentShape(Rectangle())
                         }
-                )
+                        .buttonStyle(.plain)
+                    }
+                }
 
                 // Routines in this folder (collapsible)
                 if isExpanded {

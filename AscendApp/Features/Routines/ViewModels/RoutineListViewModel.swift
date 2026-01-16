@@ -203,6 +203,35 @@ final class RoutineListViewModel {
         }
     }
 
+    /// Delete a folder (moves routines to My Routines)
+    func deleteFolder(_ folder: RoutineFolder) {
+        guard let service = routineService else { return }
+
+        do {
+            try service.deleteFolder(folder)
+            folders.removeAll { $0.id == folder.id }
+            // Reload to reflect routines moved to My Routines
+            loadRoutines()
+        } catch {
+            errorMessage = "Failed to delete folder: \(error.localizedDescription)"
+        }
+    }
+
+    /// Rename a folder
+    func renameFolder(_ folder: RoutineFolder, newName: String) {
+        guard let service = routineService else { return }
+
+        do {
+            try service.renameFolder(folder, newName: newName)
+            // Update local state
+            if let index = folders.firstIndex(where: { $0.id == folder.id }) {
+                folders[index].name = newName
+            }
+        } catch {
+            errorMessage = "Failed to rename folder: \(error.localizedDescription)"
+        }
+    }
+
     /// Move routine to a folder
     func moveRoutineToFolder(_ routine: Routine, folderId: UUID?) {
         guard let service = routineService else { return }

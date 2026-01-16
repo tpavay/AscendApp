@@ -8,6 +8,47 @@
 import SwiftUI
 import AVKit
 
+/// Custom video player that fills its container (aspect fill)
+struct FillVideoPlayer: UIViewRepresentable {
+    let player: AVPlayer
+
+    func makeUIView(context: Context) -> PlayerUIView {
+        let view = PlayerUIView()
+        view.player = player
+        return view
+    }
+
+    func updateUIView(_ uiView: PlayerUIView, context: Context) {
+        uiView.player = player
+    }
+
+    class PlayerUIView: UIView {
+        var player: AVPlayer? {
+            didSet {
+                playerLayer.player = player
+            }
+        }
+
+        private var playerLayer: AVPlayerLayer {
+            layer as! AVPlayerLayer
+        }
+
+        override class var layerClass: AnyClass {
+            AVPlayerLayer.self
+        }
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            playerLayer.videoGravity = .resizeAspectFill
+            backgroundColor = .black
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+    }
+}
+
 /// Full-screen photo/video hero view with carousel support
 struct WorkoutDetailHeroView: View {
     let photos: [Photo]
@@ -145,11 +186,7 @@ private struct HeroMediaItem: View {
     @ViewBuilder
     private var videoContent: some View {
         if let player = player {
-            VideoPlayer(player: player)
-                .aspectRatio(contentMode: .fill)
-                .frame(width: geometry.size.width, height: geometry.size.height)
-                .clipped()
-                .disabled(true) // Disable controls, tap goes to full screen
+            FillVideoPlayer(player: player)
                 .overlay(alignment: .topTrailing) {
                     // Duration badge
                     if let duration = photo.duration {
@@ -270,12 +307,25 @@ private struct HeroMediaItem: View {
         await MainActor.run {
             let newPlayer = AVPlayer(playerItem: playerItem)
             newPlayer.isMuted = true // Muted by default in hero view
+
+            // Loop video
+            NotificationCenter.default.addObserver(
+                forName: .AVPlayerItemDidPlayToEndTime,
+                object: playerItem,
+                queue: .main
+            ) { _ in
+                newPlayer.seek(to: .zero)
+                newPlayer.play()
+            }
+
             self.player = newPlayer
             self.isLoading = false
 
-            // Auto-play if visible
+            // Auto-play if visible (slight delay to ensure view is ready)
             if isVisible {
-                newPlayer.play()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    newPlayer.play()
+                }
             }
         }
     }

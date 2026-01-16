@@ -162,6 +162,12 @@ final class RoutineService {
         try modelContext.save()
     }
 
+    /// Renames a folder
+    func renameFolder(_ folder: RoutineFolder, newName: String) throws {
+        folder.name = newName
+        try modelContext.save()
+    }
+
     /// Saves the order of folders
     func saveFolderOrder(_ folders: [RoutineFolder]) throws {
         for (index, folder) in folders.enumerated() {

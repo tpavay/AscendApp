@@ -23,7 +23,6 @@ struct ScrollableDetailContent<Content: View>: View {
 
     @State private var scrollOffset: CGFloat = 0
     @State private var isAtTop: Bool = true
-    @State private var isDraggingFromTop: Bool = false
 
     private let scrollToCollapseThreshold: CGFloat = 50
 
@@ -47,23 +46,22 @@ struct ScrollableDetailContent<Content: View>: View {
             isAtTop = offset >= -5  // Small tolerance for bounce
         }
         .simultaneousGesture(
-            DragGesture(minimumDistance: 10)
-                .onChanged { value in
-                    // Only activate pull-to-collapse when expanded and at top
-                    if sheetPosition == .expanded && isAtTop && value.translation.height > 0 {
-                        isDraggingFromTop = true
-                    }
-                }
-                .onEnded { value in
-                    if isDraggingFromTop && value.translation.height > scrollToCollapseThreshold {
-                        // Collapse sheet to show photo
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                            sheetPosition = .middle
-                        }
-                        HapticsManager.shared.trigger(.selection)
-                    }
-                    isDraggingFromTop = false
-                }
+            pullToCollapseGesture,
+            including: sheetPosition == .expanded && isAtTop ? .all : .subviews
         )
+    }
+
+    /// Gesture that collapses the sheet when pulling down from the top while expanded
+    private var pullToCollapseGesture: some Gesture {
+        DragGesture(minimumDistance: 10)
+            .onEnded { value in
+                // Only trigger collapse when expanded, at top, and pulling down
+                if sheetPosition == .expanded && isAtTop && value.translation.height > scrollToCollapseThreshold {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        sheetPosition = .middle
+                    }
+                    HapticsManager.shared.trigger(.selection)
+                }
+            }
     }
 }
