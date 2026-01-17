@@ -49,6 +49,10 @@ struct WorkoutTrendBarChartView: View {
             return bucket.metricPerMinute
         case .averageHeartRate:
             return bucket.averageHeartRate ?? 0
+        case .duration:
+            return bucket.totalDuration / 60.0 // Return minutes
+        case .workoutCount:
+            return Double(bucket.workoutCount)
         }
     }
 
@@ -125,7 +129,7 @@ struct WorkoutTrendBarChartView: View {
                     handleTap(at: event.location, proxy: proxy)
                 }
         }
-        .frame(height: 200)
+        .frame(height: 130)
     }
 
     private func isSelected(_ bucket: WorkoutTrendBucket) -> Bool {

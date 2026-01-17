@@ -64,4 +64,6 @@ enum WorkoutTrendBucketValueType {
     case total
     case perMinute
     case averageHeartRate
+    case duration
+    case workoutCount
 }

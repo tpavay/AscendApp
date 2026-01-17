@@ -24,6 +24,7 @@ struct WorkoutTrendBucket: Identifiable {
     let metricPerMinute: Double
     let averageHeartRate: Double?
     let workoutCount: Int
+    let totalDuration: TimeInterval
 }
 
 /// The kinds of trend metrics we plot for workouts.
@@ -31,9 +32,10 @@ enum WorkoutTrendMetricType: String, Identifiable {
     case preferredTotal
     case preferredPerMinute
     case averageHeartRate
-    
+    case duration
+
     var id: String { rawValue }
-    
+
     func title(using preferredMetric: WorkoutMetric) -> String {
         switch self {
         case .preferredTotal:
@@ -42,9 +44,11 @@ enum WorkoutTrendMetricType: String, Identifiable {
             return "\(preferredMetric.displayName) per Minute"
         case .averageHeartRate:
             return "Average Heart Rate"
+        case .duration:
+            return "Duration"
         }
     }
-    
+
     func unit(using preferredMetric: WorkoutMetric) -> String {
         switch self {
         case .preferredTotal:
@@ -53,9 +57,11 @@ enum WorkoutTrendMetricType: String, Identifiable {
             return "\(preferredMetric.unit)/min"
         case .averageHeartRate:
             return "bpm"
+        case .duration:
+            return "min"
         }
     }
-    
+
     func value(for workout: Workout, preferredMetric: WorkoutMetric) -> Double? {
         switch self {
         case .preferredTotal:
@@ -65,6 +71,8 @@ enum WorkoutTrendMetricType: String, Identifiable {
         case .averageHeartRate:
             guard let avg = workout.avgHeartRate else { return nil }
             return Double(avg)
+        case .duration:
+            return workout.duration / 60.0 // Return minutes
         }
     }
 }
@@ -116,7 +124,8 @@ struct WorkoutTrendsBuilder {
                 totalMetric: totalMetric,
                 metricPerMinute: metricPerMinute,
                 averageHeartRate: averageHeartRate,
-                workoutCount: bucketWorkouts.count
+                workoutCount: bucketWorkouts.count,
+                totalDuration: totalDuration
             ))
 
             cursor = next

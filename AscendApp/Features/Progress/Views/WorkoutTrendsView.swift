@@ -50,7 +50,113 @@ struct WorkoutTrendsView: View {
     private var heartRatePoints: [WorkoutTrendPoint] {
         WorkoutTrendsBuilder.trendPoints(from: filteredWorkouts, metric: .averageHeartRate, preferredMetric: activePreferredMetric)
     }
-    
+
+    // MARK: - Summary Stats
+
+    private var totalMetricSum: Int {
+        filteredWorkouts.reduce(0) { $0 + $1.metricValue(for: activePreferredMetric) }
+    }
+
+    private var averageMetricPerMinute: Double? {
+        let totalMetric = filteredWorkouts.reduce(0.0) { $0 + Double($1.metricValue(for: activePreferredMetric)) }
+        let totalDuration = filteredWorkouts.reduce(0.0) { $0 + $1.duration }
+        let minutes = totalDuration / 60.0
+        guard minutes > 0 else { return nil }
+        return totalMetric / minutes
+    }
+
+    private var averageHeartRate: Int? {
+        let heartRates = filteredWorkouts.compactMap(\.avgHeartRate)
+        guard !heartRates.isEmpty else { return nil }
+        return heartRates.reduce(0, +) / heartRates.count
+    }
+
+    private var totalDuration: TimeInterval {
+        filteredWorkouts.reduce(0.0) { $0 + $1.duration }
+    }
+
+    private var workoutCount: Int {
+        filteredWorkouts.count
+    }
+
+    private var durationPoints: [WorkoutTrendPoint] {
+        WorkoutTrendsBuilder.trendPoints(from: filteredWorkouts, metric: .duration, preferredMetric: activePreferredMetric)
+    }
+
+    // MARK: - Previous Period Stats (for comparison)
+
+    private var previousPeriodAnchor: Date {
+        switch selectedRange {
+        case .thisWeek:
+            return calendar.date(byAdding: .weekOfYear, value: -1, to: trendAnchor) ?? trendAnchor
+        case .thisMonth:
+            return calendar.date(byAdding: .month, value: -1, to: trendAnchor) ?? trendAnchor
+        case .lastYear:
+            return calendar.date(byAdding: .year, value: -1, to: trendAnchor) ?? trendAnchor
+        }
+    }
+
+    private var previousPeriodWorkouts: [Workout] {
+        guard let interval = selectedRange.dateInterval(using: calendar, anchor: previousPeriodAnchor) else { return [] }
+        return workouts.filter { interval.contains($0.date) }
+    }
+
+    private var previousTotalMetricSum: Int {
+        previousPeriodWorkouts.reduce(0) { $0 + $1.metricValue(for: activePreferredMetric) }
+    }
+
+    private var previousAverageMetricPerMinute: Double? {
+        let totalMetric = previousPeriodWorkouts.reduce(0.0) { $0 + Double($1.metricValue(for: activePreferredMetric)) }
+        let totalDuration = previousPeriodWorkouts.reduce(0.0) { $0 + $1.duration }
+        let minutes = totalDuration / 60.0
+        guard minutes > 0 else { return nil }
+        return totalMetric / minutes
+    }
+
+    private var previousAverageHeartRate: Int? {
+        let heartRates = previousPeriodWorkouts.compactMap(\.avgHeartRate)
+        guard !heartRates.isEmpty else { return nil }
+        return heartRates.reduce(0, +) / heartRates.count
+    }
+
+    private var previousTotalDuration: TimeInterval {
+        previousPeriodWorkouts.reduce(0.0) { $0 + $1.duration }
+    }
+
+    private var previousWorkoutCount: Int {
+        previousPeriodWorkouts.count
+    }
+
+    // Percentage changes
+    private var totalMetricChange: Double? {
+        guard previousTotalMetricSum > 0 else { return nil }
+        return Double(totalMetricSum - previousTotalMetricSum) / Double(previousTotalMetricSum) * 100
+    }
+
+    private var avgPerMinuteChange: Double? {
+        guard let current = averageMetricPerMinute,
+              let previous = previousAverageMetricPerMinute,
+              previous > 0 else { return nil }
+        return (current - previous) / previous * 100
+    }
+
+    private var avgHeartRateChange: Double? {
+        guard let current = averageHeartRate,
+              let previous = previousAverageHeartRate,
+              previous > 0 else { return nil }
+        return Double(current - previous) / Double(previous) * 100
+    }
+
+    private var totalDurationChange: Double? {
+        guard previousTotalDuration > 0 else { return nil }
+        return (totalDuration - previousTotalDuration) / previousTotalDuration * 100
+    }
+
+    private var workoutCountChange: Double? {
+        guard previousWorkoutCount > 0 else { return nil }
+        return Double(workoutCount - previousWorkoutCount) / Double(previousWorkoutCount) * 100
+    }
+
     private var hasEnoughPointData: Bool {
         min(totalPoints.count, perMinutePoints.count) >= 2
     }
@@ -123,7 +229,12 @@ struct WorkoutTrendsView: View {
                         Spacer()
                     }
                 }
-                
+
+                // Summary stats (only show when there's data)
+                if !filteredWorkouts.isEmpty {
+                    summaryStatsView
+                }
+
                 if !hasEnoughTotalWorkouts {
                     // User hasn't logged enough workouts overall
                     emptyState
@@ -162,6 +273,28 @@ struct WorkoutTrendsView: View {
                                 colorScheme: effectiveColorScheme
                             )
                         }
+
+                        // Duration bar chart
+                        WorkoutTrendBarChartView(
+                            title: "Duration",
+                            unitLabel: "min",
+                            buckets: totalBuckets,
+                            valueType: .duration,
+                            bucketStyle: selectedRange.bucketStyle,
+                            range: selectedRange,
+                            colorScheme: effectiveColorScheme
+                        )
+
+                        // Workouts per month bar chart
+                        WorkoutTrendBarChartView(
+                            title: "Workouts",
+                            unitLabel: "",
+                            buckets: totalBuckets,
+                            valueType: .workoutCount,
+                            bucketStyle: selectedRange.bucketStyle,
+                            range: selectedRange,
+                            colorScheme: effectiveColorScheme
+                        )
                     }
                 } else {
                     // W/M views - line charts for individual workouts
@@ -183,6 +316,30 @@ struct WorkoutTrendsView: View {
                             preferredMetric: activePreferredMetric,
                             colorScheme: effectiveColorScheme
                         )
+
+                        // Heart Rate line chart (if data available)
+                        if heartRatePoints.count >= 2 {
+                            WorkoutTrendChartView(
+                                title: "Average Heart Rate",
+                                unitLabel: "bpm",
+                                points: heartRatePoints,
+                                metricType: .averageHeartRate,
+                                preferredMetric: activePreferredMetric,
+                                colorScheme: effectiveColorScheme
+                            )
+                        }
+
+                        // Duration line chart
+                        if durationPoints.count >= 2 {
+                            WorkoutTrendChartView(
+                                title: "Duration",
+                                unitLabel: "min",
+                                points: durationPoints,
+                                metricType: .duration,
+                                preferredMetric: activePreferredMetric,
+                                colorScheme: effectiveColorScheme
+                            )
+                        }
                     } else if filteredWorkouts.isEmpty {
                         noDataInTimeframeState
                     } else {
@@ -248,7 +405,126 @@ struct WorkoutTrendsView: View {
         .pickerStyle(.segmented)
         .frame(maxWidth: 320)
     }
-    
+
+    private var summaryStatsView: some View {
+        VStack(spacing: 10) {
+            // Row 1: Workouts, Duration, Total Metric
+            HStack(spacing: 10) {
+                statCard(
+                    title: "Workouts",
+                    value: "\(workoutCount)",
+                    unit: "",
+                    change: workoutCountChange
+                )
+
+                statCard(
+                    title: "Duration",
+                    value: formatDuration(totalDuration),
+                    unit: "",
+                    change: totalDurationChange
+                )
+
+                statCard(
+                    title: "Total \(activePreferredMetric.displayName)",
+                    value: formatNumber(totalMetricSum),
+                    unit: activePreferredMetric.unit,
+                    change: totalMetricChange
+                )
+            }
+
+            // Row 2: Avg per Minute, Avg Heart Rate
+            HStack(spacing: 10) {
+                if let avgPerMin = averageMetricPerMinute {
+                    statCard(
+                        title: "Avg per Min",
+                        value: String(format: "%.1f", avgPerMin),
+                        unit: "\(activePreferredMetric.unit)/min",
+                        change: avgPerMinuteChange
+                    )
+                }
+
+                if let avgHR = averageHeartRate {
+                    statCard(
+                        title: "Avg Heart Rate",
+                        value: "\(avgHR)",
+                        unit: "bpm",
+                        change: avgHeartRateChange
+                    )
+                }
+            }
+        }
+    }
+
+    private func statCard(title: String, value: String, unit: String, change: Double? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title)
+                    .font(.montserratRegular(size: 11))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Spacer()
+
+                if let change = change {
+                    changeIndicator(change)
+                }
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                Text(value)
+                    .font(.montserratBold(size: 18))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+
+                Text(unit)
+                    .font(.montserratRegular(size: 10))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(effectiveColorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03))
+        )
+    }
+
+    private func changeIndicator(_ change: Double) -> some View {
+        let isPositive = change >= 0
+        let color: Color = isPositive ? .green : .red
+        let arrow = isPositive ? "arrow.up" : "arrow.down"
+        let displayValue = abs(change)
+
+        return HStack(spacing: 2) {
+            Image(systemName: arrow)
+                .font(.system(size: 8, weight: .bold))
+            Text(displayValue < 1000 ? String(format: "%.0f%%", displayValue) : "999+%")
+                .font(.montserratSemiBold(size: 10))
+        }
+        .foregroundStyle(color)
+    }
+
+    private func formatNumber(_ number: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return formatter.string(from: NSNumber(value: number)) ?? "\(number)"
+    }
+
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        let totalMinutes = Int(seconds / 60)
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        } else {
+            return "\(minutes)m"
+        }
+    }
+
     private var rangeDescription: String? {
         guard let interval = selectedRange.dateInterval(using: calendar, anchor: trendAnchor) else { return nil }
         let formatter = DateFormatter()

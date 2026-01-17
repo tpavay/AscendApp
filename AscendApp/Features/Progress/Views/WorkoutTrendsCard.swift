@@ -225,7 +225,7 @@ struct WorkoutTrendChartView: View {
                         selectNearestPoint(at: event.location, proxy: proxy)
                     }
             }
-            .frame(height: 180)
+            .frame(height: 130)
         }
         .padding(14)
         .background(
