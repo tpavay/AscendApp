@@ -13,8 +13,7 @@ struct HomeView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
-    @State private var importService = WorkoutImportService.shared
-    @State private var hevyImportService = HevyImportService.shared
+    @State private var unifiedImportService = UnifiedImportService.shared
     @State private var showingImportSheet = false
     @State private var showingGoalsSheet = false
     @AppStorage("firstLaunchDate") private var firstLaunchDate: Double = 0
@@ -65,13 +64,13 @@ struct HomeView: View {
                     Spacer()
 
                     // Notification bell for workout imports
-                    NotificationBellView(pendingImports: importService.pendingWorkoutsCount) {
+                    NotificationBellView(pendingImports: unifiedImportService.totalPendingCount) {
                         Task {
-                            await importService.checkForNewWorkouts()
+                            await unifiedImportService.checkForNewWorkouts()
                             showingImportSheet = true
                         }
                     }
-                    .onChange(of: importService.pendingWorkoutsCount) { oldValue, newValue in
+                    .onChange(of: unifiedImportService.totalPendingCount) { oldValue, newValue in
                         print("🔄 HomeView detected count change from \(oldValue) to \(newValue)")
                     }
                 }
@@ -104,25 +103,21 @@ struct HomeView: View {
                 firstLaunchDate = Date().timeIntervalSince1970
             }
 
-            // Configure the import services with model context
-            importService.configure(modelContext: modelContext)
-            hevyImportService.configure(modelContext: modelContext)
+            // Configure the unified import service with model context
+            unifiedImportService.configure(modelContext: modelContext)
 
-            // Check for workouts on app launch
-            await importService.checkForNewWorkoutsInBackground()
-
-            // Check for new Hevy exercises if connected
-            await hevyImportService.checkForNewExercises()
+            // Check for workouts from all sources on app launch
+            await unifiedImportService.checkForNewWorkoutsInBackground()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             // Check for new workouts when app comes to foreground (throttled to prevent spam)
             Task {
-                await importService.checkForNewWorkoutsInBackground()
+                await unifiedImportService.checkForNewWorkoutsInBackground()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
             // Reset throttling when app goes to background so next foreground check works
-            importService.resetBackgroundCheckThrottle()
+            unifiedImportService.resetBackgroundCheckThrottle()
         }
     }
 }

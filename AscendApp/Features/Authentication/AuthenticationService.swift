@@ -23,7 +23,20 @@ enum AuthenticationError: LocalizedError {
 }
 
 extension AuthenticationError {
+    /// User-friendly error description shown to users
     var errorDescription: String? {
+        switch self {
+        case .noClientID, .noRootViewController, .noIDToken, .invalidAppleCredential:
+            return "Something went wrong. Please try again."
+        case .signInFailed, .appleSignInFailed:
+            return "Unable to sign in. Please check your connection and try again."
+        case .signOutFailed:
+            return "Unable to sign out. Please try again."
+        }
+    }
+
+    /// Technical details for logging/debugging (not shown to users)
+    var technicalDescription: String {
         switch self {
         case .noClientID:
             return "No client ID found in Firebase configuration"

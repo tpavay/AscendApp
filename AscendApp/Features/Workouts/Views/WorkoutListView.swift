@@ -34,7 +34,7 @@ struct WorkoutListView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(AuthenticationViewModel.self) private var authVM
     @State private var themeManager = ThemeManager.shared
-    @State private var importService = WorkoutImportService.shared
+    @State private var unifiedImportService = UnifiedImportService.shared
     @State private var settingsManager = SettingsManager.shared
     @StateObject private var filterState = WorkoutListFilterState()
     
@@ -74,7 +74,7 @@ struct WorkoutListView: View {
                     selectedCount: selectedWorkouts.count,
                     allSelected: areAllWorkoutsSelected,
                     effectiveColorScheme: effectiveColorScheme,
-                    pendingImportCount: importService.pendingWorkoutsCount,
+                    pendingImportCount: unifiedImportService.totalPendingCount,
                     canDelete: !selectedWorkouts.isEmpty,
                     workouts: workouts,
                     filterState: filterState,
@@ -148,7 +148,7 @@ struct WorkoutListView: View {
                             handleImportTapped()
                         }
                     },
-                    pendingImportCount: importService.pendingWorkoutsCount
+                    pendingImportCount: unifiedImportService.totalPendingCount
                 )
                 .presentationDetents([.height(280)])
             }
@@ -243,8 +243,8 @@ struct WorkoutListView: View {
                 Text(deleteErrorMessage)
             }
             .task {
-                // Configure import service with model context
-                importService.configure(modelContext: modelContext)
+                // Configure unified import service with model context
+                unifiedImportService.configure(modelContext: modelContext)
             }
         }
     }
@@ -270,7 +270,7 @@ struct WorkoutListView: View {
     
     private func handleImportTapped() {
         Task {
-            await importService.checkForNewWorkouts()
+            await unifiedImportService.checkForNewWorkouts()
             showingImportSheet = true
         }
     }

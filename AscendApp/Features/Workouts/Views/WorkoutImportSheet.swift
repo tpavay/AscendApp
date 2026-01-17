@@ -12,8 +12,9 @@ struct WorkoutImportSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
-    @State private var importService = WorkoutImportService.shared
-    @State private var importingWorkoutId: UUID? = nil  // Currently importing single workout
+    @State private var unifiedImportService = UnifiedImportService.shared
+    @State private var hevyManager = HevyManager.shared
+    @State private var importingWorkoutId: String? = nil  // Currently importing single workout
     @State private var isImportingAll = false  // Bulk import in progress
 
     private var effectiveColorScheme: ColorScheme {
@@ -21,8 +22,8 @@ struct WorkoutImportSheet: View {
     }
 
     private var unimportedCount: Int {
-        importService.pendingWorkouts.filter { workout in
-            !importService.isWorkoutImported(workout.uuid.uuidString)
+        unifiedImportService.pendingWorkouts.filter { workout in
+            !unifiedImportService.isWorkoutImported(workout)
         }.count
     }
 
@@ -31,7 +32,9 @@ struct WorkoutImportSheet: View {
             ScrollView {
                 VStack(spacing: 0) {
                     // Content
-                    if importService.pendingWorkouts.isEmpty {
+                    if unifiedImportService.isLoading {
+                        loadingStateView
+                    } else if unifiedImportService.pendingWorkouts.isEmpty {
                         emptyStateView
                     } else {
                         workoutListSection
@@ -53,6 +56,20 @@ struct WorkoutImportSheet: View {
         .themedBackground()
     }
 
+    // MARK: - Loading State
+
+    private var loadingStateView: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .scaleEffect(1.2)
+
+            Text("Checking for workouts...")
+                .font(.montserratMedium(size: 16))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.top, 60)
+    }
+
     // MARK: - Empty State
 
     private var emptyStateView: some View {
@@ -65,7 +82,9 @@ struct WorkoutImportSheet: View {
                 .font(.montserratBold(size: 20))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
 
-            Text("All your Apple Health workouts have already been imported.")
+            Text(hevyManager.isConnected
+                 ? "All your Apple Health and Hevy workouts have already been imported."
+                 : "All your Apple Health workouts have already been imported.")
                 .font(.montserratRegular(size: 14))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -111,13 +130,14 @@ struct WorkoutImportSheet: View {
 
             // Workout rows
             LazyVStack(spacing: 0) {
-                ForEach(importService.pendingWorkouts, id: \.uuid) { workout in
-                    WorkoutImportRow(
-                        workout: workout,
-                        isImportingThis: importingWorkoutId == workout.uuid,
+                ForEach(unifiedImportService.pendingWorkouts, id: \.id) { pending in
+                    PendingWorkoutImportRow(
+                        pending: pending,
+                        isImportingThis: importingWorkoutId == pending.id,
                         isImportingAny: importingWorkoutId != nil || isImportingAll,
+                        autoLinkEnabled: hevyManager.autoLinkAppleHealth,
                         effectiveColorScheme: effectiveColorScheme,
-                        onImport: { importWorkout(workout) }
+                        onImport: { importWorkout(pending) }
                     )
 
                     Rectangle()
@@ -131,10 +151,10 @@ struct WorkoutImportSheet: View {
 
     // MARK: - Actions
 
-    private func importWorkout(_ hkWorkout: HKWorkout) {
+    private func importWorkout(_ pending: PendingWorkout) {
         Task {
-            importingWorkoutId = hkWorkout.uuid
-            _ = await importService.importWorkout(hkWorkout)
+            importingWorkoutId = pending.id
+            _ = await unifiedImportService.importWorkout(pending)
             importingWorkoutId = nil
         }
     }
@@ -144,14 +164,13 @@ struct WorkoutImportSheet: View {
             isImportingAll = true
 
             // Import workouts one by one so we can update UI as each completes
-            // Bulk import skips review - imports all valid workouts directly
-            let workoutsToImport = importService.pendingWorkouts.filter { workout in
-                !importService.isWorkoutImported(workout.uuid.uuidString)
+            let workoutsToImport = unifiedImportService.pendingWorkouts.filter { workout in
+                !unifiedImportService.isWorkoutImported(workout)
             }
 
             for workout in workoutsToImport {
-                importingWorkoutId = workout.uuid
-                _ = await importService.importWorkout(workout)
+                importingWorkoutId = workout.id
+                _ = await unifiedImportService.importWorkout(workout)
                 importingWorkoutId = nil
             }
 
@@ -166,44 +185,49 @@ struct WorkoutImportSheet: View {
     }
 }
 
-// MARK: - Workout Import Row
+// MARK: - Pending Workout Import Row
 
-struct WorkoutImportRow: View {
-    let workout: HKWorkout
+struct PendingWorkoutImportRow: View {
+    let pending: PendingWorkout
     let isImportingThis: Bool  // This specific workout is being imported
     let isImportingAny: Bool   // Any import is in progress (disable button)
+    let autoLinkEnabled: Bool
     let effectiveColorScheme: ColorScheme
     let onImport: () -> Void
 
-    @State private var importService = WorkoutImportService.shared
+    @State private var unifiedImportService = UnifiedImportService.shared
 
     private var isImported: Bool {
-        importService.isWorkoutImported(workout.uuid.uuidString)
+        unifiedImportService.isWorkoutImported(pending)
     }
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
+            // Source icon
+            sourceIcon
+                .frame(width: 24, height: 24)
+
             // Left side - Date, time, source
             VStack(alignment: .leading, spacing: 4) {
-                Text(workout.startDate.formatted(.dateTime.month().day().year()))
+                Text(pending.startDate.formatted(.dateTime.month().day().year()))
                     .font(.montserratSemiBold(size: 16))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
 
                 HStack(spacing: 6) {
-                    Text(workout.startDate.formatted(.dateTime.hour().minute()))
+                    Text(pending.startDate.formatted(.dateTime.hour().minute()))
                         .font(.montserratRegular(size: 14))
                         .foregroundStyle(.secondary)
 
-                    Text("•")
+                    Text("\u{2022}")
                         .font(.montserratRegular(size: 14))
                         .foregroundStyle(.secondary)
 
-                    Text(formatDuration(workout.duration))
+                    Text(formatDuration(pending.duration))
                         .font(.montserratRegular(size: 14))
                         .foregroundStyle(.secondary)
                 }
 
-                Text(workout.sourceRevision.source.name)
+                Text(pending.displaySourceName(autoLinkEnabled: autoLinkEnabled))
                     .font(.montserratRegular(size: 13))
                     .foregroundStyle(.secondary)
             }
@@ -242,6 +266,31 @@ struct WorkoutImportRow: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
+    }
+
+    @ViewBuilder
+    private var sourceIcon: some View {
+        switch pending.source {
+        case .appleHealth:
+            Image(systemName: "heart.fill")
+                .font(.system(size: 14))
+                .foregroundStyle(.red)
+        case .hevy:
+            Image("hevy-icon")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 20, height: 20)
+                .cornerRadius(4)
+        case .manual:
+            Image(systemName: "hand.draw.fill")
+                .font(.system(size: 14))
+                .foregroundStyle(.blue)
+        case .garmin, .strava, .fitbit:
+            // Future integrations - show generic icon
+            Image(systemName: "figure.walk")
+                .font(.system(size: 14))
+                .foregroundStyle(.blue)
+        }
     }
 
     private func formatDuration(_ duration: TimeInterval) -> String {

@@ -11,12 +11,8 @@ struct HevyIntegrationCard: View {
     @Environment(\.colorScheme) private var systemColorScheme
     @State private var themeManager = ThemeManager.shared
     @State private var hevyManager = HevyManager.shared
-    @State private var hevyImportService = HevyImportService.shared
     @State private var showingApiKeyEntry = false
     @State private var showingDisconnectConfirmation = false
-    @State private var importedCount: Int?
-    @State private var linkedCount: Int?
-    @State private var linkingAttempted = false  // Tracks if linking was attempted (even with 0 matches)
 
     // Hevy brand color (dark purple/blue)
     private let hevyColor = Color(red: 45/255, green: 51/255, blue: 107/255)
@@ -43,7 +39,7 @@ struct HevyIntegrationCard: View {
                 Spacer()
 
                 // Connect/Disconnect button
-                if hevyManager.isConnecting || hevyImportService.isImporting {
+                if hevyManager.isConnecting {
                     ProgressView()
                         .scaleEffect(0.8)
                 } else if hevyManager.isConnected {
@@ -77,123 +73,41 @@ struct HevyIntegrationCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            if let error = hevyImportService.lastError {
-                Text(error.localizedDescription)
-                    .font(.montserratRegular(size: 13))
-                    .foregroundStyle(.red.opacity(0.9))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            // Import section (when connected and no errors)
-            if hevyManager.isConnected && hevyImportService.lastError == nil {
+            // Connected state: show status and auto-link toggle
+            if hevyManager.isConnected {
                 Divider()
                     .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
 
-                // Import status
-                if let count = importedCount {
-                    HStack {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                        Text("Imported \(count) workout\(count == 1 ? "" : "s")")
-                            .font(.montserratMedium(size: 14))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                } else if hevyImportService.pendingExercisesCount > 0 {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(hevyImportService.pendingExercisesCount) new workout\(hevyImportService.pendingExercisesCount == 1 ? "" : "s") available")
-                                .font(.montserratMedium(size: 14))
-                                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                        }
+                // Connection status
+                HStack {
+                    Image(systemName: "checkmark.circle")
+                        .foregroundStyle(.green.opacity(0.7))
+                    Text("Connected")
+                        .font(.montserratRegular(size: 14))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
 
-                        Spacer()
-
-                        Button("Import All") {
-                            importWorkouts()
-                        }
-                        .font(.montserratMedium(size: 14))
-                        .foregroundStyle(hevyColor)
-                    }
-                } else {
-                    HStack {
-                        Image(systemName: "checkmark.circle")
-                            .foregroundStyle(.green.opacity(0.7))
-                        Text("All workouts synced")
-                            .font(.montserratRegular(size: 14))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-
-                        Spacer()
-
-                        Button("Check for new") {
-                            checkForWorkouts()
-                        }
-                        .font(.montserratMedium(size: 13))
-                        .foregroundStyle(hevyColor.opacity(0.8))
-                    }
+                    Spacer()
                 }
 
-                // Apple Health linking section
-                if let count = linkedCount, count > 0 {
-                    Divider()
-                        .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
-
-                    HStack {
-                        Image(systemName: "heart.circle.fill")
-                            .foregroundStyle(.green)
-                        Text("Linked Apple Health data to \(count) workout\(count == 1 ? "" : "s")")
-                            .font(.montserratMedium(size: 14))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                } else if hevyImportService.isLinking {
-                    Divider()
-                        .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
-
-                    HStack {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                        Text("Linking Apple Health data...")
-                            .font(.montserratRegular(size: 14))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                } else if hevyImportService.linkableHevyWorkoutsCount > 0 && !linkingAttempted {
-                    Divider()
-                        .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
-
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(hevyImportService.linkableHevyWorkoutsCount) workout\(hevyImportService.linkableHevyWorkoutsCount == 1 ? "" : "s") can be enhanced")
-                                .font(.montserratMedium(size: 14))
-                                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                            Text("Link Apple Health data to Hevy workouts")
-                                .font(.montserratRegular(size: 12))
-                                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
-                        }
-
-                        Spacer()
-
-                        Button("Link") {
-                            linkAppleHealthData()
-                        }
-                        .font(.montserratMedium(size: 14))
-                        .foregroundStyle(.green)
-                    }
-                }
-            }
-
-            // Retry button when there's an error
-            if hevyManager.isConnected && hevyImportService.lastError != nil {
                 Divider()
                     .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
 
-                Button("Retry") {
-                    checkForWorkouts()
+                // Auto-link Apple Health toggle
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle(isOn: Binding(
+                        get: { hevyManager.autoLinkAppleHealth },
+                        set: { hevyManager.autoLinkAppleHealth = $0 }
+                    )) {
+                        Text("Auto-link Apple Health")
+                            .font(.montserratMedium(size: 14))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    }
+                    .tint(.accent)
+
+                    Text("Enhance workouts with HR & calories")
+                        .font(.montserratRegular(size: 12))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
                 }
-                .font(.montserratMedium(size: 14))
-                .foregroundStyle(hevyColor)
-                .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
         .padding(20)
@@ -211,7 +125,6 @@ struct HevyIntegrationCard: View {
         .sheet(isPresented: $showingApiKeyEntry) {
             HevyApiKeyEntryView(onSuccess: {
                 showingApiKeyEntry = false
-                checkForWorkouts()
             })
         }
         .confirmationDialog(
@@ -221,55 +134,10 @@ struct HevyIntegrationCard: View {
         ) {
             Button("Disconnect", role: .destructive) {
                 hevyManager.disconnect()
-                hevyImportService.lastError = nil
-                importedCount = nil
             }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Your Hevy connection will be removed. Previously imported workouts will remain.")
-        }
-        .onAppear {
-            if hevyManager.isConnected {
-                checkForWorkouts()
-                Task {
-                    await hevyImportService.checkForLinkableWorkouts()
-                }
-            }
-        }
-    }
-
-    // MARK: - Actions
-
-    private func checkForWorkouts() {
-        hevyImportService.lastError = nil
-        importedCount = nil
-        linkedCount = nil
-        linkingAttempted = false
-        Task {
-            await hevyImportService.checkForNewExercises()
-        }
-    }
-
-    private func importWorkouts() {
-        linkedCount = nil
-        linkingAttempted = false
-        Task {
-            let count = await hevyImportService.importAllExercises()
-            if count > 0 {
-                importedCount = count
-                // Check for linkable workouts after import
-                _ = await hevyImportService.checkForLinkableWorkouts()
-            }
-        }
-    }
-
-    private func linkAppleHealthData() {
-        linkedCount = nil
-        linkingAttempted = false
-        Task {
-            let result = await hevyImportService.linkAppleHealthData()
-            linkingAttempted = true
-            linkedCount = result.linkedCount
         }
     }
 }

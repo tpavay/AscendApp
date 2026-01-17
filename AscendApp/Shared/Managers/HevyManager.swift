@@ -30,6 +30,25 @@ final class HevyManager {
         getApiKey() != nil
     }
 
+    // MARK: - Auto-Link Apple Health Setting
+
+    private let autoLinkAppleHealthKey = "hevyAutoLinkAppleHealth"
+
+    /// When enabled, Hevy workouts are automatically enhanced with Apple Health data (HR, calories)
+    /// Default: true for new AND existing users
+    var autoLinkAppleHealth: Bool {
+        get {
+            // Default true for new AND existing users
+            if UserDefaults.standard.object(forKey: autoLinkAppleHealthKey) == nil {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: autoLinkAppleHealthKey)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: autoLinkAppleHealthKey)
+        }
+    }
+
     private init() {}
 
     // MARK: - Connection Management
