@@ -12,7 +12,8 @@ struct EditProfileView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
-    
+
+    @State private var settingsManager = SettingsManager.shared
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var isUploadingPhoto = false
     @State private var imageForCropping: UIImage?
@@ -20,6 +21,7 @@ struct EditProfileView: View {
     @State private var isEditingDisplayName = false
     @State private var editedDisplayName = ""
     @State private var isSavingDisplayName = false
+    @State private var showingFitnessLevelSheet = false
     @FocusState private var isDisplayNameFocused: Bool
     
     var body: some View {
@@ -27,10 +29,13 @@ struct EditProfileView: View {
             VStack(spacing: 32) {
                 // Profile Picture Section
                 profilePictureSection
-                
+
                 // User Info Section
                 userInfoSection
-                
+
+                // Fitness Level Section
+                fitnessLevelSection
+
                 Spacer(minLength: 40)
             }
             .padding(.horizontal, 20)
@@ -65,6 +70,11 @@ struct EditProfileView: View {
             if let errorMessage = authVM.errorMessage {
                 Text(errorMessage)
             }
+        }
+        .sheet(isPresented: $showingFitnessLevelSheet) {
+            FitnessLevelSheetView(settingsManager: settingsManager)
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
         }
     }
     
@@ -142,13 +152,50 @@ struct EditProfileView: View {
             Text("Profile Information")
                 .font(.montserratSemiBold(size: 18))
                 .foregroundStyle(colorScheme == .dark ? .white : .black)
-            
+
             // Display Name (Editable)
             displayNameRow
-            
+
             // Email
             if let email = authVM.user?.email {
                 InfoRow(label: "Email", value: email)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - Fitness Level Section
+
+    private var fitnessLevelSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Fitness Level")
+                .font(.montserratMedium(size: 14))
+                .foregroundStyle(.secondary)
+
+            Button {
+                showingFitnessLevelSheet = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: settingsManager.fitnessLevel.icon)
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(.accent)
+
+                    Text(settingsManager.fitnessLevel.displayName)
+                        .font(.montserratRegular(size: 16))
+                        .foregroundStyle(colorScheme == .dark ? .white : .black)
+
+                    Spacer()
+
+                    Image(systemName: "pencil")
+                        .font(.system(size: 16))
+                        .foregroundStyle(.accent)
+                }
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(colorScheme == .dark ? Color.jetLighter.opacity(0.3) : Color.gray.opacity(0.1))
+                )
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -305,6 +352,110 @@ private struct InfoRow: View {
             RoundedRectangle(cornerRadius: 12)
                 .fill(colorScheme == .dark ? Color.jetLighter.opacity(0.3) : Color.gray.opacity(0.1))
         )
+    }
+}
+
+// MARK: - Fitness Level Sheet
+
+private struct FitnessLevelSheetView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var settingsManager: SettingsManager
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                VStack(spacing: 12) {
+                    ForEach(FitnessLevel.allCases) { level in
+                        fitnessLevelRow(level: level)
+                    }
+                }
+                .padding(.horizontal, 20)
+
+                // Info text
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+
+                    Text("Sets initial scoring thresholds for your first 10 workouts, then transitions to personalized scoring.")
+                        .font(.montserratRegular(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 20)
+
+                Spacer()
+            }
+            .padding(.top, 20)
+            .themedBackground()
+            .navigationTitle("Fitness Level")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .font(.montserratSemiBold(size: 16))
+                }
+            }
+        }
+    }
+
+    private func fitnessLevelRow(level: FitnessLevel) -> some View {
+        Button(action: {
+            settingsManager.setFitnessLevel(level)
+        }) {
+            HStack(spacing: 12) {
+                // Icon
+                ZStack {
+                    Circle()
+                        .fill(colorScheme == .dark ? Color.jetLighter.opacity(0.3) : Color.gray.opacity(0.1))
+                        .frame(width: 40, height: 40)
+
+                    Image(systemName: level.icon)
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(.accent)
+                }
+
+                // Text Content
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(level.displayName)
+                        .font(.montserratSemiBold(size: 15))
+                        .foregroundStyle(colorScheme == .dark ? .white : .black)
+
+                    Text(level.description)
+                        .font(.montserratRegular(size: 12))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer()
+
+                // Selection Indicator
+                ZStack {
+                    Circle()
+                        .stroke(colorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.3), lineWidth: 2)
+                        .frame(width: 22, height: 22)
+
+                    if settingsManager.fitnessLevel == level {
+                        Circle()
+                            .fill(.accent)
+                            .frame(width: 14, height: 14)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: settingsManager.fitnessLevel)
+                    }
+                }
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(colorScheme == .dark ? Color.jetLighter.opacity(0.3) : Color.gray.opacity(0.1))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(settingsManager.fitnessLevel == level ? .accent.opacity(0.5) : .clear, lineWidth: 2)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
 

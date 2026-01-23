@@ -16,27 +16,28 @@ struct AccountView: View {
     @State private var isShowingDeleteAccountConfirmation = false
 
     var body: some View {
-        VStack(spacing: 24) {
-            // Profile Header
-            ProfileHeaderView(
-                photoURL: authVM.displayPhotoURL,
-                displayName: authVM.displayName,
-                onEditTap: {
-                    isShowingEditProfile = true
+        ScrollView {
+            VStack(spacing: 24) {
+                // Profile Header
+                ProfileHeaderView(
+                    photoURL: authVM.displayPhotoURL,
+                    displayName: authVM.displayName,
+                    onEditTap: {
+                        isShowingEditProfile = true
+                    }
+                )
+
+                // Settings Sections
+                settingsContent
+
+                // Error Message
+                if let errorMessage = authVM.errorMessage {
+                    errorMessageView(errorMessage)
                 }
-            )
-
-            // Settings Sections
-            settingsContent
-
-            // Error Message
-            if let errorMessage = authVM.errorMessage {
-                errorMessageView(errorMessage)
             }
-
-            Spacer(minLength: 40)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 40)
         }
-        .padding(.horizontal, 20)
         .themedBackground()
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.large)
@@ -94,11 +95,6 @@ struct AccountView: View {
                 icon: "chart.bar.fill",
                 title: "Workout Metric",
                 destination: WorkoutMetricSelectionView()
-            ),
-            SettingsOption(
-                icon: "figure.stairs",
-                title: "Fitness Level",
-                destination: FitnessLevelSelectionView()
             ),
             SettingsOption(
                 icon: "ruler",
