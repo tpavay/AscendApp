@@ -79,7 +79,7 @@ struct RoutineEditorView: View {
                     }
                     .presentationDetents([.large])
                 } else {
-                    IntervalEditorSheet { newInterval in
+                    IntervalEditorSheet(defaultIntensityType: viewModel.intervals.first?.intensityType) { newInterval in
                         viewModel.addInterval(newInterval)
                     }
                     .presentationDetents([.large])

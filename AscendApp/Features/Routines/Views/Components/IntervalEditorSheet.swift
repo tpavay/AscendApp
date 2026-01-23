@@ -6,6 +6,7 @@ struct IntervalEditorSheet: View {
     @State private var themeManager = ThemeManager.shared
 
     let interval: RoutineInterval?
+    let defaultIntensityType: IntensityType?
     let onSave: (RoutineInterval) -> Void
 
     // Form state
@@ -34,8 +35,9 @@ struct IntervalEditorSheet: View {
         interval != nil
     }
 
-    init(interval: RoutineInterval? = nil, onSave: @escaping (RoutineInterval) -> Void) {
+    init(interval: RoutineInterval? = nil, defaultIntensityType: IntensityType? = nil, onSave: @escaping (RoutineInterval) -> Void) {
         self.interval = interval
+        self.defaultIntensityType = defaultIntensityType
         self.onSave = onSave
     }
 
@@ -74,6 +76,10 @@ struct IntervalEditorSheet: View {
         .onAppear {
             if let interval = interval {
                 loadInterval(interval)
+            } else if let defaultType = defaultIntensityType {
+                // When creating a new interval, inherit intensity type from existing intervals
+                intensityType = defaultType
+                intensityValue = defaultType == .level ? 8 : 100
             }
         }
     }
