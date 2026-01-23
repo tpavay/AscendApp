@@ -90,6 +90,12 @@ struct LeaderboardView: View {
             guard newTab == .leaderboard else { return }
             resetScrollPosition()
         }
+        .onChange(of: authVM.displayName) { _, _ in
+            syncCurrentUserEntry()
+        }
+        .onChange(of: authVM.displayPhotoURL) { _, _ in
+            syncCurrentUserEntry()
+        }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
@@ -450,6 +456,14 @@ struct LeaderboardView: View {
 
     private func resetScrollPosition() {
         scrollResetTrigger &+= 1
+    }
+
+    private func syncCurrentUserEntry() {
+        viewModel.updateCurrentUserProfile(
+            userId: authVM.user?.uid,
+            displayName: authVM.displayName,
+            photoURL: authVM.displayPhotoURL
+        )
     }
 }
 

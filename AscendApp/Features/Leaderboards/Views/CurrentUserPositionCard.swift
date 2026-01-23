@@ -128,6 +128,7 @@ struct UserPositionBanner: View {
                     defaultAvatar
                 }
             }
+            .id(photoURL)
         } else {
             defaultAvatar
         }

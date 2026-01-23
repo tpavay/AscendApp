@@ -183,6 +183,7 @@ struct LeaderboardRow: View {
                     defaultAvatar
                 }
             }
+            .id(photoURL)
         } else {
             defaultAvatar
         }

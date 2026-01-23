@@ -168,6 +168,7 @@ private struct Top5Card: View {
                     defaultAvatar
                 }
             }
+            .id(photoURL)
         } else {
             defaultAvatar
         }

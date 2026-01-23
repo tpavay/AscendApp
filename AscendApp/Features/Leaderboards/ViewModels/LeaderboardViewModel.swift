@@ -223,11 +223,43 @@ class LeaderboardViewModel {
     private func formatDuration(_ duration: TimeInterval) -> String {
         let hours = Int(duration) / 3600
         let minutes = (Int(duration) % 3600) / 60
-        
+
         if hours > 0 {
             return "\(hours)h \(minutes)m"
         } else {
             return "\(minutes)m"
+        }
+    }
+
+    /// Update the current user's display info in the local cache
+    func updateCurrentUserProfile(userId: String?, displayName: String, photoURL: URL?) {
+        guard let userId = userId else { return }
+
+        // Update in leaderboardEntries array
+        if let index = leaderboardEntries.firstIndex(where: { $0.userId == userId }) {
+            let existing = leaderboardEntries[index]
+            leaderboardEntries[index] = LeaderboardEntry(
+                userId: existing.userId,
+                displayName: displayName,
+                photoURL: photoURL,
+                rank: existing.rank,
+                value: existing.value,
+                formattedValue: existing.formattedValue,
+                isCurrentUser: true
+            )
+        }
+
+        // Update userEntry if it matches
+        if let entry = userEntry, entry.userId == userId {
+            userEntry = LeaderboardEntry(
+                userId: entry.userId,
+                displayName: displayName,
+                photoURL: photoURL,
+                rank: entry.rank,
+                value: entry.value,
+                formattedValue: entry.formattedValue,
+                isCurrentUser: true
+            )
         }
     }
 }
