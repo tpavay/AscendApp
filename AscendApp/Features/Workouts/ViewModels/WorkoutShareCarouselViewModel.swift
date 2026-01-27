@@ -45,12 +45,14 @@ enum ShareCardTheme: String, CaseIterable {
 
 /// Types of cards available in the carousel
 enum ShareCardType: Identifiable, Equatable {
+    case minimalSummary
     case photoMedia(photoId: UUID)
     case template(templateId: String)
     case detailedSummary
 
     var id: String {
         switch self {
+        case .minimalSummary: return "minimalSummary"
         case .photoMedia(let photoId): return "photoMedia_\(photoId.uuidString)"
         case .template(let templateId): return "template_\(templateId)"
         case .detailedSummary: return "detailedSummary"
@@ -62,7 +64,7 @@ enum ShareCardType: Identifiable, Equatable {
         switch self {
         case .photoMedia, .template:
             return false
-        case .detailedSummary:
+        case .minimalSummary, .detailedSummary:
             return true
         }
     }
@@ -71,7 +73,7 @@ enum ShareCardType: Identifiable, Equatable {
     var photoId: UUID? {
         switch self {
         case .photoMedia(let photoId): return photoId
-        case .template, .detailedSummary: return nil
+        case .minimalSummary, .template, .detailedSummary: return nil
         }
     }
 
@@ -79,7 +81,7 @@ enum ShareCardType: Identifiable, Equatable {
     var templateId: String? {
         switch self {
         case .template(let templateId): return templateId
-        case .photoMedia, .detailedSummary: return nil
+        case .minimalSummary, .photoMedia, .detailedSummary: return nil
         }
     }
 }
@@ -177,7 +179,10 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
     ) -> [ShareCardType] {
         var cards: [ShareCardType] = []
 
-        // 1. Add user's photos (highlighted first, then rest)
+        // 1. Minimal summary card first (transparent style)
+        cards.append(.minimalSummary)
+
+        // 2. Add user's photos (highlighted first, then rest)
         var orderedPhotos = workout.photos
         if let highlightedId = workout.highlightedPhotoId,
            let highlightedIndex = orderedPhotos.firstIndex(where: { $0.id == highlightedId }),
@@ -190,12 +195,12 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
             cards.append(.photoMedia(photoId: photo.id))
         }
 
-        // 2. Add template cards
+        // 3. Add template cards
         for template in templates {
             cards.append(.template(templateId: template.id))
         }
 
-        // 3. Always include detailed summary last
+        // 4. Always include detailed summary last
         cards.append(.detailedSummary)
 
         return cards
@@ -383,6 +388,15 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
         preferredMetric: WorkoutMetric
     ) -> some View {
         switch currentCardType {
+        case .minimalSummary:
+            MinimalSummaryCard(
+                workout: workout,
+                theme: cardTheme,
+                measurementSystem: measurementSystem,
+                stepHeight: stepHeight,
+                preferredMetric: preferredMetric,
+                displayName: displayName
+            )
         case .photoMedia(let photoId):
             PhotoMediaCard(
                 workout: workout,
