@@ -13,9 +13,6 @@ struct AppleHealthIntegrationCard: View {
     @State private var themeManager = ThemeManager.shared
     @State private var healthKitService = HealthKitService.shared
 
-    // Apple Health brand color (red/pink gradient)
-    private let healthRed = Color(red: 255/255, green: 45/255, blue: 85/255)
-
     var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: systemColorScheme)
     }
@@ -47,7 +44,7 @@ struct AppleHealthIntegrationCard: View {
                         openHealthApp()
                     }
                     .font(.montserratMedium(size: 15))
-                    .foregroundStyle(healthRed)
+                    .foregroundStyle(.accent)
                 }
             }
 

@@ -14,9 +14,6 @@ struct HevyIntegrationCard: View {
     @State private var showingApiKeyEntry = false
     @State private var showingDisconnectConfirmation = false
 
-    // Hevy brand color (dark purple/blue)
-    private let hevyColor = Color(red: 45/255, green: 51/255, blue: 107/255)
-
     var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: systemColorScheme)
     }
@@ -53,7 +50,7 @@ struct HevyIntegrationCard: View {
                         showingApiKeyEntry = true
                     }
                     .font(.montserratMedium(size: 15))
-                    .foregroundStyle(hevyColor)
+                    .foregroundStyle(.accent)
                 }
             }
 
