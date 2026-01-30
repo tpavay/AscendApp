@@ -53,7 +53,7 @@ struct HevyIntegrationCard: View {
                         showingApiKeyEntry = true
                     }
                     .font(.montserratMedium(size: 15))
-                    .foregroundStyle(hevyColor)
+                    .foregroundStyle(.accent)
                 }
             }
 
