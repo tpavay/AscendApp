@@ -119,6 +119,15 @@ struct AccountView: View {
         )
         #endif
 
+        // Privacy Policy
+        options.append(
+            SettingsOption(
+                icon: "hand.raised",
+                title: "Privacy Policy",
+                destination: PrivacyPolicyView()
+            )
+        )
+
         // Contact Us - before destructive actions
         options.append(
             SettingsOption(

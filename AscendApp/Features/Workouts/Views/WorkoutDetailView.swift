@@ -215,6 +215,8 @@ struct WorkoutDetailView: View {
                 .font(.montserratBold(size: 24))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                 .multilineTextAlignment(.center)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
 
             // Personal Records Badges
             if workout.hasPersonalRecords {
@@ -545,6 +547,8 @@ struct WorkoutDetailView: View {
                 .font(.montserratBold(size: 24))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                 .multilineTextAlignment(.center)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
             
             // Personal Records Badges
             if workout.hasPersonalRecords {
