@@ -12,6 +12,7 @@ struct MainTabView: View {
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
     @State private var themeManager = ThemeManager.shared
+    @State private var ratingManager = AppStoreRatingManager.shared
     @StateObject private var tabRouter = TabRouter()
     @State private var hasCheckedRatingOnLaunch = false
 
@@ -55,6 +56,17 @@ struct MainTabView: View {
             generator.impactOccurred()
         }
         .themeAware()
+        .overlay {
+            RatingPromptOverlay(
+                isPresented: $ratingManager.showCustomPrompt,
+                onRateUs: {
+                    ratingManager.userTappedRateUs()
+                },
+                onNotNow: {
+                    ratingManager.userTappedNotNow()
+                }
+            )
+        }
     }
 
     private func checkForRatingPromptOnLaunch() {
@@ -67,7 +79,7 @@ struct MainTabView: View {
         // Note: We fetch count on-demand rather than using @Query to avoid crashes
         // when workouts are deleted (e.g., during account deletion) while this view is in the hierarchy
         let workoutCount = (try? modelContext.fetchCount(FetchDescriptor<Workout>())) ?? 0
-        AppStoreRatingManager.shared.checkAndRequestReviewIfNeeded(currentWorkoutCount: workoutCount)
+        AppStoreRatingManager.shared.checkAndShowPromptIfNeeded(currentWorkoutCount: workoutCount)
     }
     
     private func getIconName(for tab: TabItem, isSelected: Bool) -> String {
