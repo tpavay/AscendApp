@@ -81,14 +81,16 @@ struct EditWorkoutView: View {
     }
     
     private var isFormValid: Bool {
+        // Steps/floors is optional - only validate if provided
+        let metricValid = metricValue.isEmpty || Int(metricValue) != nil
+        
         let basicValidation = !workoutName.isEmpty &&
         workoutName.count <= 50 &&
         !durationMinutes.isEmpty &&
         !durationSeconds.isEmpty &&
-        !metricValue.isEmpty &&
+        metricValid &&
         Int(durationMinutes) != nil &&
         Int(durationSeconds) != nil &&
-        Int(metricValue) != nil &&
         (Int(durationMinutes) ?? 0) < 60 &&
         (Int(durationSeconds) ?? 0) < 60 &&
         (durationHours.isEmpty || (Int(durationHours) != nil && (Int(durationHours) ?? 0) <= 999))
@@ -827,11 +829,13 @@ struct EditWorkoutView: View {
         
         guard !isSaving else { return }
         guard let minutes = Int(durationMinutes),
-              let seconds = Int(durationSeconds),
-              let value = Int(metricValue) else {
+              let seconds = Int(durationSeconds) else {
             print("❌ Guard failed - invalid number conversion")
             return
         }
+        
+        // Steps/floors is optional - default to 0 if not provided
+        let value = Int(metricValue) ?? 0
 
         // Calculate both metric values from the user's primary metric
         let steps: Int
