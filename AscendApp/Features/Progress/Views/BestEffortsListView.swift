@@ -38,9 +38,11 @@ struct BestEffortsListView: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
+    @Environment(AuthenticationViewModel.self) private var authVM
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
     @State private var selectedTimePeriod: BestEffortsTimePeriod = .allTime
+    @State private var effortToShare: BestEffort?
 
     // Weight records state
     @State private var weightRecordsSections: [WeightRecordsSection] = []
@@ -149,7 +151,27 @@ struct BestEffortsListView: View {
                     BestEffortCard(effort: effort, colorScheme: effectiveColorScheme)
                 }
                 .buttonStyle(PlainButtonStyle())
+                .contextMenu {
+                    Button {
+                        effortToShare = effort
+                    } label: {
+                        Label("Share PR", systemImage: "square.and.arrow.up")
+                    }
+                    
+                    Button {
+                        // Navigate handled by NavigationLink
+                    } label: {
+                        Label("View Workout", systemImage: "eye")
+                    }
+                }
             }
+        }
+        .sheet(item: $effortToShare) { effort in
+            PRShareSheet(
+                effort: effort,
+                previousValue: nil, // TODO: Calculate previous value from workout history
+                displayName: authVM.displayName ?? "Athlete"
+            )
         }
     }
     
