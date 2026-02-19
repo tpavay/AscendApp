@@ -8,6 +8,31 @@
 import SwiftUI
 import SwiftData
 
+/// Time period for filtering best efforts
+enum BestEffortsTimePeriod: String, CaseIterable, Identifiable {
+    case week = "Week"
+    case month = "Month"
+    case year = "Year"
+    case allTime = "All Time"
+    
+    var id: String { rawValue }
+    
+    /// Returns the start date for this time period
+    func startDate(from referenceDate: Date = Date()) -> Date? {
+        let calendar = Calendar.current
+        switch self {
+        case .week:
+            return calendar.date(byAdding: .day, value: -7, to: referenceDate)
+        case .month:
+            return calendar.date(byAdding: .month, value: -1, to: referenceDate)
+        case .year:
+            return calendar.date(byAdding: .year, value: -1, to: referenceDate)
+        case .allTime:
+            return nil
+        }
+    }
+}
+
 struct BestEffortsListView: View {
     let workouts: [Workout]
 
@@ -15,6 +40,7 @@ struct BestEffortsListView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
+    @State private var selectedTimePeriod: BestEffortsTimePeriod = .allTime
 
     // Weight records state
     @State private var weightRecordsSections: [WeightRecordsSection] = []
@@ -23,9 +49,17 @@ struct BestEffortsListView: View {
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
+    
+    /// Filter workouts based on selected time period
+    private var filteredWorkouts: [Workout] {
+        guard let startDate = selectedTimePeriod.startDate() else {
+            return workouts // All time - no filtering
+        }
+        return workouts.filter { $0.date >= startDate }
+    }
 
     private var efforts: [BestEffort] {
-        BestEffortsBuilder.bestEfforts(from: workouts)
+        BestEffortsBuilder.bestEfforts(from: filteredWorkouts)
     }
 
     private var hasWeightRecords: Bool {
@@ -35,6 +69,9 @@ struct BestEffortsListView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                // Time Period Picker
+                timePeriodPicker
+                
                 if efforts.isEmpty && !hasWeightRecords {
                     emptyState
                 } else {
@@ -42,8 +79,8 @@ struct BestEffortsListView: View {
                         effortsList
                     }
 
-                    // Weight Records Section
-                    if hasWeightRecords {
+                    // Weight Records Section (only show for all-time)
+                    if hasWeightRecords && selectedTimePeriod == .allTime {
                         weightRecordsSection
                     }
                 }
@@ -60,7 +97,7 @@ struct BestEffortsListView: View {
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                NavigationLink(destination: BestEffortsProgressView(workouts: workouts)) {
+                NavigationLink(destination: BestEffortsProgressView(workouts: filteredWorkouts)) {
                     Image(systemName: "chart.line.uptrend.xyaxis")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(.accent)
@@ -70,6 +107,39 @@ struct BestEffortsListView: View {
         .onAppear {
             loadWeightRecords()
         }
+    }
+    
+    private var timePeriodPicker: some View {
+        HStack(spacing: 8) {
+            ForEach(BestEffortsTimePeriod.allCases) { period in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedTimePeriod = period
+                    }
+                    HapticsManager.shared.trigger(.selection)
+                } label: {
+                    Text(period.rawValue)
+                        .font(.montserratMedium(size: 13))
+                        .foregroundStyle(
+                            selectedTimePeriod == period
+                                ? .white
+                                : (effectiveColorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6))
+                        )
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(selectedTimePeriod == period ? Color.accentColor : Color.clear)
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .padding(4)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(effectiveColorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+        )
     }
     
     private var effortsList: some View {
@@ -85,11 +155,11 @@ struct BestEffortsListView: View {
     
     private var emptyState: some View {
         VStack(spacing: 12) {
-            Text("No Best Efforts Yet")
+            Text(emptyStateTitle)
                 .font(.montserratSemiBold(size: 18))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
 
-            Text("Start logging workouts to see your all‑time best sessions for steps, duration, heart rate, and more.")
+            Text(emptyStateMessage)
                 .font(.montserratRegular(size: 14))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
                 .multilineTextAlignment(.center)
@@ -100,6 +170,32 @@ struct BestEffortsListView: View {
             RoundedRectangle(cornerRadius: 20)
                 .fill(effectiveColorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
         )
+    }
+    
+    private var emptyStateTitle: String {
+        switch selectedTimePeriod {
+        case .week:
+            return "No Workouts This Week"
+        case .month:
+            return "No Workouts This Month"
+        case .year:
+            return "No Workouts This Year"
+        case .allTime:
+            return "No Best Efforts Yet"
+        }
+    }
+    
+    private var emptyStateMessage: String {
+        switch selectedTimePeriod {
+        case .week:
+            return "Log a workout this week to see your best efforts."
+        case .month:
+            return "Log a workout this month to see your best efforts."
+        case .year:
+            return "Log a workout this year to see your best efforts."
+        case .allTime:
+            return "Start logging workouts to see your all‑time best sessions for steps, duration, heart rate, and more."
+        }
     }
 
     // MARK: - Weight Records Section
