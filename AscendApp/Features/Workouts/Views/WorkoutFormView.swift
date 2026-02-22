@@ -123,10 +123,10 @@ struct WorkoutFormView: View {
 
     private var workoutInfoCard: some View {
         VStack(spacing: 16) {
-            // Workout Name *
+            // Workout Name (optional - uses default if empty)
             FormTextField(
                 label: "Workout Name",
-                isRequired: true,
+                isRequired: false,
                 placeholder: Workout.generateDefaultName(for: viewModel.workoutDate),
                 text: $viewModel.workoutName,
                 focusedField: $focusedField,
