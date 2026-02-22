@@ -265,9 +265,9 @@ struct EditWorkoutView: View {
                                     label: "Average heart rate (BPM)",
                                     isRequired: false,
                                     keyboardType: .numberPad,
-                                    text: $avgHeartRate
+                                    text: $avgHeartRate,
                                     focusedField: $focusedField,
-                                    fieldIdentifier: EditWorkoutField.avgHeartRate
+                                    fieldIdentifier: WorkoutFormField.avgHeartRate
                                 )
                                 .onChange(of: avgHeartRate) { _, newValue in
                                     avgHeartRate = filterNumericInput(newValue)
@@ -280,7 +280,7 @@ struct EditWorkoutView: View {
                                     keyboardType: .numberPad,
                                     text: $maxHeartRate,
                                     focusedField: $focusedField,
-                                    fieldIdentifier: EditWorkoutField.maxHeartRate
+                                    fieldIdentifier: WorkoutFormField.maxHeartRate
                                 )
                                 .onChange(of: maxHeartRate) { _, newValue in
                                     maxHeartRate = filterNumericInput(newValue)
@@ -293,7 +293,7 @@ struct EditWorkoutView: View {
                                     keyboardType: .numberPad,
                                     text: $caloriesBurned,
                                     focusedField: $focusedField,
-                                    fieldIdentifier: EditWorkoutField.caloriesBurned
+                                    fieldIdentifier: WorkoutFormField.caloriesBurned
                                 )
                                 .onChange(of: caloriesBurned) { _, newValue in
                                     caloriesBurned = filterNumericInput(newValue)
@@ -336,7 +336,7 @@ struct EditWorkoutView: View {
                 isRequired: true,
                 text: $workoutName,
                 focusedField: $focusedField,
-                fieldIdentifier: EditWorkoutField.workoutName,
+                fieldIdentifier: WorkoutFormField.workoutName,
                 maxLength: 50
             )
 
@@ -347,7 +347,7 @@ struct EditWorkoutView: View {
                 placeholder: "Add a description for your workout",
                 text: $notes,
                 focusedField: $focusedField,
-                fieldIdentifier: EditWorkoutField.notes
+                fieldIdentifier: WorkoutFormField.notes
             )
             
             existingPhotosSection
@@ -390,7 +390,7 @@ struct EditWorkoutView: View {
                         keyboardType: .numberPad,
                         text: $metricValue,
                         focusedField: $focusedField,
-                        fieldIdentifier: EditWorkoutField.metricValue
+                        fieldIdentifier: WorkoutFormField.metricValue
                     )
                     .onChange(of: metricValue) { _, newValue in
                         metricValue = filterNumericInput(newValue)
