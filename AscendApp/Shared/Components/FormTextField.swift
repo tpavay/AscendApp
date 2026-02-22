@@ -7,15 +7,15 @@
 
 import SwiftUI
 
-struct FormTextField: View {
+struct FormTextField<Field: Hashable>: View {
     let label: String
     let isRequired: Bool
     let icon: String?
     let placeholder: String?
     let keyboardType: UIKeyboardType
     @Binding var text: String
-    @FocusState.Binding var focusedField: AnyHashable?
-    let fieldIdentifier: AnyHashable?
+    var focusedField: FocusState<Field?>.Binding?
+    let fieldIdentifier: Field?
     let maxLength: Int?
 
     @Environment(\.colorScheme) private var colorScheme
@@ -32,8 +32,8 @@ struct FormTextField: View {
         placeholder: String? = nil,
         keyboardType: UIKeyboardType = .default,
         text: Binding<String>,
-        focusedField: FocusState<AnyHashable?>.Binding? = nil,
-        fieldIdentifier: AnyHashable? = nil,
+        focusedField: FocusState<Field?>.Binding? = nil,
+        fieldIdentifier: Field? = nil,
         maxLength: Int? = nil
     ) {
         self.label = label
@@ -42,7 +42,7 @@ struct FormTextField: View {
         self.placeholder = placeholder
         self.keyboardType = keyboardType
         self._text = text
-        self._focusedField = focusedField ?? FocusState<AnyHashable?>().projectedValue
+        self.focusedField = focusedField
         self.fieldIdentifier = fieldIdentifier
         self.maxLength = maxLength
     }
@@ -56,11 +56,19 @@ struct FormTextField: View {
                     .frame(width: 24)
             }
 
-            TextField(effectivePlaceholder, text: $text)
-                .focused($focusedField, equals: fieldIdentifier)
-                .keyboardType(keyboardType)
-                .font(.montserratRegular(size: 16))
-                .onSubmit { focusedField = nil }
+            Group {
+                if let focusedField = focusedField, let fieldIdentifier = fieldIdentifier {
+                    TextField(effectivePlaceholder, text: $text)
+                        .focused(focusedField, equals: fieldIdentifier)
+                        .keyboardType(keyboardType)
+                        .font(.montserratRegular(size: 16))
+                        .onSubmit { focusedField.wrappedValue = nil }
+                } else {
+                    TextField(effectivePlaceholder, text: $text)
+                        .keyboardType(keyboardType)
+                        .font(.montserratRegular(size: 16))
+                }
+            }
         }
         .padding(16)
         .background(fieldBackground)
@@ -89,14 +97,14 @@ struct FormTextField: View {
 }
 
 // Multi-line text field variant
-struct FormTextEditor: View {
+struct FormTextEditor<Field: Hashable>: View {
     let label: String
     let isRequired: Bool
     let placeholder: String?
     let lineLimit: ClosedRange<Int>
     @Binding var text: String
-    @FocusState.Binding var focusedField: AnyHashable?
-    let fieldIdentifier: AnyHashable?
+    var focusedField: FocusState<Field?>.Binding?
+    let fieldIdentifier: Field?
     let maxLength: Int?
 
     @Environment(\.colorScheme) private var colorScheme
@@ -112,8 +120,8 @@ struct FormTextEditor: View {
         placeholder: String? = nil,
         lineLimit: ClosedRange<Int> = 3...6,
         text: Binding<String>,
-        focusedField: FocusState<AnyHashable?>.Binding? = nil,
-        fieldIdentifier: AnyHashable? = nil,
+        focusedField: FocusState<Field?>.Binding? = nil,
+        fieldIdentifier: Field? = nil,
         maxLength: Int? = nil
     ) {
         self.label = label
@@ -121,23 +129,38 @@ struct FormTextEditor: View {
         self.placeholder = placeholder
         self.lineLimit = lineLimit
         self._text = text
-        self._focusedField = focusedField ?? FocusState<AnyHashable?>().projectedValue
+        self.focusedField = focusedField
         self.fieldIdentifier = fieldIdentifier
         self.maxLength = maxLength
     }
 
     var body: some View {
-        TextField(effectivePlaceholder, text: $text, axis: .vertical)
-            .focused($focusedField, equals: fieldIdentifier)
-            .lineLimit(lineLimit)
-            .font(.montserratRegular(size: 16))
-            .padding(16)
-            .background(fieldBackground)
-            .onChange(of: text) { _, newValue in
-                if let maxLength = maxLength {
-                    text = String(newValue.prefix(maxLength))
-                }
+        Group {
+            if let focusedField = focusedField, let fieldIdentifier = fieldIdentifier {
+                TextField(effectivePlaceholder, text: $text, axis: .vertical)
+                    .focused(focusedField, equals: fieldIdentifier)
+                    .lineLimit(lineLimit)
+                    .font(.montserratRegular(size: 16))
+                    .padding(16)
+                    .background(fieldBackground)
+                    .onChange(of: text) { _, newValue in
+                        if let maxLength = maxLength {
+                            text = String(newValue.prefix(maxLength))
+                        }
+                    }
+            } else {
+                TextField(effectivePlaceholder, text: $text, axis: .vertical)
+                    .lineLimit(lineLimit)
+                    .font(.montserratRegular(size: 16))
+                    .padding(16)
+                    .background(fieldBackground)
+                    .onChange(of: text) { _, newValue in
+                        if let maxLength = maxLength {
+                            text = String(newValue.prefix(maxLength))
+                        }
+                    }
             }
+        }
     }
 
     private var effectivePlaceholder: String {
@@ -159,20 +182,20 @@ struct FormTextEditor: View {
 
 #Preview {
     VStack(spacing: 16) {
-        FormTextField(
+        FormTextField<Never>(
             label: "Workout Name",
             isRequired: true,
             text: .constant("")
         )
 
-        FormTextField(
+        FormTextField<Never>(
             label: "Enter steps",
             isRequired: false,
             icon: "figure.stairs",
             text: .constant("")
         )
 
-        FormTextEditor(
+        FormTextEditor<Never>(
             label: "Add a description",
             isRequired: false,
             text: .constant("")
