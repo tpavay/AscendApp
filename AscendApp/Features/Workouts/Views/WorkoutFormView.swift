@@ -240,7 +240,7 @@ struct WorkoutFormView: View {
 
             // Steps/Floors
             HStack {
-                TextField("Enter \(settingsManager.preferredWorkoutMetric.unit)", text: $viewModel.metricValue)
+                TextField("Enter \(settingsManager.preferredWorkoutMetric.unit) (optional)", text: $viewModel.metricValue)
                     .focused($focusedField, equals: .metricValue)
                     .keyboardType(.numberPad)
                     .font(.montserratRegular(size: 16))
