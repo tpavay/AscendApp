@@ -80,7 +80,7 @@ struct FormSectionContainer<Content: View>: View {
     VStack(spacing: 24) {
         FormSection(title: "Workout Details") {
             VStack(spacing: 12) {
-                FormTextField(
+                FormTextField<Never>(
                     label: "Workout Name",
                     isRequired: true,
                     text: .constant("")
@@ -98,13 +98,13 @@ struct FormSectionContainer<Content: View>: View {
 
         FormSection(title: "Health Metrics") {
             VStack(spacing: 12) {
-                FormTextField(
+                FormTextField<Never>(
                     label: "Average heart rate (BPM)",
                     keyboardType: .numberPad,
                     text: .constant("")
                 )
 
-                FormTextField(
+                FormTextField<Never>(
                     label: "Calories burned",
                     keyboardType: .numberPad,
                     text: .constant("")
