@@ -123,46 +123,25 @@ struct WorkoutFormView: View {
 
     private var workoutInfoCard: some View {
         VStack(spacing: 16) {
-            // Workout Name
-            TextField(Workout.generateDefaultName(for: viewModel.workoutDate), text: $viewModel.workoutName)
-                .focused($focusedField, equals: .workoutName)
-                .font(.montserratRegular(size: 18))
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
-                )
-                .onSubmit {
-                    focusedField = .notes
-                }
-                .onChange(of: viewModel.workoutName) { _, newValue in
-                    if newValue.count > 50 {
-                        viewModel.workoutName = String(newValue.prefix(50))
-                    }
-                }
+            // Workout Name *
+            FormTextField(
+                label: "Workout Name",
+                isRequired: true,
+                placeholder: Workout.generateDefaultName(for: viewModel.workoutDate),
+                text: $viewModel.workoutName,
+                focusedField: $focusedField,
+                fieldIdentifier: WorkoutFormField.workoutName,
+                maxLength: 50
+            )
 
             // Description
-            ZStack(alignment: .topLeading) {
-                TextEditor(text: $viewModel.notes)
-                    .focused($focusedField, equals: .notes)
-                    .font(.montserratRegular(size: 16))
-                    .frame(minHeight: 80, maxHeight: 150)
-                    .scrollContentBackground(.hidden)
-                    .background(.clear)
-
-                if viewModel.notes.isEmpty {
-                    Text("Add an optional description describing your workout")
-                        .font(.montserratRegular(size: 16))
-                        .foregroundStyle(.gray.opacity(0.6))
-                        .padding(.top, 8)
-                        .padding(.leading, 5)
-                        .allowsHitTesting(false)
-                }
-            }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
+            FormTextEditor(
+                label: "Description",
+                isRequired: false,
+                placeholder: "Add a description for your workout",
+                text: $viewModel.notes,
+                focusedField: $focusedField,
+                fieldIdentifier: WorkoutFormField.notes
             )
 
             PhotoGalleryView(
@@ -173,121 +152,60 @@ struct WorkoutFormView: View {
                 )
             )
 
-            // Section Header
-            HStack {
-                Text("Workout Details")
-                    .font(.montserratSemiBold(size: 18))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                Spacer()
-            }
-            .padding(.top, 8)
-
-            // Custom Date/Time Display
-            Button(action: {
-                showingDatePicker = true
-            }) {
-                HStack {
-                    Image(systemName: "calendar")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(.gray)
-
-                    Text(viewModel.formatWorkoutDateTime())
-                        .font(.montserratRegular(size: 16))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                    Spacer()
-
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.gray)
-                }
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
-                )
-            }
-            .buttonStyle(.plain)
-
-            // Duration - Auto-formatting text input
-            Button {
-                syncDurationPickerWithViewModel()
-                showingDurationPicker = true
-            } label: {
-                HStack {
-                    Image(systemName: "clock")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(.gray)
-
-                    Text(viewModel.durationFormatted.isEmpty ? "00:00:00" : viewModel.durationFormatted)
-                        .font(.montserratRegular(size: 16))
-                        .foregroundStyle(viewModel.durationFormatted.isEmpty ? .gray : (effectiveColorScheme == .dark ? .white : .black))
-
-                    Spacer()
-
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.gray)
-                }
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
-                )
-            }
-            .buttonStyle(.plain)
-
-            // Steps/Floors
-            HStack {
-                TextField("Enter \(settingsManager.preferredWorkoutMetric.unit) (optional)", text: $viewModel.metricValue)
-                    .focused($focusedField, equals: .metricValue)
-                    .keyboardType(.numberPad)
-                    .font(.montserratRegular(size: 16))
-                    .padding(16)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
+            FormSection(title: "Workout Details") {
+                VStack(spacing: 12) {
+                    // Date *
+                    FormButton(
+                        label: "Date",
+                        isRequired: true,
+                        icon: "calendar",
+                        value: viewModel.formatWorkoutDateTime(),
+                        action: { showingDatePicker = true }
                     )
-                    .onSubmit { focusedField = nil }
 
-                Button(action: {
-                    showingMetricTooltip = true
-                }) {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(.accent)
-                        .padding(16)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
+                    // Duration *
+                    FormButton(
+                        label: "Duration",
+                        isRequired: true,
+                        icon: "clock",
+                        value: viewModel.durationFormatted.isEmpty ? nil : viewModel.durationFormatted,
+                        action: {
+                            syncDurationPickerWithViewModel()
+                            showingDurationPicker = true
+                        }
+                    )
+
+                    // Steps/Floors
+                    HStack(spacing: 12) {
+                        FormTextField(
+                            label: settingsManager.preferredWorkoutMetric.unit.capitalized,
+                            isRequired: false,
+                            icon: settingsManager.preferredWorkoutMetric == .steps ? "figure.stairs" : "building.2",
+                            keyboardType: .numberPad,
+                            text: $viewModel.metricValue,
+                            focusedField: $focusedField,
+                            fieldIdentifier: WorkoutFormField.metricValue
                         )
+
+                        Button(action: {
+                            showingMetricTooltip = true
+                        }) {
+                            Image(systemName: "info.circle")
+                                .font(.system(size: 20, weight: .medium))
+                                .foregroundStyle(.accent)
+                                .frame(width: 48, height: 48)
+                        }
+                    }
+
+                    // Effort Rating
+                    FormButton(
+                        label: "Effort rating",
+                        isRequired: false,
+                        value: viewModel.effortRating != nil ? viewModel.effortRatingDisplayText() : nil,
+                        action: { showingEffortRating = true }
+                    )
                 }
-                .buttonStyle(.plain)
             }
-
-            // Effort Rating (Optional)
-            Button(action: {
-                showingEffortRating = true
-            }) {
-                HStack {
-                    Text(viewModel.effortRatingDisplayText())
-                        .font(.montserratRegular(size: 16))
-                        .foregroundStyle(viewModel.effortRating == nil ? .gray : (effectiveColorScheme == .dark ? .white : .black))
-
-                    Spacer()
-
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.gray)
-                }
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
-                )
-            }
-            .buttonStyle(.plain)
         }
     }
 
@@ -297,84 +215,55 @@ struct WorkoutFormView: View {
                 VStack(spacing: 20) {
                     workoutInfoCard
 
-                        // Health Metrics Section Header
-                        HStack {
-                            Text("Health Metrics (Optional)")
-                                .font(.montserratSemiBold(size: 18))
-                                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                        FormSection(title: "Health Metrics") {
+                            VStack(spacing: 12) {
+                                // Average Heart Rate
+                                FormTextField(
+                                    label: "Average heart rate (BPM)",
+                                    isRequired: false,
+                                    keyboardType: .numberPad,
+                                    text: $viewModel.avgHeartRate,
+                                    focusedField: $focusedField,
+                                    fieldIdentifier: WorkoutFormField.avgHeartRate
+                                )
+                                .onChange(of: viewModel.avgHeartRate) { _, newValue in
+                                    viewModel.avgHeartRate = viewModel.filterNumericInput(newValue)
+                                }
 
-                            Spacer()
+                                // Maximum Heart Rate
+                                FormTextField(
+                                    label: "Maximum heart rate (BPM)",
+                                    isRequired: false,
+                                    keyboardType: .numberPad,
+                                    text: $viewModel.maxHeartRate,
+                                    focusedField: $focusedField,
+                                    fieldIdentifier: WorkoutFormField.maxHeartRate
+                                )
+                                .onChange(of: viewModel.maxHeartRate) { _, newValue in
+                                    viewModel.maxHeartRate = viewModel.filterNumericInput(newValue)
+                                }
+
+                                // Calories Burned
+                                FormTextField(
+                                    label: "Calories burned",
+                                    isRequired: false,
+                                    keyboardType: .numberPad,
+                                    text: $viewModel.caloriesBurned,
+                                    focusedField: $focusedField,
+                                    fieldIdentifier: WorkoutFormField.caloriesBurned
+                                )
+                                .onChange(of: viewModel.caloriesBurned) { _, newValue in
+                                    viewModel.caloriesBurned = viewModel.filterNumericInput(newValue)
+                                }
+                            }
                         }
-                        .padding(.top, 16)
 
-                        // Average Heart Rate
-                        TextField("Average heart rate (BPM)", text: $viewModel.avgHeartRate)
-                            .focused($focusedField, equals: .avgHeartRate)
-                            .keyboardType(.numberPad)
-                            .font(.montserratRegular(size: 16))
-                            .padding(16)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
+                        FormSection(title: "Weights Used") {
+                            WeightEntryView(
+                                configuration: $viewModel.weightConfiguration,
+                                measurementSystem: settingsManager.measurementSystem
                             )
-                            .onChange(of: viewModel.avgHeartRate) { _, newValue in
-                                viewModel.avgHeartRate = viewModel.filterNumericInput(newValue)
-                            }
-                            .onSubmit {
-                                viewModel.avgHeartRate = viewModel.validateHeartRateOnSubmit(viewModel.avgHeartRate)
-                                focusedField = .maxHeartRate
-                            }
-
-                        // Maximum Heart Rate
-                        TextField("Maximum heart rate (BPM)", text: $viewModel.maxHeartRate)
-                            .focused($focusedField, equals: .maxHeartRate)
-                            .keyboardType(.numberPad)
-                            .font(.montserratRegular(size: 16))
-                            .padding(16)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
-                            )
-                            .onChange(of: viewModel.maxHeartRate) { _, newValue in
-                                viewModel.maxHeartRate = viewModel.filterNumericInput(newValue)
-                            }
-                            .onSubmit {
-                                viewModel.maxHeartRate = viewModel.validateHeartRateOnSubmit(viewModel.maxHeartRate)
-                                focusedField = .caloriesBurned
-                            }
-
-                        // Calories Burned
-                        TextField("Calories burned", text: $viewModel.caloriesBurned)
-                            .focused($focusedField, equals: .caloriesBurned)
-                            .keyboardType(.numberPad)
-                            .font(.montserratRegular(size: 16))
-                            .padding(16)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
-                            )
-                            .onChange(of: viewModel.caloriesBurned) { _, newValue in
-                                viewModel.caloriesBurned = viewModel.filterNumericInput(newValue)
-                            }
-                            .onSubmit {
-                                viewModel.caloriesBurned = viewModel.validateCaloriesOnSubmit(viewModel.caloriesBurned)
-                                focusedField = nil
-                            }
-
-                        // Weights Section Header
-                        HStack {
-                            Text("Weights Used (Optional)")
-                                .font(.montserratSemiBold(size: 18))
-                                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                            Spacer()
                         }
-                        .padding(.top, 16)
-
-                        WeightEntryView(
-                            configuration: $viewModel.weightConfiguration,
-                            measurementSystem: settingsManager.measurementSystem
-                        )
                     }
 
                     Spacer(minLength: 40)
