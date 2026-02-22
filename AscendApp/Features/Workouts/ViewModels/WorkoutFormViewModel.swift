@@ -136,9 +136,11 @@ class WorkoutFormViewModel {
     var isFormValid: Bool {
         // Steps/floors is optional - only validate if provided
         let metricValid = metricValue.isEmpty || Int(metricValue) != nil
-        
-        let basicValidation = !workoutName.isEmpty &&
-        workoutName.count <= 50 &&
+
+        // Workout name is optional - will use default if empty
+        let nameValid = workoutName.isEmpty || workoutName.count <= 50
+
+        let basicValidation = nameValid &&
         !durationMinutes.isEmpty &&
         !durationSeconds.isEmpty &&
         metricValid &&
