@@ -119,12 +119,21 @@ struct AccountView: View {
         )
         #endif
 
-        // Contact Us - before destructive actions
+        // Contact Us
         options.append(
             SettingsOption(
                 icon: "envelope",
                 title: "Contact Us",
                 destination: ContactUsView()
+            )
+        )
+        
+        // Privacy Policy
+        options.append(
+            SettingsOption(
+                icon: "hand.raised",
+                title: "Privacy Policy",
+                destination: PrivacyPolicyView()
             )
         )
 
