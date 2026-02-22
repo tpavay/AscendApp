@@ -482,7 +482,7 @@ struct EditWorkoutView: View {
                     .foregroundStyle(.gray)
                     .frame(width: 24)
 
-                TextField("Enter \(settingsManager.preferredWorkoutMetric.unit)", text: $metricValue)
+                TextField("Enter \(settingsManager.preferredWorkoutMetric.unit) (optional)", text: $metricValue)
                     .focused($focusedField, equals: .metricValue)
                     .keyboardType(.numberPad)
                     .font(.montserratRegular(size: 16))
