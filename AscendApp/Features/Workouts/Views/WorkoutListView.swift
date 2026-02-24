@@ -422,7 +422,7 @@ struct WorkoutRowView: View {
             if inK.truncatingRemainder(dividingBy: 1) == 0 {
                 return "\(Int(inK))K"
             } else {
-                return String(format: "%.1fK", inK)
+                return "\(inK.formatted(.number.precision(.fractionLength(1))))K"
             }
         } else {
             return value.formatted()
@@ -780,7 +780,7 @@ struct AutoPlayVideoView: View {
     private func formatVideoDuration(_ duration: TimeInterval) -> String {
         let minutes = Int(duration) / 60
         let seconds = Int(duration) % 60
-        return String(format: "%d:%02d", minutes, seconds)
+        return "\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
     }
 }
 
@@ -950,7 +950,7 @@ struct CarouselMediaThumbnail: View {
     private func formatDuration(_ duration: TimeInterval) -> String {
         let minutes = Int(duration) / 60
         let seconds = Int(duration) % 60
-        return String(format: "%d:%02d", minutes, seconds)
+        return "\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
     }
 }
 
@@ -1089,11 +1089,7 @@ struct HighlightedPhotoThumbnail: View {
         let minutes = totalSeconds / 60
         let seconds = totalSeconds % 60
         
-        if minutes > 0 {
-            return String(format: "%d:%02d", minutes, seconds)
-        } else {
-            return String(format: "0:%02d", seconds)
-        }
+        return "\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
     }
 }
 

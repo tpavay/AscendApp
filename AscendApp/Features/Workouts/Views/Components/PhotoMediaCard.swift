@@ -25,8 +25,8 @@ struct PhotoMediaCard: View {
         guard workout.hasWeights else { return nil }
         let weight = workout.totalWeightUsed
         let formatted = weight.truncatingRemainder(dividingBy: 1) == 0
-            ? String(format: "%.0f", weight)
-            : String(format: "%.1f", weight)
+            ? weight.formatted(.number.precision(.fractionLength(0)))
+            : weight.formatted(.number.precision(.fractionLength(1)))
         return "+\(formatted) \(measurementSystem.weightAbbreviation)"
     }
 
@@ -183,7 +183,7 @@ struct PhotoMediaCard: View {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.maximumFractionDigits = 0
-        return formatter.string(from: NSNumber(value: pace)) ?? String(format: "%.0f", pace)
+        return formatter.string(from: NSNumber(value: pace)) ?? pace.formatted(.number.precision(.fractionLength(0)))
     }
 }
 

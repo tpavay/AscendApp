@@ -34,8 +34,8 @@ func workoutShareText(
     if workout.hasWeights {
         let weight = workout.totalWeightUsed
         let formatted = weight.truncatingRemainder(dividingBy: 1) == 0
-            ? String(format: "%.0f", weight)
-            : String(format: "%.1f", weight)
+            ? weight.formatted(.number.precision(.fractionLength(0)))
+            : weight.formatted(.number.precision(.fractionLength(1)))
         lines.append("Added Weight: \(formatted) \(measurementSystem.weightAbbreviation)")
     }
 
@@ -102,5 +102,5 @@ private func formattedDecimal(_ value: Double, decimals: Int) -> String {
     formatter.numberStyle = .decimal
     formatter.maximumFractionDigits = decimals
     formatter.minimumFractionDigits = decimals
-    return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.\(decimals)f", value)
+    return formatter.string(from: NSNumber(value: value)) ?? value.formatted(.number.precision(.fractionLength(decimals)))
 }

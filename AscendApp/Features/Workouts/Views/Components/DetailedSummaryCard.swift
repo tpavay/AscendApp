@@ -22,8 +22,8 @@ struct DetailedSummaryCard: View {
         guard workout.hasWeights else { return nil }
         let weight = workout.totalWeightUsed
         let formatted = weight.truncatingRemainder(dividingBy: 1) == 0
-            ? String(format: "%.0f", weight)
-            : String(format: "%.1f", weight)
+            ? weight.formatted(.number.precision(.fractionLength(0)))
+            : weight.formatted(.number.precision(.fractionLength(1)))
         return "\(formatted) \(measurementSystem.weightAbbreviation)"
     }
 
@@ -181,7 +181,7 @@ struct DetailedSummaryCard: View {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.maximumFractionDigits = 0
-        let value = formatter.string(from: NSNumber(value: pace)) ?? String(format: "%.0f", pace)
+        let value = formatter.string(from: NSNumber(value: pace)) ?? pace.formatted(.number.precision(.fractionLength(0)))
         let label = preferredMetric == .steps ? "Steps/Min" : "Floors/Min"
         return (label, value)
     }
@@ -195,7 +195,7 @@ struct DetailedSummaryCard: View {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.maximumFractionDigits = vertical < 100 ? 1 : 0
-        let value = formatter.string(from: NSNumber(value: vertical)) ?? String(format: "%.0f", vertical)
+        let value = formatter.string(from: NSNumber(value: vertical)) ?? vertical.formatted(.number.precision(.fractionLength(0)))
         return "\(value) \(measurementSystem.distanceAbbreviation)"
     }
 }

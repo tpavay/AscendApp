@@ -129,8 +129,8 @@ enum MeasurementSystem: String, CaseIterable, Identifiable {
     /// - Returns: Formatted string (e.g., "20 lb" or "9.1 kg")
     func formatWeight(_ value: Double) -> String {
         let formatted = value.truncatingRemainder(dividingBy: 1) == 0
-            ? String(format: "%.0f", value)
-            : String(format: "%.1f", value)
+            ? value.formatted(.number.precision(.fractionLength(0)))
+            : value.formatted(.number.precision(.fractionLength(1)))
         return "\(formatted) \(weightAbbreviation)"
     }
 }

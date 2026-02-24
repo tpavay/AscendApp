@@ -87,8 +87,8 @@ struct WeightEntry: Codable, Equatable, Identifiable {
     /// Formatted weight string for display (e.g., "20 lb" or "5 lb each")
     func formattedWeight(unit: String) -> String {
         let valueString = weightValue.truncatingRemainder(dividingBy: 1) == 0
-            ? String(format: "%.0f", weightValue)
-            : String(format: "%.1f", weightValue)
+            ? weightValue.formatted(.number.precision(.fractionLength(0)))
+            : weightValue.formatted(.number.precision(.fractionLength(1)))
 
         if equipmentType.isPaired {
             return "\(valueString) \(unit) each"
@@ -101,8 +101,8 @@ struct WeightEntry: Codable, Equatable, Identifiable {
     func formattedTotalWeight(unit: String) -> String {
         let total = totalWeight
         let valueString = total.truncatingRemainder(dividingBy: 1) == 0
-            ? String(format: "%.0f", total)
-            : String(format: "%.1f", total)
+            ? total.formatted(.number.precision(.fractionLength(0)))
+            : total.formatted(.number.precision(.fractionLength(1)))
         return "\(valueString) \(unit)"
     }
 }

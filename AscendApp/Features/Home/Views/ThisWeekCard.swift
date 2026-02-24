@@ -240,7 +240,7 @@ struct ThisWeekCard: View {
             if rounded == rounded.rounded() {
                 return "\(Int(rounded))h"
             } else {
-                return String(format: "%.1fh", rounded)
+                return "\(rounded.formatted(.number.precision(.fractionLength(1))))h"
             }
         } else {
             let minutes = Int(duration / 60)
@@ -257,7 +257,7 @@ struct ThisWeekCard: View {
             if rounded == rounded.rounded() {
                 return "\(Int(rounded))k"
             } else {
-                return String(format: "%.1fk", rounded)
+                return "\(rounded.formatted(.number.precision(.fractionLength(1))))k"
             }
         } else {
             return "\(value)"

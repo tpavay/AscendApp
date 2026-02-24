@@ -332,9 +332,9 @@ struct BestEffortsBuilder {
         let minutes = (totalSeconds % 3600) / 60
         
         if hours > 0 {
-            return String(format: "%d hr %02d min", hours, minutes)
+            return "\(hours) hr \(minutes < 10 ? "0" : "")\(minutes) min"
         } else {
-            return String(format: "%d min", minutes)
+            return "\(minutes) min"
         }
     }
     

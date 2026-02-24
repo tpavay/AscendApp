@@ -492,7 +492,7 @@ struct ProgressSheet: View {
             sum + HeatMapScoreCalculator.score(for: workout, metric: .effortScore, using: settingsManager)
         }
         let average = totalScore / Double(currentMonthWorkouts.count)
-        return String(format: "%.1f", average * 10) // Display as 0.0-10.0
+        return (average * 10).formatted(.number.precision(.fractionLength(1))) // Display as 0.0-10.0
     }
 
     private func heatMapStatCard(metric: HeatMapMetric, title: String, value: String) -> some View {
@@ -867,9 +867,9 @@ struct ProgressSheet: View {
         let minutes = (totalSeconds % 3600) / 60
         
         if hours > 0 {
-            return String(format: "%d hr %02d min", hours, minutes)
+            return "\(hours) hr \(minutes < 10 ? "0" : "")\(minutes) min"
         } else {
-            return String(format: "%d min", minutes)
+            return "\(minutes) min"
         }
     }
 

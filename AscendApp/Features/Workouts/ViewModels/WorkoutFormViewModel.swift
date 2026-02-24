@@ -330,16 +330,16 @@ class WorkoutFormViewModel {
         // Format display based on whether hours is non-zero
         if hours == 0 {
             // Show as MM:SS
-            durationFormatted = String(format: "%02d:%02d", minutes, seconds)
+            durationFormatted = "\(minutes < 10 ? "0" : "")\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
         } else {
             // Show as H:MM:SS
-            durationFormatted = String(format: "%d:%02d:%02d", hours, minutes, seconds)
+            durationFormatted = "\(hours):\(minutes < 10 ? "0" : "")\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
         }
 
         // Update individual components for saving
-        durationHours = String(format: "%02d", hours)
-        durationMinutes = String(format: "%02d", minutes)
-        durationSeconds = String(format: "%02d", seconds)
+        durationHours = hours < 10 ? "0\(hours)" : "\(hours)"
+        durationMinutes = minutes < 10 ? "0\(minutes)" : "\(minutes)"
+        durationSeconds = seconds < 10 ? "0\(seconds)" : "\(seconds)"
     }
 
     func setDuration(hours: Int, minutes: Int, seconds: Int) {
@@ -348,18 +348,18 @@ class WorkoutFormViewModel {
         let clampedSeconds = min(max(seconds, 0), 59)
 
         let hasHours = clampedHours > 0
-        durationHours = String(format: "%02d", clampedHours)
-        durationMinutes = String(format: "%02d", clampedMinutes)
-        durationSeconds = String(format: "%02d", clampedSeconds)
+        durationHours = clampedHours < 10 ? "0\(clampedHours)" : "\(clampedHours)"
+        durationMinutes = clampedMinutes < 10 ? "0\(clampedMinutes)" : "\(clampedMinutes)"
+        durationSeconds = clampedSeconds < 10 ? "0\(clampedSeconds)" : "\(clampedSeconds)"
 
         if hasHours {
-            durationFormatted = String(format: "%d:%02d:%02d", clampedHours, clampedMinutes, clampedSeconds)
+            durationFormatted = "\(clampedHours):\(clampedMinutes < 10 ? "0" : "")\(clampedMinutes):\(clampedSeconds < 10 ? "0" : "")\(clampedSeconds)"
         } else {
-            durationFormatted = String(format: "%02d:%02d", clampedMinutes, clampedSeconds)
+            durationFormatted = "\(clampedMinutes < 10 ? "0" : "")\(clampedMinutes):\(clampedSeconds < 10 ? "0" : "")\(clampedSeconds)"
         }
 
         let hoursDigits = hasHours ? String(clampedHours) : ""
-        rawDurationDigits = hoursDigits + String(format: "%02d%02d", clampedMinutes, clampedSeconds)
+        rawDurationDigits = hoursDigits + "\(clampedMinutes < 10 ? "0" : "")\(clampedMinutes)\(clampedSeconds < 10 ? "0" : "")\(clampedSeconds)"
     }
 
     func validateHeartRateOnSubmit(_ value: String) -> String {

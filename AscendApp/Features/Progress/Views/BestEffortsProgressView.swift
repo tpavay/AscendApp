@@ -570,9 +570,9 @@ struct BestEffortsProgressView: View {
     private func formattedValue(_ value: Double) -> String {
         switch selectedMetric {
         case .longestWorkout, .highestAverageMETs:
-            return String(format: "%.1f", value)
+            return value.formatted(.number.precision(.fractionLength(1)))
         case .highestStepsPerMinute:
-            return String(format: "%.0f", value)
+            return value.formatted(.number.precision(.fractionLength(0)))
         default:
             let formatter = NumberFormatter()
             formatter.numberStyle = .decimal
@@ -912,9 +912,9 @@ struct BestEffortsProgressView: View {
             let minutes = (totalSeconds % 3600) / 60
             let secs = totalSeconds % 60
             if hours > 0 {
-                return String(format: "%d:%02d:%02d", hours, minutes, secs)
+                return "\(hours):\(minutes < 10 ? "0" : "")\(minutes):\(secs < 10 ? "0" : "")\(secs)"
             } else {
-                return String(format: "%d:%02d", minutes, secs)
+                return "\(minutes):\(secs < 10 ? "0" : "")\(secs)"
             }
         case .mostSteps, .mostFloors:
             let formatter = NumberFormatter()
@@ -922,7 +922,7 @@ struct BestEffortsProgressView: View {
             formatter.maximumFractionDigits = 0
             return formatter.string(from: NSNumber(value: value)) ?? "\(Int(value))"
         case .bestPace:
-            return String(format: "%.1f/min", value)
+            return "\(value.formatted(.number.precision(.fractionLength(1))))/min"
         }
     }
 }

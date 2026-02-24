@@ -123,7 +123,7 @@ struct HeatMapScoreCalculator {
         switch metric {
         case .effortScore:
             let score = effortScore(for: workout)
-            return String(format: "%.1f", score * 10) // Display as 0.0-10.0
+            return (score * 10).formatted(.number.precision(.fractionLength(1))) // Display as 0.0-10.0
         case .primaryMetric:
             if settings.preferredWorkoutMetric == .steps {
                 return "\(workout.steps)"
@@ -134,7 +134,7 @@ struct HeatMapScoreCalculator {
             return workout.durationFormatted
         case .stepsPerMinute:
             if let spm = workout.stepsPerMinute {
-                return String(format: "%.0f", spm)
+                return spm.formatted(.number.precision(.fractionLength(0)))
             }
             return "--"
         case .calories:
@@ -154,7 +154,7 @@ struct HeatMapScoreCalculator {
             return "--"
         case .addedWeight:
             if let weight = workout.weightConfiguration?.totalWeight, weight > 0 {
-                return String(format: "%.1f", weight)
+                return weight.formatted(.number.precision(.fractionLength(1)))
             }
             return "--"
         }

@@ -56,7 +56,7 @@ struct RoutineInterval: Codable, Identifiable, Equatable {
         let seconds = totalSeconds % 60
 
         if minutes > 0 && seconds > 0 {
-            return "\(minutes):\(String(format: "%02d", seconds))"
+            return "\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
         } else if minutes > 0 {
             return "\(minutes) min"
         } else {

@@ -25,8 +25,8 @@ struct TemplateMediaCard: View {
         guard workout.hasWeights else { return nil }
         let weight = workout.totalWeightUsed
         let formatted = weight.truncatingRemainder(dividingBy: 1) == 0
-            ? String(format: "%.0f", weight)
-            : String(format: "%.1f", weight)
+            ? weight.formatted(.number.precision(.fractionLength(0)))
+            : weight.formatted(.number.precision(.fractionLength(1)))
         return "+\(formatted) \(measurementSystem.weightAbbreviation)"
     }
 
@@ -217,7 +217,7 @@ struct TemplateMediaCard: View {
     }
 
     private func formattedPaceValue(_ pace: Double) -> String {
-        String(format: "%.1f", pace)
+        pace.formatted(.number.precision(.fractionLength(1)))
     }
 
     private var paceLabel: String {

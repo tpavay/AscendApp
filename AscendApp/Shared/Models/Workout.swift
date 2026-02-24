@@ -227,9 +227,9 @@ class Workout {
         let seconds = totalSeconds % 60
         
         if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+            return "\(hours):\(minutes < 10 ? "0" : "")\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
         } else {
-            return String(format: "%02d:%02d", minutes, seconds)
+            return "\(minutes < 10 ? "0" : "")\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
         }
     }
     

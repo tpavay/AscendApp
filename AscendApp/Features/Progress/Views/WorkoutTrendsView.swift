@@ -437,7 +437,7 @@ struct WorkoutTrendsView: View {
                 if let avgPerMin = averageMetricPerMinute {
                     statCard(
                         title: "Avg per Min",
-                        value: String(format: "%.1f", avgPerMin),
+                        value: avgPerMin.formatted(.number.precision(.fractionLength(1))),
                         unit: "\(activePreferredMetric.unit)/min",
                         change: avgPerMinuteChange
                     )
@@ -501,7 +501,7 @@ struct WorkoutTrendsView: View {
         return HStack(spacing: 2) {
             Image(systemName: arrow)
                 .font(.system(size: 8, weight: .bold))
-            Text(displayValue < 1000 ? String(format: "%.0f%%", displayValue) : "999+%")
+            Text(displayValue < 1000 ? "\(displayValue.formatted(.number.precision(.fractionLength(0))))%" : "999+%")
                 .font(.montserratSemiBold(size: 10))
         }
         .foregroundStyle(color)

@@ -129,16 +129,16 @@ struct WeightComboKey: Codable, Hashable, Equatable {
     /// User-friendly display (e.g., "40 lb Vest")
     func displayName(unit: String) -> String {
         let weightStr = weightValue.truncatingRemainder(dividingBy: 1) == 0
-            ? String(format: "%.0f", weightValue)
-            : String(format: "%.1f", weightValue)
+            ? weightValue.formatted(.number.precision(.fractionLength(0)))
+            : weightValue.formatted(.number.precision(.fractionLength(1)))
         return "\(weightStr) \(unit) \(equipmentType.shortDescription)"
     }
 
     /// Short display (e.g., "40 lb")
     func shortDisplayName(unit: String) -> String {
         let weightStr = weightValue.truncatingRemainder(dividingBy: 1) == 0
-            ? String(format: "%.0f", weightValue)
-            : String(format: "%.1f", weightValue)
+            ? weightValue.formatted(.number.precision(.fractionLength(0)))
+            : weightValue.formatted(.number.precision(.fractionLength(1)))
         return "\(weightStr) \(unit)"
     }
 }
@@ -201,7 +201,7 @@ class WeightPersonalRecord {
         case .longestDuration:
             return formatDuration(value)
         case .bestPace:
-            return String(format: "%.1f/min", value)
+            return "\(value.formatted(.number.precision(.fractionLength(1))))/min"
         }
     }
 
@@ -219,9 +219,9 @@ class WeightPersonalRecord {
         let secs = totalSeconds % 60
 
         if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, secs)
+            return "\(hours):\(minutes < 10 ? "0" : "")\(minutes):\(secs < 10 ? "0" : "")\(secs)"
         } else {
-            return String(format: "%d:%02d", minutes, secs)
+            return "\(minutes):\(secs < 10 ? "0" : "")\(secs)"
         }
     }
 }
@@ -266,8 +266,8 @@ class AggregateWeightRecord {
     func formattedValue(measurementSystem: MeasurementSystem) -> String {
         let unit = measurementSystem.weightAbbreviation
         let valueStr = value.truncatingRemainder(dividingBy: 1) == 0
-            ? String(format: "%.0f", value)
-            : String(format: "%.1f", value)
+            ? value.formatted(.number.precision(.fractionLength(0)))
+            : value.formatted(.number.precision(.fractionLength(1)))
         return "\(valueStr) \(unit)"
     }
 }

@@ -174,11 +174,7 @@ struct LoadablePhotoView: View {
         let minutes = totalSeconds / 60
         let seconds = totalSeconds % 60
         
-        if minutes > 0 {
-            return String(format: "%d:%02d", minutes, seconds)
-        } else {
-            return String(format: "0:%02d", seconds)
-        }
+        return "\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
     }
 }
 

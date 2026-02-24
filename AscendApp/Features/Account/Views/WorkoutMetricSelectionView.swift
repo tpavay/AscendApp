@@ -289,7 +289,7 @@ struct WorkoutMetricSelectionView: View {
                 showingStepHeightPicker = true
             }) {
                 HStack(spacing: 4) {
-                    Text(String(format: "%.1f", settingsManager.stepHeight))
+                    Text(settingsManager.stepHeight, format: .number.precision(.fractionLength(1)))
                         .font(.montserratMedium)
                         .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                     
@@ -358,7 +358,7 @@ struct WorkoutMetricSelectionView: View {
             HStack {
                 Picker("Step Height", selection: $settingsManager.stepHeight) {
                     ForEach(stepHeightRange, id: \.self) { height in
-                        Text(String(format: "%.1f", height))
+                        Text(height, format: .number.precision(.fractionLength(1)))
                             .tag(height)
                     }
                 }
@@ -379,7 +379,7 @@ struct WorkoutMetricSelectionView: View {
                 HStack {
                     Image(systemName: "arrow.counterclockwise")
                         .font(.system(size: 14, weight: .medium))
-                    Text("Reset to Default (\(String(format: "%.1f", settingsManager.measurementSystem.defaultStepHeight)) \(settingsManager.measurementSystem.stepHeightAbbreviation))")
+                    Text("Reset to Default (\(settingsManager.measurementSystem.defaultStepHeight.formatted(.number.precision(.fractionLength(1)))) \(settingsManager.measurementSystem.stepHeightAbbreviation))")
                         .font(.montserratMedium)
                 }
                 .foregroundStyle(.accent)

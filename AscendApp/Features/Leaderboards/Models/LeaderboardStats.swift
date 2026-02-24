@@ -95,11 +95,11 @@ class LeaderboardStats {
 
         switch metric {
         case .climb, .workouts:
-            return String(format: "%.0f", value)
+            return value.formatted(.number.precision(.fractionLength(0)))
         case .duration:
             return formatDuration(value)
         case .pace:
-            return String(format: "%.1f", value)
+            return value.formatted(.number.precision(.fractionLength(1)))
         }
     }
 

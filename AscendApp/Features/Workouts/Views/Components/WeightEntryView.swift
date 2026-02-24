@@ -198,9 +198,9 @@ private struct WeightEquipmentRow: View {
 
     private func formatWeightValue(_ value: Double) -> String {
         if value.truncatingRemainder(dividingBy: 1) == 0 {
-            return String(format: "%.0f", value)
+            return value.formatted(.number.precision(.fractionLength(0)))
         } else {
-            return String(format: "%.1f", value)
+            return value.formatted(.number.precision(.fractionLength(1)))
         }
     }
 }

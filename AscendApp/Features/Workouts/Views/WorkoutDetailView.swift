@@ -702,7 +702,7 @@ struct WorkoutDetailView: View {
                 gridStatCard(
                     icon: "speedometer",
                     title: "Pace",
-                    value: String(format: "%.1f", pace)
+                    value: pace.formatted(.number.precision(.fractionLength(1)))
                 )
             } else {
                 gridStatCard(icon: "minus", title: "No Data", value: "—")
@@ -717,7 +717,7 @@ struct WorkoutDetailView: View {
                 statCard(
                     icon: "speedometer",
                     title: "Pace",
-                    value: String(format: "%.1f", pace),
+                    value: pace.formatted(.number.precision(.fractionLength(1))),
                     subtitle: "\(preferredMetric.unit)/min"
                 )
             }
@@ -738,7 +738,7 @@ struct WorkoutDetailView: View {
                 statCard(
                     icon: "arrow.up",
                     title: "Vertical Climb",
-                    value: String(format: "%.1f", verticalClimb),
+                    value: verticalClimb.formatted(.number.precision(.fractionLength(1))),
                     subtitle: workout.verticalClimbUnit(measurementSystem: settingsManager.measurementSystem)
                 )
             }
@@ -757,7 +757,7 @@ struct WorkoutDetailView: View {
                 statCard(
                     icon: "bolt.circle.fill",
                     title: "Average METs",
-                    value: String(format: "%.1f", averageMETs),
+                    value: averageMETs.formatted(.number.precision(.fractionLength(1))),
                     subtitle: "METs",
                     iconColor: .green
                 )

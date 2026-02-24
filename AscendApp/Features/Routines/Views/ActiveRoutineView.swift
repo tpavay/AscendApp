@@ -394,7 +394,7 @@ struct ActiveRoutineView: View {
         let totalSeconds = Int(interval)
         let minutes = totalSeconds / 60
         let seconds = totalSeconds % 60
-        return String(format: "%d:%02d", minutes, seconds)
+        return "\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
     }
 
     private func formatDuration(_ interval: TimeInterval) -> String {

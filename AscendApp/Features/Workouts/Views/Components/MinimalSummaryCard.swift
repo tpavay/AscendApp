@@ -109,7 +109,7 @@ struct MinimalSummaryCard: View {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.maximumFractionDigits = vertical < 100 ? 1 : 0
-        let value = formatter.string(from: NSNumber(value: vertical)) ?? String(format: "%.0f", vertical)
+        let value = formatter.string(from: NSNumber(value: vertical)) ?? vertical.formatted(.number.precision(.fractionLength(0)))
         return "\(value) \(measurementSystem.distanceAbbreviation)"
     }
 

@@ -215,7 +215,7 @@ struct WorkoutTrendBarChartView: View {
                         Text("Avg \(unitLabel)/min")
                             .font(.montserratRegular(size: 10))
                             .foregroundStyle(colorScheme == .dark ? .white.opacity(0.5) : .gray)
-                        Text(String(format: "%.1f", bucket.metricPerMinute))
+                        Text(bucket.metricPerMinute, format: .number.precision(.fractionLength(1)))
                             .font(.montserratSemiBold(size: 13))
                             .foregroundStyle(colorScheme == .dark ? .white : .black)
                     }

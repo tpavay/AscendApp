@@ -70,7 +70,7 @@ struct VerticalClimbFunFactCard: View {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.maximumFractionDigits = verticalClimb < 100 ? 1 : 0
-        let value = formatter.string(from: NSNumber(value: verticalClimb)) ?? String(format: "%.0f", verticalClimb)
+        let value = formatter.string(from: NSNumber(value: verticalClimb)) ?? verticalClimb.formatted(.number.precision(.fractionLength(0)))
         return "\(value) \(measurementSystem.distanceAbbreviation)"
     }
     

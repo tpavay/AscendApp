@@ -66,11 +66,11 @@ enum LeaderboardTimeFrame: String, CaseIterable, Codable, Identifiable {
         case .weekly:
             let year = calendar.component(.yearForWeekOfYear, from: date)
             let week = calendar.component(.weekOfYear, from: date)
-            return "\(year)-W\(String(format: "%02d", week))"
+            return "\(year)-W\(week < 10 ? "0" : "")\(week)"
         case .monthly:
             let year = calendar.component(.year, from: date)
             let month = calendar.component(.month, from: date)
-            return "\(year)-M\(String(format: "%02d", month))"
+            return "\(year)-M\(month < 10 ? "0" : "")\(month)"
         case .yearly:
             let year = calendar.component(.year, from: date)
             return "\(year)"

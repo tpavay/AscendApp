@@ -256,7 +256,7 @@ struct WeightBestEffortsBuilder {
         case .longestDuration:
             return formatDuration(value)
         case .bestPace:
-            return String(format: "%.1f/min", value)
+            return "\(value.formatted(.number.precision(.fractionLength(1))))/min"
         }
     }
 
@@ -273,9 +273,9 @@ struct WeightBestEffortsBuilder {
         let secs = totalSeconds % 60
 
         if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, secs)
+            return "\(hours):\(minutes < 10 ? "0" : "")\(minutes):\(secs < 10 ? "0" : "")\(secs)"
         } else {
-            return String(format: "%d:%02d", minutes, secs)
+            return "\(minutes):\(secs < 10 ? "0" : "")\(secs)"
         }
     }
 }
