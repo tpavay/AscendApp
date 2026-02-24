@@ -175,27 +175,27 @@ struct StreakView: View {
                         .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
                     
                     // Day circle with number - tappable
-                    ZStack {
-                        Circle()
-                            .fill(hasWorkout ? .accent : (effectiveColorScheme == .dark ? .jetLighter.opacity(0.3) : .gray.opacity(0.1)))
-                            .frame(width: 44, height: 44)
-                        
-                        // Day number
-                        Text("\(Calendar.current.component(.day, from: date))")
-                            .font(.montserratBold(size: 16))
-                            .foregroundStyle(hasWorkout ? .white : (effectiveColorScheme == .dark ? .white.opacity(0.8) : .black))
-                        
-                        // Fire icon for completed days
-                        if hasWorkout {
-                            Image(systemName: "flame.fill")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(.orange)
-                                .offset(x: 12, y: -12)
+                    Button { handleDayTap(for: date) } label: {
+                        ZStack {
+                            Circle()
+                                .fill(hasWorkout ? .accent : (effectiveColorScheme == .dark ? .jetLighter.opacity(0.3) : .gray.opacity(0.1)))
+                                .frame(width: 44, height: 44)
+
+                            // Day number
+                            Text("\(Calendar.current.component(.day, from: date))")
+                                .font(.montserratBold(size: 16))
+                                .foregroundStyle(hasWorkout ? .white : (effectiveColorScheme == .dark ? .white.opacity(0.8) : .black))
+
+                            // Fire icon for completed days
+                            if hasWorkout {
+                                Image(systemName: "flame.fill")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(.orange)
+                                    .offset(x: 12, y: -12)
+                            }
                         }
                     }
-                    .onTapGesture {
-                        handleDayTap(for: date)
-                    }
+                    .buttonStyle(.plain)
                 }
                 .frame(maxWidth: .infinity)
             }

@@ -49,6 +49,10 @@ struct PersonalRecordBadge: View {
     }
     
     var body: some View {
+        Button {
+            HapticsManager.shared.trigger(.lightImpact)
+            showingTooltip = true
+        } label: {
         HStack(spacing: 4) {
             Text(recordType.emoji)
                 .font(.system(size: size.emojiSize))
@@ -68,10 +72,8 @@ struct PersonalRecordBadge: View {
         )
         .clipShape(.rect(cornerRadius: size.padding * 2))
         .shadow(color: Color.black.opacity(0.2), radius: 2, x: 0, y: 1)
-        .onTapGesture {
-            HapticsManager.shared.trigger(.lightImpact)
-            showingTooltip = true
         }
+        .buttonStyle(.plain)
         .popover(isPresented: $showingTooltip, arrowEdge: .bottom) {
             VStack(spacing: 8) {
                 Text(recordType.emoji)

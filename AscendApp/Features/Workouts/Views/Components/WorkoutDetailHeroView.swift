@@ -133,6 +133,7 @@ private struct HeroMediaItem: View {
     @State private var player: AVPlayer?
 
     var body: some View {
+        Button { onTap() } label: {
         ZStack {
             if photo.isVideo {
                 videoContent
@@ -143,9 +144,8 @@ private struct HeroMediaItem: View {
         .frame(width: geometry.size.width, height: geometry.size.height)
         .clipped()
         .contentShape(Rectangle())
-        .onTapGesture {
-            onTap()
         }
+        .buttonStyle(.plain)
         .task {
             await loadMedia()
         }

@@ -14,6 +14,7 @@ struct ThumbnailPhotoView: View {
     let onDelete: () -> Void
 
     var body: some View {
+        Button { onTap() } label: {
         ZStack(alignment: .topLeading) {
             photoItem.image
                 .resizable()
@@ -64,9 +65,8 @@ struct ThumbnailPhotoView: View {
         }
         .frame(width: 120, height: 120)
         .contentShape(RoundedRectangle(cornerRadius: 8))
-        .onTapGesture {
-            onTap()
         }
+        .buttonStyle(.plain)
         .overlay(alignment: .topTrailing) {
             Button {
                 onDelete()

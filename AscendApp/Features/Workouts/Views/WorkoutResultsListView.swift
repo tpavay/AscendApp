@@ -28,10 +28,10 @@ struct WorkoutResultsListView: View {
                         }
                         
                         if isInDeleteMode {
-                            WorkoutRowView(workout: workout)
-                                .onTapGesture {
-                                    toggleSelection(workout.id)
-                                }
+                            Button { toggleSelection(workout.id) } label: {
+                                WorkoutRowView(workout: workout)
+                            }
+                            .buttonStyle(.plain)
                         } else {
                             NavigationLink(destination: WorkoutDetailView(workout: workout)) {
                                 WorkoutRowView(workout: workout)

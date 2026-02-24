@@ -393,6 +393,7 @@ struct IntervalEditorRow: View {
     }
 
     var body: some View {
+        Button { onEdit?() } label: {
         HStack(spacing: 12) {
             // Index circle
             Text("\(index)")
@@ -452,9 +453,8 @@ struct IntervalEditorRow: View {
         }
         .padding(12)
         .contentShape(Rectangle())
-        .onTapGesture {
-            onEdit?()
         }
+        .buttonStyle(.plain)
     }
 }
 

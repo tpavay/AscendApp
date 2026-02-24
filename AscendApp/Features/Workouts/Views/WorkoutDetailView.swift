@@ -894,34 +894,36 @@ struct WorkoutDetailView: View {
                 Spacer()
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text(workout.notes)
-                    .font(.montserratRegular(size: 16))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .lineLimit(isNotesExpanded ? nil : 4)
-
-                if isNotesExpanded {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isNotesExpanded = false
-                        }
-                    } label: {
-                        Text("Show less")
-                            .font(.montserratMedium(size: 14))
-                            .foregroundStyle(.accent)
-                    }
-                }
-            }
-            .padding(20)
-            .contentShape(Rectangle())
-            .onTapGesture {
+            Button {
                 if notesNeedsTruncation && !isNotesExpanded {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isNotesExpanded = true
                     }
                 }
+            } label: {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(workout.notes)
+                        .font(.montserratRegular(size: 16))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .lineLimit(isNotesExpanded ? nil : 4)
+
+                    if isNotesExpanded {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isNotesExpanded = false
+                            }
+                        } label: {
+                            Text("Show less")
+                                .font(.montserratMedium(size: 14))
+                                .foregroundStyle(.accent)
+                        }
+                    }
+                }
+                .padding(20)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
             .background(
                 RoundedRectangle(cornerRadius: 16)
                     .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
