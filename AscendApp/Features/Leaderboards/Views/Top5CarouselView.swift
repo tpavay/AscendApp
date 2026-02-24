@@ -38,7 +38,7 @@ struct Top5CarouselView: View {
                 let cardWidth = screenWidth - 120 // Leave 60pt on each side for peeking adjacent cards
                 let horizontalPadding = (screenWidth - cardWidth) / 2
 
-                ScrollView(.horizontal, showsIndicators: false) {
+                ScrollView(.horizontal) {
                     HStack(spacing: cardSpacing) {
                         ForEach(top5Entries) { entry in
                             Top5Card(
@@ -57,6 +57,7 @@ struct Top5CarouselView: View {
                     .scrollTargetLayout()
                     .padding(.horizontal, horizontalPadding)
                 }
+                .scrollIndicators(.hidden)
                 .scrollTargetBehavior(.viewAligned)
             }
             .frame(height: 160)

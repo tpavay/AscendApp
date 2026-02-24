@@ -130,7 +130,7 @@ class GoalsViewModel {
         // If no goal, use current timezone
         let tz = TimeZone.current
         if let city = tz.identifier.split(separator: "/").last {
-            return "\(city.replacingOccurrences(of: "_", with: " ")) time"
+            return "\(city.replacing("_", with: " ")) time"
         }
         return tz.abbreviation() ?? tz.identifier
     }

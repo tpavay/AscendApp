@@ -43,7 +43,7 @@ struct DebugActionTooltipSheet: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
             .background(Color.accent)
-            .cornerRadius(12)
+            .clipShape(.rect(cornerRadius: 12))
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
         }

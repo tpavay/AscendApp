@@ -32,7 +32,7 @@ struct NotificationBellView: View {
                     
                     Text(displayText)
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .frame(minWidth: isWideText ? 24 : 18, minHeight: 18)
                         .background(
                             RoundedRectangle(cornerRadius: isWideText ? 9 : 18)

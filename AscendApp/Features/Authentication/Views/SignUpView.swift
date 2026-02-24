@@ -45,7 +45,7 @@ struct SignUpView: View {
                 if let errorMessage = authVM.errorMessage {
                     Text(errorMessage)
                         .font(.montserratRegular)
-                        .foregroundColor(.red)
+                        .foregroundStyle(.red)
                         .padding(.horizontal, 32)
                         .multilineTextAlignment(.center)
                 }

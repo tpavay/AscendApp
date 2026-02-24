@@ -147,7 +147,7 @@ struct RoutinesHomeCard: View {
     }
 
     private var routinePreviewScroll: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(.horizontal) {
             HStack(spacing: 12) {
                 ForEach(routines.prefix(6)) { routine in
                     Button {
@@ -174,6 +174,7 @@ struct RoutinesHomeCard: View {
                 }
             }
         }
+        .scrollIndicators(.hidden)
     }
 
     private func loadRoutines() {

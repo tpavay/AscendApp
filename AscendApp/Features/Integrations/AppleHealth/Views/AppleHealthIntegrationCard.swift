@@ -26,7 +26,7 @@ struct AppleHealthIntegrationCard: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 44, height: 44)
-                    .cornerRadius(8)
+                    .clipShape(.rect(cornerRadius: 8))
 
                 Text("Apple Health")
                     .font(.montserratSemiBold(size: 17))

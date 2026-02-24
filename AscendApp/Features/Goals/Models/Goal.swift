@@ -61,7 +61,7 @@ final class Goal {
         }
         // Try to get city name from identifier (e.g., "America/Chicago" -> "Chicago")
         if let city = timeZoneId.split(separator: "/").last {
-            return "\(city.replacingOccurrences(of: "_", with: " ")) time"
+            return "\(city.replacing("_", with: " ")) time"
         }
         return tz.abbreviation() ?? timeZoneId
     }

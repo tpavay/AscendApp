@@ -47,8 +47,8 @@ struct MediaUploadBanner: View {
         }
         .padding()
         .background(Color.blue)
-        .foregroundColor(.white)
-        .cornerRadius(12)
+        .foregroundStyle(.white)
+        .clipShape(.rect(cornerRadius: 12))
     }
 
     // MARK: - Failed Banner
@@ -78,8 +78,8 @@ struct MediaUploadBanner: View {
         }
         .padding()
         .background(Color.orange)
-        .foregroundColor(.white)
-        .cornerRadius(12)
+        .foregroundStyle(.white)
+        .clipShape(.rect(cornerRadius: 12))
     }
 }
 
@@ -97,8 +97,8 @@ struct MediaUploadBanner: View {
         }
         .padding()
         .background(Color.blue)
-        .foregroundColor(.white)
-        .cornerRadius(12)
+        .foregroundStyle(.white)
+        .clipShape(.rect(cornerRadius: 12))
 
         Button(action: {}) {
             HStack(spacing: 12) {
@@ -119,8 +119,8 @@ struct MediaUploadBanner: View {
         }
         .padding()
         .background(Color.orange)
-        .foregroundColor(.white)
-        .cornerRadius(12)
+        .foregroundStyle(.white)
+        .clipShape(.rect(cornerRadius: 12))
     }
     .padding()
 }

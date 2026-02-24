@@ -70,18 +70,18 @@ struct PersonalRecordsDebugView: View {
                 if record.isCurrent {
                     Text("CURRENT")
                         .font(.caption)
-                        .fontWeight(.bold)
-                        .foregroundColor(.green)
+                        .bold()
+                        .foregroundStyle(.green)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(Color.green.opacity(0.2))
-                        .cornerRadius(4)
+                        .clipShape(.rect(cornerRadius: 4))
                 }
             }
             
             Text(record.formattedValue(measurementSystem: settingsManager.measurementSystem))
                 .font(.title2)
-                .fontWeight(.bold)
+                .bold()
             
             Text(record.workoutName)
                 .font(.subheadline)

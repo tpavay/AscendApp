@@ -214,7 +214,7 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
             let maxAttempts = 50 // 5 seconds max (50 * 100ms)
 
             while templateService.isLoading && attempts < maxAttempts {
-                try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                try? await Task.sleep(for: .milliseconds(100))
                 attempts += 1
             }
 

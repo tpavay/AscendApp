@@ -86,7 +86,7 @@ struct WorkoutPhotosSection: View {
                 }
 
                 // Photos grid with interleaved placeholders
-                ScrollView(.horizontal, showsIndicators: false) {
+                ScrollView(.horizontal) {
                     LazyHStack(spacing: 12) {
                         ForEach(sortedMediaItems) { item in
                             switch item {
@@ -99,6 +99,7 @@ struct WorkoutPhotosSection: View {
                     }
                     .padding(.vertical, 4)
                 }
+                .scrollIndicators(.hidden)
             }
             .fullScreenCover(item: $selectedPhoto) { photo in
                 FullScreenPhotoView(photo: photo) {

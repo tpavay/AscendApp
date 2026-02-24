@@ -556,13 +556,14 @@ struct WorkoutCardMediaSection: View {
             SingleMediaView(photo: photo)
         } else {
             // Multiple photos/videos - horizontal carousel
-            ScrollView(.horizontal, showsIndicators: false) {
+            ScrollView(.horizontal) {
                 HStack(spacing: 8) {
                     ForEach(sortedPhotos) { photo in
                         CarouselMediaThumbnail(photo: photo)
                     }
                 }
             }
+            .scrollIndicators(.hidden)
         }
     }
 }

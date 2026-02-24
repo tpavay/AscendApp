@@ -92,7 +92,7 @@ struct WorkoutTrendBarChartView: View {
                     y: .value(title, valueForBucket(bucket))
                 )
                 .foregroundStyle(isSelected(bucket) ? Color.accentColor : Color.accentColor.opacity(0.85))
-                .cornerRadius(4)
+                .clipShape(.rect(cornerRadius: 4))
             }
 
             // Selection indicator

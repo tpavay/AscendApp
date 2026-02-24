@@ -36,7 +36,7 @@ struct HevyApiKeyEntryView: View {
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(width: 80, height: 80)
-                            .cornerRadius(16)
+                            .clipShape(.rect(cornerRadius: 16))
 
                         Text("Connect to Hevy")
                             .font(.montserratBold(size: 24))

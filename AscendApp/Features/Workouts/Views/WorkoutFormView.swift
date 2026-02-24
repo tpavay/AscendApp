@@ -292,7 +292,7 @@ struct WorkoutFormView: View {
     }
 
     private var scrollContent: some View {
-        ScrollView(showsIndicators: false) {
+        ScrollView {
             VStack(spacing: 24) {
                 VStack(spacing: 20) {
                     workoutInfoCard
@@ -393,6 +393,7 @@ struct WorkoutFormView: View {
                 }
             }
             .scrollDismissesKeyboard(.interactively)
+            .scrollIndicators(.hidden)
         }
 
     private var permanentHeader: some View {

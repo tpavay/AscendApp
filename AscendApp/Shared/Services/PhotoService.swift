@@ -212,8 +212,7 @@ actor PhotoService {
 
                 // Don't wait after the last attempt
                 if attempt < config.maxRetries - 1 {
-                    let delayNanoseconds = UInt64(currentDelay * 1_000_000_000)
-                    try? await Task.sleep(nanoseconds: delayNanoseconds)
+                    try? await Task.sleep(for: .seconds(currentDelay))
                     currentDelay *= config.backoffMultiplier
                 }
             }
@@ -241,8 +240,7 @@ actor PhotoService {
 
             // Timeout task
             group.addTask {
-                let timeoutNanoseconds = UInt64(timeout * 1_000_000_000)
-                try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                try await Task.sleep(for: .seconds(timeout))
                 throw PhotoDeletionError.timeout(url: photo.url)
             }
 

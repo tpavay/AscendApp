@@ -178,7 +178,7 @@ struct WorkoutImportSheet: View {
 
             if unimportedCount == 0 {
                 // All imported, dismiss after a brief delay
-                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                try? await Task.sleep(for: .seconds(1))
                 dismiss()
             }
         }
@@ -280,7 +280,7 @@ struct PendingWorkoutImportRow: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 20, height: 20)
-                .cornerRadius(4)
+                .clipShape(.rect(cornerRadius: 4))
         case .manual:
             Image(systemName: "hand.draw.fill")
                 .font(.system(size: 14))

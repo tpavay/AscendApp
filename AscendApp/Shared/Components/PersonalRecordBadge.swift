@@ -55,7 +55,7 @@ struct PersonalRecordBadge: View {
             
             Text("PR")
                 .font(.system(size: size.fontSize, weight: .bold))
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
         }
         .padding(.horizontal, size.padding * 1.5)
         .padding(.vertical, size.padding)
@@ -66,7 +66,7 @@ struct PersonalRecordBadge: View {
                 endPoint: .bottomTrailing
             )
         )
-        .cornerRadius(size.padding * 2)
+        .clipShape(.rect(cornerRadius: size.padding * 2))
         .shadow(color: Color.black.opacity(0.2), radius: 2, x: 0, y: 1)
         .onTapGesture {
             HapticsManager.shared.trigger(.lightImpact)
@@ -78,7 +78,7 @@ struct PersonalRecordBadge: View {
                     .font(.system(size: 32))
                 Text(recordType.displayName)
                     .font(.montserratSemiBold(size: 16))
-                    .foregroundColor(.primary)
+                    .foregroundStyle(.primary)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
@@ -147,17 +147,17 @@ struct PersonalRecordBadgeGroup: View {
                 if remainingCount > 0 {
                     Text("+\(remainingCount)")
                         .font(.system(size: size.fontSize, weight: .semibold))
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .padding(.horizontal, size.padding)
                         .padding(.vertical, size.padding * 0.5)
                         .background(Color.secondary.opacity(0.1))
-                        .cornerRadius(size.padding)
+                        .clipShape(.rect(cornerRadius: size.padding))
                 }
             }
         } else {
             // Horizontal scroll for full display (for detail views)
             // Extends edge-to-edge to show partial badges at screen edges
-            ScrollView(.horizontal, showsIndicators: false) {
+            ScrollView(.horizontal) {
                 HStack(spacing: 6) {
                     ForEach(records, id: \.rawValue) { recordType in
                         PersonalRecordBadge(recordType: recordType, size: size)
@@ -165,6 +165,7 @@ struct PersonalRecordBadgeGroup: View {
                 }
                 .padding(.horizontal, 20) // Match parent container padding for content alignment
             }
+            .scrollIndicators(.hidden)
             .padding(.horizontal, -20) // Extend scroll view to screen edges
         }
     }

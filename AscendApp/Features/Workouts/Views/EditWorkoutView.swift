@@ -537,7 +537,7 @@ struct EditWorkoutView: View {
                     Spacer()
                 }
                 
-                ScrollView(.horizontal, showsIndicators: false) {
+                ScrollView(.horizontal) {
                     LazyHStack(spacing: 12) {
                         ForEach(existingPhotos) { photo in
                             ZStack(alignment: .topLeading) {
@@ -593,10 +593,11 @@ struct EditWorkoutView: View {
                     }
                     .padding(.vertical, 4)
                 }
+                .scrollIndicators(.hidden)
             }
         }
     }
-    
+
     private func isPhotoHighlighted(_ photo: Photo) -> Bool {
         switch highlightSelection {
         case .existingPhoto(let id):

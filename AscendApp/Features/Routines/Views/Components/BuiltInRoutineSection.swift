@@ -28,7 +28,7 @@ struct BuiltInRoutineSection: View {
             }
 
             // Horizontal scroll of template cards
-            ScrollView(.horizontal, showsIndicators: false) {
+            ScrollView(.horizontal) {
                 HStack(spacing: 12) {
                     ForEach(routines) { routine in
                         BuiltInTemplateCard(
@@ -39,6 +39,7 @@ struct BuiltInRoutineSection: View {
                     }
                 }
             }
+            .scrollIndicators(.hidden)
         }
     }
 }

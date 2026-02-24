@@ -179,7 +179,7 @@ struct BestEffortsProgressView: View {
     // MARK: - Metric Picker
     
     private var metricPicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 ForEach(availableMetrics) { metric in
                     metricButton(for: metric)
@@ -187,6 +187,7 @@ struct BestEffortsProgressView: View {
             }
             .padding(.horizontal, 4)
         }
+        .scrollIndicators(.hidden)
     }
     
     private func metricButton(for metric: BestEffort.MetricType) -> some View {
@@ -612,7 +613,7 @@ struct BestEffortsProgressView: View {
     // MARK: - Weight Combo Picker
 
     private var weightComboPicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 ForEach(availableWeightCombos, id: \.keyString) { combo in
                     weightComboButton(for: combo)
@@ -620,6 +621,7 @@ struct BestEffortsProgressView: View {
             }
             .padding(.horizontal, 4)
         }
+        .scrollIndicators(.hidden)
     }
 
     private func weightComboButton(for combo: WeightComboKey) -> some View {
@@ -659,7 +661,7 @@ struct BestEffortsProgressView: View {
     // MARK: - Weight Record Type Picker
 
     private var weightRecordTypePicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 ForEach(WeightRecordType.allCases, id: \.rawValue) { recordType in
                     weightRecordTypeButton(for: recordType)
@@ -667,6 +669,7 @@ struct BestEffortsProgressView: View {
             }
             .padding(.horizontal, 4)
         }
+        .scrollIndicators(.hidden)
     }
 
     private func weightRecordTypeButton(for recordType: WeightRecordType) -> some View {

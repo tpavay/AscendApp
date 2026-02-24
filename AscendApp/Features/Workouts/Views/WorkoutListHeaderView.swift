@@ -294,7 +294,7 @@ struct WorkoutListHeaderView: View {
     }
 
     private var filterChipStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(.horizontal) {
             HStack(spacing: 10) {
                 ForEach(FilterChip.allCases) { chip in
                     Button {
@@ -313,6 +313,7 @@ struct WorkoutListHeaderView: View {
             }
             .padding(.vertical, 4)
         }
+        .scrollIndicators(.hidden)
     }
 
     private func isActive(_ chip: FilterChip) -> Bool {

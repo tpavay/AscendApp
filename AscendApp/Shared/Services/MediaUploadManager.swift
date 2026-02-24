@@ -297,7 +297,7 @@ final class MediaUploadManager {
                         try await self.photoRepo.upload(data, filename: path)
                     }
                     group.addTask {
-                        try await Task.sleep(nanoseconds: UInt64(self.uploadTimeoutSeconds * 1_000_000_000))
+                        try await Task.sleep(for: .seconds(self.uploadTimeoutSeconds))
                         throw UploadError.timeout
                     }
 
@@ -337,7 +337,7 @@ final class MediaUploadManager {
 
                 // Wait before retry (unless last attempt)
                 if attempt < maxRetries - 1 {
-                    try? await Task.sleep(nanoseconds: UInt64(currentDelay * 1_000_000_000))
+                    try? await Task.sleep(for: .seconds(currentDelay))
                     currentDelay *= backoffMultiplier
                 }
             }

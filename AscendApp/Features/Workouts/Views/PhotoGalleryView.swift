@@ -60,7 +60,7 @@ struct PhotoGalleryView: View {
                     .frame(height: 120)
             } else {
                 // Photos selected - show gallery with picker at end
-                ScrollView(.horizontal, showsIndicators: false) {
+                ScrollView(.horizontal) {
                     LazyHStack(spacing: 12) {
                         ForEach(selectedImages) { item in
                             ThumbnailPhotoView(
@@ -83,6 +83,7 @@ struct PhotoGalleryView: View {
                     }
                     .padding(.horizontal, 4)
                 }
+                .scrollIndicators(.hidden)
                 .scrollTargetBehavior(.paging)
             }
         }
