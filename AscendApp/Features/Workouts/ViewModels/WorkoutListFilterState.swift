@@ -38,13 +38,14 @@ enum WorkoutSortOption: String, CaseIterable, Identifiable {
 }
 
 @MainActor
-final class WorkoutListFilterState: ObservableObject {
-    @Published var searchText: String = ""
-    @Published var selectedSources: Set<WorkoutSource> = []
-    @Published var stepsRange: ClosedRange<Double>? = nil
-    @Published var dateFilter: WorkoutDateFilter? = nil
-    @Published var durationRange: ClosedRange<Double>? = nil
-    @Published var sortOption: WorkoutSortOption = .dateNewest
+@Observable
+final class WorkoutListFilterState {
+    var searchText: String = ""
+    var selectedSources: Set<WorkoutSource> = []
+    var stepsRange: ClosedRange<Double>? = nil
+    var dateFilter: WorkoutDateFilter? = nil
+    var durationRange: ClosedRange<Double>? = nil
+    var sortOption: WorkoutSortOption = .dateNewest
     
     var normalizedSearchText: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()

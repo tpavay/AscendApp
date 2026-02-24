@@ -39,7 +39,8 @@ struct FolderOptionsSheet: View {
                     isDestructive: false
                 ) {
                     dismiss()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    Task {
+                        try await Task.sleep(for: .milliseconds(300))
                         onReorderFolders()
                     }
                 }
@@ -54,7 +55,8 @@ struct FolderOptionsSheet: View {
                     isDestructive: false
                 ) {
                     dismiss()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    Task {
+                        try await Task.sleep(for: .milliseconds(300))
                         onRenameFolder()
                     }
                 }
@@ -69,7 +71,8 @@ struct FolderOptionsSheet: View {
                     isDestructive: false
                 ) {
                     dismiss()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    Task {
+                        try await Task.sleep(for: .milliseconds(300))
                         onAddNewRoutine()
                     }
                 }
@@ -84,7 +87,8 @@ struct FolderOptionsSheet: View {
                     isDestructive: true
                 ) {
                     dismiss()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    Task {
+                        try await Task.sleep(for: .milliseconds(300))
                         onDeleteFolder()
                     }
                 }

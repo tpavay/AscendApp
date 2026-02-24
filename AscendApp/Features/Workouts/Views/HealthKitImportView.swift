@@ -16,7 +16,7 @@ struct HealthKitImportView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @State private var themeManager = ThemeManager.shared
-    @StateObject private var healthKitService = HealthKitService.shared
+    @State private var healthKitService = HealthKitService.shared
     
     init(onComplete: (() -> Void)? = nil) {
         self.onComplete = onComplete

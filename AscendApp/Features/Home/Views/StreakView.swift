@@ -16,7 +16,7 @@ struct DailyWorkoutNavigation: Hashable {
 struct StreakView: View {
     let workouts: [Workout]
     @Environment(\.colorScheme) private var colorScheme
-    @EnvironmentObject private var tabRouter: TabRouter
+    @Environment(TabRouter.self) private var tabRouter
     @State private var themeManager = ThemeManager.shared
     @State private var selectedWindowOffset: Int = 0 // 0 = last 7 days, -1 = previous 7 days, etc.
     @State private var selectedWorkout: Workout?
@@ -296,7 +296,7 @@ struct StreakView: View {
     
     StreakView(workouts: sampleWorkouts)
         .padding(20)
-        .environmentObject(TabRouter())
+        .environment(TabRouter())
 }
 
 #Preview("Dark") {
@@ -323,6 +323,6 @@ struct StreakView: View {
     
     StreakView(workouts: sampleWorkouts)
         .padding(20)
-        .environmentObject(TabRouter())
+        .environment(TabRouter())
         .preferredColorScheme(.dark)
 }

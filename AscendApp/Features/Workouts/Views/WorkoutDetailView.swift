@@ -1081,9 +1081,8 @@ struct WorkoutDetailView: View {
                 showingStravaSyncSuccess = true
 
                 // Auto-dismiss the success message after 2 seconds
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                    showingStravaSyncSuccess = false
-                }
+                try? await Task.sleep(for: .seconds(2))
+                showingStravaSyncSuccess = false
             } catch {
                 stravaSyncError = error.localizedDescription
                 HapticsManager.shared.trigger(.error)

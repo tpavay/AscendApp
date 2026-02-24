@@ -36,7 +36,7 @@ struct WorkoutListView: View {
     @State private var themeManager = ThemeManager.shared
     @State private var unifiedImportService = UnifiedImportService.shared
     @State private var settingsManager = SettingsManager.shared
-    @StateObject private var filterState = WorkoutListFilterState()
+    @State private var filterState = WorkoutListFilterState()
     
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
     @State private var workoutFormPresentation: WorkoutFormPresentation? = nil
@@ -132,19 +132,22 @@ struct WorkoutListView: View {
                 WorkoutEntrySelectionView(
                     onManualEntry: {
                         showingEntrySelection = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        Task {
+                            try await Task.sleep(for: .milliseconds(300))
                             workoutFormPresentation = .manual
                         }
                     },
                     onScanConsole: {
                         showingEntrySelection = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        Task {
+                            try await Task.sleep(for: .milliseconds(300))
                             showingScanner = true
                         }
                     },
                     onImportWorkouts: {
                         showingEntrySelection = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        Task {
+                            try await Task.sleep(for: .milliseconds(300))
                             handleImportTapped()
                         }
                     },
@@ -156,7 +159,8 @@ struct WorkoutListView: View {
                 ConsoleScannerContainerView(
                     onScanConfirmed: { result in
                         showingScanner = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        Task {
+                            try await Task.sleep(for: .milliseconds(300))
                             workoutFormPresentation = .fromScan(result)
                         }
                     },
@@ -179,7 +183,8 @@ struct WorkoutListView: View {
                         workoutFormPresentation = nil
 
                         // Then show completed view after a brief delay
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        Task {
+                            try await Task.sleep(for: .milliseconds(300))
                             showingCompletedView = true
                             print("🔍 WorkoutListView: Set showingCompletedView = true")
                         }

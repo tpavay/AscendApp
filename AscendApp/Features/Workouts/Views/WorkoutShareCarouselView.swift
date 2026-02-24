@@ -15,7 +15,7 @@ struct WorkoutShareCarouselView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     
-    @StateObject private var viewModel: WorkoutShareCarouselViewModel
+    @State private var viewModel: WorkoutShareCarouselViewModel
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
     
@@ -34,14 +34,14 @@ struct WorkoutShareCarouselView: View {
     
     /// Initialize for workout completion flow
     init(workout: Workout, workoutCount: Int, displayName: String, onDismiss: @escaping () -> Void) {
-        _viewModel = StateObject(wrappedValue: WorkoutShareCarouselViewModel(workout: workout, workoutCount: workoutCount, displayName: displayName))
+        _viewModel = State(initialValue: WorkoutShareCarouselViewModel(workout: workout, workoutCount: workoutCount, displayName: displayName))
         self.isCompletionFlow = true
         self.onDismiss = onDismiss
     }
     
     /// Initialize for share flow (from workout detail)
     init(workout: Workout, displayName: String) {
-        _viewModel = StateObject(wrappedValue: WorkoutShareCarouselViewModel(workout: workout, displayName: displayName))
+        _viewModel = State(initialValue: WorkoutShareCarouselViewModel(workout: workout, displayName: displayName))
         self.isCompletionFlow = false
         self.onDismiss = nil
     }
@@ -113,7 +113,8 @@ struct WorkoutShareCarouselView: View {
         .onAppear {
             if isCompletionFlow {
                 HapticsManager.shared.trigger(.heavyImpact)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                Task {
+                    try await Task.sleep(for: .milliseconds(100))
                     HapticsManager.shared.trigger(.success)
                 }
             }

@@ -162,7 +162,8 @@ private struct WeightEquipmentRow: View {
         .onChange(of: entry.isEnabled) { _, isEnabled in
             if isEnabled && entry.weightValue == 0 {
                 // Focus the weight field when enabling
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                Task {
+                    try await Task.sleep(for: .milliseconds(100))
                     isWeightFieldFocused = true
                 }
             }

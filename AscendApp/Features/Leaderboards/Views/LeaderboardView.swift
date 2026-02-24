@@ -10,7 +10,7 @@ import SwiftData
 
 struct LeaderboardView: View {
     @Environment(\.colorScheme) private var colorScheme
-    @EnvironmentObject private var tabRouter: TabRouter
+    @Environment(TabRouter.self) private var tabRouter
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.modelContext) private var modelContext
     @Query private var workouts: [Workout]
@@ -471,7 +471,7 @@ struct LeaderboardView: View {
     NavigationStack {
         LeaderboardView()
             .environment(AuthenticationViewModel())
-            .environmentObject(TabRouter())
+            .environment(TabRouter())
     }
     .modelContainer(for: Workout.self, inMemory: true)
 }

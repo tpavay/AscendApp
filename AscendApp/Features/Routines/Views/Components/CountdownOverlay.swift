@@ -26,7 +26,8 @@ struct CountdownOverlay: View {
                 opacity = 0.5
             }
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            Task {
+                try await Task.sleep(for: .milliseconds(150))
                 withAnimation(.easeIn(duration: 0.25)) {
                     scale = 1.0
                     opacity = 1.0

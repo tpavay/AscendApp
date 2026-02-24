@@ -56,7 +56,8 @@ struct RoutinesHomeCard: View {
                 onStart: {
                     selectedRoutine = nil
                     // Small delay to let sheet dismiss before presenting fullScreenCover
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    Task {
+                        try await Task.sleep(for: .milliseconds(300))
                         activeRoutine = routine
                     }
                 },

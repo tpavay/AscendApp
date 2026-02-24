@@ -15,8 +15,9 @@ enum AppTab: Hashable {
     case settings
 }
 
-final class TabRouter: ObservableObject {
-    @Published var selectedTab: AppTab = .home
+@Observable
+final class TabRouter {
+    var selectedTab: AppTab = .home
 }
 
 struct TabItem: Identifiable, Hashable {

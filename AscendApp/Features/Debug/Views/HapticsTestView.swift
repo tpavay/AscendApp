@@ -193,8 +193,9 @@ struct HapticsTestView: View {
                     name: "Workout Complete (Current)",
                     description: "Heavy impact → Success (100ms delay)",
                     action: {
-                        HapticsManager.shared.trigger(.heavyImpact)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        Task {
+                            HapticsManager.shared.trigger(.heavyImpact)
+                            try await Task.sleep(for: .milliseconds(100))
                             HapticsManager.shared.trigger(.success)
                         }
                     }
@@ -205,8 +206,9 @@ struct HapticsTestView: View {
                     name: "Double Tap",
                     description: "Two medium impacts in quick succession",
                     action: {
-                        HapticsManager.shared.trigger(.mediumImpact)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                        Task {
+                            HapticsManager.shared.trigger(.mediumImpact)
+                            try await Task.sleep(for: .milliseconds(80))
                             HapticsManager.shared.trigger(.mediumImpact)
                         }
                     }
@@ -217,14 +219,13 @@ struct HapticsTestView: View {
                     name: "Celebration Burst",
                     description: "Triple light impacts → Success",
                     action: {
-                        HapticsManager.shared.trigger(.lightImpact)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+                        Task {
                             HapticsManager.shared.trigger(.lightImpact)
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                            try await Task.sleep(for: .milliseconds(60))
                             HapticsManager.shared.trigger(.lightImpact)
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                            try await Task.sleep(for: .milliseconds(60))
+                            HapticsManager.shared.trigger(.lightImpact)
+                            try await Task.sleep(for: .milliseconds(130))
                             HapticsManager.shared.trigger(.success)
                         }
                     }
@@ -235,11 +236,11 @@ struct HapticsTestView: View {
                     name: "Rising Intensity",
                     description: "Light → Medium → Heavy",
                     action: {
-                        HapticsManager.shared.trigger(.lightImpact)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        Task {
+                            HapticsManager.shared.trigger(.lightImpact)
+                            try await Task.sleep(for: .milliseconds(100))
                             HapticsManager.shared.trigger(.mediumImpact)
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            try await Task.sleep(for: .milliseconds(100))
                             HapticsManager.shared.trigger(.heavyImpact)
                         }
                     }

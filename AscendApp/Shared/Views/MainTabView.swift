@@ -12,7 +12,7 @@ struct MainTabView: View {
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
     @State private var themeManager = ThemeManager.shared
-    @StateObject private var tabRouter = TabRouter()
+    @State private var tabRouter = TabRouter()
     @State private var hasCheckedRatingOnLaunch = false
 
     // Easy configuration - just change this array to modify tabs
@@ -42,7 +42,7 @@ struct MainTabView: View {
             }
         }
         .accentColor(.accent)
-        .environmentObject(tabRouter)
+        .environment(tabRouter)
         .onAppear {
             setupTabBarAppearance()
             checkForRatingPromptOnLaunch()

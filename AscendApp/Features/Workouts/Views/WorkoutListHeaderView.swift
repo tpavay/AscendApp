@@ -16,7 +16,7 @@ struct WorkoutListHeaderView: View {
     let pendingImportCount: Int
     let canDelete: Bool
     let workouts: [Workout]
-    @ObservedObject var filterState: WorkoutListFilterState
+    @Bindable var filterState: WorkoutListFilterState
     let onToggleSelectAll: () -> Void
     let onCancelDelete: () -> Void
     let onDeleteTapped: () -> Void
@@ -405,7 +405,7 @@ private struct FilterChipView: View {
 // MARK: - Filter Sheets
 
 private struct WorkoutSourceFilterSheet: View {
-    @ObservedObject var filterState: WorkoutListFilterState
+    var filterState: WorkoutListFilterState
     @Environment(\.dismiss) private var dismiss
     let effectiveColorScheme: ColorScheme
 
@@ -473,7 +473,7 @@ private struct WorkoutSourceFilterSheet: View {
 }
 
 private struct StepsFilterSheet: View {
-    @ObservedObject var filterState: WorkoutListFilterState
+    var filterState: WorkoutListFilterState
     @Environment(\.dismiss) private var dismiss
     let bounds: ClosedRange<Double>
     let formatter: NumberFormatter
@@ -484,7 +484,7 @@ private struct StepsFilterSheet: View {
     @State private var maxValue: Double = 0
 
     init(filterState: WorkoutListFilterState, bounds: ClosedRange<Double>, formatter: NumberFormatter, preferredMetric: WorkoutMetric, effectiveColorScheme: ColorScheme) {
-        self._filterState = ObservedObject(wrappedValue: filterState)
+        self.filterState = filterState
         self.bounds = bounds
         self.formatter = formatter
         self.preferredMetric = preferredMetric
@@ -573,7 +573,7 @@ private struct StepsFilterSheet: View {
 }
 
 private struct DatesFilterSheet: View {
-    @ObservedObject var filterState: WorkoutListFilterState
+    var filterState: WorkoutListFilterState
     @Environment(\.dismiss) private var dismiss
     let bounds: ClosedRange<Date>
     let effectiveColorScheme: ColorScheme
@@ -584,7 +584,7 @@ private struct DatesFilterSheet: View {
     @State private var focusedField: DateField = .start
 
     init(filterState: WorkoutListFilterState, bounds: ClosedRange<Date>, effectiveColorScheme: ColorScheme) {
-        self._filterState = ObservedObject(wrappedValue: filterState)
+        self.filterState = filterState
         self.bounds = bounds
         self.effectiveColorScheme = effectiveColorScheme
         let storedFilter = filterState.dateFilter
@@ -768,7 +768,7 @@ private struct DatesFilterSheet: View {
 }
 
 private struct DurationFilterSheet: View {
-    @ObservedObject var filterState: WorkoutListFilterState
+    var filterState: WorkoutListFilterState
     @Environment(\.dismiss) private var dismiss
     let bounds: ClosedRange<Double>
     let effectiveColorScheme: ColorScheme
@@ -777,7 +777,7 @@ private struct DurationFilterSheet: View {
     @State private var maxValue: Double = 0
 
     init(filterState: WorkoutListFilterState, bounds: ClosedRange<Double>, effectiveColorScheme: ColorScheme) {
-        self._filterState = ObservedObject(wrappedValue: filterState)
+        self.filterState = filterState
         self.bounds = bounds
         self.effectiveColorScheme = effectiveColorScheme
         let initialRange = filterState.durationRange ?? bounds
@@ -863,7 +863,7 @@ private struct DurationFilterSheet: View {
 // MARK: - Sort Option Sheet
 
 private struct SortOptionSheet: View {
-    @ObservedObject var filterState: WorkoutListFilterState
+    var filterState: WorkoutListFilterState
     @Environment(\.dismiss) private var dismiss
     let effectiveColorScheme: ColorScheme
     let preferredMetric: WorkoutMetric

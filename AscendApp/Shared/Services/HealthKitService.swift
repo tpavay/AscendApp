@@ -9,13 +9,14 @@ import Foundation
 import HealthKit
 
 @MainActor
-class HealthKitService: ObservableObject {
+@Observable
+class HealthKitService {
     static let shared = HealthKitService()
     
     private let healthStore = HKHealthStore()
     
-    @Published var authorizationStatus: HKAuthorizationStatus = .notDetermined
-    @Published var isHealthDataAvailable = false
+    var authorizationStatus: HKAuthorizationStatus = .notDetermined
+    var isHealthDataAvailable = false
     
     private init() {
         self.isHealthDataAvailable = HKHealthStore.isHealthDataAvailable()

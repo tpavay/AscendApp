@@ -87,24 +87,25 @@ enum ShareCardType: Identifiable, Equatable {
 }
 
 @MainActor
-final class WorkoutShareCarouselViewModel: ObservableObject {
+@Observable
+final class WorkoutShareCarouselViewModel {
     // MARK: - Constants
     static let posterExportSize = CGSize(width: 1080, height: 1350)
     static let posterAspectRatio = posterExportSize.width / posterExportSize.height
     static let displayCardHeight: CGFloat = 460
     static let displayCardWidth: CGFloat = displayCardHeight * posterAspectRatio
     
-    // MARK: - Published Properties
-    @Published var currentCardIndex: Int = 0
-    @Published var cardTheme: ShareCardTheme = .dark
-    @Published var isLoadingPhotos: Bool = false
-    @Published var photoImages: [UUID: UIImage] = [:]
-    @Published var templateImages: [String: UIImage] = [:]
-    @Published var copyConfirmationText: String?
-    @Published var shareErrorMessage: String?
+    // MARK: - Properties
+    var currentCardIndex: Int = 0
+    var cardTheme: ShareCardTheme = .dark
+    var isLoadingPhotos: Bool = false
+    var photoImages: [UUID: UIImage] = [:]
+    var templateImages: [String: UIImage] = [:]
+    var copyConfirmationText: String?
+    var shareErrorMessage: String?
 
     // MARK: - Strava Sync State
-    @Published var stravaSyncState: StravaSyncState = .idle
+    var stravaSyncState: StravaSyncState = .idle
 
     enum StravaSyncState {
         case idle
@@ -118,7 +119,7 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
     let workoutCount: Int?
     let displayName: String
     var availableCards: [ShareCardType]
-    private var photoLoadTasks: [Task<Void, Never>] = []
+    nonisolated(unsafe) private var photoLoadTasks: [Task<Void, Never>] = []
     private let templateService = ShareCardTemplateService.shared
     
     // MARK: - Computed Properties
@@ -462,9 +463,10 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
             copyConfirmationText = text
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
+        Task {
+            try await Task.sleep(for: .milliseconds(1600))
             withAnimation(.easeOut(duration: 0.3)) {
-                self?.copyConfirmationText = nil
+                copyConfirmationText = nil
             }
         }
     }
@@ -504,11 +506,10 @@ final class WorkoutShareCarouselViewModel: ObservableObject {
                 HapticsManager.shared.trigger(.error)
 
                 // Reset to idle after a delay so user can try again
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-                    if case .error = self?.stravaSyncState {
-                        withAnimation {
-                            self?.stravaSyncState = .idle
-                        }
+                try? await Task.sleep(for: .seconds(2))
+                if case .error = stravaSyncState {
+                    withAnimation {
+                        stravaSyncState = .idle
                     }
                 }
             }

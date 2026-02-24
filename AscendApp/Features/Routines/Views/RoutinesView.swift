@@ -68,7 +68,8 @@ struct RoutinesView: View {
                 onStart: {
                     selectedRoutine = nil
                     // Small delay to let sheet dismiss before presenting fullScreenCover
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    Task {
+                        try await Task.sleep(for: .milliseconds(300))
                         activeRoutine = routine
                     }
                 },
@@ -109,7 +110,8 @@ struct RoutinesView: View {
                 myRoutinesOrder: viewModel.myRoutinesOrder
             ) { folderId in
                 showingFolderSelection = false
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                Task {
+                    try await Task.sleep(for: .milliseconds(300))
                     newRoutineFolderSelection = NewRoutineFolderSelection(folderId: folderId)
                 }
             }
@@ -121,7 +123,8 @@ struct RoutinesView: View {
                 routines: viewModel.builtInRoutines,
                 onRoutineSelected: { routine in
                     showingExploreRoutines = false
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    Task {
+                        try await Task.sleep(for: .milliseconds(300))
                         selectedRoutine = routine
                     }
                 },
@@ -158,21 +161,24 @@ struct RoutinesView: View {
                 folderName: folder.name,
                 onReorderFolders: {
                     selectedFolderForOptions = nil
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    Task {
+                        try await Task.sleep(for: .milliseconds(300))
                         showingReorderFolders = true
                     }
                 },
                 onRenameFolder: {
                     let folderToRename = folder
                     selectedFolderForOptions = nil
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    Task {
+                        try await Task.sleep(for: .milliseconds(300))
                         self.folderToRename = folderToRename
                     }
                 },
                 onAddNewRoutine: {
                     let folderId = folder.id
                     selectedFolderForOptions = nil
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    Task {
+                        try await Task.sleep(for: .milliseconds(300))
                         newRoutineFolderSelection = NewRoutineFolderSelection(folderId: folderId)
                     }
                 },

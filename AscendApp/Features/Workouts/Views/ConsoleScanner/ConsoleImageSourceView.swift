@@ -434,6 +434,13 @@ struct ProcessingOverlay: View {
 
 // MARK: - Camera Manager
 
+/// Wraps a non-Sendable value for safe transfer across concurrency domains
+/// when the caller guarantees exclusive access during the transfer.
+private final class UncheckedBox<T>: @unchecked Sendable {
+    let value: T
+    init(_ value: T) { self.value = value }
+}
+
 @MainActor
 @Observable
 class CameraManager: NSObject {
@@ -520,26 +527,25 @@ class CameraManager: NSObject {
         previewLayer = layer
         previewLayerVersion += 1 // Trigger SwiftUI update
 
-        // Start session on background thread and wait for it
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                session.startRunning()
-                DispatchQueue.main.async {
-                    self?.isSessionRunning = session.isRunning
-                    continuation.resume()
-                }
+        // Start session on background thread and wait for result
+        let sessionBox = UncheckedBox(session)
+        let isRunning: Bool = await withCheckedContinuation { continuation in
+            Task.detached(priority: .userInitiated) {
+                sessionBox.value.startRunning()
+                continuation.resume(returning: sessionBox.value.isRunning)
             }
         }
+        isSessionRunning = isRunning
 
         return isSessionRunning
     }
 
     func stopSession() {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            self?.captureSession?.stopRunning()
-            DispatchQueue.main.async {
-                self?.isSessionRunning = false
-            }
+        guard let session = captureSession else { return }
+        isSessionRunning = false // Optimistic update on @MainActor
+        let sessionBox = UncheckedBox(session)
+        Task.detached(priority: .userInitiated) {
+            sessionBox.value.stopRunning()
         }
     }
 
