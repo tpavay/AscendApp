@@ -144,7 +144,12 @@ If using CloudKit sync: never use `@Attribute(.unique)`, properties must have de
 
 ### Pipeline (implementing)
 - **On PR to develop**: CI build with Staging scheme + tests (verify only, no deploy)
-- **On merge to develop**: Build IPA → Deploy Firebase Functions → Deploy Hosting → Upload to TestFlight (sequential, stop on failure)
+- **On merge to develop** (sequential, stop on failure):
+  1. Build iOS app (Staging scheme, produce IPA)
+  2. Deploy Firebase Functions
+  3. Deploy Firestore Rules
+  4. Deploy Firebase Hosting
+  5. Upload to TestFlight (last — hardest to reverse)
 - **On merge to main**: Same pipeline but with Release scheme targeting production
 
 ### Firebase Hosting
