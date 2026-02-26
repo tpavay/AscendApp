@@ -4,221 +4,996 @@
   <meta charset="utf-8" />
   <title>Ascend – Stair Workout Tracker</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Ascend is an iOS app used for tracking and analyzing stair-stepper workouts." />
+  <meta name="description" content="Ascend is an iOS app for tracking and analyzing stair-stepper workouts. Join the waitlist to get early access." />
   <style>
     :root {
-      /* From iOS color assets */
-      --accent: #B4CC00;          /* AccentColor */
+      --accent: #B4CC00;
       --accent-soft: rgba(180, 204, 0, 0.12);
-      --bg: #0B0B0B;              /* Night */
-      --bg-soft: #141414;         /* NightLighter */
-      --surface: #1F1F1F;         /* JetDarker */
-      --text: #f5f5f5;
-      --muted: #a6a8b0;
+      --accent-hover: #c8e000;
+      --bg: #0d1117;
+      --bg-soft: #161b22;
+      --surface: #1c2333;
+      --surface-hover: #252d3d;
+      --text: #f0f2f5;
+      --muted: #8b949e;
+      --border: rgba(255, 255, 255, 0.08);
+      --max-width: 1200px;
     }
-    * { box-sizing: border-box; }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
-      margin: 0;
-      min-height: 100vh;
-      background:
-        radial-gradient(circle at top left, #2a2f3c 0, #0B0B0B 55%);
+      background: var(--bg);
       color: var(--text);
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+      line-height: 1.6;
+      overflow-x: hidden;
     }
-    main {
-      width: 100%;
+
+    /* ── Navigation ─────────────────────────── */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      padding: 20px 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(13, 17, 23, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: var(--text);
+    }
+
+    .logo img {
+      width: 32px;
+      height: 32px;
+    }
+
+    .logo span {
+      font-weight: 700;
+      font-size: 18px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .hamburger {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      z-index: 200;
+    }
+
+    .hamburger span {
+      display: block;
+      width: 24px;
+      height: 2px;
+      background: var(--text);
+      border-radius: 2px;
+      transition: transform 0.3s, opacity 0.3s;
+    }
+
+    .hamburger.active span:nth-child(1) {
+      transform: translateY(7px) rotate(45deg);
+    }
+
+    .hamburger.active span:nth-child(2) {
+      opacity: 0;
+    }
+
+    .hamburger.active span:nth-child(3) {
+      transform: translateY(-7px) rotate(-45deg);
+    }
+
+    /* ── Slide-out Menu ─────────────────────── */
+    .menu-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 90;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+
+    .menu-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .slide-menu {
+      position: fixed;
+      top: 0;
+      right: -320px;
+      width: 300px;
+      height: 100vh;
+      background: var(--bg-soft);
+      z-index: 95;
+      padding: 100px 40px 40px;
+      transition: right 0.3s ease;
+      border-left: 1px solid var(--border);
+    }
+
+    .slide-menu.active {
+      right: 0;
+    }
+
+    .slide-menu a {
+      display: block;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 20px;
+      font-weight: 500;
+      padding: 16px 0;
+      border-bottom: 1px solid var(--border);
+      transition: color 0.2s;
+    }
+
+    .slide-menu a:hover {
+      color: var(--accent);
+    }
+
+    /* ── Hero Section ───────────────────────── */
+    .hero {
       min-height: 100vh;
-      padding: 32px 72px 48px;
-      margin: 0;
       display: grid;
-      grid-template-rows: auto 1fr;
-      row-gap: 32px;
+      grid-template-columns: 1fr 1fr;
+      align-items: center;
+      padding: 120px 40px 80px;
+      max-width: var(--max-width);
+      margin: 0 auto;
+      gap: 60px;
     }
-    header {
+
+    .hero-content {
+      max-width: 540px;
+    }
+
+    .hero-content h1 {
+      font-size: clamp(36px, 5vw, 60px);
+      font-weight: 800;
+      line-height: 1.08;
+      letter-spacing: -0.02em;
+      margin-bottom: 20px;
+    }
+
+    .hero-content h1 .accent {
+      color: var(--accent);
+    }
+
+    .hero-content .subtitle {
+      font-size: 18px;
+      color: var(--muted);
+      line-height: 1.7;
+      margin-bottom: 32px;
+    }
+
+    /* ── Waitlist Form ──────────────────────── */
+    .waitlist-form {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .waitlist-form input {
+      flex: 1;
+      padding: 14px 20px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 16px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .waitlist-form input::placeholder {
+      color: var(--muted);
+    }
+
+    .waitlist-form input:focus {
+      border-color: var(--accent);
+    }
+
+    .waitlist-form button {
+      padding: 14px 28px;
+      border-radius: 12px;
+      border: none;
+      background: var(--accent);
+      color: #000;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+      white-space: nowrap;
+    }
+
+    .waitlist-form button:hover {
+      background: var(--accent-hover);
+    }
+
+    .waitlist-form button:active {
+      transform: scale(0.98);
+    }
+
+    .waitlist-form button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .waitlist-note {
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .waitlist-success {
+      display: none;
+      padding: 16px 20px;
+      border-radius: 12px;
+      background: rgba(180, 204, 0, 0.1);
+      border: 1px solid rgba(180, 204, 0, 0.3);
+      color: var(--accent);
+      font-weight: 500;
+      font-size: 15px;
+    }
+
+    .waitlist-error {
+      display: none;
+      padding: 12px 16px;
+      border-radius: 8px;
+      background: rgba(255, 80, 80, 0.1);
+      border: 1px solid rgba(255, 80, 80, 0.3);
+      color: #ff6b6b;
+      font-size: 14px;
+      margin-top: 8px;
+    }
+
+    /* ── Phone Mockup ───────────────────────── */
+    .hero-phone {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .phone-frame {
+      position: relative;
+      width: 280px;
+      height: 580px;
+      border-radius: 40px;
+      background: #000;
+      padding: 12px;
+      box-shadow:
+        0 30px 80px rgba(0, 0, 0, 0.6),
+        0 0 0 1px rgba(255, 255, 255, 0.06),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+      overflow: hidden;
+    }
+
+    .phone-frame .screen {
+      width: 100%;
+      height: 100%;
+      border-radius: 30px;
+      overflow: hidden;
+      background: var(--surface);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .phone-frame .screen img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .phone-frame .screen video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .phone-frame .screen .placeholder {
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+      padding: 20px;
+    }
+
+    .phone-frame .screen .placeholder svg {
+      display: block;
+      margin: 0 auto 12px;
+      opacity: 0.3;
+    }
+
+    /* Dynamic island notch */
+    .phone-frame::before {
+      content: '';
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 100px;
+      height: 28px;
+      background: #000;
+      border-radius: 20px;
+      z-index: 10;
+    }
+
+    /* ── Features Sections ──────────────────── */
+    .features {
+      padding: 80px 40px;
+      max-width: var(--max-width);
+      margin: 0 auto;
+    }
+
+    .feature-section {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 80px;
+      align-items: center;
+      padding: 80px 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .feature-section:last-child {
+      border-bottom: 1px solid var(--border);
+    }
+
+    .feature-section.reversed .feature-text {
+      order: 2;
+    }
+
+    .feature-section.reversed .feature-visual {
+      order: 1;
+    }
+
+    .feature-text h2 {
+      font-size: clamp(28px, 3.5vw, 40px);
+      font-weight: 700;
+      line-height: 1.15;
+      margin-bottom: 16px;
+      letter-spacing: -0.01em;
+    }
+
+    .feature-text p {
+      font-size: 17px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    .feature-visual {
+      display: flex;
+      justify-content: center;
+    }
+
+    .feature-phone {
+      width: 260px;
+      height: 540px;
+    }
+
+    /* ── Screenshot Grid Section ─────────────── */
+    .screenshot-grid {
+      padding: 80px 40px;
+      max-width: var(--max-width);
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    .screenshot-grid h2 {
+      font-size: clamp(28px, 3.5vw, 40px);
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+
+    .screenshot-grid .section-subtitle {
+      font-size: 17px;
+      color: var(--muted);
+      margin-bottom: 60px;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .phone-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 40px;
+      justify-items: center;
+    }
+
+    .phone-grid .phone-frame {
+      width: 220px;
+      height: 460px;
+    }
+
+    .phone-grid .phone-frame::before {
+      width: 80px;
+      height: 22px;
+      top: 14px;
+    }
+
+    .phone-grid .phone-frame .screen {
+      border-radius: 26px;
+    }
+
+    /* ── FAQ Section ─────────────────────────── */
+    .faq {
+      padding: 80px 40px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .faq h2 {
+      font-size: 40px;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .faq-item {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 12px;
+      overflow: hidden;
+      background: var(--surface);
+      transition: background 0.2s;
+    }
+
+    .faq-item:hover {
+      background: var(--surface-hover);
+    }
+
+    .faq-question {
+      width: 100%;
+      background: none;
+      border: none;
+      color: var(--text);
+      padding: 20px 24px;
+      font-size: 16px;
+      font-weight: 500;
+      text-align: left;
+      cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: space-between;
     }
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
+
+    .faq-question svg {
+      flex-shrink: 0;
+      transition: transform 0.3s;
     }
-    .brand img {
-      width: 32px;
-      height: 32px;
-      display: block;
+
+    .faq-item.open .faq-question svg {
+      transform: rotate(180deg);
     }
-    .brand-name {
+
+    .faq-answer {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.3s ease;
+    }
+
+    .faq-answer-inner {
+      padding: 0 24px 20px;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.7;
+    }
+
+    /* ── CTA Section ─────────────────────────── */
+    .cta-section {
+      padding: 100px 40px;
+      text-align: center;
+      background: linear-gradient(180deg, transparent 0%, rgba(180, 204, 0, 0.03) 100%);
+    }
+
+    .cta-section h2 {
+      font-size: clamp(32px, 4vw, 48px);
       font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      font-size: 14px;
-    }
-    .hero {
-      display: grid;
-      grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
-      column-gap: 56px;
-      align-items: center;
-    }
-    h1 {
-      margin: 0 0 12px;
-      font-size: 64px;
-      line-height: 1.02;
-      letter-spacing: 0.02em;
-    }
-    .headline-accent {
-      color: var(--accent);
-    }
-    .hero-label {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 4px 10px;
-      border-radius: 999px;
-      background: var(--accent-soft);
-      color: var(--accent);
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
       margin-bottom: 16px;
     }
-    p {
-      margin: 8px 0;
-      line-height: 1.6;
-      font-size: 16px;
-    }
-    .meta {
-      margin-top: 20px;
-      font-size: 14px;
-      opacity: 0.8;
-    }
-    .hero-copy {
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      max-width: 540px;
-    }
-    .hero-bullets {
-      margin-top: 12px;
-      padding-left: 18px;
-      font-size: 15px;
+
+    .cta-section p {
+      font-size: 18px;
       color: var(--muted);
+      margin-bottom: 36px;
+      max-width: 500px;
+      margin-left: auto;
+      margin-right: auto;
     }
-    .hero-bullets li {
-      margin: 4px 0;
+
+    .cta-section .waitlist-form {
+      max-width: 460px;
+      margin: 0 auto 16px;
     }
-    .hero-images {
-      position: relative;
+
+    .cta-section .waitlist-note {
+      text-align: center;
+    }
+
+    .cta-section .waitlist-success {
+      max-width: 460px;
+      margin: 0 auto;
+    }
+
+    .cta-section .waitlist-error {
+      max-width: 460px;
+      margin: 8px auto 0;
+    }
+
+    /* ── Footer ──────────────────────────────── */
+    footer {
+      padding: 40px 40px;
+      border-top: 1px solid var(--border);
       display: flex;
       align-items: center;
-      justify-content: flex-start;
-      gap: 40px;
-      padding-right: 8px;
+      justify-content: space-between;
+      max-width: var(--max-width);
+      margin: 0 auto;
     }
-    .phone {
-      position: relative;
-      border-radius: 32px;
-      overflow: hidden;
-      box-shadow:
-        0 25px 60px rgba(0, 0, 0, 0.9),
-        0 0 0 1px rgba(255, 255, 255, 0.02);
-      max-height: 580px;
-      aspect-ratio: 9 / 19.5;
-      background: radial-gradient(circle at top, rgba(0,0,0,0.9), #000);
+
+    footer .copyright {
+      font-size: 14px;
+      color: var(--muted);
     }
-    .phone img {
-      height: 100%;
-      width: auto;
-      display: block;
+
+    footer .footer-links {
+      display: flex;
+      gap: 24px;
     }
-    .phone-secondary {
-      transform: translateY(26px) scale(0.96);
-      opacity: 0.95;
-    }
-    .phone-tertiary {
-      display: none;
-    }
-    a {
-      color: var(--accent);
+
+    footer .footer-links a {
+      color: var(--muted);
       text-decoration: none;
+      font-size: 14px;
+      transition: color 0.2s;
     }
-    a:hover { text-decoration: underline; }
+
+    footer .footer-links a:hover {
+      color: var(--text);
+    }
+
+    /* ── Responsive ──────────────────────────── */
     @media (max-width: 900px) {
-      main {
-        padding: 24px 16px 32px;
+      nav {
+        padding: 16px 24px;
       }
+
       .hero {
         grid-template-columns: 1fr;
-        padding: 32px 20px 40px;
-        min-height: auto;
+        padding: 100px 24px 60px;
+        text-align: center;
+        gap: 48px;
       }
-      .hero-images {
-        justify-content: center;
+
+      .hero-content {
+        max-width: 100%;
       }
-      .phone-secondary {
-        display: none;
+
+      .waitlist-form {
+        flex-direction: column;
+      }
+
+      .feature-section {
+        grid-template-columns: 1fr;
+        gap: 40px;
+        padding: 60px 0;
+      }
+
+      .feature-section.reversed .feature-text,
+      .feature-section.reversed .feature-visual {
+        order: unset;
+      }
+
+      .feature-text {
+        text-align: center;
+      }
+
+      .phone-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 24px;
+      }
+
+      .phone-grid .phone-frame {
+        width: 180px;
+        height: 376px;
+      }
+
+      footer {
+        flex-direction: column;
+        gap: 16px;
+        text-align: center;
       }
     }
+
     @media (max-width: 600px) {
-      h1 {
-        font-size: 32px;
+      .phone-frame {
+        width: 240px;
+        height: 500px;
       }
-      .tagline {
-        font-size: 22px;
+
+      .feature-phone {
+        width: 220px;
+        height: 460px;
       }
-      .phone {
-        max-height: 440px;
+
+      .phone-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .phone-grid .phone-frame {
+        width: 220px;
+        height: 460px;
+      }
+
+      .features,
+      .screenshot-grid,
+      .faq,
+      .cta-section {
+        padding-left: 24px;
+        padding-right: 24px;
       }
     }
   </style>
 </head>
 <body>
-  <main>
-    <header>
-      <div class="brand">
-        <img src="/images/StairmasterIconAccent.png" alt="Ascend stair icon" />
-        <span class="brand-name">Ascend</span>
-      </div>
-    </header>
-    <section class="hero">
-      <div class="hero-copy">
-        <div class="hero-label">iOS app · Coming soon</div>
-        <h1>
-          Climb Higher.<br />
-          Track <span class="headline-accent">Smarter.</span>
-        </h1>
-      <p>
-        Ascend is an iOS app focused stair-stepper workouts.
-        Log stair stepper workouts, track detailed trends, stay consistent with streaks,
-        compete on leaderboards, and more.
+
+  <!-- ── Navigation ──────────────────────────── -->
+  <nav>
+    <a href="/" class="logo">
+      <img src="/images/StairmasterIconAccent.png" alt="Ascend icon" />
+      <span>Ascend</span>
+    </a>
+    <button class="hamburger" id="menuToggle" aria-label="Open menu">
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
+  </nav>
+
+  <!-- ── Slide-out Menu ──────────────────────── -->
+  <div class="menu-overlay" id="menuOverlay"></div>
+  <div class="slide-menu" id="slideMenu">
+    <a href="/">Home</a>
+    <a href="/story.html">Our Story</a>
+  </div>
+
+  <!-- ── Hero ────────────────────────────────── -->
+  <section class="hero">
+    <div class="hero-content">
+      <h1>
+        Climb Higher.<br />
+        Track <span class="accent">Smarter.</span>
+      </h1>
+      <p class="subtitle">
+        Ascend is an iOS app built for stair-stepper workouts. Log sessions, track detailed trends, stay consistent with streaks, compete on leaderboards, and level up your training.
       </p>
-      <ul class="hero-bullets">
-        <li>Track workouts, steps, floors, and streaks over time</li>
-        <li>See trends and best efforts at a glance</li>
-        <li>Designed for any and all stair stepper users</li>
-      </ul>
-      <p class="meta">
-        Built by Tyler Pavay ·
-        Contact: <a href="mailto:pavayt@gmail.com">pavayt@gmail.com</a>
-      </p>
+
+      <div id="heroWaitlist">
+        <form class="waitlist-form" id="heroForm" onsubmit="return handleWaitlist(event, 'hero')">
+          <input type="email" placeholder="Enter your email" required id="heroEmail" />
+          <button type="submit">Join Waitlist</button>
+        </form>
+        <p class="waitlist-note">Be the first to know when Ascend launches. No spam.</p>
+        <div class="waitlist-success" id="heroSuccess">You're on the list! We'll be in touch.</div>
+        <div class="waitlist-error" id="heroError"></div>
       </div>
-      <section class="hero-images" aria-label="Ascend app screenshots">
-        <figure class="phone phone-secondary">
-          <img src="/images/WorkoutScreen.jpg" alt="Ascend workouts list" loading="lazy" />
-        </figure>
-        <figure class="phone">
-          <img src="/images/ProgressScreen.jpg" alt="Ascend progress calendar" loading="eager" />
-        </figure>
-        <!-- Optional extra phone if you add another screenshot asset:
-        <figure class="phone phone-tertiary">
-          <img src="/images/TrendsScreen.jpg" alt="Ascend workout trends" loading="lazy" />
-        </figure>
-        -->
-      </section>
+    </div>
+
+    <div class="hero-phone">
+      <div class="phone-frame">
+        <div class="screen">
+          <!-- Replace src with your screenshot or video -->
+          <img src="/images/ProgressScreen.jpg" alt="Ascend app screenshot" />
+          <!-- To use a video instead:
+          <video autoplay muted loop playsinline>
+            <source src="/images/your-video.mp4" type="video/mp4" />
+          </video>
+          -->
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Feature Sections ────────────────────── -->
+  <div class="features">
+
+    <!-- Feature 1 -->
+    <section class="feature-section">
+      <div class="feature-text">
+        <h2>Track every step, every floor, every workout</h2>
+        <p>
+          Log your stair-stepper sessions with detailed stats including steps, floors, duration, and calories. See your progress at a glance with the workout calendar.
+        </p>
+      </div>
+      <div class="feature-visual">
+        <div class="phone-frame feature-phone">
+          <div class="screen">
+            <!-- Replace with your screenshot -->
+            <img src="/images/WorkoutScreen.jpg" alt="Workout tracking screen" />
+          </div>
+        </div>
+      </div>
     </section>
-  </main>
+
+    <!-- Feature 2 -->
+    <section class="feature-section reversed">
+      <div class="feature-text">
+        <h2>Visualize your trends and personal records</h2>
+        <p>
+          See how your workouts stack up over time. Track personal bests, streaks, and long-term trends to keep pushing forward.
+        </p>
+      </div>
+      <div class="feature-visual">
+        <div class="phone-frame feature-phone">
+          <div class="screen">
+            <!-- Replace with your screenshot -->
+            <img src="/images/TrendsScreen.jpg" alt="Trends and analytics screen" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Feature 3 -->
+    <section class="feature-section">
+      <div class="feature-text">
+        <h2>Compete with friends on the leaderboard</h2>
+        <p>
+          Stay motivated by climbing the ranks. See how you stack up against friends and the community on weekly and all-time leaderboards.
+        </p>
+      </div>
+      <div class="feature-visual">
+        <div class="phone-frame feature-phone">
+          <div class="screen">
+            <!-- Replace with your screenshot -->
+            <img src="/images/LeaderboardScreen.jpeg" alt="Leaderboard screen" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ── Screenshot Grid ─────────────────────── -->
+  <section class="screenshot-grid">
+    <h2>Built for stair-stepper athletes</h2>
+    <p class="section-subtitle">
+      Every feature designed around the stair-stepper experience.
+    </p>
+    <div class="phone-grid">
+      <div class="phone-frame">
+        <div class="screen">
+          <!-- Placeholder 1 - replace with any screenshot/video -->
+          <img src="/images/WorkoutScreen.jpg" alt="App screenshot" />
+        </div>
+      </div>
+      <div class="phone-frame">
+        <div class="screen">
+          <!-- Placeholder 2 - replace with any screenshot/video -->
+          <img src="/images/ProgressScreen.jpg" alt="App screenshot" />
+        </div>
+      </div>
+      <div class="phone-frame">
+        <div class="screen">
+          <!-- Placeholder 3 - replace with any screenshot/video -->
+          <img src="/images/TrendsScreen.jpg" alt="App screenshot" />
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── FAQ ─────────────────────────────────── -->
+  <section class="faq">
+    <h2>FAQ</h2>
+
+    <div class="faq-item">
+      <button class="faq-question" onclick="toggleFaq(this)">
+        What is Ascend?
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="faq-answer">
+        <div class="faq-answer-inner">
+          Ascend is an iOS app dedicated to stair-stepper workouts. It lets you log sessions, track your progress with detailed analytics, maintain streaks, and compete with friends on leaderboards.
+        </div>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <button class="faq-question" onclick="toggleFaq(this)">
+        When will Ascend be available?
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="faq-answer">
+        <div class="faq-answer-inner">
+          Ascend is currently in development. Join the waitlist above to be notified as soon as it launches on the App Store.
+        </div>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <button class="faq-question" onclick="toggleFaq(this)">
+        Is Ascend free?
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="faq-answer">
+        <div class="faq-answer-inner">
+          Ascend will offer a free tier with core features. Premium features like advanced analytics and more will be available through an optional subscription.
+        </div>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <button class="faq-question" onclick="toggleFaq(this)">
+        What makes Ascend different from other fitness apps?
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="faq-answer">
+        <div class="faq-answer-inner">
+          Most fitness apps treat stair-steppers as an afterthought. Ascend is purpose-built for stair-stepper athletes with specialized tracking, trends, and a community of dedicated climbers.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Bottom CTA ──────────────────────────── -->
+  <section class="cta-section">
+    <h2>Ready to start climbing?</h2>
+    <p>Join the waitlist and be the first to experience Ascend.</p>
+
+    <div id="ctaWaitlist">
+      <form class="waitlist-form" id="ctaForm" onsubmit="return handleWaitlist(event, 'cta')">
+        <input type="email" placeholder="Enter your email" required id="ctaEmail" />
+        <button type="submit">Join Waitlist</button>
+      </form>
+      <p class="waitlist-note">No spam, ever. Unsubscribe anytime.</p>
+      <div class="waitlist-success" id="ctaSuccess">You're on the list! We'll be in touch.</div>
+      <div class="waitlist-error" id="ctaError"></div>
+    </div>
+  </section>
+
+  <!-- ── Footer ──────────────────────────────── -->
+  <footer>
+    <span class="copyright">&copy; Ascend 2026</span>
+    <div class="footer-links">
+      <a href="/privacy.html">Privacy</a>
+      <a href="mailto:pavayt@gmail.com">Contact</a>
+    </div>
+  </footer>
+
+  <!-- ── Firebase SDK ────────────────────────── -->
+  <script type="module">
+    // Firebase Web SDK (modular)
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.3.0/firebase-app.js';
+    import { getFirestore, collection, addDoc, query, where, getDocs } from 'https://www.gstatic.com/firebasejs/11.3.0/firebase-firestore.js';
+
+    // TODO: Register a Web App in the Firebase console (Project Settings > General > Your apps > Add app > Web)
+    // Then replace the appId below with the value from your web app config.
+    const firebaseConfig = {
+      apiKey: "AIzaSyBqLpWa9HMDa90JbFvaJFq8Azlo01lCMdI",
+      authDomain: "ascend-f2e4f.firebaseapp.com",
+      projectId: "ascend-f2e4f",
+      storageBucket: "ascend-f2e4f.firebasestorage.app",
+      messagingSenderId: "808186881002",
+      appId: "YOUR_WEB_APP_ID" // Get this from Firebase console after registering a Web App
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // Expose the handler to the global scope
+    window.handleWaitlist = async function(event, formId) {
+      event.preventDefault();
+
+      const emailInput = document.getElementById(formId + 'Email');
+      const form = document.getElementById(formId + 'Form');
+      const successEl = document.getElementById(formId + 'Success');
+      const errorEl = document.getElementById(formId + 'Error');
+      const button = form.querySelector('button');
+      const email = emailInput.value.trim().toLowerCase();
+
+      if (!email) return false;
+
+      button.disabled = true;
+      button.textContent = 'Joining...';
+      errorEl.style.display = 'none';
+
+      try {
+        // Check if email already exists
+        const q = query(collection(db, 'waitlist'), where('email', '==', email));
+        const snapshot = await getDocs(q);
+
+        if (!snapshot.empty) {
+          successEl.textContent = "You're already on the list! We'll be in touch.";
+          form.style.display = 'none';
+          successEl.style.display = 'block';
+          return false;
+        }
+
+        await addDoc(collection(db, 'waitlist'), {
+          email: email,
+          source: 'landing_page',
+          timestamp: new Date().toISOString(),
+          createdAt: new Date()
+        });
+
+        form.style.display = 'none';
+        successEl.style.display = 'block';
+      } catch (err) {
+        console.error('Waitlist error:', err);
+        errorEl.textContent = 'Something went wrong. Please try again or email pavayt@gmail.com.';
+        errorEl.style.display = 'block';
+        button.disabled = false;
+        button.textContent = 'Join Waitlist';
+      }
+
+      return false;
+    };
+  </script>
+
+  <!-- ── Menu & FAQ JS ───────────────────────── -->
+  <script>
+    // Hamburger menu
+    const menuToggle = document.getElementById('menuToggle');
+    const slideMenu = document.getElementById('slideMenu');
+    const menuOverlay = document.getElementById('menuOverlay');
+
+    function toggleMenu() {
+      menuToggle.classList.toggle('active');
+      slideMenu.classList.toggle('active');
+      menuOverlay.classList.toggle('active');
+      document.body.style.overflow = slideMenu.classList.contains('active') ? 'hidden' : '';
+    }
+
+    menuToggle.addEventListener('click', toggleMenu);
+    menuOverlay.addEventListener('click', toggleMenu);
+
+    // Close menu when a link is clicked
+    slideMenu.querySelectorAll('a').forEach(function(link) {
+      link.addEventListener('click', function() {
+        if (slideMenu.classList.contains('active')) {
+          toggleMenu();
+        }
+      });
+    });
+
+    // FAQ accordion
+    function toggleFaq(button) {
+      var item = button.parentElement;
+      var answer = item.querySelector('.faq-answer');
+      var isOpen = item.classList.contains('open');
+
+      // Close all
+      document.querySelectorAll('.faq-item').forEach(function(el) {
+        el.classList.remove('open');
+        el.querySelector('.faq-answer').style.maxHeight = null;
+      });
+
+      // Open clicked if it was closed
+      if (!isOpen) {
+        item.classList.add('open');
+        answer.style.maxHeight = answer.scrollHeight + 'px';
+      }
+    }
+  </script>
+
 </body>
 </html>

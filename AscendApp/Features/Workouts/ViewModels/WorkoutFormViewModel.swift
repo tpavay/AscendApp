@@ -134,14 +134,18 @@ class WorkoutFormViewModel {
 
     // MARK: - Computed Properties
     var isFormValid: Bool {
-        let basicValidation = !workoutName.isEmpty &&
-        workoutName.count <= 50 &&
+        // Steps/floors is optional - only validate if provided
+        let metricValid = metricValue.isEmpty || Int(metricValue) != nil
+
+        // Workout name is optional - will use default if empty
+        let nameValid = workoutName.isEmpty || workoutName.count <= 50
+
+        let basicValidation = nameValid &&
         !durationMinutes.isEmpty &&
         !durationSeconds.isEmpty &&
-        !metricValue.isEmpty &&
+        metricValid &&
         Int(durationMinutes) != nil &&
         Int(durationSeconds) != nil &&
-        Int(metricValue) != nil &&
         (Int(durationMinutes) ?? 0) < 60 &&
         (Int(durationSeconds) ?? 0) < 60 &&
         (durationHours.isEmpty || (Int(durationHours) != nil && (Int(durationHours) ?? 0) <= 999))
@@ -418,10 +422,12 @@ class WorkoutFormViewModel {
     // MARK: - Helper Methods
     private func createWorkoutRequest() throws -> CreateWorkoutRequest {
         guard let minutes = Int(durationMinutes),
-              let seconds = Int(durationSeconds),
-              let value = Int(metricValue) else {
+              let seconds = Int(durationSeconds) else {
             throw WorkoutFormError.invalidInput
         }
+        
+        // Steps/floors is optional - default to 0 if not provided
+        let value = Int(metricValue) ?? 0
 
         let hours = Int(durationHours) ?? 0
         let totalDuration = TimeInterval(hours * 3600 + minutes * 60 + seconds)
