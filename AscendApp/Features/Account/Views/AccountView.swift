@@ -5,6 +5,7 @@
 //  Created by Tyler Pavay on 8/10/25.
 //
 
+import FirebaseCore
 import SwiftUI
 
 struct AccountView: View {
@@ -14,6 +15,7 @@ struct AccountView: View {
     
     @State private var isShowingEditProfile = false
     @State private var isShowingDeleteAccountConfirmation = false
+    @State private var isShowingPrivacyPolicy = false
 
     var body: some View {
         ScrollView {
@@ -45,6 +47,13 @@ struct AccountView: View {
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         .navigationDestination(isPresented: $isShowingEditProfile) {
             EditProfileView()
+        }
+        .sheet(isPresented: $isShowingPrivacyPolicy) {
+            if let projectId = FirebaseApp.app()?.options.projectID,
+               let url = URL(string: "https://\(projectId).web.app/privacy") {
+                SafariView(url: url)
+                    .ignoresSafeArea()
+            }
         }
         .sheet(isPresented: $isShowingDeleteAccountConfirmation) {
             DeleteAccountConfirmationView(
@@ -124,7 +133,9 @@ struct AccountView: View {
             SettingsOption(
                 icon: "hand.raised",
                 title: "Privacy Policy",
-                destination: PrivacyPolicyView()
+                action: {
+                    isShowingPrivacyPolicy = true
+                }
             )
         )
 
