@@ -35,7 +35,7 @@ struct DeleteAccountConfirmationView: View {
                     .font(.montserratBold(size: 22))
                     .foregroundStyle(colorScheme == .dark ? .white : .black)
 
-                Text("This will permanently delete your account and all associated data. This action cannot be undone.")
+                Text("This will permanently delete your account and all associated data. This action cannot be undone. For security, you may be asked to sign in again before deletion is completed.")
                     .font(.montserratRegular(size: 15))
                     .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
                     .multilineTextAlignment(.center)
@@ -44,9 +44,17 @@ struct DeleteAccountConfirmationView: View {
 
             // Confirmation input
             if isDeleting {
-                ProgressView()
-                    .scaleEffect(1.2)
-                    .padding(.vertical, 20)
+                VStack(spacing: 12) {
+                    ProgressView()
+                        .scaleEffect(1.2)
+                        .padding(.top, 8)
+
+                    Text("If prompted, confirm your sign-in to finish account deletion.")
+                        .font(.montserratRegular(size: 13))
+                        .foregroundStyle(colorScheme == .dark ? .white.opacity(0.55) : .gray)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.vertical, 12)
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Type DELETE to confirm")
@@ -107,7 +115,7 @@ struct DeleteAccountConfirmationView: View {
         .padding(.horizontal, 24)
         .padding(.top, 48)
         .padding(.bottom, 24)
-        .presentationDetents([.height(360)])
+        .presentationDetents([.height(400)])
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled(isDeleting)
         .alert("Deletion Failed", isPresented: $showError) {
