@@ -12,7 +12,14 @@ import UIKit
 @MainActor
 final class HapticsManager {
     static let shared = HapticsManager()
-    
+
+    private let selectionGenerator = UISelectionFeedbackGenerator()
+    private let lightImpactGenerator = UIImpactFeedbackGenerator(style: .light)
+    private let mediumImpactGenerator = UIImpactFeedbackGenerator(style: .medium)
+    private let heavyImpactGenerator = UIImpactFeedbackGenerator(style: .heavy)
+    private let rigidImpactGenerator = UIImpactFeedbackGenerator(style: .rigid)
+    private let notificationGenerator = UINotificationFeedbackGenerator()
+
     private init() {}
     
     // MARK: - Haptic Types
@@ -40,27 +47,83 @@ final class HapticsManager {
     func trigger(_ type: HapticType) {
         switch type {
         case .selection:
-            let generator = UISelectionFeedbackGenerator()
-            generator.selectionChanged()
+            selectionGenerator.selectionChanged()
+            selectionGenerator.prepare()
         case .lightImpact:
-            let generator = UIImpactFeedbackGenerator(style: .light)
-            generator.impactOccurred()
+            lightImpactGenerator.impactOccurred()
+            lightImpactGenerator.prepare()
         case .mediumImpact:
-            let generator = UIImpactFeedbackGenerator(style: .medium)
-            generator.impactOccurred()
+            mediumImpactGenerator.impactOccurred()
+            mediumImpactGenerator.prepare()
         case .heavyImpact:
-            let generator = UIImpactFeedbackGenerator(style: .heavy)
-            generator.impactOccurred()
+            heavyImpactGenerator.impactOccurred()
+            heavyImpactGenerator.prepare()
         case .success:
-            let generator = UINotificationFeedbackGenerator()
-            generator.notificationOccurred(.success)
+            notificationGenerator.notificationOccurred(.success)
+            notificationGenerator.prepare()
         case .warning:
-            let generator = UINotificationFeedbackGenerator()
-            generator.notificationOccurred(.warning)
+            notificationGenerator.notificationOccurred(.warning)
+            notificationGenerator.prepare()
         case .error:
-            let generator = UINotificationFeedbackGenerator()
-            generator.notificationOccurred(.error)
+            notificationGenerator.notificationOccurred(.error)
+            notificationGenerator.prepare()
         }
     }
-}
 
+    /// Pulse used while a perimeter/trace animation is moving.
+    /// Intensity ramps with progress for a smoother directional feel.
+    func triggerTraceSweep(progress: Double) {
+        let clamped = min(max(progress, 0), 1)
+        let intensity = CGFloat(0.28 + (clamped * 0.62))
+        rigidImpactGenerator.impactOccurred(intensity: intensity)
+        rigidImpactGenerator.prepare()
+    }
+
+    /// Strong landing burst for the final stat impact.
+    func finalStatImpactBurst() async {
+        let heavy = UIImpactFeedbackGenerator(style: .heavy)
+        let rigid = UIImpactFeedbackGenerator(style: .rigid)
+        heavy.prepare()
+        rigid.prepare()
+
+        heavy.impactOccurred(intensity: 1.0)
+        try? await Task.sleep(for: .milliseconds(45))
+        rigid.impactOccurred(intensity: 1.0)
+        try? await Task.sleep(for: .milliseconds(55))
+        heavy.impactOccurred(intensity: 1.0)
+    }
+
+    // MARK: - Celebration Bursts
+
+    /// Light×3 rapid taps followed by a success notification
+    func celebrationBurst() async {
+        let light = UIImpactFeedbackGenerator(style: .light)
+        light.prepare()
+
+        for _ in 0..<3 {
+            light.impactOccurred()
+            try? await Task.sleep(for: .milliseconds(60))
+        }
+
+        try? await Task.sleep(for: .milliseconds(80))
+        let notification = UINotificationFeedbackGenerator()
+        notification.prepare()
+        notification.notificationOccurred(.success)
+    }
+
+    /// Heavy×3 rapid taps followed by a success notification — used for goal completion
+    func goalCompletionBurst() async {
+        let heavy = UIImpactFeedbackGenerator(style: .heavy)
+        heavy.prepare()
+
+        for _ in 0..<3 {
+            heavy.impactOccurred()
+            try? await Task.sleep(for: .milliseconds(80))
+        }
+
+        try? await Task.sleep(for: .milliseconds(100))
+        let notification = UINotificationFeedbackGenerator()
+        notification.prepare()
+        notification.notificationOccurred(.success)
+    }
+}

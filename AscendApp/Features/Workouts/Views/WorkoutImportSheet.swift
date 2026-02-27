@@ -14,8 +14,9 @@ struct WorkoutImportSheet: View {
     @State private var themeManager = ThemeManager.shared
     @State private var unifiedImportService = UnifiedImportService.shared
     @State private var hevyManager = HevyManager.shared
-    @State private var importingWorkoutId: String? = nil  // Currently importing single workout
-    @State private var isImportingAll = false  // Bulk import in progress
+    @State private var showingCelebration = false
+    @State private var celebrationData: ImportCelebrationData?
+    @State private var importTask: Task<Void, Never>?
 
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -46,14 +47,25 @@ struct WorkoutImportSheet: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
+                        importTask?.cancel()
                         dismiss()
                     }
                     .font(.montserratMedium(size: 16))
                     .foregroundStyle(.accent)
+                    .disabled(unifiedImportService.isImporting)
                 }
             }
         }
         .themedBackground()
+        .interactiveDismissDisabled(unifiedImportService.isImporting || showingCelebration)
+        .fullScreenCover(isPresented: $showingCelebration) {
+            if let data = celebrationData {
+                ImportCelebrationView(data: data) {
+                    showingCelebration = false
+                    dismiss()
+                }
+            }
+        }
     }
 
     // MARK: - Loading State
@@ -106,7 +118,7 @@ struct WorkoutImportSheet: View {
 
                     Spacer()
 
-                    if isImportingAll {
+                    if unifiedImportService.isImporting && unifiedImportService.currentImportingPendingId != nil {
                         ProgressView()
                             .scaleEffect(0.8)
                     } else if unimportedCount > 0 {
@@ -117,7 +129,7 @@ struct WorkoutImportSheet: View {
                                 .font(.montserratSemiBold(size: 14))
                                 .foregroundStyle(.accent)
                         }
-                        .disabled(importingWorkoutId != nil)
+                        .disabled(unifiedImportService.isImporting)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -133,8 +145,8 @@ struct WorkoutImportSheet: View {
                 ForEach(unifiedImportService.pendingWorkouts, id: \.id) { pending in
                     PendingWorkoutImportRow(
                         pending: pending,
-                        isImportingThis: importingWorkoutId == pending.id,
-                        isImportingAny: importingWorkoutId != nil || isImportingAll,
+                        isImportingThis: unifiedImportService.currentImportingPendingId == pending.id,
+                        isImportingAny: unifiedImportService.isImporting,
                         autoLinkEnabled: hevyManager.autoLinkAppleHealth,
                         effectiveColorScheme: effectiveColorScheme,
                         onImport: { importWorkout(pending) }
@@ -152,36 +164,58 @@ struct WorkoutImportSheet: View {
     // MARK: - Actions
 
     private func importWorkout(_ pending: PendingWorkout) {
-        Task {
-            importingWorkoutId = pending.id
-            _ = await unifiedImportService.importWorkout(pending)
-            importingWorkoutId = nil
+        importTask = Task {
+            let outcome = await unifiedImportService.importWorkout(pending)
+
+            if case .imported(let workout) = outcome,
+               FeatureFlags.isImportCelebrationEnabled {
+                let data = buildCelebrationData(importedWorkouts: [workout], failedCount: 0)
+                celebrationData = data
+                showingCelebration = true
+            }
         }
     }
 
     private func importAllWorkouts() {
-        Task {
-            isImportingAll = true
+        importTask = Task {
+            let result = await unifiedImportService.importAllWorkouts()
 
-            // Import workouts one by one so we can update UI as each completes
-            let workoutsToImport = unifiedImportService.pendingWorkouts.filter { workout in
-                !unifiedImportService.isWorkoutImported(workout)
-            }
-
-            for workout in workoutsToImport {
-                importingWorkoutId = workout.id
-                _ = await unifiedImportService.importWorkout(workout)
-                importingWorkoutId = nil
-            }
-
-            isImportingAll = false
-
-            if unimportedCount == 0 {
-                // All imported, dismiss after a brief delay
+            if FeatureFlags.isImportCelebrationEnabled && result.successCount > 0 {
+                let data = buildCelebrationData(
+                    importedWorkouts: result.importedWorkouts,
+                    failedCount: result.failedCount
+                )
+                celebrationData = data
+                showingCelebration = true
+            } else if result.successCount > 0 {
+                // Old behavior: auto-dismiss
                 try? await Task.sleep(for: .seconds(1))
                 dismiss()
             }
         }
+    }
+
+    private func buildCelebrationData(importedWorkouts: [Workout], failedCount: Int) -> ImportCelebrationData {
+        let settings = SettingsManager.shared
+        let totalDuration = importedWorkouts.reduce(0.0) { $0 + $1.duration }
+        let totalSteps = importedWorkouts.reduce(0) { $0 + $1.steps }
+        let totalFloors = importedWorkouts.reduce(0) { $0 + $1.floors }
+        let totalVerticalClimb = importedWorkouts.reduce(0.0) {
+            $0 + $1.totalVerticalClimb(
+                stepHeight: settings.stepHeight,
+                measurementSystem: settings.measurementSystem
+            )
+        }
+
+        return ImportCelebrationData(
+            importedCount: importedWorkouts.count,
+            failedCount: failedCount,
+            totalDuration: totalDuration,
+            totalSteps: totalSteps,
+            totalFloors: totalFloors,
+            totalVerticalClimb: totalVerticalClimb,
+            verticalClimbUnit: settings.measurementSystem.distanceUnit
+        )
     }
 }
 
