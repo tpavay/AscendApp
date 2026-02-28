@@ -10,16 +10,11 @@ import SwiftUI
 struct WorkoutListHeaderView: View {
     let isInDeleteMode: Bool
     let totalCount: Int
-    let selectedCount: Int
-    let allSelected: Bool
     let effectiveColorScheme: ColorScheme
     let pendingImportCount: Int
-    let canDelete: Bool
     let workouts: [Workout]
     @Bindable var filterState: WorkoutListFilterState
-    let onToggleSelectAll: () -> Void
     let onCancelDelete: () -> Void
-    let onDeleteTapped: () -> Void
     let onImportTapped: () -> Void
     let onEnterDeleteMode: () -> Void
 
@@ -194,22 +189,15 @@ struct WorkoutListHeaderView: View {
     private var headerRow: some View {
         HStack(spacing: 12) {
             if isInDeleteMode {
-                // Delete mode title and controls
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Select Workouts")
-                        .font(.montserratBold(size: 18))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                    Button(action: onToggleSelectAll) {
-                        Text(allSelected ? "Deselect All" : "Select All")
-                            .font(.montserratMedium(size: 14))
-                            .foregroundStyle(.accent)
-                    }
-                }
+                Text("Select Workouts")
+                    .font(.montserratBold(size: 18))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
 
                 Spacer()
 
-                deleteModeControls
+                Button("Cancel", action: onCancelDelete)
+                    .foregroundStyle(.accent)
+                    .font(.montserratMedium(size: 16))
             } else {
                 // Normal mode - compact header like leaderboard
                 Text("Workouts")
@@ -233,6 +221,8 @@ struct WorkoutListHeaderView: View {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 18, weight: .medium))
                             .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                            .frame(width: 44, height: 44)
+                            .contentShape(.rect)
                     }
 
                     // Sort button
@@ -243,6 +233,8 @@ struct WorkoutListHeaderView: View {
                         Image(systemName: "arrow.up.arrow.down")
                             .font(.system(size: 18, weight: .medium))
                             .foregroundStyle(filterState.sortOption != .dateNewest ? .accent : (effectiveColorScheme == .dark ? .white : .black))
+                            .frame(width: 44, height: 44)
+                            .contentShape(.rect)
                     }
 
                     // Overflow menu
@@ -329,19 +321,6 @@ struct WorkoutListHeaderView: View {
         }
     }
 
-    private var deleteModeControls: some View {
-        HStack(spacing: 16) {
-            Button("Cancel", action: onCancelDelete)
-                .foregroundStyle(.accent)
-                .font(.montserratMedium(size: 16))
-
-            Button("Delete", action: onDeleteTapped)
-                .foregroundStyle(canDelete ? .red : .gray)
-                .font(.montserratMedium(size: 16))
-                .disabled(!canDelete)
-        }
-    }
-
     private var overflowMenu: some View {
         Menu {
             Button(action: onImportTapped) {
@@ -362,6 +341,8 @@ struct WorkoutListHeaderView: View {
             Image(systemName: "ellipsis")
                 .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                .frame(width: 44, height: 44)
+                .contentShape(.rect)
         }
     }
 }
@@ -1028,4 +1009,3 @@ private struct WorkoutFilterRangeSlider: View {
         return (clamped - bounds.lowerBound) / (bounds.upperBound - bounds.lowerBound)
     }
 }
-

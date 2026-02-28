@@ -121,7 +121,7 @@ struct WorkoutImportSheet: View {
             }
             .disabled(unimportedCount <= 1 || unifiedImportService.isImporting)
         } label: {
-            Image(systemName: "ellipsis.circle")
+            Image(systemName: "ellipsis")
                 .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(.accent)
         }
@@ -228,47 +228,15 @@ struct WorkoutImportSheet: View {
     }
 
     private var batchActionBar: some View {
-        VStack(spacing: 0) {
-            Rectangle()
-                .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
-                .frame(height: 1)
-
-            HStack(spacing: 10) {
-                Button {
-                    toggleSelectAll()
-                } label: {
-                    Text(allUnimportedSelected ? "Deselect All" : "Select All")
-                        .font(.montserratSemiBold(size: 15))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(
-                            Capsule()
-                                .fill(effectiveColorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.06))
-                        )
-                }
-                .disabled(unifiedImportService.isImporting || unimportedCount == 0)
-
-                Button {
-                    importSelectedWorkouts()
-                } label: {
-                    Text("Import Selected (\(selectedUnimportedCount))")
-                        .font(.montserratSemiBold(size: 15))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(
-                            Capsule()
-                                .fill(.accent)
-                        )
-                }
-                .disabled(selectedUnimportedCount == 0 || unifiedImportService.isImporting)
-                .opacity(selectedUnimportedCount == 0 || unifiedImportService.isImporting ? 0.45 : 1)
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-        }
-        .background(effectiveColorScheme == .dark ? .black.opacity(0.95) : .white.opacity(0.97))
+        SelectionActionBar(
+            effectiveColorScheme: effectiveColorScheme,
+            secondaryTitle: allUnimportedSelected ? "Deselect All" : "Select All",
+            onSecondaryTapped: toggleSelectAll,
+            isSecondaryDisabled: unifiedImportService.isImporting || unimportedCount == 0,
+            primaryTitle: "Import Selected (\(selectedUnimportedCount))",
+            onPrimaryTapped: importSelectedWorkouts,
+            isPrimaryDisabled: selectedUnimportedCount == 0 || unifiedImportService.isImporting
+        )
     }
 
     // MARK: - Actions

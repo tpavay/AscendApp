@@ -49,28 +49,32 @@ struct WorkoutListView: View {
                 WorkoutListHeaderView(
                     isInDeleteMode: isInDeleteMode,
                     totalCount: workouts.count,
-                    selectedCount: selectedWorkouts.count,
-                    allSelected: areAllWorkoutsSelected,
                     effectiveColorScheme: effectiveColorScheme,
                     pendingImportCount: unifiedImportService.totalPendingCount,
-                    canDelete: !selectedWorkouts.isEmpty,
                     workouts: workouts,
                     filterState: filterState,
-                    onToggleSelectAll: toggleSelectAllWorkouts,
                     onCancelDelete: exitDeleteMode,
-                    onDeleteTapped: handleDeleteTapped,
                     onImportTapped: handleImportTapped,
                     onEnterDeleteMode: enterDeleteMode
                 )
 
                 // Workout count
-                if !workouts.isEmpty && !isInDeleteMode {
-                    Text("Showing \(filteredWorkouts.count) workout\(filteredWorkouts.count == 1 ? "" : "s")")
-                        .font(.montserratMedium(size: 13))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 12)
+                if !workouts.isEmpty {
+                    if isInDeleteMode {
+                        Text("\(selectedWorkouts.count) Selected")
+                            .font(.montserratMedium(size: 13))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 12)
+                    } else {
+                        Text("Showing \(filteredWorkouts.count) workout\(filteredWorkouts.count == 1 ? "" : "s")")
+                            .font(.montserratMedium(size: 13))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 12)
+                    }
                 }
 
                 if workouts.isEmpty {
@@ -88,23 +92,30 @@ struct WorkoutListView: View {
                 }
             }
             .themedBackground()
+            .safeAreaInset(edge: .bottom) {
+                if isInDeleteMode && !workouts.isEmpty {
+                    deleteActionBar
+                }
+            }
             .navigationBarHidden(true)
             .overlay(alignment: .bottomTrailing) {
-                // Floating Action Button
-                Button(action: {
-                    showingEntrySelection = true
-                }) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 20, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(width: 56, height: 56)
-                        .background(
-                            Circle()
-                                .fill(.accent)
-                                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
-                        )
+                if !isInDeleteMode {
+                    // Floating Action Button
+                    Button(action: {
+                        showingEntrySelection = true
+                    }) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 20, weight: .medium))
+                            .foregroundStyle(.white)
+                            .frame(width: 56, height: 56)
+                            .background(
+                                Circle()
+                                    .fill(.accent)
+                                    .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+                            )
+                    }
+                    .padding(20)
                 }
-                .padding(20)
             }
             .sheet(isPresented: $showingEntrySelection) {
                 WorkoutEntrySelectionView(
@@ -210,6 +221,19 @@ struct WorkoutListView: View {
     
     private var areAllWorkoutsSelected: Bool {
         !workouts.isEmpty && selectedWorkouts.count == workouts.count
+    }
+
+    private var deleteActionBar: some View {
+        SelectionActionBar(
+            effectiveColorScheme: effectiveColorScheme,
+            secondaryTitle: areAllWorkoutsSelected ? "Deselect All" : "Select All",
+            onSecondaryTapped: toggleSelectAllWorkouts,
+            isSecondaryDisabled: isDeleting || workouts.isEmpty,
+            primaryTitle: "Delete Selected (\(selectedWorkouts.count))",
+            onPrimaryTapped: handleDeleteTapped,
+            isPrimaryDisabled: selectedWorkouts.isEmpty || isDeleting,
+            primaryColor: .red
+        )
     }
     
     private func toggleSelectAllWorkouts() {

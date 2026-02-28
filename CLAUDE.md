@@ -77,6 +77,7 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
 - **Accent color**: `#B4CC00`
 - **Theming**: `ThemeManager` with dark/light mode, `effectiveColorScheme`, `.themedBackground()`
 - **Icons**: SF Symbols (considering migrating to a custom icon set for consistency)
+- **Icon consistency**: Use the same icon for the same action across screens (for example, overflow menus should use one consistent `ellipsis` style app-wide unless product design explicitly says otherwise)
 
 ---
 
