@@ -47,7 +47,7 @@ struct SelectionActionBar: View {
                 Button(action: onSecondaryTapped) {
                     Text(secondaryTitle)
                         .font(.montserratSemiBold(size: 15))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(isSecondaryDisabled ? Color.secondary : .accent)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                         .background(
@@ -56,6 +56,7 @@ struct SelectionActionBar: View {
                         )
                 }
                 .disabled(isSecondaryDisabled)
+                .opacity(isSecondaryDisabled ? 0.45 : 1)
 
                 Button(action: onPrimaryTapped) {
                     Text(primaryTitle)
@@ -77,4 +78,3 @@ struct SelectionActionBar: View {
         .background(effectiveColorScheme == .dark ? .black.opacity(0.95) : .white.opacity(0.97))
     }
 }
-
