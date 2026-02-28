@@ -1,155 +1,9 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Ascend – Stair Workout Tracker</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Ascend is an iOS app for tracking and analyzing stair-stepper workouts. Join the waitlist to get early access." />
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+<BaseLayout title="Ascend – Stair Workout Tracker" description="Ascend is an iOS app for tracking and analyzing stair-stepper workouts. Join the waitlist to get early access.">
+
   <style>
-    :root {
-      --accent: #B4CC00;
-      --accent-soft: rgba(180, 204, 0, 0.12);
-      --accent-hover: #c8e000;
-      --bg: #0d1117;
-      --bg-soft: #161b22;
-      --surface: #1c2333;
-      --surface-hover: #252d3d;
-      --text: #f0f2f5;
-      --muted: #8b949e;
-      --border: rgba(255, 255, 255, 0.08);
-      --max-width: 1200px;
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
-      line-height: 1.6;
-      overflow-x: hidden;
-    }
-
-    /* ── Navigation ─────────────────────────── */
-    nav {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      z-index: 100;
-      padding: 20px 40px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      background: rgba(13, 17, 23, 0.85);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border-bottom: 1px solid var(--border);
-    }
-
-    .logo {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      text-decoration: none;
-      color: var(--text);
-    }
-
-    .logo img {
-      width: 32px;
-      height: 32px;
-    }
-
-    .logo span {
-      font-weight: 700;
-      font-size: 18px;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-    }
-
-    .hamburger {
-      background: none;
-      border: none;
-      cursor: pointer;
-      padding: 8px;
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-      z-index: 200;
-    }
-
-    .hamburger span {
-      display: block;
-      width: 24px;
-      height: 2px;
-      background: var(--text);
-      border-radius: 2px;
-      transition: transform 0.3s, opacity 0.3s;
-    }
-
-    .hamburger.active span:nth-child(1) {
-      transform: translateY(7px) rotate(45deg);
-    }
-
-    .hamburger.active span:nth-child(2) {
-      opacity: 0;
-    }
-
-    .hamburger.active span:nth-child(3) {
-      transform: translateY(-7px) rotate(-45deg);
-    }
-
-    /* ── Slide-out Menu ─────────────────────── */
-    .menu-overlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0, 0, 0, 0.5);
-      z-index: 90;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.3s;
-    }
-
-    .menu-overlay.active {
-      opacity: 1;
-      pointer-events: auto;
-    }
-
-    .slide-menu {
-      position: fixed;
-      top: 0;
-      right: -320px;
-      width: 300px;
-      height: 100vh;
-      background: var(--bg-soft);
-      z-index: 95;
-      padding: 100px 40px 40px;
-      transition: right 0.3s ease;
-      border-left: 1px solid var(--border);
-    }
-
-    .slide-menu.active {
-      right: 0;
-    }
-
-    .slide-menu a {
-      display: block;
-      color: var(--text);
-      text-decoration: none;
-      font-size: 20px;
-      font-weight: 500;
-      padding: 16px 0;
-      border-bottom: 1px solid var(--border);
-      transition: color 0.2s;
-    }
-
-    .slide-menu a:hover {
-      color: var(--accent);
-    }
-
     /* ── Hero Section ───────────────────────── */
     .hero {
       min-height: 100vh;
@@ -540,44 +394,8 @@
       margin: 8px auto 0;
     }
 
-    /* ── Footer ──────────────────────────────── */
-    footer {
-      padding: 40px 40px;
-      border-top: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      max-width: var(--max-width);
-      margin: 0 auto;
-    }
-
-    footer .copyright {
-      font-size: 14px;
-      color: var(--muted);
-    }
-
-    footer .footer-links {
-      display: flex;
-      gap: 24px;
-    }
-
-    footer .footer-links a {
-      color: var(--muted);
-      text-decoration: none;
-      font-size: 14px;
-      transition: color 0.2s;
-    }
-
-    footer .footer-links a:hover {
-      color: var(--text);
-    }
-
     /* ── Responsive ──────────────────────────── */
     @media (max-width: 900px) {
-      nav {
-        padding: 16px 24px;
-      }
-
       .hero {
         grid-template-columns: 1fr;
         padding: 100px 24px 60px;
@@ -617,12 +435,6 @@
         width: 180px;
         height: 376px;
       }
-
-      footer {
-        flex-direction: column;
-        gap: 16px;
-        text-align: center;
-      }
     }
 
     @media (max-width: 600px) {
@@ -654,28 +466,6 @@
       }
     }
   </style>
-</head>
-<body>
-
-  <!-- ── Navigation ──────────────────────────── -->
-  <nav>
-    <a href="/" class="logo">
-      <img src="/images/StairmasterIconAccent.png" alt="Ascend icon" />
-      <span>Ascend</span>
-    </a>
-    <button class="hamburger" id="menuToggle" aria-label="Open menu">
-      <span></span>
-      <span></span>
-      <span></span>
-    </button>
-  </nav>
-
-  <!-- ── Slide-out Menu ──────────────────────── -->
-  <div class="menu-overlay" id="menuOverlay"></div>
-  <div class="slide-menu" id="slideMenu">
-    <a href="/">Home</a>
-    <a href="/story.html">Our Story</a>
-  </div>
 
   <!-- ── Hero ────────────────────────────────── -->
   <section class="hero">
@@ -689,7 +479,7 @@
       </p>
 
       <div id="heroWaitlist">
-        <form class="waitlist-form" id="heroForm" onsubmit="return handleWaitlist(event, 'hero')">
+        <form class="waitlist-form" id="heroForm">
           <input type="email" placeholder="Enter your email" required id="heroEmail" />
           <button type="submit">Join Waitlist</button>
         </form>
@@ -702,13 +492,7 @@
     <div class="hero-phone">
       <div class="phone-frame">
         <div class="screen">
-          <!-- Replace src with your screenshot or video -->
           <img src="/images/ProgressScreen.jpg" alt="Ascend app screenshot" />
-          <!-- To use a video instead:
-          <video autoplay muted loop playsinline>
-            <source src="/images/your-video.mp4" type="video/mp4" />
-          </video>
-          -->
         </div>
       </div>
     </div>
@@ -728,7 +512,6 @@
       <div class="feature-visual">
         <div class="phone-frame feature-phone">
           <div class="screen">
-            <!-- Replace with your screenshot -->
             <img src="/images/WorkoutScreen.jpg" alt="Workout tracking screen" />
           </div>
         </div>
@@ -746,7 +529,6 @@
       <div class="feature-visual">
         <div class="phone-frame feature-phone">
           <div class="screen">
-            <!-- Replace with your screenshot -->
             <img src="/images/TrendsScreen.jpg" alt="Trends and analytics screen" />
           </div>
         </div>
@@ -764,7 +546,6 @@
       <div class="feature-visual">
         <div class="phone-frame feature-phone">
           <div class="screen">
-            <!-- Replace with your screenshot -->
             <img src="/images/LeaderboardScreen.jpeg" alt="Leaderboard screen" />
           </div>
         </div>
@@ -782,19 +563,16 @@
     <div class="phone-grid">
       <div class="phone-frame">
         <div class="screen">
-          <!-- Placeholder 1 - replace with any screenshot/video -->
           <img src="/images/WorkoutScreen.jpg" alt="App screenshot" />
         </div>
       </div>
       <div class="phone-frame">
         <div class="screen">
-          <!-- Placeholder 2 - replace with any screenshot/video -->
           <img src="/images/ProgressScreen.jpg" alt="App screenshot" />
         </div>
       </div>
       <div class="phone-frame">
         <div class="screen">
-          <!-- Placeholder 3 - replace with any screenshot/video -->
           <img src="/images/TrendsScreen.jpg" alt="App screenshot" />
         </div>
       </div>
@@ -806,7 +584,7 @@
     <h2>FAQ</h2>
 
     <div class="faq-item">
-      <button class="faq-question" onclick="toggleFaq(this)">
+      <button class="faq-question">
         What is Ascend?
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
@@ -818,7 +596,7 @@
     </div>
 
     <div class="faq-item">
-      <button class="faq-question" onclick="toggleFaq(this)">
+      <button class="faq-question">
         When will Ascend be available?
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
@@ -830,7 +608,7 @@
     </div>
 
     <div class="faq-item">
-      <button class="faq-question" onclick="toggleFaq(this)">
+      <button class="faq-question">
         Is Ascend free?
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
@@ -842,7 +620,7 @@
     </div>
 
     <div class="faq-item">
-      <button class="faq-question" onclick="toggleFaq(this)">
+      <button class="faq-question">
         What makes Ascend different from other fitness apps?
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
@@ -860,7 +638,7 @@
     <p>Join the waitlist and be the first to experience Ascend.</p>
 
     <div id="ctaWaitlist">
-      <form class="waitlist-form" id="ctaForm" onsubmit="return handleWaitlist(event, 'cta')">
+      <form class="waitlist-form" id="ctaForm">
         <input type="email" placeholder="Enter your email" required id="ctaEmail" />
         <button type="submit">Join Waitlist</button>
       </form>
@@ -870,23 +648,11 @@
     </div>
   </section>
 
-  <!-- ── Footer ──────────────────────────────── -->
-  <footer>
-    <span class="copyright">&copy; Ascend 2026</span>
-    <div class="footer-links">
-      <a href="/privacy.html">Privacy</a>
-      <a href="mailto:pavayt@gmail.com">Contact</a>
-    </div>
-  </footer>
-
   <!-- ── Firebase SDK ────────────────────────── -->
   <script type="module">
-    // Firebase Web SDK (modular)
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.3.0/firebase-app.js';
     import { getFirestore, collection, addDoc, query, where, getDocs } from 'https://www.gstatic.com/firebasejs/11.3.0/firebase-firestore.js';
 
-    // TODO: Register a Web App in the Firebase console (Project Settings > General > Your apps > Add app > Web)
-    // Then replace the appId below with the value from your web app config.
     const firebaseConfig = {
       apiKey: "AIzaSyBqLpWa9HMDa90JbFvaJFq8Azlo01lCMdI",
       authDomain: "ascend-f2e4f.firebaseapp.com",
@@ -899,33 +665,33 @@
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
-    // Expose the handler to the global scope
-    window.handleWaitlist = async function(event, formId) {
+    async function handleWaitlist(event, formId) {
       event.preventDefault();
 
       const emailInput = document.getElementById(formId + 'Email');
       const form = document.getElementById(formId + 'Form');
       const successEl = document.getElementById(formId + 'Success');
       const errorEl = document.getElementById(formId + 'Error');
-      const button = form.querySelector('button');
-      const email = emailInput.value.trim().toLowerCase();
+      const button = form?.querySelector('button');
+      const email = emailInput?.value.trim().toLowerCase();
 
-      if (!email) return false;
+      if (!email || !button) return;
 
       button.disabled = true;
       button.textContent = 'Joining...';
-      errorEl.style.display = 'none';
+      if (errorEl) errorEl.style.display = 'none';
 
       try {
-        // Check if email already exists
         const q = query(collection(db, 'waitlist'), where('email', '==', email));
         const snapshot = await getDocs(q);
 
         if (!snapshot.empty) {
-          successEl.textContent = "You're already on the list! We'll be in touch.";
-          form.style.display = 'none';
-          successEl.style.display = 'block';
-          return false;
+          if (successEl) {
+            successEl.textContent = "You're already on the list! We'll be in touch.";
+            successEl.style.display = 'block';
+          }
+          if (form) form.style.display = 'none';
+          return;
         }
 
         await addDoc(collection(db, 'waitlist'), {
@@ -935,65 +701,45 @@
           createdAt: new Date()
         });
 
-        form.style.display = 'none';
-        successEl.style.display = 'block';
+        if (form) form.style.display = 'none';
+        if (successEl) successEl.style.display = 'block';
       } catch (err) {
         console.error('Waitlist error:', err);
-        errorEl.textContent = 'Something went wrong. Please try again or email pavayt@gmail.com.';
-        errorEl.style.display = 'block';
+        if (errorEl) {
+          errorEl.textContent = 'Something went wrong. Please try again or email pavayt@gmail.com.';
+          errorEl.style.display = 'block';
+        }
         button.disabled = false;
         button.textContent = 'Join Waitlist';
       }
-
-      return false;
-    };
-  </script>
-
-  <!-- ── Menu & FAQ JS ───────────────────────── -->
-  <script>
-    // Hamburger menu
-    const menuToggle = document.getElementById('menuToggle');
-    const slideMenu = document.getElementById('slideMenu');
-    const menuOverlay = document.getElementById('menuOverlay');
-
-    function toggleMenu() {
-      menuToggle.classList.toggle('active');
-      slideMenu.classList.toggle('active');
-      menuOverlay.classList.toggle('active');
-      document.body.style.overflow = slideMenu.classList.contains('active') ? 'hidden' : '';
     }
 
-    menuToggle.addEventListener('click', toggleMenu);
-    menuOverlay.addEventListener('click', toggleMenu);
+    document.getElementById('heroForm')?.addEventListener('submit', (e) => handleWaitlist(e, 'hero'));
+    document.getElementById('ctaForm')?.addEventListener('submit', (e) => handleWaitlist(e, 'cta'));
+  </script>
 
-    // Close menu when a link is clicked
-    slideMenu.querySelectorAll('a').forEach(function(link) {
-      link.addEventListener('click', function() {
-        if (slideMenu.classList.contains('active')) {
-          toggleMenu();
+  <!-- ── FAQ JS ────────────────────────────── -->
+  <script>
+    document.querySelectorAll('.faq-question').forEach(function(button) {
+      button.addEventListener('click', function() {
+        const item = button.parentElement;
+        const answer = item?.querySelector('.faq-answer');
+        const isOpen = item?.classList.contains('open');
+
+        // Close all
+        document.querySelectorAll('.faq-item').forEach(function(el) {
+          el.classList.remove('open');
+          const a = el.querySelector('.faq-answer');
+          if (a instanceof HTMLElement) a.style.maxHeight = '';
+        });
+
+        // Open clicked if it was closed
+        if (!isOpen && item && answer instanceof HTMLElement) {
+          item.classList.add('open');
+          answer.style.maxHeight = answer.scrollHeight + 'px';
         }
       });
     });
-
-    // FAQ accordion
-    function toggleFaq(button) {
-      var item = button.parentElement;
-      var answer = item.querySelector('.faq-answer');
-      var isOpen = item.classList.contains('open');
-
-      // Close all
-      document.querySelectorAll('.faq-item').forEach(function(el) {
-        el.classList.remove('open');
-        el.querySelector('.faq-answer').style.maxHeight = null;
-      });
-
-      // Open clicked if it was closed
-      if (!isOpen) {
-        item.classList.add('open');
-        answer.style.maxHeight = answer.scrollHeight + 'px';
-      }
-    }
   </script>
 
-</body>
-</html>
+</BaseLayout>

@@ -1,0 +1,54 @@
+---
+import Nav from '../components/Nav.astro';
+import SlideMenu from '../components/SlideMenu.astro';
+import Footer from '../components/Footer.astro';
+import '../styles/global.css';
+
+interface Props {
+  title: string;
+  description: string;
+}
+
+const { title, description } = Astro.props;
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>{title}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content={description} />
+</head>
+<body>
+  <Nav />
+  <SlideMenu />
+
+  <slot />
+
+  <Footer />
+
+  <script>
+    const menuToggle = document.getElementById('menuToggle');
+    const slideMenu = document.getElementById('slideMenu');
+    const menuOverlay = document.getElementById('menuOverlay');
+
+    function toggleMenu() {
+      menuToggle?.classList.toggle('active');
+      slideMenu?.classList.toggle('active');
+      menuOverlay?.classList.toggle('active');
+      document.body.style.overflow = slideMenu?.classList.contains('active') ? 'hidden' : '';
+    }
+
+    menuToggle?.addEventListener('click', toggleMenu);
+    menuOverlay?.addEventListener('click', toggleMenu);
+
+    slideMenu?.querySelectorAll('a').forEach(function(link) {
+      link.addEventListener('click', function() {
+        if (slideMenu?.classList.contains('active')) {
+          toggleMenu();
+        }
+      });
+    });
+  </script>
+</body>
+</html>

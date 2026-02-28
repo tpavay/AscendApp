@@ -1,0 +1,175 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+<BaseLayout title="Privacy Policy – Ascend" description="Privacy Policy for Ascend, the iOS stair-stepper workout tracker.">
+
+  <style>
+    .privacy-page {
+      background:
+        radial-gradient(circle at top left, #2a2f3c 0, var(--bg) 55%);
+    }
+
+    .privacy-page main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 120px 24px 64px;
+    }
+
+    .privacy-page h1 {
+      margin: 0 0 8px;
+      font-size: 36px;
+      line-height: 1.1;
+      letter-spacing: 0.01em;
+    }
+
+    .last-updated {
+      color: var(--muted);
+      font-size: 14px;
+      margin-bottom: 40px;
+    }
+
+    .privacy-page h2 {
+      font-size: 20px;
+      margin: 36px 0 12px;
+      color: var(--text);
+    }
+
+    .privacy-page p,
+    .privacy-page li {
+      line-height: 1.7;
+      font-size: 15px;
+      color: var(--muted);
+    }
+
+    .privacy-page ul {
+      padding-left: 20px;
+      margin: 8px 0;
+    }
+
+    .privacy-page li {
+      margin: 6px 0;
+    }
+
+    .privacy-page strong {
+      color: var(--text);
+    }
+
+    .privacy-page a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .privacy-page a:hover {
+      text-decoration: underline;
+    }
+
+    .divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 40px 0;
+    }
+
+    .privacy-footer-note {
+      font-size: 13px;
+      text-align: center;
+    }
+
+    @media (max-width: 600px) {
+      .privacy-page main {
+        padding: 100px 16px 48px;
+      }
+
+      .privacy-page h1 {
+        font-size: 28px;
+      }
+
+      .privacy-page h2 {
+        font-size: 18px;
+      }
+    }
+  </style>
+
+  <div class="privacy-page">
+    <main>
+      <h1>Privacy Policy</h1>
+      <p class="last-updated">Last updated: February 24, 2026</p>
+
+      <h2>Introduction</h2>
+      <p>Ascend ("we", "our", or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, and safeguard your information when you use our stairstepper workout tracking application.</p>
+
+      <h2>Information We Collect</h2>
+      <p>We collect the following types of information:</p>
+      <ul>
+        <li><strong>Workout Data:</strong> Steps climbed, floors climbed, duration, heart rate, calories burned, and other fitness metrics you log.</li>
+        <li><strong>Health Data:</strong> With your permission, we access HealthKit data including heart rate and workout information. This data is used solely to enhance your workout tracking experience and is never sold or shared with advertisers.</li>
+        <li><strong>Account Information:</strong> Email address and display name when you create an account via Google or Apple Sign-In.</li>
+        <li><strong>Photos and Videos:</strong> Media you optionally attach to your workouts, stored securely in the cloud.</li>
+        <li><strong>Device Information:</strong> Basic device identifiers for app functionality and crash reporting.</li>
+      </ul>
+
+      <h2>How We Use Your Information</h2>
+      <p>Your information is used to:</p>
+      <ul>
+        <li>Track and display your workout progress</li>
+        <li>Calculate personal records and statistics</li>
+        <li>Sync your data across devices via iCloud and Firebase</li>
+        <li>Provide leaderboard functionality (optional, opt-in)</li>
+        <li>Improve the app experience</li>
+        <li>Send important service updates</li>
+      </ul>
+
+      <h2>Apple HealthKit</h2>
+      <p>Ascend integrates with Apple HealthKit to read and write workout and health data. In accordance with Apple's requirements:</p>
+      <ul>
+        <li>HealthKit data is <strong>never</strong> used for advertising or marketing</li>
+        <li>HealthKit data is <strong>never</strong> sold to data brokers or third parties</li>
+        <li>HealthKit data is <strong>not</strong> shared with third parties except as needed to provide core app functionality</li>
+        <li>You can revoke HealthKit access at any time in Settings &gt; Health &gt; Data Access</li>
+      </ul>
+
+      <h2>Data Storage &amp; Security</h2>
+      <ul>
+        <li>Your workout data is stored locally on your device and synced to secure cloud servers (Firebase/Google Cloud).</li>
+        <li>Photos and videos are encrypted in transit and at rest.</li>
+        <li>We use industry-standard security measures to protect your data.</li>
+        <li>We do <strong>not</strong> sell your personal information to third parties.</li>
+      </ul>
+
+      <h2>Third-Party Services</h2>
+      <p>Ascend integrates with the following third-party services:</p>
+      <ul>
+        <li><strong>Apple HealthKit:</strong> To read/write health and workout data (with your explicit permission).</li>
+        <li><strong>Strava:</strong> To optionally sync workouts to your Strava account.</li>
+        <li><strong>Hevy:</strong> To optionally import workout data.</li>
+        <li><strong>Firebase (Google):</strong> For secure cloud storage, authentication, and analytics.</li>
+      </ul>
+      <p>These services have their own privacy policies that govern their use of your data.</p>
+
+      <h2>Your Rights</h2>
+      <p>You have the right to:</p>
+      <ul>
+        <li>Access your personal data</li>
+        <li>Export your workout data</li>
+        <li>Delete your account and all associated data</li>
+        <li>Opt out of optional features like leaderboards</li>
+        <li>Revoke HealthKit permissions at any time</li>
+      </ul>
+
+      <h2>Data Retention</h2>
+      <p>We retain your data for as long as your account is active. If you delete your account, your data will be permanently removed from our servers within 30 days.</p>
+
+      <h2>Children's Privacy</h2>
+      <p>Ascend is not intended for children under 13. We do not knowingly collect personal information from children under 13. If we learn that we have collected data from a child under 13, we will delete it promptly.</p>
+
+      <h2>Changes to This Policy</h2>
+      <p>We may update this Privacy Policy from time to time. We will notify you of any changes by posting the new Privacy Policy on this page and updating the "Last updated" date above.</p>
+
+      <h2>Contact Us</h2>
+      <p>If you have questions about this Privacy Policy, please contact us at <a href="mailto:pavayt@gmail.com">pavayt@gmail.com</a>.</p>
+
+      <hr class="divider" />
+      <p class="privacy-footer-note">Built by Tyler Pavay &middot; <a href="/">ascend-f2e4f.web.app</a></p>
+    </main>
+  </div>
+
+</BaseLayout>

@@ -77,3 +77,7 @@ Secrets/
 # Node.js / Firebase Functions
 node_modules/
 /package-lock.json
+
+# Astro build output
+web/dist/
+web/.astro/
