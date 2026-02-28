@@ -69,6 +69,9 @@ let functionsURL = "https://\(region)-\(projectId).cloudfunctions.net"
 ### Data Models (SwiftData)
 Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightPersonalRecord, AggregateWeightRecord, PendingMediaUpload
 
+### Import UX
+- Workout import supports individual import, selected-batch import, and import-all from the same sheet.
+
 ### Design System
 - **Fonts**: Montserrat (custom) — `montserratBold`, `montserratSemiBold`, `montserratMedium`, `montserratRegular`
 - **Accent color**: `#B4CC00`

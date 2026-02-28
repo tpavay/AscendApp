@@ -19,15 +19,33 @@ struct WorkoutImportSheet: View {
     @State private var showingCelebration = false
     @State private var celebrationData: ImportCelebrationData?
     @State private var importTask: Task<Void, Never>?
+    @State private var isSelectionMode = false
+    @State private var selectedPendingIds: Set<String> = []
 
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
 
-    private var unimportedCount: Int {
+    private var unimportedPendingWorkouts: [PendingWorkout] {
         unifiedImportService.pendingWorkouts.filter { workout in
             !unifiedImportService.isWorkoutImported(workout)
-        }.count
+        }
+    }
+
+    private var unimportedCount: Int {
+        unimportedPendingWorkouts.count
+    }
+
+    private var unimportedPendingIds: Set<String> {
+        Set(unimportedPendingWorkouts.map(\.id))
+    }
+
+    private var selectedUnimportedCount: Int {
+        selectedPendingIds.intersection(unimportedPendingIds).count
+    }
+
+    private var allUnimportedSelected: Bool {
+        unimportedCount > 0 && selectedUnimportedCount == unimportedCount
     }
 
     var body: some View {
@@ -44,13 +62,23 @@ struct WorkoutImportSheet: View {
                     }
                 }
             }
-            .navigationTitle("Import Workouts")
+            .navigationTitle(isSelectionMode ? "Select Workouts" : "Import Workouts")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        importTask?.cancel()
-                        dismiss()
+                    if !isSelectionMode {
+                        actionsMenu
+                    }
+                }
+
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(isSelectionMode ? "Cancel" : "Done") {
+                        if isSelectionMode {
+                            exitSelectionMode()
+                        } else {
+                            importTask?.cancel()
+                            dismiss()
+                        }
                     }
                     .font(.montserratMedium(size: 16))
                     .foregroundStyle(.accent)
@@ -60,6 +88,11 @@ struct WorkoutImportSheet: View {
         }
         .themedBackground()
         .interactiveDismissDisabled(unifiedImportService.isImporting || showingCelebration)
+        .safeAreaInset(edge: .bottom) {
+            if isSelectionMode && unimportedCount > 0 {
+                batchActionBar
+            }
+        }
         .fullScreenCover(isPresented: $showingCelebration) {
             if let data = celebrationData {
                 ImportCelebrationView(data: data) {
@@ -67,6 +100,30 @@ struct WorkoutImportSheet: View {
                     dismiss()
                 }
             }
+        }
+        .onAppear {
+            syncSelectionWithPendingWorkouts()
+        }
+        .onChange(of: unifiedImportService.pendingWorkouts.map(\.id)) { _, _ in
+            syncSelectionWithPendingWorkouts()
+        }
+    }
+
+    private var actionsMenu: some View {
+        Menu {
+            Button("Import All", systemImage: "square.and.arrow.down") {
+                importAllWorkouts()
+            }
+            .disabled(unimportedCount == 0 || unifiedImportService.isImporting)
+
+            Button("Select", systemImage: "checklist") {
+                enterSelectionMode()
+            }
+            .disabled(unimportedCount <= 1 || unifiedImportService.isImporting)
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(.accent)
         }
     }
 
@@ -112,29 +169,33 @@ struct WorkoutImportSheet: View {
     private var workoutListSection: some View {
         VStack(spacing: 0) {
             // Header
-            VStack(spacing: 12) {
+            VStack(spacing: 10) {
                 HStack {
                     Text("\(unimportedCount) NEW WORKOUTS")
                         .font(.montserratSemiBold(size: 12))
                         .foregroundStyle(.secondary)
 
                     Spacer()
-
-                    if unifiedImportService.isImporting && unifiedImportService.currentImportingPendingId != nil {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                    } else if unimportedCount > 0 {
-                        Button {
-                            importAllWorkouts()
-                        } label: {
-                            Text("Import All")
-                                .font(.montserratSemiBold(size: 14))
-                                .foregroundStyle(.accent)
-                        }
-                        .disabled(unifiedImportService.isImporting)
-                    }
                 }
                 .padding(.horizontal, 20)
+
+                if unifiedImportService.isImporting && unifiedImportService.currentImportingPendingId != nil {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                        Text("Importing workouts...")
+                            .font(.montserratRegular(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                } else if isSelectionMode {
+                    Text("\(selectedUnimportedCount) Selected")
+                        .font(.montserratRegular(size: 13))
+                        .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                }
 
                 Rectangle()
                     .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
@@ -147,10 +208,13 @@ struct WorkoutImportSheet: View {
                 ForEach(unifiedImportService.pendingWorkouts, id: \.id) { pending in
                     PendingWorkoutImportRow(
                         pending: pending,
+                        showSelectionControl: isSelectionMode,
+                        isSelected: selectedPendingIds.contains(pending.id),
                         isImportingThis: unifiedImportService.currentImportingPendingId == pending.id,
                         isImportingAny: unifiedImportService.isImporting,
                         autoLinkEnabled: hevyManager.autoLinkAppleHealth,
                         effectiveColorScheme: effectiveColorScheme,
+                        onToggleSelection: { toggleSelection(for: pending) },
                         onImport: { importWorkout(pending) }
                     )
 
@@ -163,9 +227,54 @@ struct WorkoutImportSheet: View {
         }
     }
 
+    private var batchActionBar: some View {
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
+                .frame(height: 1)
+
+            HStack(spacing: 10) {
+                Button {
+                    toggleSelectAll()
+                } label: {
+                    Text(allUnimportedSelected ? "Deselect All" : "Select All")
+                        .font(.montserratSemiBold(size: 15))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(
+                            Capsule()
+                                .fill(effectiveColorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.06))
+                        )
+                }
+                .disabled(unifiedImportService.isImporting || unimportedCount == 0)
+
+                Button {
+                    importSelectedWorkouts()
+                } label: {
+                    Text("Import Selected (\(selectedUnimportedCount))")
+                        .font(.montserratSemiBold(size: 15))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(
+                            Capsule()
+                                .fill(.accent)
+                        )
+                }
+                .disabled(selectedUnimportedCount == 0 || unifiedImportService.isImporting)
+                .opacity(selectedUnimportedCount == 0 || unifiedImportService.isImporting ? 0.45 : 1)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+        }
+        .background(effectiveColorScheme == .dark ? .black.opacity(0.95) : .white.opacity(0.97))
+    }
+
     // MARK: - Actions
 
     private func importWorkout(_ pending: PendingWorkout) {
+        selectedPendingIds.remove(pending.id)
         importTask = Task {
             let referenceDate = Date()
             let preGoalCapture = capturePreGoalSnapshot(referenceDate: referenceDate)
@@ -181,6 +290,8 @@ struct WorkoutImportSheet: View {
                 celebrationData = data
                 showingCelebration = true
             }
+
+            syncSelectionWithPendingWorkouts()
         }
     }
 
@@ -200,6 +311,73 @@ struct WorkoutImportSheet: View {
                 celebrationData = data
                 showingCelebration = true
             }
+
+            syncSelectionWithPendingWorkouts()
+        }
+    }
+
+    private func importSelectedWorkouts() {
+        let selectedIds = selectedPendingIds.intersection(unimportedPendingIds)
+        guard !selectedIds.isEmpty else { return }
+
+        importTask = Task {
+            let referenceDate = Date()
+            let preGoalCapture = capturePreGoalSnapshot(referenceDate: referenceDate)
+            let result = await unifiedImportService.importSelectedWorkouts(pendingIds: selectedIds)
+
+            if result.successCount > 0 {
+                let goalSnapshot = buildGoalSnapshot(preGoalCapture: preGoalCapture)
+                let data = buildCelebrationData(
+                    importedWorkouts: result.importedWorkouts,
+                    failedCount: result.failedCount,
+                    goalSnapshot: goalSnapshot
+                )
+                celebrationData = data
+                showingCelebration = true
+            }
+
+            syncSelectionWithPendingWorkouts()
+            exitSelectionMode(clearSelection: true)
+        }
+    }
+
+    private func toggleSelection(for pending: PendingWorkout) {
+        guard !unifiedImportService.isWorkoutImported(pending) else { return }
+
+        if selectedPendingIds.contains(pending.id) {
+            selectedPendingIds.remove(pending.id)
+        } else {
+            selectedPendingIds.insert(pending.id)
+        }
+    }
+
+    private func toggleSelectAll() {
+        if allUnimportedSelected {
+            selectedPendingIds.subtract(unimportedPendingIds)
+        } else {
+            selectedPendingIds.formUnion(unimportedPendingIds)
+        }
+    }
+
+    private func syncSelectionWithPendingWorkouts() {
+        selectedPendingIds.formIntersection(unimportedPendingIds)
+        if unimportedCount <= 1 {
+            isSelectionMode = false
+        }
+    }
+
+    private func enterSelectionMode() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isSelectionMode = true
+        }
+    }
+
+    private func exitSelectionMode(clearSelection: Bool = true) {
+        if clearSelection {
+            selectedPendingIds.removeAll()
+        }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isSelectionMode = false
         }
     }
 
@@ -270,10 +448,13 @@ struct WorkoutImportSheet: View {
 
 struct PendingWorkoutImportRow: View {
     let pending: PendingWorkout
+    let showSelectionControl: Bool
+    let isSelected: Bool
     let isImportingThis: Bool  // This specific workout is being imported
     let isImportingAny: Bool   // Any import is in progress (disable button)
     let autoLinkEnabled: Bool
     let effectiveColorScheme: ColorScheme
+    let onToggleSelection: () -> Void
     let onImport: () -> Void
 
     @State private var unifiedImportService = UnifiedImportService.shared
@@ -283,7 +464,32 @@ struct PendingWorkoutImportRow: View {
     }
 
     var body: some View {
+        Group {
+            if showSelectionControl {
+                Button {
+                    onToggleSelection()
+                } label: {
+                    rowContent
+                }
+                .buttonStyle(.plain)
+                .disabled(isImported || isImportingAny)
+                .opacity(isImported ? 0.6 : 1)
+            } else {
+                rowContent
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+    }
+
+    private var rowContent: some View {
         HStack(alignment: .center, spacing: 12) {
+            if showSelectionControl {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(isSelected ? .accent : .secondary)
+            }
+
             // Source icon
             sourceIcon
                 .frame(width: 24, height: 24)
@@ -327,6 +533,8 @@ struct PendingWorkoutImportRow: View {
             } else if isImportingThis {
                 ProgressView()
                     .scaleEffect(0.8)
+            } else if showSelectionControl {
+                EmptyView()
             } else {
                 Button {
                     onImport()
@@ -345,8 +553,6 @@ struct PendingWorkoutImportRow: View {
                 .opacity(isImportingAny ? 0.6 : 1)
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
     }
 
     @ViewBuilder

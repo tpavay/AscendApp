@@ -192,7 +192,34 @@ class UnifiedImportService {
 
     /// Imports all pending workouts and returns detailed results
     func importAllWorkouts() async -> ImportBatchResult {
+        await importPendingWorkouts()
+    }
+
+    /// Imports a selected subset of pending workouts and returns detailed results
+    func importSelectedWorkouts(pendingIds: Set<String>) async -> ImportBatchResult {
+        guard !pendingIds.isEmpty else {
+            return ImportBatchResult(importedWorkouts: [], failedPendingIds: [])
+        }
+
+        return await importPendingWorkouts(onlyPendingIds: pendingIds)
+    }
+
+    /// Shared batch import path for all-workout and selected-workout imports
+    private func importPendingWorkouts(onlyPendingIds: Set<String>? = nil) async -> ImportBatchResult {
         guard let modelContext = modelContext else {
+            return ImportBatchResult(importedWorkouts: [], failedPendingIds: [])
+        }
+
+        let workoutsToImport: [PendingWorkout]
+        if let onlyPendingIds {
+            workoutsToImport = pendingWorkouts.filter { pending in
+                onlyPendingIds.contains(pending.id)
+            }
+        } else {
+            workoutsToImport = pendingWorkouts
+        }
+
+        guard !workoutsToImport.isEmpty else {
             return ImportBatchResult(importedWorkouts: [], failedPendingIds: [])
         }
 
@@ -207,7 +234,7 @@ class UnifiedImportService {
         var failedPendingIds: [String] = []
 
         // Sort chronologically (oldest first) for import to maintain PR order
-        let sortedWorkouts = pendingWorkouts.sorted { $0.startDate < $1.startDate }
+        let sortedWorkouts = workoutsToImport.sorted { $0.startDate < $1.startDate }
 
         // Import all workouts, skipping individual PR recalculation
         for pending in sortedWorkouts {
