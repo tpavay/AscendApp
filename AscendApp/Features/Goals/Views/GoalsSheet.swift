@@ -372,12 +372,14 @@ struct GoalsSheet: View {
     private func createGoal() {
         guard targetValue > 0 else { return }
         viewModel.createGoal(metric: selectedMetric, target: targetValue)
+        NotificationCenter.default.post(name: .weeklyGoalDidChange, object: nil)
         onGoalCreated?()
         isPresented = false
     }
 
     private func deleteGoal() {
         viewModel.deleteGoal()
+        NotificationCenter.default.post(name: .weeklyGoalDidChange, object: nil)
         onGoalCreated?()
         isPresented = false
     }

@@ -4,13 +4,17 @@
 //
 
 import SwiftUI
+import SwiftData
 
 /// Full-screen celebration presented after a successful import
 struct ImportCelebrationView: View {
     let data: ImportCelebrationData
     let onDismiss: () -> Void
 
+    @Environment(\.modelContext) private var modelContext
     @State private var viewModel: ImportCelebrationViewModel?
+    @State private var showingGoalsSheet = false
+    @State private var workoutsForGoals: [Workout] = []
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
@@ -55,14 +59,30 @@ struct ImportCelebrationView: View {
                 .offset(y: -210)
 
             if let viewModel {
-                StatsCelebrationScreen(viewModel: viewModel, onDone: onDismiss)
+                StatsCelebrationScreen(
+                    viewModel: viewModel,
+                    onDone: onDismiss,
+                    onSetGoal: { showingGoalsSheet = true }
+                )
             }
         }
         .preferredColorScheme(effectiveColorScheme)
+        .sheet(isPresented: $showingGoalsSheet) {
+            GoalsSheet(
+                isPresented: $showingGoalsSheet,
+                workouts: workoutsForGoals,
+                onGoalCreated: {
+                    // Save action should finish the whole import celebration flow.
+                    showingGoalsSheet = false
+                    onDismiss()
+                }
+            )
+        }
         .onAppear {
             let vm = ImportCelebrationViewModel(data: data)
             viewModel = vm
             TelemetryManager.shared.log(.celebrationShown)
+            workoutsForGoals = (try? modelContext.fetch(FetchDescriptor<Workout>())) ?? []
             vm.startAnimations()
         }
         .onDisappear {

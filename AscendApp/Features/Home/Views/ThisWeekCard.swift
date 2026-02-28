@@ -636,6 +636,10 @@ struct WeeklyGoalCard: View {
                 viewModel.calculateProgress(from: workouts)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .weeklyGoalDidChange)) { _ in
+            viewModel.loadActiveGoal()
+            viewModel.calculateProgress(from: workouts)
+        }
     }
 
     private var cardBackground: some View {

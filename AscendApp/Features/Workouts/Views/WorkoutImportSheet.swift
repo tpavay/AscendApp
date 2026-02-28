@@ -7,9 +7,11 @@
 
 import SwiftUI
 import HealthKit
+import SwiftData
 
 struct WorkoutImportSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
     @State private var unifiedImportService = UnifiedImportService.shared
@@ -165,11 +167,17 @@ struct WorkoutImportSheet: View {
 
     private func importWorkout(_ pending: PendingWorkout) {
         importTask = Task {
+            let referenceDate = Date()
+            let preGoalCapture = capturePreGoalSnapshot(referenceDate: referenceDate)
             let outcome = await unifiedImportService.importWorkout(pending)
 
-            if case .imported(let workout) = outcome,
-               FeatureFlags.isImportCelebrationEnabled {
-                let data = buildCelebrationData(importedWorkouts: [workout], failedCount: 0)
+            if case .imported(let workout) = outcome {
+                let goalSnapshot = buildGoalSnapshot(preGoalCapture: preGoalCapture)
+                let data = buildCelebrationData(
+                    importedWorkouts: [workout],
+                    failedCount: 0,
+                    goalSnapshot: goalSnapshot
+                )
                 celebrationData = data
                 showingCelebration = true
             }
@@ -178,24 +186,62 @@ struct WorkoutImportSheet: View {
 
     private func importAllWorkouts() {
         importTask = Task {
+            let referenceDate = Date()
+            let preGoalCapture = capturePreGoalSnapshot(referenceDate: referenceDate)
             let result = await unifiedImportService.importAllWorkouts()
 
-            if FeatureFlags.isImportCelebrationEnabled && result.successCount > 0 {
+            if result.successCount > 0 {
+                let goalSnapshot = buildGoalSnapshot(preGoalCapture: preGoalCapture)
                 let data = buildCelebrationData(
                     importedWorkouts: result.importedWorkouts,
-                    failedCount: result.failedCount
+                    failedCount: result.failedCount,
+                    goalSnapshot: goalSnapshot
                 )
                 celebrationData = data
                 showingCelebration = true
-            } else if result.successCount > 0 {
-                // Old behavior: auto-dismiss
-                try? await Task.sleep(for: .seconds(1))
-                dismiss()
             }
         }
     }
 
-    private func buildCelebrationData(importedWorkouts: [Workout], failedCount: Int) -> ImportCelebrationData {
+    private typealias PreGoalCapture = (goal: Goal, progress: GoalProgress, referenceDate: Date)
+
+    private func capturePreGoalSnapshot(referenceDate: Date) -> PreGoalCapture? {
+        do {
+            let existingWorkouts = try ImportCelebrationService.fetchAllWorkouts(modelContext: modelContext)
+            guard let capture = ImportCelebrationService.captureGoalSnapshot(
+                modelContext: modelContext,
+                existingWorkouts: existingWorkouts,
+                referenceDate: referenceDate
+            ) else {
+                return nil
+            }
+            return (goal: capture.goal, progress: capture.progress, referenceDate: referenceDate)
+        } catch {
+            return nil
+        }
+    }
+
+    private func buildGoalSnapshot(preGoalCapture: PreGoalCapture?) -> GoalCelebrationSnapshot? {
+        guard let preGoalCapture else { return nil }
+
+        do {
+            let allWorkoutsAfterImport = try ImportCelebrationService.fetchAllWorkouts(modelContext: modelContext)
+            return ImportCelebrationService.buildGoalData(
+                preGoal: preGoalCapture.goal,
+                preProgress: preGoalCapture.progress,
+                allWorkoutsAfterImport: allWorkoutsAfterImport,
+                referenceDate: preGoalCapture.referenceDate
+            )
+        } catch {
+            return nil
+        }
+    }
+
+    private func buildCelebrationData(
+        importedWorkouts: [Workout],
+        failedCount: Int,
+        goalSnapshot: GoalCelebrationSnapshot?
+    ) -> ImportCelebrationData {
         let settings = SettingsManager.shared
         let totalDuration = importedWorkouts.reduce(0.0) { $0 + $1.duration }
         let totalSteps = importedWorkouts.reduce(0) { $0 + $1.steps }
@@ -214,7 +260,8 @@ struct WorkoutImportSheet: View {
             totalSteps: totalSteps,
             totalFloors: totalFloors,
             totalVerticalClimb: totalVerticalClimb,
-            verticalClimbUnit: settings.measurementSystem.distanceUnit
+            verticalClimbUnit: settings.measurementSystem.distanceUnit,
+            goalSnapshot: goalSnapshot
         )
     }
 }

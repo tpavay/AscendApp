@@ -1,7 +1,7 @@
 import Foundation
 
 /// Metrics that can be tracked for weekly goals
-enum GoalMetric: String, CaseIterable, Codable {
+enum GoalMetric: String, CaseIterable, Codable, Sendable {
     case steps
     case floors
     case duration     // total minutes

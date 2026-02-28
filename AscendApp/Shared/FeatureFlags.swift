@@ -18,12 +18,6 @@ enum FeatureFlags {
     /// Useful when Strava API approval is pending (limited to 1 athlete)
     static let isStravaEnabled = false
 
-    // MARK: - Import
-
-    /// Enable/disable the post-import celebration screen
-    /// Kill switch for safe rollout — disabling reverts to old auto-dismiss behavior
-    static let isImportCelebrationEnabled = true
-
     // MARK: - Future Flags
     // Add more feature flags here as needed
     // static let isNewFeatureEnabled = false

@@ -31,9 +31,10 @@ struct GoalProgressService {
     /// - Returns: The calculated progress
     static func calculateProgress(
         for goal: Goal,
-        from workouts: [Workout]
+        from workouts: [Workout],
+        at now: Date = Date()
     ) -> GoalProgress {
-        let interval = weekInterval(for: goal)
+        let interval = weekInterval(for: goal, at: now)
 
         // Filter workouts to current week
         let weekWorkouts = workouts.filter { workout in

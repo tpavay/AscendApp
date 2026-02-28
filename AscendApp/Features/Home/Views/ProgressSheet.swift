@@ -177,6 +177,10 @@ struct ProgressSheet: View {
                 goalsViewModel.calculateProgress(from: workouts)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .weeklyGoalDidChange)) { _ in
+            goalsViewModel.loadActiveGoal()
+            goalsViewModel.calculateProgress(from: workouts)
+        }
     }
 
     private var bestEffortsPreviewSection: some View {
