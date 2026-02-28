@@ -14,14 +14,19 @@ struct DeleteAccountConfirmationView: View {
 
     @State private var confirmationText = ""
     @State private var isDeleting = false
+    @State private var progressMessage = "Starting deletion..."
     @State private var errorMessage: String?
     @State private var showError = false
+    @State private var deletionTask: Task<Void, Never>?
+    @State private var timeoutTask: Task<Void, Never>?
+    @State private var didTimeout = false
     @FocusState private var isTextFieldFocused: Bool
 
     let onAccountDeleted: () -> Void
 
     private let deletionService = AccountDeletionService()
     private let requiredConfirmation = "DELETE"
+    private let deletionTimeout: Duration = .seconds(90)
 
     private var canDelete: Bool {
         confirmationText.uppercased() == requiredConfirmation
@@ -48,6 +53,11 @@ struct DeleteAccountConfirmationView: View {
                     ProgressView()
                         .scaleEffect(1.2)
                         .padding(.top, 8)
+
+                    Text(progressMessage)
+                        .font(.montserratSemiBold(size: 14))
+                        .foregroundStyle(colorScheme == .dark ? .white.opacity(0.85) : .black.opacity(0.8))
+                        .multilineTextAlignment(.center)
 
                     Text("If prompted, confirm your sign-in to finish account deletion.")
                         .font(.montserratRegular(size: 13))
@@ -118,6 +128,9 @@ struct DeleteAccountConfirmationView: View {
         .presentationDetents([.height(400)])
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled(isDeleting)
+        .onDisappear {
+            cancelInFlightTasks()
+        }
         .alert("Deletion Failed", isPresented: $showError) {
             Button("OK") {
                 showError = false
@@ -134,24 +147,75 @@ struct DeleteAccountConfirmationView: View {
     private func deleteAccount() {
         HapticsManager.shared.trigger(.warning)
         isTextFieldFocused = false
+        showError = false
+        errorMessage = nil
         isDeleting = true
+        didTimeout = false
+        progressMessage = "Starting deletion..."
 
-        Task {
+        cancelInFlightTasks()
+
+        deletionTask = Task {
             do {
-                try await deletionService.deleteAccount(modelContext: modelContext)
+                try await deletionService.deleteAccount(
+                    modelContext: modelContext,
+                    progressHandler: { progress in
+                        Task { @MainActor in
+                            progressMessage = progress.currentStep
+                        }
+                    }
+                )
 
                 await MainActor.run {
+                    cancelInFlightTasks()
+                    isDeleting = false
                     onAccountDeleted()
                     dismiss()
                 }
+            } catch is CancellationError {
+                await MainActor.run {
+                    guard isDeleting, !didTimeout else { return }
+                    finishDeletionWithError("Account deletion was cancelled. Please try again.")
+                }
             } catch {
                 await MainActor.run {
-                    isDeleting = false
-                    errorMessage = error.localizedDescription
-                    showError = true
+                    finishDeletionWithError(errorMessage(for: error))
                 }
             }
         }
+
+        timeoutTask = Task {
+            try? await Task.sleep(for: deletionTimeout)
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                guard isDeleting else { return }
+                didTimeout = true
+                deletionTask?.cancel()
+                finishDeletionWithError("Account deletion timed out. Please check your internet connection and try again.")
+            }
+        }
+    }
+
+    private func finishDeletionWithError(_ message: String) {
+        cancelInFlightTasks()
+        isDeleting = false
+        errorMessage = message
+        showError = true
+    }
+
+    private func cancelInFlightTasks() {
+        deletionTask?.cancel()
+        timeoutTask?.cancel()
+        deletionTask = nil
+        timeoutTask = nil
+    }
+
+    private func errorMessage(for error: Error) -> String {
+        if let deletionError = error as? AccountDeletionService.DeletionError {
+            return deletionError.localizedDescription
+        }
+        return error.userFriendlyMessage
     }
 }
 

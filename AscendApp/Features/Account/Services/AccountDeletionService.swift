@@ -12,7 +12,7 @@ import FirebaseStorage
 import SwiftData
 
 /// Service responsible for handling complete account deletion
-/// Deletes data from: Firebase Auth, Firestore, Firebase Storage, and local SwiftData
+/// Deletes data from: Firebase Auth, Firestore, Firebase Storage, local SwiftData, and local app caches
 @MainActor
 final class AccountDeletionService {
 
@@ -20,6 +20,7 @@ final class AccountDeletionService {
         case notAuthenticated
         case firestoreDeletionFailed(String)
         case storageDeletionFailed(String)
+        case integrationDeletionFailed(String)
         case authDeletionFailed(String)
         case localDataDeletionFailed(String)
         case reauthenticationFailed(String)
@@ -33,6 +34,8 @@ final class AccountDeletionService {
                 return "Failed to delete cloud data: \(message)"
             case .storageDeletionFailed(let message):
                 return "Failed to delete stored files: \(message)"
+            case .integrationDeletionFailed(let message):
+                return "Failed to disconnect integrations: \(message)"
             case .authDeletionFailed(let message):
                 return "Failed to delete account: \(message)"
             case .localDataDeletionFailed(let message):
@@ -72,11 +75,19 @@ final class AccountDeletionService {
         guard let user = Auth.auth().currentUser else {
             throw DeletionError.notAuthenticated
         }
-        
+
         let userId = user.uid
-        let totalSteps = 6
+        let totalSteps = 9
         var completedSteps = 0
-        
+        var hasStagedLocalDeletion = false
+        var hasCommittedLocalDeletion = false
+
+        defer {
+            if hasStagedLocalDeletion && !hasCommittedLocalDeletion {
+                modelContext.rollback()
+            }
+        }
+
         func updateProgress(_ step: String) {
             progressHandler?(DeletionProgress(
                 currentStep: step,
@@ -84,41 +95,67 @@ final class AccountDeletionService {
                 totalSteps: totalSteps
             ))
         }
-        
-        // Step 1: Delete workout photos/videos from Firebase Storage
+
+        try Task.checkCancellation()
+
+        // Step 1: Disconnect cloud integrations first (fail-fast before destructive deletes)
+        updateProgress("Disconnecting integrations...")
+        try await disconnectCloudIntegrations()
+        completedSteps += 1
+        try Task.checkCancellation()
+
+        // Step 2: Delete workout photos/videos from Firebase Storage
         updateProgress("Deleting workout media...")
         try await deleteWorkoutMedia(modelContext: modelContext)
         completedSteps += 1
-        
-        // Step 2: Delete profile picture from Firebase Storage
+        try Task.checkCancellation()
+
+        // Step 3: Delete profile picture from Firebase Storage
         updateProgress("Deleting profile picture...")
         try await deleteProfilePicture(userId: userId)
         completedSteps += 1
-        
-        // Step 3: Delete Firestore leaderboard stats
+        try Task.checkCancellation()
+
+        // Step 4: Delete Firestore leaderboard stats
         updateProgress("Deleting leaderboard data...")
         try await deleteLeaderboardStats(userId: userId)
         completedSteps += 1
-        
-        // Step 4: Delete Firestore user document
+        try Task.checkCancellation()
+
+        // Step 5: Delete Firestore rate-limit metadata
+        updateProgress("Deleting feedback metadata...")
+        try await deleteFeedbackRateLimitDocument(userId: userId)
+        completedSteps += 1
+        try Task.checkCancellation()
+
+        // Step 6: Delete Firestore user document
         updateProgress("Deleting user profile...")
         try await deleteUserDocument(userId: userId)
         completedSteps += 1
-        
-        // Step 5: Delete local SwiftData
-        updateProgress("Deleting local data...")
-        try deleteLocalData(modelContext: modelContext)
+        try Task.checkCancellation()
+
+        // Step 7: Stage local deletion (rollback if account deletion fails)
+        updateProgress("Preparing local data cleanup...")
+        try stageLocalDataDeletion(modelContext: modelContext)
+        hasStagedLocalDeletion = true
         completedSteps += 1
-        
-        // Step 6: Delete Firebase Auth account
+        try Task.checkCancellation()
+
+        // Step 8: Delete Firebase Auth account
         updateProgress("Deleting account...")
         try await deleteAuthAccount()
         completedSteps += 1
-        
-        // Clear all cached data and integrations
+        try Task.checkCancellation()
+
+        // Step 9: Commit local deletion and clear caches
+        updateProgress("Finalizing local cleanup...")
+        try commitStagedLocalDeletion(modelContext: modelContext)
+        hasCommittedLocalDeletion = true
+        try await clearLocalPendingUploadFiles()
         clearUserDefaults()
-        clearIntegrations()
+        clearLocalIntegrationState()
         ImageCache.shared.clearAll()
+        completedSteps += 1
 
         updateProgress("Account deleted successfully")
     }
@@ -172,61 +209,66 @@ final class AccountDeletionService {
 
     /// Deletes all workout photos and videos from Firebase Storage
     private func deleteWorkoutMedia(modelContext: ModelContext) async throws {
-        // Fetch all workouts to get their photos
         let descriptor = FetchDescriptor<Workout>()
-        
+
         do {
             let workouts = try modelContext.fetch(descriptor)
             let photoService = PhotoService()
-            
-            for workout in workouts {
-                if !workout.photos.isEmpty {
-                    do {
-                        try await photoService.deletePhotos(workout.photos)
-                    } catch {
-                        // Log but continue - some photos might already be deleted
-                        #if DEBUG
-                        print("⚠️ Could not delete some workout photos: \(error)")
-                        #endif
-                    }
-                }
+            let photosToDelete = workouts.flatMap(\.photos)
+
+            guard !photosToDelete.isEmpty else {
+                return
             }
+
+            try Task.checkCancellation()
+
+            do {
+                try await photoService.deletePhotos(photosToDelete)
+            } catch let error as PhotoDeletionError {
+                throw DeletionError.storageDeletionFailed(error.localizedDescription)
+            } catch {
+                throw DeletionError.storageDeletionFailed(error.localizedDescription)
+            }
+        } catch let error as DeletionError {
+            throw error
         } catch {
             throw DeletionError.storageDeletionFailed(error.localizedDescription)
         }
     }
-    
+
     /// Deletes the user's profile picture from Firebase Storage
     private nonisolated func deleteProfilePicture(userId: String) async throws {
-        // Try to delete from the profile_pictures folder
         let profilePicRef = Storage.storage().reference().child("profile_pictures")
-        
+
         do {
-            // List all files in the profile_pictures folder that match this user
             let result = try await profilePicRef.listAll()
-            
-            for item in result.items {
-                if item.name.hasPrefix(userId) {
+
+            for item in result.items where item.name.hasPrefix(userId) {
+                do {
                     try await item.delete()
+                } catch let error as NSError
+                    where error.domain == StorageErrorDomain &&
+                          error.code == StorageErrorCode.objectNotFound.rawValue {
+                    continue
                 }
             }
+        } catch let error as NSError
+            where error.domain == StorageErrorDomain &&
+                  error.code == StorageErrorCode.objectNotFound.rawValue {
+            return
         } catch {
-            // Profile picture might not exist, which is fine
-            #if DEBUG
-            print("⚠️ Could not delete profile picture: \(error)")
-            #endif
+            throw DeletionError.storageDeletionFailed(error.localizedDescription)
         }
     }
-    
+
     /// Deletes all leaderboard stats documents for the user from Firestore
     private func deleteLeaderboardStats(userId: String) async throws {
         do {
             let query = db.collection("leaderboard_stats")
                 .whereField("userId", isEqualTo: userId)
-            
+
             let snapshot = try await query.getDocuments()
-            
-            // Delete each document
+
             for document in snapshot.documents {
                 try await document.reference.delete()
             }
@@ -234,7 +276,27 @@ final class AccountDeletionService {
             throw DeletionError.firestoreDeletionFailed(error.localizedDescription)
         }
     }
-    
+
+    /// Deletes user rate-limit metadata stored in Firestore
+    private func deleteFeedbackRateLimitDocument(userId: String) async throws {
+        do {
+            try await db.collection("userRateLimits").document(userId).delete()
+        } catch {
+            throw DeletionError.firestoreDeletionFailed(error.localizedDescription)
+        }
+    }
+
+    /// Disconnects cloud integrations before auth account deletion
+    private func disconnectCloudIntegrations() async throws {
+        do {
+            try await StravaManager.shared.disconnect()
+        } catch StravaError.notConnected {
+            // Already disconnected
+        } catch {
+            throw DeletionError.integrationDeletionFailed(error.localizedDescription)
+        }
+    }
+
     /// Deletes the user document from Firestore
     private func deleteUserDocument(userId: String) async throws {
         do {
@@ -243,101 +305,99 @@ final class AccountDeletionService {
             throw DeletionError.firestoreDeletionFailed(error.localizedDescription)
         }
     }
-    
-    /// Deletes all local SwiftData (Workouts, LeaderboardStats, PersonalRecords, Goals, Routines, RoutineFolders)
-    private func deleteLocalData(modelContext: ModelContext) throws {
+
+    /// Stages local data deletion without saving (allows rollback on failure)
+    private func stageLocalDataDeletion(modelContext: ModelContext) throws {
         do {
-            // Delete all Workouts
             let workoutDescriptor = FetchDescriptor<Workout>()
             let workouts = try modelContext.fetch(workoutDescriptor)
             for workout in workouts {
                 modelContext.delete(workout)
             }
 
-            // Delete all LeaderboardStats
             let statsDescriptor = FetchDescriptor<LeaderboardStats>()
             let stats = try modelContext.fetch(statsDescriptor)
             for stat in stats {
                 modelContext.delete(stat)
             }
 
-            // Delete all PersonalRecords
             let recordsDescriptor = FetchDescriptor<PersonalRecord>()
             let records = try modelContext.fetch(recordsDescriptor)
             for record in records {
                 modelContext.delete(record)
             }
 
-            // Delete all Goals
-            let goalDescriptor = FetchDescriptor<Goal>()
-            let goals = try modelContext.fetch(goalDescriptor)
+            let goalsDescriptor = FetchDescriptor<Goal>()
+            let goals = try modelContext.fetch(goalsDescriptor)
             for goal in goals {
                 modelContext.delete(goal)
             }
 
-            // Delete all Routines
             let routineDescriptor = FetchDescriptor<Routine>()
             let routines = try modelContext.fetch(routineDescriptor)
             for routine in routines {
                 modelContext.delete(routine)
             }
 
-            // Delete all RoutineFolders
             let folderDescriptor = FetchDescriptor<RoutineFolder>()
             let folders = try modelContext.fetch(folderDescriptor)
             for folder in folders {
                 modelContext.delete(folder)
             }
 
+            let weightPRDescriptor = FetchDescriptor<WeightPersonalRecord>()
+            let weightPRs = try modelContext.fetch(weightPRDescriptor)
+            for weightPR in weightPRs {
+                modelContext.delete(weightPR)
+            }
+
+            let aggregateWeightDescriptor = FetchDescriptor<AggregateWeightRecord>()
+            let aggregateWeightRecords = try modelContext.fetch(aggregateWeightDescriptor)
+            for aggregateRecord in aggregateWeightRecords {
+                modelContext.delete(aggregateRecord)
+            }
+
+            let pendingUploadDescriptor = FetchDescriptor<PendingMediaUpload>()
+            let pendingUploads = try modelContext.fetch(pendingUploadDescriptor)
+            for upload in pendingUploads {
+                modelContext.delete(upload)
+            }
+        } catch {
+            throw DeletionError.localDataDeletionFailed(error.localizedDescription)
+        }
+    }
+
+    /// Commits staged local deletions to disk
+    private func commitStagedLocalDeletion(modelContext: ModelContext) throws {
+        do {
             try modelContext.save()
         } catch {
             throw DeletionError.localDataDeletionFailed(error.localizedDescription)
         }
     }
-    
-    /// Clears all UserDefaults data related to the user
-    private func clearUserDefaults() {
-        let keysToRemove = [
-            // User profile
-            "displayName",
-            "profilePictureURL",
-            // Settings
-            "preferredWorkoutMetric",
-            "measurementSystem",
-            "stepHeight",
-            "stepsPerFloor",
-            "selectedTheme",
-            // Import tracking
-            "lastHealthKitImportDate",
-            // App state
-            "firstLaunchDate",
-            // Strava connection
-            "stravaIsConnected",
-            "stravaAthleteName",
-            "stravaAutoSyncEnabled",
-            // Hevy connection
-            "lastHevySyncAt",
-            "hevyTemplateId",
-            "hevyTemplateType"
-        ]
 
-        for key in keysToRemove {
-            UserDefaults.standard.removeObject(forKey: key)
+    /// Deletes local pending upload files from disk
+    private func clearLocalPendingUploadFiles() async throws {
+        do {
+            try await LocalMediaStorage.clearAllPendingUploads()
+        } catch {
+            throw DeletionError.localDataDeletionFailed(error.localizedDescription)
+        }
+    }
+
+    /// Clears all UserDefaults for the app domain
+    private func clearUserDefaults() {
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier else {
+            return
         }
 
+        UserDefaults.standard.removePersistentDomain(forName: bundleIdentifier)
         UserDefaults.standard.synchronize()
     }
 
-    /// Clears all integration connections (Hevy, Strava, etc.)
-    private func clearIntegrations() {
-        // Disconnect Hevy (clears Keychain API key and UserDefaults)
+    /// Clears local integration state (Keychain/UserDefaults cache)
+    private func clearLocalIntegrationState() {
         HevyManager.shared.disconnect()
-
-        // Disconnect Strava (clears Keychain tokens)
-        // This is async but we don't need to wait - account is being deleted
-        Task {
-            try? await StravaManager.shared.disconnect()
-        }
+        StravaManager.shared.clearLocalState()
     }
 }
-

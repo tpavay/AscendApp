@@ -110,6 +110,16 @@ enum LocalMediaStorage {
         }.value
     }
 
+    /// Remove the entire pending uploads directory and all contents.
+    static func clearAllPendingUploads() async throws {
+        try await Task.detached(priority: .utility) {
+            let directory = pendingUploadsURL
+            if FileManager.default.fileExists(atPath: directory.path) {
+                try FileManager.default.removeItem(at: directory)
+            }
+        }.value
+    }
+
     // MARK: - Read Operations
 
     /// Read file data from local storage.
