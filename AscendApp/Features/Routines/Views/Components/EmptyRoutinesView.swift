@@ -12,8 +12,7 @@ struct EmptyRoutinesView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: "figure.stair.stepper")
-                .font(.system(size: 48, weight: .light))
+            AppIcon(token: .tabWorkouts, pointSize: 48)
                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.4))
 
             Text("No routines yet")

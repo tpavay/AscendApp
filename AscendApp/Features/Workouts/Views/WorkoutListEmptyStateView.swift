@@ -14,8 +14,7 @@ struct WorkoutListEmptyStateView: View {
         VStack(spacing: 24) {
             Spacer()
 
-            Image(systemName: "figure.stair.stepper")
-                .font(.system(size: 60, weight: .light))
+            AppIcon(token: .tabWorkouts, pointSize: 60)
                 .foregroundStyle(.accent)
 
             VStack(spacing: 8) {

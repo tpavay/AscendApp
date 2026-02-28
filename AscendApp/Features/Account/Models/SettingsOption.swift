@@ -10,7 +10,7 @@ import SwiftUI
 
 struct SettingsOption: Identifiable {
     let id = UUID()
-    let icon: String
+    let icon: AppIconToken
     let title: String
     let iconColor: Color
     let destination: AnyView?
@@ -19,7 +19,7 @@ struct SettingsOption: Identifiable {
 
     // Private initializer
     private init(
-        icon: String,
+        icon: AppIconToken,
         title: String,
         iconColor: Color,
         destination: AnyView?,
@@ -36,7 +36,7 @@ struct SettingsOption: Identifiable {
 
     // Convenience initializer for navigation
     init<Destination: View>(
-        icon: String,
+        icon: AppIconToken,
         title: String,
         iconColor: Color = .accent,
         isDestructive: Bool = false,
@@ -52,7 +52,7 @@ struct SettingsOption: Identifiable {
 
     // Convenience initializer for actions
     init(
-        icon: String,
+        icon: AppIconToken,
         title: String,
         iconColor: Color = .accent,
         isDestructive: Bool = false,

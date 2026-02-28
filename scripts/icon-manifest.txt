@@ -1,0 +1,24 @@
+# token|icon|weight
+tabHome|house-simple|regular
+tabHomeSelected|house-simple|fill
+tabWorkouts|stairs|regular
+tabWorkoutsSelected|stairs|fill
+tabProgress|trend-up|regular
+tabProgressSelected|trend-up|fill
+tabLeaderboard|ranking|regular
+tabLeaderboardSelected|ranking|fill
+tabSettings|gear-six|regular
+tabSettingsSelected|gear-six|fill
+
+settingsEditProfile|user-circle|regular
+settingsAppearance|paint-brush|regular
+settingsWorkoutMetric|chart-bar|regular
+settingsMeasurementSystem|ruler|regular
+settingsIntegrations|link|regular
+settingsDebugTools|hammer|regular
+settingsPrivacyPolicy|shield-check|regular
+settingsContactUs|envelope-simple|regular
+settingsDeleteAccount|trash|regular
+settingsNotifications|bell|regular
+
+disclosureChevronRight|caret-right|regular

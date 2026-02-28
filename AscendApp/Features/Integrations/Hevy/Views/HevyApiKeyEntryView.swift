@@ -65,9 +65,8 @@ struct HevyApiKeyEntryView: View {
                         }
 
                         HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: "figure.stair.stepper")
+                            AppIcon(token: .tabWorkouts, pointSize: 14)
                                 .foregroundStyle(hevyColor)
-                                .font(.system(size: 14))
                             Text("At least one Stair Machine exercise logged in Hevy")
                                 .font(.montserratRegular(size: 14))
                                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .gray)

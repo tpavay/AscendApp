@@ -89,29 +89,29 @@ struct AccountView: View {
     private var settingsOptions: [SettingsOption] {
         var options: [SettingsOption] = [
             SettingsOption(
-                icon: "person.circle",
+                icon: .settingsEditProfile,
                 title: "Edit Profile",
                 action: {
                     isShowingEditProfile = true
                 }
             ),
             SettingsOption(
-                icon: "paintbrush",
+                icon: .settingsAppearance,
                 title: "Appearance",
                 destination: ThemeSelectionView()
             ),
             SettingsOption(
-                icon: "chart.bar.fill",
+                icon: .settingsWorkoutMetric,
                 title: "Workout Metric",
                 destination: WorkoutMetricSelectionView()
             ),
             SettingsOption(
-                icon: "ruler",
+                icon: .settingsMeasurementSystem,
                 title: "Measurement System",
                 destination: MeasurementSystemSelectionView()
             ),
             SettingsOption(
-                icon: "link",
+                icon: .settingsIntegrations,
                 title: "Integrations",
                 destination: IntegrationsView()
             )
@@ -120,7 +120,7 @@ struct AccountView: View {
         #if DEBUG
         options.append(
             SettingsOption(
-                icon: "hammer.fill",
+                icon: .settingsDebugTools,
                 title: "Debug Tools",
                 iconColor: .orange,
                 destination: DebugToolsView()
@@ -131,7 +131,7 @@ struct AccountView: View {
         // Privacy Policy
         options.append(
             SettingsOption(
-                icon: "hand.raised",
+                icon: .settingsPrivacyPolicy,
                 title: "Privacy Policy",
                 action: {
                     isShowingPrivacyPolicy = true
@@ -142,7 +142,7 @@ struct AccountView: View {
         // Contact Us - before destructive actions
         options.append(
             SettingsOption(
-                icon: "envelope",
+                icon: .settingsContactUs,
                 title: "Contact Us",
                 destination: ContactUsView()
             )
@@ -151,7 +151,7 @@ struct AccountView: View {
         // Delete Account - destructive action at the end
         options.append(
             SettingsOption(
-                icon: "trash",
+                icon: .settingsDeleteAccount,
                 title: "Delete Account",
                 isDestructive: true,
                 action: {

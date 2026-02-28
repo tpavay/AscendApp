@@ -23,17 +23,17 @@ final class TabRouter {
 struct TabItem: Identifiable, Hashable {
     let identifier: AppTab
     let title: String
-    let iconName: String
-    let selectedIconName: String?
+    let icon: AppIconToken
+    let selectedIcon: AppIconToken?
     let view: AnyView
     
     var id: AppTab { identifier }
     
-    init<V: View>(identifier: AppTab, title: String, iconName: String, selectedIconName: String? = nil, @ViewBuilder view: () -> V) {
+    init<V: View>(identifier: AppTab, title: String, icon: AppIconToken, selectedIcon: AppIconToken? = nil, @ViewBuilder view: () -> V) {
         self.identifier = identifier
         self.title = title
-        self.iconName = iconName
-        self.selectedIconName = selectedIconName
+        self.icon = icon
+        self.selectedIcon = selectedIcon
         self.view = AnyView(view())
     }
     
@@ -55,8 +55,8 @@ extension TabItem {
             TabItem(
                 identifier: .home,
                 title: "Home",
-                iconName: "HomeFill",
-                selectedIconName: "HomeFill"
+                icon: .tabHome,
+                selectedIcon: .tabHomeSelected
             ) {
                 NavigationStack {
                     HomeView()
@@ -67,8 +67,8 @@ extension TabItem {
             TabItem(
                 identifier: .workouts,
                 title: "Workouts",
-                iconName: "figure.stair.stepper",
-                selectedIconName: "figure.stair.stepper"
+                icon: .tabWorkouts,
+                selectedIcon: .tabWorkoutsSelected
             ) {
                 NavigationStack {
                     WorkoutListView()
@@ -79,8 +79,8 @@ extension TabItem {
             TabItem(
                 identifier: .progress,
                 title: "Progress",
-                iconName: "chart.line.uptrend.xyaxis",
-                selectedIconName: "chart.line.uptrend.xyaxis"
+                icon: .tabProgress,
+                selectedIcon: .tabProgressSelected
             ) {
                 NavigationStack {
                     ProgressTabView()
@@ -91,8 +91,8 @@ extension TabItem {
             TabItem(
                 identifier: .leaderboard,
                 title: "Leaderboard",
-                iconName: "trophy.fill",
-                selectedIconName: "trophy.fill"
+                icon: .tabLeaderboard,
+                selectedIcon: .tabLeaderboardSelected
             ) {
                 NavigationStack {
                     LeaderboardView()
@@ -103,8 +103,8 @@ extension TabItem {
             TabItem(
                 identifier: .settings,
                 title: "Settings",
-                iconName: "SettingsFill",
-                selectedIconName: "SettingsFill"
+                icon: .tabSettings,
+                selectedIcon: .tabSettingsSelected
             ) {
                 NavigationStack {
                     AccountView()
@@ -133,8 +133,7 @@ struct WorkoutPlaceholderView: View {
     
     var body: some View {
         VStack(spacing: 24) {
-            Image(systemName: "figure.stair.stepper")
-                .font(.system(size: 60, weight: .light))
+            AppIcon(token: .tabWorkouts, pointSize: 60)
                 .foregroundStyle(.accent)
             
             Text("Workouts")
@@ -156,8 +155,7 @@ struct ProgressPlaceholderView: View {
     
     var body: some View {
         VStack(spacing: 24) {
-            Image(systemName: "chart.line.uptrend.xyaxis")
-                .font(.system(size: 60, weight: .light))
+            AppIcon(token: .tabProgress, pointSize: 60)
                 .foregroundStyle(.accent)
             
             Text("Progress")

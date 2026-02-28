@@ -118,8 +118,7 @@ struct RoutinesHomeCard: View {
     private var emptyState: some View {
         NavigationLink(destination: RoutinesView()) {
             HStack(spacing: 12) {
-                Image(systemName: "figure.stair.stepper")
-                    .font(.system(size: 24, weight: .light))
+                AppIcon(token: .tabWorkouts, pointSize: 24)
                     .foregroundStyle(.accent)
 
                 VStack(alignment: .leading, spacing: 2) {

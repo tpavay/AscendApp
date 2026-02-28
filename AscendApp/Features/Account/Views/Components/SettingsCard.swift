@@ -37,9 +37,9 @@ struct SettingsCard: View {
 #Preview {
     SettingsCard(
         options: [
-            SettingsOption(icon: "person.circle", title: "Edit Profile", action: {}),
-            SettingsOption(icon: "bell", title: "Notifications", action: {}),
-            SettingsOption(icon: "paintbrush", title: "Appearance", action: {})
+            SettingsOption(icon: .settingsEditProfile, title: "Edit Profile", action: {}),
+            SettingsOption(icon: .settingsNotifications, title: "Notifications", action: {}),
+            SettingsOption(icon: .settingsAppearance, title: "Appearance", action: {})
         ]
     )
     .padding()

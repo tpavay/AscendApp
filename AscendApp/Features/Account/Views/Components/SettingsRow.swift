@@ -32,8 +32,7 @@ struct SettingsRow: View {
     private var rowContent: some View {
         HStack(spacing: 16) {
             // Icon
-            Image(systemName: option.icon)
-                .font(.system(size: 20, weight: .medium))
+            AppIcon(token: option.icon, pointSize: 20, weight: .medium)
                 .foregroundStyle(option.iconColor)
                 .frame(width: 24, height: 24)
             
@@ -45,8 +44,7 @@ struct SettingsRow: View {
             Spacer()
             
             // Chevron
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .medium))
+            AppIcon(token: .disclosureChevronRight, pointSize: 14, weight: .medium)
                 .foregroundStyle(option.isDestructive ? .red.opacity(0.6) : (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6)))
         }
         .padding(.horizontal, 20)
@@ -59,7 +57,7 @@ struct SettingsRow: View {
     VStack {
         SettingsRow(
             option: SettingsOption(
-                icon: "person.circle",
+                icon: .settingsEditProfile,
                 title: "Edit Profile",
                 action: {}
             )
@@ -67,7 +65,7 @@ struct SettingsRow: View {
         
         SettingsRow(
             option: SettingsOption(
-                icon: "paintbrush",
+                icon: .settingsAppearance,
                 title: "Appearance",
                 destination: AnyView(Text("Theme View"))
             )

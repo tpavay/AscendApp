@@ -28,14 +28,8 @@ struct MainTabView: View {
                 tab.view
                     .tabItem {
                         let isSelected = tabRouter.selectedTab == tab.identifier
-                        let iconToUse = getIconName(for: tab, isSelected: isSelected)
-
-                        if tab.iconName.starts(with: "Home") || tab.iconName.starts(with: "Settings") {
-                            Image(iconToUse)
-                                .renderingMode(.template)
-                        } else {
-                            Image(systemName: iconToUse)
-                        }
+                        let iconToUse = iconToken(for: tab, isSelected: isSelected)
+                        tabBarIcon(for: iconToUse)
                         Text(tab.title)
                     }
                     .tag(tab.identifier)
@@ -70,11 +64,37 @@ struct MainTabView: View {
         AppStoreRatingManager.shared.checkAndRequestReviewIfNeeded(currentWorkoutCount: workoutCount)
     }
     
-    private func getIconName(for tab: TabItem, isSelected: Bool) -> String {
-        if isSelected, let selectedIcon = tab.selectedIconName {
+    private func iconToken(for tab: TabItem, isSelected: Bool) -> AppIconToken {
+        if isSelected, let selectedIcon = tab.selectedIcon {
             return selectedIcon
         }
-        return tab.iconName
+        return tab.icon
+    }
+
+    @ViewBuilder
+    private func tabBarIcon(for token: AppIconToken) -> some View {
+        switch token.source {
+        case .asset(let name):
+            Image(uiImage: resizedTabBarImage(named: name))
+        case .systemSymbol:
+            AppIcon(token: token, pointSize: 20)
+        }
+    }
+
+    private func resizedTabBarImage(named name: String) -> UIImage {
+        let size = CGSize(width: 24, height: 24)
+        guard let sourceImage = UIImage(named: name) else {
+            return UIImage(systemName: "questionmark.circle") ?? UIImage()
+        }
+
+        let format = UIGraphicsImageRendererFormat.default()
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+
+        let rendered = renderer.image { _ in
+            sourceImage.draw(in: CGRect(origin: .zero, size: size))
+        }
+
+        return rendered.withRenderingMode(.alwaysTemplate)
     }
     
     private func setupTabBarAppearance() {
