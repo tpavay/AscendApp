@@ -59,11 +59,21 @@ struct ImportCelebrationView: View {
                 .offset(y: -210)
 
             if let viewModel {
-                StatsCelebrationScreen(
-                    viewModel: viewModel,
-                    onDone: onDismiss,
-                    onSetGoal: { showingGoalsSheet = true }
-                )
+                if viewModel.showGoalCompletionScreen {
+                    GoalCompletionCelebrationScreen(
+                        data: data,
+                        buttonOpacity: viewModel.buttonOpacity,
+                        onDone: onDismiss
+                    )
+                    .transition(.opacity)
+                } else {
+                    StatsCelebrationScreen(
+                        viewModel: viewModel,
+                        onDone: onDismiss,
+                        onSetGoal: { showingGoalsSheet = true }
+                    )
+                    .transition(.opacity)
+                }
             }
         }
         .preferredColorScheme(effectiveColorScheme)

@@ -74,72 +74,74 @@ struct StatsCelebrationScreen: View {
 
             Spacer(minLength: 28)
 
-            if shouldShowSetGoalActions {
-                VStack(spacing: 10) {
-                    VStack(spacing: 2) {
-                        Text("Don’t lose this momentum")
-                            .font(.montserratSemiBold(size: 15))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+            if !viewModel.showGoalCompletionScreen {
+                if shouldShowSetGoalActions {
+                    VStack(spacing: 10) {
+                        VStack(spacing: 2) {
+                            Text("Don’t lose this momentum")
+                                .font(.montserratSemiBold(size: 15))
+                                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
 
-                        Text("Turn this import into weekly progress.")
-                            .font(.montserratRegular(size: 12))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.bottom, 6)
-
-                    Button {
-                        onSetGoal?()
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "target")
-                                .font(.system(size: 15, weight: .semibold))
-                            Text("Lock In My Weekly Goal")
-                                .font(.montserratSemiBold(size: 16))
+                            Text("Turn this import into weekly progress.")
+                                .font(.montserratRegular(size: 12))
+                                .foregroundStyle(.secondary)
                         }
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(
-                            Capsule()
-                                .fill(.accent)
-                        )
-                    }
+                        .padding(.bottom, 6)
 
+                        Button {
+                            onSetGoal?()
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "target")
+                                    .font(.system(size: 15, weight: .semibold))
+                                Text("Lock In My Weekly Goal")
+                                    .font(.montserratSemiBold(size: 16))
+                            }
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(
+                                Capsule()
+                                    .fill(.accent)
+                            )
+                        }
+
+                        Button {
+                            TelemetryManager.shared.log(.celebrationDismissed)
+                            onDone()
+                        } label: {
+                            Text("Done for now")
+                                .font(.montserratMedium(size: 14))
+                                .foregroundStyle(
+                                    effectiveColorScheme == .dark
+                                        ? .white.opacity(0.74)
+                                        : .black.opacity(0.65)
+                                )
+                        }
+                    }
+                    .opacity(viewModel.buttonOpacity)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 28)
+                } else {
+                    // Done button
                     Button {
                         TelemetryManager.shared.log(.celebrationDismissed)
                         onDone()
                     } label: {
-                        Text("Done for now")
-                            .font(.montserratMedium(size: 14))
-                            .foregroundStyle(
-                                effectiveColorScheme == .dark
-                                    ? .white.opacity(0.74)
-                                    : .black.opacity(0.65)
+                        Text("Done")
+                            .font(.montserratSemiBold(size: 17))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                Capsule()
+                                    .fill(.accent)
                             )
                     }
+                    .opacity(viewModel.buttonOpacity)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 28)
                 }
-                .opacity(viewModel.buttonOpacity)
-                .padding(.horizontal, 24)
-                .padding(.bottom, 28)
-            } else {
-                // Done button
-                Button {
-                    TelemetryManager.shared.log(.celebrationDismissed)
-                    onDone()
-                } label: {
-                    Text("Done")
-                        .font(.montserratSemiBold(size: 17))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(
-                            Capsule()
-                                .fill(.accent)
-                        )
-                }
-                .opacity(viewModel.buttonOpacity)
-                .padding(.horizontal, 24)
-                .padding(.bottom, 28)
             }
         }
         .overlayPreferenceValue(HeroBadgeBoundsPreferenceKey.self) { heroAnchor in

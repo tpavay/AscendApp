@@ -57,6 +57,7 @@ class ImportCelebrationViewModel {
     var perimeterSurgeHead: CGFloat = 0
     var perimeterSurgeTail: CGFloat = 0
     var perimeterSurgeOpacity: Double = 0
+    var showGoalCompletionScreen = false
 
     private var animationTask: Task<Void, Never>?
 
@@ -207,18 +208,52 @@ class ImportCelebrationViewModel {
                 )
             }
 
-            haptics.trigger(.mediumImpact)
+            if goalSnapshot.goalCompleted {
+                await runGoalCompletionTakeover(haptics: haptics, sounds: sounds, reduceMotion: reduceMotion)
+            } else {
+                haptics.trigger(.mediumImpact)
+                try? await Task.sleep(for: .milliseconds(reduceMotion ? 60 : 120))
+                await haptics.celebrationBurst()
+                sounds.playCelebrationCompletion()
+            }
+        } else {
+            try? await Task.sleep(for: .milliseconds(reduceMotion ? 60 : 120))
+            await haptics.celebrationBurst()
+            sounds.playCelebrationCompletion()
         }
-
-        try? await Task.sleep(for: .milliseconds(reduceMotion ? 60 : 120))
-        await haptics.celebrationBurst()
-        sounds.playCelebrationCompletion()
 
         // T+2.2s: Button fades in
         guard !Task.isCancelled else { return }
         withAnimation(.easeIn(duration: reduceMotion ? 0.1 : 0.3)) {
             buttonOpacity = 1.0
         }
+    }
+
+    private func runGoalCompletionTakeover(
+        haptics: HapticsManager,
+        sounds: CelebrationSoundManager,
+        reduceMotion: Bool
+    ) async {
+        guard !Task.isCancelled else { return }
+
+        TelemetryManager.shared.log(.celebrationGoalCompleted)
+
+        withAnimation(.easeIn(duration: reduceMotion ? 0.1 : 0.18)) {
+            showGoalCompletionScreen = true
+        }
+
+        try? await Task.sleep(for: .milliseconds(reduceMotion ? 40 : 100))
+        sounds.playLightningStrike()
+        haptics.trigger(.heavyImpact)
+
+        if reduceMotion {
+            haptics.trigger(.success)
+            return
+        }
+
+        try? await Task.sleep(for: .milliseconds(100))
+        sounds.playElectricExplosion()
+        await haptics.goalCompletionBurst()
     }
 
     private func triggerFinalStatImpact(haptics: HapticsManager, sounds: CelebrationSoundManager, reduceMotion: Bool) async {
