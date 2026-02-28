@@ -19,7 +19,7 @@ Ascend is a comprehensive stairstepper workout tracker for iOS. It serves the fu
 - **Data**: Local-first with cloud sync — SwiftData on device, Firebase Firestore for backup/sync/sharing
 - **Backend**: Firebase (Auth, Firestore, Storage, Cloud Functions, Hosting)
 - **Integrations**: Apple HealthKit, Strava, Hevy
-- **Cloud Functions** (TypeScript): Strava OAuth + sync
+- **Cloud Functions** (TypeScript): Strava OAuth + sync, waitlist signup endpoint with dedupe
 
 ---
 
@@ -164,6 +164,7 @@ If using CloudKit sync: never use `@Attribute(.unique)`, properties must have de
 
 ### Firebase Hosting
 Website at `web/public/`. Deploy with `firebase deploy --only hosting`. Currently manual — will be automated via CI/CD.
+- Waitlist form submissions must use `POST /api/join-waitlist` (Hosting rewrite to `joinWaitlist` Cloud Function), not direct Firestore client writes.
 
 ### Key Config Files
 - `.firebaserc` — project aliases (dev, staging, prod)

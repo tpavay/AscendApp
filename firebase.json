@@ -32,6 +32,10 @@
       {
         "source": "/strava/callback",
         "function": "stravaCallback"
+      },
+      {
+        "source": "/api/join-waitlist",
+        "function": "joinWaitlist"
       }
     ]
   }
