@@ -13,7 +13,6 @@ struct WorkoutEntrySelectionView: View {
     @State private var themeManager = ThemeManager.shared
 
     let onManualEntry: () -> Void
-    let onScanConsole: () -> Void
     let onImportWorkouts: () -> Void
     let pendingImportCount: Int
 
@@ -46,19 +45,6 @@ struct WorkoutEntrySelectionView: View {
                         effectiveColorScheme: effectiveColorScheme
                     )
                 }
-
-                // Scan Machine Screen option - temporarily hidden
-                // Button {
-                //     onScanConsole()
-                // } label: {
-                //     SelectionRow(
-                //         icon: "camera.viewfinder",
-                //         title: "Scan Machine Screen",
-                //         subtitle: "Use a photo of the display",
-                //         effectiveColorScheme: effectiveColorScheme,
-                //         isAccent: true
-                //     )
-                // }
 
                 // Import from Apple Health option
                 Button {

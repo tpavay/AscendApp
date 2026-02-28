@@ -12,7 +12,7 @@ Ascend is a comprehensive stairstepper workout tracker for iOS. It serves the fu
 - **Data**: Local-first with cloud sync — SwiftData on device, Firebase Firestore for backup/sync/sharing
 - **Backend**: Firebase (Auth, Firestore, Storage, Cloud Functions, Hosting)
 - **Integrations**: Apple HealthKit, Strava, Hevy
-- **Cloud Functions** (TypeScript): Console OCR (OpenAI), Strava OAuth + sync
+- **Cloud Functions** (TypeScript): Strava OAuth + sync
 
 ---
 

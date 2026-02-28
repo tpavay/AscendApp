@@ -32,9 +32,9 @@
 		<string>App-Prefs</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>Ascend uses your camera to scan stair stepper console displays.</string>
+	<string>Ascend uses your camera to capture workout photos and videos.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Ascend needs access to your photo library to select stair stepper console images.</string>
+	<string>Ascend needs access to your photo library to attach photos and videos to workouts.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.</string>
 	<key>NSHealthUpdateUsageDescription</key>

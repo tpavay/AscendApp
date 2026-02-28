@@ -67,41 +67,6 @@ class WorkoutFormViewModel {
         }
     }
 
-    // MARK: - Prefill from Console Scan
-
-    /// Prefill form fields from a console scan result
-    func prefillFromScan(_ result: ConsoleScanResult) {
-        // Steps or Floors based on user preference
-        if settingsManager.preferredWorkoutMetric == .steps {
-            if let steps = result.stepsClimbed {
-                metricValue = String(steps)
-            }
-        } else {
-            if let floors = result.floorsClimbed {
-                metricValue = String(Int(floors))
-            }
-        }
-
-        // Duration
-        if let seconds = result.elapsedTimeSeconds {
-            setDuration(
-                hours: seconds / 3600,
-                minutes: (seconds % 3600) / 60,
-                seconds: seconds % 60
-            )
-        }
-
-        // Calories
-        if let calories = result.calories {
-            caloriesBurned = String(Int(calories))
-        }
-
-        // Heart rate (use as average)
-        if let hr = result.heartRateBpm {
-            avgHeartRate = String(hr)
-        }
-    }
-
     // MARK: - Prefill from Routine Completion
 
     /// Prefill form fields from a completed routine session

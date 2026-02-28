@@ -20,7 +20,6 @@ struct RoutinePrefillData {
 struct WorkoutFormView: View {
     @Binding var showingWorkoutForm: Bool
     let onWorkoutCompleted: (Workout) -> Void
-    var prefillResult: ConsoleScanResult? = nil
     var routinePrefill: RoutinePrefillData? = nil
 
     @Environment(\.modelContext) private var modelContext
@@ -104,10 +103,6 @@ struct WorkoutFormView: View {
         .onAppear {
             if viewModel.workoutName.isEmpty {
                 viewModel.workoutName = Workout.generateDefaultName(for: viewModel.workoutDate)
-            }
-            // Apply prefill from console scan if provided
-            if let result = prefillResult {
-                viewModel.prefillFromScan(result)
             }
             // Apply prefill from routine completion if provided
             if let routine = routinePrefill {

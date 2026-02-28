@@ -9,26 +9,6 @@ import SwiftUI
 import SwiftData
 import AVFoundation
 
-/// Represents how the workout form is being presented
-enum WorkoutFormPresentation: Identifiable {
-    case manual
-    case fromScan(ConsoleScanResult)
-
-    var id: String {
-        switch self {
-        case .manual: return "manual"
-        case .fromScan(_): return "scan"
-        }
-    }
-
-    var prefillResult: ConsoleScanResult? {
-        switch self {
-        case .manual: return nil
-        case .fromScan(let result): return result
-        }
-    }
-}
-
 struct WorkoutListView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
@@ -39,7 +19,7 @@ struct WorkoutListView: View {
     @State private var filterState = WorkoutListFilterState()
     
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
-    @State private var workoutFormPresentation: WorkoutFormPresentation? = nil
+    @State private var showingWorkoutForm = false
     @State private var showingCompletedView = false
     @State private var completedWorkout: Workout?
     @State private var isInDeleteMode = false
@@ -52,9 +32,7 @@ struct WorkoutListView: View {
     @State private var isCancelling = false
     @State private var deleteTask: Task<Void, Never>? = nil
 
-    // Console scanner state
     @State private var showingEntrySelection = false
-    @State private var showingScanner = false
 
     private var filteredWorkouts: [Workout] {
         let filtered = filterState.applyFilters(to: workouts)
@@ -134,14 +112,7 @@ struct WorkoutListView: View {
                         showingEntrySelection = false
                         Task {
                             try await Task.sleep(for: .milliseconds(300))
-                            workoutFormPresentation = .manual
-                        }
-                    },
-                    onScanConsole: {
-                        showingEntrySelection = false
-                        Task {
-                            try await Task.sleep(for: .milliseconds(300))
-                            showingScanner = true
+                            showingWorkoutForm = true
                         }
                     },
                     onImportWorkouts: {
@@ -155,32 +126,15 @@ struct WorkoutListView: View {
                 )
                 .presentationDetents([.height(280)])
             }
-            .fullScreenCover(isPresented: $showingScanner) {
-                ConsoleScannerContainerView(
-                    onScanConfirmed: { result in
-                        showingScanner = false
-                        Task {
-                            try await Task.sleep(for: .milliseconds(300))
-                            workoutFormPresentation = .fromScan(result)
-                        }
-                    },
-                    onCancel: {
-                        showingScanner = false
-                    }
-                )
-            }
-            .sheet(item: $workoutFormPresentation) { presentation in
+            .sheet(isPresented: $showingWorkoutForm) {
                 WorkoutFormView(
-                    showingWorkoutForm: Binding(
-                        get: { workoutFormPresentation != nil },
-                        set: { if !$0 { workoutFormPresentation = nil } }
-                    ),
+                    showingWorkoutForm: $showingWorkoutForm,
                     onWorkoutCompleted: { workout in
                         print("🔍 WorkoutListView: onWorkoutCompleted called")
                         completedWorkout = workout
 
                         // Dismiss the form
-                        workoutFormPresentation = nil
+                        showingWorkoutForm = false
 
                         // Then show completed view after a brief delay
                         Task {
@@ -188,8 +142,7 @@ struct WorkoutListView: View {
                             showingCompletedView = true
                             print("🔍 WorkoutListView: Set showingCompletedView = true")
                         }
-                    },
-                    prefillResult: presentation.prefillResult
+                    }
                 )
                 .interactiveDismissDisabled()
             }
