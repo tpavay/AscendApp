@@ -62,6 +62,17 @@ jobs:
           ruby-version: "3.1"
           bundler-cache: true
 
+      - name: Configure SSH for match repository
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
+
+      - name: Trust GitHub host key
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.ssh"
+          ssh-keyscan github.com >> "$HOME/.ssh/known_hosts"
+
       - name: Decode production Firebase plist
         env:
           GOOGLE_SERVICE_INFO_PRODUCTION_BASE64: ${{ secrets.GOOGLE_SERVICE_INFO_PRODUCTION_BASE64 }}
@@ -98,63 +109,30 @@ jobs:
           mkdir -p AscendApp/App/Firebase
           decode_base64_required "GOOGLE_SERVICE_INFO_PRODUCTION_BASE64" "$GOOGLE_SERVICE_INFO_PRODUCTION_BASE64" "AscendApp/App/Firebase/GoogleService-Info-Production.plist"
 
-      - name: Install certificate and provisioning profile
+      - name: Validate match secrets
         env:
-          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64_PRODUCTION }}
-          P12_PASSWORD: ${{ secrets.P12_PASSWORD_PRODUCTION }}
-          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64_PRODUCTION }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD_PRODUCTION }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
 
-          decode_base64_required() {
-            local secret_name="$1"
-            local encoded="$2"
-            local output_path="$3"
-
-            if [ -z "$encoded" ]; then
-              echo "::error::Required secret ${secret_name} is missing or empty."
-              exit 1
-            fi
-
-            if ! (printf "%s" "$encoded" | base64 --decode > "$output_path" 2>/dev/null || printf "%s" "$encoded" | base64 -D > "$output_path" 2>/dev/null); then
-              echo "::error::Failed to decode secret ${secret_name} as base64."
-              exit 1
-            fi
-
-            if [ ! -s "$output_path" ]; then
-              echo "::error::Decoded file for ${secret_name} is empty."
-              exit 1
-            fi
-          }
-
-          CERTIFICATE_PATH="$RUNNER_TEMP/build_certificate.p12"
-          PP_PATH="$RUNNER_TEMP/build_pp.mobileprovision"
-          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
-
-          decode_base64_required "BUILD_CERTIFICATE_BASE64_PRODUCTION" "$BUILD_CERTIFICATE_BASE64" "$CERTIFICATE_PATH"
-          decode_base64_required "BUILD_PROVISION_PROFILE_BASE64_PRODUCTION" "$BUILD_PROVISION_PROFILE_BASE64" "$PP_PATH"
-
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          security import "$CERTIFICATE_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security list-keychain -d user -s "$KEYCHAIN_PATH"
-
-          if ! security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -q "Apple Distribution"; then
-            echo "::error::No Apple Distribution identity with private key found in BUILD_CERTIFICATE_BASE64_PRODUCTION."
-            echo "Re-export the production certificate from Keychain Access as a .p12 including the private key."
+          if [ -z "$MATCH_GIT_URL" ]; then
+            echo "::error::Required secret MATCH_GIT_URL is missing or empty."
             exit 1
           fi
 
-          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          cp "$PP_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles"
+          if [ -z "$MATCH_PASSWORD" ]; then
+            echo "::error::Required secret MATCH_PASSWORD is missing or empty."
+            exit 1
+          fi
 
       - name: Build production IPA via Fastlane
         env:
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_BRANCH: main
+          MATCH_READONLY: "true"
           IOS_SIGNING_IDENTITY: Apple Distribution
           IOS_PROVISIONING_PROFILE_SPECIFIER: AscendApp - Production - AppStore
           IOS_DEVELOPMENT_TEAM: QWGVB7TN4T
@@ -167,11 +145,6 @@ jobs:
           name: AscendApp-Production-IPA
           path: build/AscendApp-Production.ipa
           retention-days: 14
-
-      - name: Clean up keychain
-        if: always()
-        shell: bash
-        run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
 
   deploy-firebase:
     name: Deploy Firebase (Production)
