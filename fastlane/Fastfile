@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "base64"
+require "shellwords"
 
 default_platform(:ios)
 
@@ -20,9 +21,9 @@ platform :ios do
       clean: true,
       xcargs: [
         "CODE_SIGN_STYLE=Manual",
-        "CODE_SIGN_IDENTITY=#{staging_signing_identity}",
-        "DEVELOPMENT_TEAM=#{staging_development_team}",
-        "PROVISIONING_PROFILE_SPECIFIER=#{staging_profile_specifier}"
+        "CODE_SIGN_IDENTITY=#{Shellwords.escape(staging_signing_identity)}",
+        "DEVELOPMENT_TEAM=#{Shellwords.escape(staging_development_team)}",
+        "PROVISIONING_PROFILE_SPECIFIER=#{Shellwords.escape(staging_profile_specifier)}"
       ].join(" "),
       export_options: ENV.fetch("EXPORT_OPTIONS_PLIST_PATH"),
       output_directory: "build",
