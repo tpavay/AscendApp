@@ -2,6 +2,8 @@
 
 require "base64"
 require "shellwords"
+require "json"
+require "tmpdir"
 
 default_platform(:ios)
 
@@ -31,6 +33,34 @@ def match_options_for(bundle_identifier)
   options
 end
 
+def write_export_options_plist(signing_identity:, development_team:, bundle_identifier:, profile_specifier:)
+  plist_content = <<~PLIST
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+    <plist version="1.0">
+    <dict>
+      <key>method</key>
+      <string>app-store-connect</string>
+      <key>signingStyle</key>
+      <string>manual</string>
+      <key>signingCertificate</key>
+      <string>#{signing_identity}</string>
+      <key>teamID</key>
+      <string>#{development_team}</string>
+      <key>provisioningProfiles</key>
+      <dict>
+        <key>#{bundle_identifier}</key>
+        <string>#{profile_specifier}</string>
+      </dict>
+    </dict>
+    </plist>
+  PLIST
+
+  plist_path = File.join(Dir.tmpdir, "ExportOptions-#{bundle_identifier}.plist")
+  File.write(plist_path, plist_content)
+  plist_path
+end
+
 platform :ios do
   desc "Build a signed staging IPA"
   lane :build_staging do
@@ -43,13 +73,19 @@ platform :ios do
 
     match(**match_options_for(staging_bundle_identifier))
 
+    export_plist = write_export_options_plist(
+      signing_identity: staging_signing_identity,
+      development_team: staging_development_team,
+      bundle_identifier: staging_bundle_identifier,
+      profile_specifier: staging_profile_specifier
+    )
+
     build_app(
       project: "AscendApp.xcodeproj",
       scheme: "AscendApp-Staging",
       configuration: "Staging",
       clean: true,
       skip_profile_detection: true,
-      export_method: "app-store-connect",
       xcargs: [
         "CODE_SIGN_STYLE=Manual",
         "CODE_SIGN_IDENTITY=#{Shellwords.escape(staging_signing_identity)}",
@@ -57,15 +93,7 @@ platform :ios do
         "CODE_SIGNING_ALLOWED='$(CODE_SIGNING_ALLOWED_FOR_APPS)'"
       ].join(" "),
       export_xcargs: "-allowProvisioningUpdates",
-      export_options: {
-        method: "app-store-connect",
-        signingStyle: "manual",
-        signingCertificate: staging_signing_identity,
-        teamID: staging_development_team,
-        provisioningProfiles: {
-          staging_bundle_identifier => staging_profile_specifier
-        }
-      },
+      export_options: export_plist,
       output_directory: "build",
       output_name: "AscendApp-Staging.ipa"
     )
@@ -82,13 +110,19 @@ platform :ios do
 
     match(**match_options_for(production_bundle_identifier))
 
+    export_plist = write_export_options_plist(
+      signing_identity: production_signing_identity,
+      development_team: production_development_team,
+      bundle_identifier: production_bundle_identifier,
+      profile_specifier: production_profile_specifier
+    )
+
     build_app(
       project: "AscendApp.xcodeproj",
       scheme: "AscendApp",
       configuration: "Release",
       clean: true,
       skip_profile_detection: true,
-      export_method: "app-store-connect",
       xcargs: [
         "CODE_SIGN_STYLE=Manual",
         "CODE_SIGN_IDENTITY=#{Shellwords.escape(production_signing_identity)}",
@@ -96,15 +130,7 @@ platform :ios do
         "CODE_SIGNING_ALLOWED='$(CODE_SIGNING_ALLOWED_FOR_APPS)'"
       ].join(" "),
       export_xcargs: "-allowProvisioningUpdates",
-      export_options: {
-        method: "app-store-connect",
-        signingStyle: "manual",
-        signingCertificate: production_signing_identity,
-        teamID: production_development_team,
-        provisioningProfiles: {
-          production_bundle_identifier => production_profile_specifier
-        }
-      },
+      export_options: export_plist,
       output_directory: "build",
       output_name: "AscendApp-Production.ipa"
     )
