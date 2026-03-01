@@ -2,8 +2,6 @@
 
 require "base64"
 require "shellwords"
-require "json"
-require "tmpdir"
 
 default_platform(:ios)
 
@@ -33,32 +31,15 @@ def match_options_for(bundle_identifier)
   options
 end
 
-def write_export_options_plist(signing_identity:, development_team:, bundle_identifier:, profile_specifier:)
-  plist_content = <<~PLIST
-    <?xml version="1.0" encoding="UTF-8"?>
-    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-    <plist version="1.0">
-    <dict>
-      <key>method</key>
-      <string>app-store-connect</string>
-      <key>signingStyle</key>
-      <string>manual</string>
-      <key>signingCertificate</key>
-      <string>#{signing_identity}</string>
-      <key>teamID</key>
-      <string>#{development_team}</string>
-      <key>provisioningProfiles</key>
-      <dict>
-        <key>#{bundle_identifier}</key>
-        <string>#{profile_specifier}</string>
-      </dict>
-    </dict>
-    </plist>
-  PLIST
-
-  plist_path = File.join(Dir.tmpdir, "ExportOptions-#{bundle_identifier}.plist")
-  File.write(plist_path, plist_content)
-  plist_path
+# Build the full certificate common name from the short identity and team ID.
+# e.g. "Apple Distribution" + "QWGVB7TN4T" -> looks up the installed cert.
+# Match installs certs with common names like "Apple Distribution: Tyler Pavay (QWGVB7TN4T)".
+# Using the full name in export options forces an exact keychain lookup and avoids
+# Xcode 26 mapping "Apple Distribution" to the legacy "iOS Distribution" type.
+def installed_cert_common_name(team_id)
+  output = `security find-identity -v -p codesigning 2>/dev/null`
+  match_data = output.match(/"(Apple Distribution: .+\(#{Regexp.escape(team_id)}\))"/)
+  match_data ? match_data[1] : nil
 end
 
 platform :ios do
@@ -73,12 +54,9 @@ platform :ios do
 
     match(**match_options_for(staging_bundle_identifier))
 
-    export_plist = write_export_options_plist(
-      signing_identity: staging_signing_identity,
-      development_team: staging_development_team,
-      bundle_identifier: staging_bundle_identifier,
-      profile_specifier: staging_profile_specifier
-    )
+    cert_name = installed_cert_common_name(staging_development_team)
+    export_signing_cert = cert_name || staging_signing_identity
+    UI.message("Using signing certificate for export: #{export_signing_cert}")
 
     build_app(
       project: "AscendApp.xcodeproj",
@@ -93,7 +71,14 @@ platform :ios do
         "CODE_SIGNING_ALLOWED='$(CODE_SIGNING_ALLOWED_FOR_APPS)'"
       ].join(" "),
       export_xcargs: "-allowProvisioningUpdates",
-      export_options: export_plist,
+      export_options: {
+        signingStyle: "manual",
+        signingCertificate: export_signing_cert,
+        teamID: staging_development_team,
+        provisioningProfiles: {
+          staging_bundle_identifier => staging_profile_specifier
+        }
+      },
       output_directory: "build",
       output_name: "AscendApp-Staging.ipa"
     )
@@ -110,12 +95,9 @@ platform :ios do
 
     match(**match_options_for(production_bundle_identifier))
 
-    export_plist = write_export_options_plist(
-      signing_identity: production_signing_identity,
-      development_team: production_development_team,
-      bundle_identifier: production_bundle_identifier,
-      profile_specifier: production_profile_specifier
-    )
+    cert_name = installed_cert_common_name(production_development_team)
+    export_signing_cert = cert_name || production_signing_identity
+    UI.message("Using signing certificate for export: #{export_signing_cert}")
 
     build_app(
       project: "AscendApp.xcodeproj",
@@ -130,7 +112,14 @@ platform :ios do
         "CODE_SIGNING_ALLOWED='$(CODE_SIGNING_ALLOWED_FOR_APPS)'"
       ].join(" "),
       export_xcargs: "-allowProvisioningUpdates",
-      export_options: export_plist,
+      export_options: {
+        signingStyle: "manual",
+        signingCertificate: export_signing_cert,
+        teamID: production_development_team,
+        provisioningProfiles: {
+          production_bundle_identifier => production_profile_specifier
+        }
+      },
       output_directory: "build",
       output_name: "AscendApp-Production.ipa"
     )
