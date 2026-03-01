@@ -137,6 +137,7 @@ jobs:
           IOS_PROVISIONING_PROFILE_SPECIFIER: AscendApp - Production - AppStore
           IOS_DEVELOPMENT_TEAM: QWGVB7TN4T
           IOS_PRODUCTION_BUNDLE_ID: com.TylerPavay.AscendApp
+          FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "120"
         run: bundle exec fastlane build_production
 
       - name: Upload production IPA artifact
