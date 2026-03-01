@@ -195,7 +195,17 @@ If using CloudKit sync: never use `@Attribute(.unique)`, properties must have de
   - `build_staging`
   - `build_production`
   - `upload_testflight`
-- iOS deploy lanes generate export options dynamically from environment variables (`IOS_SIGNING_IDENTITY`, `IOS_PROVISIONING_PROFILE_SPECIFIER`, `IOS_DEVELOPMENT_TEAM`, and environment bundle ID), rather than relying on base64-encoded `ExportOptions.plist` secrets.
+- iOS deploy lanes use `fastlane match` for signing material sync (CI runs in `readonly` mode).
+- Required iOS signing secrets for CI:
+  - `MATCH_GIT_URL`
+  - `MATCH_PASSWORD`
+  - `MATCH_GIT_PRIVATE_KEY`
+- Legacy manual-signing CI secrets are deprecated:
+  - `BUILD_CERTIFICATE_BASE64`
+  - `BUILD_PROVISION_PROFILE_BASE64`
+  - `P12_PASSWORD`
+  - `KEYCHAIN_PASSWORD`
+  - production-specific `*_PRODUCTION` variants of the above
 
 ### Firebase Hosting
 Website source lives in `web/` and is built to `web/dist/` before deploy.
@@ -208,4 +218,4 @@ Website source lives in `web/` and is built to `web/dist/` before deploy.
 - `.github/workflows/ci.yml` — PR validation
 - `.github/workflows/deploy-staging.yml` — staging deploy pipeline
 - `.github/workflows/deploy-production.yml` — production deploy pipeline (gated)
-- `Gemfile`, `fastlane/Appfile`, `fastlane/Fastfile` — iOS build/TestFlight automation
+- `Gemfile`, `fastlane/Appfile`, `fastlane/Fastfile`, `fastlane/Matchfile` — iOS build/signing/TestFlight automation

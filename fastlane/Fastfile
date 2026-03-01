@@ -5,6 +5,32 @@ require "shellwords"
 
 default_platform(:ios)
 
+def match_readonly_enabled?
+  return ENV.fetch("MATCH_READONLY", "").casecmp("true").zero? if ENV.key?("MATCH_READONLY")
+
+  ENV["CI"].to_s == "true"
+end
+
+def match_options_for(bundle_identifier)
+  options = {
+    type: "appstore",
+    readonly: match_readonly_enabled?,
+    app_identifier: [bundle_identifier],
+    git_branch: ENV.fetch("MATCH_GIT_BRANCH", "main")
+  }
+
+  match_git_url = ENV["MATCH_GIT_URL"]
+  options[:git_url] = match_git_url if match_git_url && !match_git_url.empty?
+
+  match_keychain_name = ENV["MATCH_KEYCHAIN_NAME"]
+  options[:keychain_name] = match_keychain_name if match_keychain_name && !match_keychain_name.empty?
+
+  match_keychain_password = ENV["MATCH_KEYCHAIN_PASSWORD"]
+  options[:keychain_password] = match_keychain_password if match_keychain_password && !match_keychain_password.empty?
+
+  options
+end
+
 platform :ios do
   desc "Build a signed staging IPA"
   lane :build_staging do
@@ -14,6 +40,8 @@ platform :ios do
     staging_profile_specifier = ENV.fetch("IOS_PROVISIONING_PROFILE_SPECIFIER", "AscendApp - Staging - AppStore")
     staging_development_team = ENV.fetch("IOS_DEVELOPMENT_TEAM", "QWGVB7TN4T")
     staging_bundle_identifier = ENV.fetch("IOS_STAGING_BUNDLE_ID", "com.TylerPavay.AscendApp.staging")
+
+    match(**match_options_for(staging_bundle_identifier))
 
     build_app(
       project: "AscendApp.xcodeproj",
@@ -47,6 +75,8 @@ platform :ios do
     production_profile_specifier = ENV.fetch("IOS_PROVISIONING_PROFILE_SPECIFIER", "AscendApp - Production - AppStore")
     production_development_team = ENV.fetch("IOS_DEVELOPMENT_TEAM", "QWGVB7TN4T")
     production_bundle_identifier = ENV.fetch("IOS_PRODUCTION_BUNDLE_ID", "com.TylerPavay.AscendApp")
+
+    match(**match_options_for(production_bundle_identifier))
 
     build_app(
       project: "AscendApp.xcodeproj",
