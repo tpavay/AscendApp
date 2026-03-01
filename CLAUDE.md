@@ -195,6 +195,7 @@ If using CloudKit sync: never use `@Attribute(.unique)`, properties must have de
   - `build_staging`
   - `build_production`
   - `upload_testflight`
+- iOS deploy lanes generate export options dynamically from environment variables (`IOS_SIGNING_IDENTITY`, `IOS_PROVISIONING_PROFILE_SPECIFIER`, `IOS_DEVELOPMENT_TEAM`, and environment bundle ID), rather than relying on base64-encoded `ExportOptions.plist` secrets.
 
 ### Firebase Hosting
 Website source lives in `web/` and is built to `web/dist/` before deploy.
