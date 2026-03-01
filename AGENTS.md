@@ -163,27 +163,48 @@ If using CloudKit sync: never use `@Attribute(.unique)`, properties must have de
 
 ## CI/CD & Deployment
 
-### Branching Strategy (implementing)
+### Branching Strategy
 - `main` — production-ready code
 - `develop` — integration branch, merges trigger staging pipeline
 - `feature/*` — individual work, PR into develop
 
-### Pipeline (implementing)
-- **On PR to develop**: CI build with Staging scheme + tests (verify only, no deploy)
-- **On merge to develop** (sequential, stop on failure):
+### Workflows
+- `.github/workflows/ci.yml` runs on PRs to `develop` and verifies the iOS app builds with the `AscendApp-Staging` scheme using `CODE_SIGNING_ALLOWED=NO`.
+- `.github/workflows/deploy-staging.yml` runs on pushes to `develop` and executes sequential jobs (stop on failure):
   1. Build iOS app (Staging scheme, produce IPA)
   2. Deploy Firebase Functions
   3. Deploy Firestore Rules
   4. Deploy Firebase Hosting
   5. Upload to TestFlight (last — hardest to reverse)
-- **On merge to main**: Same pipeline but with Release scheme targeting production
+- `.github/workflows/deploy-production.yml` runs on pushes to `main` and manual dispatch. It mirrors the staging pipeline with Release configuration, but remains gated until production is provisioned (`PRODUCTION_READY=true` and GitHub `production` environment protection).
+
+### Deploy Authentication (OIDC)
+- GitHub Actions deploys to Firebase must use OIDC + GCP Workload Identity Federation.
+- Do not use long-lived Firebase/GCP JSON key secrets for CI deploy auth.
+- Required staging secrets:
+  - `GCP_WORKLOAD_IDENTITY_PROVIDER`
+  - `GCP_SERVICE_ACCOUNT_EMAIL`
+- Required production secrets (when production is ready):
+  - `GCP_WORKLOAD_IDENTITY_PROVIDER_PRODUCTION`
+  - `GCP_SERVICE_ACCOUNT_EMAIL_PRODUCTION`
+- Deprecated for deploy auth:
+  - `FIREBASE_SERVICE_ACCOUNT_STAGING`
+
+### Fastlane
+- `Gemfile` and `fastlane/` define lanes for:
+  - `build_staging`
+  - `build_production`
+  - `upload_testflight`
 
 ### Firebase Hosting
-Website at `web/public/`. Deploy with `firebase deploy --only hosting`. Currently manual — will be automated via CI/CD.
+Website source lives in `web/` and is built to `web/dist/` before deploy.
 - Waitlist form submissions must use `POST /api/join-waitlist` (Hosting rewrite to `joinWaitlist` Cloud Function), not direct Firestore client writes.
 
 ### Key Config Files
 - `.firebaserc` — project aliases (dev, staging, prod)
 - `firebase.json` — hosting, functions, firestore config
 - `firestore.rules` — security rules
-- `.github/workflows/build-ios.yml` — CI/CD pipeline
+- `.github/workflows/ci.yml` — PR validation
+- `.github/workflows/deploy-staging.yml` — staging deploy pipeline
+- `.github/workflows/deploy-production.yml` — production deploy pipeline (gated)
+- `Gemfile`, `fastlane/Appfile`, `fastlane/Fastfile` — iOS build/TestFlight automation
