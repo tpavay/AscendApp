@@ -11,10 +11,8 @@ import SwiftUI
 struct AccountView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var colorScheme
     
     @State private var isShowingEditProfile = false
-    @State private var isShowingDeleteAccountConfirmation = false
     @State private var isShowingPrivacyPolicy = false
 
     var body: some View {
@@ -29,8 +27,9 @@ struct AccountView: View {
                     }
                 )
 
-                // Settings Sections
-                settingsContent
+                sectionView(title: "Profile", options: profileOptions)
+                sectionView(title: "Support", options: supportOptions)
+                sectionView(title: "Developer", options: developerOptions)
 
                 // Error Message
                 if let errorMessage = authVM.errorMessage {
@@ -55,14 +54,6 @@ struct AccountView: View {
                     .ignoresSafeArea()
             }
         }
-        .sheet(isPresented: $isShowingDeleteAccountConfirmation) {
-            DeleteAccountConfirmationView(
-                onAccountDeleted: {
-                    // The auth state listener will automatically handle navigation
-                    // back to the landing screen when the account is deleted
-                }
-            )
-        }
         .onChange(of: authVM.authenticationState) { oldValue, newValue in
             if newValue == .unauthenticated {
                 dismiss()
@@ -70,51 +61,31 @@ struct AccountView: View {
         }
     }
 
-    // MARK: - Settings Content
+    // MARK: - Sections
 
     @ViewBuilder
-    private var settingsContent: some View {
-        VStack(spacing: 16) {
-            // Main Settings Card
-            SettingsCard(options: settingsOptions)
-
-            // Sign Out Button
-            SignOutButton(action: authVM.signOut)
-                .padding(.top, 8)
+    private func sectionView(title: String, options: [SettingsOption]) -> some View {
+        if !options.isEmpty {
+            ProfileSection(title: title) {
+                SettingsCard(options: options)
+            }
         }
     }
 
-    // MARK: - Settings Options Configuration
-
-    private var settingsOptions: [SettingsOption] {
-        var options: [SettingsOption] = [
+    private var profileOptions: [SettingsOption] {
+        [
             SettingsOption(
                 icon: .settingsEditProfile,
                 title: "Edit Profile",
                 action: {
                     isShowingEditProfile = true
                 }
-            ),
-            SettingsOption(
-                icon: .settingsAppearance,
-                title: "Appearance",
-                destination: ThemeSelectionView()
-            ),
-            SettingsOption(
-                icon: .settingsWorkoutMetric,
-                title: "Workout Metric",
-                destination: WorkoutMetricSelectionView()
-            ),
-            SettingsOption(
-                icon: .settingsMeasurementSystem,
-                title: "Measurement System",
-                destination: MeasurementSystemSelectionView()
-            ),
-            SettingsOption(
-                icon: .settingsIntegrations,
-                title: "Integrations",
-                destination: IntegrationsView()
             )
+        ]
+    }
+
+    private var developerOptions: [SettingsOption] {
+        var options: [SettingsOption] = [
         ]
 
         #if DEBUG
@@ -128,39 +99,24 @@ struct AccountView: View {
         )
         #endif
 
-        // Privacy Policy
-        options.append(
+        return options
+    }
+
+    private var supportOptions: [SettingsOption] {
+        [
             SettingsOption(
                 icon: .settingsPrivacyPolicy,
                 title: "Privacy Policy",
                 action: {
                     isShowingPrivacyPolicy = true
                 }
-            )
-        )
-
-        // Contact Us - before destructive actions
-        options.append(
+            ),
             SettingsOption(
                 icon: .settingsContactUs,
                 title: "Contact Us",
                 destination: ContactUsView()
             )
-        )
-
-        // Delete Account - destructive action at the end
-        options.append(
-            SettingsOption(
-                icon: .settingsDeleteAccount,
-                title: "Delete Account",
-                isDestructive: true,
-                action: {
-                    isShowingDeleteAccountConfirmation = true
-                }
-            )
-        )
-
-        return options
+        ]
     }
 
     // MARK: - Error Message View

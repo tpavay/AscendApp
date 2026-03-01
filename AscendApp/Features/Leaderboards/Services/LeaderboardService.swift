@@ -25,13 +25,21 @@ final class LeaderboardService {
     func updateLeaderboardStats(
         for userId: String,
         timeFrame: LeaderboardTimeFrame,
-        workouts: [Workout]
+        workouts: [Workout],
+        referenceDate: Date = Date()
     ) throws {
         guard let context = modelContext else {
             throw LeaderboardError.notConfigured
         }
 
-        let periodIdentifier = timeFrame.periodIdentifier()
+        let settings = SettingsManager.shared
+        let firstWeekday = settings.weekStartFirstWeekday
+        let timeZone = TimeZone.current
+        let periodIdentifier = timeFrame.periodIdentifier(
+            for: referenceDate,
+            firstWeekday: firstWeekday,
+            timeZone: timeZone
+        )
 
         // Fetch or create stats for this period
         let predicate = #Predicate<LeaderboardStats> { stats in
@@ -48,7 +56,12 @@ final class LeaderboardService {
             stats = existing
 
             // Check if we need to reset for new period
-            if timeFrame.shouldReset(lastUpdated: existing.lastUpdated) {
+            if timeFrame.shouldReset(
+                lastUpdated: existing.lastUpdated,
+                referenceDate: referenceDate,
+                firstWeekday: firstWeekday,
+                timeZone: timeZone
+            ) {
                 // Reset stats for new period
                 stats.periodIdentifier = periodIdentifier
                 stats.totalSteps = 0
@@ -68,7 +81,11 @@ final class LeaderboardService {
         }
 
         // Filter workouts for this time frame
-        let startDate = timeFrame.startDate()
+        let startDate = timeFrame.startDate(
+            for: referenceDate,
+            firstWeekday: firstWeekday,
+            timeZone: timeZone
+        )
         let relevantWorkouts = workouts.filter { $0.date >= startDate }
 
         // Update stats
@@ -78,12 +95,13 @@ final class LeaderboardService {
     }
 
     // Update all time frames for a user
-    func updateAllTimeFrames(for userId: String, workouts: [Workout]) throws {
+    func updateAllTimeFrames(for userId: String, workouts: [Workout], referenceDate: Date = Date()) throws {
         for timeFrame in LeaderboardTimeFrame.allCases {
             try updateLeaderboardStats(
                 for: userId,
                 timeFrame: timeFrame,
-                workouts: workouts
+                workouts: workouts,
+                referenceDate: referenceDate
             )
         }
     }
@@ -173,7 +191,11 @@ final class LeaderboardService {
             throw LeaderboardError.notConfigured
         }
 
-        let periodIdentifier = timeFrame.periodIdentifier()
+        let settings = SettingsManager.shared
+        let periodIdentifier = timeFrame.periodIdentifier(
+            firstWeekday: settings.weekStartFirstWeekday,
+            timeZone: TimeZone.current
+        )
 
         let predicate = #Predicate<LeaderboardStats> { stats in
             stats.userId == userId &&

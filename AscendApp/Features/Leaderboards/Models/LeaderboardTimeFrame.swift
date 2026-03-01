@@ -41,26 +41,44 @@ enum LeaderboardTimeFrame: String, CaseIterable, Codable, Identifiable {
         }
     }
     
+    private func configuredCalendar(firstWeekday: Int? = nil, timeZone: TimeZone? = nil) -> Calendar {
+        var calendar = Calendar.current
+        if let firstWeekday {
+            calendar.firstWeekday = firstWeekday
+        }
+        if let timeZone {
+            calendar.timeZone = timeZone
+        }
+        return calendar
+    }
+
     // Calculate the start date for this time frame
-    func startDate() -> Date {
-        let calendar = Calendar.current
-        let now = Date()
-        
+    func startDate(
+        for date: Date = Date(),
+        firstWeekday: Int? = nil,
+        timeZone: TimeZone? = nil
+    ) -> Date {
+        let calendar = configuredCalendar(firstWeekday: firstWeekday, timeZone: timeZone)
+
         switch self {
         case .weekly:
-            return calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? now
+            return calendar.dateInterval(of: .weekOfYear, for: date)?.start ?? date
         case .monthly:
-            return calendar.dateInterval(of: .month, for: now)?.start ?? now
+            return calendar.dateInterval(of: .month, for: date)?.start ?? date
         case .yearly:
-            return calendar.dateInterval(of: .year, for: now)?.start ?? now
+            return calendar.dateInterval(of: .year, for: date)?.start ?? date
         case .allTime:
             return Date.distantPast
         }
     }
     
     // Get the period identifier (e.g., "2025-W40" for week 40 of 2025)
-    func periodIdentifier(for date: Date = Date()) -> String {
-        let calendar = Calendar.current
+    func periodIdentifier(
+        for date: Date = Date(),
+        firstWeekday: Int? = nil,
+        timeZone: TimeZone? = nil
+    ) -> String {
+        let calendar = configuredCalendar(firstWeekday: firstWeekday, timeZone: timeZone)
         
         switch self {
         case .weekly:
@@ -80,12 +98,18 @@ enum LeaderboardTimeFrame: String, CaseIterable, Codable, Identifiable {
     }
     
     // Check if stats should be reset based on time frame
-    func shouldReset(lastUpdated: Date) -> Bool {
+    func shouldReset(
+        lastUpdated: Date,
+        referenceDate: Date = Date(),
+        firstWeekday: Int? = nil,
+        timeZone: TimeZone? = nil
+    ) -> Bool {
         switch self {
         case .allTime:
             return false
         case .weekly, .monthly, .yearly:
-            return periodIdentifier(for: lastUpdated) != periodIdentifier()
+            return periodIdentifier(for: lastUpdated, firstWeekday: firstWeekday, timeZone: timeZone)
+            != periodIdentifier(for: referenceDate, firstWeekday: firstWeekday, timeZone: timeZone)
         }
     }
 

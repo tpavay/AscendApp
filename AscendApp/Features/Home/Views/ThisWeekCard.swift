@@ -26,9 +26,9 @@ struct ThisWeekCard: View {
         settingsManager.preferredWorkoutMetric
     }
 
-    /// Get the firstWeekday: from goal if exists, otherwise default to Monday (2)
+    /// Uses active goal's locked reset day when available, otherwise app preference.
     private var firstWeekday: Int {
-        viewModel.activeGoal?.firstWeekday ?? 2
+        viewModel.activeGoal?.firstWeekday ?? settingsManager.weekStartFirstWeekday
     }
 
     private var summary: WeekActivitySummary? {

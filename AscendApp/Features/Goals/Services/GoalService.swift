@@ -19,7 +19,7 @@ final class GoalService {
     func createGoal(metric: GoalMetric, target: Int) throws -> Goal {
         // 1. Capture locked settings at creation time
         let timeZoneId = TimeZone.current.identifier
-        let firstWeekday = Calendar.current.firstWeekday
+        let firstWeekday = SettingsManager.shared.weekStartFirstWeekday
         let createdWeekStart = computeWeekStart(
             for: Date(),
             timeZoneId: timeZoneId,
@@ -66,6 +66,21 @@ final class GoalService {
     /// Deletes a goal
     func deleteGoal(_ goal: Goal) throws {
         modelContext.delete(goal)
+        try modelContext.save()
+    }
+
+    /// Updates active goal's week rules so progress windows follow current user preference.
+    func updateActiveGoalWeekRules(firstWeekday: Int, timeZoneId: String) throws {
+        guard let activeGoal = try getActiveGoal() else { return }
+
+        activeGoal.firstWeekday = firstWeekday
+        activeGoal.timeZoneId = timeZoneId
+        activeGoal.createdWeekStart = computeWeekStart(
+            for: Date(),
+            timeZoneId: timeZoneId,
+            firstWeekday: firstWeekday
+        )
+
         try modelContext.save()
     }
 

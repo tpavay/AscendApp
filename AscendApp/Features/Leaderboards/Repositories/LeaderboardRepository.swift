@@ -55,8 +55,30 @@ final class LeaderboardRepository: Sendable {
         limit: Int = 100,
         preferredWorkoutMetric: WorkoutMetric = .steps
     ) async throws -> [FirestoreLeaderboardStats] {
-        let periodIdentifier = timeFrame.periodIdentifier()
+        let (firstWeekday, timeZone): (Int, TimeZone) = await MainActor.run {
+            (SettingsManager.shared.weekStartFirstWeekday, TimeZone.current)
+        }
+        let periodIdentifier = timeFrame.periodIdentifier(
+            firstWeekday: firstWeekday,
+            timeZone: timeZone
+        )
+        return try await fetchLeaderboard(
+            metric: metric,
+            timeFrame: timeFrame,
+            periodIdentifier: periodIdentifier,
+            limit: limit,
+            preferredWorkoutMetric: preferredWorkoutMetric
+        )
+    }
 
+    // Fetch leaderboard with explicit period identifier (used when period is pinned at capture time)
+    func fetchLeaderboard(
+        metric: LeaderboardMetric,
+        timeFrame: LeaderboardTimeFrame,
+        periodIdentifier: String,
+        limit: Int = 100,
+        preferredWorkoutMetric: WorkoutMetric = .steps
+    ) async throws -> [FirestoreLeaderboardStats] {
         // Query Firestore for the specific time frame and period
         let query = db.collection("leaderboard_stats")
             .whereField("timeFrame", isEqualTo: timeFrame.rawValue)
@@ -105,8 +127,13 @@ final class LeaderboardRepository: Sendable {
             stats.append(stat)
         }
 
-        // Sort by the requested metric using the user's preferred workout metric
-        stats.sort { $0.value(for: metric, preferredWorkoutMetric: preferredWorkoutMetric) > $1.value(for: metric, preferredWorkoutMetric: preferredWorkoutMetric) }
+        // Sort by requested metric with deterministic tie-breaking.
+        stats.sort {
+            let lhs = $0.value(for: metric, preferredWorkoutMetric: preferredWorkoutMetric)
+            let rhs = $1.value(for: metric, preferredWorkoutMetric: preferredWorkoutMetric)
+            if lhs != rhs { return lhs > rhs }
+            return $0.userId < $1.userId
+        }
 
         return stats
     }

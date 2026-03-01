@@ -23,6 +23,7 @@ enum AppIconToken: Hashable, Sendable {
     case settingsAppearance
     case settingsWorkoutMetric
     case settingsMeasurementSystem
+    case settingsWeekStart
     case settingsIntegrations
     case settingsDebugTools
     case settingsPrivacyPolicy
@@ -68,6 +69,8 @@ enum AppIconToken: Hashable, Sendable {
             return .asset("ph-settings-workout-metric")
         case .settingsMeasurementSystem:
             return .asset("ph-settings-measurement-system")
+        case .settingsWeekStart:
+            return .systemSymbol("calendar")
         case .settingsIntegrations:
             return .asset("ph-settings-integrations")
         case .settingsDebugTools:

@@ -19,6 +19,7 @@ final class SettingsManager {
     private let stepHeightKey = "stepHeight"
     private let stepsPerFloorKey = "stepsPerFloor"
     private let fitnessLevelKey = "userFitnessLevel"
+    private let weekStartDayKey = "weekStartDay"
     
     var preferredWorkoutMetric: WorkoutMetric {
         didSet {
@@ -51,6 +52,16 @@ final class SettingsManager {
         didSet {
             saveFitnessLevel()
         }
+    }
+
+    var weekStartDay: WeekStartDay {
+        didSet {
+            saveWeekStartDay()
+        }
+    }
+
+    var weekStartFirstWeekday: Int {
+        weekStartDay.firstWeekday
     }
 
     private init() {
@@ -91,6 +102,13 @@ final class SettingsManager {
         } else {
             self.fitnessLevel = .intermediate
         }
+
+        if let savedWeekStart = UserDefaults.standard.string(forKey: weekStartDayKey),
+           let weekStartDay = WeekStartDay(rawValue: savedWeekStart) {
+            self.weekStartDay = weekStartDay
+        } else {
+            self.weekStartDay = WeekStartDay.from(firstWeekday: Calendar.current.firstWeekday)
+        }
     }
     
     private func savePreferredMetric() {
@@ -115,6 +133,11 @@ final class SettingsManager {
 
     private func saveFitnessLevel() {
         UserDefaults.standard.set(fitnessLevel.rawValue, forKey: fitnessLevelKey)
+        UserDefaults.standard.synchronize()
+    }
+
+    private func saveWeekStartDay() {
+        UserDefaults.standard.set(weekStartDay.rawValue, forKey: weekStartDayKey)
         UserDefaults.standard.synchronize()
     }
     
@@ -157,6 +180,12 @@ final class SettingsManager {
     func setFitnessLevel(_ level: FitnessLevel) {
         withAnimation(.easeInOut(duration: 0.3)) {
             fitnessLevel = level
+        }
+    }
+
+    func setWeekStartDay(_ day: WeekStartDay) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            weekStartDay = day
         }
     }
 }

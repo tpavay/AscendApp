@@ -22,11 +22,13 @@ struct EditProfileView: View {
     @State private var editedDisplayName = ""
     @State private var isSavingDisplayName = false
     @State private var showingFitnessLevelSheet = false
+    @State private var isShowingDeleteAccountConfirmation = false
+    @State private var showingSignOutConfirmation = false
     @FocusState private var isDisplayNameFocused: Bool
     
     var body: some View {
         ScrollView {
-            VStack(spacing: 32) {
+            VStack(spacing: 28) {
                 // Profile Picture Section
                 profilePictureSection
 
@@ -35,6 +37,12 @@ struct EditProfileView: View {
 
                 // Fitness Level Section
                 fitnessLevelSection
+
+                // Preferences Section
+                preferencesSection
+
+                // Account actions
+                accountActionsSection
 
                 Spacer(minLength: 40)
             }
@@ -46,6 +54,36 @@ struct EditProfileView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.clear, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(role: .destructive) {
+                    showingSignOutConfirmation = true
+                } label: {
+                    Text("Sign Out")
+                }
+                .font(.montserratSemiBold(size: 15))
+                .buttonStyle(.plain)
+            }
+            ToolbarItemGroup(placement: .keyboard) {
+                if isEditingDisplayName {
+                    Button("Cancel") {
+                        cancelEditing()
+                    }
+
+                    Spacer()
+
+                    if isSavingDisplayName {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                    } else {
+                        Button("Done") {
+                            saveDisplayName()
+                        }
+                        .disabled(editedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+        }
         .fullScreenCover(isPresented: $showingCropView) {
             if let image = imageForCropping {
                 PhotoCropView(image: image) { croppedImage in
@@ -75,6 +113,29 @@ struct EditProfileView: View {
             FitnessLevelSheetView(settingsManager: settingsManager)
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $isShowingDeleteAccountConfirmation) {
+            DeleteAccountConfirmationView(
+                onAccountDeleted: {
+                    dismiss()
+                }
+            )
+        }
+        .alert(
+            "Sign Out",
+            isPresented: $showingSignOutConfirmation,
+        ) {
+            Button("Cancel", role: .cancel) { }
+            Button("Sign Out", role: .destructive) {
+                authVM.signOut()
+            }
+        } message: {
+            Text("You'll need to sign back in to access your account.")
+        }
+        .onChange(of: authVM.authenticationState) { _, newValue in
+            if newValue == .unauthenticated {
+                dismiss()
+            }
         }
     }
     
@@ -148,57 +209,105 @@ struct EditProfileView: View {
     // MARK: - User Info Section
     
     private var userInfoSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Profile Information")
-                .font(.montserratSemiBold(size: 18))
-                .foregroundStyle(colorScheme == .dark ? .white : .black)
+        ProfileSection(title: "Profile Information") {
+            ProfileCardSurface {
+                VStack(spacing: 0) {
+                    displayNameRow
 
-            // Display Name (Editable)
-            displayNameRow
-
-            // Email
-            if let email = authVM.user?.email {
-                InfoRow(label: "Email", value: email)
+                    if let email = authVM.user?.email {
+                        ProfileCardDivider()
+                        InfoRow(label: "Email", value: email)
+                    }
+                }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Fitness Level Section
 
     private var fitnessLevelSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Fitness Level")
-                .font(.montserratMedium(size: 14))
-                .foregroundStyle(.secondary)
+        ProfileSection(title: "Fitness Level") {
+            ProfileCardSurface {
+                Button {
+                    showingFitnessLevelSheet = true
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: settingsManager.fitnessLevel.icon)
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundStyle(.accent)
 
-            Button {
-                showingFitnessLevelSheet = true
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: settingsManager.fitnessLevel.icon)
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(.accent)
+                        Text(settingsManager.fitnessLevel.displayName)
+                            .font(.montserratRegular(size: 16))
+                            .foregroundStyle(colorScheme == .dark ? .white : .black)
 
-                    Text(settingsManager.fitnessLevel.displayName)
-                        .font(.montserratRegular(size: 16))
-                        .foregroundStyle(colorScheme == .dark ? .white : .black)
+                        Spacer()
 
-                    Spacer()
-
-                    Image(systemName: "pencil")
-                        .font(.system(size: 16))
-                        .foregroundStyle(.accent)
+                        Image(systemName: "pencil")
+                            .font(.system(size: 16))
+                            .foregroundStyle(.accent)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(colorScheme == .dark ? Color.jetLighter.opacity(0.3) : Color.gray.opacity(0.1))
-                )
+                .buttonStyle(.plain)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var preferencesSection: some View {
+        ProfileSection(title: "Preferences") {
+            SettingsCard(options: preferenceOptions)
+        }
+    }
+
+    private var accountActionsSection: some View {
+        ProfileSection(title: "Account") {
+            SettingsCard(options: accountOptions)
+        }
+    }
+
+    private var preferenceOptions: [SettingsOption] {
+        [
+            SettingsOption(
+                icon: .settingsAppearance,
+                title: "Appearance",
+                destination: ThemeSelectionView()
+            ),
+            SettingsOption(
+                icon: .settingsWorkoutMetric,
+                title: "Workout Metric",
+                destination: WorkoutMetricSelectionView()
+            ),
+            SettingsOption(
+                icon: .settingsMeasurementSystem,
+                title: "Measurement System",
+                destination: MeasurementSystemSelectionView()
+            ),
+            SettingsOption(
+                icon: .settingsWeekStart,
+                title: "Week Starts On",
+                destination: WeekStartSelectionView()
+            ),
+            SettingsOption(
+                icon: .settingsIntegrations,
+                title: "Integrations",
+                destination: IntegrationsView()
+            )
+        ]
+    }
+
+    private var accountOptions: [SettingsOption] {
+        [
+            SettingsOption(
+                icon: .settingsDeleteAccount,
+                title: "Delete Account",
+                isDestructive: true,
+                action: {
+                    isShowingDeleteAccountConfirmation = true
+                }
+            )
+        ]
     }
     
     private var displayNameRow: some View {
@@ -208,45 +317,16 @@ struct EditProfileView: View {
                 .foregroundStyle(.secondary)
             
             if isEditingDisplayName {
-                HStack(spacing: 12) {
-                    TextField("Enter display name", text: $editedDisplayName)
-                        .font(.montserratRegular(size: 16))
-                        .foregroundStyle(colorScheme == .dark ? .white : .black)
-                        .textFieldStyle(.plain)
-                        .focused($isDisplayNameFocused)
-                        .submitLabel(.done)
-                        .onSubmit {
-                            saveDisplayName()
-                        }
-                    
-                    if isSavingDisplayName {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                    } else {
-                        Button {
-                            saveDisplayName()
-                        } label: {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 24))
-                                .foregroundStyle(.accent)
-                        }
-                        .disabled(editedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        
-                        Button {
-                            cancelEditing()
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 24))
-                                .foregroundStyle(.secondary)
-                        }
+                TextField("Enter display name", text: $editedDisplayName)
+                    .font(.montserratRegular(size: 16))
+                    .foregroundStyle(colorScheme == .dark ? .white : .black)
+                    .textFieldStyle(.plain)
+                    .focused($isDisplayNameFocused)
+                    .submitLabel(.done)
+                    .onSubmit {
+                        saveDisplayName()
                     }
-                }
-                .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(colorScheme == .dark ? Color.jetLighter.opacity(0.3) : Color.gray.opacity(0.1))
-                )
             } else {
                 Button {
                     startEditing()
@@ -262,15 +342,13 @@ struct EditProfileView: View {
                             .font(.system(size: 16))
                             .foregroundStyle(.accent)
                     }
-                    .padding()
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(colorScheme == .dark ? Color.jetLighter.opacity(0.3) : Color.gray.opacity(0.1))
-                    )
                 }
+                .buttonStyle(.plain)
             }
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
     }
     
     private func startEditing() {
@@ -346,12 +424,9 @@ private struct InfoRow: View {
                 .font(.montserratRegular(size: 16))
                 .foregroundStyle(colorScheme == .dark ? .white : .black)
         }
-        .padding()
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.jetLighter.opacity(0.3) : Color.gray.opacity(0.1))
-        )
     }
 }
 
@@ -465,4 +540,3 @@ private struct FitnessLevelSheetView: View {
             .environment(AuthenticationViewModel())
     }
 }
-
