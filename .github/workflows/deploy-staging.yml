@@ -169,6 +169,9 @@ jobs:
       - name: Build staging IPA via Fastlane
         env:
           EXPORT_OPTIONS_PLIST_PATH: ${{ runner.temp }}/ExportOptions.plist
+          IOS_SIGNING_IDENTITY: Apple Distribution
+          IOS_PROVISIONING_PROFILE_SPECIFIER: AscendApp - Staging - AppStore
+          IOS_DEVELOPMENT_TEAM: QWGVB7TN4T
         run: bundle exec fastlane build_staging
 
       - name: Upload staging IPA artifact
