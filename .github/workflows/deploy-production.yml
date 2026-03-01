@@ -59,6 +59,7 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
+          ruby-version: "3.2"
           bundler-cache: true
 
       - name: Decode production Firebase plist
@@ -259,6 +260,7 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
+          ruby-version: "3.2"
           bundler-cache: true
 
       - name: Download production IPA artifact
