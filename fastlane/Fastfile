@@ -33,13 +33,12 @@ end
 
 # Build the full certificate common name from the short identity and team ID.
 # e.g. "Apple Distribution" + "QWGVB7TN4T" -> looks up the installed cert.
-# Match installs certs with common names like "Apple Distribution: Tyler Pavay (QWGVB7TN4T)".
+# After match runs, it sets an env var with the full certificate common name:
+#   sigh_<bundle_id>_appstore_certificate-name = "Apple Distribution: Tyler Pavay (QWGVB7TN4T)"
 # Using the full name in export options forces an exact keychain lookup and avoids
 # Xcode 26 mapping "Apple Distribution" to the legacy "iOS Distribution" type.
-def installed_cert_common_name(team_id)
-  output = `security find-identity -v -p codesigning 2>/dev/null`
-  match_data = output.match(/"(Apple Distribution: .+\(#{Regexp.escape(team_id)}\))"/)
-  match_data ? match_data[1] : nil
+def match_cert_name(bundle_identifier)
+  ENV["sigh_#{bundle_identifier}_appstore_certificate-name"]
 end
 
 platform :ios do
@@ -54,7 +53,7 @@ platform :ios do
 
     match(**match_options_for(staging_bundle_identifier))
 
-    cert_name = installed_cert_common_name(staging_development_team)
+    cert_name = match_cert_name(staging_bundle_identifier)
     export_signing_cert = cert_name || staging_signing_identity
     UI.message("Using signing certificate for export: #{export_signing_cert}")
 
@@ -95,7 +94,7 @@ platform :ios do
 
     match(**match_options_for(production_bundle_identifier))
 
-    cert_name = installed_cert_common_name(production_development_team)
+    cert_name = match_cert_name(production_bundle_identifier)
     export_signing_cert = cert_name || production_signing_identity
     UI.message("Using signing certificate for export: #{export_signing_cert}")
 
