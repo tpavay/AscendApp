@@ -49,6 +49,7 @@ platform :ios do
       configuration: "Staging",
       clean: true,
       skip_profile_detection: true,
+      export_method: "app-store-connect",
       xcargs: [
         "CODE_SIGN_STYLE=Manual",
         "CODE_SIGN_IDENTITY=#{Shellwords.escape(staging_signing_identity)}",
@@ -87,6 +88,7 @@ platform :ios do
       configuration: "Release",
       clean: true,
       skip_profile_detection: true,
+      export_method: "app-store-connect",
       xcargs: [
         "CODE_SIGN_STYLE=Manual",
         "CODE_SIGN_IDENTITY=#{Shellwords.escape(production_signing_identity)}",
