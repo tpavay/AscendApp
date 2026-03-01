@@ -49,6 +49,7 @@ platform :ios do
       xcargs: [
         "CODE_SIGN_STYLE=Manual",
         "CODE_SIGN_IDENTITY=#{Shellwords.escape(staging_signing_identity)}",
+        "CODE_SIGN_IDENTITY[sdk=iphoneos*]=#{Shellwords.escape(staging_signing_identity)}",
         "DEVELOPMENT_TEAM=#{Shellwords.escape(staging_development_team)}"
       ].join(" "),
       export_options: {
@@ -82,6 +83,7 @@ platform :ios do
       xcargs: [
         "CODE_SIGN_STYLE=Manual",
         "CODE_SIGN_IDENTITY=#{Shellwords.escape(production_signing_identity)}",
+        "CODE_SIGN_IDENTITY[sdk=iphoneos*]=#{Shellwords.escape(production_signing_identity)}",
         "DEVELOPMENT_TEAM=#{Shellwords.escape(production_development_team)}"
       ].join(" "),
       export_options: {
