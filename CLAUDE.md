@@ -72,6 +72,21 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
 ### Import UX
 - Workout import supports individual import, selected-batch import, and import-all from the same sheet.
 
+### Week Start + Leaderboard Windowing
+- User preference `weekStartDay` is stored in `SettingsManager` (`Sunday` or `Monday`) and surfaced in account settings.
+- Goals and home summaries should respect this preference (or a goal's locked week settings when applicable).
+- Weekly leaderboard period identifiers currently derive from app-configured week start + current timezone.
+- Product direction:
+  - Use user week-start preference for personal UX (goal/home summaries).
+  - For competitive/global leaderboards, prefer a canonical week window (single app-wide standard) to avoid fairness drift between users.
+  - If canonical windows are adopted, keep personal week views separate from ranking windows.
+
+### Leaderboard Seeding Policy (Debug / CI)
+- Firestore client rules only allow writes to `leaderboard_stats` where `userId == request.auth.uid`.
+- Multi-user seed data should not be written from client debug tools in shared environments.
+- Use server-side seeding (Admin SDK / Cloud Function / CI job) for deterministic multi-user leaderboard fixtures.
+- For local-only iteration, use Firestore emulator or seed only the authenticated user.
+
 ### Design System
 - **Fonts**: Montserrat (custom) — `montserratBold`, `montserratSemiBold`, `montserratMedium`, `montserratRegular`
 - **Accent color**: `#B4CC00`
