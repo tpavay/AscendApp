@@ -81,3 +81,7 @@ node_modules/
 # Astro build output
 web/dist/
 web/.astro/
+
+# Bundler local artifacts
+.bundle/
+vendor/bundle/

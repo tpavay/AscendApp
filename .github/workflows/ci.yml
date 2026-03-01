@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "AscendApp/**"
+      - "AscendApp.xcodeproj/**"
+      - ".github/workflows/ci.yml"
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ios-verify:
+    name: iOS Verify (Staging)
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Decode Firebase plist files
+        env:
+          GOOGLE_SERVICE_INFO_DEV_BASE64: ${{ secrets.GOOGLE_SERVICE_INFO_DEV_BASE64 }}
+          GOOGLE_SERVICE_INFO_STAGING_BASE64: ${{ secrets.GOOGLE_SERVICE_INFO_STAGING_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          decode_base64() {
+            local encoded="$1"
+            local output_path="$2"
+            printf "%s" "$encoded" | base64 --decode > "$output_path" 2>/dev/null || printf "%s" "$encoded" | base64 -D > "$output_path"
+          }
+
+          mkdir -p AscendApp/App/Firebase
+          decode_base64 "$GOOGLE_SERVICE_INFO_DEV_BASE64" "AscendApp/App/Firebase/GoogleService-Info-Dev.plist"
+          decode_base64 "$GOOGLE_SERVICE_INFO_STAGING_BASE64" "AscendApp/App/Firebase/GoogleService-Info-Staging.plist"
+
+      - name: Build app (unsigned)
+        run: |
+          xcodebuild \
+            -project AscendApp.xcodeproj \
+            -scheme "AscendApp-Staging" \
+            -configuration Staging \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            CODE_SIGNING_ALLOWED=NO \
+            clean build
+
+      - name: Tests placeholder
+        run: |
+          echo "TODO: add test target and xcodebuild test invocation."
