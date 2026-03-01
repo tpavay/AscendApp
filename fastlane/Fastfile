@@ -34,8 +34,6 @@ end
 platform :ios do
   desc "Build a signed staging IPA"
   lane :build_staging do
-    setup_ci if ENV["CI"]
-
     staging_signing_identity = ENV.fetch("IOS_SIGNING_IDENTITY", "Apple Distribution")
     staging_profile_specifier = ENV.fetch("IOS_PROVISIONING_PROFILE_SPECIFIER", "AscendApp - Staging - AppStore")
     staging_development_team = ENV.fetch("IOS_DEVELOPMENT_TEAM", "QWGVB7TN4T")
@@ -69,8 +67,6 @@ platform :ios do
 
   desc "Build a signed production IPA"
   lane :build_production do
-    setup_ci if ENV["CI"]
-
     production_signing_identity = ENV.fetch("IOS_SIGNING_IDENTITY", "Apple Distribution")
     production_profile_specifier = ENV.fetch("IOS_PROVISIONING_PROFILE_SPECIFIER", "AscendApp - Production - AppStore")
     production_development_team = ENV.fetch("IOS_DEVELOPMENT_TEAM", "QWGVB7TN4T")
