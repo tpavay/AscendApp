@@ -144,47 +144,21 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security list-keychain -d user -s "$KEYCHAIN_PATH"
 
+          if ! security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -q "Apple Distribution"; then
+            echo "::error::No Apple Distribution identity with private key found in BUILD_CERTIFICATE_BASE64_PRODUCTION."
+            echo "Re-export the production certificate from Keychain Access as a .p12 including the private key."
+            exit 1
+          fi
+
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           cp "$PP_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles"
 
-      - name: Decode production ExportOptions.plist
-        env:
-          EXPORT_OPTIONS_PLIST: ${{ secrets.EXPORT_OPTIONS_PLIST_PRODUCTION }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          decode_base64_required() {
-            local secret_name="$1"
-            local encoded="$2"
-            local output_path="$3"
-
-            if [ -z "$encoded" ]; then
-              echo "::error::Required secret ${secret_name} is missing or empty."
-              exit 1
-            fi
-
-            if ! (printf "%s" "$encoded" | base64 --decode > "$output_path" 2>/dev/null || printf "%s" "$encoded" | base64 -D > "$output_path" 2>/dev/null); then
-              echo "::error::Failed to decode secret ${secret_name} as base64."
-              exit 1
-            fi
-
-            if [ ! -s "$output_path" ]; then
-              echo "::error::Decoded file for ${secret_name} is empty."
-              exit 1
-            fi
-
-            if ! plutil -lint "$output_path" >/dev/null; then
-              echo "::error::Decoded file for ${secret_name} is not a valid plist."
-              exit 1
-            fi
-          }
-
-          decode_base64_required "EXPORT_OPTIONS_PLIST_PRODUCTION" "$EXPORT_OPTIONS_PLIST" "$RUNNER_TEMP/ExportOptions.plist"
-
       - name: Build production IPA via Fastlane
         env:
-          EXPORT_OPTIONS_PLIST_PATH: ${{ runner.temp }}/ExportOptions.plist
+          IOS_SIGNING_IDENTITY: Apple Distribution
+          IOS_PROVISIONING_PROFILE_SPECIFIER: AscendApp - Production - AppStore
+          IOS_DEVELOPMENT_TEAM: QWGVB7TN4T
+          IOS_PRODUCTION_BUNDLE_ID: com.TylerPavay.AscendApp
         run: bundle exec fastlane build_production
 
       - name: Upload production IPA artifact

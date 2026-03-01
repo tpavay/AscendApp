@@ -13,6 +13,7 @@ platform :ios do
     staging_signing_identity = ENV.fetch("IOS_SIGNING_IDENTITY", "Apple Distribution")
     staging_profile_specifier = ENV.fetch("IOS_PROVISIONING_PROFILE_SPECIFIER", "AscendApp - Staging - AppStore")
     staging_development_team = ENV.fetch("IOS_DEVELOPMENT_TEAM", "QWGVB7TN4T")
+    staging_bundle_identifier = ENV.fetch("IOS_STAGING_BUNDLE_ID", "com.TylerPavay.AscendApp.staging")
 
     build_app(
       project: "AscendApp.xcodeproj",
@@ -22,10 +23,17 @@ platform :ios do
       xcargs: [
         "CODE_SIGN_STYLE=Manual",
         "CODE_SIGN_IDENTITY=#{Shellwords.escape(staging_signing_identity)}",
-        "DEVELOPMENT_TEAM=#{Shellwords.escape(staging_development_team)}",
-        "PROVISIONING_PROFILE_SPECIFIER=#{Shellwords.escape(staging_profile_specifier)}"
+        "DEVELOPMENT_TEAM=#{Shellwords.escape(staging_development_team)}"
       ].join(" "),
-      export_options: ENV.fetch("EXPORT_OPTIONS_PLIST_PATH"),
+      export_options: {
+        method: "app-store",
+        signingStyle: "manual",
+        signingCertificate: staging_signing_identity,
+        teamID: staging_development_team,
+        provisioningProfiles: {
+          staging_bundle_identifier => staging_profile_specifier
+        }
+      },
       output_directory: "build",
       output_name: "AscendApp-Staging.ipa"
     )
@@ -35,12 +43,30 @@ platform :ios do
   lane :build_production do
     setup_ci if ENV["CI"]
 
+    production_signing_identity = ENV.fetch("IOS_SIGNING_IDENTITY", "Apple Distribution")
+    production_profile_specifier = ENV.fetch("IOS_PROVISIONING_PROFILE_SPECIFIER", "AscendApp - Production - AppStore")
+    production_development_team = ENV.fetch("IOS_DEVELOPMENT_TEAM", "QWGVB7TN4T")
+    production_bundle_identifier = ENV.fetch("IOS_PRODUCTION_BUNDLE_ID", "com.TylerPavay.AscendApp")
+
     build_app(
       project: "AscendApp.xcodeproj",
       scheme: "AscendApp",
       configuration: "Release",
       clean: true,
-      export_options: ENV.fetch("EXPORT_OPTIONS_PLIST_PATH"),
+      xcargs: [
+        "CODE_SIGN_STYLE=Manual",
+        "CODE_SIGN_IDENTITY=#{Shellwords.escape(production_signing_identity)}",
+        "DEVELOPMENT_TEAM=#{Shellwords.escape(production_development_team)}"
+      ].join(" "),
+      export_options: {
+        method: "app-store",
+        signingStyle: "manual",
+        signingCertificate: production_signing_identity,
+        teamID: production_development_team,
+        provisioningProfiles: {
+          production_bundle_identifier => production_profile_specifier
+        }
+      },
       output_directory: "build",
       output_name: "AscendApp-Production.ipa"
     )
