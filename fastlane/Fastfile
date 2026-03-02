@@ -80,7 +80,7 @@ platform :ios do
     setup_ci if ENV["CI"]
 
     staging_signing_identity = ENV.fetch("IOS_SIGNING_IDENTITY", "Apple Distribution")
-    staging_profile_specifier = ENV.fetch("IOS_PROVISIONING_PROFILE_SPECIFIER", "AscendApp - Staging - AppStore")
+    staging_profile_specifier = ENV.fetch("IOS_PROVISIONING_PROFILE_SPECIFIER", "match AppStore com.TylerPavay.AscendApp.staging")
     staging_development_team = ENV.fetch("IOS_DEVELOPMENT_TEAM", "QWGVB7TN4T")
     staging_bundle_identifier = ENV.fetch("IOS_STAGING_BUNDLE_ID", "com.TylerPavay.AscendApp.staging")
 
@@ -141,7 +141,7 @@ platform :ios do
     setup_ci if ENV["CI"]
 
     production_signing_identity = ENV.fetch("IOS_SIGNING_IDENTITY", "Apple Distribution")
-    production_profile_specifier = ENV.fetch("IOS_PROVISIONING_PROFILE_SPECIFIER", "AscendApp - Production - AppStore")
+    production_profile_specifier = ENV.fetch("IOS_PROVISIONING_PROFILE_SPECIFIER", "match AppStore com.TylerPavay.AscendApp")
     production_development_team = ENV.fetch("IOS_DEVELOPMENT_TEAM", "QWGVB7TN4T")
     production_bundle_identifier = ENV.fetch("IOS_PRODUCTION_BUNDLE_ID", "com.TylerPavay.AscendApp")
 
