@@ -125,15 +125,13 @@ platform :ios do
     output_dir = File.expand_path("build")
     FileUtils.mkdir_p(output_dir)
 
-    export_cmd = [
-      "xcodebuild", "-exportArchive",
-      "-archivePath", archive_path,
-      "-exportOptionsPlist", export_plist,
-      "-exportPath", output_dir,
-      "-allowProvisioningUpdates"
-    ]
-    export_cmd << "OTHER_CODE_SIGN_FLAGS=--keychain #{keychain_path}" if keychain_path
-    sh(*export_cmd)
+    export_cmd = "xcodebuild -exportArchive" \
+      " -archivePath #{archive_path.shellescape}" \
+      " -exportOptionsPlist #{export_plist.shellescape}" \
+      " -exportPath #{output_dir.shellescape}" \
+      " -allowProvisioningUpdates"
+    export_cmd += " OTHER_CODE_SIGN_FLAGS='--keychain #{keychain_path}'" if keychain_path
+    sh(export_cmd)
 
     # Rename exported IPA to expected name
     exported_ipa = Dir.glob(File.join(output_dir, "*.ipa")).first
@@ -188,15 +186,13 @@ platform :ios do
     output_dir = File.expand_path("build")
     FileUtils.mkdir_p(output_dir)
 
-    export_cmd = [
-      "xcodebuild", "-exportArchive",
-      "-archivePath", archive_path,
-      "-exportOptionsPlist", export_plist,
-      "-exportPath", output_dir,
-      "-allowProvisioningUpdates"
-    ]
-    export_cmd << "OTHER_CODE_SIGN_FLAGS=--keychain #{keychain_path}" if keychain_path
-    sh(*export_cmd)
+    export_cmd = "xcodebuild -exportArchive" \
+      " -archivePath #{archive_path.shellescape}" \
+      " -exportOptionsPlist #{export_plist.shellescape}" \
+      " -exportPath #{output_dir.shellescape}" \
+      " -allowProvisioningUpdates"
+    export_cmd += " OTHER_CODE_SIGN_FLAGS='--keychain #{keychain_path}'" if keychain_path
+    sh(export_cmd)
 
     # Rename exported IPA to expected name
     exported_ipa = Dir.glob(File.join(output_dir, "*.ipa")).first
