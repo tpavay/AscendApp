@@ -65,7 +65,7 @@ platform :ios do
       skip_profile_detection: true,
       xcargs: [
         "CODE_SIGN_STYLE=Manual",
-        "CODE_SIGN_IDENTITY=#{Shellwords.escape(staging_signing_identity)}",
+        "CODE_SIGN_IDENTITY=#{Shellwords.escape(export_signing_cert)}",
         "DEVELOPMENT_TEAM=#{Shellwords.escape(staging_development_team)}",
         "CODE_SIGNING_ALLOWED='$(CODE_SIGNING_ALLOWED_FOR_APPS)'"
       ].join(" "),
@@ -106,7 +106,7 @@ platform :ios do
       skip_profile_detection: true,
       xcargs: [
         "CODE_SIGN_STYLE=Manual",
-        "CODE_SIGN_IDENTITY=#{Shellwords.escape(production_signing_identity)}",
+        "CODE_SIGN_IDENTITY=#{Shellwords.escape(export_signing_cert)}",
         "DEVELOPMENT_TEAM=#{Shellwords.escape(production_development_team)}",
         "CODE_SIGNING_ALLOWED='$(CODE_SIGNING_ALLOWED_FOR_APPS)'"
       ].join(" "),
