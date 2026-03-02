@@ -129,7 +129,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: AscendApp-Staging-IPA
-          path: build/AscendApp-Staging.ipa
+          path: fastlane/build/AscendApp-Staging.ipa
           retention-days: 14
 
   deploy-firebase:
