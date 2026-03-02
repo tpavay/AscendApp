@@ -84,6 +84,15 @@ platform :ios do
     staging_development_team = ENV.fetch("IOS_DEVELOPMENT_TEAM", "QWGVB7TN4T")
     staging_bundle_identifier = ENV.fetch("IOS_STAGING_BUNDLE_ID", "com.TylerPavay.AscendApp.staging")
 
+    # Auto-increment build number on CI using the workflow run number
+    build_number = ENV["BUILD_NUMBER"]
+    if build_number
+      increment_build_number(
+        build_number: build_number,
+        xcodeproj: "AscendApp.xcodeproj"
+      )
+    end
+
     match(**match_options_for(staging_bundle_identifier))
 
     cert_name = match_cert_name(staging_bundle_identifier)
@@ -144,6 +153,15 @@ platform :ios do
     production_profile_specifier = ENV.fetch("IOS_PROVISIONING_PROFILE_SPECIFIER", "match AppStore com.TylerPavay.AscendApp")
     production_development_team = ENV.fetch("IOS_DEVELOPMENT_TEAM", "QWGVB7TN4T")
     production_bundle_identifier = ENV.fetch("IOS_PRODUCTION_BUNDLE_ID", "com.TylerPavay.AscendApp")
+
+    # Auto-increment build number on CI using the workflow run number
+    build_number = ENV["BUILD_NUMBER"]
+    if build_number
+      increment_build_number(
+        build_number: build_number,
+        xcodeproj: "AscendApp.xcodeproj"
+      )
+    end
 
     match(**match_options_for(production_bundle_identifier))
 
