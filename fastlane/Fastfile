@@ -57,18 +57,22 @@ platform :ios do
     export_signing_cert = cert_name || staging_signing_identity
     UI.message("Using signing certificate for export: #{export_signing_cert}")
 
+    update_code_signing_settings(
+      path: "AscendApp.xcodeproj",
+      use_automatic_signing: false,
+      code_sign_identity: export_signing_cert,
+      team_id: staging_development_team,
+      profile_name: staging_profile_specifier,
+      bundle_identifier: staging_bundle_identifier,
+      targets: ["AscendApp"]
+    )
+
     build_app(
       project: "AscendApp.xcodeproj",
       scheme: "AscendApp-Staging",
       configuration: "Staging",
       clean: true,
       skip_profile_detection: true,
-      xcargs: [
-        "CODE_SIGN_STYLE=Manual",
-        "CODE_SIGN_IDENTITY=#{Shellwords.escape(export_signing_cert)}",
-        "DEVELOPMENT_TEAM=#{Shellwords.escape(staging_development_team)}",
-        "CODE_SIGNING_ALLOWED='$(CODE_SIGNING_ALLOWED_FOR_APPS)'"
-      ].join(" "),
       export_xcargs: "-allowProvisioningUpdates",
       export_options: {
         signingStyle: "manual",
@@ -98,18 +102,22 @@ platform :ios do
     export_signing_cert = cert_name || production_signing_identity
     UI.message("Using signing certificate for export: #{export_signing_cert}")
 
+    update_code_signing_settings(
+      path: "AscendApp.xcodeproj",
+      use_automatic_signing: false,
+      code_sign_identity: export_signing_cert,
+      team_id: production_development_team,
+      profile_name: production_profile_specifier,
+      bundle_identifier: production_bundle_identifier,
+      targets: ["AscendApp"]
+    )
+
     build_app(
       project: "AscendApp.xcodeproj",
       scheme: "AscendApp",
       configuration: "Release",
       clean: true,
       skip_profile_detection: true,
-      xcargs: [
-        "CODE_SIGN_STYLE=Manual",
-        "CODE_SIGN_IDENTITY=#{Shellwords.escape(export_signing_cert)}",
-        "DEVELOPMENT_TEAM=#{Shellwords.escape(production_development_team)}",
-        "CODE_SIGNING_ALLOWED='$(CODE_SIGNING_ALLOWED_FOR_APPS)'"
-      ].join(" "),
       export_xcargs: "-allowProvisioningUpdates",
       export_options: {
         signingStyle: "manual",
