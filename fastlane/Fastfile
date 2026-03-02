@@ -25,8 +25,11 @@ def match_options_for(bundle_identifier)
   match_keychain_name = ENV["MATCH_KEYCHAIN_NAME"]
   options[:keychain_name] = match_keychain_name if match_keychain_name && !match_keychain_name.empty?
 
+  # setup_ci sets MATCH_KEYCHAIN_PASSWORD="" (empty string). We must pass it
+  # to match even when empty, otherwise match skips set-key-partition-list
+  # after importing keys and codesign can't access private keys during export.
   match_keychain_password = ENV["MATCH_KEYCHAIN_PASSWORD"]
-  options[:keychain_password] = match_keychain_password if match_keychain_password && !match_keychain_password.empty?
+  options[:keychain_password] = match_keychain_password unless match_keychain_password.nil?
 
   options
 end
@@ -87,9 +90,6 @@ platform :ios do
     export_signing_cert = cert_name || staging_signing_identity
     UI.message("Using signing certificate: #{export_signing_cert}")
 
-    # Resolve the temp keychain path for explicit codesign --keychain during export
-    keychain_path = ENV["CI"] ? File.expand_path("~/Library/Keychains/fastlane_tmp_keychain-db") : nil
-
     # Step 1: Archive only (skip IPA packaging).
     # xcargs are needed for archive to find the cert in the temp keychain,
     # but gym leaks them into the export command where they break signing.
@@ -113,8 +113,6 @@ platform :ios do
 
     # Step 2: Export the archive to IPA.
     # Run xcodebuild directly so no stray xcargs leak into the export command.
-    # Pass OTHER_CODE_SIGN_FLAGS=--keychain to tell codesign exactly where the
-    # private key lives (the temp keychain created by setup_ci).
     export_plist = write_export_plist(
       signing_certificate: export_signing_cert,
       team_id: staging_development_team,
@@ -130,7 +128,6 @@ platform :ios do
       " -exportOptionsPlist #{export_plist.shellescape}" \
       " -exportPath #{output_dir.shellescape}" \
       " -allowProvisioningUpdates"
-    export_cmd += " OTHER_CODE_SIGN_FLAGS='--keychain #{keychain_path}'" if keychain_path
     sh(export_cmd)
 
     # Rename exported IPA to expected name
@@ -153,8 +150,6 @@ platform :ios do
     cert_name = match_cert_name(production_bundle_identifier)
     export_signing_cert = cert_name || production_signing_identity
     UI.message("Using signing certificate: #{export_signing_cert}")
-
-    keychain_path = ENV["CI"] ? File.expand_path("~/Library/Keychains/fastlane_tmp_keychain-db") : nil
 
     # Step 1: Archive only
     archive_path = File.join(Dir.tmpdir, "AscendApp-Production.xcarchive")
@@ -191,7 +186,6 @@ platform :ios do
       " -exportOptionsPlist #{export_plist.shellescape}" \
       " -exportPath #{output_dir.shellescape}" \
       " -allowProvisioningUpdates"
-    export_cmd += " OTHER_CODE_SIGN_FLAGS='--keychain #{keychain_path}'" if keychain_path
     sh(export_cmd)
 
     # Rename exported IPA to expected name
