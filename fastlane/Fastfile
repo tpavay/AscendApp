@@ -31,14 +31,44 @@ def match_options_for(bundle_identifier)
   options
 end
 
-# Build the full certificate common name from the short identity and team ID.
-# e.g. "Apple Distribution" + "QWGVB7TN4T" -> looks up the installed cert.
 # After match runs, it sets an env var with the full certificate common name:
 #   sigh_<bundle_id>_appstore_certificate-name = "Apple Distribution: Tyler Pavay (QWGVB7TN4T)"
 # Using the full name in export options forces an exact keychain lookup and avoids
 # Xcode 26 mapping "Apple Distribution" to the legacy "iOS Distribution" type.
 def match_cert_name(bundle_identifier)
   ENV["sigh_#{bundle_identifier}_appstore_certificate-name"]
+end
+
+# Write an export options plist for xcodebuild -exportArchive.
+# We call xcodebuild directly (not through gym) so we can use
+# "app-store-connect" (which gym 2.230 doesn't support) and avoid
+# gym leaking archive xcargs into the export command.
+def write_export_plist(signing_certificate:, team_id:, bundle_id:, profile_name:)
+  plist = <<~PLIST
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+    <plist version="1.0">
+    <dict>
+      <key>method</key>
+      <string>app-store-connect</string>
+      <key>signingStyle</key>
+      <string>manual</string>
+      <key>signingCertificate</key>
+      <string>#{signing_certificate}</string>
+      <key>teamID</key>
+      <string>#{team_id}</string>
+      <key>provisioningProfiles</key>
+      <dict>
+        <key>#{bundle_id}</key>
+        <string>#{profile_name}</string>
+      </dict>
+    </dict>
+    </plist>
+  PLIST
+
+  path = File.join(Dir.tmpdir, "export_options.plist")
+  File.write(path, plist)
+  path
 end
 
 platform :ios do
@@ -55,17 +85,12 @@ platform :ios do
 
     cert_name = match_cert_name(staging_bundle_identifier)
     export_signing_cert = cert_name || staging_signing_identity
-    UI.message("Using signing certificate for export: #{export_signing_cert}")
+    UI.message("Using signing certificate: #{export_signing_cert}")
 
-    update_code_signing_settings(
-      path: "AscendApp.xcodeproj",
-      use_automatic_signing: false,
-      code_sign_identity: export_signing_cert,
-      team_id: staging_development_team,
-      profile_name: staging_profile_specifier,
-      bundle_identifier: staging_bundle_identifier,
-      targets: ["AscendApp"]
-    )
+    # Step 1: Archive only (skip IPA packaging).
+    # xcargs are needed for archive to find the cert in the temp keychain,
+    # but gym leaks them into the export command where they break signing.
+    archive_path = File.join(Dir.tmpdir, "AscendApp-Staging.xcarchive")
 
     build_app(
       project: "AscendApp.xcodeproj",
@@ -73,18 +98,40 @@ platform :ios do
       configuration: "Staging",
       clean: true,
       skip_profile_detection: true,
-      export_xcargs: "-allowProvisioningUpdates",
-      export_options: {
-        signingStyle: "manual",
-        signingCertificate: export_signing_cert,
-        teamID: staging_development_team,
-        provisioningProfiles: {
-          staging_bundle_identifier => staging_profile_specifier
-        }
-      },
-      output_directory: "build",
-      output_name: "AscendApp-Staging.ipa"
+      skip_package_ipa: true,
+      archive_path: archive_path,
+      xcargs: [
+        "CODE_SIGN_STYLE=Manual",
+        "CODE_SIGN_IDENTITY=#{Shellwords.escape(export_signing_cert)}",
+        "DEVELOPMENT_TEAM=#{Shellwords.escape(staging_development_team)}",
+        "CODE_SIGNING_ALLOWED='$(CODE_SIGNING_ALLOWED_FOR_APPS)'"
+      ].join(" ")
     )
+
+    # Step 2: Export the archive to IPA.
+    # Run xcodebuild directly so no stray xcargs leak into the export command.
+    export_plist = write_export_plist(
+      signing_certificate: export_signing_cert,
+      team_id: staging_development_team,
+      bundle_id: staging_bundle_identifier,
+      profile_name: staging_profile_specifier
+    )
+
+    output_dir = File.expand_path("build")
+    FileUtils.mkdir_p(output_dir)
+
+    sh(
+      "xcodebuild", "-exportArchive",
+      "-archivePath", archive_path,
+      "-exportOptionsPlist", export_plist,
+      "-exportPath", output_dir,
+      "-allowProvisioningUpdates"
+    )
+
+    # Rename exported IPA to expected name
+    exported_ipa = Dir.glob(File.join(output_dir, "*.ipa")).first
+    target_ipa = File.join(output_dir, "AscendApp-Staging.ipa")
+    FileUtils.mv(exported_ipa, target_ipa) if exported_ipa && exported_ipa != target_ipa
   end
 
   desc "Build a signed production IPA"
@@ -100,17 +147,10 @@ platform :ios do
 
     cert_name = match_cert_name(production_bundle_identifier)
     export_signing_cert = cert_name || production_signing_identity
-    UI.message("Using signing certificate for export: #{export_signing_cert}")
+    UI.message("Using signing certificate: #{export_signing_cert}")
 
-    update_code_signing_settings(
-      path: "AscendApp.xcodeproj",
-      use_automatic_signing: false,
-      code_sign_identity: export_signing_cert,
-      team_id: production_development_team,
-      profile_name: production_profile_specifier,
-      bundle_identifier: production_bundle_identifier,
-      targets: ["AscendApp"]
-    )
+    # Step 1: Archive only
+    archive_path = File.join(Dir.tmpdir, "AscendApp-Production.xcarchive")
 
     build_app(
       project: "AscendApp.xcodeproj",
@@ -118,18 +158,39 @@ platform :ios do
       configuration: "Release",
       clean: true,
       skip_profile_detection: true,
-      export_xcargs: "-allowProvisioningUpdates",
-      export_options: {
-        signingStyle: "manual",
-        signingCertificate: export_signing_cert,
-        teamID: production_development_team,
-        provisioningProfiles: {
-          production_bundle_identifier => production_profile_specifier
-        }
-      },
-      output_directory: "build",
-      output_name: "AscendApp-Production.ipa"
+      skip_package_ipa: true,
+      archive_path: archive_path,
+      xcargs: [
+        "CODE_SIGN_STYLE=Manual",
+        "CODE_SIGN_IDENTITY=#{Shellwords.escape(export_signing_cert)}",
+        "DEVELOPMENT_TEAM=#{Shellwords.escape(production_development_team)}",
+        "CODE_SIGNING_ALLOWED='$(CODE_SIGNING_ALLOWED_FOR_APPS)'"
+      ].join(" ")
     )
+
+    # Step 2: Export the archive to IPA
+    export_plist = write_export_plist(
+      signing_certificate: export_signing_cert,
+      team_id: production_development_team,
+      bundle_id: production_bundle_identifier,
+      profile_name: production_profile_specifier
+    )
+
+    output_dir = File.expand_path("build")
+    FileUtils.mkdir_p(output_dir)
+
+    sh(
+      "xcodebuild", "-exportArchive",
+      "-archivePath", archive_path,
+      "-exportOptionsPlist", export_plist,
+      "-exportPath", output_dir,
+      "-allowProvisioningUpdates"
+    )
+
+    # Rename exported IPA to expected name
+    exported_ipa = Dir.glob(File.join(output_dir, "*.ipa")).first
+    target_ipa = File.join(output_dir, "AscendApp-Production.ipa")
+    FileUtils.mv(exported_ipa, target_ipa) if exported_ipa && exported_ipa != target_ipa
   end
 
   desc "Upload an IPA artifact to TestFlight"
