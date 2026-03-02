@@ -119,7 +119,7 @@ jobs:
           MATCH_GIT_BRANCH: main
           MATCH_READONLY: "true"
           IOS_SIGNING_IDENTITY: Apple Distribution
-          IOS_PROVISIONING_PROFILE_SPECIFIER: AscendApp - Staging - AppStore
+          IOS_PROVISIONING_PROFILE_SPECIFIER: match AppStore com.TylerPavay.AscendApp.staging
           IOS_DEVELOPMENT_TEAM: QWGVB7TN4T
           IOS_STAGING_BUNDLE_ID: com.TylerPavay.AscendApp.staging
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "120"
