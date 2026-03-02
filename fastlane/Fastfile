@@ -83,6 +83,14 @@ platform :ios do
 
     match(**match_options_for(staging_bundle_identifier))
 
+    # Ensure private keys imported by match are accessible to all codesign processes.
+    # setup_ci runs set-key-partition-list BEFORE match imports keys, so newly imported
+    # keys may lack the partition entries needed by xcodebuild -exportArchive.
+    if ENV["CI"]
+      keychain_path = File.expand_path("~/Library/Keychains/fastlane_tmp_keychain-db")
+      sh("security", "set-key-partition-list", "-S", "apple-tool:,apple:,codesign:", "-s", "-k", "", keychain_path)
+    end
+
     cert_name = match_cert_name(staging_bundle_identifier)
     export_signing_cert = cert_name || staging_signing_identity
     UI.message("Using signing certificate: #{export_signing_cert}")
@@ -144,6 +152,11 @@ platform :ios do
     production_bundle_identifier = ENV.fetch("IOS_PRODUCTION_BUNDLE_ID", "com.TylerPavay.AscendApp")
 
     match(**match_options_for(production_bundle_identifier))
+
+    if ENV["CI"]
+      keychain_path = File.expand_path("~/Library/Keychains/fastlane_tmp_keychain-db")
+      sh("security", "set-key-partition-list", "-S", "apple-tool:,apple:,codesign:", "-s", "-k", "", keychain_path)
+    end
 
     cert_name = match_cert_name(production_bundle_identifier)
     export_signing_cert = cert_name || production_signing_identity
