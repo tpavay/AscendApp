@@ -123,6 +123,7 @@ jobs:
           IOS_DEVELOPMENT_TEAM: QWGVB7TN4T
           IOS_STAGING_BUNDLE_ID: com.TylerPavay.AscendApp.staging
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "120"
+          BUILD_NUMBER: ${{ github.run_number }}
         run: bundle exec fastlane build_staging
 
       - name: Upload staging IPA artifact
