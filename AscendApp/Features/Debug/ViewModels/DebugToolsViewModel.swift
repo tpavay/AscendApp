@@ -38,13 +38,13 @@ class DebugToolsViewModel {
             actions: [
                 DebugAction(
                     title: "Seed Test Data",
-                    description: "This will create fake leaderboard entries for 15 test users across all time frames (weekly, monthly, yearly, all-time). Use this to test how the leaderboard looks and functions with realistic data.",
+                    description: "Seeds leaderboard entries for YOUR account across all time frames. For multi-user data, run: node scripts/seed-leaderboard.mjs seed --project dev",
                     icon: "arrow.down.doc.fill",
                     iconColor: .accent
                 ),
                 DebugAction(
                     title: "Clear Test Data",
-                    description: "This will remove all test leaderboard entries created by the seed function. Your real workout data and stats will not be affected. Use this to reset the leaderboard to a clean state.",
+                    description: "Clears YOUR seeded leaderboard entries.",
                     icon: "trash.fill",
                     iconColor: .red,
                     isDestructive: true

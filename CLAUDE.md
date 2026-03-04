@@ -87,6 +87,18 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
 - Use server-side seeding (Admin SDK / Cloud Function / CI job) for deterministic multi-user leaderboard fixtures.
 - For local-only iteration, use Firestore emulator or seed only the authenticated user.
 
+### Leaderboard UX Flow
+- The leaderboard tab root should be a category hub with per-metric preview cards (`Climb`, `Workouts`, `Duration`, `Pace`) and a `See all` action on each card.
+- `See all` opens a metric-specific leaderboard detail screen.
+- On the metric-specific detail screen, keep the metric locked to the selected category and allow filtering by time frame (`Weekly`, `Monthly`, `All Time`).
+- The metric-specific detail screen should be composed from focused subviews:
+  - `LeaderboardPickerView` (time frame chips)
+  - `LeaderboardPodiumView` (top 3 only)
+  - `LeaderboardUserRowView` (pinned current user row when needed)
+  - `LeaderboardRowListView` (rank list)
+- `LeaderboardPodiumView` should always render a 3-slot podium; empty slots use a motivational waiting-for-challengers treatment.
+- The current user row must never be duplicated: when pinned under podium, remove that user from the list rows.
+
 ### Design System
 - **Fonts**: Montserrat (custom) — `montserratBold`, `montserratSemiBold`, `montserratMedium`, `montserratRegular`
 - **Accent color**: `#B4CC00`

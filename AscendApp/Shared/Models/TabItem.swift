@@ -95,7 +95,7 @@ extension TabItem {
                 selectedIcon: .tabLeaderboardSelected
             ) {
                 NavigationStack {
-                    LeaderboardView()
+                    LeaderboardHubView()
                 }
                 .id("LeaderboardNavigationStack")
             },

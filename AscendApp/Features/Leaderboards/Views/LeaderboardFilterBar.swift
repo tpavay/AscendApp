@@ -114,7 +114,8 @@ struct LeaderboardFilterBar: View {
         .sheet(isPresented: $showFilterSheet) {
             LeaderboardFilterSheet(
                 selectedTimeFrame: $selectedTimeFrame,
-                selectedMetric: $selectedMetric
+                selectedMetric: $selectedMetric,
+                allowsMetricSelection: true
             )
         }
     }
@@ -163,6 +164,7 @@ struct LeaderboardFilterSheet: View {
 
     @Binding var selectedTimeFrame: LeaderboardTimeFrame
     @Binding var selectedMetric: LeaderboardMetric
+    let allowsMetricSelection: Bool
 
     private var preferredMetric: WorkoutMetric {
         settingsManager.preferredWorkoutMetric
@@ -203,21 +205,22 @@ struct LeaderboardFilterSheet: View {
                         }
                     }
 
-                    // Metric Section
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("METRIC")
-                            .font(.montserratSemiBold(size: 12))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 4)
+                    if allowsMetricSelection {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("METRIC")
+                                .font(.montserratSemiBold(size: 12))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 4)
 
-                        VStack(spacing: 8) {
-                            ForEach(LeaderboardMetric.allCases) { metric in
-                                FilterOptionRow(
-                                    title: metric.displayName(for: preferredMetric),
-                                    isSelected: selectedMetric == metric
-                                ) {
-                                    HapticsManager.shared.trigger(.selection)
-                                    selectedMetric = metric
+                            VStack(spacing: 8) {
+                                ForEach(LeaderboardMetric.allCases) { metric in
+                                    FilterOptionRow(
+                                        title: metric.displayName(for: preferredMetric),
+                                        isSelected: selectedMetric == metric
+                                    ) {
+                                        HapticsManager.shared.trigger(.selection)
+                                        selectedMetric = metric
+                                    }
                                 }
                             }
                         }
