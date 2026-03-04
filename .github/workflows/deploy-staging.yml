@@ -2,20 +2,6 @@ name: Deploy Staging
 
 on:
   workflow_dispatch:
-  push:
-    branches: [develop]
-    paths:
-      - "AscendApp/**"
-      - "AscendApp.xcodeproj/**"
-      - "fastlane/**"
-      - "Gemfile"
-      - "Gemfile.lock"
-      - "functions/**"
-      - "web/**"
-      - "firebase.json"
-      - "firestore.rules"
-      - ".firebaserc"
-      - ".github/workflows/deploy-staging.yml"
 
 concurrency:
   group: deploy-staging-${{ github.ref }}
