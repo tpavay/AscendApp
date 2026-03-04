@@ -1,13 +1,11 @@
 //
-//  LeaderboardRow.swift
+//  LeaderboardUserRowView.swift
 //  AscendApp
-//
-//  Created by Tyler Pavay on 10/3/25.
 //
 
 import SwiftUI
 
-struct LeaderboardRow: View {
+struct LeaderboardUserRowView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var settingsManager = SettingsManager.shared
 
@@ -18,19 +16,13 @@ struct LeaderboardRow: View {
         settingsManager.preferredWorkoutMetric
     }
 
-    private var rankTextColor: Color {
-        if entry.rank == 1 {
-            return colorScheme == .dark ? .accent : .black
-        }
-        return colorScheme == .dark ? .white.opacity(0.75) : .black.opacity(0.7)
-    }
-
     private var rowFill: LinearGradient {
-        if entry.isCurrentUser {
+        if colorScheme == .dark {
             return LinearGradient(
                 colors: [
-                    Color.accent.opacity(colorScheme == .dark ? 0.16 : 0.11),
-                    Color.accent.opacity(colorScheme == .dark ? 0.09 : 0.06)
+                    Color.night,
+                    Color.jetLighter,
+                    Color.accent.opacity(0.3)
                 ],
                 startPoint: .leading,
                 endPoint: .trailing
@@ -39,42 +31,35 @@ struct LeaderboardRow: View {
 
         return LinearGradient(
             colors: [
-                colorScheme == .dark ? Color.white.opacity(0.07) : Color.night.opacity(0.12),
-                colorScheme == .dark ? Color.white.opacity(0.04) : Color.night.opacity(0.08)
+                Color.white,
+                Color.night.opacity(0.08),
+                Color.accent.opacity(0.24)
             ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
+            startPoint: .leading,
+            endPoint: .trailing
         )
-    }
-
-    private var valueColor: Color {
-        entry.isCurrentUser ? .accent : (colorScheme == .dark ? .white : .black)
-    }
-
-    private var rankLabel: some View {
-        Text("\(entry.rank)")
-            .font(.montserratBold(size: 24))
-            .foregroundStyle(rankTextColor)
-            .frame(width: 34, alignment: .leading)
     }
 
     var body: some View {
         HStack(spacing: 14) {
-            rankLabel
+            Text("\(entry.rank)")
+                .font(.montserratBold(size: 24))
+                .foregroundStyle(.accent)
+                .frame(width: 34, alignment: .leading)
 
             profileImage
 
             Text(entry.displayName)
-                .font(.montserratMedium(size: 15))
-                .foregroundStyle(entry.isCurrentUser ? .accent : (colorScheme == .dark ? .white : .black))
+                .font(.montserratSemiBold(size: 15))
+                .foregroundStyle(colorScheme == .dark ? .white : .black)
                 .lineLimit(1)
 
             Spacer()
 
-            VStack(alignment: .trailing, spacing: 4) {
+            VStack(alignment: .trailing, spacing: 2) {
                 Text(entry.formattedValue)
                     .font(.montserratBold(size: 16))
-                    .foregroundStyle(valueColor)
+                    .foregroundStyle(.accent)
 
                 let unitLabel = metric.unit(for: preferredMetric)
                 if !unitLabel.isEmpty {
@@ -92,12 +77,7 @@ struct LeaderboardRow: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(
-                    entry.isCurrentUser
-                        ? Color.accent.opacity(0.5)
-                        : (colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.06)),
-                    lineWidth: 1
-                )
+                .stroke(Color.accent.opacity(colorScheme == .dark ? 0.45 : 0.55), lineWidth: 1.5)
         )
         .padding(.horizontal, 20)
     }
@@ -132,38 +112,27 @@ struct LeaderboardRow: View {
     }
 
     private var defaultAvatar: some View {
-        Circle()
-            .fill(entry.isCurrentUser ? Color.accent.opacity(0.2) : (colorScheme == .dark ? Color.white.opacity(0.12) : Color.night.opacity(0.14)))
-            .frame(width: 36, height: 36)
-            .overlay(
-                Image(systemName: "person.fill")
-                    .font(.system(size: 15))
-                    .foregroundStyle(entry.isCurrentUser ? .accent : (colorScheme == .dark ? .white.opacity(0.55) : .gray))
-            )
+        ZStack {
+            Circle()
+                .fill(Color.accent.opacity(0.2))
+                .frame(width: 36, height: 36)
+
+            Image(systemName: "person.fill")
+                .font(.system(size: 15))
+                .foregroundStyle(.accent)
+        }
     }
 }
 
 #Preview {
-    VStack(spacing: 12) {
-        LeaderboardRow(
+    VStack(spacing: 20) {
+        LeaderboardUserRowView(
             entry: LeaderboardEntry(
                 userId: "1",
-                displayName: "John Doe",
-                rank: 6,
-                value: 15000,
-                formattedValue: "15,000",
-                isCurrentUser: false
-            ),
-            metric: .climb
-        )
-
-        LeaderboardRow(
-            entry: LeaderboardEntry(
-                userId: "2",
-                displayName: "You",
-                rank: 8,
-                value: 12000,
-                formattedValue: "12,000",
+                displayName: "Tyler Pavay",
+                rank: 37,
+                value: 3425,
+                formattedValue: "3,425",
                 isCurrentUser: true
             ),
             metric: .climb

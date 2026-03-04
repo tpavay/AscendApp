@@ -10,64 +10,110 @@ import SwiftData
 
 struct LeaderboardView: View {
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(TabRouter.self) private var tabRouter
+    @Environment(\.dismiss) private var dismiss
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.modelContext) private var modelContext
     @Query private var workouts: [Workout]
 
-    @State private var viewModel = LeaderboardViewModel()
+    @State private var viewModel: LeaderboardViewModel
     @State private var scrollResetTrigger = 0
-    @State private var scrollProxy: ScrollViewProxy?
     @State private var isSearchExpanded = false
     @State private var showFilterSheet = false
+    @State private var settingsManager = SettingsManager.shared
     @FocusState private var isSearchFocused: Bool
+
+    private let lockedMetric: LeaderboardMetric?
 
     private enum ScrollTarget: Hashable {
         case top
-        case userRow(String)
+    }
+
+    @MainActor
+    init(lockedMetric: LeaderboardMetric? = nil) {
+        self.lockedMetric = lockedMetric
+
+        let vm = LeaderboardViewModel()
+        if let lockedMetric {
+            vm.selectedMetric = lockedMetric
+            vm.selectedTimeFrame = .weekly
+        }
+        _viewModel = State(initialValue: vm)
     }
 
     private var effectiveColorScheme: ColorScheme {
         colorScheme
     }
 
+    private var navigationTitleText: String {
+        if let lockedMetric {
+            return lockedMetric.displayName(for: settingsManager.preferredWorkoutMetric)
+        }
+        return "Leaderboards"
+    }
+
+    private var lockedTimeFrames: [LeaderboardTimeFrame] {
+        [.weekly, .monthly, .allTime]
+    }
+
+    private var isLockedMetricView: Bool {
+        lockedMetric != nil
+    }
+
+    private var lockedListSurfaceColor: Color {
+        colorScheme == .dark ? .jet : .night.opacity(0.07)
+    }
+
+    @ViewBuilder
+    private var screenBackground: some View {
+        if isLockedMetricView {
+            lockedListSurfaceColor
+                .ignoresSafeArea()
+        } else {
+            ThemedBackground()
+        }
+    }
+
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                header
-                    .onChange(of: viewModel.selectedMetric) { _, _ in
-                        resetScrollPosition()
-                        Task { await loadData() }
-                    }
-                    .onChange(of: viewModel.selectedTimeFrame) { _, _ in
-                        resetScrollPosition()
-                        Task { await loadData() }
-                    }
+                if !isLockedMetricView {
+                    header
+                }
 
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: 20) {
+                        LazyVStack(spacing: isLockedMetricView ? 0 : 20) {
                             Color.clear
                                 .frame(height: 0)
                                 .id(ScrollTarget.top)
 
                             if viewModel.isOffline && viewModel.hasCachedEntries {
                                 offlineBanner
+                                    .padding(.bottom, isLockedMetricView ? 12 : 0)
                             } else if let error = viewModel.errorMessage, viewModel.hasCachedEntries {
                                 errorBanner(error)
+                                    .padding(.bottom, isLockedMetricView ? 12 : 0)
                             }
 
                             contentSection
                         }
-                        .padding(.vertical, 16)
+                        .padding(.top, isLockedMetricView ? 0 : 16)
+                        .padding(.bottom, 16)
+                    }
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        if isLockedMetricView {
+                            LeaderboardStickyHeaderView(
+                                title: navigationTitleText,
+                                selectedTimeFrame: $viewModel.selectedTimeFrame,
+                                timeFrames: lockedTimeFrames,
+                                onBack: { dismiss() }
+                            )
+                        }
                     }
                     .onChange(of: scrollResetTrigger) { _, _ in
                         withAnimation(.easeOut(duration: 0.2)) {
                             proxy.scrollTo(ScrollTarget.top, anchor: .top)
                         }
-                    }
-                    .onAppear {
-                        scrollProxy = proxy
                     }
                 }
             }
@@ -77,18 +123,31 @@ struct LeaderboardView: View {
                     .allowsHitTesting(false)
             }
         }
-        .themedBackground()
-        .navigationTitle("Leaderboard")
+        .background {
+            screenBackground
+        }
+        .navigationTitle(isLockedMetricView ? "" : navigationTitleText)
+        .navigationBarTitleDisplayMode(isLockedMetricView ? .inline : .large)
+        .navigationBarBackButtonHidden(isLockedMetricView)
+        .toolbar(isLockedMetricView ? .hidden : .visible, for: .navigationBar)
         .task {
             resetScrollPosition()
             await setupAndLoad()
         }
+        .onChange(of: viewModel.selectedMetric) { _, newMetric in
+            if let lockedMetric, newMetric != lockedMetric {
+                viewModel.selectedMetric = lockedMetric
+                return
+            }
+            resetScrollPosition()
+            Task { await loadData() }
+        }
+        .onChange(of: viewModel.selectedTimeFrame) { _, _ in
+            resetScrollPosition()
+            Task { await loadData() }
+        }
         .refreshable {
             await refreshData()
-        }
-        .onChange(of: tabRouter.selectedTab) { _, newTab in
-            guard newTab == .leaderboard else { return }
-            resetScrollPosition()
         }
         .onChange(of: authVM.displayName) { _, _ in
             syncCurrentUserEntry()
@@ -115,7 +174,12 @@ struct LeaderboardView: View {
         return "\(timeFrame) \(metric)"
     }
 
+    @ViewBuilder
     private var header: some View {
+        unlockedHeader
+    }
+
+    private var unlockedHeader: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 // Dynamic title
@@ -173,7 +237,8 @@ struct LeaderboardView: View {
         .sheet(isPresented: $showFilterSheet) {
             LeaderboardFilterSheet(
                 selectedTimeFrame: $viewModel.selectedTimeFrame,
-                selectedMetric: $viewModel.selectedMetric
+                selectedMetric: $viewModel.selectedMetric,
+                allowsMetricSelection: true
             )
         }
     }
@@ -214,26 +279,93 @@ struct LeaderboardView: View {
         .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color("Jet") : Color.gray.opacity(0.08))
+                .fill(colorScheme == .dark ? .jet : .night.opacity(0.07))
         )
     }
 
     @ViewBuilder
     private var contentSection: some View {
         let entries = viewModel.displayedEntries
-        if entries.isEmpty {
-            if !viewModel.isLoading {
+        if isLockedMetricView {
+            lockedMetricContentSection(entries: entries)
+        } else {
+            if entries.isEmpty {
+                if !viewModel.isLoading {
+                    if viewModel.isOffline {
+                        offlineEmptyStateView
+                    } else if let error = viewModel.errorMessage {
+                        errorView(error)
+                    } else {
+                        emptyStateView
+                    }
+                }
+            } else {
+                leaderboardContent(entries: entries)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func lockedMetricContentSection(entries: [LeaderboardEntry]) -> some View {
+        let state = presentationState(for: entries)
+
+        VStack(spacing: 0) {
+            if !state.podiumEntries.isEmpty {
+                LeaderboardHeroView(
+                    podiumEntries: state.podiumEntries,
+                    metric: viewModel.selectedMetric
+                )
+            }
+
+            if entries.isEmpty, !viewModel.isLoading {
                 if viewModel.isOffline {
                     offlineEmptyStateView
+                        .padding(.top, 26)
+                        .padding(.bottom, 20)
                 } else if let error = viewModel.errorMessage {
                     errorView(error)
+                        .padding(.top, 26)
+                        .padding(.bottom, 20)
                 } else {
                     emptyStateView
+                        .padding(.top, 26)
+                        .padding(.bottom, 20)
                 }
+            } else {
+                VStack(spacing: 12) {
+                    if let userEntry = state.pinnedUserEntry {
+                        LeaderboardUserRowView(
+                            entry: userEntry,
+                            metric: viewModel.selectedMetric
+                        )
+                    }
+
+                    if !state.listEntries.isEmpty {
+                        LeaderboardRowListView(
+                            entries: state.listEntries,
+                            metric: viewModel.selectedMetric,
+                            onEntryAppear: { entry in
+                                viewModel.loadMoreEntriesIfNeeded(currentEntry: entry)
+                            }
+                        )
+                    } else if entries.count == 1, let entry = entries.first, entry.isCurrentUser {
+                        Text("You're the first on this leaderboard!")
+                            .font(.montserratMedium(size: 14))
+                            .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
+                            .multilineTextAlignment(.center)
+                            .padding(.top, 14)
+                            .padding(.horizontal, 40)
+                    }
+                }
+                .padding(.top, 14)
+                .padding(.bottom, 10)
             }
-        } else {
-            leaderboardContent(entries: entries)
         }
+        .background(
+            isLockedMetricView
+                ? lockedListSurfaceColor
+                : Color.clear
+        )
     }
 
     private var shouldShowBlockingLoader: Bool {
@@ -241,78 +373,59 @@ struct LeaderboardView: View {
     }
 
     private var blockingLoader: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-                .progressViewStyle(.circular)
-            Text("Loading leaderboard…")
-                .font(.montserratSemiBold(size: 16))
-                .foregroundStyle(colorScheme == .dark ? .white : .black)
+        ZStack {
+            Color.black.opacity(colorScheme == .dark ? 0.38 : 0.12)
+                .ignoresSafeArea()
+
+            VStack(spacing: 12) {
+                ProgressView()
+                    .progressViewStyle(.circular)
+                Text("Loading leaderboard…")
+                    .font(.montserratSemiBold(size: 16))
+                    .foregroundStyle(colorScheme == .dark ? .white : .black)
+            }
+            .padding(24)
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(colorScheme == .dark ? Color.jet : Color.white)
+            )
         }
-        .padding(24)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(colorScheme == .dark ? Color("Jet") : Color.white)
-                .shadow(color: .black.opacity(0.1), radius: 20, x: 0, y: 10)
-        )
     }
 
     // MARK: - Leaderboard Content
 
-    /// Whether the user is in the top 5
-    private var isUserInTop5: Bool {
-        guard let userEntry = viewModel.userEntry else { return false }
-        return userEntry.rank <= 5
-    }
-
-    /// Entries for the top 5 carousel (only original top 5 that match search)
-    private var top5Entries: [LeaderboardEntry] {
-        viewModel.displayedEntries.filter { $0.rank <= 5 }
-    }
-
-    /// Entries for the rankings list (#6+, only original rank 6+ that match search)
-    private var remainingEntries: [LeaderboardEntry] {
-        viewModel.displayedEntries.filter { $0.rank > 5 }
+    private struct LeaderboardPresentationState {
+        let podiumEntries: [LeaderboardEntry]
+        let pinnedUserEntry: LeaderboardEntry?
+        let listEntries: [LeaderboardEntry]
     }
 
     @ViewBuilder
     private func leaderboardContent(entries: [LeaderboardEntry]) -> some View {
+        let state = presentationState(for: entries)
+
         VStack(spacing: 20) {
-            // "You're in #XX" banner (only when user is NOT in top 5)
-            if let userEntry = viewModel.userEntry, !isUserInTop5 {
-                UserPositionBanner(
+            LeaderboardPodiumView(
+                entries: state.podiumEntries,
+                metric: viewModel.selectedMetric
+            )
+
+            if let userEntry = state.pinnedUserEntry {
+                LeaderboardUserRowView(
                     entry: userEntry,
-                    metric: viewModel.selectedMetric,
-                    onTap: {
-                        scrollToUserPosition()
-                    }
+                    metric: viewModel.selectedMetric
                 )
             }
 
-            // Top 5 Carousel
-            if !top5Entries.isEmpty {
-                Top5CarouselView(
-                    entries: top5Entries,
+            if !state.listEntries.isEmpty {
+                LeaderboardRowListView(
+                    entries: state.listEntries,
                     metric: viewModel.selectedMetric,
-                    currentUserId: authVM.user?.uid
-                )
-            }
-
-            // Rankings list (#6+)
-            if !remainingEntries.isEmpty {
-                LazyVStack(spacing: 12) {
-                    ForEach(remainingEntries) { entry in
-                        LeaderboardRow(
-                            entry: entry,
-                            metric: viewModel.selectedMetric
-                        )
-                        .id(ScrollTarget.userRow(entry.userId))
-                        .onAppear {
-                            viewModel.loadMoreEntriesIfNeeded(currentEntry: entry)
-                        }
+                    onEntryAppear: { entry in
+                        viewModel.loadMoreEntriesIfNeeded(currentEntry: entry)
                     }
-                }
-            } else if entries.count <= 5 && entries.count > 0 {
-                // Only top 5 or fewer entries exist - show simple message if user is the only one
+                )
+            } else if entries.count <= 3 && entries.count > 0 {
                 if entries.count == 1, let entry = entries.first, entry.isCurrentUser {
                     VStack(spacing: 8) {
                         Text("You're the first on this leaderboard!")
@@ -327,11 +440,39 @@ struct LeaderboardView: View {
         }
     }
 
-    private func scrollToUserPosition() {
-        guard let userEntry = viewModel.userEntry else { return }
-        withAnimation(.easeInOut(duration: 0.3)) {
-            scrollProxy?.scrollTo(ScrollTarget.userRow(userEntry.userId), anchor: .center)
+    private func presentationState(for entries: [LeaderboardEntry]) -> LeaderboardPresentationState {
+        let podiumEntries = entries.filter { $0.rank <= 3 }
+        let listEntries = entries.filter { $0.rank > 3 }
+
+        guard let userEntry = viewModel.userEntry else {
+            return LeaderboardPresentationState(
+                podiumEntries: podiumEntries,
+                pinnedUserEntry: nil,
+                listEntries: listEntries
+            )
         }
+
+        let shouldPinUserRow = shouldPinUserRow(userEntry)
+        if shouldPinUserRow {
+            let dedupedRows = listEntries.filter { $0.userId != userEntry.userId }
+            return LeaderboardPresentationState(
+                podiumEntries: podiumEntries,
+                pinnedUserEntry: userEntry,
+                listEntries: dedupedRows
+            )
+        }
+
+        return LeaderboardPresentationState(
+            podiumEntries: podiumEntries,
+            pinnedUserEntry: nil,
+            listEntries: listEntries
+        )
+    }
+
+    private func shouldPinUserRow(_ entry: LeaderboardEntry) -> Bool {
+        guard entry.rank > 5 else { return false }
+        let trimmedSearch = viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedSearch.isEmpty
     }
 
     // MARK: - Error View
@@ -435,6 +576,12 @@ struct LeaderboardView: View {
 
     private func setupAndLoad() async {
         guard let userId = authVM.user?.uid else { return }
+        if let lockedMetric {
+            viewModel.selectedMetric = lockedMetric
+            if !lockedTimeFrames.contains(viewModel.selectedTimeFrame) {
+                viewModel.selectedTimeFrame = .weekly
+            }
+        }
         viewModel.configure(userId: userId, modelContext: modelContext)
         await loadData()
     }
