@@ -138,8 +138,18 @@ final class LeaderboardService {
             averageStepsPerMinute: Double,
             averageFloorsPerMinute: Double,
             lastUpdated: Date
-        )] = statsToSync.map { stats in
-            (
+        )] = statsToSync.compactMap { stats in
+            // Don't create empty remote leaderboard rows for users with no activity.
+            let hasActivity = stats.totalWorkouts > 0 ||
+                stats.totalSteps > 0 ||
+                stats.totalFloors > 0 ||
+                stats.totalDuration > 0 ||
+                stats.averageStepsPerMinute > 0 ||
+                stats.averageFloorsPerMinute > 0
+
+            guard hasActivity else { return nil }
+
+            return (
                 userId: stats.userId,
                 displayName: displayName,
                 photoURL: photoURL,

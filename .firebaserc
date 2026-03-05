@@ -3,6 +3,6 @@
     "default": "ascend-f2e4f",
     "dev": "ascend-f2e4f",
     "staging": "ascend-staging-fa7d5",
-    "production": "YOUR_PRODUCTION_PROJECT_ID"
+    "production": "ascend-prod-9c8f2"
   }
 }
