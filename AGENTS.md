@@ -58,7 +58,7 @@ Three Firebase environments. App selects at compile time via `#if DEBUG / #elsei
 |---|---|---|---|
 | Dev | `ascend-f2e4f` | Debug | `AscendApp` |
 | Staging | `ascend-staging-fa7d5` | Staging | `AscendApp-Staging` |
-| Production | (not created yet) | Release | (not created yet) |
+| Production | `ascend-prod-9c8f2` | Release | `AscendApp` |
 
 **Environment-agnostic URLs**: Never hardcode Firebase project IDs. Derive from `FirebaseApp.app()?.options.projectID`:
 ```swift
@@ -177,18 +177,32 @@ If using CloudKit sync: never use `@Attribute(.unique)`, properties must have de
 
 ### Branching Strategy
 - `main` — production-ready code
-- `develop` — integration branch, merges trigger staging pipeline
-- `feature/*` — individual work, PR into develop
+- `develop` — integration branch and default base branch for feature/fix work
+- `feature/*`, `fix/*`, `chore/*` — individual work, branch off `develop`, PR into `develop`
+
+### Issue-First Workflow
+- Resolve work to a GitHub issue before implementing code.
+- If the user provides an issue number, use it.
+- If no issue number is provided:
+  - Search open issues for the best match.
+  - If exactly one clear match exists, confirm it with the user.
+  - If no clear match exists, propose creating a new issue and get approval before creating it.
+- Do not start implementation until an issue is confirmed, unless the user explicitly asks to proceed without one.
+- Branch naming should include the issue number:
+  - `feature/issue-<number>-<short-slug>`
+  - `fix/issue-<number>-<short-slug>`
+  - `chore/issue-<number>-<short-slug>`
+- PRs should target `develop` by default and include `Closes #<number>` in the PR body.
 
 ### Workflows
 - `.github/workflows/ci.yml` runs on PRs to `develop` and verifies the iOS app builds with the `AscendApp-Staging` scheme using `CODE_SIGNING_ALLOWED=NO`.
-- `.github/workflows/deploy-staging.yml` runs on pushes to `develop` and executes sequential jobs (stop on failure):
+- `.github/workflows/deploy-staging.yml` runs on manual dispatch only and executes sequential jobs (stop on failure):
   1. Build iOS app (Staging scheme, produce IPA)
   2. Deploy Firebase Functions
   3. Deploy Firestore Rules
   4. Deploy Firebase Hosting
   5. Upload to TestFlight (last — hardest to reverse)
-- `.github/workflows/deploy-production.yml` runs on pushes to `main` and manual dispatch. It mirrors the staging pipeline with Release configuration, but remains gated until production is provisioned (`PRODUCTION_READY=true` and GitHub `production` environment protection).
+- `.github/workflows/deploy-production.yml` runs on pushes to `main` and manual dispatch. It mirrors the staging pipeline with Release configuration and remains gated behind `PRODUCTION_READY=true` plus GitHub `production` environment protection.
 
 ### Deploy Authentication (OIDC)
 - GitHub Actions deploys to Firebase must use OIDC + GCP Workload Identity Federation.
@@ -196,7 +210,7 @@ If using CloudKit sync: never use `@Attribute(.unique)`, properties must have de
 - Required staging secrets:
   - `GCP_WORKLOAD_IDENTITY_PROVIDER`
   - `GCP_SERVICE_ACCOUNT_EMAIL`
-- Required production secrets (when production is ready):
+- Required production secrets:
   - `GCP_WORKLOAD_IDENTITY_PROVIDER_PRODUCTION`
   - `GCP_SERVICE_ACCOUNT_EMAIL_PRODUCTION`
 - Deprecated for deploy auth:
