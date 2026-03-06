@@ -72,6 +72,13 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
 ### Import UX
 - Workout import supports individual import, selected-batch import, and import-all from the same sheet.
 
+### Onboarding V2 (Issue #63)
+- Root routing uses onboarding completion before normal auth/home flow.
+- Onboarding sequence is: welcome, HealthKit permission, measurement system, fitness level, personal details (DOB + gender), body metrics (height + bodyweight), location permission, notifications permission, then mandatory auth.
+- Auth is the final onboarding step with Apple/Google only (no "sign in later").
+- Onboarding draft/progress persists locally across app restarts; uninstall/reinstall resets via app data removal.
+- Bodyweight is a single profile-level value (set in onboarding, editable in settings) and is intended to be the app-wide source for body mass usage.
+
 ### Week Start + Leaderboard Windowing
 - User preference `weekStartDay` is stored in `SettingsManager` (`Sunday` or `Monday`) and surfaced in account settings.
 - Goals and home summaries should respect this preference (or a goal's locked week settings when applicable).

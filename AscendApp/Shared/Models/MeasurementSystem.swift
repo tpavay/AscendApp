@@ -7,7 +7,7 @@
 
 import Foundation
 
-enum MeasurementSystem: String, CaseIterable, Identifiable {
+enum MeasurementSystem: String, CaseIterable, Codable, Identifiable {
     case imperial = "imperial"
     case metric = "metric"
     

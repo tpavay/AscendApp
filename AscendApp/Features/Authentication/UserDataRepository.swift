@@ -164,4 +164,95 @@ final class UserDataRepository: Sendable {
         
         cacheDisplayName(displayName)
     }
+
+    func upsertOnboardingProfile(userId: String, draft: OnboardingDraft) async throws {
+        let userRef = db.collection("users").document(userId)
+
+        let profileData: [String: Any] = [
+            "measurementSystem": draft.measurementSystem.rawValue,
+            "fitnessLevel": draft.fitnessLevel.rawValue,
+            "dateOfBirth": Timestamp(date: draft.dateOfBirth),
+            "gender": draft.gender.rawValue,
+            "heightCm": draft.heightCm,
+            "bodyWeightKg": draft.bodyWeightKg,
+            "healthKitOptIn": draft.healthKitOptIn,
+            "notificationOptIn": draft.notificationOptIn,
+            "location": [
+                "country": draft.locationSummary.country,
+                "region": draft.locationSummary.region,
+                "city": draft.locationSummary.city
+            ]
+        ]
+
+        let onboardingData: [String: Any] = [
+            "version": 2,
+            "completedAt": FieldValue.serverTimestamp()
+        ]
+
+        try await userRef.setData([
+            "profile": profileData,
+            "onboarding": onboardingData,
+            "lastUpdated": FieldValue.serverTimestamp()
+        ], merge: true)
+    }
+
+    func fetchOnboardingDraft(userId: String) async throws -> OnboardingDraft? {
+        let snapshot = try await db.collection("users").document(userId).getDocument()
+        guard let data = snapshot.data(),
+              let profile = data["profile"] as? [String: Any] else {
+            return nil
+        }
+
+        var draft = OnboardingDraft.default
+
+        if let rawMeasurementSystem = profile["measurementSystem"] as? String,
+           let measurementSystem = MeasurementSystem(rawValue: rawMeasurementSystem) {
+            draft.measurementSystem = measurementSystem
+        }
+
+        if let rawFitnessLevel = profile["fitnessLevel"] as? String,
+           let fitnessLevel = FitnessLevel(rawValue: rawFitnessLevel) {
+            draft.fitnessLevel = fitnessLevel
+        }
+
+        if let timestamp = profile["dateOfBirth"] as? Timestamp {
+            draft.dateOfBirth = timestamp.dateValue()
+        }
+
+        if let rawGender = profile["gender"] as? String,
+           let gender = UserProfileGender(rawValue: rawGender) {
+            draft.gender = gender
+        }
+
+        if let heightCm = profile["heightCm"] as? Double {
+            draft.heightCm = heightCm
+        } else if let heightCm = profile["heightCm"] as? NSNumber {
+            draft.heightCm = heightCm.doubleValue
+        }
+
+        if let bodyWeightKg = profile["bodyWeightKg"] as? Double {
+            draft.bodyWeightKg = bodyWeightKg
+        } else if let bodyWeightKg = profile["bodyWeightKg"] as? NSNumber {
+            draft.bodyWeightKg = bodyWeightKg.doubleValue
+        }
+
+        if let healthKitOptIn = profile["healthKitOptIn"] as? Bool {
+            draft.healthKitOptIn = healthKitOptIn
+        }
+
+        if let notificationOptIn = profile["notificationOptIn"] as? Bool {
+            draft.notificationOptIn = notificationOptIn
+        }
+
+        if let location = profile["location"] as? [String: Any] {
+            draft.locationSummary = UserLocationSummary(
+                country: location["country"] as? String ?? "",
+                region: location["region"] as? String ?? "",
+                city: location["city"] as? String ?? ""
+            )
+        }
+
+        draft.currentStep = .auth
+        return draft
+    }
 }

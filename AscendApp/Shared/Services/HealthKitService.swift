@@ -12,43 +12,54 @@ import HealthKit
 @Observable
 class HealthKitService {
     static let shared = HealthKitService()
-    
+
+    private let authorizationRequestedKey = "healthKitAuthorizationRequested"
     private let healthStore = HKHealthStore()
-    
-    var authorizationStatus: HKAuthorizationStatus = .notDetermined
-    var isHealthDataAvailable = false
-    
-    private init() {
-        self.isHealthDataAvailable = HKHealthStore.isHealthDataAvailable()
-        checkAuthorizationStatus()
+
+    private var readTypes: Set<HKObjectType> {
+        var types: Set<HKObjectType> = [HKObjectType.workoutType()]
+
+        if let stepCount = HKObjectType.quantityType(forIdentifier: .stepCount) {
+            types.insert(stepCount)
+        }
+        if let heartRate = HKObjectType.quantityType(forIdentifier: .heartRate) {
+            types.insert(heartRate)
+        }
+        if let activeEnergy = HKObjectType.quantityType(forIdentifier: .activeEnergyBurned) {
+            types.insert(activeEnergy)
+        }
+        if let restingEnergy = HKObjectType.quantityType(forIdentifier: .basalEnergyBurned) {
+            types.insert(restingEnergy)
+        }
+
+        return types
     }
-    
+
+    var authorizationStatus: HKAuthorizationStatus = .notDetermined
+    var authorizationRequestStatus: HKAuthorizationRequestStatus = .unknown
+    var hasRequestedAuthorization = false
+    var isHealthDataAvailable = false
+    var lastPermissionErrorMessage: String?
+
+    private init() {
+        isHealthDataAvailable = HKHealthStore.isHealthDataAvailable()
+        hasRequestedAuthorization = UserDefaults.standard.bool(forKey: authorizationRequestedKey)
+        checkAuthorizationStatus()
+
+        Task {
+            await refreshAuthorizationRequestStatus()
+        }
+    }
+
     // MARK: - Authorization
-    
+
     private func checkAuthorizationStatus() {
         guard isHealthDataAvailable else { return }
-        
+
         let workoutType = HKObjectType.workoutType()
         authorizationStatus = healthStore.authorizationStatus(for: workoutType)
     }
-    
-    func hasPermissionToReadWorkouts() -> Bool {
-        guard isHealthDataAvailable else { 
-            print("❌ HealthKit data not available")
-            return false 
-        }
-        let workoutType = HKObjectType.workoutType()
-        let status = healthStore.authorizationStatus(for: workoutType)
-        print("🏥 HealthKit authorization status: \(status.rawValue)")
-        print("🏥 Status description: \(statusDescription(status))")
-        
-        // HealthKit returns .notDetermined even when user has granted access for privacy reasons
-        // We should consider both .sharingAuthorized and .notDetermined as potentially having access
-        let hasPermission = status == .sharingAuthorized || status == .notDetermined
-        print("🏥 Has permission result: \(hasPermission)")
-        return hasPermission
-    }
-    
+
     private func statusDescription(_ status: HKAuthorizationStatus) -> String {
         switch status {
         case .notDetermined:
@@ -61,80 +72,134 @@ class HealthKitService {
             return "unknown"
         }
     }
-    
+
+    private func requestStatusDescription(_ status: HKAuthorizationRequestStatus) -> String {
+        switch status {
+        case .unknown:
+            return "unknown"
+        case .shouldRequest:
+            return "shouldRequest"
+        case .unnecessary:
+            return "unnecessary"
+        @unknown default:
+            return "unknown"
+        }
+    }
+
+    func refreshAuthorizationRequestStatus() async {
+        guard isHealthDataAvailable else {
+            authorizationRequestStatus = .unknown
+            return
+        }
+
+        let status = await withCheckedContinuation { continuation in
+            healthStore.getRequestStatusForAuthorization(
+                toShare: [],
+                read: readTypes
+            ) { requestStatus, _ in
+                continuation.resume(returning: requestStatus)
+            }
+        }
+
+        authorizationRequestStatus = status
+    }
+
+    func hasPermissionToReadWorkouts() -> Bool {
+        guard isHealthDataAvailable else {
+            print("❌ HealthKit data not available")
+            return false
+        }
+
+        // Apple doesn't expose a reliable read-permission status for workout/quantity reads.
+        // We treat "authorization has been requested at least once" as the best available signal.
+        return hasRequestedAuthorization
+    }
+
     func requestPermission() async -> Bool {
-        guard isHealthDataAvailable else { return false }
-        
-        let sampleTypesToRead: Set<HKSampleType> = [
-            HKObjectType.workoutType(),
-            HKObjectType.quantityType(forIdentifier: .stepCount)!,
-            HKObjectType.quantityType(forIdentifier: .heartRate)!,
-            HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)!,
-            HKObjectType.quantityType(forIdentifier: .basalEnergyBurned)!
-        ]
-        
+        guard isHealthDataAvailable else {
+            lastPermissionErrorMessage = "Apple Health is not available on this device."
+            return false
+        }
+
         do {
             print("🏥 Requesting HealthKit permission...")
-            try await healthStore.requestAuthorization(toShare: [], read: sampleTypesToRead)
+            try await healthStore.requestAuthorization(toShare: [], read: readTypes)
+
+            UserDefaults.standard.set(true, forKey: authorizationRequestedKey)
+            hasRequestedAuthorization = true
+            lastPermissionErrorMessage = nil
             checkAuthorizationStatus()
-            
+            await refreshAuthorizationRequestStatus()
+
             let newStatus = healthStore.authorizationStatus(for: HKObjectType.workoutType())
             print("🏥 New authorization status after request: \(statusDescription(newStatus))")
-            
-            return hasPermissionToReadWorkouts()
+            print("🏥 Authorization request status: \(requestStatusDescription(authorizationRequestStatus))")
+
+            // If requestAuthorization succeeds, HealthKit accepted the request flow.
+            // Read-level grants are determined by Health app settings and query results.
+            return true
         } catch {
-            print("❌ HealthKit permission request error: \(error)")
+            let message = error.localizedDescription
+            lastPermissionErrorMessage = message
+            print("❌ HealthKit permission request error: \(message)")
             return false
         }
     }
-    
+
     // MARK: - Data Fetching
-    
+
+    private func stairWorkoutPredicate() -> NSPredicate {
+        NSCompoundPredicate(orPredicateWithSubpredicates: [
+            HKQuery.predicateForWorkouts(with: .stairClimbing),
+            HKQuery.predicateForWorkouts(with: .stepTraining)
+        ])
+    }
+
     func fetchStairStepperWorkouts(from startDate: Date? = nil) async -> [HKWorkout] {
         guard isHealthDataAvailable else { return [] }
-        
+
         let workoutType = HKObjectType.workoutType()
-        let stairClimbingPredicate = HKQuery.predicateForWorkouts(with: .stairClimbing)
-        
-        var predicates: [NSPredicate] = [stairClimbingPredicate]
-        
+        var predicates: [NSPredicate] = [stairWorkoutPredicate()]
+
         if let startDate = startDate {
             let datePredicate = HKQuery.predicateForSamples(withStart: startDate, end: nil, options: .strictStartDate)
             predicates.append(datePredicate)
         }
-        
+
         let compoundPredicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
         let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
-        
+
         return await withCheckedContinuation { continuation in
             let query = HKSampleQuery(
                 sampleType: workoutType,
                 predicate: compoundPredicate,
                 limit: 1000,
                 sortDescriptors: [sortDescriptor]
-            ) { _, samples, _ in
+            ) { _, samples, error in
+                if let error {
+                    print("❌ HealthKit workout query failed: \(error.localizedDescription)")
+                }
                 let workouts = samples as? [HKWorkout] ?? []
                 continuation.resume(returning: workouts)
             }
-            
+
             healthStore.execute(query)
         }
     }
 
-    /// Fetches stair climbing workouts that overlap with a given time range
+    /// Fetches stair-related workouts that overlap with a given time range
     /// Used for linking Apple Health data to Hevy workouts
     func fetchWorkoutsInTimeRange(start: Date, end: Date, toleranceMinutes: Int = 15) async -> [HKWorkout] {
         guard isHealthDataAvailable else { return [] }
 
         let workoutType = HKObjectType.workoutType()
-        let stairClimbingPredicate = HKQuery.predicateForWorkouts(with: .stairClimbing)
 
         // Expand the search range by tolerance
         let expandedStart = Calendar.current.date(byAdding: .minute, value: -toleranceMinutes, to: start)!
         let expandedEnd = Calendar.current.date(byAdding: .minute, value: toleranceMinutes, to: end)!
 
         let datePredicate = HKQuery.predicateForSamples(withStart: expandedStart, end: expandedEnd, options: .strictStartDate)
-        let compoundPredicate = NSCompoundPredicate(andPredicateWithSubpredicates: [stairClimbingPredicate, datePredicate])
+        let compoundPredicate = NSCompoundPredicate(andPredicateWithSubpredicates: [stairWorkoutPredicate(), datePredicate])
 
         let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
 
@@ -144,7 +209,10 @@ class HealthKitService {
                 predicate: compoundPredicate,
                 limit: 100,
                 sortDescriptors: [sortDescriptor]
-            ) { _, samples, _ in
+            ) { _, samples, error in
+                if let error {
+                    print("❌ HealthKit time-range query failed: \(error.localizedDescription)")
+                }
                 let workouts = samples as? [HKWorkout] ?? []
                 continuation.resume(returning: workouts)
             }
