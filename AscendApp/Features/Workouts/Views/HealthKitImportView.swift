@@ -82,7 +82,7 @@ struct HealthKitImportView: View {
                                 await requestPermission()
                             }
                         case .permissionDenied:
-                            PermissionDeniedView()
+                            PermissionDeniedView(message: errorMessage)
                         case .fetchingWorkouts:
                             FetchingWorkoutsView()
                         case .workoutsFound:
@@ -126,7 +126,8 @@ struct HealthKitImportView: View {
         if hasPermission {
             await fetchWorkouts()
         } else {
-            importState = .needsPermission
+            errorMessage = healthKitService.lastPermissionErrorMessage ?? "Health authorization request failed."
+            importState = .permissionDenied
         }
     }
     
@@ -136,6 +137,7 @@ struct HealthKitImportView: View {
         if granted {
             await fetchWorkouts()
         } else {
+            errorMessage = healthKitService.lastPermissionErrorMessage ?? "Health authorization request failed."
             importState = .permissionDenied
         }
     }
@@ -147,7 +149,7 @@ struct HealthKitImportView: View {
         foundWorkouts = workouts
         
         if workouts.isEmpty {
-            errorMessage = "No stair stepper workouts found in Apple Health"
+            errorMessage = "No stair workouts were returned from Apple Health. Make sure you have Stair Stepper or Stair Climbing workouts and that Ascend has Health access."
             importState = .error
         } else {
             importState = .workoutsFound
@@ -319,6 +321,7 @@ struct PermissionItem: View {
 }
 
 struct PermissionDeniedView: View {
+    let message: String?
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
     
@@ -336,6 +339,14 @@ struct PermissionDeniedView: View {
                 Text("Settings Required")
                     .font(.montserratBold(size: 24))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+                if let message, !message.isEmpty {
+                    Text(message)
+                        .font(.montserratRegular(size: 14))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 8)
+                }
                 
                 VStack(spacing: 16) {
                     Text("Since the HealthKit permission dialog didn't appear, please manually enable permissions in Settings:")
