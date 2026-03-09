@@ -35,6 +35,8 @@ service cloud.firestore {
           "lastName",
           "displayName",
           "profilePictureURL",
+          "profile",
+          "onboarding",
           "createdAt",
           "lastUpdated"
         ]) &&
@@ -57,6 +59,10 @@ service cloud.firestore {
         (!request.resource.data.keys().hasAny(["profilePictureURL"]) ||
           (request.resource.data.profilePictureURL is string &&
             request.resource.data.profilePictureURL.size() <= 2048)) &&
+        (!request.resource.data.keys().hasAny(["profile"]) ||
+          request.resource.data.profile is map) &&
+        (!request.resource.data.keys().hasAny(["onboarding"]) ||
+          request.resource.data.onboarding is map) &&
         request.resource.data.createdAt is timestamp &&
         request.resource.data.lastUpdated is timestamp;
     }

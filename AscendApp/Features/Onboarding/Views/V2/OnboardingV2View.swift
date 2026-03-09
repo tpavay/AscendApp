@@ -331,7 +331,7 @@ struct OnboardingV2View: View {
 
     private func completeOnboardingIfPossible() async {
         guard !isSaving else { return }
-        guard let userId = authVM.user?.uid else {
+        guard let user = authVM.user else {
             saveErrorMessage = "Please sign in to continue."
             return
         }
@@ -342,7 +342,18 @@ struct OnboardingV2View: View {
             settingsManager.setMeasurementSystem(onboardingState.draft.measurementSystem)
             settingsManager.setFitnessLevel(onboardingState.draft.fitnessLevel)
 
-            try await UserDataRepository.shared.upsertOnboardingProfile(userId: userId, draft: onboardingState.draft)
+            // Ensure the base user document exists before writing the onboarding
+            // profile. The auth state listener saves it in a fire-and-forget Task,
+            // so it may not have completed yet.
+            try await UserDataRepository.shared.saveUserToFirestore(
+                userId: user.uid,
+                email: user.email,
+                firstName: nil,
+                lastName: nil,
+                displayName: user.displayName
+            )
+
+            try await UserDataRepository.shared.upsertOnboardingProfile(userId: user.uid, draft: onboardingState.draft)
             onboardingState.markCompleted()
             saveErrorMessage = nil
         } catch {

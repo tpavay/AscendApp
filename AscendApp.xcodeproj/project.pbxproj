@@ -167,6 +167,7 @@
 /* Begin PBXShellScriptBuildPhase section */
 		9A8C9A362EEF27F000C94089 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
@@ -187,7 +188,6 @@
 			);
 			outputPaths = (
 			);
-			alwaysOutOfDate = 1;
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "# Ensure local Firebase config plists are linked into this worktree.\n\"${SRCROOT}/scripts/link-firebase-plists.sh\"\n\n# Determine which GoogleService-Info plist to use\ncase \"${CONFIGURATION}\" in\n    \"Debug\")\n        GOOGLE_SERVICE_PLIST=\"${SRCROOT}/AscendApp/App/Firebase/GoogleService-Info-Dev.plist\"\n        ;;\n    \"Staging\")\n        GOOGLE_SERVICE_PLIST=\"${SRCROOT}/AscendApp/App/Firebase/GoogleService-Info-Staging.plist\"\n        ;;\n    \"Release\")\n        GOOGLE_SERVICE_PLIST=\"${SRCROOT}/AscendApp/App/Firebase/GoogleService-Info-Production.plist\"\n        ;;\nesac\n\n# Run Crashlytics with the correct plist\n\"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\" -gsp \"${GOOGLE_SERVICE_PLIST}\"\n";
