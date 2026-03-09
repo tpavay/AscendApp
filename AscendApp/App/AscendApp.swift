@@ -6,6 +6,7 @@
 //
 
 import FirebaseCore
+import GoogleSignIn
 import SwiftUI
 import SwiftData
 
@@ -51,6 +52,11 @@ struct AscendApp: App {
     }
 
     private func handleDeepLink(url: URL) {
+        // Let Google Sign-In handle its redirect URL
+        if GIDSignIn.sharedInstance.handle(url) {
+            return
+        }
+
         // Handle Strava OAuth callback
         if url.scheme == "ascendapp" && url.host == "strava-callback" {
             Task { @MainActor in
