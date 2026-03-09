@@ -104,15 +104,15 @@ final class AccountDeletionService {
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 2: Delete workout photos/videos from Firebase Storage
+        // Step 2: Delete all user media from Firebase Storage (storage-level sweep)
         updateProgress("Deleting workout media...")
-        try await deleteWorkoutMedia(modelContext: modelContext)
+        try await deleteAllUserMedia(userId: userId)
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 3: Delete profile picture from Firebase Storage
-        updateProgress("Deleting profile picture...")
-        try await deleteProfilePicture(userId: userId)
+        // Step 3: Delete any legacy flat-path files referenced by local records
+        updateProgress("Cleaning up legacy media...")
+        try await deleteLegacyFlatPathMedia(modelContext: modelContext)
         completedSteps += 1
         try Task.checkCancellation()
 
@@ -207,27 +207,55 @@ final class AccountDeletionService {
         }
     }
 
-    /// Deletes all workout photos and videos from Firebase Storage
-    private func deleteWorkoutMedia(modelContext: ModelContext) async throws {
+    /// Sweeps all user-scoped Storage prefixes and deletes every file.
+    /// This is independent of SwiftData — it catches orphaned files too.
+    private nonisolated func deleteAllUserMedia(userId: String) async throws {
+        let userRoot = Storage.storage().reference()
+            .child("users")
+            .child(userId)
+
+        let prefixes = [
+            userRoot.child("photos"),
+            userRoot.child("videos"),
+            userRoot.child("profile_pictures"),
+        ]
+
+        for prefix in prefixes {
+            do {
+                try await deleteAllFiles(under: prefix)
+            } catch {
+                throw DeletionError.storageDeletionFailed(error.localizedDescription)
+            }
+        }
+    }
+
+    /// Deletes legacy flat-path files that predate the user-scoped migration.
+    /// Falls back to SwiftData records because the old paths (e.g. `photos/uuid.jpg`)
+    /// have no user ID — we can only identify them through the stored download URLs.
+    private func deleteLegacyFlatPathMedia(modelContext: ModelContext) async throws {
         let descriptor = FetchDescriptor<Workout>()
 
         do {
             let workouts = try modelContext.fetch(descriptor)
-            let photoService = PhotoService()
-            let photosToDelete = workouts.flatMap(\.photos)
+            let allPhotos = workouts.flatMap(\.photos)
 
-            guard !photosToDelete.isEmpty else {
-                return
-            }
+            guard !allPhotos.isEmpty else { return }
 
-            try Task.checkCancellation()
-
-            do {
-                try await photoService.deletePhotos(photosToDelete)
-            } catch let error as PhotoDeletionError {
-                throw DeletionError.storageDeletionFailed(error.localizedDescription)
-            } catch {
-                throw DeletionError.storageDeletionFailed(error.localizedDescription)
+            let storage = Storage.storage()
+            for photo in allPhotos {
+                try Task.checkCancellation()
+                do {
+                    let ref = try storage.reference(for: photo.url)
+                    try await ref.delete()
+                } catch let error as NSError
+                    where error.domain == StorageErrorDomain &&
+                          error.code == StorageErrorCode.objectNotFound.rawValue {
+                    // Already deleted (possibly by the user-scoped sweep) — continue
+                    continue
+                } catch {
+                    // Best-effort: log but don't block deletion for legacy files
+                    continue
+                }
             }
         } catch let error as DeletionError {
             throw error
@@ -236,31 +264,30 @@ final class AccountDeletionService {
         }
     }
 
-    /// Deletes the user's profile picture from Firebase Storage
-    private nonisolated func deleteProfilePicture(userId: String) async throws {
-        let profilePicRef = Storage.storage().reference()
-            .child("users")
-            .child(userId)
-            .child("profile_pictures")
-
+    /// Recursively lists and deletes all files under a Storage reference.
+    private nonisolated func deleteAllFiles(under ref: StorageReference) async throws {
+        let result: StorageListResult
         do {
-            let result = try await profilePicRef.listAll()
-
-            for item in result.items {
-                do {
-                    try await item.delete()
-                } catch let error as NSError
-                    where error.domain == StorageErrorDomain &&
-                          error.code == StorageErrorCode.objectNotFound.rawValue {
-                    continue
-                }
-            }
+            result = try await ref.listAll()
         } catch let error as NSError
             where error.domain == StorageErrorDomain &&
                   error.code == StorageErrorCode.objectNotFound.rawValue {
+            // Prefix doesn't exist — nothing to delete
             return
-        } catch {
-            throw DeletionError.storageDeletionFailed(error.localizedDescription)
+        }
+
+        for item in result.items {
+            do {
+                try await item.delete()
+            } catch let error as NSError
+                where error.domain == StorageErrorDomain &&
+                      error.code == StorageErrorCode.objectNotFound.rawValue {
+                continue
+            }
+        }
+
+        for prefix in result.prefixes {
+            try await deleteAllFiles(under: prefix)
         }
     }
 
