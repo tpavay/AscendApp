@@ -285,11 +285,6 @@ struct EditProfileView: View {
                 destination: MeasurementSystemSelectionView()
             ),
             SettingsOption(
-                icon: .settingsEditProfile,
-                title: "Body & Profile Data",
-                destination: OnboardingProfileSettingsView()
-            ),
-            SettingsOption(
                 icon: .settingsWeekStart,
                 title: "Week Starts On",
                 destination: WeekStartSelectionView()

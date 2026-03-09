@@ -11,27 +11,21 @@ struct RootView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.modelContext) private var modelContext
     @Environment(MediaUploadManager.self) private var uploadManager
-    @State private var onboardingState = OnboardingStateManager.shared
 
     var body: some View {
         Group {
-            if onboardingState.isCompleted {
-                switch authVM.authenticationState {
-                case .authenticated, .restoringSession:
-                    MainTabView()
-                case .authenticatingWithApple,
-                     .authenticatingWithGoogle:
-                    ProgressView("Signing In...")
-                        .themedBackground()
-                case .unauthenticated:
-                    LandingScreen()
-                }
-            } else {
-                OnboardingV2View()
+            switch authVM.authenticationState {
+            case .authenticated, .restoringSession:
+                MainTabView()
+            case .authenticatingWithApple,
+                 .authenticatingWithGoogle:
+                ProgressView("Signing In...")
+                    .themedBackground()
+            case .unauthenticated:
+                LandingScreen()
             }
         }
         .animation(.easeInOut(duration: 0.25), value: authVM.authenticationState)
-        .animation(.easeInOut(duration: 0.25), value: onboardingState.isCompleted)
         .themeAware()
         .task {
             // Resume any pending uploads from previous session
