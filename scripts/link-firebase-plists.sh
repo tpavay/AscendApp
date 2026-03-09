@@ -10,6 +10,21 @@ PROJECT_ROOT="${SRCROOT:-$(pwd)}"
 TARGET_DIR="${PROJECT_ROOT}/AscendApp/App/Firebase"
 mkdir -p "$TARGET_DIR"
 
+# On CI the decode step places real plist files directly into TARGET_DIR.
+# If the required plist for the current configuration already exists there,
+# skip the source-directory search entirely so CI archives succeed.
+required_plist=""
+case "${CONFIGURATION:-}" in
+  Debug)   required_plist="GoogleService-Info-Dev.plist" ;;
+  Staging) required_plist="GoogleService-Info-Staging.plist" ;;
+  Release) required_plist="GoogleService-Info-Production.plist" ;;
+esac
+
+if [ -n "$required_plist" ] && [ -f "$TARGET_DIR/$required_plist" ]; then
+  echo "Firebase plist already present at $TARGET_DIR/$required_plist — skipping link."
+  exit 0
+fi
+
 find_first_existing_source_dir() {
   if [ -n "$PLIST_SOURCE_DIR" ] && [ -d "$PLIST_SOURCE_DIR" ]; then
     echo "$PLIST_SOURCE_DIR"
