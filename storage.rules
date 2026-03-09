@@ -1,0 +1,63 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function validFileName(fileName) {
+      return fileName.size() > 0 && fileName.size() <= 200;
+    }
+
+    function isImageUpload(maxBytes) {
+      return request.resource != null &&
+        request.resource.size > 0 &&
+        request.resource.size <= maxBytes &&
+        request.resource.contentType.matches("image/.*");
+    }
+
+    function isVideoUpload(maxBytes) {
+      return request.resource != null &&
+        request.resource.size > 0 &&
+        request.resource.size <= maxBytes &&
+        request.resource.contentType.matches("video/.*");
+    }
+
+    // User workout photos.
+    match /users/{userId}/photos/{fileName} {
+      allow read: if isOwner(userId) && validFileName(fileName);
+      allow create, update: if isOwner(userId) &&
+        validFileName(fileName) &&
+        isImageUpload(15 * 1024 * 1024);
+      allow delete: if isOwner(userId) && validFileName(fileName);
+    }
+
+    // User workout videos.
+    match /users/{userId}/videos/{fileName} {
+      allow read: if isOwner(userId) && validFileName(fileName);
+      allow create, update: if isOwner(userId) &&
+        validFileName(fileName) &&
+        isVideoUpload(200 * 1024 * 1024);
+      allow delete: if isOwner(userId) && validFileName(fileName);
+    }
+
+    // User profile pictures.
+    match /users/{userId}/profile_pictures/{fileName} {
+      allow read: if isOwner(userId) && validFileName(fileName);
+      allow create, update: if isOwner(userId) &&
+        validFileName(fileName) &&
+        isImageUpload(10 * 1024 * 1024);
+      allow delete: if isOwner(userId) && validFileName(fileName);
+    }
+
+    // Remote share-card template assets are read-only from the app.
+    match /share-card-templates/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+  }
+}

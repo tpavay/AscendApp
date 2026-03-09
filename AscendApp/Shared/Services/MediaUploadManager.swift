@@ -8,6 +8,7 @@
 import Foundation
 import SwiftData
 import PhotosUI
+import FirebaseAuth
 
 /// Status of media uploads for a workout
 enum MediaUploadStatus: Equatable {
@@ -19,11 +20,14 @@ enum MediaUploadStatus: Equatable {
 /// Errors that can occur during media upload
 enum UploadError: LocalizedError {
     case timeout
+    case notAuthenticated
 
     var errorDescription: String? {
         switch self {
         case .timeout:
             return "Upload timed out"
+        case .notAuthenticated:
+            return "You must be signed in to upload media."
         }
     }
 }
@@ -286,10 +290,16 @@ final class MediaUploadManager {
                 let data = try await LocalMediaStorage.readData(filename: upload.localFileName)
 
                 // Determine Firebase path
+                guard let userId = Auth.auth().currentUser?.uid else {
+                    throw UploadError.notAuthenticated
+                }
+
                 let fileExtension = upload.isVideo ?
                     (URL(fileURLWithPath: upload.localFileName).pathExtension.isEmpty ? "mov" : URL(fileURLWithPath: upload.localFileName).pathExtension) :
                     "jpg"
-                let path = upload.isVideo ? "videos/\(UUID().uuidString).\(fileExtension)" : "photos/\(UUID().uuidString).jpg"
+                let path = upload.isVideo ?
+                    "users/\(userId)/videos/\(UUID().uuidString).\(fileExtension)" :
+                    "users/\(userId)/photos/\(UUID().uuidString).jpg"
 
                 // Upload to Firebase with timeout
                 let remoteURL = try await withThrowingTaskGroup(of: URL.self) { group in
