@@ -1,50 +1,243 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Users collection - users can only read/write their own document
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+    function isSignedIn() {
+      return request.auth != null;
     }
 
-    // Leaderboard stats - authenticated users can read all, mutate only their own
-    match /leaderboard_stats/{docId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null
-        && request.resource.data.userId == request.auth.uid;
-      allow update: if request.auth != null
-        && resource.data.userId == request.auth.uid
-        && request.resource.data.userId == request.auth.uid;
-      allow delete: if request.auth != null
-        && resource.data.userId == request.auth.uid;
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
     }
 
-    // Feedback collection - authenticated users can create, with rate limiting
-    match /feedback/{feedbackId} {
-      // Only authenticated users can create feedback
-      // userId in document must match authenticated user
-      allow create: if request.auth != null
-        && request.resource.data.userId == request.auth.uid
-        && (
-          // Allow if no rate limit doc exists
-          !exists(/databases/$(database)/documents/userRateLimits/$(request.auth.uid))
-          // Or if enough time has passed since last feedback
-          || request.time > get(/databases/$(database)/documents/userRateLimits/$(request.auth.uid)).data.lastFeedback + duration.value(60, 's')
+    function isNonNegativeNumber(value) {
+      return (value is int || value is float) && value >= 0;
+    }
+
+    function isValidTimeFrame(timeFrame) {
+      return timeFrame in ["weekly", "monthly", "yearly", "all_time"];
+    }
+
+    function isValidPeriodIdentifier(timeFrame, periodIdentifier) {
+      return
+        (timeFrame == "weekly" &&
+          periodIdentifier.matches("^\\d{4}-W(0[1-9]|[1-4][0-9]|5[0-3])$")) ||
+        (timeFrame == "monthly" &&
+          periodIdentifier.matches("^\\d{4}-M(0[1-9]|1[0-2])$")) ||
+        (timeFrame == "yearly" &&
+          periodIdentifier.matches("^\\d{4}$")) ||
+        (timeFrame == "all_time" && periodIdentifier == "all");
+    }
+
+    function isValidUserDocument() {
+      return request.resource.data.keys().hasOnly([
+          "email",
+          "firstName",
+          "lastName",
+          "displayName",
+          "profilePictureURL",
+          "createdAt",
+          "lastUpdated"
+        ]) &&
+        request.resource.data.keys().hasAll([
+          "email",
+          "firstName",
+          "lastName",
+          "displayName",
+          "createdAt",
+          "lastUpdated"
+        ]) &&
+        request.resource.data.email is string &&
+        request.resource.data.email.size() <= 320 &&
+        request.resource.data.firstName is string &&
+        request.resource.data.firstName.size() <= 80 &&
+        request.resource.data.lastName is string &&
+        request.resource.data.lastName.size() <= 80 &&
+        request.resource.data.displayName is string &&
+        request.resource.data.displayName.size() <= 80 &&
+        (!request.resource.data.keys().hasAny(["profilePictureURL"]) ||
+          (request.resource.data.profilePictureURL is string &&
+            request.resource.data.profilePictureURL.size() <= 2048)) &&
+        request.resource.data.createdAt is timestamp &&
+        request.resource.data.lastUpdated is timestamp;
+    }
+
+    function isValidLeaderboardDocument(docId) {
+      return request.resource.data.keys().hasOnly([
+          "userId",
+          "displayName",
+          "photoURL",
+          "timeFrame",
+          "periodIdentifier",
+          "totalSteps",
+          "totalFloors",
+          "totalWorkouts",
+          "totalDuration",
+          "averageStepsPerMinute",
+          "averageFloorsPerMinute",
+          "lastUpdated"
+        ]) &&
+        request.resource.data.keys().hasAll([
+          "userId",
+          "displayName",
+          "photoURL",
+          "timeFrame",
+          "periodIdentifier",
+          "totalSteps",
+          "totalFloors",
+          "totalWorkouts",
+          "totalDuration",
+          "averageStepsPerMinute",
+          "averageFloorsPerMinute",
+          "lastUpdated"
+        ]) &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.displayName is string &&
+        request.resource.data.displayName.size() <= 80 &&
+        request.resource.data.photoURL is string &&
+        request.resource.data.photoURL.size() <= 2048 &&
+        request.resource.data.timeFrame is string &&
+        isValidTimeFrame(request.resource.data.timeFrame) &&
+        request.resource.data.periodIdentifier is string &&
+        isValidPeriodIdentifier(
+          request.resource.data.timeFrame,
+          request.resource.data.periodIdentifier
+        ) &&
+        docId ==
+          request.auth.uid + "_" +
+          request.resource.data.timeFrame + "_" +
+          request.resource.data.periodIdentifier &&
+        request.resource.data.totalSteps is int &&
+        request.resource.data.totalSteps >= 0 &&
+        request.resource.data.totalFloors is int &&
+        request.resource.data.totalFloors >= 0 &&
+        request.resource.data.totalWorkouts is int &&
+        request.resource.data.totalWorkouts >= 0 &&
+        isNonNegativeNumber(request.resource.data.totalDuration) &&
+        isNonNegativeNumber(request.resource.data.averageStepsPerMinute) &&
+        isNonNegativeNumber(request.resource.data.averageFloorsPerMinute) &&
+        request.resource.data.lastUpdated is timestamp;
+    }
+
+    function isValidFeedbackType(type) {
+      return type in ["feature_request", "bug_report", "get_help"];
+    }
+
+    function userRateLimitDocPath() {
+      return /databases/$(database)/documents/userRateLimits/$(request.auth.uid);
+    }
+
+    function feedbackCooldownPassed() {
+      return !exists(userRateLimitDocPath()) ||
+        (
+          get(userRateLimitDocPath()).data.lastFeedback is timestamp &&
+          request.time >
+            get(userRateLimitDocPath()).data.lastFeedback +
+              duration.value(60, "s")
         );
+    }
 
-      // Only admins can read/update/delete feedback (use Admin SDK server-side)
+    function isValidFeedbackDocument() {
+      return request.resource.data.keys().hasOnly([
+          "type",
+          "message",
+          "userId",
+          "userEmail",
+          "timestamp",
+          "appVersion",
+          "buildNumber",
+          "deviceModel",
+          "osVersion",
+          "status"
+        ]) &&
+        request.resource.data.keys().hasAll([
+          "type",
+          "message",
+          "userId",
+          "userEmail",
+          "timestamp",
+          "appVersion",
+          "buildNumber",
+          "deviceModel",
+          "osVersion",
+          "status"
+        ]) &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.type is string &&
+        isValidFeedbackType(request.resource.data.type) &&
+        request.resource.data.message is string &&
+        request.resource.data.message.size() >= 10 &&
+        request.resource.data.message.size() <= 2000 &&
+        request.resource.data.userEmail is string &&
+        request.resource.data.userEmail.size() <= 320 &&
+        request.resource.data.timestamp is timestamp &&
+        request.resource.data.appVersion is string &&
+        request.resource.data.appVersion.size() <= 32 &&
+        request.resource.data.buildNumber is string &&
+        request.resource.data.buildNumber.size() <= 32 &&
+        request.resource.data.deviceModel is string &&
+        request.resource.data.deviceModel.size() <= 120 &&
+        request.resource.data.osVersion is string &&
+        request.resource.data.osVersion.size() <= 40 &&
+        request.resource.data.status == "new";
+    }
+
+    function isValidUserRateLimitDocument() {
+      return request.resource.data.keys().hasOnly(["lastFeedback"]) &&
+        request.resource.data.lastFeedback is timestamp;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUserDocument();
+      allow update: if isOwner(userId) &&
+        isValidUserDocument() &&
+        request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isOwner(userId);
+
+      // Strava and future integrations are written server-side; clients can only read their own.
+      match /integrations/{integrationId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+    }
+
+    match /leaderboard_stats/{docId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidLeaderboardDocument(docId);
+      allow update: if isSignedIn() &&
+        isValidLeaderboardDocument(docId) &&
+        request.resource.data.userId == resource.data.userId &&
+        request.resource.data.timeFrame == resource.data.timeFrame &&
+        request.resource.data.periodIdentifier == resource.data.periodIdentifier;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    match /feedback/{feedbackId} {
+      allow create: if isSignedIn() &&
+        isValidFeedbackDocument() &&
+        feedbackCooldownPassed();
       allow read, update, delete: if false;
     }
 
-    // User rate limits - users can only write their own rate limit doc
     match /userRateLimits/{userId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      allow write: if request.auth != null && request.auth.uid == userId;
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId) && isValidUserRateLimitDocument();
+      allow delete: if isOwner(userId);
     }
 
-    // Waitlist - server-only writes via Cloud Functions
+    // Remote share-card template manifest is read-only for authenticated users.
+    match /config/{docId} {
+      allow read: if isSignedIn() && docId == "shareCardTemplates";
+      allow write: if false;
+    }
+
+    // Server-only collections managed by Cloud Functions / Admin SDK.
     match /waitlist/{docId} {
-      allow read, create, update, delete: if false;
+      allow read, write: if false;
+    }
+
+    match /oauthStates/{docId} {
+      allow read, write: if false;
     }
   }
 }

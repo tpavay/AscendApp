@@ -69,6 +69,23 @@ let functionsURL = "https://\(region)-\(projectId).cloudfunctions.net"
 ### Data Models (SwiftData)
 Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightPersonalRecord, AggregateWeightRecord, PendingMediaUpload
 
+### Firebase Storage Pathing + Rules
+- User-generated media must be stored under user-scoped prefixes:
+  - `users/{uid}/photos/...`
+  - `users/{uid}/videos/...`
+  - `users/{uid}/profile_pictures/...`
+- Never write user media to shared root paths (`photos/`, `videos/`, `profile_pictures/`) in production.
+- Share card template assets live under `share-card-templates/...` and are read-only from client apps.
+- Account deletion and cleanup should target only the authenticated user's scoped prefix.
+
+### Firestore Schema-Change Rule
+- `firestore.rules` uses strict `hasOnly` + `hasAll` field validation on every collection. Adding, removing, or renaming a field in the app **requires a matching update to `firestore.rules`** — otherwise writes will be rejected at the server.
+- The same `firestore.rules` file must be deployed to all environments (dev, staging, production) to catch schema mismatches early. Never test against loose rules in dev while production has strict ones.
+- When changing Firestore document schemas, always update in this order:
+  1. Update `firestore.rules` to allow the new/changed fields
+  2. Update Swift model + write logic
+  3. Deploy rules to all environments before or alongside the app update
+
 ### Import UX
 - Workout import supports individual import, selected-batch import, and import-all from the same sheet.
 

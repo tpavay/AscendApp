@@ -39,7 +39,6 @@ class AuthenticationViewModel {
     private(set) var isProfileLoaded: Bool = false
 
     private var authenticationService = AuthenticationService()
-    private var photoService = PhotoService()
 
     init() {
         // Load cached display name immediately for UI responsiveness
@@ -265,28 +264,28 @@ extension AuthenticationViewModel {
         }
         
         do {
-            // Upload the photo
-            let uploadedPhotos = try await photoService.uploadPhotos([photoPickerItem])
-            
-            guard let uploadedPhoto = uploadedPhotos.first else {
+            guard let imageData = try await photoPickerItem.loadTransferable(type: Data.self) else {
                 errorMessage = "Failed to upload photo"
                 return
             }
-            
-            // Save the URL to Firestore user document
+
+            let filename = "users/\(user.uid)/profile_pictures/\(UUID().uuidString).jpg"
+            let photoRepo = FirebasePhotoRepository()
+            let uploadedURL = try await photoRepo.upload(imageData, filename: filename)
+
             try await UserDataRepository.shared.updateProfilePictureURL(
                 userId: user.uid,
-                profilePictureURL: uploadedPhoto.url.absoluteString
+                profilePictureURL: uploadedURL.absoluteString
             )
             
             // Update the local state
-            customProfilePictureURL = uploadedPhoto.url
+            customProfilePictureURL = uploadedURL
             
             // Update all leaderboard entries with the new photo URL
             do {
                 try await LeaderboardService.shared.updateProfilePictureURL(
                     userId: user.uid,
-                    photoURL: uploadedPhoto.url
+                    photoURL: uploadedURL
                 )
             } catch {
                 // Don't fail the whole operation if leaderboard update fails
@@ -308,7 +307,7 @@ extension AuthenticationViewModel {
         
         do {
             // Upload the photo data directly
-            let filename = "profile_pictures/\(user.uid)_\(UUID().uuidString).jpg"
+            let filename = "users/\(user.uid)/profile_pictures/\(UUID().uuidString).jpg"
             let photoRepo = FirebasePhotoRepository()
             let uploadedURL = try await photoRepo.upload(imageData, filename: filename)
             

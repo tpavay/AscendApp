@@ -238,12 +238,15 @@ final class AccountDeletionService {
 
     /// Deletes the user's profile picture from Firebase Storage
     private nonisolated func deleteProfilePicture(userId: String) async throws {
-        let profilePicRef = Storage.storage().reference().child("profile_pictures")
+        let profilePicRef = Storage.storage().reference()
+            .child("users")
+            .child(userId)
+            .child("profile_pictures")
 
         do {
             let result = try await profilePicRef.listAll()
 
-            for item in result.items where item.name.hasPrefix(userId) {
+            for item in result.items {
                 do {
                     try await item.delete()
                 } catch let error as NSError
