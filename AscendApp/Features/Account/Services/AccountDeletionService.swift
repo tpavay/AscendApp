@@ -77,7 +77,7 @@ final class AccountDeletionService {
         }
 
         let userId = user.uid
-        let totalSteps = 9
+        let totalSteps = 10
         var completedSteps = 0
         var hasStagedLocalDeletion = false
         var hasCommittedLocalDeletion = false
@@ -98,56 +98,67 @@ final class AccountDeletionService {
 
         try Task.checkCancellation()
 
-        // Step 1: Disconnect cloud integrations first (fail-fast before destructive deletes)
+        // Step 1: Reauthenticate BEFORE any destructive work.
+        // This is the only user-interactive step that can be cancelled.
+        // By doing it first we guarantee that cancelling reauth leaves
+        // all data intact — nothing has been deleted yet.
+        updateProgress("Verifying your identity...")
+        try await ensureFreshAuthentication(user: user)
+        completedSteps += 1
+        try Task.checkCancellation()
+
+        // ── From this point on, every step is non-interactive. ──
+
+        // Step 2: Disconnect cloud integrations
         updateProgress("Disconnecting integrations...")
         try await disconnectCloudIntegrations()
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 2: Delete all user media from Firebase Storage (storage-level sweep)
+        // Step 3: Delete all user media from Firebase Storage (storage-level sweep)
         updateProgress("Deleting workout media...")
         try await deleteAllUserMedia(userId: userId)
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 3: Delete any legacy flat-path files referenced by local records
+        // Step 4: Delete any legacy flat-path files referenced by local records
         updateProgress("Cleaning up legacy media...")
         try await deleteLegacyFlatPathMedia(modelContext: modelContext)
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 4: Delete Firestore leaderboard stats
+        // Step 5: Delete Firestore leaderboard stats
         updateProgress("Deleting leaderboard data...")
         try await deleteLeaderboardStats(userId: userId)
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 5: Delete Firestore rate-limit metadata
+        // Step 6: Delete Firestore rate-limit metadata
         updateProgress("Deleting feedback metadata...")
         try await deleteFeedbackRateLimitDocument(userId: userId)
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 6: Delete Firestore user document
+        // Step 7: Delete Firestore user document
         updateProgress("Deleting user profile...")
         try await deleteUserDocument(userId: userId)
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 7: Stage local deletion (rollback if account deletion fails)
+        // Step 8: Stage local deletion (rollback if auth deletion fails)
         updateProgress("Preparing local data cleanup...")
         try stageLocalDataDeletion(modelContext: modelContext)
         hasStagedLocalDeletion = true
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 8: Delete Firebase Auth account
+        // Step 9: Delete Firebase Auth account (credentials already fresh from Step 1)
         updateProgress("Deleting account...")
         try await deleteAuthAccount()
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 9: Commit local deletion and clear caches
+        // Step 10: Commit local deletion and clear caches
         updateProgress("Finalizing local cleanup...")
         try commitStagedLocalDeletion(modelContext: modelContext)
         hasCommittedLocalDeletion = true
@@ -162,34 +173,12 @@ final class AccountDeletionService {
     
     // MARK: - Private Deletion Methods
 
-    /// Deletes Firebase Auth account, handling reauthentication if needed
-    private func deleteAuthAccount() async throws {
-        guard let user = Auth.auth().currentUser else {
-            throw DeletionError.notAuthenticated
-        }
+    /// Proactively reauthenticates the user so that the interactive sign-in
+    /// happens BEFORE any destructive operations. If the user cancels here,
+    /// no data has been deleted yet.
+    private func ensureFreshAuthentication(user: User) async throws {
+        let providerIDs = user.providerData.map { $0.providerID }
 
-        do {
-            try await user.delete()
-        } catch let error as NSError {
-            // Check if re-authentication is required
-            if error.code == AuthErrorCode.requiresRecentLogin.rawValue {
-                // Get provider IDs before reauthentication
-                let providerIDs = user.providerData.map { $0.providerID }
-                // Reauthenticate based on provider
-                try await reauthenticateUser(providerIDs: providerIDs)
-                // Re-fetch user after reauthentication and retry deletion
-                guard let refreshedUser = Auth.auth().currentUser else {
-                    throw DeletionError.notAuthenticated
-                }
-                try await refreshedUser.delete()
-            } else {
-                throw DeletionError.authDeletionFailed(error.localizedDescription)
-            }
-        }
-    }
-
-    /// Reauthenticate user based on their sign-in provider
-    private func reauthenticateUser(providerIDs: [String]) async throws {
         do {
             if providerIDs.contains("google.com") {
                 try await authService.reauthenticateWithGoogle()
@@ -204,6 +193,34 @@ final class AccountDeletionService {
             throw error
         } catch {
             throw DeletionError.reauthenticationFailed(error.localizedDescription)
+        }
+    }
+
+    /// Deletes Firebase Auth account. Credentials should already be fresh
+    /// from ensureFreshAuthentication(), but handles requiresRecentLogin
+    /// as a fallback just in case.
+    private func deleteAuthAccount() async throws {
+        guard let user = Auth.auth().currentUser else {
+            throw DeletionError.notAuthenticated
+        }
+
+        do {
+            try await user.delete()
+        } catch let error as NSError {
+            if error.code == AuthErrorCode.requiresRecentLogin.rawValue {
+                // This shouldn't happen since we reauthenticated upfront,
+                // but handle it gracefully rather than losing data.
+                let providerIDs = user.providerData.map { $0.providerID }
+                try await ensureFreshAuthentication(
+                    user: user
+                )
+                guard let refreshedUser = Auth.auth().currentUser else {
+                    throw DeletionError.notAuthenticated
+                }
+                try await refreshedUser.delete()
+            } else {
+                throw DeletionError.authDeletionFailed(error.localizedDescription)
+            }
         }
     }
 
