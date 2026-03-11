@@ -111,6 +111,13 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
 - Use server-side seeding (Admin SDK / Cloud Function / CI job) for deterministic multi-user leaderboard fixtures.
 - For local-only iteration, use Firestore emulator or seed only the authenticated user.
 
+### Workout Seeding Policy (Debug)
+- Debug Tools includes local SwiftData workout seeding presets for Simulator workflows (`App Store Screenshots`, `Quick Demo`).
+- Seeded workout metadata is stored in `Workout.sourceMetadata` with `isTestData=true`, `seedSource="debug-tools"`, and `preset` for targeted cleanup.
+- Workout seeding is idempotent for debug usage: seeding replaces existing debug-seeded workouts before inserting the new preset.
+- Clearing seeded workouts must recalculate personal records and local leaderboard aggregates to keep derived data consistent.
+- Weighted vest debug data should use an intended pounds range and convert to kilograms when measurement system is metric.
+
 ### Leaderboard UX Flow
 - The leaderboard tab root should be a category hub with per-metric preview cards (`Climb`, `Workouts`, `Duration`, `Pace`) and a `See all` action on each card.
 - `See all` opens a metric-specific leaderboard detail screen.

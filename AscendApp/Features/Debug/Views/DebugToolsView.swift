@@ -6,10 +6,12 @@
 //
 
 import SwiftUI
+import SwiftData
 
 #if DEBUG
 struct DebugToolsView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.modelContext) private var modelContext
     @State private var viewModel = DebugToolsViewModel()
     @State private var showSuccessAlert = false
     @State private var showErrorAlert = false
@@ -189,6 +191,11 @@ struct DebugToolsView: View {
             }
             .padding(.horizontal, 20)
 
+            if section.title == "Workouts" {
+                workoutPresetPicker
+                    .padding(.horizontal, 20)
+            }
+
             // Actions
             VStack(spacing: 12) {
                 ForEach(section.actions) { action in
@@ -197,13 +204,29 @@ struct DebugToolsView: View {
                         isExecuting: viewModel.isExecuting(action),  // Check if THIS specific action is executing
                         onExecute: {
                             Task {
-                                await viewModel.executeAction(action)
+                                await viewModel.executeAction(action, modelContext: modelContext)
                             }
                         }
                     )
                 }
             }
             .padding(.horizontal, 20)
+        }
+    }
+
+    private var workoutPresetPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Preset")
+                .font(.montserratSemiBold(size: 13))
+                .foregroundStyle(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.7))
+
+            Picker("Workout Preset", selection: $viewModel.selectedWorkoutPreset) {
+                ForEach(WorkoutSeedPreset.allCases) { preset in
+                    Text(preset.pickerLabel)
+                        .tag(preset)
+                }
+            }
+            .pickerStyle(.segmented)
         }
     }
 
@@ -245,5 +268,6 @@ struct DebugToolsView: View {
     NavigationStack {
         DebugToolsView()
     }
+    .modelContainer(for: Workout.self, inMemory: true)
 }
 #endif
