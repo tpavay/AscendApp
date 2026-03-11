@@ -372,8 +372,7 @@ struct WorkoutTrendsView: View {
                 title: "Using Trends",
                 content: "Track your workout progress over time with interactive charts.\n\nTap any bar or point to see detailed stats for that period, including totals, averages, and heart rate data.\n\nSwipe left or right within the chart area to navigate between time periods. Use the Week, Month, or Year tabs to change the time range you're viewing."
             )
-            .presentationDetents([.fraction(0.62)])
-            .presentationDragIndicator(.visible)
+            .appSheetStyle(.fraction(0.62))
         }
         .onAppear {
             selectedRange = .thisMonth

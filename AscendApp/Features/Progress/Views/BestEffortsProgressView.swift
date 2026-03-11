@@ -149,8 +149,7 @@ struct BestEffortsProgressView: View {
                 title: "Best Efforts Progress",
                 content: "This chart shows how your personal records have improved over time. Each point represents a workout where you set a new all-time best for the selected metric.\n\nTap on any point to see details about that record-setting workout. Use the tabs above to switch between different metrics like steps, floors, duration, and more."
             )
-            .presentationDetents([.fraction(0.55)])
-            .presentationDragIndicator(.visible)
+            .appSheetStyle(.fraction(0.55))
         }
         .onAppear {
             loadWeightRecords()
@@ -1001,4 +1000,3 @@ struct BestEffortsProgressView: View {
     }
     .preferredColorScheme(.dark)
 }
-

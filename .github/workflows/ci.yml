@@ -65,6 +65,8 @@ jobs:
           }
 
           mkdir -p AscendApp/App/Firebase
+          rm -f AscendApp/App/Firebase/GoogleService-Info-Dev.plist
+          rm -f AscendApp/App/Firebase/GoogleService-Info-Staging.plist
           decode_base64_required "GOOGLE_SERVICE_INFO_DEV_BASE64" "$GOOGLE_SERVICE_INFO_DEV_BASE64" "AscendApp/App/Firebase/GoogleService-Info-Dev.plist"
           decode_base64_required "GOOGLE_SERVICE_INFO_STAGING_BASE64" "$GOOGLE_SERVICE_INFO_STAGING_BASE64" "AscendApp/App/Firebase/GoogleService-Info-Staging.plist"
 

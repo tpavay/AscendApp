@@ -18,37 +18,20 @@ struct DurationPickerSheet: View {
     private let minuteSecondRange = Array(0...59)
 
     var body: some View {
-        VStack(spacing: 12) {
-            Text("Duration")
-                .font(.montserratMedium(size: 14))
-                .foregroundStyle(.secondary)
-                .padding(.top, 16)
-
-            Divider()
-                .padding(.horizontal)
-
+        AppSheetScaffold(title: "Duration", layout: .picker) {
             HStack(alignment: .center, spacing: 0) {
                 pickerColumn(title: "Hours", range: hourRange, selection: $hours, unit: "hr")
                 pickerColumn(title: "Minutes", range: minuteSecondRange, selection: $minutes, unit: "min")
                 pickerColumn(title: "Seconds", range: minuteSecondRange, selection: $seconds, unit: "sec")
             }
             .padding(.horizontal, 8)
-
+        } footer: {
             Button {
                 onDone()
             } label: {
                 Text("Done")
-                    .font(.montserratSemiBold(size: 16))
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(.accent)
-                    )
             }
-            .padding(.horizontal)
-            .padding(.bottom, 8)
+            .appSheetButtonStyle(tone: .primary)
         }
     }
 

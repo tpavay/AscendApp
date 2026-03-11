@@ -48,9 +48,8 @@ struct DebugActionTooltipSheet: View {
             .padding(.bottom, 20)
         }
         .frame(maxWidth: .infinity)
-        .themedBackground()
-        .presentationDetents([.height(380)])
-        .presentationDragIndicator(.visible)
+        .appSheetBackground()
+        .appSheetStyle(.dialog(height: 380))
     }
 }
 

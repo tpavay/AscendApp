@@ -77,12 +77,12 @@ struct RoutineEditorView: View {
                         viewModel.updateInterval(at: index, with: updatedInterval)
                         editingIntervalIndex = nil
                     }
-                    .presentationDetents([.large])
+                    .appSheetStyle(.large)
                 } else {
                     IntervalEditorSheet(defaultIntensityType: viewModel.intervals.first?.intensityType) { newInterval in
                         viewModel.addInterval(newInterval)
                     }
-                    .presentationDetents([.large])
+                    .appSheetStyle(.large)
                 }
             }
             .alert("Error", isPresented: $showSaveError) {

@@ -103,7 +103,7 @@ struct WorkoutMetricExplanationView: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollIndicators(.hidden)
-            .themedBackground()
+            .appSheetBackground()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -159,4 +159,3 @@ struct WorkoutMetricExplanationView: View {
     WorkoutMetricExplanationView()
         .preferredColorScheme(.dark)
 }
-

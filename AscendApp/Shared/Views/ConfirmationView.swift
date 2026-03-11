@@ -49,26 +49,10 @@ struct ConfirmationView: View {
     }
 
     var body: some View {
-        VStack(spacing: 20) {
-            // Header section
-            VStack(spacing: 8) {
-                Text(title)
-                    .font(.montserratBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ?
-                        .white : .black)
-
-                if let message = message {
-                    Text(message)
-                        .font(.montserratRegular(size: 16))
-                        .foregroundStyle(effectiveColorScheme == .dark ?
-                            .white.opacity(0.8) : .gray)
-                        .multilineTextAlignment(.center)
-                }
-            }
-
-            // Action buttons
+        AppSheetScaffold(title: title, message: message) {
+            EmptyView()
+        } footer: {
             HStack(spacing: 12) {
-                // Cancel button - enabled during loading so user can cancel
                 Button {
                     onCancel()
                 } label: {
@@ -83,18 +67,10 @@ struct ConfirmationView: View {
                         Text(cancelButtonText)
                     }
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(effectiveColorScheme == .dark ?
-                            .white.opacity(0.1) : .gray.opacity(0.1))
-                )
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                .appSheetButtonStyle(tone: .secondary)
                 .disabled(isCancelling)
                 .opacity(isLoading && !isCancelling ? 0.7 : 1)
 
-                // Confirm button
                 Button {
                     onConfirm()
                 } label: {
@@ -105,18 +81,10 @@ struct ConfirmationView: View {
                         Text(confirmButtonText)
                     }
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(isDestructive ? .red : .accent)
-                )
-                .foregroundStyle(.white)
+                .appSheetButtonStyle(tone: isDestructive ? .destructive : .primary)
                 .disabled(isLoading || isCancelling)
             }
         }
-        .padding(20)
-        .themedBackground()
     }
 }
 

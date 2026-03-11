@@ -25,6 +25,7 @@ struct DeleteWorkoutConfirmationView: View {
             onCancel: onCancel,
             onConfirm: onConfirm
         )
+        .appSheetStyle(.destructiveConfirmation)
     }
 }
 

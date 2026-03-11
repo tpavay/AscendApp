@@ -119,21 +119,19 @@ struct WorkoutMetricSelectionView: View {
         }
         .sheet(isPresented: $showingStepHeightPicker) {
             stepHeightPickerSheet()
-                .presentationDetents([.fraction(0.4)])
-                .presentationDragIndicator(.visible)
+                .appSheetStyle(.settingsPicker)
         }
         .sheet(isPresented: $showingStepsPerFloorPicker) {
             stepsPerFloorPickerSheet()
-                .presentationDetents([.fraction(0.4)])
-                .presentationDragIndicator(.visible)
+                .appSheetStyle(.settingsPicker)
         }
         .sheet(isPresented: $showingMetricExplanation) {
             WorkoutMetricExplanationView()
-                .presentationDragIndicator(.visible)
+                .appSheetStyle(.mediumLarge)
         }
         .sheet(isPresented: $showingStepConfigExplanation) {
             StepConfigurationExplanationView()
-                .presentationDragIndicator(.visible)
+                .appSheetStyle(.mediumLarge)
         }
     }
     
@@ -395,7 +393,7 @@ struct WorkoutMetricSelectionView: View {
             Spacer()
         }
         .padding(20)
-        .themedBackground()
+        .appSheetBackground()
     }
     
     private func stepsPerFloorPickerSheet() -> some View {
@@ -452,7 +450,7 @@ struct WorkoutMetricSelectionView: View {
             Spacer()
         }
         .padding(20)
-        .themedBackground()
+        .appSheetBackground()
     }
     
     private func updateTextFields() {

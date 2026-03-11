@@ -109,8 +109,6 @@ struct PhotoGalleryView: View {
                     itemForActionSheet = nil
                 }
             )
-            .presentationDetents([.height(actionSheetHeight(for: item))])
-            .presentationDragIndicator(.visible)
         }
         .sheet(item: $photoToDelete) { item in
             DeletePhotoConfirmationView(
@@ -166,9 +164,6 @@ struct PhotoGalleryView: View {
         )
     }
     
-    private func actionSheetHeight(for item: SelectedPhotoItem) -> CGFloat {
-        highlightedSelectedItemId == item.id ? 220 : 240
-    }
 }
 
 extension PhotoGalleryView {
@@ -348,94 +343,47 @@ private struct SelectedPhotoActionSheet: View {
     }
     
     var body: some View {
-        VStack(spacing: 16) {
-            VStack(spacing: 4) {
-                Text(labels.options)
-                    .font(.montserratBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-            }
-            
+        AppSheetScaffold(title: labels.options, layout: .actionMenu) {
             VStack(spacing: 12) {
                 if !isHighlighted {
                     Button(action: onMakeHighlighted) {
-                        actionRow(
+                        AppSheetOptionRow(
                             systemImage: "star.fill",
-                            text: labels.highlight,
-                            tint: .accent,
-                            textColor: effectiveColorScheme == .dark ? .white : .black
+                            title: labels.highlight,
+                            iconTint: .accent,
+                            style: .compact
                         )
                     }
+                    .buttonStyle(.plain)
                 } else {
-                    highlightedRow
+                    AppSheetOptionRow(
+                        systemImage: "star.fill",
+                        title: "Currently Highlighted",
+                        iconTint: .accent,
+                        tone: .accent,
+                        style: .compact,
+                        trailingSymbol: "checkmark",
+                        trailingTint: .accent
+                    )
                 }
                 
                 Button(role: .destructive, action: onDelete) {
-                    actionRow(
+                    AppSheetOptionRow(
                         systemImage: "trash",
-                        text: labels.delete,
-                        tint: .red,
-                        textColor: .red
+                        title: labels.delete,
+                        iconTint: .red,
+                        tone: .destructive,
+                        style: .compact
                     )
                 }
+                .buttonStyle(.plain)
             }
-            
+        } footer: {
             Button(action: onCancel) {
                 Text("Cancel")
-                    .font(.montserratMedium(size: 16))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(effectiveColorScheme == .dark ? .white.opacity(0.05) : .gray.opacity(0.05))
-                    )
             }
+            .appSheetButtonStyle(tone: .subtle)
         }
-        .padding(20)
-        .themedBackground()
-    }
-    
-    private func actionRow(systemImage: String, text: String, tint: Color, textColor: Color) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.system(size: 18))
-                .foregroundStyle(tint)
-            
-            Text(text)
-                .font(.montserratMedium(size: 16))
-                .foregroundStyle(textColor)
-            
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
-        )
-    }
-    
-    private var highlightedRow: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "star.fill")
-                .font(.system(size: 18))
-                .foregroundStyle(.accent)
-            
-            Text("Currently Highlighted")
-                .font(.montserratMedium(size: 16))
-                .foregroundStyle(.accent)
-            
-            Spacer()
-            
-            Image(systemName: "checkmark")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(.accent)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(.accent.opacity(0.15))
-        )
+        .appSheetStyle(.actionMenu)
     }
 }

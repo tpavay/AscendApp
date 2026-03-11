@@ -20,107 +20,60 @@ struct PhotoActionSheet: View {
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
+
+    private var title: String {
+        photo.isVideo ? "Video Options" : "Photo Options"
+    }
     
     var body: some View {
-        VStack(spacing: 16) {
-            // Header
-            VStack(spacing: 4) {
-                Text(photo.isVideo ? "Video Options" : "Photo Options")
-                    .font(.montserratBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-            }
-            
-            // Actions
+        AppSheetScaffold(title: title, layout: .actionMenu) {
             VStack(spacing: 12) {
-                // Make Highlighted button (only show if not already highlighted)
                 if !isHighlighted {
                     Button(action: {
                         onMakeHighlighted()
                     }) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 18))
-                                .foregroundStyle(.accent)
-                            
-                            Text(photo.isVideo ? "Make Highlighted Video" : "Make Highlighted Photo")
-                                .font(.montserratMedium(size: 16))
-                                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                            
-                            Spacer()
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
+                        AppSheetOptionRow(
+                            systemImage: "star.fill",
+                            title: photo.isVideo ? "Make Highlighted Video" : "Make Highlighted Photo",
+                            iconTint: .accent,
+                            style: .compact
                         )
                     }
+                    .buttonStyle(.plain)
                 } else {
-                    // Show that this is currently highlighted
-                    HStack(spacing: 12) {
-                        Image(systemName: "star.fill")
-                            .font(.system(size: 18))
-                            .foregroundStyle(.accent)
-                        
-                        Text("Currently Highlighted")
-                            .font(.montserratMedium(size: 16))
-                            .foregroundStyle(.accent)
-                        
-                        Spacer()
-                        
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(.accent)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(.accent.opacity(0.15))
+                    AppSheetOptionRow(
+                        systemImage: "star.fill",
+                        title: "Currently Highlighted",
+                        iconTint: .accent,
+                        tone: .accent,
+                        style: .compact,
+                        trailingSymbol: "checkmark",
+                        trailingTint: .accent
                     )
                 }
                 
-                // Delete button
                 Button(action: {
                     onDelete()
                 }) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "trash")
-                            .font(.system(size: 18))
-                            .foregroundStyle(.red)
-                        
-                        Text(photo.isVideo ? "Delete Video" : "Delete Photo")
-                            .font(.montserratMedium(size: 16))
-                            .foregroundStyle(.red)
-                        
-                        Spacer()
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
+                    AppSheetOptionRow(
+                        systemImage: "trash",
+                        title: photo.isVideo ? "Delete Video" : "Delete Photo",
+                        iconTint: .red,
+                        tone: .destructive,
+                        style: .compact
                     )
                 }
+                .buttonStyle(.plain)
             }
-            
-            // Cancel button
+        } footer: {
             Button(action: {
                 onCancel()
             }) {
                 Text("Cancel")
-                    .font(.montserratMedium(size: 16))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(effectiveColorScheme == .dark ? .white.opacity(0.05) : .gray.opacity(0.05))
-                    )
             }
+            .appSheetButtonStyle(tone: .subtle)
         }
-        .padding(20)
-        .themedBackground()
+        .appSheetStyle(.actionMenu)
     }
 }
 
@@ -154,4 +107,3 @@ struct PhotoActionSheet: View {
         onCancel: { print("Cancel") }
     )
 }
-
