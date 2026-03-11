@@ -42,7 +42,11 @@ struct WorkoutDetailView: View {
 
     /// Whether the workout has media (photos or pending uploads)
     private var hasMedia: Bool {
-        !workout.photos.isEmpty
+        !orderedPhotos.isEmpty
+    }
+
+    private var orderedPhotos: [Photo] {
+        workout.orderedPhotosForDisplay
     }
 
     var body: some View {
@@ -73,8 +77,16 @@ struct WorkoutDetailView: View {
                 WorkoutShareCarouselView(workout: workout, displayName: authVM.displayName)
             }
             .onAppear {
+                if hasMedia {
+                    currentPhotoIndex = 0
+                }
                 // Preload share card templates in background (anticipate sharing)
                 ShareCardTemplateService.shared.preloadIfNeeded()
+            }
+            .onChange(of: showingEditWorkout) { _, isShowing in
+                if !isShowing && hasMedia {
+                    currentPhotoIndex = 0
+                }
             }
             .sheet(isPresented: $showingDeleteConfirmation) {
                 SingleWorkoutDeleteConfirmationView(
@@ -137,9 +149,10 @@ struct WorkoutDetailView: View {
                 }()
 
                 WorkoutDetailHeroView(
-                    photos: workout.photos,
+                    photos: orderedPhotos,
                     currentIndex: $currentPhotoIndex,
                     sheetPosition: sheetPosition,
+                    isPlaybackEnabled: selectedPhoto == nil,
                     onPhotoTap: { photo in
                         selectedPhoto = photo
                     }

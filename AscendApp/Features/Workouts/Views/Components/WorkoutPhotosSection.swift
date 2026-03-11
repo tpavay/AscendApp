@@ -145,14 +145,7 @@ struct WorkoutPhotosSection: View {
 
             // Highlighted indicator
             if isHighlighted(photo) {
-                Image(systemName: "star.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.white)
-                    .padding(4)
-                    .background(
-                        Circle()
-                            .fill(.accent)
-                    )
+                MediaTileHighlightBadge()
                     .padding(6)
             }
         }

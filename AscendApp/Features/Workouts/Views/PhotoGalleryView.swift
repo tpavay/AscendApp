@@ -15,6 +15,7 @@ struct PhotoGalleryView: View {
     @Binding private var highlightedSelectedItemId: UUID?
     var existingMediaCount: Int = 0 // Count of existing media already in the workout
     var existingVideoCount: Int = 0 // Count of existing videos already in the workout
+    var embeddedInScrollRow: Bool = false
     
     @State private var selectedPhotos: [PhotosPickerItem] = [] // Make this local state
     @State private var photoToDelete: SelectedPhotoItem?
@@ -27,12 +28,14 @@ struct PhotoGalleryView: View {
         selectedImages: Binding<[SelectedPhotoItem]>,
         highlightedSelectedItemId: Binding<UUID?> = .constant(nil),
         existingMediaCount: Int = 0,
-        existingVideoCount: Int = 0
+        existingVideoCount: Int = 0,
+        embeddedInScrollRow: Bool = false
     ) {
         self._selectedImages = selectedImages
         self._highlightedSelectedItemId = highlightedSelectedItemId
         self.existingMediaCount = existingMediaCount
         self.existingVideoCount = existingVideoCount
+        self.embeddedInScrollRow = embeddedInScrollRow
     }
     
     // Computed properties for validation
@@ -54,12 +57,11 @@ struct PhotoGalleryView: View {
 
     var body: some View {
         Group {
-            if selectedImages.isEmpty {
-                // Empty state - show picker (with loading state if applicable)
-                PhotoPickerButton(selectedPhotos: $selectedPhotos, isLoading: isLoadingMedia)
-                    .frame(height: 120)
+            if embeddedInScrollRow {
+                embeddedGalleryContent
+            } else if selectedImages.isEmpty {
+                standaloneEmptyState
             } else {
-                // Photos selected - show gallery with picker at end
                 ScrollView(.horizontal) {
                     LazyHStack(spacing: 12) {
                         ForEach(selectedImages) { item in
@@ -77,8 +79,7 @@ struct PhotoGalleryView: View {
 
                         // Picker at the end - only show if under limit
                         if canAddMore {
-                            PhotoPickerButton(selectedPhotos: $selectedPhotos, isLoading: isLoadingMedia)
-                                .frame(width: 120)
+                            compactPickerButton
                         }
                     }
                     .padding(.horizontal, 4)
@@ -122,6 +123,47 @@ struct PhotoGalleryView: View {
         } message: {
             Text(errorMessage)
         }
+    }
+
+    @ViewBuilder
+    private var standaloneEmptyState: some View {
+        if existingMediaCount > 0 {
+            if canAddMore {
+                compactPickerButton
+            }
+        } else {
+            PhotoPickerButton(selectedPhotos: $selectedPhotos, isLoading: isLoadingMedia)
+                .frame(height: 120)
+        }
+    }
+
+    private var embeddedGalleryContent: some View {
+        HStack(spacing: 12) {
+            ForEach(selectedImages) { item in
+                ThumbnailPhotoView(
+                    photoItem: item,
+                    isHighlighted: highlightedSelectedItemId == item.id,
+                    onTap: {
+                        itemForActionSheet = item
+                    },
+                    onDelete: {
+                        photoToDelete = item
+                    }
+                )
+            }
+
+            if canAddMore {
+                compactPickerButton
+            }
+        }
+    }
+
+    private var compactPickerButton: some View {
+        PhotoPickerButton(
+            selectedPhotos: $selectedPhotos,
+            isLoading: isLoadingMedia,
+            style: .inlineTile
+        )
     }
     
     private func actionSheetHeight(for item: SelectedPhotoItem) -> CGFloat {
