@@ -138,6 +138,7 @@ class WorkoutFormViewModel {
 
         isUploading = true
         uploadError = nil
+        defer { isUploading = false }
 
         do {
             let request = try createWorkoutRequest()
@@ -172,38 +173,18 @@ class WorkoutFormViewModel {
                 let highlightedIndex = highlightedSelectedItemId.flatMap { id in
                     selectedImages.firstIndex(where: { $0.id == id })
                 }
-                let imagesToUpload = selectedImages
-                let workoutId = workout.id
-                Task {
-                    try? await MediaUploadManager.shared.queueUploads(
-                        for: workoutId,
-                        photos: imagesToUpload,
-                        highlightedIndex: highlightedIndex,
-                        modelContext: modelContext
-                    )
-                }
+                queueMediaUploadsInBackground(
+                    for: workout.id,
+                    highlightedIndex: highlightedIndex,
+                    modelContext: modelContext
+                )
             }
 
             // Fire-and-forget Strava auto-sync (doesn't block save)
             let stravaManager = StravaManager.shared
             if FeatureFlags.isStravaEnabled && stravaManager.isConnected && stravaManager.autoSyncEnabled {
-                let primaryMetric = settingsManager.preferredWorkoutMetric
-                Task {
-                    do {
-                        guard !workout.isSyncedToStrava else { return }
-                        let activityId = try await stravaManager.syncWorkout(
-                            workout,
-                            primaryMetric: primaryMetric
-                        )
-                        workout.setStravaSyncMetadata(StravaSyncMetadata(stravaActivityId: activityId))
-                        try? modelContext.save()
-                    } catch {
-                        print("Strava auto-sync failed: \(error)")
-                    }
-                }
+                syncWorkoutToStravaInBackground(workout, modelContext: modelContext)
             }
-
-            isUploading = false
 
             // Don't clean up video files here - MediaUploadManager needs them
             // They'll be cleaned up after successful upload
@@ -211,7 +192,6 @@ class WorkoutFormViewModel {
             return workout
 
         } catch {
-            isUploading = false
             // Clean up temp video files on failure (since we won't be uploading)
             cleanupVideoFiles()
             uploadError = error.userFriendlyMessage
@@ -224,6 +204,56 @@ class WorkoutFormViewModel {
         for item in selectedImages {
             if let videoURL = item.videoURL {
                 try? FileManager.default.removeItem(at: videoURL)
+            }
+        }
+    }
+
+    private func queueMediaUploadsInBackground(
+        for workoutId: UUID,
+        highlightedIndex: Int?,
+        modelContext: ModelContext
+    ) {
+        let imagesToUpload = selectedImages
+
+        Task { @MainActor in
+            do {
+                try await MediaUploadManager.shared.queueUploads(
+                    for: workoutId,
+                    photos: imagesToUpload,
+                    highlightedIndex: highlightedIndex,
+                    modelContext: modelContext
+                )
+            } catch {
+                TelemetryManager.shared.recordError(
+                    error,
+                    context: .storage,
+                    code: "media_upload_queue_failed"
+                )
+                print("Media upload queue failed: \(error)")
+            }
+        }
+    }
+
+    private func syncWorkoutToStravaInBackground(_ workout: Workout, modelContext: ModelContext) {
+        let primaryMetric = settingsManager.preferredWorkoutMetric
+
+        Task { @MainActor in
+            do {
+                guard !workout.isSyncedToStrava else { return }
+
+                let activityId = try await StravaManager.shared.syncWorkout(
+                    workout,
+                    primaryMetric: primaryMetric
+                )
+                workout.setStravaSyncMetadata(StravaSyncMetadata(stravaActivityId: activityId))
+                try modelContext.save()
+            } catch {
+                TelemetryManager.shared.recordError(
+                    error,
+                    context: .strava,
+                    code: "auto_sync_failed"
+                )
+                print("Strava auto-sync failed: \(error)")
             }
         }
     }
@@ -265,50 +295,14 @@ class WorkoutFormViewModel {
         // Limit to 6 digits (hhmmss)
         rawDurationDigits = String(rawDurationDigits.prefix(6))
 
-        // Convert to total seconds, working from right-to-left
-        var totalSeconds = 0
-        let reversedDigits = Array(rawDurationDigits.reversed())
-
-        // Process digits as seconds, then minutes, then hours
-        for (index, digit) in reversedDigits.enumerated() {
-            if let digitValue = Int(String(digit)) {
-                switch index {
-                case 0: // ones place of seconds
-                    totalSeconds += digitValue
-                case 1: // tens place of seconds
-                    totalSeconds += digitValue * 10
-                case 2: // ones place of minutes
-                    totalSeconds += digitValue * 60
-                case 3: // tens place of minutes
-                    totalSeconds += digitValue * 600
-                case 4: // ones place of hours
-                    totalSeconds += digitValue * 3600
-                case 5: // tens place of hours
-                    totalSeconds += digitValue * 36000
-                default:
-                    break
-                }
-            }
-        }
-
-        // Convert back to hours, minutes, seconds
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        let seconds = totalSeconds % 60
-
-        // Format display based on whether hours is non-zero
-        if hours == 0 {
-            // Show as MM:SS
-            durationFormatted = "\(minutes < 10 ? "0" : "")\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
-        } else {
-            // Show as H:MM:SS
-            durationFormatted = "\(hours):\(minutes < 10 ? "0" : "")\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
-        }
+        // Parse and format using the new utility
+        let (h, m, s) = DurationFormatter.parse(rawDigits: rawDurationDigits)
+        durationFormatted = DurationFormatter.format(hours: h, minutes: m, seconds: s)
 
         // Update individual components for saving
-        durationHours = hours < 10 ? "0\(hours)" : "\(hours)"
-        durationMinutes = minutes < 10 ? "0\(minutes)" : "\(minutes)"
-        durationSeconds = seconds < 10 ? "0\(seconds)" : "\(seconds)"
+        durationHours = h < 10 ? "0\(h)" : "\(h)"
+        durationMinutes = m < 10 ? "0\(m)" : "\(m)"
+        durationSeconds = s < 10 ? "0\(s)" : "\(s)"
     }
 
     func setDuration(hours: Int, minutes: Int, seconds: Int) {
@@ -316,18 +310,13 @@ class WorkoutFormViewModel {
         let clampedMinutes = min(max(minutes, 0), 59)
         let clampedSeconds = min(max(seconds, 0), 59)
 
-        let hasHours = clampedHours > 0
+        durationFormatted = DurationFormatter.format(hours: clampedHours, minutes: clampedMinutes, seconds: clampedSeconds)
+        
         durationHours = clampedHours < 10 ? "0\(clampedHours)" : "\(clampedHours)"
         durationMinutes = clampedMinutes < 10 ? "0\(clampedMinutes)" : "\(clampedMinutes)"
         durationSeconds = clampedSeconds < 10 ? "0\(clampedSeconds)" : "\(clampedSeconds)"
 
-        if hasHours {
-            durationFormatted = "\(clampedHours):\(clampedMinutes < 10 ? "0" : "")\(clampedMinutes):\(clampedSeconds < 10 ? "0" : "")\(clampedSeconds)"
-        } else {
-            durationFormatted = "\(clampedMinutes < 10 ? "0" : "")\(clampedMinutes):\(clampedSeconds < 10 ? "0" : "")\(clampedSeconds)"
-        }
-
-        let hoursDigits = hasHours ? String(clampedHours) : ""
+        let hoursDigits = clampedHours > 0 ? String(clampedHours) : ""
         rawDurationDigits = hoursDigits + "\(clampedMinutes < 10 ? "0" : "")\(clampedMinutes)\(clampedSeconds < 10 ? "0" : "")\(clampedSeconds)"
     }
 

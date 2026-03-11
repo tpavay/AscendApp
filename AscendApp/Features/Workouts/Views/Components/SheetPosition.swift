@@ -9,7 +9,7 @@ import SwiftUI
 
 /// Defines the three snap positions for the draggable detail sheet
 enum SheetPosition: CaseIterable, Equatable {
-    case collapsed  // Photo fills ~80% of screen
+    case collapsed  // Photo fills most of the screen
     case middle     // Default - photo ~40% of screen
     case expanded   // Photo hidden, full page scroll
 
@@ -18,7 +18,7 @@ enum SheetPosition: CaseIterable, Equatable {
         let screenHeight = geometry.size.height
         switch self {
         case .collapsed:
-            return screenHeight * 0.75  // Sheet at bottom 25%
+            return screenHeight * 0.82  // Sheet at bottom 18%
         case .middle:
             return screenHeight * 0.40  // Sheet covers 60%
         case .expanded:
@@ -31,7 +31,7 @@ enum SheetPosition: CaseIterable, Equatable {
         let screenHeight = geometry.size.height
         switch self {
         case .collapsed:
-            return screenHeight * 0.75
+            return screenHeight * 0.82
         case .middle:
             return screenHeight * 0.40
         case .expanded:

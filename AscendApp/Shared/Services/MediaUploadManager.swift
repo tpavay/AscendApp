@@ -342,6 +342,7 @@ final class MediaUploadManager {
 
             } catch {
                 lastError = error
+                print("[MediaUploadManager] Upload attempt \(attempt + 1) failed for \(upload.localFileName): \(error.localizedDescription)")
 
                 if Task.isCancelled { return }
 
@@ -357,6 +358,17 @@ final class MediaUploadManager {
         upload.uploadStatus = .failed
         upload.retryCount = maxRetries
         upload.lastError = lastError?.localizedDescription ?? "Unknown error"
+        if let lastError {
+            TelemetryManager.shared.recordError(
+                lastError,
+                context: .storage,
+                code: upload.isVideo ? "video_upload_failed" : "photo_upload_failed",
+                additionalInfo: ["media_type": upload.mediaType]
+            )
+            print("[MediaUploadManager] Upload failed after \(maxRetries) attempts for \(upload.localFileName): \(lastError.localizedDescription)")
+        } else {
+            print("[MediaUploadManager] Upload failed after \(maxRetries) attempts for \(upload.localFileName): Unknown error")
+        }
         try? modelContext.save()
     }
 

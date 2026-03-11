@@ -352,14 +352,16 @@ struct EditWorkoutView: View {
                 fieldIdentifier: WorkoutFormField.notes
             )
             
-            existingPhotosSection
-            
-            PhotoGalleryView(
-                selectedImages: $selectedImages,
-                highlightedSelectedItemId: highlightedSelectedItemBinding,
-                existingMediaCount: existingPhotos.count,
-                existingVideoCount: existingPhotos.filter { $0.isVideo }.count
-            )
+            if existingPhotos.isEmpty {
+                PhotoGalleryView(
+                    selectedImages: $selectedImages,
+                    highlightedSelectedItemId: highlightedSelectedItemBinding,
+                    existingMediaCount: existingPhotos.count,
+                    existingVideoCount: existingPhotos.filter { $0.isVideo }.count
+                )
+            } else {
+                existingPhotosSection
+            }
             
             FormSection(title: "Workout Details") {
                 VStack(spacing: 12) {
@@ -435,28 +437,15 @@ struct EditWorkoutView: View {
                                     photoForAction = photo
                                 }
                                 .overlay(alignment: .topTrailing) {
-                                    Button {
+                                    MediaTileDeleteButton {
                                         photoPendingDeletion = photo
-                                    } label: {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .font(.system(size: 20))
-                                            .symbolRenderingMode(.hierarchical)
-                                            .foregroundStyle(.white, .black.opacity(0.7))
-                                            .shadow(radius: 2)
                                     }
-                                    .offset(x: 6, y: -6)
+                                    .padding(6)
                                 }
                                 
                                 // Highlighted indicator
                                 if isPhotoHighlighted(photo) {
-                                    Image(systemName: "star.fill")
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(.white)
-                                        .padding(4)
-                                        .background(
-                                            Circle()
-                                                .fill(.accent)
-                                        )
+                                    MediaTileHighlightBadge()
                                         .padding(6)
                                 }
                             }
@@ -476,6 +465,14 @@ struct EditWorkoutView: View {
                                 }
                             }
                         }
+
+                        PhotoGalleryView(
+                            selectedImages: $selectedImages,
+                            highlightedSelectedItemId: highlightedSelectedItemBinding,
+                            existingMediaCount: existingPhotos.count,
+                            existingVideoCount: existingPhotos.filter { $0.isVideo }.count,
+                            embeddedInScrollRow: true
+                        )
                     }
                     .padding(.vertical, 4)
                 }

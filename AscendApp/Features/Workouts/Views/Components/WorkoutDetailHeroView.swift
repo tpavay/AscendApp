@@ -6,68 +6,28 @@
 //
 
 import SwiftUI
-import AVKit
-
-/// Custom video player that fills its container (aspect fill)
-struct FillVideoPlayer: UIViewRepresentable {
-    let player: AVPlayer
-
-    func makeUIView(context: Context) -> PlayerUIView {
-        let view = PlayerUIView()
-        view.player = player
-        return view
-    }
-
-    func updateUIView(_ uiView: PlayerUIView, context: Context) {
-        uiView.player = player
-    }
-
-    class PlayerUIView: UIView {
-        var player: AVPlayer? {
-            didSet {
-                playerLayer.player = player
-            }
-        }
-
-        private var playerLayer: AVPlayerLayer {
-            layer as! AVPlayerLayer
-        }
-
-        override class var layerClass: AnyClass {
-            AVPlayerLayer.self
-        }
-
-        override init(frame: CGRect) {
-            super.init(frame: frame)
-            playerLayer.videoGravity = .resizeAspectFill
-            backgroundColor = .black
-        }
-
-        required init?(coder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
-        }
-    }
-}
+import AVFoundation
 
 /// Full-screen photo/video hero view with carousel support
 struct WorkoutDetailHeroView: View {
     let photos: [Photo]
     @Binding var currentIndex: Int
     let sheetPosition: SheetPosition
+    let isPlaybackEnabled: Bool
     let onPhotoTap: (Photo) -> Void
 
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .bottom) {
-                // Photo/Video Carousel
                 if photos.isEmpty {
                     placeholderView
                 } else {
                     TabView(selection: $currentIndex) {
-                        ForEach(Array(photos.enumerated()), id: \.element.id) { index, photo in
+                        ForEach(photos.indices, id: \.self) { index in
+                            let photo = photos[index]
                             HeroMediaItem(
                                 photo: photo,
-                                isVisible: sheetPosition != .expanded && index == currentIndex,
+                                isVisible: sheetPosition != .expanded && isPlaybackEnabled && index == currentIndex,
                                 geometry: geometry,
                                 onTap: { onPhotoTap(photo) }
                             )
@@ -78,7 +38,6 @@ struct WorkoutDetailHeroView: View {
                     .ignoresSafeArea()
                 }
 
-                // Gradient overlay at bottom for smooth transition to sheet
                 LinearGradient(
                     colors: [.clear, .black.opacity(0.4)],
                     startPoint: .top,
@@ -87,7 +46,6 @@ struct WorkoutDetailHeroView: View {
                 .frame(height: 80)
                 .allowsHitTesting(false)
 
-                // Page indicator (only show if multiple photos)
                 if photos.count > 1 {
                     pageIndicator
                         .padding(.bottom, 20)
@@ -96,8 +54,6 @@ struct WorkoutDetailHeroView: View {
         }
         .background(Color.black)
     }
-
-    // MARK: - View Components
 
     private var placeholderView: some View {
         Rectangle()
@@ -131,9 +87,10 @@ private struct HeroMediaItem: View {
     @State private var loadedImage: UIImage?
     @State private var isLoading = true
     @State private var player: AVPlayer?
+    @State private var loopObserver: NSObjectProtocol?
+    @State private var isMuted = true
 
     var body: some View {
-        Button { onTap() } label: {
         ZStack {
             if photo.isVideo {
                 videoContent
@@ -144,26 +101,23 @@ private struct HeroMediaItem: View {
         .frame(width: geometry.size.width, height: geometry.size.height)
         .clipped()
         .contentShape(Rectangle())
+        .onTapGesture {
+            onTap()
         }
-        .buttonStyle(.plain)
-        .task {
+        .task(id: photo.id) {
             await loadMedia()
         }
         .onChange(of: isVisible) { _, visible in
-            if photo.isVideo {
-                if visible {
-                    player?.play()
-                } else {
-                    player?.pause()
-                }
-            }
+            updatePlayback(isVisible: visible)
         }
         .onDisappear {
             player?.pause()
+            if let loopObserver {
+                NotificationCenter.default.removeObserver(loopObserver)
+            }
+            loopObserver = nil
         }
     }
-
-    // MARK: - Photo Content
 
     @ViewBuilder
     private var photoContent: some View {
@@ -181,16 +135,13 @@ private struct HeroMediaItem: View {
         }
     }
 
-    // MARK: - Video Content
-
     @ViewBuilder
     private var videoContent: some View {
-        if let player = player {
-            FillVideoPlayer(player: player)
-                .overlay(alignment: .topTrailing) {
-                    // Duration badge
+        if let player {
+            VideoPlayerView(player: player)
+                .overlay(alignment: .bottomLeading) {
                     if let duration = photo.duration {
-                        Text(formatDuration(duration))
+                        Text(DurationFormatter.format(duration: duration))
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 8)
@@ -199,24 +150,28 @@ private struct HeroMediaItem: View {
                                 Capsule()
                                     .fill(Color.black.opacity(0.6))
                             )
-                            .padding(12)
+                            .padding(.leading, 12)
+                            .padding(.bottom, 18)
                     }
                 }
                 .overlay(alignment: .bottomTrailing) {
-                    // Muted indicator
-                    Image(systemName: "speaker.slash.fill")
-                        .font(.system(size: 16))
-                        .foregroundStyle(.white)
-                        .padding(10)
-                        .background(
-                            Circle()
-                                .fill(Color.black.opacity(0.5))
-                        )
-                        .padding(12)
+                    Button {
+                        toggleMute()
+                    } label: {
+                        Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                            .font(.system(size: 16))
+                            .foregroundStyle(.white)
+                            .padding(10)
+                            .background(
+                                Circle()
+                                    .fill(Color.black.opacity(0.55))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(12)
                 }
         } else if isLoading {
             ZStack {
-                // Show thumbnail while loading video
                 if let image = loadedImage {
                     Image(uiImage: image)
                         .resizable()
@@ -232,110 +187,53 @@ private struct HeroMediaItem: View {
         }
     }
 
-    // MARK: - Media Loading
-
     private func loadMedia() async {
         if photo.isVideo {
-            await loadVideoThumbnail()
-            await loadVideo()
+            loadedImage = await loadCachedVideoThumbnail(from: photo.url)
+            await configureVideoPlayer()
         } else {
-            await loadPhoto()
+            loadedImage = await loadCachedPhoto(from: photo.url)
+            isLoading = false
         }
     }
 
-    private func loadPhoto() async {
-        // Check cache first
-        if let cached = ImageCache.shared.image(for: photo.url) {
-            await MainActor.run {
-                self.loadedImage = cached
-                self.isLoading = false
-            }
-            return
+    private func configureVideoPlayer() async {
+        let newPlayer = AVPlayer(url: photo.url)
+        newPlayer.isMuted = isMuted
+        newPlayer.actionAtItemEnd = .none
+
+        let observer = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: newPlayer.currentItem,
+            queue: .main
+        ) { [weak newPlayer] _ in
+            newPlayer?.seek(to: .zero)
+            newPlayer?.play()
         }
-
-        do {
-            let (data, _) = try await URLSession.shared.data(from: photo.url)
-
-            await MainActor.run {
-                if let image = UIImage(data: data) {
-                    ImageCache.shared.store(image, for: photo.url)
-                    self.loadedImage = image
-                }
-                self.isLoading = false
-            }
-        } catch {
-            await MainActor.run {
-                self.isLoading = false
-            }
-        }
-    }
-
-    private func loadVideoThumbnail() async {
-        // Check cache first
-        if let cached = ImageCache.shared.image(for: photo.url) {
-            await MainActor.run {
-                self.loadedImage = cached
-            }
-            return
-        }
-
-        do {
-            let asset = AVURLAsset(url: photo.url)
-            try await asset.load(.isReadable, .tracks)
-
-            let imageGenerator = AVAssetImageGenerator(asset: asset)
-            imageGenerator.appliesPreferredTrackTransform = true
-
-            let cgImage = try await imageGenerator.image(at: .zero).image
-            let image = UIImage(cgImage: cgImage)
-
-            await MainActor.run {
-                ImageCache.shared.store(image, for: photo.url)
-                self.loadedImage = image
-            }
-        } catch {
-            // Thumbnail failed, video player will still try to load
-        }
-    }
-
-    private func loadVideo() async {
-        let asset = AVURLAsset(url: photo.url)
-        try? await asset.load(.isPlayable)
-
-        let playerItem = AVPlayerItem(asset: asset)
 
         await MainActor.run {
-            let newPlayer = AVPlayer(playerItem: playerItem)
-            newPlayer.isMuted = true // Muted by default in hero view
-
-            // Loop video
-            NotificationCenter.default.addObserver(
-                forName: .AVPlayerItemDidPlayToEndTime,
-                object: playerItem,
-                queue: .main
-            ) { _ in
-                newPlayer.seek(to: .zero)
-                newPlayer.play()
-            }
-
+            self.loopObserver = observer
             self.player = newPlayer
             self.isLoading = false
-
-            // Auto-play if visible (slight delay to ensure view is ready)
-            if isVisible {
-                Task {
-                    try await Task.sleep(for: .milliseconds(100))
-                    newPlayer.play()
-                }
-            }
+            updatePlayback(isVisible: isVisible)
         }
     }
 
-    private func formatDuration(_ duration: TimeInterval) -> String {
-        let totalSeconds = Int(duration.rounded())
-        let minutes = totalSeconds / 60
-        let seconds = totalSeconds % 60
+    private func updatePlayback(isVisible: Bool) {
+        guard let player else { return }
 
-        return "\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
+        player.isMuted = isMuted
+        if isVisible {
+            player.seek(to: .zero)
+            player.play()
+        } else {
+            player.pause()
+            player.seek(to: .zero)
+        }
+    }
+
+    private func toggleMute() {
+        isMuted.toggle()
+        player?.isMuted = isMuted
     }
 }

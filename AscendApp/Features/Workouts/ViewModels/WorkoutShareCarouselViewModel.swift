@@ -184,15 +184,7 @@ final class WorkoutShareCarouselViewModel {
         cards.append(.minimalSummary)
 
         // 2. Add user's photos (highlighted first, then rest)
-        var orderedPhotos = workout.photos
-        if let highlightedId = workout.highlightedPhotoId,
-           let highlightedIndex = orderedPhotos.firstIndex(where: { $0.id == highlightedId }),
-           highlightedIndex != 0 {
-            let highlighted = orderedPhotos.remove(at: highlightedIndex)
-            orderedPhotos.insert(highlighted, at: 0)
-        }
-
-        for photo in orderedPhotos {
+        for photo in workout.orderedPhotosForDisplay {
             cards.append(.photoMedia(photoId: photo.id))
         }
 
@@ -524,4 +516,3 @@ final class WorkoutShareCarouselViewModel {
         }
     }
 }
-

@@ -346,6 +346,20 @@ class Workout {
         // Fallback to first photo if highlighted photo doesn't exist
         return photos.first
     }
+
+    /// Returns workout media ordered for display with the highlighted item first.
+    var orderedPhotosForDisplay: [Photo] {
+        guard let highlightedId = highlightedPhotoId,
+              let highlightedIndex = photos.firstIndex(where: { $0.id == highlightedId }),
+              highlightedIndex != 0 else {
+            return photos
+        }
+
+        var orderedPhotos = photos
+        let highlightedPhoto = orderedPhotos.remove(at: highlightedIndex)
+        orderedPhotos.insert(highlightedPhoto, at: 0)
+        return orderedPhotos
+    }
     
     /// Sets the highlighted photo ID and updates if the specified photo exists
     func setHighlightedPhoto(_ photoId: UUID) {
