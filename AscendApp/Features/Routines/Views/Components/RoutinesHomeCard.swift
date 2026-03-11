@@ -88,7 +88,7 @@ struct RoutinesHomeCard: View {
                     }
                 }
             )
-            .presentationDetents([.large])
+            .appSheetStyle(.large)
         }
         .sheet(item: $routineToEdit) { routine in
             RoutineEditorView(

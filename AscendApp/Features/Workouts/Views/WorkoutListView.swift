@@ -134,7 +134,7 @@ struct WorkoutListView: View {
                     },
                     pendingImportCount: unifiedImportService.totalPendingCount
                 )
-                .presentationDetents([.height(280)])
+                .appSheetStyle(.fitted())
             }
             .sheet(isPresented: $showingWorkoutForm) {
                 WorkoutFormView(
@@ -193,7 +193,6 @@ struct WorkoutListView: View {
                         showingDeleteConfirmation = false
                     }
                 )
-                .presentationDetents([.height(200)])
                 .interactiveDismissDisabled(isDeleting || isCancelling)
                 .onDisappear {
                     deleteTask?.cancel()

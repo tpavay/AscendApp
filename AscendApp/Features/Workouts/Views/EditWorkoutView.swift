@@ -131,15 +131,15 @@ struct EditWorkoutView: View {
         }
         .sheet(isPresented: $showingMetricTooltip) {
             MetricTooltipView()
-                .presentationDetents([.fraction(0.30)])
+                .appSheetStyle(.fitted())
         }
         .sheet(isPresented: $showingDatePicker) {
             DateTimePickerView(selectedDate: $workoutDate)
-                .presentationDetents([.height(400)])
+                .appSheetStyle(.dateTimePicker)
         }
         .sheet(isPresented: $showingEffortRating) {
             EffortRatingView(effortRating: $effortRating)
-                .presentationDetents([.fraction(0.4)])
+                .appSheetStyle(.effortRating)
         }
         .sheet(isPresented: $showingDurationPicker) {
             DurationPickerSheet(
@@ -150,8 +150,7 @@ struct EditWorkoutView: View {
                 setDuration(hours: durationPickerHours, minutes: durationPickerMinutes, seconds: durationPickerSeconds)
                 showingDurationPicker = false
             }
-            .presentationDetents([.height(340)])
-            .interactiveDismissDisabled()
+            .appSheetStyle(.durationPicker, isInteractiveDismissDisabled: true)
         }
         .sheet(item: $photoPendingDeletion) { photo in
             DeletePhotoConfirmationView(
@@ -179,8 +178,6 @@ struct EditWorkoutView: View {
                     photoForAction = nil
                 }
             )
-            .presentationDetents([.height(isPhotoHighlighted(photo) ? 260 : 280)])
-            .presentationDragIndicator(.visible)
         }
         .alert("Unable to Update", isPresented: Binding(
             get: { updateErrorMessage != nil },

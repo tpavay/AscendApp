@@ -90,7 +90,7 @@ struct StepConfigurationExplanationView: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollIndicators(.hidden)
-            .themedBackground()
+            .appSheetBackground()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -203,4 +203,3 @@ struct StepConfigurationExplanationView: View {
     StepConfigurationExplanationView()
         .preferredColorScheme(.dark)
 }
-

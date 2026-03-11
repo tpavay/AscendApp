@@ -57,7 +57,7 @@ struct TooltipView: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 20)
-        .themedBackground()
+        .appSheetBackground()
     }
 }
 
@@ -88,8 +88,7 @@ struct TooltipButton: View {
         .buttonStyle(.plain)
         .sheet(isPresented: $showingTooltip) {
             TooltipView(title: title, content: content)
-                .presentationDetents([.height(estimatedHeight)])
-                .presentationDragIndicator(.visible)
+                .appSheetStyle(.height(estimatedHeight))
         }
     }
 }

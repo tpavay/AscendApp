@@ -86,7 +86,7 @@ struct RoutinesView: View {
                     HapticsManager.shared.trigger(.mediumImpact)
                 }
             )
-            .presentationDetents([.large])
+            .appSheetStyle(.large)
         }
         .sheet(item: $newRoutineFolderSelection) { selection in
             RoutineEditorView(
@@ -115,8 +115,7 @@ struct RoutinesView: View {
                     newRoutineFolderSelection = NewRoutineFolderSelection(folderId: folderId)
                 }
             }
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
+            .appSheetStyle(.medium)
         }
         .sheet(isPresented: $showingExploreRoutines) {
             ExploreRoutinesView(
@@ -139,8 +138,7 @@ struct RoutinesView: View {
                 viewModel.createFolder(name: folderName)
                 HapticsManager.shared.trigger(.success)
             }
-            .presentationDetents([.height(220)])
-            .presentationDragIndicator(.visible)
+            .appSheetStyle(.dialog(height: 220))
         }
         .sheet(isPresented: $showingReorderFolders) {
             ReorderFoldersSheet(
@@ -153,8 +151,7 @@ struct RoutinesView: View {
             ) { reorderedFolders, myRoutinesPosition in
                 viewModel.saveFolderOrder(reorderedFolders, myRoutinesPosition: myRoutinesPosition)
             }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
+            .appSheetStyle(.mediumLarge)
         }
         .sheet(item: $selectedFolderForOptions) { folder in
             FolderOptionsSheet(
@@ -188,8 +185,7 @@ struct RoutinesView: View {
                     HapticsManager.shared.trigger(.mediumImpact)
                 }
             )
-            .presentationDetents([.height(340)])
-            .presentationDragIndicator(.hidden)
+            .appSheetStyle(.dialog(height: 340, dragIndicator: .hidden))
         }
         .sheet(item: $folderToRename) { folder in
             RenameFolderDialog(
@@ -203,8 +199,7 @@ struct RoutinesView: View {
                 folderToRename = nil
                 HapticsManager.shared.trigger(.success)
             }
-            .presentationDetents([.height(220)])
-            .presentationDragIndicator(.visible)
+            .appSheetStyle(.dialog(height: 220))
         }
         .fullScreenCover(item: $activeRoutine) { routine in
             ActiveRoutineView(routine: routine)

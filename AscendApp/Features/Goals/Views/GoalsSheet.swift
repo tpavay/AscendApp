@@ -127,7 +127,7 @@ struct GoalsSheet: View {
                 actionButtons
             }
             .padding(20)
-            .themedBackground()
+            .appSheetBackground()
             .navigationTitle("Weekly Goal")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -158,8 +158,7 @@ struct GoalsSheet: View {
                 }
             }
         }
-        .presentationDetents([.height(440)])
-        .presentationDragIndicator(.hidden)
+        .appSheetStyle(.dialog(height: 440, dragIndicator: .hidden))
         .presentationContentInteraction(.scrolls)
         .onAppear {
             viewModel.configure(modelContext: modelContext)

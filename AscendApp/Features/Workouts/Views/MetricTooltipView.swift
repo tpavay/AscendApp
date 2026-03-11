@@ -17,28 +17,12 @@ struct MetricTooltipView: View {
     }
     
     var body: some View {
-        VStack(spacing: 20) {
-            // Handle bar for visual indication
-            RoundedRectangle(cornerRadius: 2.5)
-                .fill(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5))
-                .frame(width: 36, height: 5)
-                .padding(.top, 8)
-            
+        AppSheetScaffold(
+            title: "Change Workout Metric",
+            headerAlignment: .center,
+            contentAlignment: .leading
+        ) {
             VStack(spacing: 16) {
-                // Icon and title
-                HStack(spacing: 12) {
-                    Image(systemName: "info.circle.fill")
-                        .font(.system(size: 24, weight: .medium))
-                        .foregroundStyle(.accent)
-                    
-                    Text("Change Workout Metric")
-                        .font(.montserratSemiBold)
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                    
-                    Spacer()
-                }
-                
-                // Instructions
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 8) {
                         Text("1.")
@@ -71,32 +55,19 @@ struct MetricTooltipView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                
-                // Got it button
-                Button(action: {
-                    dismiss()
-                }) {
-                    Text("Got it")
-                        .font(.montserratSemiBold)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(.accent)
-                        )
-                }
-                .padding(.top, 8)
             }
-            .padding(.horizontal, 20)
-            
-            Spacer()
+        } footer: {
+            Button(action: {
+                dismiss()
+            }) {
+                Text("Got it")
+            }
+            .appSheetButtonStyle(tone: .primary)
         }
-        .themedBackground()
     }
 }
 
 #Preview {
     MetricTooltipView()
-        .presentationDetents([.fraction(0.25)])
+        .appSheetStyle(.fitted())
 }

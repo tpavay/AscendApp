@@ -560,7 +560,7 @@ struct ProgressSheet: View {
         .buttonStyle(.plain)
         .sheet(isPresented: $showMoreMetrics) {
             moreMetricsSheet
-                .presentationDetents([.height(300)])
+                .appSheetStyle(.dialog(height: 300))
         }
     }
 

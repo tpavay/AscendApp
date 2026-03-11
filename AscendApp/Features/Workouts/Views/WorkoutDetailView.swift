@@ -113,7 +113,6 @@ struct WorkoutDetailView: View {
                         showingDeleteConfirmation = false
                     }
                 )
-                .presentationDetents([.height(200)])
                 .interactiveDismissDisabled(isDeleting || isCancelling)
                 .onDisappear {
                     deleteTask?.cancel()
@@ -1193,74 +1192,18 @@ struct SingleWorkoutDeleteConfirmationView: View {
     let onConfirm: () -> Void
     let onCancel: () -> Void
 
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var themeManager = ThemeManager.shared
-
-    private var effectiveColorScheme: ColorScheme {
-        themeManager.effectiveColorScheme(for: colorScheme)
-    }
-
     var body: some View {
-        VStack(spacing: 20) {
-            VStack(spacing: 8) {
-                Text("Delete Workout")
-                    .font(.montserratBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                Text("Are you sure you want to delete \"\(workout.name)\"? This action cannot be undone.")
-                    .font(.montserratRegular(size: 16))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .gray)
-                    .multilineTextAlignment(.center)
-            }
-
-            HStack(spacing: 12) {
-                // Cancel button - enabled during loading so user can cancel
-                Button {
-                    onCancel()
-                } label: {
-                    if isCancelling {
-                        HStack(spacing: 6) {
-                            ProgressView()
-                                .tint(effectiveColorScheme == .dark ? .white : .black)
-                                .scaleEffect(0.8)
-                            Text("Stopping...")
-                        }
-                    } else {
-                        Text("Cancel")
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
-                )
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                .disabled(isCancelling)
-                .opacity(isLoading && !isCancelling ? 0.7 : 1)
-
-                Button {
-                    onConfirm()
-                } label: {
-                    if isLoading {
-                        ProgressView()
-                            .tint(.white)
-                    } else {
-                        Text("Delete")
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(.red)
-                )
-                .foregroundStyle(.white)
-                .disabled(isLoading || isCancelling)
-            }
-        }
-        .padding(20)
-        .themedBackground()
+        ConfirmationView(
+            title: "Delete Workout",
+            message: "Are you sure you want to delete \"\(workout.name)\"? This action cannot be undone.",
+            confirmButtonText: "Delete",
+            isDestructive: true,
+            isLoading: isLoading,
+            isCancelling: isCancelling,
+            onCancel: onCancel,
+            onConfirm: onConfirm
+        )
+        .appSheetStyle(.destructiveConfirmation)
     }
 }
 

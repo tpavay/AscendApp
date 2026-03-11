@@ -111,8 +111,7 @@ struct EditProfileView: View {
         }
         .sheet(isPresented: $showingFitnessLevelSheet) {
             FitnessLevelSheetView(settingsManager: settingsManager)
-                .presentationDetents([.medium])
-                .presentationDragIndicator(.visible)
+                .appSheetStyle(.medium)
         }
         .sheet(isPresented: $isShowingDeleteAccountConfirmation) {
             DeleteAccountConfirmationView(
@@ -462,7 +461,7 @@ private struct FitnessLevelSheetView: View {
                 Spacer()
             }
             .padding(.top, 20)
-            .themedBackground()
+            .appSheetBackground()
             .navigationTitle("Fitness Level")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

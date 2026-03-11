@@ -124,8 +124,6 @@ struct WorkoutPhotosSection: View {
                         photoForAction = nil
                     }
                 )
-                .presentationDetents([.height(isHighlighted(photo) ? 260 : 280)])
-                .presentationDragIndicator(.visible)
             }
         }
     }

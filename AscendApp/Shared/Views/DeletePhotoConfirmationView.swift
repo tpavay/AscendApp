@@ -20,8 +20,7 @@ struct DeletePhotoConfirmationView: View {
             onCancel: onCancel,
             onConfirm: onDelete
         )
-        .presentationDetents([.height(180)])
-        .presentationDragIndicator(.visible)
+        .appSheetStyle(.compactConfirmation)
     }
 }
 

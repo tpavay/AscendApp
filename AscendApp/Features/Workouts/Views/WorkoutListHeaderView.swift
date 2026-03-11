@@ -43,14 +43,14 @@ struct WorkoutListHeaderView: View {
             }
         }
 
-        var presentationDetents: Set<PresentationDetent> {
+        var sheetPreset: AppSheetPreset {
             switch self {
             case .source:
-                return [.height(CGFloat(480))]
+                return .filterMenu(height: 480)
             case .steps, .duration:
-                return [.height(CGFloat(260))]
+                return .dialog(height: 260)
             case .dates:
-                return [.fraction(0.85)]
+                return .dateFilter
             }
         }
     }
@@ -153,8 +153,7 @@ struct WorkoutListHeaderView: View {
             switch sheet {
             case .source:
                 WorkoutSourceFilterSheet(filterState: filterState, effectiveColorScheme: effectiveColorScheme)
-                    .presentationDetents(sheet.presentationDetents)
-                    .presentationDragIndicator(.visible)
+                    .appSheetStyle(sheet.sheetPreset)
             case .steps:
                 StepsFilterSheet(
                     filterState: filterState,
@@ -163,16 +162,13 @@ struct WorkoutListHeaderView: View {
                     preferredMetric: preferredMetric,
                     effectiveColorScheme: effectiveColorScheme
                 )
-                .presentationDetents(sheet.presentationDetents)
-                .presentationDragIndicator(.visible)
+                .appSheetStyle(sheet.sheetPreset)
             case .dates:
                 DatesFilterSheet(filterState: filterState, bounds: dateBounds, effectiveColorScheme: effectiveColorScheme)
-                    .presentationDetents(sheet.presentationDetents)
-                    .presentationDragIndicator(.visible)
+                    .appSheetStyle(sheet.sheetPreset)
             case .duration:
                 DurationFilterSheet(filterState: filterState, bounds: durationBounds, effectiveColorScheme: effectiveColorScheme)
-                    .presentationDetents(sheet.presentationDetents)
-                    .presentationDragIndicator(.visible)
+                    .appSheetStyle(sheet.sheetPreset)
             }
         }
         .sheet(isPresented: $showingSortSheet) {
@@ -181,8 +177,7 @@ struct WorkoutListHeaderView: View {
                 effectiveColorScheme: effectiveColorScheme,
                 preferredMetric: preferredMetric
             )
-            .presentationDetents([.height(520)])
-            .presentationDragIndicator(.visible)
+            .appSheetStyle(.filterMenu(height: 520))
         }
     }
 
@@ -438,7 +433,7 @@ private struct WorkoutSourceFilterSheet: View {
         }
         .padding(20)
         .padding(.bottom, 12)
-        .themedBackground()
+        .appSheetBackground()
     }
 
     private func toggleSelection(for source: WorkoutSource) {
@@ -517,7 +512,7 @@ private struct StepsFilterSheet: View {
         }
         .padding(20)
         .padding(.bottom, 12)
-        .themedBackground()
+        .appSheetBackground()
         .onChange(of: minValue) { _, newValue in
             updateFilter()
         }
@@ -634,7 +629,7 @@ private struct DatesFilterSheet: View {
             .padding(20)
             .padding(.bottom, 12)
         }
-        .themedBackground()
+        .appSheetBackground()
         .onChange(of: startDate) { _, _ in updateFilter() }
         .onChange(of: endDate) { _, _ in updateFilter() }
         .onChange(of: isRangeEnabled) { _, _ in updateFilter() }
@@ -808,7 +803,7 @@ private struct DurationFilterSheet: View {
         }
         .padding(20)
         .padding(.bottom, 12)
-        .themedBackground()
+        .appSheetBackground()
         .onChange(of: minValue) { _, _ in updateFilter() }
         .onChange(of: maxValue) { _, _ in updateFilter() }
     }
@@ -896,7 +891,7 @@ private struct SortOptionSheet: View {
         }
         .padding(20)
         .padding(.bottom, 12)
-        .themedBackground()
+        .appSheetBackground()
     }
 }
 

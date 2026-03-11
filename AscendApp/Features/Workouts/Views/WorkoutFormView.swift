@@ -65,15 +65,15 @@ struct WorkoutFormView: View {
         }
         .sheet(isPresented: $showingMetricTooltip) {
             MetricTooltipView()
-                .presentationDetents([.fraction(0.30)])
+                .appSheetStyle(.fitted())
         }
         .sheet(isPresented: $showingDatePicker) {
             DateTimePickerView(selectedDate: $viewModel.workoutDate)
-                .presentationDetents([.height(400)])
+                .appSheetStyle(.dateTimePicker)
         }
         .sheet(isPresented: $showingEffortRating) {
             EffortRatingView(effortRating: $viewModel.effortRating)
-                .presentationDetents([.fraction(0.4)])
+                .appSheetStyle(.effortRating)
         }
         .sheet(isPresented: $showingDurationPicker) {
             DurationPickerSheet(
@@ -88,8 +88,7 @@ struct WorkoutFormView: View {
                 )
                 showingDurationPicker = false
             }
-            .presentationDetents([.height(340)])
-            .interactiveDismissDisabled()
+            .appSheetStyle(.durationPicker, isInteractiveDismissDisabled: true)
         }
         .alert("Upload Error", isPresented: .constant(viewModel.uploadError != nil)) {
             Button("OK") {
