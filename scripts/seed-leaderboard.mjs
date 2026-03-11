@@ -79,6 +79,17 @@ const TIME_FRAMES = [
   { key: "all_time", multiplier: 100 },
 ];
 
+const AVATAR_BACKGROUNDS = [
+  "1D4ED8", // blue
+  "0F766E", // teal
+  "B45309", // amber
+  "7C3AED", // violet
+  "BE123C", // rose
+  "166534", // green
+  "0E7490", // cyan
+  "4338CA", // indigo
+];
+
 // ---------------------------------------------------------------------------
 // Period identifier logic — ported from LeaderboardTimeFrame.swift
 // ---------------------------------------------------------------------------
@@ -188,6 +199,29 @@ function randomDouble(min, max) {
   return Math.random() * (max - min) + min;
 }
 
+function hashString(value) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) {
+    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
+function avatarURL(name) {
+  const index = hashString(name) % AVATAR_BACKGROUNDS.length;
+  const background = AVATAR_BACKGROUNDS[index];
+  const params = new URLSearchParams({
+    name,
+    size: "200",
+    background,
+    color: "fff",
+    bold: "true",
+    format: "png",
+  });
+
+  return `https://ui-avatars.com/api/?${params.toString()}`;
+}
+
 function generateStats(multiplier) {
   const baseWorkouts = randomInt(3, 7);
   const baseStepsPerWorkout = randomInt(800, 2500);
@@ -292,7 +326,7 @@ async function seed(db, dryRun) {
         data: {
           userId: user.id,
           displayName: user.name,
-          photoURL: "",
+          photoURL: avatarURL(user.name),
           timeFrame: tf.key,
           periodIdentifier: period,
           totalSteps: stats.totalSteps,
