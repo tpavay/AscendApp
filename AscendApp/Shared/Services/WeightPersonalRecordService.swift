@@ -23,6 +23,7 @@ final class WeightPersonalRecordService {
             return []
         }
 
+        let currentRecordsByLookup = currentWeightRecordsByLookup(from: allWeightRecords)
         var results: [WeightPersonalRecordResult] = []
 
         // For each enabled weight entry, check all 4 metrics
@@ -37,7 +38,7 @@ final class WeightPersonalRecordService {
                 type: .longestDuration,
                 comboKey: comboKey,
                 newValue: workout.duration,
-                currentRecords: allWeightRecords
+                currentRecord: currentRecordsByLookup[weightLookupKey(type: .longestDuration, comboKey: comboKey)]
             ))
 
             // Check steps PR
@@ -45,7 +46,7 @@ final class WeightPersonalRecordService {
                 type: .mostSteps,
                 comboKey: comboKey,
                 newValue: Double(workout.steps),
-                currentRecords: allWeightRecords
+                currentRecord: currentRecordsByLookup[weightLookupKey(type: .mostSteps, comboKey: comboKey)]
             ))
 
             // Check pace PR
@@ -54,7 +55,7 @@ final class WeightPersonalRecordService {
                     type: .bestPace,
                     comboKey: comboKey,
                     newValue: pace,
-                    currentRecords: allWeightRecords
+                    currentRecord: currentRecordsByLookup[weightLookupKey(type: .bestPace, comboKey: comboKey)]
                 ))
             }
 
@@ -63,7 +64,7 @@ final class WeightPersonalRecordService {
                 type: .mostFloors,
                 comboKey: comboKey,
                 newValue: Double(workout.floors),
-                currentRecords: allWeightRecords
+                currentRecord: currentRecordsByLookup[weightLookupKey(type: .mostFloors, comboKey: comboKey)]
             ))
         }
 
@@ -75,16 +76,8 @@ final class WeightPersonalRecordService {
         type: WeightRecordType,
         comboKey: WeightComboKey,
         newValue: Double,
-        currentRecords: [WeightPersonalRecord]
+        currentRecord: WeightPersonalRecord?
     ) -> WeightPersonalRecordResult {
-        let keyString = comboKey.keyString
-
-        let currentRecord = currentRecords.first { record in
-            record.recordType == type &&
-            record.weightComboKey == keyString &&
-            record.isCurrent
-        }
-
         if let current = currentRecord {
             let isNewRecord = newValue > current.value
             return WeightPersonalRecordResult(
@@ -120,6 +113,7 @@ final class WeightPersonalRecordService {
             return []
         }
 
+        let currentRecordsByType = currentAggregateRecordsByType(from: allAggregateRecords)
         var results: [AggregateWeightRecordResult] = []
 
         // Check heaviest for each equipment type used
@@ -128,7 +122,7 @@ final class WeightPersonalRecordService {
             results.append(checkAggregateRecord(
                 type: recordType,
                 newValue: entry.totalWeight,
-                currentRecords: allAggregateRecords
+                currentRecord: currentRecordsByType[recordType]
             ))
         }
 
@@ -136,7 +130,7 @@ final class WeightPersonalRecordService {
         results.append(checkAggregateRecord(
             type: .mostTotalWeight,
             newValue: config.totalWeight,
-            currentRecords: allAggregateRecords
+            currentRecord: currentRecordsByType[.mostTotalWeight]
         ))
 
         return results
@@ -145,10 +139,8 @@ final class WeightPersonalRecordService {
     private static func checkAggregateRecord(
         type: AggregateWeightRecordType,
         newValue: Double,
-        currentRecords: [AggregateWeightRecord]
+        currentRecord: AggregateWeightRecord?
     ) -> AggregateWeightRecordResult {
-        let currentRecord = currentRecords.first { $0.recordType == type && $0.isCurrent }
-
         if let current = currentRecord {
             let isNewRecord = newValue > current.value
             return AggregateWeightRecordResult(
@@ -180,15 +172,13 @@ final class WeightPersonalRecordService {
     ) throws {
         var newWeightPRTypes: [String] = []
 
+        let weightRecordById = try fetchCurrentWeightRecordsByID(modelContext: modelContext)
+        let aggregateRecordById = try fetchCurrentAggregateRecordsByID(modelContext: modelContext)
+
         // Save weight combo PRs
         for result in weightResults where result.isNewRecord {
             if let previousId = result.previousRecordId {
-                let descriptor = FetchDescriptor<WeightPersonalRecord>(
-                    predicate: #Predicate<WeightPersonalRecord> { $0.id == previousId }
-                )
-                if let previousRecord = try modelContext.fetch(descriptor).first {
-                    previousRecord.isCurrent = false
-                }
+                weightRecordById[previousId]?.isCurrent = false
             }
 
             let newRecord = WeightPersonalRecord(
@@ -204,7 +194,6 @@ final class WeightPersonalRecordService {
             )
             modelContext.insert(newRecord)
 
-            // Track for workout annotation
             let prKey = "\(result.weightComboKey.keyString)_\(result.recordType.rawValue)"
             newWeightPRTypes.append(prKey)
         }
@@ -212,12 +201,7 @@ final class WeightPersonalRecordService {
         // Save aggregate PRs
         for result in aggregateResults where result.isNewRecord {
             if let previousId = result.previousRecordId {
-                let descriptor = FetchDescriptor<AggregateWeightRecord>(
-                    predicate: #Predicate<AggregateWeightRecord> { $0.id == previousId }
-                )
-                if let previousRecord = try modelContext.fetch(descriptor).first {
-                    previousRecord.isCurrent = false
-                }
+                aggregateRecordById[previousId]?.isCurrent = false
             }
 
             let newRecord = AggregateWeightRecord(
@@ -274,12 +258,11 @@ final class WeightPersonalRecordService {
             workout.weightPersonalRecordTypes = nil
         }
 
-        try modelContext.save()
-
-        // 4. Process workouts chronologically
-        // Track best values per combo key per record type
-        var comboBests: [String: [WeightRecordType: (value: Double, recordId: UUID)]] = [:]
-        var aggregateBests: [AggregateWeightRecordType: (value: Double, recordId: UUID)] = [:]
+        // 4. Process workouts chronologically, tracking best values and their record objects.
+        // By keeping direct references to inserted objects, we avoid per-record
+        // SwiftData fetch queries inside the loop.
+        var comboBests: [String: [WeightRecordType: (value: Double, record: WeightPersonalRecord)]] = [:]
+        var aggregateBests: [AggregateWeightRecordType: (value: Double, record: AggregateWeightRecord)] = [:]
 
         for workout in allWorkouts {
             guard let config = workout.weightConfiguration, !config.isEmpty else {
@@ -296,12 +279,10 @@ final class WeightPersonalRecordService {
                 )
                 let keyString = comboKey.keyString
 
-                // Ensure we have a dictionary for this combo
                 if comboBests[keyString] == nil {
                     comboBests[keyString] = [:]
                 }
 
-                // Check each metric type
                 let metrics: [(WeightRecordType, Double?)] = [
                     (.longestDuration, workout.duration),
                     (.mostSteps, Double(workout.steps)),
@@ -316,17 +297,9 @@ final class WeightPersonalRecordService {
                     let isNewRecord = previousBest == nil || value > previousBest!.value
 
                     if isNewRecord {
-                        // Mark previous as non-current
-                        if let prevId = previousBest?.recordId {
-                            let descriptor = FetchDescriptor<WeightPersonalRecord>(
-                                predicate: #Predicate<WeightPersonalRecord> { $0.id == prevId }
-                            )
-                            if let prevRecord = try modelContext.fetch(descriptor).first {
-                                prevRecord.isCurrent = false
-                            }
-                        }
+                        // Mark previous record as non-current via direct object reference
+                        previousBest?.record.isCurrent = false
 
-                        // Create new record
                         let newRecord = WeightPersonalRecord(
                             recordType: recordType,
                             weightComboKey: comboKey,
@@ -334,13 +307,13 @@ final class WeightPersonalRecordService {
                             workoutId: workout.id,
                             achievedAt: workout.date,
                             isCurrent: true,
-                            previousRecordId: previousBest?.recordId,
+                            previousRecordId: previousBest?.record.id,
                             workoutName: workout.name,
                             workoutDate: workout.date
                         )
                         modelContext.insert(newRecord)
 
-                        comboBests[keyString]?[recordType] = (value, newRecord.id)
+                        comboBests[keyString]?[recordType] = (value, newRecord)
                         newWeightPRTypes.append("\(keyString)_\(recordType.rawValue)")
                     }
                 }
@@ -351,14 +324,8 @@ final class WeightPersonalRecordService {
                 let prevAggregate = aggregateBests[aggregateType]
 
                 if prevAggregate == nil || totalWeight > prevAggregate!.value {
-                    if let prevId = prevAggregate?.recordId {
-                        let descriptor = FetchDescriptor<AggregateWeightRecord>(
-                            predicate: #Predicate<AggregateWeightRecord> { $0.id == prevId }
-                        )
-                        if let prevRecord = try modelContext.fetch(descriptor).first {
-                            prevRecord.isCurrent = false
-                        }
-                    }
+                    // Mark previous record as non-current via direct object reference
+                    prevAggregate?.record.isCurrent = false
 
                     let newRecord = AggregateWeightRecord(
                         recordType: aggregateType,
@@ -366,13 +333,13 @@ final class WeightPersonalRecordService {
                         workoutId: workout.id,
                         achievedAt: workout.date,
                         isCurrent: true,
-                        previousRecordId: prevAggregate?.recordId,
+                        previousRecordId: prevAggregate?.record.id,
                         workoutName: workout.name,
                         workoutDate: workout.date
                     )
                     modelContext.insert(newRecord)
 
-                    aggregateBests[aggregateType] = (totalWeight, newRecord.id)
+                    aggregateBests[aggregateType] = (totalWeight, newRecord)
                     newWeightPRTypes.append(aggregateType.rawValue)
                 }
             }
@@ -382,14 +349,7 @@ final class WeightPersonalRecordService {
             let prevTotal = aggregateBests[.mostTotalWeight]
 
             if prevTotal == nil || totalWeight > prevTotal!.value {
-                if let prevId = prevTotal?.recordId {
-                    let descriptor = FetchDescriptor<AggregateWeightRecord>(
-                        predicate: #Predicate<AggregateWeightRecord> { $0.id == prevId }
-                    )
-                    if let prevRecord = try modelContext.fetch(descriptor).first {
-                        prevRecord.isCurrent = false
-                    }
-                }
+                prevTotal?.record.isCurrent = false
 
                 let newRecord = AggregateWeightRecord(
                     recordType: .mostTotalWeight,
@@ -397,13 +357,13 @@ final class WeightPersonalRecordService {
                     workoutId: workout.id,
                     achievedAt: workout.date,
                     isCurrent: true,
-                    previousRecordId: prevTotal?.recordId,
+                    previousRecordId: prevTotal?.record.id,
                     workoutName: workout.name,
                     workoutDate: workout.date
                 )
                 modelContext.insert(newRecord)
 
-                aggregateBests[.mostTotalWeight] = (totalWeight, newRecord.id)
+                aggregateBests[.mostTotalWeight] = (totalWeight, newRecord)
                 newWeightPRTypes.append(AggregateWeightRecordType.mostTotalWeight.rawValue)
             }
 
@@ -413,6 +373,7 @@ final class WeightPersonalRecordService {
             }
         }
 
+        // Single save for all deletions, insertions, and updates
         try modelContext.save()
     }
 
@@ -479,5 +440,47 @@ final class WeightPersonalRecordService {
             sortBy: [SortDescriptor(\.achievedAt, order: .forward)]
         )
         return try modelContext.fetch(descriptor)
+    }
+
+    private static func currentWeightRecordsByLookup(
+        from records: [WeightPersonalRecord]
+    ) -> [String: WeightPersonalRecord] {
+        records.reduce(into: [:]) { result, record in
+            guard record.isCurrent else { return }
+            result[weightLookupKey(type: record.recordType, comboKeyString: record.weightComboKey)] = record
+        }
+    }
+
+    private static func currentAggregateRecordsByType(
+        from records: [AggregateWeightRecord]
+    ) -> [AggregateWeightRecordType: AggregateWeightRecord] {
+        records.reduce(into: [:]) { result, record in
+            guard record.isCurrent else { return }
+            result[record.recordType] = record
+        }
+    }
+
+    private static func fetchCurrentWeightRecordsByID(
+        modelContext: ModelContext
+    ) throws -> [UUID: WeightPersonalRecord] {
+        try fetchCurrentWeightPersonalRecords(modelContext: modelContext).reduce(into: [:]) { result, record in
+            result[record.id] = record
+        }
+    }
+
+    private static func fetchCurrentAggregateRecordsByID(
+        modelContext: ModelContext
+    ) throws -> [UUID: AggregateWeightRecord] {
+        try fetchCurrentAggregateRecords(modelContext: modelContext).reduce(into: [:]) { result, record in
+            result[record.id] = record
+        }
+    }
+
+    private static func weightLookupKey(type: WeightRecordType, comboKey: WeightComboKey) -> String {
+        weightLookupKey(type: type, comboKeyString: comboKey.keyString)
+    }
+
+    private static func weightLookupKey(type: WeightRecordType, comboKeyString: String) -> String {
+        "\(comboKeyString)_\(type.rawValue)"
     }
 }

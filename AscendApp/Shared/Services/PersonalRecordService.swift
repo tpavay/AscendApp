@@ -19,13 +19,14 @@ final class PersonalRecordService {
         measurementSystem: MeasurementSystem,
         stepHeight: Double
     ) -> [PersonalRecordResult] {
+        let currentRecordsByType = currentRecordsByType(from: allPersonalRecords)
         var results: [PersonalRecordResult] = []
         
         // Check steps PR
         let stepsResult = checkRecord(
             type: .mostSteps,
             newValue: Double(workout.steps),
-            currentRecords: allPersonalRecords
+            currentRecord: currentRecordsByType[.mostSteps]
         )
         results.append(stepsResult)
         
@@ -33,7 +34,7 @@ final class PersonalRecordService {
         let floorsResult = checkRecord(
             type: .mostFloors,
             newValue: Double(workout.floors),
-            currentRecords: allPersonalRecords
+            currentRecord: currentRecordsByType[.mostFloors]
         )
         results.append(floorsResult)
         
@@ -41,7 +42,7 @@ final class PersonalRecordService {
         let result = checkRecord(
             type: .longestDuration,
             newValue: workout.duration,
-            currentRecords: allPersonalRecords
+            currentRecord: currentRecordsByType[.longestDuration]
         )
         results.append(result)
         
@@ -50,7 +51,7 @@ final class PersonalRecordService {
             let result = checkRecord(
                 type: .highestAveragePace,
                 newValue: pace,
-                currentRecords: allPersonalRecords
+                currentRecord: currentRecordsByType[.highestAveragePace]
             )
             results.append(result)
         }
@@ -64,7 +65,7 @@ final class PersonalRecordService {
             let result = checkRecord(
                 type: .highestVerticalClimb,
                 newValue: verticalClimb,
-                currentRecords: allPersonalRecords
+                currentRecord: currentRecordsByType[.highestVerticalClimb]
             )
             results.append(result)
         }
@@ -74,7 +75,7 @@ final class PersonalRecordService {
             let result = checkRecord(
                 type: .highestAverageHeartRate,
                 newValue: Double(avgHR),
-                currentRecords: allPersonalRecords
+                currentRecord: currentRecordsByType[.highestAverageHeartRate]
             )
             results.append(result)
         }
@@ -84,7 +85,7 @@ final class PersonalRecordService {
             let result = checkRecord(
                 type: .highestMaxHeartRate,
                 newValue: Double(maxHR),
-                currentRecords: allPersonalRecords
+                currentRecord: currentRecordsByType[.highestMaxHeartRate]
             )
             results.append(result)
         }
@@ -94,7 +95,7 @@ final class PersonalRecordService {
             let result = checkRecord(
                 type: .mostCaloriesBurned,
                 newValue: Double(calories),
-                currentRecords: allPersonalRecords
+                currentRecord: currentRecordsByType[.mostCaloriesBurned]
             )
             results.append(result)
         }
@@ -109,20 +110,16 @@ final class PersonalRecordService {
         workout: Workout,
         modelContext: ModelContext
     ) throws {
+        let currentRecordsByID = try fetchCurrentRecordsByID(modelContext: modelContext)
+
         for result in results where result.isNewRecord {
-            // If there was a previous record, mark it as no longer current
-            if let previousId = result.previousRecordId {
-                let descriptor = FetchDescriptor<PersonalRecord>(
-                    predicate: #Predicate<PersonalRecord> { record in
-                        record.id == previousId
-                    }
-                )
-                if let previousRecord = try modelContext.fetch(descriptor).first {
-                    previousRecord.isCurrent = false
-                }
+            if let previousId = result.previousRecordId,
+               let previousRecord = currentRecordsByID[previousId] {
+                previousRecord.isCurrent = false
             }
-            
-            // Create the new personal record
+        }
+
+        for result in results where result.isNewRecord {
             let newRecord = PersonalRecord(
                 type: result.type,
                 value: result.newValue,
@@ -133,10 +130,10 @@ final class PersonalRecordService {
                 workoutName: workout.name,
                 workoutDate: workout.date
             )
-            
+
             modelContext.insert(newRecord)
         }
-        
+
         try modelContext.save()
     }
     
@@ -144,13 +141,8 @@ final class PersonalRecordService {
     private static func checkRecord(
         type: PersonalRecordType,
         newValue: Double,
-        currentRecords: [PersonalRecord]
+        currentRecord: PersonalRecord?
     ) -> PersonalRecordResult {
-        // Find the current record for this type
-        let currentRecord = currentRecords.first { record in
-            record.type == type && record.isCurrent
-        }
-        
         if let current = currentRecord {
             // Check if new value beats the current record
             let isNewRecord = newValue > current.value
@@ -220,7 +212,7 @@ final class PersonalRecordService {
         )
         let allWorkouts = try modelContext.fetch(workoutDescriptor)
         
-        // 2. Delete all existing PersonalRecord entries
+        // 2. Fetch all existing PersonalRecord entries and delete them
         let prDescriptor = FetchDescriptor<PersonalRecord>()
         let existingPRs = try modelContext.fetch(prDescriptor)
         for pr in existingPRs {
@@ -231,11 +223,9 @@ final class PersonalRecordService {
         for workout in allWorkouts {
             workout.personalRecordTypes = nil
         }
-        
-        try modelContext.save()
-        
+
         // 4. Process workouts chronologically, tracking the best values
-        var currentBests: [PersonalRecordType: (value: Double, recordId: UUID)] = [:]
+        var currentBests: [PersonalRecordType: (value: Double, record: PersonalRecord)] = [:]
         
         for workout in allWorkouts {
             var newPRTypes: [String] = []
@@ -268,13 +258,8 @@ final class PersonalRecordService {
                 
                 if isNewRecord {
                     // Mark previous record as no longer current
-                    if let prevId = previousBest?.recordId {
-                        let descriptor = FetchDescriptor<PersonalRecord>(
-                            predicate: #Predicate<PersonalRecord> { $0.id == prevId }
-                        )
-                        if let prevRecord = try modelContext.fetch(descriptor).first {
-                            prevRecord.isCurrent = false
-                        }
+                    if let prev = previousBest?.record {
+                        prev.isCurrent = false
                     }
                     
                     // Create new PR
@@ -284,14 +269,14 @@ final class PersonalRecordService {
                         workoutId: workout.id,
                         achievedAt: workout.date,
                         isCurrent: true,
-                        previousRecordId: previousBest?.recordId,
+                        previousRecordId: previousBest?.record.id,
                         workoutName: workout.name,
                         workoutDate: workout.date
                     )
                     modelContext.insert(newRecord)
                     
                     // Update tracking
-                    currentBests[type] = (value, newRecord.id)
+                    currentBests[type] = (value, newRecord)
                     newPRTypes.append(type.rawValue)
                 }
             }
@@ -310,5 +295,21 @@ final class PersonalRecordService {
             measurementSystem: measurementSystem
         )
     }
-}
 
+    private static func currentRecordsByType(
+        from records: [PersonalRecord]
+    ) -> [PersonalRecordType: PersonalRecord] {
+        records.reduce(into: [:]) { result, record in
+            guard record.isCurrent else { return }
+            result[record.type] = record
+        }
+    }
+
+    private static func fetchCurrentRecordsByID(
+        modelContext: ModelContext
+    ) throws -> [UUID: PersonalRecord] {
+        try fetchCurrentPersonalRecords(modelContext: modelContext).reduce(into: [:]) { result, record in
+            result[record.id] = record
+        }
+    }
+}
