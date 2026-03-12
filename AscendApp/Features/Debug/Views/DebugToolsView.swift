@@ -268,6 +268,6 @@ struct DebugToolsView: View {
     NavigationStack {
         DebugToolsView()
     }
-    .modelContainer(for: Workout.self, inMemory: true)
+    .modelContainer(for: [Workout.self, WorkoutSourceLink.self], inMemory: true)
 }
 #endif

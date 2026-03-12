@@ -9,9 +9,9 @@
 			<string>Editor</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.808186881002-ncqmrtrc05021fm2ekdlv2u6cjltbr14</string>
-				<string>com.googleusercontent.apps.699362062754-btv2ounn0dvd3omgkjpfhcg3ppsclnh0</string>
+				<string>com.googleusercontent.apps.808186881002-2nbeopa7sltss4mndm75s37o0var3c8n</string>
 				<string>com.googleusercontent.apps.761975761909-dibgspg10c56v2ipkm86a9jv6i51t2on</string>
+				<string>com.googleusercontent.apps.699362062754-btv2ounn0dvd3omgkjpfhcg3ppsclnh0</string>
 			</array>
 		</dict>
 		<dict>
@@ -34,14 +34,12 @@
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Ascend uses your camera to capture workout photos and videos.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Ascend needs access to your photo library to attach photos and videos to workouts.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.</string>
-	<key>NSHealthUpdateUsageDescription</key>
-	<string>Ascend saves your stair stepper workouts to Apple Health to keep all your fitness data in one place.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Ascend uses your location to save city, region, and country for locale-aware workout context.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Ascend needs access to your photo library to attach photos and videos to workouts.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Montserrat-Regular.ttf</string>

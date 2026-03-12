@@ -620,5 +620,5 @@ struct LeaderboardView: View {
             .environment(AuthenticationViewModel())
             .environment(TabRouter())
     }
-    .modelContainer(for: Workout.self, inMemory: true)
+    .modelContainer(for: [Workout.self, WorkoutSourceLink.self], inMemory: true)
 }

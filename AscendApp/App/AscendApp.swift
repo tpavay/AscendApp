@@ -69,6 +69,7 @@ struct AscendApp: App {
         do {
             let config = ModelConfiguration(schema: Schema([
                 Workout.self,
+                WorkoutSourceLink.self,
                 LeaderboardStats.self,
                 PersonalRecord.self,
                 Goal.self,
@@ -79,7 +80,7 @@ struct AscendApp: App {
                 PendingMediaUpload.self
             ]))
             return try ModelContainer(
-                for: Workout.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self, WeightPersonalRecord.self, AggregateWeightRecord.self, PendingMediaUpload.self,
+                for: Workout.self, WorkoutSourceLink.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self, WeightPersonalRecord.self, AggregateWeightRecord.self, PendingMediaUpload.self,
                 configurations: config
             )
         } catch {
@@ -101,6 +102,7 @@ struct AscendApp: App {
                 // Create a clean container
                 let config = ModelConfiguration(schema: Schema([
                     Workout.self,
+                    WorkoutSourceLink.self,
                     LeaderboardStats.self,
                     PersonalRecord.self,
                     Goal.self,
@@ -111,7 +113,7 @@ struct AscendApp: App {
                     PendingMediaUpload.self
                 ]))
                 return try ModelContainer(
-                    for: Workout.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self, WeightPersonalRecord.self, AggregateWeightRecord.self, PendingMediaUpload.self,
+                    for: Workout.self, WorkoutSourceLink.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self, WeightPersonalRecord.self, AggregateWeightRecord.self, PendingMediaUpload.self,
                     configurations: config
                 )
             } catch {

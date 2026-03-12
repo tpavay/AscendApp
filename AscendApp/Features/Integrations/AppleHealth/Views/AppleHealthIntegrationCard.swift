@@ -6,83 +6,240 @@
 //
 
 import SwiftUI
-import HealthKit
+import SwiftData
+import UIKit
 
 struct AppleHealthIntegrationCard: View {
     @Environment(\.colorScheme) private var systemColorScheme
+    @Environment(\.modelContext) private var modelContext
     @State private var themeManager = ThemeManager.shared
-    @State private var healthKitService = HealthKitService.shared
+    @State private var importCoordinator = WorkoutImportCoordinator.shared
+    @State private var showingManageSheet = false
+    @State private var showingImportSheet = false
+    @State private var shouldPresentImportsAfterManageDismiss = false
+    @State private var actionTask: Task<Void, Never>?
+    @State private var isConnecting = false
+    @State private var alertMessage = ""
+    @State private var showingErrorAlert = false
 
-    var effectiveColorScheme: ColorScheme {
+    private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: systemColorScheme)
     }
 
-    var body: some View {
-        VStack(spacing: 16) {
-            // Main row: Icon | Apple Health | Manage
-            HStack(spacing: 12) {
-                // Apple Health icon
-                Image("appleHealth-icon")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 44, height: 44)
-                    .clipShape(.rect(cornerRadius: 8))
-
-                Text("Apple Health")
-                    .font(.montserratSemiBold(size: 17))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                Spacer()
-
-                // Manage button - opens Health app
-                if !healthKitService.isHealthDataAvailable {
-                    Text("Not Available")
-                        .font(.montserratMedium(size: 14))
-                        .foregroundStyle(.gray)
-                } else {
-                    Button("Manage") {
-                        openHealthApp()
-                    }
-                    .font(.montserratMedium(size: 15))
-                    .foregroundStyle(.accent)
-                }
-            }
-
-            // Instructions for managing permissions
-            if healthKitService.isHealthDataAvailable {
-                Text("Tap Manage, then: Profile → Apps → Ascend")
-                    .font(.montserratRegular(size: 12))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray.opacity(0.8))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Text("Apple Health is not available on this device.")
-                    .font(.montserratRegular(size: 14))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .padding(20)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.05))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(
-                            effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1),
-                            lineWidth: 1
-                        )
-                )
-        )
+    private var connectionState: AppleHealthConnectionState {
+        importCoordinator.appleHealthConnectionState
     }
 
-    // MARK: - Actions
+    private var pendingCount: Int {
+        importCoordinator.appleHealthPendingCount
+    }
+
+    var body: some View {
+        let style = IntegrationCardStyle(effectiveColorScheme: effectiveColorScheme)
+
+        IntegrationCardShell(style: style) {
+            IntegrationCardHeader(
+                assetImage: "appleHealth-icon",
+                title: "Apple Health",
+                subtitle: headerStatusLabel,
+                titleColor: style.primaryText,
+                subtitleColor: statusColor
+            ) {
+                headerAction
+            }
+
+            IntegrationCardDescriptionSection(
+                style: style,
+                text: statusMessage
+            )
+        }
+        .sheet(isPresented: $showingManageSheet, onDismiss: presentImportsAfterManageSheetDismissal) {
+            IntegrationManageSheet(
+                assetImage: "appleHealth-icon",
+                title: "Apple Health",
+                message: nil,
+                actions: manageActions,
+                onDismiss: {
+                    showingManageSheet = false
+                }
+            )
+        }
+        .sheet(isPresented: $showingImportSheet) {
+            WorkoutImportSheet()
+        }
+        .alert("Apple Health", isPresented: $showingErrorAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(alertMessage)
+        }
+        .task {
+            importCoordinator.configure(modelContext: modelContext)
+        }
+    }
+
+    @ViewBuilder
+    private var headerAction: some View {
+        switch connectionState {
+        case .unavailable:
+            EmptyView()
+        case .neverConnected:
+            IntegrationCardActionButton(
+                "Connect",
+                appearance: .filled(background: .accent, foreground: .black),
+                isLoading: isConnecting
+            ) {
+                connectAppleHealth()
+            }
+        case .connected, .revoked:
+            IntegrationCardActionButton(
+                "Manage",
+                appearance: .outlined(
+                    foreground: IntegrationCardStyle(effectiveColorScheme: effectiveColorScheme).subtleActionText,
+                    border: IntegrationCardStyle(effectiveColorScheme: effectiveColorScheme).subtleActionBorder
+                )
+            ) {
+                showingManageSheet = true
+            }
+        }
+    }
+
+    private var reviewImportsTitle: String {
+        pendingCount > 0 ? "Review Imports (\(pendingCount))" : "Review Imports"
+    }
+
+    private var headerStatusLabel: String? {
+        switch connectionState {
+        case .unavailable:
+            return nil
+        case .neverConnected:
+            return nil
+        case .connected:
+            return "Connected"
+        case .revoked:
+            return "Permissions Disabled"
+        }
+    }
+
+    private var statusMessage: String {
+        switch connectionState {
+        case .unavailable:
+            return "Apple Health is not available on this device."
+        case .neverConnected:
+            return "Import your stairstepper workouts from Apple Health."
+        case .connected:
+            return "Import your stairstepper workouts from Apple Health."
+        case .revoked:
+            return "Import your stairstepper workouts from Apple Health."
+        }
+    }
+
+    private var statusColor: Color {
+        switch connectionState {
+        case .connected:
+            return .accent
+        case .revoked:
+            return .orange
+        case .unavailable, .neverConnected:
+            return .secondary
+        }
+    }
+
+    private var manageActions: [IntegrationManageAction] {
+        [
+            IntegrationManageAction(
+                systemImage: "arrow.clockwise",
+                title: "Sync now",
+                iconTint: .accent,
+                isEnabled: connectionState == .connected
+            ) {
+                triggerManualSyncFromManageSheet()
+            },
+            IntegrationManageAction(
+                systemImage: "magnifyingglass",
+                title: "Review imports",
+                iconTint: .accent,
+                badgeCount: pendingCount,
+                isEnabled: pendingCount > 0
+            ) {
+                queueImportReviewFromManageSheet()
+            },
+            IntegrationManageAction(
+                systemImage: "lock",
+                title: "Manage permissions",
+                iconTint: .accent
+            ) {
+                openPermissionsFromManageSheet()
+            }
+        ]
+    }
+
+    private func connectAppleHealth() {
+        actionTask?.cancel()
+        isConnecting = true
+        actionTask = Task {
+            let didConnect = await importCoordinator.requestAppleHealthAuthorizationIfNeeded()
+            await MainActor.run {
+                isConnecting = false
+
+                if didConnect {
+                    if importCoordinator.pendingCount > 0 {
+                        showingImportSheet = true
+                    }
+                } else if let errorMessage = importCoordinator.lastErrorMessage, !errorMessage.isEmpty {
+                    presentError(errorMessage)
+                }
+            }
+        }
+    }
+
+    private func triggerManualSyncFromManageSheet() {
+        showingManageSheet = false
+        actionTask?.cancel()
+        actionTask = Task {
+            await importCoordinator.refreshPendingImports(trigger: .manualSync)
+            if let errorMessage = importCoordinator.lastErrorMessage, !errorMessage.isEmpty {
+                await MainActor.run {
+                    presentError(errorMessage)
+                }
+            }
+        }
+    }
+
+    private func queueImportReviewFromManageSheet() {
+        actionTask?.cancel()
+        actionTask = Task {
+            await importCoordinator.refreshPendingImports(trigger: .manualReview)
+            await MainActor.run {
+                if let errorMessage = importCoordinator.lastErrorMessage, !errorMessage.isEmpty {
+                    presentError(errorMessage)
+                    shouldPresentImportsAfterManageDismiss = false
+                } else {
+                    shouldPresentImportsAfterManageDismiss = true
+                }
+                showingManageSheet = false
+            }
+        }
+    }
+
+    private func openPermissionsFromManageSheet() {
+        showingManageSheet = false
+        openHealthApp()
+    }
+
+    private func presentImportsAfterManageSheetDismissal() {
+        guard shouldPresentImportsAfterManageDismiss else { return }
+        shouldPresentImportsAfterManageDismiss = false
+        showingImportSheet = true
+    }
 
     private func openHealthApp() {
-        // Open the Health app - users can manage permissions from:
-        // Health app → Profile (top right) → Apps → Ascend
-        if let healthURL = URL(string: "x-apple-health://") {
-            UIApplication.shared.open(healthURL)
-        }
+        guard let healthURL = URL(string: "x-apple-health://") else { return }
+        UIApplication.shared.open(healthURL)
+    }
+
+    private func presentError(_ message: String) {
+        alertMessage = message
+        showingErrorAlert = true
     }
 }
 
@@ -91,6 +248,7 @@ struct AppleHealthIntegrationCard: View {
         .padding()
         .themedBackground()
         .preferredColorScheme(.light)
+        .modelContainer(for: [Workout.self, WorkoutSourceLink.self], inMemory: true)
 }
 
 #Preview("Dark Theme") {
@@ -98,4 +256,5 @@ struct AppleHealthIntegrationCard: View {
         .padding()
         .themedBackground()
         .preferredColorScheme(.dark)
+        .modelContainer(for: [Workout.self, WorkoutSourceLink.self], inMemory: true)
 }

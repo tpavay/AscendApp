@@ -13,7 +13,7 @@ struct HomeView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
-    @State private var unifiedImportService = UnifiedImportService.shared
+    @State private var importCoordinator = WorkoutImportCoordinator.shared
     @State private var showingImportSheet = false
     @State private var showingGoalsSheet = false
     @AppStorage("firstLaunchDate") private var firstLaunchDate: Double = 0
@@ -64,13 +64,13 @@ struct HomeView: View {
                     Spacer()
 
                     // Notification bell for workout imports
-                    NotificationBellView(pendingImports: unifiedImportService.totalPendingCount) {
+                    NotificationBellView(pendingImports: importCoordinator.pendingCount) {
                         Task {
-                            await unifiedImportService.checkForNewWorkouts()
+                            await importCoordinator.refreshPendingImports(trigger: .manualReview)
                             showingImportSheet = true
                         }
                     }
-                    .onChange(of: unifiedImportService.totalPendingCount) { oldValue, newValue in
+                    .onChange(of: importCoordinator.pendingCount) { oldValue, newValue in
                         print("🔄 HomeView detected count change from \(oldValue) to \(newValue)")
                     }
                 }
@@ -104,20 +104,20 @@ struct HomeView: View {
             }
 
             // Configure the unified import service with model context
-            unifiedImportService.configure(modelContext: modelContext)
+            importCoordinator.configure(modelContext: modelContext)
 
             // Check for workouts from all sources on app launch
-            await unifiedImportService.checkForNewWorkoutsInBackground()
+            await importCoordinator.refreshPendingImports(trigger: .automatic)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             // Check for new workouts when app comes to foreground (throttled to prevent spam)
             Task {
-                await unifiedImportService.checkForNewWorkoutsInBackground()
+                await importCoordinator.refreshPendingImports(trigger: .automatic)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
             // Reset throttling when app goes to background so next foreground check works
-            unifiedImportService.resetBackgroundCheckThrottle()
+            importCoordinator.resetAutomaticCheckThrottle()
         }
     }
 }
@@ -128,5 +128,5 @@ struct HomeView: View {
             .environment(AuthenticationViewModel())
             .environment(TabRouter())
     }
-    .modelContainer(for: [Workout.self, Goal.self], inMemory: true)
+    .modelContainer(for: [Workout.self, WorkoutSourceLink.self, Goal.self], inMemory: true)
 }
