@@ -13,7 +13,7 @@ struct WorkoutListView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(AuthenticationViewModel.self) private var authVM
     @State private var themeManager = ThemeManager.shared
-    @State private var unifiedImportService = UnifiedImportService.shared
+    @State private var importCoordinator = WorkoutImportCoordinator.shared
     @State private var settingsManager = SettingsManager.shared
     @State private var filterState = WorkoutListFilterState()
 
@@ -49,7 +49,7 @@ struct WorkoutListView: View {
                     isInDeleteMode: isInDeleteMode,
                     totalCount: workouts.count,
                     effectiveColorScheme: effectiveColorScheme,
-                    pendingImportCount: unifiedImportService.totalPendingCount,
+                    pendingImportCount: importCoordinator.pendingCount,
                     workouts: workouts,
                     filterState: filterState,
                     onCancelDelete: exitDeleteMode,
@@ -132,7 +132,7 @@ struct WorkoutListView: View {
                             handleImportTapped()
                         }
                     },
-                    pendingImportCount: unifiedImportService.totalPendingCount
+                    pendingImportCount: importCoordinator.pendingCount
                 )
                 .appSheetStyle(.fitted())
             }
@@ -210,8 +210,7 @@ struct WorkoutListView: View {
                 Text(deleteErrorMessage)
             }
             .task {
-                // Configure unified import service with model context
-                unifiedImportService.configure(modelContext: modelContext)
+                importCoordinator.configure(modelContext: modelContext)
             }
         }
     }
@@ -250,7 +249,7 @@ struct WorkoutListView: View {
 
     private func handleImportTapped() {
         Task {
-            await unifiedImportService.checkForNewWorkouts()
+            await importCoordinator.refreshPendingImports(trigger: .manualReview)
             showingImportSheet = true
         }
     }
@@ -354,5 +353,5 @@ struct WorkoutListView: View {
     NavigationStack {
         WorkoutListView()
     }
-    .modelContainer(for: Workout.self, inMemory: true)
+    .modelContainer(for: [Workout.self, WorkoutSourceLink.self], inMemory: true)
 }

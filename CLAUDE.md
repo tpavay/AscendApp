@@ -45,7 +45,7 @@ AscendApp/
 │   ├── Models/                 # SwiftData models, TabRouter
 │   ├── Views/                  # MainTabView, shared UI
 │   ├── Components/             # Reusable: FormTextField, FormButton, FormSection
-│   ├── Services/               # HealthKitService, WorkoutService, PersonalRecordService
+│   ├── Services/               # WorkoutImportCoordinator, WorkoutService, PersonalRecordService
 │   └── Managers/               # StravaManager, ThemeManager, SettingsManager
 web/public/                     # Firebase-hosted website (landing page, privacy policy)
 functions/src/                  # Cloud Functions (TypeScript)
@@ -88,6 +88,8 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
 
 ### Import UX
 - Workout import supports individual import, selected-batch import, and import-all from the same sheet.
+- Import architecture uses one canonical `Workout` plus local `WorkoutSourceLink` provenance records per provider. New import UI and state should flow through `WorkoutImportCoordinator`, not provider-specific views/services.
+- Apple Health is read-only. First connect may backfill historical workouts, but routine checks must stay incremental and sample-only until a workout is actually imported.
 
 ### Onboarding V2 (Issue #63)
 - Root routing uses onboarding completion before normal auth/home flow.
@@ -137,6 +139,7 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
 - **Icons**: SF Symbols (considering migrating to a custom icon set for consistency)
 - **Icon consistency**: Use the same icon for the same action across screens (for example, overflow menus should use one consistent `ellipsis` style app-wide unless product design explicitly says otherwise)
 - **Sheets**: Use `AppSheetPreset` with `.appSheetStyle(...)` for sheet sizing, drag indicator behavior, and sheet surface background instead of raw `presentationDetents` arrays at call sites. Use `AppSheetScaffold` for reusable sheet layouts, `AppSheetOptionRow` for menu-style options, and `appSheetButtonStyle(...)` for consistent sheet button semantics. Prefer a dedicated preset/layout pair for dense action sheets when they need tighter row density than general compact dialogs, and avoid root-level `Spacer()`-driven layouts in compact sheets.
+- **Integrations UI**: Keep integrations list cards as overview surfaces, not inline control panels. Shared card styling and structure should live under `Features/Integrations/Shared`, while provider-specific actions live in provider-owned manage sheets or detail surfaces.
 
 ---
 

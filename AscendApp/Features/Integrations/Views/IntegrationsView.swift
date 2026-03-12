@@ -21,6 +21,9 @@ struct IntegrationsView: View {
                 Spacer()
                     .frame(height: 8)
 
+                // Apple Health Integration
+                AppleHealthIntegrationCard()
+
                 // Strava Integration
                 if FeatureFlags.isStravaEnabled {
                     StravaIntegrationCard()
@@ -28,9 +31,6 @@ struct IntegrationsView: View {
 
                 // Hevy Integration
                 HevyIntegrationCard()
-
-                // Apple Health Integration
-                AppleHealthIntegrationCard()
 
                 Spacer()
             }
@@ -50,6 +50,7 @@ struct IntegrationsView: View {
         IntegrationsView()
     }
     .preferredColorScheme(.light)
+    .modelContainer(for: [Workout.self, WorkoutSourceLink.self], inMemory: true)
 }
 
 #Preview("Dark Theme") {
@@ -57,4 +58,5 @@ struct IntegrationsView: View {
         IntegrationsView()
     }
     .preferredColorScheme(.dark)
+    .modelContainer(for: [Workout.self, WorkoutSourceLink.self], inMemory: true)
 }

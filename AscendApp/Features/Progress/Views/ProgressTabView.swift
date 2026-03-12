@@ -22,5 +22,5 @@ struct ProgressTabView: View {
     NavigationStack {
         ProgressTabView()
     }
-    .modelContainer(for: Workout.self, inMemory: true)
+    .modelContainer(for: [Workout.self, WorkoutSourceLink.self], inMemory: true)
 }
