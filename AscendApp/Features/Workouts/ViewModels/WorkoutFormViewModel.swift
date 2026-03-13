@@ -146,25 +146,12 @@ class WorkoutFormViewModel {
             // Create workout without photos - they'll be uploaded asynchronously
             let workout = try await workoutService.createWorkout(from: request)
 
-            // Calculate and store percentile scores for heat map
-            let existingWorkouts = try fetchAllWorkouts(from: modelContext)
-            let percentileScores = PercentileScoreService.calculateAllPercentiles(
-                for: workout,
-                existingWorkouts: existingWorkouts,
-                fitnessLevel: settingsManager.fitnessLevel,
-                preferredMetric: settingsManager.preferredWorkoutMetric
-            )
-            workout.percentileScores = percentileScores
-
             modelContext.insert(workout)
             try modelContext.save()
 
-            // Recalculate all PRs based on chronological workout order
-            // This ensures PRs are correct even if the user logs a workout with an older date
-            try PersonalRecordService.recalculateAllPersonalRecords(
+            try WorkoutDerivedDataService.recalculateAll(
                 modelContext: modelContext,
-                measurementSystem: settingsManager.measurementSystem,
-                stepHeight: settingsManager.stepHeight
+                settingsManager: settingsManager
             )
 
             // Queue media uploads asynchronously (fire-and-forget)
@@ -436,12 +423,6 @@ class WorkoutFormViewModel {
     }
 
     /// Fetch all workouts from the model context for percentile calculation
-    private func fetchAllWorkouts(from modelContext: ModelContext) throws -> [Workout] {
-        let descriptor = FetchDescriptor<Workout>(
-            sortBy: [SortDescriptor(\.date, order: .forward)]
-        )
-        return try modelContext.fetch(descriptor)
-    }
 }
 
 enum WorkoutFormError: LocalizedError {

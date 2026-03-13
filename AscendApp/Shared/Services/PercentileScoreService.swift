@@ -10,6 +10,7 @@
 import Foundation
 
 /// Service for calculating percentile-based heat map scores
+@MainActor
 struct PercentileScoreService {
 
     // MARK: - Percentile Calculation
@@ -41,7 +42,6 @@ struct PercentileScoreService {
     /// - For 0-10 workouts: 100% fixed threshold scoring
     /// - For 10-20 workouts: Linear blend between fixed and percentile
     /// - For 20+ workouts: 100% percentile scoring
-    @MainActor
     static func calculateHybridScore(
         percentileScore: Double,
         fixedScore: Double,
@@ -57,11 +57,9 @@ struct PercentileScoreService {
 
     /// Calculate percentile scores for all heat map metrics for a workout
     /// Should be called at workout save time
-    @MainActor
     static func calculateAllPercentiles(
         for workout: Workout,
         existingWorkouts: [Workout],
-        fitnessLevel: FitnessLevel,
         preferredMetric: WorkoutMetric
     ) -> [String: Double] {
         // Only consider workouts BEFORE this workout for percentile calculation
@@ -82,7 +80,6 @@ struct PercentileScoreService {
                 value: workoutValues[metric],
                 historicalValues: historicalValuesByMetric[metric] ?? [],
                 workoutCount: workoutCount,
-                fitnessLevel: fitnessLevel,
                 preferredMetric: preferredMetric
             )
             scores[metric.rawValue] = score
@@ -92,21 +89,26 @@ struct PercentileScoreService {
     }
 
     /// Calculate the score for a single metric
-    @MainActor
     private static func calculateScore(
         metric: HeatMapMetric,
         value: Double?,
         historicalValues: [Double],
         workoutCount: Int,
-        fitnessLevel: FitnessLevel,
         preferredMetric: WorkoutMetric
     ) -> Double {
         // If no value (e.g., no heart rate data), return 0
         guard let value = value else { return 0 }
 
-        // Calculate fixed threshold score
-        let threshold = fitnessLevel.threshold(for: metric, preferredMetric: preferredMetric)
-        let fixedScore = min(1.0, value / threshold)
+        if metric == .effortScore {
+            guard !historicalValues.isEmpty else { return 0.5 }
+            return calculatePercentileRank(value: value, historicalValues: historicalValues)
+        }
+
+        let fixedScore = fixedScore(
+            metric: metric,
+            value: value,
+            preferredMetric: preferredMetric
+        )
 
         // If not enough workouts for percentile, use fixed score
         if workoutCount < 10 {
@@ -127,7 +129,6 @@ struct PercentileScoreService {
         )
     }
 
-    @MainActor
     private static func historicalValuesByMetric(
         from workouts: [Workout],
         preferredMetric: WorkoutMetric
@@ -139,7 +140,6 @@ struct PercentileScoreService {
         }
     }
 
-    @MainActor
     private static func metricValues(
         for workout: Workout,
         preferredMetric: WorkoutMetric
@@ -155,7 +155,6 @@ struct PercentileScoreService {
     // MARK: - Raw Value Extraction
 
     /// Get the raw value for a workout metric
-    @MainActor
     private static func getRawValue(
         for workout: Workout,
         metric: HeatMapMetric,
@@ -195,71 +194,45 @@ struct PercentileScoreService {
     }
 
     /// Calculate the effort value for a workout (used as input for percentile calculation)
-    /// This is a composite score based on multiple factors
     private static func calculateEffortValue(for workout: Workout) -> Double {
-        var scores: [(value: Double, weight: Double)] = []
-
-        // Priority 1: User effort rating (if set) - highest weight
-        if let rating = workout.effortRating {
-            let normalized = (rating - 1) / 4.0
-            scores.append((normalized, 0.4))
+        if let effortScoreValue = workout.effortScoreValue {
+            return effortScoreValue
         }
 
-        // Priority 2: Heart rate data
-        if let avgHR = workout.avgHeartRate {
-            let hrScore = normalizedHeartRateScore(avgHR)
-            scores.append((hrScore, 0.3))
-        }
-
-        // Priority 3: METs from Apple Health
-        if let mets = workout.averageMETs {
-            let metsScore = normalizedMETsScore(mets)
-            scores.append((metsScore, 0.2))
-        }
-
-        // Priority 4: Cadence (steps per minute)
-        if let spm = workout.stepsPerMinute {
-            let cadenceScore = normalizedCadenceScore(spm)
-            scores.append((cadenceScore, 0.15))
-        }
-
-        // Priority 5: Duration (longer = more effort)
-        let durationScore = normalizedDurationScore(workout.duration)
-        scores.append((durationScore, 0.1))
-
-        // If no data, use duration only
-        if scores.isEmpty {
-            return durationScore
-        }
-
-        // Weighted average
-        let totalWeight = scores.reduce(0) { $0 + $1.weight }
-        let weightedSum = scores.reduce(0) { $0 + ($1.value * $1.weight) }
-
-        return min(1.0, weightedSum / totalWeight)
+        let baseLevel = SettingsManager.shared.effectiveBaseLevel
+        return WorkoutEffortService.analyze(
+            workout: workout,
+            baseLevel: baseLevel
+        ).score
     }
 
-    // MARK: - Normalized Score Helpers
+    private static func fixedScore(
+        metric: HeatMapMetric,
+        value: Double,
+        preferredMetric: WorkoutMetric
+    ) -> Double {
+        let maxValue: Double
+        switch metric {
+        case .effortScore:
+            return value
+        case .primaryMetric:
+            maxValue = preferredMetric == .steps ? 15_000 : 150
+        case .duration:
+            maxValue = 3_600
+        case .stepsPerMinute:
+            return min(1.0, max(0, Double(SPMMappingService.level(forSPM: value) - 1) / 24.0))
+        case .calories:
+            maxValue = 600
+        case .avgHeartRate:
+            maxValue = 180
+            return min(1.0, max(0, (value - 80) / (maxValue - 80)))
+        case .maxHeartRate:
+            maxValue = 190
+            return min(1.0, max(0, (value - 100) / (maxValue - 100)))
+        case .addedWeight:
+            maxValue = 60
+        }
 
-    private static func normalizedHeartRateScore(_ avgHeartRate: Int) -> Double {
-        let hr = Double(avgHeartRate)
-        let normalized = (hr - 80) / 100.0
-        return min(1.0, max(0, normalized))
-    }
-
-    private static func normalizedMETsScore(_ mets: Double) -> Double {
-        let normalized = (mets - 2) / 10.0
-        return min(1.0, max(0, normalized))
-    }
-
-    private static func normalizedCadenceScore(_ stepsPerMinute: Double) -> Double {
-        let normalized = (stepsPerMinute - 40) / 100.0
-        return min(1.0, max(0, normalized))
-    }
-
-    private static func normalizedDurationScore(_ duration: TimeInterval) -> Double {
-        let minutes = duration / 60.0
-        let normalized = minutes / 60.0
-        return min(1.0, max(0, normalized))
+        return min(1.0, max(0, value / maxValue))
     }
 }

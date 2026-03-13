@@ -54,7 +54,7 @@ extension Color {
     
     /// Returns a gradient for workout intensity
     /// Uses lighter/darker versions of the yellow-orange gradient
-    static func intensityGradient(for intensity: WorkoutIntensity, colorScheme: ColorScheme) -> LinearGradient {
+    static func intensityGradient(for intensity: IntensityTier, colorScheme: ColorScheme) -> LinearGradient {
         let colors = intensityColors(for: intensity, colorScheme: colorScheme)
         return LinearGradient(
             gradient: Gradient(colors: colors),
@@ -64,9 +64,9 @@ extension Color {
     }
     
     /// Returns the color pair for a given intensity level
-    static func intensityColors(for intensity: WorkoutIntensity, colorScheme: ColorScheme) -> [Color] {
+    static func intensityColors(for intensity: IntensityTier, colorScheme: ColorScheme) -> [Color] {
         switch intensity {
-        case .veryLight:
+        case .minimal:
             // Lightest - very subtle gradient (keeping as is)
             return [
                 Color(red: 1.0, green: 0.95, blue: 0.7),   // Very light yellow
@@ -87,14 +87,14 @@ extension Color {
                 Color(red: 1.0, green: 0.55, blue: 0.0)    // Orange
             ]
             
-        case .hard:
+        case .high:
             // Hard - deep orange to red-orange
             return [
                 Color(red: 1.0, green: 0.55, blue: 0.0),   // Deep orange
                 Color(red: 1.0, green: 0.3, blue: 0.0)     // Red-orange
             ]
             
-        case .veryHard:
+        case .maximum:
             // Very Hard - orange to deep red
             return [
                 Color(red: 1.0, green: 0.4, blue: 0.0),    // Bright red-orange

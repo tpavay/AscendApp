@@ -19,6 +19,11 @@ final class SettingsManager {
     private let stepHeightKey = "stepHeight"
     private let stepsPerFloorKey = "stepsPerFloor"
     private let fitnessLevelKey = "userFitnessLevel"
+    private let seededBaseLevelKey = "seededBaseLevel"
+    private let autoCalculatedBaseLevelKey = "autoCalculatedBaseLevel"
+    private let manualBaseLevelOverrideKey = "manualBaseLevelOverride"
+    private let hasCompletedBaseLevelOnboardingKey = "hasCompletedBaseLevelOnboarding"
+    private let firstLaunchDateKey = "firstLaunchDate"
     private let weekStartDayKey = "weekStartDay"
     
     var preferredWorkoutMetric: WorkoutMetric {
@@ -54,6 +59,30 @@ final class SettingsManager {
         }
     }
 
+    var seededBaseLevel: Int {
+        didSet {
+            saveSeededBaseLevel()
+        }
+    }
+
+    var autoCalculatedBaseLevel: Int? {
+        didSet {
+            saveAutoCalculatedBaseLevel()
+        }
+    }
+
+    var manualBaseLevelOverride: Int? {
+        didSet {
+            saveManualBaseLevelOverride()
+        }
+    }
+
+    var hasCompletedBaseLevelOnboarding: Bool {
+        didSet {
+            saveHasCompletedBaseLevelOnboarding()
+        }
+    }
+
     var weekStartDay: WeekStartDay {
         didSet {
             saveWeekStartDay()
@@ -62,6 +91,30 @@ final class SettingsManager {
 
     var weekStartFirstWeekday: Int {
         weekStartDay.firstWeekday
+    }
+
+    var effectiveBaseLevel: Int {
+        manualBaseLevelOverride ?? autoCalculatedBaseLevel ?? seededBaseLevel
+    }
+
+    var effectiveBaseLevelSPM: Int {
+        SPMMappingService.spm(forLevel: effectiveBaseLevel)
+    }
+
+    var baseLevelState: BaseLevelState {
+        if manualBaseLevelOverride != nil {
+            return .manualOverride
+        }
+
+        if autoCalculatedBaseLevel != nil {
+            return .autoCalculated
+        }
+
+        return .seeded
+    }
+
+    var shouldPresentBaseLevelOnboarding: Bool {
+        !hasCompletedBaseLevelOnboarding
     }
 
     private init() {
@@ -96,11 +149,44 @@ final class SettingsManager {
             : 16
 
         // Load saved fitness level or default to intermediate
+        let loadedFitnessLevel: FitnessLevel
         if let savedLevel = UserDefaults.standard.string(forKey: fitnessLevelKey),
            let level = FitnessLevel(rawValue: savedLevel) {
-            self.fitnessLevel = level
+            loadedFitnessLevel = level
         } else {
-            self.fitnessLevel = .intermediate
+            loadedFitnessLevel = .intermediate
+        }
+        self.fitnessLevel = loadedFitnessLevel
+
+        let hadPreviousLaunch = UserDefaults.standard.object(forKey: firstLaunchDateKey) != nil
+        let migratedSeededLevel = Self.migratedBaseLevel(for: loadedFitnessLevel)
+        if let storedSeededBaseLevel = UserDefaults.standard.object(forKey: seededBaseLevelKey) as? Int {
+            self.seededBaseLevel = SPMMappingService.clampedLevel(storedSeededBaseLevel)
+        } else {
+            let initialSeededBaseLevel = hadPreviousLaunch ? migratedSeededLevel : 7
+            self.seededBaseLevel = initialSeededBaseLevel
+            UserDefaults.standard.set(initialSeededBaseLevel, forKey: seededBaseLevelKey)
+        }
+
+        if let storedAutoCalculatedBaseLevel = UserDefaults.standard.object(forKey: autoCalculatedBaseLevelKey) as? Int {
+            self.autoCalculatedBaseLevel = SPMMappingService.clampedLevel(storedAutoCalculatedBaseLevel)
+        } else {
+            self.autoCalculatedBaseLevel = nil
+        }
+
+        if let storedManualBaseLevelOverride = UserDefaults.standard.object(forKey: manualBaseLevelOverrideKey) as? Int {
+            self.manualBaseLevelOverride = SPMMappingService.clampedLevel(storedManualBaseLevelOverride)
+        } else {
+            self.manualBaseLevelOverride = nil
+        }
+
+        if UserDefaults.standard.object(forKey: hasCompletedBaseLevelOnboardingKey) != nil {
+            self.hasCompletedBaseLevelOnboarding = UserDefaults.standard.bool(forKey: hasCompletedBaseLevelOnboardingKey)
+        } else {
+            self.hasCompletedBaseLevelOnboarding = hadPreviousLaunch
+            if hadPreviousLaunch {
+                UserDefaults.standard.set(true, forKey: hasCompletedBaseLevelOnboardingKey)
+            }
         }
 
         if let savedWeekStart = UserDefaults.standard.string(forKey: weekStartDayKey),
@@ -133,6 +219,34 @@ final class SettingsManager {
 
     private func saveFitnessLevel() {
         UserDefaults.standard.set(fitnessLevel.rawValue, forKey: fitnessLevelKey)
+        UserDefaults.standard.synchronize()
+    }
+
+    private func saveSeededBaseLevel() {
+        UserDefaults.standard.set(seededBaseLevel, forKey: seededBaseLevelKey)
+        UserDefaults.standard.synchronize()
+    }
+
+    private func saveAutoCalculatedBaseLevel() {
+        if let autoCalculatedBaseLevel {
+            UserDefaults.standard.set(autoCalculatedBaseLevel, forKey: autoCalculatedBaseLevelKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: autoCalculatedBaseLevelKey)
+        }
+        UserDefaults.standard.synchronize()
+    }
+
+    private func saveManualBaseLevelOverride() {
+        if let manualBaseLevelOverride {
+            UserDefaults.standard.set(manualBaseLevelOverride, forKey: manualBaseLevelOverrideKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: manualBaseLevelOverrideKey)
+        }
+        UserDefaults.standard.synchronize()
+    }
+
+    private func saveHasCompletedBaseLevelOnboarding() {
+        UserDefaults.standard.set(hasCompletedBaseLevelOnboarding, forKey: hasCompletedBaseLevelOnboardingKey)
         UserDefaults.standard.synchronize()
     }
 
@@ -183,9 +297,53 @@ final class SettingsManager {
         }
     }
 
+    func completeBaseLevelOnboarding(with level: Int) {
+        seededBaseLevel = SPMMappingService.clampedLevel(level)
+        hasCompletedBaseLevelOnboarding = true
+    }
+
+    func saveBaseLevelSelection(_ level: Int) {
+        let clampedLevel = SPMMappingService.clampedLevel(level)
+
+        if autoCalculatedBaseLevel == nil {
+            seededBaseLevel = clampedLevel
+        } else if autoCalculatedBaseLevel == clampedLevel {
+            manualBaseLevelOverride = nil
+        } else {
+            manualBaseLevelOverride = clampedLevel
+        }
+
+        hasCompletedBaseLevelOnboarding = true
+    }
+
+    func resetBaseLevelOverride() {
+        manualBaseLevelOverride = nil
+    }
+
+    func updateAutoCalculatedBaseLevel(_ level: Int?) {
+        autoCalculatedBaseLevel = level.map(SPMMappingService.clampedLevel)
+    }
+
+    func resolveBaseLevelBootstrap(hasWorkoutHistory: Bool) {
+        if hasWorkoutHistory {
+            hasCompletedBaseLevelOnboarding = true
+        }
+    }
+
     func setWeekStartDay(_ day: WeekStartDay) {
         withAnimation(.easeInOut(duration: 0.2)) {
             weekStartDay = day
+        }
+    }
+
+    private static func migratedBaseLevel(for fitnessLevel: FitnessLevel) -> Int {
+        switch fitnessLevel {
+        case .beginner:
+            return 5
+        case .intermediate:
+            return 8
+        case .advanced:
+            return 12
         }
     }
 }

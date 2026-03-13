@@ -78,6 +78,10 @@ struct HeatMapScoreCalculator {
     /// Uses stored percentile scores if available, otherwise falls back to fixed threshold calculation
     @MainActor
     static func score(for workout: Workout, metric: HeatMapMetric, using settings: SettingsManager = .shared) -> Double {
+        if metric == .effortScore {
+            return effortScore(for: workout, using: settings)
+        }
+
         // First, try to use stored percentile score (snapshot from save time)
         if let storedScore = workout.percentileScore(for: metric) {
             return storedScore
@@ -92,7 +96,7 @@ struct HeatMapScoreCalculator {
     static func fixedThresholdScore(for workout: Workout, metric: HeatMapMetric, using settings: SettingsManager = .shared) -> Double {
         switch metric {
         case .effortScore:
-            return effortScore(for: workout)
+            return effortScore(for: workout, using: settings)
         case .primaryMetric:
             return primaryMetricScore(for: workout, preferredMetric: settings.preferredWorkoutMetric)
         case .duration:
@@ -122,7 +126,7 @@ struct HeatMapScoreCalculator {
     static func displayValue(for workout: Workout, metric: HeatMapMetric, using settings: SettingsManager = .shared) -> String {
         switch metric {
         case .effortScore:
-            let score = effortScore(for: workout)
+            let score = effortScore(for: workout, using: settings)
             return (score * 10).formatted(.number.precision(.fractionLength(1))) // Display as 0.0-10.0
         case .primaryMetric:
             if settings.preferredWorkoutMetric == .steps {
@@ -177,48 +181,17 @@ struct HeatMapScoreCalculator {
     // MARK: - Individual Metric Scoring
 
     /// Combined effort score using multiple factors (0.0 to 1.0)
-    private static func effortScore(for workout: Workout) -> Double {
-        var scores: [(value: Double, weight: Double)] = []
-
-        // Priority 1: User effort rating (if set) - highest weight
-        if let rating = workout.effortRating {
-            // Rating is 1-5, normalize to 0-1
-            let normalized = (rating - 1) / 4.0
-            scores.append((normalized, 0.4))
+    @MainActor
+    private static func effortScore(for workout: Workout, using settings: SettingsManager) -> Double {
+        if let effortScoreValue = workout.effortScoreValue {
+            return effortScoreValue
         }
 
-        // Priority 2: Heart rate data
-        if let avgHR = workout.avgHeartRate {
-            let hrScore = normalizedHeartRateScore(avgHR)
-            scores.append((hrScore, 0.3))
-        }
-
-        // Priority 3: METs from Apple Health
-        if let mets = workout.averageMETs {
-            let metsScore = normalizedMETsScore(mets)
-            scores.append((metsScore, 0.2))
-        }
-
-        // Priority 4: Cadence (steps per minute)
-        if let spm = workout.stepsPerMinute {
-            let cadenceScore = normalizedCadenceScore(spm)
-            scores.append((cadenceScore, 0.15))
-        }
-
-        // Priority 5: Duration (longer = more effort)
-        let durationScore = normalizedDurationScore(workout.duration)
-        scores.append((durationScore, 0.1))
-
-        // If no data, use duration only
-        if scores.isEmpty {
-            return durationScore
-        }
-
-        // Weighted average
-        let totalWeight = scores.reduce(0) { $0 + $1.weight }
-        let weightedSum = scores.reduce(0) { $0 + ($1.value * $1.weight) }
-
-        return min(1.0, weightedSum / totalWeight)
+        let baseLevel = settings.effectiveBaseLevel
+        return WorkoutEffortService.analyze(
+            workout: workout,
+            baseLevel: baseLevel
+        ).score
     }
 
     /// Primary metric score (steps or floors)
@@ -289,9 +262,8 @@ struct HeatMapScoreCalculator {
     }
 
     private static func normalizedCadenceScore(_ stepsPerMinute: Double) -> Double {
-        // 40-60 (very light), 60-80 (light), 80-100 (moderate), 100-120 (hard), 120+ (very hard)
-        let normalized = (stepsPerMinute - 40) / 100.0
-        return min(1.0, max(0, normalized))
+        let mappedLevel = SPMMappingService.level(forSPM: stepsPerMinute)
+        return Double(mappedLevel - 1) / 24.0
     }
 
     private static func normalizedDurationScore(_ duration: TimeInterval) -> Double {

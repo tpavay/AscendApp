@@ -323,11 +323,9 @@ struct WorkoutListView: View {
             }
             try modelContext.save()
 
-            // Recalculate PRs after deletion since a deleted workout may have held a PR
-            try PersonalRecordService.recalculateAllPersonalRecords(
+            try WorkoutDerivedDataService.recalculateAll(
                 modelContext: modelContext,
-                measurementSystem: settingsManager.measurementSystem,
-                stepHeight: settingsManager.stepHeight
+                settingsManager: settingsManager
             )
 
             await MainActor.run {
