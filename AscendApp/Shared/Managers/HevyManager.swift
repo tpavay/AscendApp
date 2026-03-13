@@ -35,12 +35,11 @@ final class HevyManager {
     private let autoLinkAppleHealthKey = "hevyAutoLinkAppleHealth"
 
     /// When enabled, Hevy workouts are automatically enhanced with Apple Health data (HR, calories)
-    /// Default: true for new AND existing users
+    /// Default: false until the user explicitly enables it
     var autoLinkAppleHealth: Bool {
         get {
-            // Default true for new AND existing users
             if UserDefaults.standard.object(forKey: autoLinkAppleHealthKey) == nil {
-                return true
+                return false
             }
             return UserDefaults.standard.bool(forKey: autoLinkAppleHealthKey)
         }

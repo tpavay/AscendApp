@@ -351,12 +351,12 @@ enum WorkoutFormField: Hashable {
 #Preview {
     @Previewable @State var showForm = true
     WorkoutFormView(showingWorkoutForm: $showForm) { _ in }
-        .modelContainer(for: Workout.self, inMemory: true)
+        .modelContainer(for: [Workout.self, WorkoutSourceLink.self], inMemory: true)
 }
 
 #Preview("Dark") {
     @Previewable @State var showForm = true
     WorkoutFormView(showingWorkoutForm: $showForm) { _ in }
-        .modelContainer(for: Workout.self, inMemory: true)
+        .modelContainer(for: [Workout.self, WorkoutSourceLink.self], inMemory: true)
         .preferredColorScheme(.dark)
 }

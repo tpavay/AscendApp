@@ -40,7 +40,7 @@ struct WorkoutEntrySelectionView: View {
                 } label: {
                     AppSheetOptionRow(
                         assetImage: "appleHealth-icon",
-                        title: "Import from Apple Health",
+                        title: "Import Workouts",
                         badgeCount: pendingImportCount,
                         trailingSymbol: "chevron.right"
                     )

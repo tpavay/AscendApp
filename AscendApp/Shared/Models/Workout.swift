@@ -43,6 +43,66 @@ enum WorkoutSource: String, CaseIterable, Codable {
     }
 }
 
+enum WorkoutProvider: String, CaseIterable, Codable, Sendable {
+    case appleHealth = "apple_health"
+    case garmin = "garmin"
+    case strava = "strava"
+    case fitbit = "fitbit"
+    case hevy = "hevy"
+
+    var displayName: String {
+        switch self {
+        case .appleHealth:
+            return "Apple Health"
+        case .garmin:
+            return "Garmin"
+        case .strava:
+            return "Strava"
+        case .fitbit:
+            return "Fitbit"
+        case .hevy:
+            return "Hevy"
+        }
+    }
+
+    var asWorkoutSource: WorkoutSource {
+        switch self {
+        case .appleHealth:
+            return .appleHealth
+        case .garmin:
+            return .garmin
+        case .strava:
+            return .strava
+        case .fitbit:
+            return .fitbit
+        case .hevy:
+            return .hevy
+        }
+    }
+
+    init?(workoutSource: WorkoutSource) {
+        switch workoutSource {
+        case .manual:
+            return nil
+        case .appleHealth:
+            self = .appleHealth
+        case .garmin:
+            self = .garmin
+        case .strava:
+            self = .strava
+        case .fitbit:
+            self = .fitbit
+        case .hevy:
+            self = .hevy
+        }
+    }
+}
+
+enum TimingPrecision: String, CaseIterable, Codable, Sendable {
+    case exact = "exact"
+    case containerWindow = "container_window"
+}
+
 enum DataIntegrityLevel: String, CaseIterable, Codable {
     case verified = "verified"       // From trusted wearable sources
     case unverified = "unverified"   // Manual or questionable sources
@@ -84,6 +144,8 @@ class Workout {
     var hevyWorkoutId: String? // Hevy workout ID for deduplication
     var photos: [Photo]
     var highlightedPhotoId: UUID? // ID of the photo/video to display on workout cards
+    @Relationship(deleteRule: .cascade, inverse: \WorkoutSourceLink.workout)
+    var sourceLinks: [WorkoutSourceLink]
 
     // Strava sync tracking - stored as JSON for Codable compatibility
     var stravaSyncData: String?
@@ -215,6 +277,7 @@ class Workout {
         self.photos = photos
         // Default to first photo if not specified and photos exist
         self.highlightedPhotoId = highlightedPhotoId ?? photos.first?.id
+        self.sourceLinks = []
         self.personalRecordTypes = personalRecordTypes
         self.weightConfiguration = weightConfiguration
     }
@@ -299,6 +362,20 @@ class Workout {
     
     var integrityDisplayName: String {
         return integrityLevel.displayName
+    }
+
+    var linkedProviders: [WorkoutProvider] {
+        sourceLinks
+            .map(\.provider)
+            .sorted { $0.displayName < $1.displayName }
+    }
+
+    func sourceLink(for provider: WorkoutProvider) -> WorkoutSourceLink? {
+        sourceLinks.first { $0.provider == provider }
+    }
+
+    func hasSourceLink(provider: WorkoutProvider) -> Bool {
+        sourceLink(for: provider) != nil
     }
     
     // MARK: - Metric Conversion Helpers
