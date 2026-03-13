@@ -279,8 +279,7 @@
 				INFOPLIST_FILE = AscendApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Ascend - STG";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
-				INFOPLIST_KEY_NSCameraUsageDescription = "Ascend uses your camera to capture workout photos and videos.";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, flights climbed, heart rate, and calories burned.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Ascend saves your workout posters to your Photos library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend needs access to your photo library to attach photos and videos to workouts.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -447,8 +446,7 @@
 				INFOPLIST_FILE = AscendApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Ascend - DEV";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
-				INFOPLIST_KEY_NSCameraUsageDescription = "Ascend uses your camera to capture workout photos and videos.";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, flights climbed, heart rate, and calories burned.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Ascend saves your workout posters to your Photos library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend needs access to your photo library to attach photos and videos to workouts.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -490,8 +488,7 @@
 				INFOPLIST_FILE = AscendApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Ascend;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
-				INFOPLIST_KEY_NSCameraUsageDescription = "Ascend uses your camera to capture workout photos and videos.";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, flights climbed, heart rate, and calories burned.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Ascend saves your workout posters to your Photos library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend needs access to your photo library to attach photos and videos to workouts.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
