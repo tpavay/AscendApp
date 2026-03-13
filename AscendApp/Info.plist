@@ -36,6 +36,8 @@
 	<string>Ascend needs access to your photo library to attach photos and videos to workouts.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Montserrat-Regular.ttf</string>
