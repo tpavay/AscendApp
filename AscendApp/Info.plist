@@ -32,14 +32,10 @@
 		<string>x-apple-health</string>
 		<string>App-Prefs</string>
 	</array>
-	<key>NSCameraUsageDescription</key>
-	<string>Ascend uses your camera to capture workout photos and videos.</string>
-	<key>NSHealthShareUsageDescription</key>
-	<string>Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Ascend uses your location to save city, region, and country for locale-aware workout context.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Ascend needs access to your photo library to attach photos and videos to workouts.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Montserrat-Regular.ttf</string>
