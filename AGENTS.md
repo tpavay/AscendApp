@@ -93,10 +93,26 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
 
 ### Onboarding V2 (Issue #63)
 - Root routing uses onboarding completion before normal auth/home flow.
-- Onboarding sequence is: welcome, HealthKit permission, measurement system, fitness level, personal details (DOB + gender), body metrics (height + bodyweight), location permission, notifications permission, then mandatory auth.
+- Onboarding sequence is: welcome, HealthKit permission, measurement system, base level, personal details (DOB + gender), body metrics (height + bodyweight), location permission, notifications permission, then mandatory auth.
 - Auth is the final onboarding step with Apple/Google only (no "sign in later").
 - Onboarding draft/progress persists locally across app restarts; uninstall/reinstall resets via app data removal.
 - Bodyweight is a single profile-level value (set in onboarding, editable in settings) and is intended to be the app-wide source for body mass usage.
+
+### Base Level + Intensity Architecture
+- User-facing workout personalization now centers on a `base level`, defined as the StairMaster level a user can comfortably sustain for about 10 minutes.
+- `SettingsManager` is the source of truth for base-level state:
+  - `seededBaseLevel` from onboarding or migration
+  - `autoCalculatedBaseLevel` from workout history
+  - `manualBaseLevelOverride` when the user explicitly adjusts it in settings
+- Legacy `fitnessLevel` remains only as migration/bootstrap input. New UX should use `Base Level`, not `Fitness Level`.
+- `SPMMappingService` owns the exact 1-25 level-to-SPM mapping and nearest-level reverse lookup.
+- Unified workout intensity is derived from:
+  1. `steps + duration -> stepsPerMinute`
+  2. `stepsPerMinute -> equivalent level`
+  3. `equivalent level` relative to `effectiveBaseLevel`
+  4. duration plus supporting signals (RPE, HR, METs, added weight) to produce the final effort score
+- Historical percentile remains a ranking layer over the unified effort score and other raw workout metrics. It should not become a separate competing definition of intensity.
+- All create/edit/delete/import flows that change workouts should run through `WorkoutDerivedDataService.recalculateAll(...)` so base level, effort values, percentile snapshots, personal records, and local leaderboard aggregates stay in sync.
 
 ### Week Start + Leaderboard Windowing
 - User preference `weekStartDay` is stored in `SettingsManager` (`Sunday` or `Monday`) and surfaced in account settings.

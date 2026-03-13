@@ -781,11 +781,9 @@ struct EditWorkoutView: View {
             try modelContext.save()
             print("✅ Successfully updated workout with \(workout.photos.count) photos")
             
-            // Recalculate PRs after edit since metrics may have changed
-            try PersonalRecordService.recalculateAllPersonalRecords(
+            try WorkoutDerivedDataService.recalculateAll(
                 modelContext: modelContext,
-                measurementSystem: settingsManager.measurementSystem,
-                stepHeight: settingsManager.stepHeight
+                settingsManager: settingsManager
             )
             
             let photosToDelete = photosMarkedForDeletion

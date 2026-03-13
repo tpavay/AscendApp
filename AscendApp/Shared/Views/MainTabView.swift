@@ -12,8 +12,10 @@ struct MainTabView: View {
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
     @State private var themeManager = ThemeManager.shared
+    @State private var settingsManager = SettingsManager.shared
     @State private var tabRouter = TabRouter()
     @State private var hasCheckedRatingOnLaunch = false
+    @State private var showingBaseLevelOnboarding = false
 
     // Easy configuration - just change this array to modify tabs
     private let tabs = TabItem.activeTabs
@@ -40,13 +42,20 @@ struct MainTabView: View {
         .onAppear {
             setupTabBarAppearance()
             checkForRatingPromptOnLaunch()
+            syncBaseLevelOnboardingPresentation()
         }
         .onChange(of: effectiveColorScheme) { _, _ in
             setupTabBarAppearance()
         }
+        .onChange(of: settingsManager.hasCompletedBaseLevelOnboarding) { _, _ in
+            syncBaseLevelOnboardingPresentation()
+        }
         .onChange(of: tabRouter.selectedTab) { _, _ in
             let generator = UIImpactFeedbackGenerator(style: .heavy)
             generator.impactOccurred()
+        }
+        .fullScreenCover(isPresented: $showingBaseLevelOnboarding) {
+            BaseLevelOnboardingView()
         }
         .themeAware()
     }
@@ -62,6 +71,12 @@ struct MainTabView: View {
         // when workouts are deleted (e.g., during account deletion) while this view is in the hierarchy
         let workoutCount = (try? modelContext.fetchCount(FetchDescriptor<Workout>())) ?? 0
         AppStoreRatingManager.shared.checkAndRequestReviewIfNeeded(currentWorkoutCount: workoutCount)
+    }
+
+    private func syncBaseLevelOnboardingPresentation() {
+        let workoutCount = (try? modelContext.fetchCount(FetchDescriptor<Workout>())) ?? 0
+        settingsManager.resolveBaseLevelBootstrap(hasWorkoutHistory: workoutCount > 0)
+        showingBaseLevelOnboarding = settingsManager.shouldPresentBaseLevelOnboarding
     }
     
     private func iconToken(for tab: TabItem, isSelected: Bool) -> AppIconToken {

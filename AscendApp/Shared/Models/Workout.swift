@@ -161,6 +161,8 @@ class Workout {
 
     // Heat map percentile scores - stored as JSON (snapshot at workout save time)
     var percentileScoresData: Data?
+    var effortScoreValue: Double?
+    var equivalentLevelValue: Int?
 
     // Computed property for easy access to personal record types
     var personalRecordTypes: [String]? {
@@ -217,6 +219,11 @@ class Workout {
         var scores = percentileScores ?? [:]
         scores[metric.rawValue] = score
         percentileScores = scores
+    }
+
+    var equivalentLevel: Int? {
+        get { equivalentLevelValue }
+        set { equivalentLevelValue = newValue.map(SPMMappingService.clampedLevel) }
     }
 
     /// Total weight used in this workout (for display)

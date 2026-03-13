@@ -636,14 +636,6 @@ final class WorkoutImportCoordinator {
             modelContext: modelContext
         )
 
-        let settings = SettingsManager.shared
-        let allWorkouts = try fetchAllWorkouts(from: modelContext)
-        workout.percentileScores = PercentileScoreService.calculateAllPercentiles(
-            for: workout,
-            existingWorkouts: allWorkouts,
-            fitnessLevel: settings.fitnessLevel,
-            preferredMetric: settings.preferredWorkoutMetric
-        )
         try modelContext.save()
 
         return .imported(workout)
@@ -875,28 +867,9 @@ final class WorkoutImportCoordinator {
     }
 
     private func recalculateDerivedData(modelContext: ModelContext) throws {
-        let allWorkouts = try fetchAllWorkouts(from: modelContext)
-        let settings = SettingsManager.shared
-
-        for workout in allWorkouts {
-            workout.percentileScores = PercentileScoreService.calculateAllPercentiles(
-                for: workout,
-                existingWorkouts: allWorkouts,
-                fitnessLevel: settings.fitnessLevel,
-                preferredMetric: settings.preferredWorkoutMetric
-            )
-        }
-
-        try PersonalRecordService.recalculateAllPersonalRecords(
+        try WorkoutDerivedDataService.recalculateAll(
             modelContext: modelContext,
-            measurementSystem: settings.measurementSystem,
-            stepHeight: settings.stepHeight
+            settingsManager: .shared
         )
-
-        if let user = Auth.auth().currentUser {
-            try leaderboardService.updateAllTimeFrames(for: user.uid, workouts: allWorkouts)
-        }
-
-        try modelContext.save()
     }
 }

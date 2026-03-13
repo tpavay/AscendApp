@@ -21,7 +21,7 @@ struct EditProfileView: View {
     @State private var isEditingDisplayName = false
     @State private var editedDisplayName = ""
     @State private var isSavingDisplayName = false
-    @State private var showingFitnessLevelSheet = false
+    @State private var showingBaseLevelSheet = false
     @State private var isShowingDeleteAccountConfirmation = false
     @State private var showingSignOutConfirmation = false
     @FocusState private var isDisplayNameFocused: Bool
@@ -35,8 +35,8 @@ struct EditProfileView: View {
                 // User Info Section
                 userInfoSection
 
-                // Fitness Level Section
-                fitnessLevelSection
+                // Base Level Section
+                baseLevelSection
 
                 // Preferences Section
                 preferencesSection
@@ -109,9 +109,9 @@ struct EditProfileView: View {
                 Text(errorMessage)
             }
         }
-        .sheet(isPresented: $showingFitnessLevelSheet) {
-            FitnessLevelSheetView(settingsManager: settingsManager)
-                .appSheetStyle(.medium)
+        .sheet(isPresented: $showingBaseLevelSheet) {
+            BaseLevelEditorSheet()
+                .appSheetStyle(.fraction(0.7))
         }
         .sheet(isPresented: $isShowingDeleteAccountConfirmation) {
             DeleteAccountConfirmationView(
@@ -222,23 +222,30 @@ struct EditProfileView: View {
         }
     }
 
-    // MARK: - Fitness Level Section
+    // MARK: - Base Level Section
 
-    private var fitnessLevelSection: some View {
-        ProfileSection(title: "Fitness Level") {
+    private var baseLevelSection: some View {
+        ProfileSection(title: "Base Level") {
             ProfileCardSurface {
                 Button {
-                    showingFitnessLevelSheet = true
+                    showingBaseLevelSheet = true
                 } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: settingsManager.fitnessLevel.icon)
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundStyle(.accent)
+                    HStack(alignment: .top, spacing: 12) {
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(baseLevelAccentColor)
+                            .frame(width: 4)
 
-                        Text(settingsManager.fitnessLevel.displayName)
-                            .font(.montserratRegular(size: 16))
-                            .foregroundStyle(colorScheme == .dark ? .white : .black)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Level \(settingsManager.effectiveBaseLevel) (\(settingsManager.effectiveBaseLevelSPM) SPM)")
+                                .font(.montserratSemiBold(size: 18))
+                                .foregroundStyle(colorScheme == .dark ? .white : .black)
 
+                            Text(baseLevelSubtitle)
+                                .font(.montserratRegular(size: 14))
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.leading)
+                        }
+                        
                         Spacer()
 
                         Image(systemName: "pencil")
@@ -251,6 +258,27 @@ struct EditProfileView: View {
                 }
                 .buttonStyle(.plain)
             }
+        }
+    }
+
+    private var baseLevelAccentColor: Color {
+        Color.heatMapColor(
+            for: IntensityTier.from(level: settingsManager.effectiveBaseLevel).heatMapScore,
+            colorScheme: colorScheme
+        )
+    }
+
+    private var baseLevelSubtitle: String {
+        switch settingsManager.baseLevelState {
+        case .seeded:
+            return "Set during onboarding. Log workouts to auto-calibrate."
+        case .autoCalculated:
+            return "Auto-calculated from your workouts."
+        case .manualOverride:
+            if let autoCalculatedBaseLevel = settingsManager.autoCalculatedBaseLevel {
+                return "Auto-calculated level is \(autoCalculatedBaseLevel) from your workouts."
+            }
+            return "Set during onboarding. Log workouts to auto-calibrate."
         }
     }
 
@@ -426,110 +454,6 @@ private struct InfoRow: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-// MARK: - Fitness Level Sheet
-
-private struct FitnessLevelSheetView: View {
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.dismiss) private var dismiss
-    @Bindable var settingsManager: SettingsManager
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 24) {
-                VStack(spacing: 12) {
-                    ForEach(FitnessLevel.allCases) { level in
-                        fitnessLevelRow(level: level)
-                    }
-                }
-                .padding(.horizontal, 20)
-
-                // Info text
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.secondary)
-
-                    Text("Sets initial scoring thresholds for your first 10 workouts, then transitions to personalized scoring.")
-                        .font(.montserratRegular(size: 13))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 20)
-
-                Spacer()
-            }
-            .padding(.top, 20)
-            .appSheetBackground()
-            .navigationTitle("Fitness Level")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                    .font(.montserratSemiBold(size: 16))
-                }
-            }
-        }
-    }
-
-    private func fitnessLevelRow(level: FitnessLevel) -> some View {
-        Button(action: {
-            settingsManager.setFitnessLevel(level)
-        }) {
-            HStack(spacing: 12) {
-                // Icon
-                ZStack {
-                    Circle()
-                        .fill(colorScheme == .dark ? Color.jetLighter.opacity(0.3) : Color.gray.opacity(0.1))
-                        .frame(width: 40, height: 40)
-
-                    Image(systemName: level.icon)
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(.accent)
-                }
-
-                // Text Content
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(level.displayName)
-                        .font(.montserratSemiBold(size: 15))
-                        .foregroundStyle(colorScheme == .dark ? .white : .black)
-
-                    Text(level.description)
-                        .font(.montserratRegular(size: 12))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-
-                Spacer()
-
-                // Selection Indicator
-                ZStack {
-                    Circle()
-                        .stroke(colorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.3), lineWidth: 2)
-                        .frame(width: 22, height: 22)
-
-                    if settingsManager.fitnessLevel == level {
-                        Circle()
-                            .fill(.accent)
-                            .frame(width: 14, height: 14)
-                            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: settingsManager.fitnessLevel)
-                    }
-                }
-            }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(colorScheme == .dark ? Color.jetLighter.opacity(0.3) : Color.gray.opacity(0.1))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(settingsManager.fitnessLevel == level ? .accent.opacity(0.5) : .clear, lineWidth: 2)
-                    )
-            )
-        }
-        .buttonStyle(.plain)
     }
 }
 

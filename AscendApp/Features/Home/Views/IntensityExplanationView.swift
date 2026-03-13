@@ -26,7 +26,7 @@ struct IntensityExplanationView: View {
                             .font(.montserratBold(size: 24))
                             .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                         
-                        Text("Your workout intensity is calculated using multiple data points to give you the most accurate representation of your effort level.")
+                        Text("Your workouts are scored around your base level, which is the stairmaster level you can comfortably sustain for about 10 minutes.")
                             .font(.montserratRegular(size: 16))
                             .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .gray)
                             .fixedSize(horizontal: false, vertical: true)
@@ -45,26 +45,20 @@ struct IntensityExplanationView: View {
                         
                         priorityItem(
                             number: 1,
-                            title: "Your Effort Rating",
-                            description: "If you manually enter an effort rating (1-5 scale), we use that as the primary indicator since you know your body best."
+                            title: "Base Level",
+                            description: "We map your workouts to an equivalent stairmaster level, then compare that level to your base level to understand how hard the pace was for you."
                         )
                         
                         priorityItem(
                             number: 2,
-                            title: "Heart Rate Data",
-                            description: "Heart rate is the most reliable physiological indicator of intensity. Higher heart rates indicate harder effort."
+                            title: "Workout Duration",
+                            description: "Time still matters. A level you can hold for 30 minutes carries more overall load than the same pace for 3 minutes."
                         )
                         
                         priorityItem(
                             number: 3,
-                            title: "Apple Health Intensity",
-                            description: "If available, we factor in the METs (Metabolic Equivalent of Task) rating from Apple Health, weighted less than heart rate."
-                        )
-                        
-                        priorityItem(
-                            number: 4,
-                            title: "Activity Metrics",
-                            description: "For manual logs without heart rate, we use step count, steps per minute (cadence), and workout duration to estimate intensity."
+                            title: "Supporting Signals",
+                            description: "Effort rating, heart rate, METs, and added weight help refine the score when that data is available, but they no longer replace the core pace model."
                         )
                     }
                     .padding(.horizontal, 24)
@@ -78,7 +72,7 @@ struct IntensityExplanationView: View {
                             .font(.montserratBold(size: 20))
                             .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                         
-                        ForEach(WorkoutIntensity.allCases, id: \.rawValue) { intensity in
+                        ForEach(IntensityTier.allCases, id: \.rawValue) { intensity in
                             intensityLevelCard(intensity: intensity)
                         }
                     }
@@ -137,7 +131,7 @@ struct IntensityExplanationView: View {
         }
     }
     
-    private func intensityLevelCard(intensity: WorkoutIntensity) -> some View {
+    private func intensityLevelCard(intensity: IntensityTier) -> some View {
         HStack(spacing: 16) {
             // Color indicator
             RoundedRectangle(cornerRadius: 12)
@@ -183,4 +177,3 @@ struct IntensityExplanationView: View {
     IntensityExplanationView()
         .preferredColorScheme(.dark)
 }
-
