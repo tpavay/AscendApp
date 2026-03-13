@@ -116,6 +116,7 @@ platform :ios do
         "CODE_SIGN_STYLE=Manual",
         "CODE_SIGN_IDENTITY=#{Shellwords.escape(export_signing_cert)}",
         "DEVELOPMENT_TEAM=#{Shellwords.escape(staging_development_team)}",
+        "PROVISIONING_PROFILE_SPECIFIER=#{Shellwords.escape(staging_profile_specifier)}",
         "CODE_SIGNING_ALLOWED='$(CODE_SIGNING_ALLOWED_FOR_APPS)'"
       ].join(" ")
     )
@@ -184,6 +185,7 @@ platform :ios do
         "CODE_SIGN_STYLE=Manual",
         "CODE_SIGN_IDENTITY=#{Shellwords.escape(export_signing_cert)}",
         "DEVELOPMENT_TEAM=#{Shellwords.escape(production_development_team)}",
+        "PROVISIONING_PROFILE_SPECIFIER=#{Shellwords.escape(production_profile_specifier)}",
         "CODE_SIGNING_ALLOWED='$(CODE_SIGNING_ALLOWED_FOR_APPS)'"
       ].join(" ")
     )
