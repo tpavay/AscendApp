@@ -117,9 +117,20 @@ platform :ios do
         "CODE_SIGN_IDENTITY=#{Shellwords.escape(export_signing_cert)}",
         "DEVELOPMENT_TEAM=#{Shellwords.escape(staging_development_team)}",
         "PROVISIONING_PROFILE_SPECIFIER=#{Shellwords.escape(staging_profile_specifier)}",
-        "CODE_SIGNING_ALLOWED='$(CODE_SIGNING_ALLOWED_FOR_APPS)'"
+        "CODE_SIGN_ENTITLEMENTS=AscendApp/AscendApp.entitlements",
+        "CODE_SIGNING_ALLOWED=YES"
       ].join(" ")
     )
+
+    # Diagnostic: verify entitlements in the archive before export
+    app_path = File.join(archive_path, "Products", "Applications", "AscendApp.app", "AscendApp")
+    if File.exist?(app_path)
+      UI.message("=== Archive binary entitlements ===")
+      sh("codesign -d --entitlements - '#{File.join(archive_path, "Products", "Applications", "AscendApp.app")}' 2>&1 || true")
+    else
+      UI.error("Archive binary not found at expected path — checking archive contents:")
+      sh("find '#{archive_path}' -name '*.app' 2>&1 || true")
+    end
 
     # Step 2: Export the archive to IPA.
     # Run xcodebuild directly so no stray xcargs leak into the export command.
@@ -186,7 +197,8 @@ platform :ios do
         "CODE_SIGN_IDENTITY=#{Shellwords.escape(export_signing_cert)}",
         "DEVELOPMENT_TEAM=#{Shellwords.escape(production_development_team)}",
         "PROVISIONING_PROFILE_SPECIFIER=#{Shellwords.escape(production_profile_specifier)}",
-        "CODE_SIGNING_ALLOWED='$(CODE_SIGNING_ALLOWED_FOR_APPS)'"
+        "CODE_SIGN_ENTITLEMENTS=AscendApp/AscendApp.entitlements",
+        "CODE_SIGNING_ALLOWED=YES"
       ].join(" ")
     )
 
