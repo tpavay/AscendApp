@@ -117,20 +117,15 @@ platform :ios do
         "CODE_SIGN_IDENTITY=#{Shellwords.escape(export_signing_cert)}",
         "DEVELOPMENT_TEAM=#{Shellwords.escape(staging_development_team)}",
         "PROVISIONING_PROFILE_SPECIFIER=#{Shellwords.escape(staging_profile_specifier)}",
-        "CODE_SIGN_ENTITLEMENTS=AscendApp/AscendApp.entitlements",
-        "CODE_SIGNING_ALLOWED=YES"
+        "CODE_SIGNING_ALLOWED='$(CODE_SIGNING_ALLOWED_FOR_APPS)'"
       ].join(" ")
     )
 
-    # Diagnostic: verify entitlements in the archive before export
-    app_path = File.join(archive_path, "Products", "Applications", "AscendApp.app", "AscendApp")
-    if File.exist?(app_path)
-      UI.message("=== Archive binary entitlements ===")
-      sh("codesign -d --entitlements - '#{File.join(archive_path, "Products", "Applications", "AscendApp.app")}' 2>&1 || true")
-    else
-      UI.error("Archive binary not found at expected path — checking archive contents:")
-      sh("find '#{archive_path}' -name '*.app' 2>&1 || true")
-    end
+    # Diagnostic: verify entitlements embedded in the archive
+    archive_app = File.join(archive_path, "Products", "Applications", "AscendApp.app")
+    UI.message("=== DIAGNOSTIC: Archive entitlements ===")
+    sh("codesign -d --entitlements - '#{archive_app}' 2>&1 || echo 'codesign --entitlements failed'")
+    sh("codesign -dvvv '#{archive_app}' 2>&1 || echo 'codesign -dvvv failed'")
 
     # Step 2: Export the archive to IPA.
     # Run xcodebuild directly so no stray xcargs leak into the export command.
@@ -147,8 +142,7 @@ platform :ios do
     export_cmd = "xcodebuild -exportArchive" \
       " -archivePath #{archive_path.shellescape}" \
       " -exportOptionsPlist #{export_plist.shellescape}" \
-      " -exportPath #{output_dir.shellescape}" \
-      " -allowProvisioningUpdates"
+      " -exportPath #{output_dir.shellescape}"
     sh(export_cmd)
 
     # Rename exported IPA to expected name
@@ -197,8 +191,7 @@ platform :ios do
         "CODE_SIGN_IDENTITY=#{Shellwords.escape(export_signing_cert)}",
         "DEVELOPMENT_TEAM=#{Shellwords.escape(production_development_team)}",
         "PROVISIONING_PROFILE_SPECIFIER=#{Shellwords.escape(production_profile_specifier)}",
-        "CODE_SIGN_ENTITLEMENTS=AscendApp/AscendApp.entitlements",
-        "CODE_SIGNING_ALLOWED=YES"
+        "CODE_SIGNING_ALLOWED='$(CODE_SIGNING_ALLOWED_FOR_APPS)'"
       ].join(" ")
     )
 
@@ -216,8 +209,7 @@ platform :ios do
     export_cmd = "xcodebuild -exportArchive" \
       " -archivePath #{archive_path.shellescape}" \
       " -exportOptionsPlist #{export_plist.shellescape}" \
-      " -exportPath #{output_dir.shellescape}" \
-      " -allowProvisioningUpdates"
+      " -exportPath #{output_dir.shellescape}"
     sh(export_cmd)
 
     # Rename exported IPA to expected name
