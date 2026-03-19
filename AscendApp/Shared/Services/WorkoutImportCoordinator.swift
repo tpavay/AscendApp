@@ -867,9 +867,20 @@ final class WorkoutImportCoordinator {
     }
 
     private func recalculateDerivedData(modelContext: ModelContext) throws {
-        try WorkoutDerivedDataService.recalculateAll(
-            modelContext: modelContext,
-            settingsManager: .shared
-        )
+        let allWorkouts = try fetchAllWorkouts(from: modelContext)
+        let settings = SettingsManager.shared
+
+        for workout in allWorkouts {
+            workout.percentileScores = PercentileScoreService.calculateAllPercentiles(
+                for: workout,
+                existingWorkouts: allWorkouts,
+                preferredMetric: settings.preferredWorkoutMetric
+            )
+        }
+
+        // Recalculate PRs and leaderboard stats
+        try WorkoutMutationHandler.shared.workoutsDidChange(modelContext: modelContext)
+
+        try modelContext.save()
     }
 }

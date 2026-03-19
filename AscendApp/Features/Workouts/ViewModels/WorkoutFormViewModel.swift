@@ -149,10 +149,8 @@ class WorkoutFormViewModel {
             modelContext.insert(workout)
             try modelContext.save()
 
-            try WorkoutDerivedDataService.recalculateAll(
-                modelContext: modelContext,
-                settingsManager: settingsManager
-            )
+            // Recalculate PRs and leaderboard stats
+            try WorkoutMutationHandler.shared.workoutsDidChange(modelContext: modelContext)
 
             // Queue media uploads asynchronously (fire-and-forget)
             // This happens in background so form can close immediately

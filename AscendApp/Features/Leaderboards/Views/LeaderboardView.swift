@@ -29,14 +29,14 @@ struct LeaderboardView: View {
     }
 
     @MainActor
-    init(lockedMetric: LeaderboardMetric? = nil) {
+    init(lockedMetric: LeaderboardMetric? = nil, initialTimeFrame: LeaderboardTimeFrame = .weekly) {
         self.lockedMetric = lockedMetric
 
         let vm = LeaderboardViewModel()
         if let lockedMetric {
             vm.selectedMetric = lockedMetric
-            vm.selectedTimeFrame = .weekly
         }
+        vm.selectedTimeFrame = initialTimeFrame
         _viewModel = State(initialValue: vm)
     }
 

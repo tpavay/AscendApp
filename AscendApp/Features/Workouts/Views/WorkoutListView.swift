@@ -323,10 +323,8 @@ struct WorkoutListView: View {
             }
             try modelContext.save()
 
-            try WorkoutDerivedDataService.recalculateAll(
-                modelContext: modelContext,
-                settingsManager: settingsManager
-            )
+            // Recalculate PRs and leaderboard stats after deletion
+            try WorkoutMutationHandler.shared.workoutsDidChange(modelContext: modelContext)
 
             await MainActor.run {
                 isDeleting = false
