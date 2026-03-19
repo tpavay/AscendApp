@@ -19,6 +19,7 @@ struct LeaderboardHubView: View {
     @Query private var workouts: [Workout]
     @State private var settingsManager = SettingsManager.shared
 
+    @State private var selectedTimeFrame: LeaderboardTimeFrame = .weekly
     @State private var previewEntries: [LeaderboardMetric: [LeaderboardEntry]] = [:]
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -42,7 +43,8 @@ struct LeaderboardHubView: View {
                         LeaderboardCategoryCard(
                             metric: metric,
                             entries: previewEntries[metric] ?? [],
-                            preferredMetric: preferredMetric
+                            preferredMetric: preferredMetric,
+                            selectedTimeFrame: selectedTimeFrame
                         )
                     }
                 } else if isLoading {
@@ -64,6 +66,9 @@ struct LeaderboardHubView: View {
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active, tabRouter.selectedTab == .leaderboard else { return }
+            Task { await loadPreviews(mode: .fast) }
+        }
+        .onChange(of: selectedTimeFrame) { _, _ in
             Task { await loadPreviews(mode: .fast) }
         }
         .refreshable {
@@ -123,7 +128,7 @@ struct LeaderboardHubView: View {
                     do {
                         let stats = try await repository.fetchLeaderboard(
                             metric: metric,
-                            timeFrame: .weekly,
+                            timeFrame: selectedTimeFrame,
                             limit: previewLimit,
                             preferredWorkoutMetric: preferredMetric,
                             source: mode == .fast ? .default : .server
@@ -134,7 +139,7 @@ struct LeaderboardHubView: View {
                             do {
                                 let cachedStats = try await repository.fetchLeaderboard(
                                     metric: metric,
-                                    timeFrame: .weekly,
+                                    timeFrame: selectedTimeFrame,
                                     limit: previewLimit,
                                     preferredWorkoutMetric: preferredMetric,
                                     source: .cache
@@ -212,15 +217,18 @@ struct LeaderboardHubView: View {
         }
     }
 
+    private let hubTimeFrames: [LeaderboardTimeFrame] = [.weekly, .monthly, .allTime]
+
     private var hubHeader: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Leaderboards")
                 .font(.montserratBold(size: 34))
                 .foregroundStyle(.primary)
 
-            Text("Weekly")
-                .font(.montserratMedium(size: 16))
-                .foregroundStyle(.secondary)
+            LeaderboardPickerView(
+                selectedTimeFrame: $selectedTimeFrame,
+                timeFrames: hubTimeFrames
+            )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.bottom, 4)
@@ -279,6 +287,7 @@ private struct LeaderboardCategoryCard: View {
     let metric: LeaderboardMetric
     let entries: [LeaderboardEntry]
     let preferredMetric: WorkoutMetric
+    let selectedTimeFrame: LeaderboardTimeFrame
 
     private var title: String {
         metric.displayName(for: preferredMetric)
@@ -294,7 +303,7 @@ private struct LeaderboardCategoryCard: View {
                 Spacer()
 
                 NavigationLink {
-                    LeaderboardView(lockedMetric: metric)
+                    LeaderboardView(lockedMetric: metric, initialTimeFrame: selectedTimeFrame)
                 } label: {
                     Text("See all")
                         .font(.montserratSemiBold(size: 16))

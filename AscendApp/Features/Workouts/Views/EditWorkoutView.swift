@@ -780,11 +780,9 @@ struct EditWorkoutView: View {
             
             try modelContext.save()
             print("✅ Successfully updated workout with \(workout.photos.count) photos")
-            
-            try WorkoutDerivedDataService.recalculateAll(
-                modelContext: modelContext,
-                settingsManager: settingsManager
-            )
+
+            // Recalculate PRs and leaderboard stats after edit
+            try WorkoutMutationHandler.shared.workoutsDidChange(modelContext: modelContext)
             
             let photosToDelete = photosMarkedForDeletion
             if !photosToDelete.isEmpty {

@@ -363,18 +363,7 @@ final class WorkoutTestDataSeeder {
     }
 
     private func rebuildDerivedData(modelContext: ModelContext) throws {
-        try PersonalRecordService.recalculateAllPersonalRecords(
-            modelContext: modelContext,
-            measurementSystem: settings.measurementSystem,
-            stepHeight: settings.stepHeight
-        )
-
-        guard let userId = Auth.auth().currentUser?.uid else { return }
-
-        let leaderboardService = LeaderboardService.shared
-        leaderboardService.configure(modelContext: modelContext)
-        let allWorkouts = try modelContext.fetch(FetchDescriptor<Workout>())
-        try leaderboardService.updateAllTimeFrames(for: userId, workouts: allWorkouts)
+        try WorkoutMutationHandler.shared.workoutsDidChange(modelContext: modelContext)
     }
 
     // MARK: - Metadata
