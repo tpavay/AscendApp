@@ -21,15 +21,16 @@ struct RoutinesHomeCard: View {
             // Header row with title and "See All" link
             HStack {
                 Text("ROUTINES")
-                    .font(.montserratMedium(size: 14))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
+                    .font(.montserratSemiBold(size: 12))
+                    .tracking(0.8)
+                    .foregroundStyle(Color.customGray)
 
                 Spacer()
 
                 NavigationLink(destination: RoutinesView()) {
                     HStack(spacing: 4) {
                         Text("See All")
-                            .font(.montserratMedium(size: 14))
+                            .font(.montserratSemiBold(size: 14))
                         Image(systemName: "chevron.right")
                             .font(.system(size: 10, weight: .semibold))
                     }
@@ -48,6 +49,9 @@ struct RoutinesHomeCard: View {
             }
         }
         .onAppear {
+            loadRoutines()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .routineTemplatesDidChange)) { _ in
             loadRoutines()
         }
         .sheet(item: $selectedRoutine) { routine in
@@ -97,6 +101,7 @@ struct RoutinesHomeCard: View {
                     loadRoutines()
                 }
             )
+            .appSheetStyle(.large)
         }
         .fullScreenCover(item: $activeRoutine) { routine in
             ActiveRoutineView(routine: routine)
@@ -147,34 +152,14 @@ struct RoutinesHomeCard: View {
     }
 
     private var routinePreviewScroll: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 12) {
-                ForEach(routines.prefix(6)) { routine in
-                    Button {
-                        selectedRoutine = routine
-                    } label: {
-                        RoutinePreviewPill(routine: routine)
-                    }
-                    .buttonStyle(.plain)
+        RoutineHorizontalRail(routines: Array(routines.prefix(6))) { routine in
+            RoutineThumbnailCard(
+                routine: routine,
+                onTap: {
+                    selectedRoutine = routine
                 }
-
-                if routines.count > 6 {
-                    NavigationLink(destination: RoutinesView()) {
-                        Text("+\(routines.count - 6) more")
-                            .font(.montserratMedium(size: 12))
-                            .foregroundStyle(.accent)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(.accent.opacity(0.1))
-                            )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
+            )
         }
-        .scrollIndicators(.hidden)
     }
 
     private func loadRoutines() {
@@ -193,49 +178,6 @@ struct RoutinesHomeCard: View {
         }
 
         isLoading = false
-    }
-}
-
-// MARK: - Routine Preview Pill
-
-struct RoutinePreviewPill: View {
-    let routine: Routine
-
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var themeManager = ThemeManager.shared
-
-    private var effectiveColorScheme: ColorScheme {
-        themeManager.effectiveColorScheme(for: colorScheme)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(routine.name)
-                .font(.montserratSemiBold(size: 13))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                .lineLimit(1)
-
-            HStack(spacing: 8) {
-                Text(routine.totalDurationFormatted)
-                    .font(.montserratRegular(size: 11))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
-
-                if let difficulty = routine.difficulty {
-                    DifficultyIndicator(level: difficulty)
-                }
-            }
-        }
-        .frame(minWidth: 140, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.3) : .gray.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
-                )
-        )
     }
 }
 

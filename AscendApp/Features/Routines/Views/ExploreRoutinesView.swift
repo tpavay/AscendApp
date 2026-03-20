@@ -68,82 +68,76 @@ struct ExploreRoutineCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Header
-            HStack {
-                Text(routine.name)
-                    .font(.montserratSemiBold(size: 18))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+        RoutineCardSurface(cornerRadius: 16) {
+            VStack(alignment: .leading, spacing: 12) {
+                // Header
+                HStack {
+                    Text(routine.name)
+                        .font(.montserratSemiBold(size: 18))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
 
-                Spacer()
+                    Spacer()
 
-                if let difficulty = routine.difficulty {
-                    DifficultyIndicator(level: difficulty)
+                    if let difficulty = routine.difficulty {
+                        DifficultyIndicator(level: difficulty)
+                    }
+                }
+
+                // Stats
+                HStack(spacing: 16) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock")
+                            .font(.system(size: 12, weight: .medium))
+                        Text(routine.totalDurationFormatted)
+                            .font(.montserratMedium(size: 14))
+                    }
+
+                    HStack(spacing: 4) {
+                        Image(systemName: "list.bullet")
+                            .font(.system(size: 12, weight: .medium))
+                        Text("\(routine.intervalCount) intervals")
+                            .font(.montserratMedium(size: 14))
+                    }
+                }
+                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
+
+                // Action buttons
+                HStack(spacing: 8) {
+                    Button(action: { onTap?() }) {
+                        Text("View")
+                            .font(.montserratMedium(size: 14))
+                            .foregroundStyle(.accent)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(.accent, lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: { onCopy?() }) {
+                        Text("Copy")
+                            .font(.montserratMedium(size: 14))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(.accent)
+                            )
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-
-            // Stats
-            HStack(spacing: 16) {
-                HStack(spacing: 4) {
-                    Image(systemName: "clock")
-                        .font(.system(size: 12, weight: .medium))
-                    Text(routine.totalDurationFormatted)
-                        .font(.montserratMedium(size: 14))
-                }
-
-                HStack(spacing: 4) {
-                    Image(systemName: "list.bullet")
-                        .font(.system(size: 12, weight: .medium))
-                    Text("\(routine.intervalCount) intervals")
-                        .font(.montserratMedium(size: 14))
-                }
-            }
-            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
-
-            // Action buttons
-            HStack(spacing: 8) {
-                Button(action: { onTap?() }) {
-                    Text("View")
-                        .font(.montserratMedium(size: 14))
-                        .foregroundStyle(.accent)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(.accent, lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-
-                Button(action: { onCopy?() }) {
-                    Text("Copy")
-                        .font(.montserratMedium(size: 14))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(.accent)
-                        )
-                }
-                .buttonStyle(.plain)
-            }
+            .padding(16)
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
-                )
-        )
     }
 }
 
 #Preview {
     ExploreRoutinesView(
-        routines: BuiltInRoutines.templates
+        routines: BuiltInRoutines.previewTemplates
     )
     .preferredColorScheme(.dark)
 }

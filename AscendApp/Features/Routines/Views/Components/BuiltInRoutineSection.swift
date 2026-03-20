@@ -59,78 +59,72 @@ struct BuiltInTemplateCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Header
-            HStack {
-                Text(routine.name)
-                    .font(.montserratSemiBold(size: 16))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                    .lineLimit(1)
+        RoutineCardSurface(cornerRadius: 16, darkFillOpacity: 0.3, lightFillOpacity: 0.08) {
+            VStack(alignment: .leading, spacing: 12) {
+                // Header
+                HStack {
+                    Text(routine.name)
+                        .font(.montserratSemiBold(size: 16))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                        .lineLimit(1)
+
+                    Spacer()
+
+                    if let difficulty = routine.difficulty {
+                        DifficultyIndicator(level: difficulty)
+                    }
+                }
 
                 Spacer()
 
-                if let difficulty = routine.difficulty {
-                    DifficultyIndicator(level: difficulty)
-                }
-            }
-
-            Spacer()
-
-            // Stats
-            HStack(spacing: 12) {
-                Label(routine.totalDurationFormatted, systemImage: "clock")
-                    .font(.montserratMedium(size: 12))
-
-                Label("\(routine.intervalCount)", systemImage: "list.bullet")
-                    .font(.montserratMedium(size: 12))
-            }
-            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
-
-            // Action buttons
-            HStack(spacing: 8) {
-                Button(action: { onTap?() }) {
-                    Text("View")
+                // Stats
+                HStack(spacing: 12) {
+                    Label(routine.totalDurationFormatted, systemImage: "clock")
                         .font(.montserratMedium(size: 12))
-                        .foregroundStyle(.accent)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(.accent, lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
 
-                Button(action: { onCopy?() }) {
-                    Text("Copy")
+                    Label("\(routine.intervalCount)", systemImage: "list.bullet")
                         .font(.montserratMedium(size: 12))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(.accent)
-                        )
                 }
-                .buttonStyle(.plain)
+                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
+
+                // Action buttons
+                HStack(spacing: 8) {
+                    Button(action: { onTap?() }) {
+                        Text("View")
+                            .font(.montserratMedium(size: 12))
+                            .foregroundStyle(.accent)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(.accent, lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: { onCopy?() }) {
+                        Text("Copy")
+                            .font(.montserratMedium(size: 12))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(.accent)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
             }
+            .padding(16)
         }
-        .padding(16)
         .frame(width: 220, height: 150)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.3) : .gray.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
-                )
-        )
     }
 }
 
 #Preview {
     BuiltInRoutineSection(
-        routines: BuiltInRoutines.templates,
+        routines: BuiltInRoutines.previewTemplates,
         onRoutineSelected: { _ in },
         onCopyRoutine: { _ in }
     )
@@ -139,7 +133,7 @@ struct BuiltInTemplateCard: View {
 
 #Preview("Dark Mode") {
     BuiltInRoutineSection(
-        routines: BuiltInRoutines.templates,
+        routines: BuiltInRoutines.previewTemplates,
         onRoutineSelected: { _ in },
         onCopyRoutine: { _ in }
     )

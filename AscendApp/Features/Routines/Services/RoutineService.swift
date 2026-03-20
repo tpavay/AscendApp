@@ -105,6 +105,32 @@ final class RoutineService {
         return copy
     }
 
+    func savedCopy(templateId: String) throws -> Routine? {
+        let builtinRaw = RoutineSource.builtin.rawValue
+        let descriptor = FetchDescriptor<Routine>(
+            predicate: #Predicate {
+                !$0.isArchived &&
+                $0.sourceRawValue != builtinRaw &&
+                $0.templateId == templateId
+            },
+            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
+        )
+        return try modelContext.fetch(descriptor).first
+    }
+
+    @discardableResult
+    func toggleSavedCopy(for routine: Routine) throws -> Bool {
+        guard let templateId = routine.templateId else { return false }
+
+        if let existingCopy = try savedCopy(templateId: templateId) {
+            try archiveRoutine(existingCopy)
+            return false
+        }
+
+        _ = try copyBuiltInRoutine(routine)
+        return true
+    }
+
     // MARK: - Delete Operations
 
     /// Archives a routine (soft delete)
@@ -188,20 +214,39 @@ final class RoutineService {
 
     /// Ensures built-in routines exist in the database (call on app launch)
     func ensureBuiltInRoutinesExist() throws {
+        let baseLevel = SettingsManager.shared.effectiveBaseLevel
+        let resolvedTemplates = BuiltInRoutines.resolvedTemplates(for: baseLevel)
+        let expectedTemplateIds = Set(resolvedTemplates.compactMap(\.templateId))
         let builtinRaw = RoutineSource.builtin.rawValue
         let descriptor = FetchDescriptor<Routine>(
             predicate: #Predicate { $0.sourceRawValue == builtinRaw }
         )
         let existingBuiltIns = try modelContext.fetch(descriptor)
-        let existingTemplateIds = Set(existingBuiltIns.compactMap { $0.templateId })
+        let existingByTemplateId = existingBuiltIns.reduce(into: [String: Routine]()) { result, routine in
+            guard let templateId = routine.templateId else { return }
+            result[templateId] = routine
+        }
+        var didChange = false
 
-        for template in BuiltInRoutines.templates {
-            guard let templateId = template.templateId,
-                  !existingTemplateIds.contains(templateId) else { continue }
-            modelContext.insert(template)
+        for existingRoutine in existingBuiltIns where !expectedTemplateIds.contains(existingRoutine.templateId ?? "") {
+            modelContext.delete(existingRoutine)
+            didChange = true
         }
 
-        try modelContext.save()
+        for template in resolvedTemplates {
+            guard let templateId = template.templateId else { continue }
+
+            if let existingRoutine = existingByTemplateId[templateId] {
+                didChange = updateBuiltInRoutine(existingRoutine, using: template) || didChange
+            } else {
+                modelContext.insert(template)
+                didChange = true
+            }
+        }
+
+        if didChange {
+            try modelContext.save()
+        }
     }
 
     /// Returns the count of user routines
@@ -221,5 +266,56 @@ final class RoutineService {
             predicate: #Predicate { !$0.isArchived }
         )
         return try modelContext.fetchCount(descriptor)
+    }
+
+    @discardableResult
+    private func updateBuiltInRoutine(_ routine: Routine, using template: Routine) -> Bool {
+        var didChange = false
+
+        if routine.name != template.name {
+            routine.name = template.name
+            didChange = true
+        }
+
+        if routine.routineDescription != template.routineDescription {
+            routine.routineDescription = template.routineDescription
+            didChange = true
+        }
+
+        if routine.intervals != template.intervals {
+            routine.intervals = template.intervals
+            didChange = true
+        }
+
+        if routine.difficulty != template.difficulty {
+            routine.difficulty = template.difficulty
+            didChange = true
+        }
+
+        if routine.estimatedCalories != template.estimatedCalories {
+            routine.estimatedCalories = template.estimatedCalories
+            didChange = true
+        }
+
+        if routine.defaultWeightConfigurationData != template.defaultWeightConfigurationData {
+            routine.defaultWeightConfigurationData = template.defaultWeightConfigurationData
+            didChange = true
+        }
+
+        if routine.isArchived {
+            routine.isArchived = false
+            didChange = true
+        }
+
+        if routine.source != .builtin {
+            routine.source = .builtin
+            didChange = true
+        }
+
+        if didChange {
+            routine.updatedAt = Date()
+        }
+
+        return didChange
     }
 }
