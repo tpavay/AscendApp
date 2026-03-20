@@ -49,5 +49,7 @@ struct WorkoutDerivedDataService {
         }
 
         try modelContext.save()
+        try RoutineService(modelContext: modelContext).ensureBuiltInRoutinesExist()
+        NotificationCenter.default.post(name: .routineTemplatesDidChange, object: nil)
     }
 }

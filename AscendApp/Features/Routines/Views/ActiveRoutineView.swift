@@ -1,104 +1,61 @@
-import SwiftUI
+import Combine
 import SwiftData
+import SwiftUI
 
 struct ActiveRoutineView: View {
     let routine: Routine
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var viewModel: ActiveRoutineViewModel
 
-    // All state is local to avoid concurrency issues
-    @State private var phase: WorkoutPhase = .countdown
-    @State private var countdownValue = 3
-    @State private var currentIntervalIndex = 0
-    @State private var elapsedInInterval: TimeInterval = 0
-    @State private var totalElapsed: TimeInterval = 0
-    @State private var isPaused = false
-    @State private var showStopConfirmation = false
-    @State private var showCompletionSheet = false
-    @State private var showWorkoutForm = false
-    @State private var completedWorkout: Workout?
-    @State private var shouldDismissAfterForm = false
-
-    // Timer
-    @State private var timerTask: Task<Void, Never>?
-
-    // Cache intervals to avoid repeated JSON decoding
-    @State private var cachedIntervals: [RoutineInterval] = []
-    @State private var cachedTotalDuration: TimeInterval = 0
-
-    private var currentInterval: RoutineInterval? {
-        guard currentIntervalIndex < cachedIntervals.count else { return nil }
-        return cachedIntervals[currentIntervalIndex]
-    }
-
-    private var nextInterval: RoutineInterval? {
-        let nextIndex = currentIntervalIndex + 1
-        guard nextIndex < cachedIntervals.count else { return nil }
-        return cachedIntervals[nextIndex]
-    }
-
-    private var remainingInInterval: TimeInterval {
-        guard let interval = currentInterval else { return 0 }
-        return max(0, interval.duration - elapsedInInterval)
-    }
-
-    private var totalRemaining: TimeInterval {
-        max(0, cachedTotalDuration - totalElapsed)
-    }
-
-    private var progress: Double {
-        guard cachedTotalDuration > 0 else { return 0 }
-        return min(1.0, totalElapsed / cachedTotalDuration)
-    }
-
-    private var isNearIntervalEnd: Bool {
-        remainingInInterval <= 5 && remainingInInterval > 0
+    init(routine: Routine) {
+        self.routine = routine
+        _viewModel = State(initialValue: ActiveRoutineViewModel(routine: routine))
     }
 
     var body: some View {
-        ZStack {
-            Color.jet.ignoresSafeArea()
+        @Bindable var bindableViewModel = viewModel
 
-            switch phase {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            switch viewModel.phase {
             case .countdown:
-                CountdownOverlay(value: countdownValue)
-            case .active:
-                workoutView
-            case .complete:
-                Color.clear // Completion sheet will show
+                CountdownOverlay(value: viewModel.countdownValue)
+            case .active, .complete:
+                activeWorkoutView
             }
         }
         .onAppear {
-            // Cache intervals once to avoid repeated JSON decoding during timer ticks
-            cachedIntervals = routine.intervals
-            cachedTotalDuration = routine.totalDuration
-            startCountdown()
+            viewModel.startSession()
         }
         .onDisappear {
-            stopTimer()
+            viewModel.stopTimer()
         }
-        .alert("Stop Workout?", isPresented: $showStopConfirmation) {
+        .onChange(of: viewModel.showCompletionSheet) { _, isShowing in
+            if isShowing {
+                recordCompletionIfNeeded()
+            }
+        }
+        .alert("Stop Workout?", isPresented: $bindableViewModel.showStopConfirmation) {
             Button("Continue", role: .cancel) {}
-            Button("Save & Log Workout") {
-                stopTimer()
-                recordCompletion()
-                shouldDismissAfterForm = true
-                showWorkoutForm = true
+            Button("Log Workout") {
+                bindableViewModel.shouldDismissAfterForm = true
+                bindableViewModel.showWorkoutForm = true
             }
             Button("Discard", role: .destructive) {
-                stopTimer()
                 dismiss()
             }
         } message: {
-            Text("Would you like to log your progress before stopping?")
+            Text("Would you like to log your progress before leaving this routine?")
         }
-        .sheet(isPresented: $showCompletionSheet) {
+        .sheet(isPresented: $bindableViewModel.showCompletionSheet) {
             completionSheet
         }
-        .sheet(isPresented: $showWorkoutForm, onDismiss: {
-            // After workout form is dismissed (saved or cancelled), dismiss the routine view
-            if shouldDismissAfterForm {
+        .sheet(isPresented: $bindableViewModel.showWorkoutForm, onDismiss: {
+            if viewModel.shouldDismissAfterForm {
                 dismiss()
             }
         }) {
@@ -106,314 +63,179 @@ struct ActiveRoutineView: View {
         }
     }
 
-    // MARK: - Countdown
-
-    private func startCountdown() {
-        phase = .countdown
-        countdownValue = 3
-
-        timerTask = Task { @MainActor in
-            for i in [3, 2, 1] {
-                guard !Task.isCancelled else { return }
-                countdownValue = i
-                HapticsManager.shared.trigger(.mediumImpact)
-                try? await Task.sleep(for: .seconds(1))
-            }
-
-            guard !Task.isCancelled else { return }
-            phase = .active
-            startTimer()
-        }
-    }
-
-    // MARK: - Timer
-
-    private func startTimer() {
-        stopTimer()
-
-        timerTask = Task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(100))
-
-                guard !Task.isCancelled, !isPaused else { continue }
-
-                await MainActor.run {
-                    tick()
-                }
-            }
-        }
-    }
-
-    private func stopTimer() {
-        timerTask?.cancel()
-        timerTask = nil
-    }
-
-    private func tick() {
-        guard let interval = currentInterval else { return }
-
-        elapsedInInterval += 0.1
-        totalElapsed += 0.1
-
-        // Check if interval is complete
-        if elapsedInInterval >= interval.duration {
-            advanceToNextInterval()
-        }
-    }
-
-    private func advanceToNextInterval() {
-        elapsedInInterval = 0
-        currentIntervalIndex += 1
-
-        if currentIntervalIndex >= cachedIntervals.count {
-            completeWorkout()
-        } else {
-            HapticsManager.shared.trigger(.mediumImpact)
-        }
-    }
-
-    private func skipInterval() {
-        guard let interval = currentInterval else { return }
-
-        let remaining = interval.duration - elapsedInInterval
-        totalElapsed += remaining
-        elapsedInInterval = 0
-        currentIntervalIndex += 1
-
-        if currentIntervalIndex >= cachedIntervals.count {
-            completeWorkout()
-        } else {
-            HapticsManager.shared.trigger(.mediumImpact)
-        }
-    }
-
-    private func completeWorkout() {
-        stopTimer()
-        phase = .complete
-        HapticsManager.shared.trigger(.success)
-        showCompletionSheet = true
-    }
-
-    // MARK: - Workout View
-
-    private var workoutView: some View {
-        VStack(spacing: 0) {
-            TopProgressBar(
-                elapsed: formatTime(totalElapsed),
-                remaining: formatTime(totalRemaining),
-                progress: progress
+    private var activeWorkoutView: some View {
+        GeometryReader { geometry in
+            let bottomPadding = Layout.controlBottomPadding + geometry.safeAreaInsets.bottom
+            let staircaseTopPadding = max(
+                Layout.minimumStairTopPadding,
+                geometry.size.height * Layout.stairTopPaddingRatio
             )
-
-            Spacer()
-
-            if let interval = currentInterval {
-                mainContent(for: interval)
-            }
-
-            Spacer()
-
-            controlButtons
-        }
-    }
-
-    private func mainContent(for interval: RoutineInterval) -> some View {
-        VStack(spacing: 24) {
-            Text("\(currentIntervalIndex + 1) of \(cachedIntervals.count)")
-                .font(.montserratMedium(size: 14))
-                .foregroundStyle(.white.opacity(0.5))
-
-            IntervalTimerDisplay(
-                intensity: interval.intensityDisplay,
-                remainingTime: formatTime(remainingInInterval),
-                isNearEnd: isNearIntervalEnd
+            let staircaseHeight = max(
+                geometry.size.height - staircaseTopPadding - bottomPadding - Layout.stairBottomOffset,
+                Layout.minimumStairHeight
             )
+            let staircaseWidth = min(geometry.size.width * Layout.stairWidthRatio, Layout.maximumStairWidth)
 
-            ModifierBadges(modifiers: interval.modifiers)
+            ZStack {
+                StaircaseView(
+                    totalSteps: viewModel.staircaseStepCount,
+                    currentStepIndex: viewModel.staircaseActiveIndex,
+                    isWorkoutComplete: viewModel.phase == .complete
+                )
+                .frame(width: staircaseWidth, height: staircaseHeight)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                .padding(.trailing, Layout.stairTrailingPadding)
+                .padding(.top, staircaseTopPadding)
+                .padding(.bottom, bottomPadding + Layout.stairBottomOffset)
 
-            NextIntervalPreview(interval: nextInterval)
-                .padding(.top, 8)
+                VStack(spacing: 0) {
+                    Text(routine.name)
+                        .font(.montserratMedium(size: Layout.routineNameFontSize))
+                        .tracking(Layout.routineNameTracking)
+                        .foregroundStyle(.white.opacity(Layout.routineNameOpacity))
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, Layout.routineNameTopPadding)
+
+                    SegmentedProgressBar(
+                        intervals: viewModel.intervals,
+                        elapsedLabel: viewModel.formattedElapsed,
+                        totalLabel: viewModel.formattedTotalDuration,
+                        elapsedTime: viewModel.timelineElapsed
+                    )
+                    .padding(.horizontal, Layout.horizontalPadding)
+                    .padding(.top, Layout.progressBarTopPadding)
+
+                    VStack(spacing: 0) {
+                        Text(viewModel.formattedRemainingInInterval)
+                            .font(.montserratBold(size: Layout.timerFontSize))
+                            .tracking(Layout.timerTracking)
+                            .foregroundStyle(.white)
+                            .contentTransition(.numericText())
+                            .monospacedDigit()
+                            .accessibilityLabel("Time remaining")
+                            .accessibilityValue(Text(viewModel.formattedRemainingInInterval))
+
+                        LiveIntervalLevelPill(
+                            levelText: viewModel.currentLevelText,
+                            stepTypeText: viewModel.currentStepTypeText,
+                            color: currentIntervalColor
+                        )
+                        .padding(.top, Layout.levelPillTopPadding)
+                    }
+                    .padding(.top, Layout.headerToTimerSpacing)
+                    .frame(maxWidth: .infinity)
+
+                    Spacer()
+                }
+
+                VStack(spacing: Layout.controlSpacing) {
+                    LiveWorkoutControlButton(
+                        systemImage: "forward.fill",
+                        isPrimary: false,
+                        accessibilityLabel: "Skip to next interval"
+                    ) {
+                        viewModel.skipInterval()
+                    }
+
+                    LiveWorkoutControlButton(
+                        systemImage: viewModel.isPaused ? "play.fill" : "pause.fill",
+                        isPrimary: true,
+                        accessibilityLabel: viewModel.isPaused ? "Resume workout" : "Pause workout"
+                    ) {
+                        viewModel.togglePause()
+                    }
+
+                    LiveWorkoutControlButton(
+                        systemImage: "stop.fill",
+                        isPrimary: false,
+                        accessibilityLabel: "Stop workout"
+                    ) {
+                        viewModel.showStopConfirmation = true
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .padding(.leading, Layout.controlLeadingPadding)
+                .padding(.bottom, bottomPadding)
+            }
         }
-        .padding(.horizontal, 20)
     }
 
-    private var controlButtons: some View {
-        HStack(spacing: 24) {
-            Button {
-                showStopConfirmation = true
-            } label: {
-                VStack(spacing: 6) {
-                    Image(systemName: "stop.fill")
-                        .font(.system(size: 24, weight: .medium))
-                    Text("Stop")
-                        .font(.montserratMedium(size: 12))
-                }
-                .foregroundStyle(.white.opacity(0.7))
-                .frame(width: 70, height: 70)
-                .background(Circle().fill(.white.opacity(0.1)))
-            }
-
-            Button {
-                isPaused.toggle()
-            } label: {
-                VStack(spacing: 6) {
-                    Image(systemName: isPaused ? "play.fill" : "pause.fill")
-                        .font(.system(size: 28, weight: .medium))
-                    Text(isPaused ? "Resume" : "Pause")
-                        .font(.montserratMedium(size: 12))
-                }
-                .foregroundStyle(.white)
-                .frame(width: 90, height: 90)
-                .background(Circle().fill(.accent))
-            }
-
-            Button {
-                skipInterval()
-            } label: {
-                VStack(spacing: 6) {
-                    Image(systemName: "forward.fill")
-                        .font(.system(size: 24, weight: .medium))
-                    Text("Skip")
-                        .font(.montserratMedium(size: 12))
-                }
-                .foregroundStyle(.white.opacity(0.7))
-                .frame(width: 70, height: 70)
-                .background(Circle().fill(.white.opacity(0.1)))
-            }
-        }
-        .padding(.bottom, 40)
+    private var currentIntervalColor: Color {
+        guard let interval = viewModel.currentInterval else { return .accent }
+        return Color.heatMapColor(
+            for: interval.intensityTier.heatMapScore,
+            colorScheme: colorScheme
+        )
     }
-
-    // MARK: - Completion Sheet
 
     private var completionSheet: some View {
-        NavigationStack {
-            VStack(spacing: 32) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 80, weight: .light))
-                    .foregroundStyle(.accent)
-                    .padding(.top, 20)
-
-                VStack(spacing: 8) {
-                    Text("Workout Complete!")
-                        .font(.montserratBold(size: 28))
-                        .foregroundStyle(.white)
-
-                    Text(routine.name)
-                        .font(.montserratMedium(size: 18))
-                        .foregroundStyle(.white.opacity(0.7))
+        WorkoutCompleteView(
+            routineName: routine.name,
+            duration: viewModel.actualElapsed,
+            intervalCount: viewModel.intervals.count,
+            onLogWorkout: {
+                viewModel.showCompletionSheet = false
+                viewModel.shouldDismissAfterForm = true
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(250))
+                    viewModel.showWorkoutForm = true
                 }
-
-                HStack(spacing: 32) {
-                    VStack(spacing: 4) {
-                        Text(formatDuration(totalElapsed))
-                            .font(.montserratBold(size: 28))
-                            .foregroundStyle(.white)
-                        Text("Duration")
-                            .font(.montserratRegular(size: 14))
-                            .foregroundStyle(.white.opacity(0.6))
-                    }
-
-                    VStack(spacing: 4) {
-                        Text("\(cachedIntervals.count)")
-                            .font(.montserratBold(size: 28))
-                            .foregroundStyle(.white)
-                        Text("Intervals")
-                            .font(.montserratRegular(size: 14))
-                            .foregroundStyle(.white.opacity(0.6))
-                    }
-                }
-                .padding(.horizontal, 32)
-                .padding(.vertical, 24)
-                .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(.white.opacity(0.05))
-                )
-
-                Spacer()
-
-                VStack(spacing: 12) {
-                    Button {
-                        recordCompletion()
-                        showCompletionSheet = false
-                        shouldDismissAfterForm = true
-                        showWorkoutForm = true
-                    } label: {
-                        Text("Log Workout")
-                            .font(.montserratSemiBold(size: 16))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(RoundedRectangle(cornerRadius: 12).fill(.accent))
-                    }
-
-                    Button {
-                        recordCompletion()
-                        dismiss()
-                    } label: {
-                        Text("Skip")
-                            .font(.montserratMedium(size: 14))
-                            .foregroundStyle(.white.opacity(0.6))
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 20)
+            },
+            onDiscard: {
+                dismiss()
             }
-            .background(Color.jet)
-        }
-        .interactiveDismissDisabled()
+        )
     }
-
-    // MARK: - Workout Form Sheet
 
     private var workoutFormSheet: some View {
         WorkoutFormView(
-            showingWorkoutForm: $showWorkoutForm,
-            onWorkoutCompleted: { workout in
-                completedWorkout = workout
-            },
+            showingWorkoutForm: Binding(
+                get: { viewModel.showWorkoutForm },
+                set: { viewModel.showWorkoutForm = $0 }
+            ),
+            onWorkoutCompleted: { _ in },
             routinePrefill: RoutinePrefillData(
                 name: routine.name,
-                duration: totalElapsed,
+                duration: viewModel.actualElapsed,
                 weightConfiguration: routine.defaultWeightConfiguration,
                 difficulty: routine.difficulty
             )
         )
     }
 
-    // MARK: - Record Completion
-
-    private func recordCompletion() {
+    private func recordCompletionIfNeeded() {
+        guard !viewModel.hasRecordedCompletion else { return }
         routine.completionCount += 1
         routine.lastCompletedAt = Date()
         try? modelContext.save()
-    }
-
-    // MARK: - Helpers
-
-    private func formatTime(_ interval: TimeInterval) -> String {
-        let totalSeconds = Int(interval)
-        let minutes = totalSeconds / 60
-        let seconds = totalSeconds % 60
-        return "\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
-    }
-
-    private func formatDuration(_ interval: TimeInterval) -> String {
-        let totalSeconds = Int(interval)
-        let minutes = totalSeconds / 60
-        let seconds = totalSeconds % 60
-        if minutes > 0 {
-            return "\(minutes)m \(seconds)s"
-        }
-        return "\(seconds)s"
+        viewModel.markCompletionRecorded()
     }
 }
 
-enum WorkoutPhase {
-    case countdown
-    case active
-    case complete
+private enum Layout {
+    static let horizontalPadding: CGFloat = 20
+    static let routineNameTopPadding: CGFloat = 8
+    static let routineNameFontSize: CGFloat = 12
+    static let routineNameTracking = 0.5
+    static let routineNameOpacity = 0.2
+    static let progressBarTopPadding: CGFloat = 10
+    static let headerToTimerSpacing: CGFloat = 40
+    static let timerFontSize: CGFloat = 112
+    static let timerTracking = -5.0
+    static let levelPillTopPadding: CGFloat = 20
+
+    static let controlSpacing: CGFloat = 10
+    static let controlLeadingPadding: CGFloat = 24
+    static let controlBottomPadding: CGFloat = 34
+    static let stairWidthRatio = 0.72
+    static let maximumStairWidth: CGFloat = 300
+    static let stairTopPaddingRatio = 0.45
+    static let minimumStairTopPadding: CGFloat = 340
+    static let minimumStairHeight: CGFloat = 320
+    static let stairTrailingPadding: CGFloat = 0
+    static let stairBottomOffset: CGFloat = 2
 }
 
 #Preview {
-    ActiveRoutineView(routine: BuiltInRoutines.beginner20Min)
+    ActiveRoutineView(routine: BuiltInRoutines.previewTemplates.last!)
 }

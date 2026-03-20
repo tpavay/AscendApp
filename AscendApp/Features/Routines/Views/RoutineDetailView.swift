@@ -9,8 +9,10 @@ struct RoutineDetailView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.modelContext) private var modelContext
     @State private var themeManager = ThemeManager.shared
     @State private var showDeleteConfirmation = false
+    @State private var isSavedToMyRoutines = false
 
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -20,45 +22,47 @@ struct RoutineDetailView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    // Header info
                     headerSection
-
-                    // Intervals list
                     intervalsSection
-
-                    // Actions
                     actionsSection
                 }
                 .padding(20)
             }
             .background(effectiveColorScheme == .dark ? Color.jet : Color.white)
-            .navigationTitle(routine.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Close") {
                         dismiss()
                     }
-                    .foregroundStyle(.accent)
+                    .foregroundStyle(Color.customGray)
                 }
 
-                if !routine.isBuiltIn {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Menu {
-                            Button(action: { onEdit?() }) {
-                                Label("Edit", systemImage: "pencil")
-                            }
+                ToolbarItem(placement: .principal) {
+                    Text(routine.name)
+                        .font(.montserratSemiBold(size: 17))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                }
 
-                            Button(role: .destructive, action: { showDeleteConfirmation = true }) {
-                                Label("Delete", systemImage: "trash")
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis")
-                                .font(.system(size: 18, weight: .medium))
-                                .foregroundStyle(.accent)
+                ToolbarItem(placement: .topBarTrailing) {
+                    if routine.isBuiltIn {
+                        Button(action: toggleSavedState) {
+                            Image(systemName: isSavedToMyRoutines ? "bookmark.fill" : "bookmark")
+                                .font(.system(size: 17, weight: .medium))
+                                .foregroundStyle(isSavedToMyRoutines ? .accent : .white.opacity(0.3))
+                        }
+                    } else {
+                        Button(action: { onEdit?() }) {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 17, weight: .medium))
+                                .foregroundStyle(.white)
                         }
                     }
                 }
+            }
+            .onAppear {
+                refreshSavedState()
             }
             .alert("Delete Routine?", isPresented: $showDeleteConfirmation) {
                 Button("Cancel", role: .cancel) {}
@@ -76,112 +80,93 @@ struct RoutineDetailView: View {
 
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Stats row
-            HStack(spacing: 24) {
-                statItem(icon: "clock", value: routine.totalDurationFormatted, label: "Duration")
-                statItem(icon: "list.bullet", value: "\(routine.intervalCount)", label: "Intervals")
-
-                if let difficulty = routine.difficulty {
-                    VStack(spacing: 4) {
-                        DifficultyIndicator(level: difficulty)
-                        Text("Difficulty")
-                            .font(.montserratRegular(size: 12))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
-                    }
-                }
-
-                Spacer()
-            }
-
-            // Completion stats
+            detailStatsRow
             completionStatsView
+            RoutineIntensityChartCard(routine: routine)
 
-            // Description
             if !routine.routineDescription.isEmpty {
                 Text(routine.routineDescription)
                     .font(.montserratRegular(size: 14))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-            }
-
-            // Source badge
-            if routine.isBuiltIn {
-                HStack(spacing: 6) {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 12))
-                    Text("Built-in Template")
-                        .font(.montserratMedium(size: 12))
-                }
-                .foregroundStyle(.accent)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(
-                    Capsule()
-                        .fill(.accent.opacity(0.15))
-                )
+                    .foregroundStyle(Color.customGray)
             }
         }
     }
 
     private var completionStatsView: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 14))
-                .foregroundStyle(routine.completionCount > 0 ? .green : .gray)
-
-            if routine.completionCount == 0 {
-                Text("Not yet completed")
-                    .font(.montserratRegular(size: 14))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
-            } else {
-                Text("Completed \(routine.completionCount) \(routine.completionCount == 1 ? "time" : "times")")
-                    .font(.montserratMedium(size: 14))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.8))
-
-                if let lastCompleted = routine.lastCompletedAt {
-                    Text("•")
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray)
-                    Text(lastCompleted.relativeFormatted)
-                        .font(.montserratRegular(size: 14))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
-                }
-            }
-
-            Spacer()
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(effectiveColorScheme == .dark ? .white.opacity(0.05) : .gray.opacity(0.08))
+        RoutineCompletionStatusCard(
+            completionCount: routine.completionCount,
+            lastCompletedAt: routine.lastCompletedAt
         )
     }
 
-    private func statItem(icon: String, value: String, label: String) -> some View {
-        VStack(spacing: 4) {
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 14, weight: .medium))
-                Text(value)
-                    .font(.montserratSemiBold(size: 16))
-            }
-            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-            Text(label)
-                .font(.montserratRegular(size: 12))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+    private var detailStatsRow: some View {
+        HStack(spacing: 0) {
+            detailStatItem(value: durationValue, label: "min")
+            detailStatDivider
+            detailStatItem(value: "\(routine.intervalCount)", label: "intervals")
+            detailStatDivider
+            detailStatItem(
+                value: difficultyLabel,
+                label: "difficulty",
+                valueColor: difficultyColor,
+                valueFontSize: 14
+            )
         }
     }
 
-    // MARK: - Intervals Section
+    private var detailStatDivider: some View {
+        Rectangle()
+            .fill(.white.opacity(0.08))
+            .frame(width: 1, height: 40)
+    }
+
+    private func detailStatItem(
+        value: String,
+        label: String,
+        valueColor: Color = .white,
+        valueFontSize: CGFloat = 22
+    ) -> some View {
+        VStack(spacing: 2) {
+            Text(value)
+                .font(.montserratBold(size: valueFontSize))
+                .foregroundStyle(valueColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+
+            Text(label)
+                .font(.montserratRegular(size: 12))
+                .foregroundStyle(Color.customGray)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var difficultyLabel: String {
+        guard let difficulty = routine.difficulty else { return "-" }
+        return RoutineDifficultyStyle.label(for: difficulty)
+    }
+
+    private var difficultyColor: Color {
+        guard let difficulty = routine.difficulty else { return .white }
+        return RoutineDifficultyStyle.color(for: difficulty, colorScheme: colorScheme)
+    }
+
+    private var durationValue: String {
+        let totalMinutes = Int((routine.totalDuration / 60).rounded())
+        return "\(totalMinutes)"
+    }
 
     private var intervalsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Intervals")
                 .font(.montserratSemiBold(size: 18))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                .foregroundStyle(.white)
 
             VStack(spacing: 8) {
-                ForEach(Array(routine.intervals.enumerated()), id: \.element.id) { index, interval in
-                    IntervalDetailRow(interval: interval, index: index + 1)
+                ForEach(routine.intervals, id: \.id) { interval in
+                    RoutineIntervalDetailRow(
+                        interval: interval,
+                        totalDuration: routine.totalDuration
+                    )
                 }
             }
         }
@@ -191,7 +176,6 @@ struct RoutineDetailView: View {
 
     private var actionsSection: some View {
         VStack(spacing: 12) {
-            // Start button
             Button(action: {
                 dismiss()
                 onStart?()
@@ -202,34 +186,32 @@ struct RoutineDetailView: View {
                     Text("Start Routine")
                         .font(.montserratSemiBold(size: 16))
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(.black)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
                 .background(
-                    RoundedRectangle(cornerRadius: 12)
+                    RoundedRectangle(cornerRadius: 14)
                         .fill(.accent)
                 )
             }
             .buttonStyle(.plain)
 
-            // Copy button (for built-in templates)
-            if routine.isBuiltIn {
+            if !routine.isBuiltIn {
                 Button(action: {
-                    onCopy?()
-                    dismiss()
+                    showDeleteConfirmation = true
                 }) {
                     HStack {
-                        Image(systemName: "doc.on.doc")
+                        Image(systemName: "trash")
                             .font(.system(size: 14, weight: .medium))
-                        Text("Copy to My Routines")
+                        Text("Delete Routine")
                             .font(.montserratMedium(size: 14))
                     }
-                    .foregroundStyle(.accent)
+                    .foregroundStyle(.red)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
                     .background(
                         RoundedRectangle(cornerRadius: 12)
-                            .stroke(.accent, lineWidth: 1)
+                            .stroke(.red.opacity(0.4), lineWidth: 1)
                     )
                 }
                 .buttonStyle(.plain)
@@ -237,65 +219,34 @@ struct RoutineDetailView: View {
         }
         .padding(.top, 8)
     }
-}
 
-// MARK: - Interval Detail Row
+    private func refreshSavedState() {
+        guard routine.isBuiltIn,
+              let templateId = routine.templateId else {
+            isSavedToMyRoutines = false
+            return
+        }
 
-struct IntervalDetailRow: View {
-    let interval: RoutineInterval
-    let index: Int
-
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var themeManager = ThemeManager.shared
-
-    private var effectiveColorScheme: ColorScheme {
-        themeManager.effectiveColorScheme(for: colorScheme)
+        let service = RoutineService(modelContext: modelContext)
+        isSavedToMyRoutines = (try? service.savedCopy(templateId: templateId)) != nil
     }
 
-    var body: some View {
-        HStack(spacing: 12) {
-            // Index number
-            Text("\(index)")
-                .font(.montserratSemiBold(size: 14))
-                .foregroundStyle(.white)
-                .frame(width: 28, height: 28)
-                .background(
-                    Circle()
-                        .fill(.accent)
-                )
+    private func toggleSavedState() {
+        guard routine.isBuiltIn else { return }
 
-            // Intensity
-            VStack(alignment: .leading, spacing: 2) {
-                Text(interval.intensityDisplay)
-                    .font(.montserratSemiBold(size: 16))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+        let service = RoutineService(modelContext: modelContext)
 
-                // Modifiers
-                if interval.modifiers.hasAnyActive {
-                    Text(interval.modifiers.activeModifiers.joined(separator: " • "))
-                        .font(.montserratRegular(size: 12))
-                        .foregroundStyle(.accent)
-                }
-            }
-
-            Spacer()
-
-            // Duration
-            Text(interval.durationFormatted)
-                .font(.montserratMedium(size: 14))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
+        do {
+            isSavedToMyRoutines = try service.toggleSavedCopy(for: routine)
+        } catch {
+            print("Failed to toggle saved state for routine: \(error)")
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(effectiveColorScheme == .dark ? .white.opacity(0.05) : .gray.opacity(0.05))
-        )
     }
 }
 
 #Preview {
     RoutineDetailView(
-        routine: BuiltInRoutines.beginner20Min,
+        routine: BuiltInRoutines.previewTemplates[0],
         onStart: {},
         onEdit: {},
         onCopy: {}
@@ -304,7 +255,7 @@ struct IntervalDetailRow: View {
 
 #Preview("Dark Mode") {
     RoutineDetailView(
-        routine: BuiltInRoutines.hiitIntervals,
+        routine: BuiltInRoutines.previewTemplates[5],
         onStart: {},
         onEdit: {},
         onCopy: {}

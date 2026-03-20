@@ -114,6 +114,36 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
 - Historical percentile remains a ranking layer over the unified effort score and other raw workout metrics. It should not become a separate competing definition of intensity.
 - All create/edit/delete/import flows that change workouts should run through `WorkoutDerivedDataService.recalculateAll(...)` so base level, effort values, percentile snapshots, personal records, and local leaderboard aggregates stay in sync.
 
+### Routine Template Personalization
+- Built-in routines are now authored as relative templates, not fixed absolute levels.
+- `ClimbZone` defines the shared routine effort offsets from the user's `effectiveBaseLevel`:
+  - `recovery -5`
+  - `warmup -3`
+  - `easy -2`
+  - `steady 0`
+  - `tempo +2`
+  - `threshold +4`
+  - `sprint +7`
+  - `allOut +10`
+- `RelativeRoutineInterval` + `BuiltInRoutineTemplateDefinition` are the source format for built-in templates, and `RoutineTemplateResolver` converts them into absolute `RoutineInterval` values for a specific base level.
+- Built-in template definitions can also declare browse metadata:
+  - `browseSections` for curated rails like `Getting Started`
+  - `isFeatured` for the separate `Popular` rail
+- `RoutineService.ensureBuiltInRoutinesExist()` is responsible for resolving the current built-in routines against `SettingsManager.shared.effectiveBaseLevel`, updating existing built-ins in place, inserting missing templates, and deleting obsolete built-ins.
+- User copies of built-in routines stay frozen at the absolute levels from the moment they are copied. Only routines with `source == .builtin` should be re-resolved when base level changes.
+- When workout-derived data recalculation changes the effective base level, the app should refresh built-in routines and broadcast `.routineTemplatesDidChange` so routines surfaces reload with the new resolved levels.
+
+### Routine Live Player Architecture
+- `ActiveRoutineViewModel` is the source of truth for an in-progress routine session. `ActiveRoutineView` should render from the view model instead of owning workout progression in ad hoc `@State`.
+- Timer updates should flow through the view model using `Timer.publish(...).autoconnect()` and Date-delta math rather than `Task.sleep` loops, so pauses and foregrounding do not distort elapsed time.
+- The live player UI is composed from focused components:
+  - `SegmentedProgressBar` for the thin full-width routine timeline
+  - `LiveIntervalLevelPill` for the current level and optional non-standard step type
+  - `StaircaseView` for the right-edge routine progress visualization
+  - `LiveWorkoutControlButton` for skip, pause/resume, and stop controls
+  - `WorkoutCompleteView` for the completion surface instead of embedding that UI directly in `ActiveRoutineView`
+- The staircase is decorative only. It should stay accessibility-hidden, use app-defined colors (`.accent`, heatmap colors, named asset colors), and avoid ad hoc hex values inside feature views.
+
 ### Week Start + Leaderboard Windowing
 - User preference `weekStartDay` is stored in `SettingsManager` (`Sunday` or `Monday`) and surfaced in account settings.
 - Goals and home summaries should respect this preference (or a goal's locked week settings when applicable).
@@ -154,6 +184,7 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
 - **Theming**: `ThemeManager` with dark/light mode, `effectiveColorScheme`, `.themedBackground()`
 - **Icons**: SF Symbols (considering migrating to a custom icon set for consistency)
 - **Icon consistency**: Use the same icon for the same action across screens (for example, overflow menus should use one consistent `ellipsis` style app-wide unless product design explicitly says otherwise)
+- **Level sliders**: Reuse the shared `SegmentedHeatmapSlider` for 1-25 heatmap-based level selection (base level onboarding/settings and routine interval builder) instead of creating screen-specific segmented sliders
 - **Sheets**: Use `AppSheetPreset` with `.appSheetStyle(...)` for sheet sizing, drag indicator behavior, and sheet surface background instead of raw `presentationDetents` arrays at call sites. Use `AppSheetScaffold` for reusable sheet layouts, `AppSheetOptionRow` for menu-style options, and `appSheetButtonStyle(...)` for consistent sheet button semantics. Prefer a dedicated preset/layout pair for dense action sheets when they need tighter row density than general compact dialogs, and avoid root-level `Spacer()`-driven layouts in compact sheets.
 - **Integrations UI**: Keep integrations list cards as overview surfaces, not inline control panels. Shared card styling and structure should live under `Features/Integrations/Shared`, while provider-specific actions live in provider-owned manage sheets or detail surfaces.
 

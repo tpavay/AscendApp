@@ -78,6 +78,28 @@ struct IntervalModifiers: Codable, Equatable {
         sidewaysDirection != nil || skipStep || backwardStep || holdingBars || hasWeightOverride
     }
 
+    var stepTypeDescription: String {
+        var labels: [String] = []
+
+        if let direction = sidewaysDirection {
+            labels.append(direction == .left ? "Face left" : "Face right")
+        }
+
+        if skipStep {
+            labels.append("Skip step")
+        }
+
+        if backwardStep {
+            labels.append("Backward step")
+        }
+
+        if labels.isEmpty {
+            return "Standard step"
+        }
+
+        return labels.joined(separator: " · ")
+    }
+
     /// Whether this interval has a weight override (not using routine defaults)
     var hasWeightOverride: Bool {
         guard let override = weightOverride else { return false }
@@ -85,6 +107,13 @@ struct IntervalModifiers: Codable, Equatable {
     }
 
     static let none = IntervalModifiers()
+    static let standard = IntervalModifiers()
+    static let skipStep = IntervalModifiers(skipStep: true)
+    static let backward = IntervalModifiers(backwardStep: true)
+
+    static func facing(_ direction: SidewaysDirection) -> IntervalModifiers {
+        IntervalModifiers(sidewaysDirection: direction)
+    }
 
     // Convenience initializer for backward compatibility
     init(

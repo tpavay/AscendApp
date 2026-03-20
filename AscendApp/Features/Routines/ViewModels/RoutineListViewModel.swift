@@ -63,12 +63,34 @@ final class RoutineListViewModel {
     }
 
     var filteredBuiltInRoutines: [Routine] {
+        filteredBuiltInRoutines(matching: BuiltInRoutines.templateIdsInDisplayOrder)
+    }
+
+    var filteredFeaturedBuiltInRoutines: [Routine] {
+        filteredBuiltInRoutines(matching: BuiltInRoutines.featuredTemplateIdsInDisplayOrder)
+    }
+
+    func filteredBuiltInRoutines(in section: BuiltInRoutineBrowseSection) -> [Routine] {
+        filteredBuiltInRoutines(matching: BuiltInRoutines.templateIds(in: section))
+    }
+
+    var filteredMyRoutines: [Routine] {
+        let routines: [Routine]
         if searchText.isEmpty {
-            return builtInRoutines
+            routines = userRoutines
+        } else {
+            routines = userRoutines.filter {
+                $0.name.localizedCaseInsensitiveContains(searchText)
+            }
         }
-        return builtInRoutines.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText)
+
+        return routines.sorted { lhs, rhs in
+            lhs.updatedAt > rhs.updatedAt
         }
+    }
+
+    var hasMyRoutines: Bool {
+        !filteredMyRoutines.isEmpty
     }
 
     var hasAnyRoutines: Bool {
@@ -177,6 +199,47 @@ final class RoutineListViewModel {
         } catch {
             errorMessage = "Failed to copy routine: \(error.localizedDescription)"
         }
+    }
+
+    func isRoutineSaved(_ routine: Routine) -> Bool {
+        guard let templateId = routine.templateId else { return false }
+        return userRoutines.contains {
+            !$0.isArchived &&
+            $0.source == .copiedFromBuiltin &&
+            $0.templateId == templateId
+        }
+    }
+
+    func toggleSavedRoutine(_ routine: Routine) {
+        guard let service = routineService else { return }
+
+        do {
+            _ = try service.toggleSavedCopy(for: routine)
+            loadRoutines()
+        } catch {
+            errorMessage = "Failed to update saved routine: \(error.localizedDescription)"
+        }
+    }
+
+    private func filteredBuiltInRoutines(matching templateIds: [String]) -> [Routine] {
+        let allowedTemplateIds = Set(templateIds)
+        let routines: [Routine]
+        if searchText.isEmpty {
+            routines = builtInRoutines
+        } else {
+            routines = builtInRoutines.filter {
+                $0.name.localizedCaseInsensitiveContains(searchText)
+            }
+        }
+
+        let orderLookup = Dictionary(uniqueKeysWithValues: templateIds.enumerated().map { ($1, $0) })
+        return routines
+            .filter { allowedTemplateIds.contains($0.templateId ?? "") }
+            .sorted { lhs, rhs in
+                let lhsOrder = orderLookup[lhs.templateId ?? ""] ?? .max
+                let rhsOrder = orderLookup[rhs.templateId ?? ""] ?? .max
+                return lhsOrder < rhsOrder
+            }
     }
 
     /// Delete (archive) a user routine

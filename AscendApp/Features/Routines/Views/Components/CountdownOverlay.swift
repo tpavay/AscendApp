@@ -14,7 +14,7 @@ struct CountdownOverlay: View {
 
             // Countdown number
             Text("\(value)")
-                .font(.system(size: 180, weight: .bold, design: .rounded))
+                .font(.montserratBold(size: 180))
                 .foregroundStyle(.white)
                 .scaleEffect(scale)
                 .opacity(opacity)

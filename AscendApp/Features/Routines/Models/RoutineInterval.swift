@@ -81,4 +81,26 @@ struct RoutineInterval: Codable, Identifiable, Equatable {
             return "\(intensityValue) SPM"
         }
     }
+
+    var resolvedLevel: Int {
+        switch intensityType {
+        case .level:
+            return SPMMappingService.clampedLevel(intensityValue)
+        case .stepsPerMinute:
+            return SPMMappingService.level(forSPM: Double(intensityValue))
+        }
+    }
+
+    var intensityTier: IntensityTier {
+        IntensityTier.from(level: resolvedLevel)
+    }
+
+    var mappedStepsPerMinute: Int {
+        switch intensityType {
+        case .level:
+            return SPMMappingService.spm(forLevel: resolvedLevel)
+        case .stepsPerMinute:
+            return intensityValue
+        }
+    }
 }
