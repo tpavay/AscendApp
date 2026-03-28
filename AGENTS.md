@@ -75,8 +75,17 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
   - `users/{uid}/videos/...`
   - `users/{uid}/profile_pictures/...`
 - Never write user media to shared root paths (`photos/`, `videos/`, `profile_pictures/`) in production.
-- Share card template assets live under `share-card-templates/...` and are read-only from client apps.
+- Legacy share card template assets may still live under `share-card-templates/...`, but workout share cards in v1 must not fetch their backgrounds or layout config from Firebase.
 - Account deletion and cleanup should target only the authenticated user's scoped prefix.
+
+### Workout Share Card Architecture
+- Workout share cards in v1 use bundled poster background assets so the share surface renders instantly and offline.
+- All workout share cards should render inside a shared rounded-square surface component; card-specific layout views should sit on top of that surface rather than reimplementing clipping, borders, or background handling.
+- `WorkoutShareCardPreset`, `ShareCardType`, and `WorkoutShareCardComposer` own the preset-driven stat priority, typography tokens, surface/background config, and layout inputs for the rendered card.
+- Shared decorative share-card elements, such as stat dividers, should live in reusable parameterized components rather than being embedded inside one card layout.
+- `WorkoutShareCarouselView` remains the container surface, but the shipped card set is currently a single square poster until more bundled presets are added.
+- When adding a new share card, prefer a new card type + preset + layout view instead of branching inside an existing card view so current card layouts stay isolated.
+- Do not reintroduce backend-driven workout share backgrounds or Firestore-configured stat layouts unless product explicitly chooses that direction again.
 
 ### Firestore Schema-Change Rule
 - `firestore.rules` uses strict `hasOnly` + `hasAll` field validation on every collection. Adding, removing, or renaming a field in the app **requires a matching update to `firestore.rules`** — otherwise writes will be rejected at the server.

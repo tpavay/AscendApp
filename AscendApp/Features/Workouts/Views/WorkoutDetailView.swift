@@ -74,14 +74,12 @@ struct WorkoutDetailView: View {
                 .interactiveDismissDisabled()
             }
             .sheet(isPresented: $showingShareWorkoutView) {
-                WorkoutShareCarouselView(workout: workout, displayName: authVM.displayName)
+                WorkoutShareCarouselView(workout: workout)
             }
             .onAppear {
                 if hasMedia {
                     currentPhotoIndex = 0
                 }
-                // Preload share card templates in background (anticipate sharing)
-                ShareCardTemplateService.shared.preloadIfNeeded()
             }
             .onChange(of: showingEditWorkout) { _, isShowing in
                 if !isShowing && hasMedia {

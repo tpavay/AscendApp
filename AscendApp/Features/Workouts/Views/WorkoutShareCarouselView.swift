@@ -33,15 +33,15 @@ struct WorkoutShareCarouselView: View {
     // MARK: - Initializers
     
     /// Initialize for workout completion flow
-    init(workout: Workout, workoutCount: Int, displayName: String, onDismiss: @escaping () -> Void) {
-        _viewModel = State(initialValue: WorkoutShareCarouselViewModel(workout: workout, workoutCount: workoutCount, displayName: displayName))
+    init(workout: Workout, workoutCount: Int, onDismiss: @escaping () -> Void) {
+        _viewModel = State(initialValue: WorkoutShareCarouselViewModel(workout: workout, workoutCount: workoutCount))
         self.isCompletionFlow = true
         self.onDismiss = onDismiss
     }
     
     /// Initialize for share flow (from workout detail)
-    init(workout: Workout, displayName: String) {
-        _viewModel = State(initialValue: WorkoutShareCarouselViewModel(workout: workout, displayName: displayName))
+    init(workout: Workout) {
+        _viewModel = State(initialValue: WorkoutShareCarouselViewModel(workout: workout))
         self.isCompletionFlow = false
         self.onDismiss = nil
     }
@@ -60,11 +60,13 @@ struct WorkoutShareCarouselView: View {
                 cardCarousel
                 
                 // Page indicator
-                pageIndicator
-                    .padding(.top, 12)
+                if viewModel.availableCards.count > 1 {
+                    pageIndicator
+                        .padding(.top, 12)
+                }
                 
                 // Share prompt text
-                Text("Share workout – Logged with Ascend")
+                Text("Share workout - Logged with Ascend")
                     .font(.montserratMedium(size: 14))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
                     .padding(.top, 16)
@@ -159,67 +161,28 @@ struct WorkoutShareCarouselView: View {
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
         .frame(
-            width: WorkoutShareCarouselViewModel.displayCardWidth + 40,
+            width: WorkoutShareCarouselViewModel.displayCardWidth + 24,
             height: WorkoutShareCarouselViewModel.displayCardHeight + 20
         )
     }
     
-    private func cardView(for cardType: ShareCardType) -> AnyView {
+    @ViewBuilder
+    private func cardView(for cardType: ShareCardType) -> some View {
         let shadowColor = effectiveColorScheme == .dark ? Color.black.opacity(0.3) : Color.black.opacity(0.1)
 
         switch cardType {
-        case .minimalSummary:
-            return AnyView(
-                MinimalSummaryCard(
-                    workout: viewModel.workout,
-                    theme: viewModel.cardTheme,
-                    measurementSystem: settingsManager.measurementSystem,
-                    stepHeight: settingsManager.stepHeight,
-                    preferredMetric: settingsManager.preferredWorkoutMetric,
-                    displayName: viewModel.displayName
-                )
-                .frame(width: WorkoutShareCarouselViewModel.displayCardWidth)
-                .shadow(color: shadowColor, radius: 20, x: 0, y: 10)
+        case .poster:
+            viewModel.cardView(
+                for: cardType,
+                measurementSystem: settingsManager.measurementSystem,
+                stepHeight: settingsManager.stepHeight,
+                preferredMetric: settingsManager.preferredWorkoutMetric
             )
-        case .photoMedia(let photoId):
-            return AnyView(
-                PhotoMediaCard(
-                    workout: viewModel.workout,
-                    image: viewModel.photoImages[photoId],
-                    measurementSystem: settingsManager.measurementSystem,
-                    stepHeight: settingsManager.stepHeight,
-                    preferredMetric: settingsManager.preferredWorkoutMetric,
-                    displayName: viewModel.displayName
-                )
-                .frame(width: WorkoutShareCarouselViewModel.displayCardWidth)
-                .shadow(color: shadowColor, radius: 20, x: 0, y: 10)
+            .frame(
+                width: WorkoutShareCarouselViewModel.displayCardWidth,
+                height: WorkoutShareCarouselViewModel.displayCardHeight
             )
-        case .template(let templateId):
-            return AnyView(
-                TemplateMediaCard(
-                    workout: viewModel.workout,
-                    image: viewModel.templateImages[templateId],
-                    measurementSystem: settingsManager.measurementSystem,
-                    stepHeight: settingsManager.stepHeight,
-                    preferredMetric: settingsManager.preferredWorkoutMetric,
-                    displayName: viewModel.displayName
-                )
-                .frame(width: WorkoutShareCarouselViewModel.displayCardWidth)
-                .shadow(color: shadowColor, radius: 20, x: 0, y: 10)
-            )
-        case .detailedSummary:
-            return AnyView(
-                DetailedSummaryCard(
-                    workout: viewModel.workout,
-                    theme: viewModel.cardTheme,
-                    measurementSystem: settingsManager.measurementSystem,
-                    stepHeight: settingsManager.stepHeight,
-                    preferredMetric: settingsManager.preferredWorkoutMetric,
-                    displayName: viewModel.displayName
-                )
-                .frame(width: WorkoutShareCarouselViewModel.displayCardWidth)
-                .shadow(color: shadowColor, radius: 20, x: 0, y: 10)
-            )
+            .shadow(color: shadowColor, radius: 20, x: 0, y: 10)
         }
     }
     
@@ -239,17 +202,6 @@ struct WorkoutShareCarouselView: View {
     
     private var actionButtonsRow: some View {
         HStack(spacing: 16) {
-            // Background toggle (only for non-photo cards)
-            CarouselActionButton(
-                icon: viewModel.cardTheme == .dark ? "moon.fill" : "sun.max.fill",
-                label: "Background",
-                foregroundColor: actionForeground,
-                backgroundColor: actionBackground,
-                isDisabled: !viewModel.canToggleTheme
-            ) {
-                viewModel.toggleTheme()
-            }
-            
             // Instagram Stories
             CarouselActionButton(
                 icon: "instagram-icon",
@@ -455,6 +407,12 @@ struct WorkoutShareCarouselView: View {
 // MARK: - Action Button Component
 
 private struct CarouselActionButton: View {
+    private enum Metrics {
+        static let circleSize: CGFloat = 56
+        static let assetIconSize: CGFloat = 21
+        static let systemIconSize: CGFloat = 20
+    }
+
     let icon: String
     let label: String
     let foregroundColor: Color
@@ -469,18 +427,18 @@ private struct CarouselActionButton: View {
                 ZStack {
                     Circle()
                         .fill(backgroundColor)
-                        .frame(width: 48, height: 48)
+                        .frame(width: Metrics.circleSize, height: Metrics.circleSize)
 
                     if isAssetImage {
                         Image(icon)
                             .renderingMode(.template)
                             .resizable()
                             .scaledToFit()
-                            .frame(width: 18, height: 18)
+                            .frame(width: Metrics.assetIconSize, height: Metrics.assetIconSize)
                             .foregroundStyle(foregroundColor)
                     } else {
                         Image(systemName: icon)
-                            .font(.system(size: 18, weight: .semibold))
+                            .font(.system(size: Metrics.systemIconSize, weight: .semibold))
                             .foregroundStyle(foregroundColor)
                     }
                 }
@@ -500,6 +458,13 @@ private struct CarouselActionButton: View {
 // MARK: - Strava Action Button
 
 private struct StravaActionButton: View {
+    private enum Metrics {
+        static let circleSize: CGFloat = 56
+        static let stravaIconSize: CGFloat = 23
+        static let checkmarkSize: CGFloat = 20
+        static let errorSize: CGFloat = 18
+    }
+
     let syncState: WorkoutShareCarouselViewModel.StravaSyncState
     let foregroundColor: Color
     let backgroundColor: Color
@@ -513,7 +478,7 @@ private struct StravaActionButton: View {
                 ZStack {
                     Circle()
                         .fill(circleBackground)
-                        .frame(width: 48, height: 48)
+                        .frame(width: Metrics.circleSize, height: Metrics.circleSize)
 
                     content
                 }
@@ -536,7 +501,7 @@ private struct StravaActionButton: View {
                 .renderingMode(.template)
                 .resizable()
                 .scaledToFit()
-                .frame(width: 20, height: 20)
+                .frame(width: Metrics.stravaIconSize, height: Metrics.stravaIconSize)
                 .foregroundStyle(stravaOrange)
         case .syncing:
             ProgressView()
@@ -544,11 +509,11 @@ private struct StravaActionButton: View {
                 .scaleEffect(0.9)
         case .synced:
             Image(systemName: "checkmark")
-                .font(.system(size: 18, weight: .bold))
+                .font(.system(size: Metrics.checkmarkSize, weight: .bold))
                 .foregroundStyle(.green)
         case .error:
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: Metrics.errorSize, weight: .semibold))
                 .foregroundStyle(.red)
         }
     }
@@ -621,7 +586,6 @@ private extension Int {
             personalRecordTypes: ["mostSteps"]
         ),
         workoutCount: 535,
-        displayName: "tpavay",
         onDismiss: {}
     )
 }
@@ -635,8 +599,7 @@ private extension Int {
             floors: 200,
             stepsPerFloor: 16,
             caloriesBurned: 450
-        ),
-        displayName: "tpavay"
+        )
     )
 }
 
@@ -651,9 +614,7 @@ private extension Int {
             personalRecordTypes: ["mostSteps", "longestDuration", "highestAveragePace"]
         ),
         workoutCount: 535,
-        displayName: "tpavay",
         onDismiss: {}
     )
     .preferredColorScheme(.dark)
 }
-

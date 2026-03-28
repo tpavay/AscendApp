@@ -161,7 +161,6 @@ struct WorkoutListView: View {
                     WorkoutShareCarouselView(
                         workout: workout,
                         workoutCount: workouts.count,
-                        displayName: authVM.displayName,
                         onDismiss: {
                             showingCompletedView = false
                         }
