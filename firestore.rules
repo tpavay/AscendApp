@@ -232,6 +232,14 @@ service cloud.firestore {
     }
 
     // Server-only collections managed by Cloud Functions / Admin SDK.
+    match /email_jobs/{docId} {
+      allow read, write: if false;
+    }
+
+    match /email_rate_limits/{docId} {
+      allow read, write: if false;
+    }
+
     match /waitlist/{docId} {
       allow read, write: if false;
     }
