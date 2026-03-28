@@ -1,6 +1,20 @@
 {
   "indexes": [
     {
+      "collectionGroup": "leaderboard_stats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "timeFrame",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "periodIdentifier",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "email_jobs",
       "queryScope": "COLLECTION",
       "fields": [
