@@ -19,7 +19,7 @@ Ascend is a comprehensive stairstepper workout tracker for iOS. It serves the fu
 - **Data**: Local-first with cloud sync — SwiftData on device, Firebase Firestore for backup/sync/sharing
 - **Backend**: Firebase (Auth, Firestore, Storage, Cloud Functions, Hosting)
 - **Integrations**: Apple HealthKit, Strava, Hevy
-- **Cloud Functions** (TypeScript): Strava OAuth + sync, waitlist signup endpoint with dedupe
+- **Cloud Functions** (TypeScript): Strava OAuth + sync, waitlist signup endpoint with dedupe, transactional email job queue
 
 ---
 
@@ -278,13 +278,14 @@ If using CloudKit sync: never use `@Attribute(.unique)`, properties must have de
 
 ### Workflows
 - `.github/workflows/ci.yml` runs on PRs to `develop` and verifies the iOS app builds with the `AscendApp-Staging` scheme using `CODE_SIGNING_ALLOWED=NO`.
-- `.github/workflows/deploy-staging.yml` runs on manual dispatch only and executes sequential jobs (stop on failure):
+- `.github/workflows/deploy-staging.yml` runs on pushes to `develop` and manual dispatch, and executes sequential jobs (stop on failure):
   1. Build iOS app (Staging scheme, produce IPA)
   2. Deploy Firebase Functions
   3. Deploy Firestore Rules
-  4. Deploy Firebase Hosting
-  5. Upload to TestFlight (last — hardest to reverse)
-- `.github/workflows/deploy-production.yml` runs on pushes to `main` and manual dispatch. It mirrors the staging pipeline with Release configuration and remains gated behind `PRODUCTION_READY=true` plus GitHub `production` environment protection.
+  4. Deploy Firestore Indexes
+  5. Deploy Firebase Hosting
+  6. Upload to TestFlight (last — hardest to reverse)
+- `.github/workflows/deploy-production.yml` runs on pushes to `main` and manual dispatch. It mirrors the staging pipeline, including Firestore index deploys, with Release configuration and remains gated behind `PRODUCTION_READY=true` plus GitHub `production` environment protection.
 
 ### Deploy Authentication (OIDC)
 - GitHub Actions deploys to Firebase must use OIDC + GCP Workload Identity Federation.
@@ -318,6 +319,10 @@ If using CloudKit sync: never use `@Attribute(.unique)`, properties must have de
 ### Firebase Hosting
 Website source lives in `web/` and is built to `web/dist/` before deploy.
 - Waitlist form submissions must use `POST /api/join-waitlist` (Hosting rewrite to `joinWaitlist` Cloud Function), not direct Firestore client writes.
+- Transactional emails for waitlist and future product triggers must be sent server-side from Cloud Functions, never directly from the website or iOS client.
+- Cloud Functions email provider config lives in the `TRANSACTIONAL_EMAIL_CONFIG` Secret Manager JSON secret, with `functions/.secret.local` used only for local emulator overrides.
+- `joinWaitlist` is idempotent by normalized email hash, enqueues the `waitlist_welcome` job into `email_jobs`, and rate limits public submissions using hashed requester IPs stored in `email_rate_limits`.
+- Transactional emails are delivered in the background by the scheduled `processEmailJobs` worker; retries and failure state live on `email_jobs`, not on `waitlist`.
 
 ### Key Config Files
 - `.firebaserc` — project aliases (dev, staging, prod)

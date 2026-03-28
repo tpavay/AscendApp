@@ -1,0 +1,67 @@
+import * as admin from "firebase-admin";
+import {sha256Hex} from "./crypto";
+import type {
+  EmailJobDocument,
+  EmailJobPayload,
+  EmailType,
+} from "./types";
+
+/**
+ * Builds the deterministic dedupe key for a waitlist welcome email.
+ * @param {string} recipientHash - Normalized recipient hash
+ * @return {string} Stable dedupe key
+ */
+export function buildWaitlistWelcomeDedupeKey(recipientHash: string): string {
+  return `waitlist-welcome:${recipientHash}`;
+}
+
+/**
+ * Builds the deterministic Firestore job ID for an email dedupe key.
+ * @param {string} dedupeKey - Stable dedupe key
+ * @return {string} Stable Firestore document ID
+ */
+export function buildEmailJobId(dedupeKey: string): string {
+  return sha256Hex(dedupeKey);
+}
+
+/**
+ * Creates a queued email job document.
+ * @param {EmailType} type - Email type
+ * @param {string} recipientEmail - Recipient email address
+ * @param {string} recipientHash - Stable recipient hash
+ * @param {string} dedupeKey - Stable dedupe key
+ * @param {EmailJobPayload} payload - Template payload
+ * @param {Timestamp} scheduledFor - Scheduled send time
+ * @param {string | null} sourceRef - Source Firestore reference string
+ * @return {EmailJobDocument} Firestore-ready queued job
+ */
+export function createQueuedEmailJob(
+  type: EmailType,
+  recipientEmail: string,
+  recipientHash: string,
+  dedupeKey: string,
+  payload: EmailJobPayload,
+  scheduledFor: admin.firestore.Timestamp,
+  sourceRef: string | null
+): EmailJobDocument {
+  return {
+    attemptCount: 0,
+    createdAt: scheduledFor,
+    dedupeKey,
+    lastErrorCode: null,
+    lastErrorMessage: null,
+    payload,
+    processingStartedAt: null,
+    provider: null,
+    providerMessageId: null,
+    readyAt: scheduledFor,
+    recipientEmail,
+    recipientHash,
+    scheduledFor,
+    sentAt: null,
+    sourceRef,
+    status: "queued",
+    type,
+    updatedAt: scheduledFor,
+  };
+}

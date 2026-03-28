@@ -189,8 +189,8 @@ jobs:
       - name: Build web app
         run: npm --prefix web run build
 
-      - name: Deploy Functions, Rules, and Hosting
-        run: firebase deploy --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --only functions,firestore:rules,hosting --non-interactive
+      - name: Deploy Functions, Rules, Indexes, and Hosting
+        run: firebase deploy --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --only functions,firestore:rules,firestore:indexes,hosting --non-interactive
 
   upload-testflight:
     name: Upload to TestFlight (Production)

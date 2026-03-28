@@ -2,7 +2,8 @@
   "name": "functions",
   "scripts": {
     "lint": "eslint --ext .js,.ts .",
-    "build": "tsc",
+    "build": "node -e \"require('fs').rmSync('lib', { recursive: true, force: true })\" && tsc",
+    "test": "npm run build && node --test lib/test/*.test.js",
     "build:watch": "tsc --watch",
     "serve": "npm run build && firebase emulators:start --only functions",
     "shell": "npm run build && firebase functions:shell",
@@ -13,7 +14,7 @@
   "engines": {
     "node": "24"
   },
-  "main": "lib/index.js",
+  "main": "lib/src/index.js",
   "dependencies": {
     "firebase-admin": "^13.6.0",
     "firebase-functions": "^7.0.0"
