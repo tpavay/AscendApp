@@ -16,8 +16,19 @@
 		9AF20E5E2E64DCFF00044C25 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 9AF20E5D2E64DCFF00044C25 /* FirebaseFirestore */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		A10600012F0A000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 9A5E4D7A2E2406F8008DE803 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9A5E4D812E2406F8008DE803;
+			remoteInfo = AscendApp;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		9A5E4D822E2406F8008DE803 /* AscendApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AscendApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10600012F0A000000000003 /* AscendAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AscendAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -39,6 +50,11 @@
 			path = AscendApp;
 			sourceTree = "<group>";
 		};
+		A10600012F0A000000000004 /* AscendAppTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = AscendAppTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -56,6 +72,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A10600012F0A000000000005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -70,6 +93,7 @@
 			isa = PBXGroup;
 			children = (
 				9A5E4D842E2406F8008DE803 /* AscendApp */,
+				A10600012F0A000000000004 /* AscendAppTests */,
 				9A4D66F62E4817BD00EEAE1D /* Frameworks */,
 				9A5E4D832E2406F8008DE803 /* Products */,
 			);
@@ -79,6 +103,7 @@
 			isa = PBXGroup;
 			children = (
 				9A5E4D822E2406F8008DE803 /* AscendApp.app */,
+				A10600012F0A000000000003 /* AscendAppTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -116,6 +141,29 @@
 			productReference = 9A5E4D822E2406F8008DE803 /* AscendApp.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A10600012F0A000000000008 /* AscendAppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10600012F0A00000000000C /* Build configuration list for PBXNativeTarget "AscendAppTests" */;
+			buildPhases = (
+				A10600012F0A000000000007 /* Sources */,
+				A10600012F0A000000000005 /* Frameworks */,
+				A10600012F0A000000000006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A10600012F0A000000000002 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A10600012F0A000000000004 /* AscendAppTests */,
+			);
+			name = AscendAppTests;
+			packageProductDependencies = (
+			);
+			productName = AscendAppTests;
+			productReference = A10600012F0A000000000003 /* AscendAppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -128,6 +176,10 @@
 				TargetAttributes = {
 					9A5E4D812E2406F8008DE803 = {
 						CreatedOnToolsVersion = 16.4;
+					};
+					A10600012F0A000000000008 = {
+						CreatedOnToolsVersion = 16.4;
+						TestTargetID = 9A5E4D812E2406F8008DE803;
 					};
 				};
 			};
@@ -150,12 +202,20 @@
 			projectRoot = "";
 			targets = (
 				9A5E4D812E2406F8008DE803 /* AscendApp */,
+				A10600012F0A000000000008 /* AscendAppTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		9A5E4D802E2406F8008DE803 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10600012F0A000000000006 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -202,7 +262,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A10600012F0A000000000007 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A10600012F0A000000000002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9A5E4D812E2406F8008DE803 /* AscendApp */;
+			targetProxy = A10600012F0A000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		9A09EB312F032E36007A47DD /* Staging */ = {
@@ -518,6 +593,63 @@
 			};
 			name = Release;
 		};
+		A10600012F0A000000000009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = QWGVB7TN4T;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendAppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AscendApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AscendApp";
+			};
+			name = Debug;
+		};
+		A10600012F0A00000000000A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = QWGVB7TN4T;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendAppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AscendApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AscendApp";
+			};
+			name = Release;
+		};
+		A10600012F0A00000000000B /* Staging */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = QWGVB7TN4T;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendAppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AscendApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AscendApp";
+			};
+			name = Staging;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -537,6 +669,16 @@
 				9A5E4D8E2E2406F9008DE803 /* Debug */,
 				9A5E4D8F2E2406F9008DE803 /* Release */,
 				9A09EB322F032E36007A47DD /* Staging */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10600012F0A00000000000C /* Build configuration list for PBXNativeTarget "AscendAppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10600012F0A000000000009 /* Debug */,
+				A10600012F0A00000000000A /* Release */,
+				A10600012F0A00000000000B /* Staging */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

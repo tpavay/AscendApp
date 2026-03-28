@@ -8,80 +8,23 @@
 import Foundation
 import SwiftUI
 import UIKit
-import AVFoundation
 
-/// Theme options for shareable cards
-enum ShareCardTheme: String, CaseIterable {
-    case dark
-    case light
-    
-    var backgroundColor: Color {
-        switch self {
-        case .dark:
-            return .clear // Uses gradient
-        case .light:
-            return .white
-        }
-    }
-    
-    var textColor: Color {
-        switch self {
-        case .dark:
-            return .white
-        case .light:
-            return .black
-        }
-    }
-    
-    var secondaryTextColor: Color {
-        switch self {
-        case .dark:
-            return .white.opacity(0.7)
-        case .light:
-            return .gray
-        }
-    }
-}
-
-/// Types of cards available in the carousel
+/// Types of cards available in the carousel.
+/// v1 ships a single bundled poster card while keeping the carousel shell in place.
 enum ShareCardType: Identifiable, Equatable {
-    case minimalSummary
-    case photoMedia(photoId: UUID)
-    case template(templateId: String)
-    case detailedSummary
+    case poster
 
     var id: String {
         switch self {
-        case .minimalSummary: return "minimalSummary"
-        case .photoMedia(let photoId): return "photoMedia_\(photoId.uuidString)"
-        case .template(let templateId): return "template_\(templateId)"
-        case .detailedSummary: return "detailedSummary"
+        case .poster:
+            return "poster"
         }
     }
 
-    /// Whether this card type supports theme toggling
-    var supportsThemeToggle: Bool {
+    var preset: WorkoutShareCardPreset {
         switch self {
-        case .photoMedia, .template:
-            return false
-        case .minimalSummary, .detailedSummary:
-            return true
-        }
-    }
-
-    /// Returns the photo ID if this is a photo card
-    var photoId: UUID? {
-        switch self {
-        case .photoMedia(let photoId): return photoId
-        case .minimalSummary, .template, .detailedSummary: return nil
-        }
-    }
-
-    /// Returns the template ID if this is a template card
-    var templateId: String? {
-        switch self {
-        case .template(let templateId): return templateId
-        case .minimalSummary, .photoMedia, .detailedSummary: return nil
+        case .poster:
+            return .defaultSquarePoster
         }
     }
 }
@@ -89,22 +32,14 @@ enum ShareCardType: Identifiable, Equatable {
 @MainActor
 @Observable
 final class WorkoutShareCarouselViewModel {
-    // MARK: - Constants
-    static let posterExportSize = CGSize(width: 1080, height: 1350)
-    static let posterAspectRatio = posterExportSize.width / posterExportSize.height
-    static let displayCardHeight: CGFloat = 460
-    static let displayCardWidth: CGFloat = displayCardHeight * posterAspectRatio
-    
-    // MARK: - Properties
+    static let posterExportSize = CGSize(width: 1080, height: 1080)
+    static let displayCardSize: CGFloat = 344
+    static let displayCardWidth: CGFloat = displayCardSize
+    static let displayCardHeight: CGFloat = displayCardSize
+
     var currentCardIndex: Int = 0
-    var cardTheme: ShareCardTheme = .dark
-    var isLoadingPhotos: Bool = false
-    var photoImages: [UUID: UIImage] = [:]
-    var templateImages: [String: UIImage] = [:]
     var copyConfirmationText: String?
     var shareErrorMessage: String?
-
-    // MARK: - Strava Sync State
     var stravaSyncState: StravaSyncState = .idle
 
     enum StravaSyncState {
@@ -114,314 +49,96 @@ final class WorkoutShareCarouselViewModel {
         case error(String)
     }
 
-    // MARK: - Properties
     let workout: Workout
     let workoutCount: Int?
-    let displayName: String
-    var availableCards: [ShareCardType]
-    nonisolated(unsafe) private var photoLoadTasks: [Task<Void, Never>] = []
-    private let templateService = ShareCardTemplateService.shared
-    
-    // MARK: - Computed Properties
+    let availableCards: [ShareCardType] = [.poster]
+
+    private let composer = WorkoutShareCardComposer()
+
     var currentCardType: ShareCardType {
         guard currentCardIndex < availableCards.count else {
-            return availableCards.first ?? .detailedSummary
+            return .poster
         }
         return availableCards[currentCardIndex]
     }
-    
-    var canToggleTheme: Bool {
-        currentCardType.supportsThemeToggle
-    }
 
-    var hasPhotos: Bool {
-        !workout.photos.isEmpty
-    }
-
-    /// Returns the image for the current photo card (if applicable)
-    var currentPhotoImage: UIImage? {
-        guard let photoId = currentCardType.photoId else { return nil }
-        return photoImages[photoId]
-    }
-
-    /// Returns the image for the current template card (if applicable)
-    var currentTemplateImage: UIImage? {
-        guard let templateId = currentCardType.templateId else { return nil }
-        return templateImages[templateId]
-    }
-    
-    // MARK: - Initialization
-
-    /// Initialize for workout completion flow
-    init(workout: Workout, workoutCount: Int, displayName: String) {
+    init(workout: Workout, workoutCount: Int) {
         self.workout = workout
         self.workoutCount = workoutCount
-        self.displayName = displayName
-        self.availableCards = Self.determineAvailableCards(for: workout, templates: [])
-        preloadAllPhotos()
-        loadTemplateCards()
     }
 
-    /// Initialize for share flow (no workout count)
-    init(workout: Workout, displayName: String) {
+    init(workout: Workout) {
         self.workout = workout
         self.workoutCount = nil
-        self.displayName = displayName
-        self.availableCards = Self.determineAvailableCards(for: workout, templates: [])
-        preloadAllPhotos()
-        loadTemplateCards()
-    }
-    
-    // MARK: - Card Logic
-
-    private static func determineAvailableCards(
-        for workout: Workout,
-        templates: [ShareCardTemplate]
-    ) -> [ShareCardType] {
-        var cards: [ShareCardType] = []
-
-        // 1. Minimal summary card first (transparent style)
-        cards.append(.minimalSummary)
-
-        // 2. Add user's photos (highlighted first, then rest)
-        for photo in workout.orderedPhotosForDisplay {
-            cards.append(.photoMedia(photoId: photo.id))
-        }
-
-        // 3. Add template cards
-        for template in templates {
-            cards.append(.template(templateId: template.id))
-        }
-
-        // 4. Always include detailed summary last
-        cards.append(.detailedSummary)
-
-        return cards
     }
 
-    /// Load template cards from the template service
-    private func loadTemplateCards() {
-        Task {
-            // Wait for the service to finish loading (poll until done or timeout)
-            var attempts = 0
-            let maxAttempts = 50 // 5 seconds max (50 * 100ms)
-
-            while templateService.isLoading && attempts < maxAttempts {
-                try? await Task.sleep(for: .milliseconds(100))
-                attempts += 1
-            }
-
-            print("📸 ViewModel: Service finished loading after \(attempts * 100)ms")
-
-            let templates = templateService.loadedTemplates
-            let images = templateService.loadedTemplateImages
-
-            print("📸 ViewModel: Found \(templates.count) templates, \(images.count) images from service")
-
-            // Update template images
-            self.templateImages = images
-
-            // Rebuild available cards with templates
-            self.availableCards = Self.determineAvailableCards(
-                for: workout,
-                templates: templates
-            )
-
-            print("📸 ViewModel: availableCards now has \(self.availableCards.count) cards")
-        }
-    }
-    
-    // MARK: - Theme
-    
-    func toggleTheme() {
-        guard canToggleTheme else { return }
-        cardTheme = cardTheme == .dark ? .light : .dark
-        HapticsManager.shared.trigger(.lightImpact)
-    }
-    
-    // MARK: - Photo Loading
-
-    private func preloadAllPhotos() {
-        guard !workout.photos.isEmpty else { return }
-
-        var needsLoading = false
-        for photo in workout.photos {
-            // Check cache first
-            if let cached = ImageCache.shared.image(for: photo.url) {
-                photoImages[photo.id] = cached
-            } else {
-                needsLoading = true
-            }
-        }
-
-        // If all images were cached, we're done
-        if photoImages.count == workout.photos.count {
-            return
-        }
-
-        isLoadingPhotos = true
-
-        for photo in workout.photos {
-            // Skip if already loaded from cache
-            if photoImages[photo.id] != nil { continue }
-
-            let task = Task { [weak self] in
-                let image: UIImage?
-
-                if photo.isVideo {
-                    // Extract thumbnail from video at 25%
-                    image = await Self.extractVideoThumbnail(from: photo.url)
-                } else {
-                    // Load image normally
-                    image = await Self.loadImage(from: photo.url)
-                }
-
-                guard !Task.isCancelled else { return }
-
-                await MainActor.run {
-                    self?.photoImages[photo.id] = image
-                    // Check if all photos are loaded
-                    if self?.photoImages.count == self?.workout.photos.count {
-                        self?.isLoadingPhotos = false
-                    }
-                }
-            }
-            photoLoadTasks.append(task)
-        }
+    func composition(
+        for cardType: ShareCardType,
+        measurementSystem: MeasurementSystem,
+        stepHeight: Double,
+        preferredMetric: WorkoutMetric
+    ) -> WorkoutShareCardComposition {
+        composer.compose(
+            workout: workout,
+            measurementSystem: measurementSystem,
+            stepHeight: stepHeight,
+            preferredMetric: preferredMetric,
+            preset: cardType.preset
+        )
     }
 
-    private static func loadImage(from url: URL) async -> UIImage? {
-        // Check cache first
-        if let cached = ImageCache.shared.image(for: url) {
-            return cached
-        }
-
-        return await Task.detached(priority: .utility) { () -> UIImage? in
-            do {
-                let data: Data
-                if url.isFileURL {
-                    data = try Data(contentsOf: url)
-                } else {
-                    let (remoteData, _) = try await URLSession.shared.data(from: url)
-                    data = remoteData
-                }
-                if let image = UIImage(data: data) {
-                    // Store in cache
-                    await MainActor.run {
-                        ImageCache.shared.store(image, for: url)
-                    }
-                    return image
-                }
-                return nil
-            } catch {
-                return nil
-            }
-        }.value
-    }
-
-    private static func extractVideoThumbnail(from url: URL) async -> UIImage? {
-        // Check cache first (video thumbnails are cached by video URL)
-        if let cached = ImageCache.shared.image(for: url) {
-            return cached
-        }
-
-        return await Task.detached(priority: .utility) { () -> UIImage? in
-            let asset = AVURLAsset(url: url)
-            let imageGenerator = AVAssetImageGenerator(asset: asset)
-            imageGenerator.appliesPreferredTrackTransform = true
-            imageGenerator.maximumSize = CGSize(width: 1080, height: 1350) // Match poster export size
-
-            do {
-                // Get duration and extract thumbnail at 25%
-                let duration = try await asset.load(.duration)
-                let targetTime = CMTime(
-                    seconds: duration.seconds * 0.25,
-                    preferredTimescale: 600
-                )
-                let cgImage = try imageGenerator.copyCGImage(at: targetTime, actualTime: nil)
-                let image = UIImage(cgImage: cgImage)
-                // Store in cache
-                await MainActor.run {
-                    ImageCache.shared.store(image, for: url)
-                }
-                return image
-            } catch {
-                print("Failed to extract video thumbnail: \(error)")
-                return nil
-            }
-        }.value
-    }
-    
-    // MARK: - Rendering
-    
     func renderCurrentCard(
         measurementSystem: MeasurementSystem,
         stepHeight: Double,
         preferredMetric: WorkoutMetric
     ) -> UIImage? {
-        let cardView = currentCardView(
+        let content = currentCardView(
             measurementSystem: measurementSystem,
             stepHeight: stepHeight,
             preferredMetric: preferredMetric
         )
-        
-        let content = cardView
-            .frame(width: Self.displayCardWidth, height: Self.displayCardHeight)
-            .clipped()
-        
+        .frame(width: Self.displayCardWidth, height: Self.displayCardHeight)
+
         let renderer = ImageRenderer(content: content)
-        renderer.scale = Self.posterExportSize.height / Self.displayCardHeight
+        renderer.scale = Self.posterExportSize.width / Self.displayCardWidth
+        renderer.isOpaque = false
         return renderer.uiImage
     }
-    
+
     @ViewBuilder
     func currentCardView(
         measurementSystem: MeasurementSystem,
         stepHeight: Double,
         preferredMetric: WorkoutMetric
     ) -> some View {
-        switch currentCardType {
-        case .minimalSummary:
-            MinimalSummaryCard(
-                workout: workout,
-                theme: cardTheme,
-                measurementSystem: measurementSystem,
-                stepHeight: stepHeight,
-                preferredMetric: preferredMetric,
-                displayName: displayName
-            )
-        case .photoMedia(let photoId):
-            PhotoMediaCard(
-                workout: workout,
-                image: photoImages[photoId],
-                measurementSystem: measurementSystem,
-                stepHeight: stepHeight,
-                preferredMetric: preferredMetric,
-                displayName: displayName
-            )
-        case .template(let templateId):
-            TemplateMediaCard(
-                workout: workout,
-                image: templateImages[templateId],
-                measurementSystem: measurementSystem,
-                stepHeight: stepHeight,
-                preferredMetric: preferredMetric,
-                displayName: displayName
-            )
-        case .detailedSummary:
-            DetailedSummaryCard(
-                workout: workout,
-                theme: cardTheme,
-                measurementSystem: measurementSystem,
-                stepHeight: stepHeight,
-                preferredMetric: preferredMetric,
-                displayName: displayName
+        cardView(
+            for: currentCardType,
+            measurementSystem: measurementSystem,
+            stepHeight: stepHeight,
+            preferredMetric: preferredMetric
+        )
+    }
+
+    @ViewBuilder
+    func cardView(
+        for cardType: ShareCardType,
+        measurementSystem: MeasurementSystem,
+        stepHeight: Double,
+        preferredMetric: WorkoutMetric
+    ) -> some View {
+        switch cardType {
+        case .poster:
+            WorkoutSquareShareCard(
+                composition: composition(
+                    for: cardType,
+                    measurementSystem: measurementSystem,
+                    stepHeight: stepHeight,
+                    preferredMetric: preferredMetric
+                )
             )
         }
     }
-    
-    // MARK: - Share Text
-    
+
     func shareText(
         measurementSystem: MeasurementSystem,
         stepHeight: Double,
@@ -434,9 +151,7 @@ final class WorkoutShareCarouselViewModel {
             preferredMetric: preferredMetric
         )
     }
-    
-    // MARK: - Copy Text
-    
+
     func copyShareText(
         measurementSystem: MeasurementSystem,
         stepHeight: Double,
@@ -449,7 +164,7 @@ final class WorkoutShareCarouselViewModel {
         )
         showCopyConfirmation("Copied!")
     }
-    
+
     func showCopyConfirmation(_ text: String) {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             copyConfirmationText = text
@@ -463,19 +178,16 @@ final class WorkoutShareCarouselViewModel {
         }
     }
 
-    // MARK: - Strava Sync
-
-    /// Whether to show the manual Strava sync button
-    /// Shows only when: feature enabled, connected, auto-sync disabled, and workout not already synced
+    /// Whether to show the manual Strava sync button.
+    /// Shows only when: feature enabled, connected, auto-sync disabled, and workout not already synced.
     var shouldShowStravaSyncButton: Bool {
         guard FeatureFlags.isStravaEnabled else { return false }
         let stravaManager = StravaManager.shared
         return stravaManager.isConnected &&
-               !stravaManager.autoSyncEnabled &&
-               !workout.isSyncedToStrava
+            !stravaManager.autoSyncEnabled &&
+            !workout.isSyncedToStrava
     }
 
-    /// Sync the workout to Strava
     func syncToStrava(preferredMetric: WorkoutMetric) {
         guard case .idle = stravaSyncState else { return }
 
@@ -497,7 +209,6 @@ final class WorkoutShareCarouselViewModel {
                 }
                 HapticsManager.shared.trigger(.error)
 
-                // Reset to idle after a delay so user can try again
                 try? await Task.sleep(for: .seconds(2))
                 if case .error = stravaSyncState {
                     withAnimation {
@@ -505,14 +216,6 @@ final class WorkoutShareCarouselViewModel {
                     }
                 }
             }
-        }
-    }
-
-    // MARK: - Cleanup
-
-    deinit {
-        for task in photoLoadTasks {
-            task.cancel()
         }
     }
 }
