@@ -9,7 +9,7 @@ import Foundation
 import SwiftData
 
 @MainActor
-final class LeaderboardService {
+final class LeaderboardService: LeaderboardProfileSyncing {
     static let shared = LeaderboardService()
 
     private let repository = LeaderboardRepository.shared

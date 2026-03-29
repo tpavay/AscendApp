@@ -10,6 +10,7 @@ import SwiftUI
 import AVFoundation
 import UniformTypeIdentifiers
 import FirebaseAuth
+import FirebaseStorage
 
 actor PhotoService {
     private let repo: any PhotoRepositoryProtocol
@@ -93,9 +94,9 @@ actor PhotoService {
     
     private func uploadPhoto(_ item: PhotosPickerItem, repo: any PhotoRepositoryProtocol) async throws -> Photo? {
         guard let data = try await item.loadTransferable(type: Data.self) else { return nil }
-        let filename = "users/\(try currentUserId())/photos/\(UUID().uuidString).jpg"
+        let filename = UserMediaStoragePath.photo(userId: try currentUserId())
         let url = try await repo.upload(data, filename: filename)
-        return Photo(url: url, type: .photo, duration: nil)
+        return Photo(url: url, storagePath: filename, type: .photo, duration: nil)
     }
     
     private func uploadVideo(_ item: PhotosPickerItem, repo: any PhotoRepositoryProtocol) async throws -> Photo? {
@@ -112,13 +113,16 @@ actor PhotoService {
         
         // Upload with video extension
         let fileExtension = movie.url.pathExtension.isEmpty ? "mov" : movie.url.pathExtension
-        let filename = "users/\(try currentUserId())/videos/\(UUID().uuidString).\(fileExtension)"
+        let filename = UserMediaStoragePath.video(
+            userId: try currentUserId(),
+            fileExtension: fileExtension
+        )
         let url = try await repo.upload(data, filename: filename)
         
         // Clean up temporary file
         try? FileManager.default.removeItem(at: movie.url)
         
-        return Photo(url: url, type: .video, duration: duration)
+        return Photo(url: url, storagePath: filename, type: .video, duration: duration)
     }
     
     /// Upload a video from a URL (used for trimmed videos)
@@ -128,12 +132,15 @@ actor PhotoService {
         
         // Upload with video extension
         let fileExtension = videoURL.pathExtension.isEmpty ? "mov" : videoURL.pathExtension
-        let filename = "users/\(try currentUserId())/videos/\(UUID().uuidString).\(fileExtension)"
+        let filename = UserMediaStoragePath.video(
+            userId: try currentUserId(),
+            fileExtension: fileExtension
+        )
         let url = try await repo.upload(data, filename: filename)
         
         // Don't clean up the temporary file here - PhotoGalleryView will handle cleanup
         
-        return Photo(url: url, type: .video, duration: duration)
+        return Photo(url: url, storagePath: filename, type: .video, duration: duration)
     }
 
     // MARK: - Photo Deletion with Retry
@@ -205,6 +212,10 @@ actor PhotoService {
             } catch is CancellationError {
                 // Don't swallow cancellation - re-throw immediately
                 throw CancellationError()
+            } catch let error as NSError
+                where error.domain == StorageErrorDomain &&
+                      error.code == StorageErrorCode.objectNotFound.rawValue {
+                return
             } catch {
                 lastError = error
 
@@ -236,7 +247,11 @@ actor PhotoService {
             group.addTask {
                 // Check cancellation inside task group
                 try Task.checkCancellation()
-                try await repo.delete(url: photo.url)
+                if let storagePath = FirebaseStoragePathResolver.storagePath(for: photo) {
+                    try await repo.delete(path: storagePath)
+                } else {
+                    try await repo.delete(url: photo.url)
+                }
             }
 
             // Timeout task

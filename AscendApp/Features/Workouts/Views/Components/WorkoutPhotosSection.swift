@@ -15,6 +15,7 @@ struct WorkoutPhotosSection: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @State private var themeManager = ThemeManager.shared
+    private let workoutMediaService = WorkoutMediaService.shared
 
     // Query pending uploads for this workout
     @Query private var pendingUploads: [PendingMediaUpload]
@@ -228,24 +229,15 @@ struct WorkoutPhotosSection: View {
     }
 
     private func deletePhoto(_ photo: Photo) async {
-        // Delete from Firebase
         do {
-            let photoService = PhotoService()
-            try await photoService.deletePhotos([photo])
+            try await workoutMediaService.removePhoto(
+                photo,
+                from: workout,
+                modelContext: modelContext
+            )
         } catch {
             print("Failed to delete photo from Firebase: \(error)")
-            return
         }
-
-        // Remove from workout
-        workout.photos.removeAll { $0.id == photo.id }
-
-        // If the deleted photo was highlighted, reset to first available
-        if workout.highlightedPhotoId == photo.id {
-            workout.highlightedPhotoId = workout.photos.first?.id
-        }
-
-        try? modelContext.save()
     }
 }
 

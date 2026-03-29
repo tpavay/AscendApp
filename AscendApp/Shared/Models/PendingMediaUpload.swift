@@ -30,6 +30,7 @@ final class PendingMediaUpload {
     var createdAt: Date
     var orderIndex: Int          // Original position in selection (for ordering)
     var isHighlighted: Bool      // Whether this should become highlightedPhotoId
+    var remotePath: String?
 
     init(
         workoutId: UUID,
@@ -37,7 +38,8 @@ final class PendingMediaUpload {
         mediaType: String,
         duration: TimeInterval? = nil,
         orderIndex: Int,
-        isHighlighted: Bool = false
+        isHighlighted: Bool = false,
+        remotePath: String? = nil
     ) {
         self.id = UUID()
         self.workoutId = workoutId
@@ -50,6 +52,7 @@ final class PendingMediaUpload {
         self.createdAt = Date()
         self.orderIndex = orderIndex
         self.isHighlighted = isHighlighted
+        self.remotePath = remotePath
     }
 
     // MARK: - Convenience Properties

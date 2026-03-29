@@ -39,6 +39,7 @@ class AuthenticationViewModel {
     private(set) var isProfileLoaded: Bool = false
 
     private var authenticationService = AuthenticationService()
+    private let profilePictureService = ProfilePictureService.shared
 
     init() {
         // Load cached display name immediately for UI responsiveness
@@ -269,29 +270,11 @@ extension AuthenticationViewModel {
                 return
             }
 
-            let filename = "users/\(user.uid)/profile_pictures/\(UUID().uuidString).jpg"
-            let photoRepo = FirebasePhotoRepository()
-            let uploadedURL = try await photoRepo.upload(imageData, filename: filename)
-
-            try await UserDataRepository.shared.updateProfilePictureURL(
+            let uploadedURL = try await profilePictureService.replaceProfilePicture(
                 userId: user.uid,
-                profilePictureURL: uploadedURL.absoluteString
+                imageData: imageData
             )
-            
-            // Update the local state
             customProfilePictureURL = uploadedURL
-            
-            // Update all leaderboard entries with the new photo URL
-            do {
-                try await LeaderboardService.shared.updateProfilePictureURL(
-                    userId: user.uid,
-                    photoURL: uploadedURL
-                )
-            } catch {
-                // Don't fail the whole operation if leaderboard update fails
-                print("Warning: Failed to update leaderboard photo URL: \(error)")
-            }
-            
         } catch {
             errorMessage = "Failed to update profile picture: \(error.localizedDescription)"
         }
@@ -306,31 +289,11 @@ extension AuthenticationViewModel {
         }
         
         do {
-            // Upload the photo data directly
-            let filename = "users/\(user.uid)/profile_pictures/\(UUID().uuidString).jpg"
-            let photoRepo = FirebasePhotoRepository()
-            let uploadedURL = try await photoRepo.upload(imageData, filename: filename)
-            
-            // Save the URL to Firestore user document
-            try await UserDataRepository.shared.updateProfilePictureURL(
+            let uploadedURL = try await profilePictureService.replaceProfilePicture(
                 userId: user.uid,
-                profilePictureURL: uploadedURL.absoluteString
+                imageData: imageData
             )
-            
-            // Update the local state
             customProfilePictureURL = uploadedURL
-            
-            // Update all leaderboard entries with the new photo URL
-            do {
-                try await LeaderboardService.shared.updateProfilePictureURL(
-                    userId: user.uid,
-                    photoURL: uploadedURL
-                )
-            } catch {
-                // Don't fail the whole operation if leaderboard update fails
-                print("Warning: Failed to update leaderboard photo URL: \(error)")
-            }
-            
         } catch {
             errorMessage = "Failed to update profile picture: \(error.localizedDescription)"
         }

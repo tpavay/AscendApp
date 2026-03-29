@@ -25,6 +25,11 @@ final class FirebasePhotoRepository: PhotoRepositoryProtocol, @unchecked Sendabl
         try await storageRef.delete()
     }
 
+    func delete(path: String) async throws {
+        let storageRef = firebaseStorage.reference().child(path)
+        try await storageRef.delete()
+    }
+
     private func metadata(for filename: String) -> StorageMetadata {
         let metadata = StorageMetadata()
         let pathExtension = URL(fileURLWithPath: filename).pathExtension.lowercased()

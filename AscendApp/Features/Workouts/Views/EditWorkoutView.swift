@@ -57,6 +57,7 @@ struct EditWorkoutView: View {
     @FocusState private var focusedField: WorkoutFormField?
     
     private let photoService = PhotoService()
+    private let workoutMediaService = WorkoutMediaService.shared
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -741,6 +742,7 @@ struct EditWorkoutView: View {
         
         let selectedImagesSnapshot = selectedImages
         var newlyUploadedPhotos: [Photo] = []
+        var didPersistMediaChanges = false
         
         do {
             if !selectedImagesSnapshot.isEmpty {
@@ -764,39 +766,32 @@ struct EditWorkoutView: View {
             workout.steps = steps
             workout.floors = floors
             
-            // Persist new/existing photos
             let combinedPhotos = existingPhotos + newlyUploadedPhotos
-            workout.photos = combinedPhotos
-            
-            if let resolvedHighlight = resolvedHighlightId(
+            let resolvedHighlight = resolvedHighlightId(
                 combinedPhotos: combinedPhotos,
                 newlyUploadedPhotos: newlyUploadedPhotos,
                 selectedSnapshot: selectedImagesSnapshot
-            ) {
-                workout.highlightedPhotoId = resolvedHighlight
-            } else if workout.highlightedPhotoId == nil {
-                workout.highlightedPhotoId = combinedPhotos.first?.id
-            }
-            
-            try modelContext.save()
+            )
+
+            try await workoutMediaService.persistPhotoSelection(
+                for: workout,
+                photos: combinedPhotos,
+                highlightedPhotoId: resolvedHighlight,
+                photosToDelete: photosMarkedForDeletion,
+                modelContext: modelContext
+            )
+            didPersistMediaChanges = true
             print("✅ Successfully updated workout with \(workout.photos.count) photos")
 
             // Recalculate PRs and leaderboard stats after edit
             try WorkoutMutationHandler.shared.workoutsDidChange(modelContext: modelContext)
-            
-            let photosToDelete = photosMarkedForDeletion
-            if !photosToDelete.isEmpty {
-                Task {
-                    try? await photoService.deletePhotos(photosToDelete)
-                }
-            }
             
             // Clean up video files
             cleanupVideoFiles()
 
             showingEditWorkout = false
         } catch {
-            if !newlyUploadedPhotos.isEmpty {
+            if !didPersistMediaChanges && !newlyUploadedPhotos.isEmpty {
                 Task {
                     try? await photoService.deletePhotos(newlyUploadedPhotos)
                 }

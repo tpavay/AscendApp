@@ -30,6 +30,7 @@ struct WorkoutListView: View {
     @State private var isDeleting = false
     @State private var isCancelling = false
     @State private var deleteTask: Task<Void, Never>? = nil
+    private let workoutMediaService = WorkoutMediaService.shared
 
     @State private var showingEntrySelection = false
 
@@ -278,49 +279,8 @@ struct WorkoutListView: View {
 
         let workoutsToDelete = workouts.filter { selectedWorkouts.contains($0.id) }
 
-        // Delete photos from Firebase first - ALL must succeed
-        let photoService = PhotoService()
-        let allPhotos = workoutsToDelete.flatMap { $0.photos }
-
-        if !allPhotos.isEmpty {
-            do {
-                try await photoService.deletePhotos(allPhotos)
-            } catch let error as PhotoDeletionError {
-                print("❌ Failed to delete photos: \(error)")
-                await MainActor.run {
-                    isDeleting = false
-                    showingDeleteConfirmation = false
-                    switch error {
-                    case .partialFailure(let result):
-                        deleteErrorMessage = "Failed to delete \(result.failedCount) photo(s) from cloud storage. Please check your internet connection and try again."
-                    case .timeout:
-                        deleteErrorMessage = "Photo deletion timed out. Please check your internet connection and try again."
-                    case .allRetriesExhausted:
-                        deleteErrorMessage = "Failed to delete photos after multiple attempts. Please try again later."
-                    }
-                    showingDeleteError = true
-                    HapticsManager.shared.trigger(.error)
-                }
-                return // Don't delete any workouts
-            } catch {
-                print("❌ Failed to delete photos from Firebase: \(error)")
-                await MainActor.run {
-                    isDeleting = false
-                    showingDeleteConfirmation = false
-                    deleteErrorMessage = "Failed to delete photos from cloud storage. Please check your internet connection and try again."
-                    showingDeleteError = true
-                    HapticsManager.shared.trigger(.error)
-                }
-                return // Don't delete any workouts
-            }
-        }
-
-        // Only delete workouts if ALL photo deletions succeeded
         do {
-            for workout in workoutsToDelete {
-                modelContext.delete(workout)
-            }
-            try modelContext.save()
+            try await workoutMediaService.deleteWorkouts(workoutsToDelete, modelContext: modelContext)
 
             // Recalculate PRs and leaderboard stats after deletion
             try WorkoutMutationHandler.shared.workoutsDidChange(modelContext: modelContext)
@@ -330,6 +290,22 @@ struct WorkoutListView: View {
                 showingDeleteConfirmation = false
                 HapticsManager.shared.trigger(.success)
                 exitDeleteMode()
+            }
+        } catch let error as PhotoDeletionError {
+            print("❌ Failed to delete photos: \(error)")
+            await MainActor.run {
+                isDeleting = false
+                showingDeleteConfirmation = false
+                switch error {
+                case .partialFailure(let result):
+                    deleteErrorMessage = "Failed to delete \(result.failedCount) photo(s) from cloud storage. Please check your internet connection and try again."
+                case .timeout:
+                    deleteErrorMessage = "Photo deletion timed out. Please check your internet connection and try again."
+                case .allRetriesExhausted:
+                    deleteErrorMessage = "Failed to delete photos after multiple attempts. Please try again later."
+                }
+                showingDeleteError = true
+                HapticsManager.shared.trigger(.error)
             }
         } catch {
             print("❌ Error deleting workouts: \(error)")

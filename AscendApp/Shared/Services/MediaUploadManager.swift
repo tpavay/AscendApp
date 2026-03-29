@@ -39,7 +39,7 @@ enum UploadError: LocalizedError {
 /// - Persists uploads across app restarts
 @MainActor
 @Observable
-final class MediaUploadManager {
+final class MediaUploadManager: PendingUploadManaging {
     static let shared = MediaUploadManager()
 
     // MARK: - Observable State
@@ -92,12 +92,16 @@ final class MediaUploadManager {
         modelContext: ModelContext
     ) async throws {
         guard !photos.isEmpty else { return }
+        guard let userId = Auth.auth().currentUser?.uid else {
+            throw UploadError.notAuthenticated
+        }
 
         // Save files locally and create PendingMediaUpload records
         for (index, item) in photos.enumerated() {
             let filename: String
             let mediaType: String
             let duration: TimeInterval?
+            let remotePath: String
 
             if item.isVideo {
                 mediaType = MediaType.video.rawValue
@@ -115,6 +119,12 @@ final class MediaUploadManager {
                     // Clean up the temp file from VideoPickerTransferable
                     try? FileManager.default.removeItem(at: video.url)
                 }
+
+                let fileExtension = URL(fileURLWithPath: filename).pathExtension
+                remotePath = UserMediaStoragePath.video(
+                    userId: userId,
+                    fileExtension: fileExtension.isEmpty ? "mov" : fileExtension
+                )
             } else {
                 mediaType = MediaType.photo.rawValue
                 duration = nil
@@ -123,6 +133,7 @@ final class MediaUploadManager {
                     continue
                 }
                 filename = try await LocalMediaStorage.savePhoto(data: data)
+                remotePath = UserMediaStoragePath.photo(userId: userId)
             }
 
             // Create pending upload record
@@ -132,7 +143,8 @@ final class MediaUploadManager {
                 mediaType: mediaType,
                 duration: duration,
                 orderIndex: index,
-                isHighlighted: index == highlightedIndex
+                isHighlighted: index == highlightedIndex,
+                remotePath: remotePath
             )
             modelContext.insert(pending)
         }
@@ -297,9 +309,16 @@ final class MediaUploadManager {
                 let fileExtension = upload.isVideo ?
                     (URL(fileURLWithPath: upload.localFileName).pathExtension.isEmpty ? "mov" : URL(fileURLWithPath: upload.localFileName).pathExtension) :
                     "jpg"
-                let path = upload.isVideo ?
-                    "users/\(userId)/videos/\(UUID().uuidString).\(fileExtension)" :
-                    "users/\(userId)/photos/\(UUID().uuidString).jpg"
+                let path = upload.remotePath ?? {
+                    if upload.isVideo {
+                        return UserMediaStoragePath.video(
+                            userId: userId,
+                            fileExtension: fileExtension
+                        )
+                    }
+                    return UserMediaStoragePath.photo(userId: userId)
+                }()
+                upload.remotePath = path
 
                 // Upload to Firebase with timeout
                 let remoteURL = try await withThrowingTaskGroup(of: URL.self) { group in
@@ -320,6 +339,7 @@ final class MediaUploadManager {
                 // Success! Create Photo and update Workout
                 let photo = Photo(
                     url: remoteURL,
+                    storagePath: path,
                     type: upload.isVideo ? .video : .photo,
                     duration: upload.duration
                 )

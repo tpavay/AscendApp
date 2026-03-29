@@ -75,6 +75,14 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
   - `users/{uid}/videos/...`
   - `users/{uid}/profile_pictures/...`
 - Never write user media to shared root paths (`photos/`, `videos/`, `profile_pictures/`) in production.
+- Persist stable storage identifiers for user media:
+  - `Photo.storagePath` for uploaded workout/profile media
+  - `PendingMediaUpload.remotePath` for queued uploads so retries reuse the same remote object path
+- Media lifecycle mutations should flow through dedicated services instead of SwiftUI views:
+  - `WorkoutMediaService` owns workout-media deletion and edit-removal semantics
+  - `ProfilePictureService` owns profile-picture replacement and old-file cleanup
+- Workout deletion should stay synchronous from the user's perspective: delete scoped media with bounded retries first, treat missing storage objects as success, and only delete the workout record after media cleanup succeeds.
+- Replacing a profile picture should upload the new scoped file, update Firestore, then delete the previously active profile picture object.
 - Account deletion and cleanup should target only the authenticated user's scoped prefix.
 - When a Firebase-backed feature is retired, remove its client/server references, security-rule exceptions, and stale Firestore/Storage data instead of leaving dead config paths behind.
 

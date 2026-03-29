@@ -10,4 +10,5 @@ import Foundation
 protocol PhotoRepositoryProtocol: Sendable {
     func upload(_ data: Data, filename: String) async throws -> URL
     func delete(url: URL) async throws
+    func delete(path: String) async throws
 }

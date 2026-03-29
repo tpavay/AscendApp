@@ -35,6 +35,7 @@ struct WorkoutDetailView: View {
     @State private var currentPhotoIndex: Int = 0
     @State private var selectedPhoto: Photo? = nil
     @State private var sheetOffset: CGFloat = 0  // For smooth hero animation during drag
+    private let workoutMediaService = WorkoutMediaService.shared
 
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -1112,49 +1113,8 @@ struct WorkoutDetailView: View {
         await MainActor.run {
             isDeleting = true
         }
-
-        // Cancel any pending uploads first (deletes local files and records)
-        await MediaUploadManager.shared.cancelUploads(for: workout.id, modelContext: modelContext)
-
-        // Delete uploaded photos from Firebase
-        if !workout.photos.isEmpty {
-            let photoService = PhotoService()
-            do {
-                try await photoService.deletePhotos(workout.photos)
-            } catch let error as PhotoDeletionError {
-                print("❌ Failed to delete photos: \(error)")
-                await MainActor.run {
-                    isDeleting = false
-                    showingDeleteConfirmation = false
-                    switch error {
-                    case .partialFailure(let result):
-                        deleteErrorMessage = "Failed to delete \(result.failedCount) photo(s) from cloud storage. Please check your internet connection and try again."
-                    case .timeout:
-                        deleteErrorMessage = "Photo deletion timed out. Please check your internet connection and try again."
-                    case .allRetriesExhausted:
-                        deleteErrorMessage = "Failed to delete photos after multiple attempts. Please try again later."
-                    }
-                    showingDeleteError = true
-                    HapticsManager.shared.trigger(.error)
-                }
-                return // Don't delete the workout
-            } catch {
-                print("❌ Failed to delete photos from Firebase: \(error)")
-                await MainActor.run {
-                    isDeleting = false
-                    showingDeleteConfirmation = false
-                    deleteErrorMessage = "Failed to delete photos from cloud storage. Please check your internet connection and try again."
-                    showingDeleteError = true
-                    HapticsManager.shared.trigger(.error)
-                }
-                return // Don't delete the workout
-            }
-        }
-
-        // Only delete workout if photo deletion succeeded
-        modelContext.delete(workout)
         do {
-            try modelContext.save()
+            try await workoutMediaService.deleteWorkout(workout, modelContext: modelContext)
 
             // Recalculate PRs and leaderboard stats after deletion
             try WorkoutMutationHandler.shared.workoutsDidChange(modelContext: modelContext)
@@ -1164,6 +1124,22 @@ struct WorkoutDetailView: View {
                 showingDeleteConfirmation = false
                 HapticsManager.shared.trigger(.success)
                 dismiss() // Navigate back to workout list
+            }
+        } catch let error as PhotoDeletionError {
+            print("❌ Failed to delete photos: \(error)")
+            await MainActor.run {
+                isDeleting = false
+                showingDeleteConfirmation = false
+                switch error {
+                case .partialFailure(let result):
+                    deleteErrorMessage = "Failed to delete \(result.failedCount) photo(s) from cloud storage. Please check your internet connection and try again."
+                case .timeout:
+                    deleteErrorMessage = "Photo deletion timed out. Please check your internet connection and try again."
+                case .allRetriesExhausted:
+                    deleteErrorMessage = "Failed to delete photos after multiple attempts. Please try again later."
+                }
+                showingDeleteError = true
+                HapticsManager.shared.trigger(.error)
             }
         } catch {
             print("❌ Error deleting workout: \(error)")

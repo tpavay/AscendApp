@@ -22,7 +22,7 @@ struct UserDisplayNameData: Sendable {
     }
 }
 
-final class UserDataRepository: Sendable {
+final class UserDataRepository: Sendable, UserProfileDataStore {
 
     static let shared = UserDataRepository()
     let db = Firestore.firestore()
