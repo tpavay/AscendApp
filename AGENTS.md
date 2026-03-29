@@ -201,66 +201,39 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
 
 ## Coding Rules
 
-### Core
-- **Swift 6 / strict concurrency** — assume strict concurrency rules are being applied
-- **SwiftUI** with `@Observable` classes for shared state
-- No third-party frameworks without asking first
-- Avoid UIKit unless requested
-- Never commit API keys/secrets
-- If SwiftLint is installed, ensure no warnings or errors before committing
+### Specialized Skills
+- `swiftui-pro` is required for SwiftUI code, layout, navigation, accessibility, animation, performance work, and SwiftUI-focused reviews.
+- `swift-concurrency-pro` is required for actors, async/await, `Task`, cancellation, `Sendable`, isolation, and strict-concurrency fixes or reviews.
+- `swiftdata-pro` is required for SwiftData models, relationships, predicates, queries, CloudKit sync constraints, and persistence reviews.
+- `swift-testing-pro` is required for Swift Testing, async test patterns, unit/integration test work, and XCTest migration.
+- `vibe-security` is required for Firebase Auth, Firestore rules, Cloud Functions, waitlist/signup endpoints, Strava OAuth, user data, secrets, tokens, privacy, subscriptions/payments, or any auth/authz/trust-boundary change.
+- `firebase-basics` is required for Firebase project setup, CLI/configuration, emulator/local-environment work, and cross-product Firebase tasks.
+- `firebase-auth-basics` is required for Firebase Authentication flows, providers, session handling, and auth-dependent access design.
+- `firebase-firestore-standard` is required for Firestore collections, queries, indexes, sync design, and security rules.
+- `firebase-hosting-basics` is required for `web/public`, hosting rewrites, preview channels, and Firebase Hosting deploy/configuration work.
+- `healthkit` is required for Apple Health integration and workout or metrics import/export work.
+- `widgetkit` is required for widgets, Live Activities, Dynamic Island, StandBy, and related extension/configuration work.
+- `app-intents` is required for Shortcuts, Siri, Spotlight, widget intents, and Control Center actions.
+- `ios-accessibility` is required for dedicated accessibility audits or remediation, alongside `swiftui-pro` when the UI is SwiftUI.
+- `ios-security` is required for Keychain, biometrics, ATS, CryptoKit, privacy manifests, and device-side secret handling.
+- `ios-networking` is required for `URLSession`, API clients, uploads/downloads, retry/caching, and network architecture.
+- `storekit` is required for subscriptions, in-app purchases, paywalls, restore flows, and entitlement handling.
+- `app-store-review` is required for App Store submission prep, ATT/privacy manifest work, IAP review readiness, and rejection-risk audits.
+- `debugging-instruments` is required for crash triage, leak detection, hang diagnosis, and performance profiling.
+- `asc-xcode-build` is required for archive/export/IPA build automation.
+- `asc-release-flow`, `asc-metadata-sync`, `asc-submission-health`, and `asc-testflight-orchestration` are required for App Store Connect release, metadata, submission, and TestFlight tasks.
+- If a task spans multiple domains, use every matching skill.
+- If a request is ambiguous but clearly adjacent to one of these domains, load the relevant skill rather than skipping it.
+- Keep this file focused on Ascend-specific rules. If a skill conflicts with this guide, follow this guide.
 
-### Swift Patterns
-
-**Do ✅**
-- Mark `@Observable` classes with `@MainActor`
-- Use `async/await` for all concurrency
-- Prefer Swift-native alternatives to Foundation methods: `replacing("a", with: "b")` not `replacingOccurrences(of:with:)`
-- Prefer modern Foundation API: `URL.documentsDirectory`, `url.appending(path:)`
-- Prefer static member lookup over struct instances: `.circle` not `Circle()`, `.borderedProminent` not `BorderedProminentButtonStyle()`, `.plain` not `PlainButtonStyle()`
-- `Text(value, format: .number.precision(.fractionLength(2)))` — never C-style `String(format:)`
-- `localizedStandardContains()` for filtering user input (not `contains()`)
-
-**Don't ❌**
-- `DispatchQueue` — use `@MainActor`, `MainActor.run`, or `Task.sleep(for:)`
-- Force unwraps/try unless truly unrecoverable
-- `String(format: "%.2f", value)` — use `.formatted()` or `Text` format
-- Old FileManager document paths
-- String concatenation for URLs
-
-### SwiftUI Patterns
-
-**Use ✅**
-- `@Observable` (not `ObservableObject`), `@State` (not `@StateObject`), `@Environment(Foo.self)` (not `@EnvironmentObject`)
-- `@Bindable var foo` when needing `$foo.property` bindings
-- `NavigationStack` with `navigationDestination(for:)` for type-based navigation (not `NavigationView`)
-- `Tab` API (not `tabItem()`)
-- `foregroundStyle()` (not `foregroundColor()`)
-- `clipShape(.rect(cornerRadius:))` (not `.cornerRadius()`)
-- `Task.sleep(for:)` (not `Task.sleep(nanoseconds:)`)
-- `Button` for taps (not `onTapGesture` — unless you need tap location or count)
-- `bold()` (not `fontWeight(.bold)`) — only use `fontWeight()` with good reason
-- `.scrollIndicators(.hidden)` (not `showsIndicators: false`)
-- `onChange()` with 2 parameters or none (not 1-parameter variant)
-- `containerRelativeFrame()` or `visualEffect()` over `GeometryReader` when possible
-- `ImageRenderer` over `UIGraphicsImageRenderer` for rendering SwiftUI views
-- `ForEach(x.enumerated(), id: \.element.id)` — don't wrap in `Array()` first
-- `Button("Label", systemImage: "icon", action: fn)` — always include text with image buttons
-
-**Avoid ❌**
-- `UIScreen.main.bounds` for sizing
-- Computed properties for sub-views — extract to separate `View` structs
-- `AnyView` unless absolutely required
-- UIKit colors in SwiftUI
-- Hard-coded values for padding and stack spacing unless specifically requested
-- Hard-coded font sizes — prefer Dynamic Type
-
-### Testability
-- Place view logic into view models or similar so it can be tested
-- Write unit tests for core application logic
-- Only write UI tests if unit tests are not possible
-
-### SwiftData + CloudKit
-If using CloudKit sync: never use `@Attribute(.unique)`, properties must have defaults or be optional, all relationships must be optional.
+### Ascend-Specific Overrides
+- **Targeting**: iOS 17.0+, Swift 6, strict concurrency. If a newer iOS API meaningfully improves a feature, mention it and gate it with `@available` rather than silently raising the baseline.
+- **State management**: SwiftUI with `@Observable` for shared state, and mark shared `@Observable` classes with `@MainActor`.
+- **Dependencies**: No third-party frameworks without asking first. Avoid UIKit unless requested.
+- **Code hygiene**: Never commit API keys/secrets. If SwiftLint is installed, ensure no warnings or errors before committing.
+- **Local style conventions**: Prefer `replacing("a", with: "b")`, `URL.documentsDirectory`, `url.appending(path:)`, `.formatted()` or `Text(..., format:)`, and `localizedStandardContains()` for user-facing filtering.
+- **Testing approach**: Place view logic into view models or similar so it can be tested. Prefer unit tests for core logic; use UI tests only when unit tests are not possible.
+- **SwiftData + CloudKit**: Never use `@Attribute(.unique)`, properties must have defaults or be optional, and all relationships must be optional.
 
 ---
 
