@@ -225,12 +225,6 @@ service cloud.firestore {
       allow delete: if isOwner(userId);
     }
 
-    // Remote share-card template manifest is read-only for authenticated users.
-    match /config/{docId} {
-      allow read: if isSignedIn() && docId == "shareCardTemplates";
-      allow write: if false;
-    }
-
     // Server-only collections managed by Cloud Functions / Admin SDK.
     match /email_jobs/{docId} {
       allow read, write: if false;

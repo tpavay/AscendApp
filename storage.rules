@@ -82,10 +82,5 @@ service firebase.storage {
       allow create, update: if false;
     }
 
-    // Remote share-card template assets are read-only from the app.
-    match /share-card-templates/{allPaths=**} {
-      allow read: if isSignedIn();
-      allow write: if false;
-    }
   }
 }

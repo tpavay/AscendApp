@@ -75,8 +75,8 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
   - `users/{uid}/videos/...`
   - `users/{uid}/profile_pictures/...`
 - Never write user media to shared root paths (`photos/`, `videos/`, `profile_pictures/`) in production.
-- Legacy share card template assets may still live under `share-card-templates/...`, but workout share cards in v1 must not fetch their backgrounds or layout config from Firebase.
 - Account deletion and cleanup should target only the authenticated user's scoped prefix.
+- When a Firebase-backed feature is retired, remove its client/server references, security-rule exceptions, and stale Firestore/Storage data instead of leaving dead config paths behind.
 
 ### Workout Share Card Architecture
 - Workout share cards in v1 use bundled poster background assets so the share surface renders instantly and offline.
