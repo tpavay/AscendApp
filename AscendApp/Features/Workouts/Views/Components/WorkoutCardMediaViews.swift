@@ -20,42 +20,13 @@ func formatVideoDuration(_ duration: TimeInterval) -> String {
 /// Loads a remote photo with ImageCache support.
 /// Consolidates 3 duplicate `loadPhoto()` implementations.
 func loadCachedPhoto(from url: URL) async -> UIImage? {
-    if let cached = ImageCache.shared.image(for: url) {
-        return cached
-    }
-
-    do {
-        let (data, _) = try await URLSession.shared.data(from: url)
-        if let image = UIImage(data: data) {
-            ImageCache.shared.store(image, for: url)
-            return image
-        }
-    } catch {
-        // Caller handles nil return
-    }
-    return nil
+    await RemoteMediaLoader.shared.loadPhoto(from: url)
 }
 
 /// Generates a video thumbnail with ImageCache support.
 /// Consolidates 3 duplicate `loadVideoThumbnail()` implementations.
 func loadCachedVideoThumbnail(from url: URL) async -> UIImage? {
-    if let cached = ImageCache.shared.image(for: url) {
-        return cached
-    }
-
-    do {
-        let asset = AVURLAsset(url: url)
-        let imageGenerator = AVAssetImageGenerator(asset: asset)
-        imageGenerator.appliesPreferredTrackTransform = true
-
-        let cgImage = try await imageGenerator.image(at: .zero).image
-        let image = UIImage(cgImage: cgImage)
-        ImageCache.shared.store(image, for: url)
-        return image
-    } catch {
-        // Caller handles nil return
-    }
-    return nil
+    await RemoteMediaLoader.shared.loadVideoThumbnail(from: url)
 }
 
 // MARK: - WorkoutCardMediaSection
@@ -219,10 +190,8 @@ struct AutoPlayVideoView: View {
     }
 
     private func loadVideo() async {
-        // Load thumbnail first
-        thumbnail = await loadCachedVideoThumbnail(from: photo.url)
+        async let thumbnailLoad = loadCachedVideoThumbnail(from: photo.url)
 
-        // Then set up player
         let newPlayer = AVPlayer(url: photo.url)
         newPlayer.isMuted = true
         newPlayer.actionAtItemEnd = .none
@@ -244,6 +213,8 @@ struct AutoPlayVideoView: View {
                 newPlayer.play()
             }
         }
+
+        thumbnail = await thumbnailLoad
     }
 }
 
