@@ -14,7 +14,6 @@ struct FullScreenPhotoView: View {
 
     @State private var loadedImage: UIImage?
     @State private var isLoading = true
-    @State private var loadError: Error?
     @State private var scale: CGFloat = 1.0
     @State private var offset: CGSize = .zero
     @State private var dragOffset: CGSize = .zero
@@ -203,45 +202,23 @@ struct FullScreenPhotoView: View {
     }
     
     private func loadVideo() async {
-        let asset = AVURLAsset(url: photo.url)
-        // Preload to avoid main thread blocking
-        _ = try? await asset.load(.isPlayable)
-
-        let playerItem = AVPlayerItem(asset: asset)
+        let canPrepareVideo = await RemoteMediaLoader.shared.canPrepareVideo(from: photo.url)
 
         await MainActor.run {
-            self.player = AVPlayer(playerItem: playerItem)
+            if canPrepareVideo {
+                self.player = AVPlayer(url: photo.url)
+            } else {
+                self.player = nil
+            }
             self.isLoading = false
         }
     }
 
     private func loadPhoto() async {
-        // Check cache first
-        if let cached = ImageCache.shared.image(for: photo.url) {
-            await MainActor.run {
-                self.loadedImage = cached
-                self.isLoading = false
-            }
-            return
-        }
-
-        do {
-            let (data, _) = try await URLSession.shared.data(from: photo.url)
-
-            await MainActor.run {
-                if let image = UIImage(data: data) {
-                    ImageCache.shared.store(image, for: photo.url)
-                    self.loadedImage = image
-                } else {
-                    self.loadError = PhotoLoadError.invalidImageData
-                }
-                self.isLoading = false
-            }
-        } catch {
-            await MainActor.run {
-                self.loadError = error
-                self.isLoading = false
-            }
+        let image = await RemoteMediaLoader.shared.loadPhoto(from: photo.url)
+        await MainActor.run {
+            self.loadedImage = image
+            self.isLoading = false
         }
     }
 

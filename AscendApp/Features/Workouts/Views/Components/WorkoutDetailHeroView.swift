@@ -189,8 +189,9 @@ private struct HeroMediaItem: View {
 
     private func loadMedia() async {
         if photo.isVideo {
-            loadedImage = await loadCachedVideoThumbnail(from: photo.url)
+            async let thumbnailLoad = loadCachedVideoThumbnail(from: photo.url)
             await configureVideoPlayer()
+            loadedImage = await thumbnailLoad
         } else {
             loadedImage = await loadCachedPhoto(from: photo.url)
             isLoading = false
