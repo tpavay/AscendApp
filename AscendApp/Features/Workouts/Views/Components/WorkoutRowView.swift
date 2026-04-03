@@ -108,15 +108,6 @@ struct WorkoutRowView: View {
                     .font(.montserratMedium(size: 14))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
 
-                if let pace = paceText {
-                    Text("\u{2022}")
-                        .font(.system(size: 10))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.4) : .gray.opacity(0.6))
-                    Text(pace)
-                        .font(.montserratMedium(size: 14))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                }
-
                 Spacer()
 
                 if workout.hasWeights {
