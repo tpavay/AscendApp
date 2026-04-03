@@ -16,6 +16,7 @@ struct HeartRateChartView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
     @State private var rawSelectedTime: TimeInterval?
+    @State private var stickySelectedTime: TimeInterval?
     @State private var selectedPoint: HeartRateDataPoint?
     
     // Use actual heart rate data timespan instead of workout duration
@@ -42,15 +43,24 @@ struct HeartRateChartView: View {
         }
     }
     
-    // Computed property to find the selected point based on raw selected time
+    // Computed property to find the selected point — uses active touch or sticky (last-touched) time
     private var computedSelectedPoint: HeartRateDataPoint? {
-        guard let rawSelectedTime = rawSelectedTime else { return nil }
-        
+        guard let activeTime = rawSelectedTime ?? stickySelectedTime else { return nil }
+
         return heartRateData.min { point1, point2 in
-            let distance1 = abs(point1.timestamp.timeIntervalSince(actualStartTime) - rawSelectedTime)
-            let distance2 = abs(point2.timestamp.timeIntervalSince(actualStartTime) - rawSelectedTime)
+            let distance1 = abs(point1.timestamp.timeIntervalSince(actualStartTime) - activeTime)
+            let distance2 = abs(point2.timestamp.timeIntervalSince(actualStartTime) - activeTime)
             return distance1 < distance2
         }
+    }
+
+    private var averageHeartRate: Int {
+        guard !heartRateData.isEmpty else { return 0 }
+        return heartRateData.map(\.heartRate).reduce(0, +) / heartRateData.count
+    }
+
+    private var maxHeartRate: Int {
+        heartRateData.map(\.heartRate).max() ?? 0
     }
     
     // Heart rate range for Y-axis scaling
@@ -102,31 +112,49 @@ struct HeartRateChartView: View {
     }
     
     private var headerView: some View {
-        HStack {
-            Text("Heart Rate")
-                .font(.montserratSemiBold(size: 20))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-            Spacer()
-            
-            VStack(alignment: .trailing, spacing: 2) {
-                if let selected = computedSelectedPoint {
+        VStack(spacing: 6) {
+            // Top row: "Heart Rate" title + always-visible avg/max
+            HStack {
+                Text("Heart Rate")
+                    .font(.montserratSemiBold(size: 20))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                Spacer()
+
+                HStack(spacing: 16) {
+                    HStack(spacing: 4) {
+                        Text("Avg")
+                            .font(.montserratRegular(size: 12))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+                        Text("\(averageHeartRate)")
+                            .font(.montserratBold(size: 14))
+                            .foregroundStyle(.red)
+                    }
+                    HStack(spacing: 4) {
+                        Text("Max")
+                            .font(.montserratRegular(size: 12))
+                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+                        Text("\(maxHeartRate)")
+                            .font(.montserratBold(size: 14))
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+
+            // Selected point row (appears when user taps the graph)
+            if let selected = computedSelectedPoint {
+                HStack {
+                    Spacer()
                     Text("\(selected.heartRate) BPM")
                         .font(.montserratBold(size: 16))
                         .foregroundStyle(.red)
-                    Text(formatDuration(selected.timestamp.timeIntervalSince(actualStartTime)))
+                    Text("at \(formatDuration(selected.timestamp.timeIntervalSince(actualStartTime)))")
                         .font(.montserratRegular(size: 12))
                         .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                } else {
-                    // Invisible placeholder to maintain consistent height
-                    Text("000 BPM")
-                        .font(.montserratBold(size: 16))
-                        .opacity(0)
-                    Text("00:00")
-                        .font(.montserratRegular(size: 12))
-                        .opacity(0)
                 }
+                .transition(.opacity)
             }
         }
+        .animation(.easeInOut(duration: 0.15), value: computedSelectedPoint != nil)
     }
     
     private var emptyStateView: some View {
@@ -184,6 +212,11 @@ struct HeartRateChartView: View {
                 impactFeedback.impactOccurred()
             }
         }
+        .onChange(of: rawSelectedTime) { _, newValue in
+            if let newValue {
+                stickySelectedTime = newValue
+            }
+        }
         .chartBackground { _ in
             backgroundView
         }
@@ -195,7 +228,7 @@ struct HeartRateChartView: View {
             y: .value("Heart Rate", data.heartRate)
         )
         .foregroundStyle(.red)
-        .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+        .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
     }
     
     @ChartContentBuilder
@@ -221,14 +254,14 @@ struct HeartRateChartView: View {
                         .font(.montserratRegular(size: 10))
                         .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
                 }
-                AxisGridLine()
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.15) : .gray.opacity(0.25))
                 AxisTick()
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.15) : .gray.opacity(0.25))
             }
         }
     }
-    
+
     private var yAxisMarks: some AxisContent {
         AxisMarks(position: .leading, values: heartRateTickValues) { value in
             if let heartRate = value.as(Int.self) {
@@ -237,10 +270,10 @@ struct HeartRateChartView: View {
                         .font(.montserratRegular(size: 10))
                         .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
                 }
-                AxisGridLine()
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.15) : .gray.opacity(0.25))
                 AxisTick()
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.15) : .gray.opacity(0.25))
             }
         }
     }
@@ -254,7 +287,6 @@ struct HeartRateChartView: View {
             )
             .clipShape(RoundedRectangle(cornerRadius: 16))
     }
-    
     
     private func formatDuration(_ duration: TimeInterval) -> String {
         let totalSeconds = Int(duration)

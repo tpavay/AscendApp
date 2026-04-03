@@ -25,40 +25,86 @@ struct MainTabView: View {
     }
 
     var body: some View {
-        TabView(selection: $tabRouter.selectedTab) {
+        ZStack {
             ForEach(tabs) { tab in
                 tab.view
-                    .tabItem {
-                        let isSelected = tabRouter.selectedTab == tab.identifier
-                        let iconToUse = iconToken(for: tab, isSelected: isSelected)
-                        tabBarIcon(for: iconToUse)
-                        Text(tab.title)
-                    }
-                    .tag(tab.identifier)
+                    .opacity(tabRouter.selectedTab == tab.identifier ? 1 : 0)
+                    .allowsHitTesting(tabRouter.selectedTab == tab.identifier)
             }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.smooth(duration: 0.25), value: tabRouter.selectedTab)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            tabBar
         }
         .accentColor(.accent)
         .environment(tabRouter)
         .onAppear {
-            setupTabBarAppearance()
             checkForRatingPromptOnLaunch()
             syncBaseLevelOnboardingPresentation()
         }
-        .onChange(of: effectiveColorScheme) { _, _ in
-            setupTabBarAppearance()
-        }
         .onChange(of: settingsManager.hasCompletedBaseLevelOnboarding) { _, _ in
             syncBaseLevelOnboardingPresentation()
-        }
-        .onChange(of: tabRouter.selectedTab) { _, _ in
-            let generator = UIImpactFeedbackGenerator(style: .heavy)
-            generator.impactOccurred()
         }
         .fullScreenCover(isPresented: $showingBaseLevelOnboarding) {
             BaseLevelOnboardingView()
         }
         .themeAware()
     }
+
+    // MARK: - Custom Tab Bar
+
+    private var tabBar: some View {
+        HStack(spacing: 0) {
+            ForEach(tabs) { tab in
+                tabBarButton(for: tab)
+            }
+        }
+        .padding(.top, 8)
+        .padding(.bottom, 2)
+        .background {
+            tabBarBackground
+                .ignoresSafeArea(edges: .bottom)
+        }
+    }
+
+    private func tabBarButton(for tab: TabItem) -> some View {
+        let isSelected = tabRouter.selectedTab == tab.identifier
+        return Button {
+            guard tabRouter.selectedTab != tab.identifier else { return }
+            let generator = UIImpactFeedbackGenerator(style: .light)
+            generator.impactOccurred()
+            tabRouter.selectedTab = tab.identifier
+        } label: {
+            VStack(spacing: 3) {
+                let iconToUse = iconToken(for: tab, isSelected: isSelected)
+                tabBarIcon(for: iconToUse)
+                    .frame(width: 24, height: 24)
+                Text(tab.title)
+                    .font(.system(size: 10, weight: isSelected ? .semibold : .regular))
+            }
+            .foregroundStyle(isSelected ? Color.accent : effectiveColorScheme == .dark ? .white.opacity(0.6) : Color.gray)
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var tabBarBackground: some View {
+        if effectiveColorScheme == .dark {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+        } else {
+            VStack(spacing: 0) {
+                Divider()
+                Rectangle()
+                    .fill(Color(uiColor: .systemBackground))
+            }
+        }
+    }
+
+    // MARK: - Helpers
 
     private func checkForRatingPromptOnLaunch() {
         // Only check once per app session
@@ -78,7 +124,7 @@ struct MainTabView: View {
         settingsManager.resolveBaseLevelBootstrap(hasWorkoutHistory: workoutCount > 0)
         showingBaseLevelOnboarding = settingsManager.shouldPresentBaseLevelOnboarding
     }
-    
+
     private func iconToken(for tab: TabItem, isSelected: Bool) -> AppIconToken {
         if isSelected, let selectedIcon = tab.selectedIcon {
             return selectedIcon
@@ -110,51 +156,6 @@ struct MainTabView: View {
         }
 
         return rendered.withRenderingMode(.alwaysTemplate)
-    }
-    
-    private func setupTabBarAppearance() {
-        let appearance = UITabBarAppearance()
-        
-        if effectiveColorScheme == .dark {
-            // Dark mode styling - transparent to show gradient behind
-            appearance.configureWithTransparentBackground()
-            appearance.backgroundColor = UIColor.clear
-            
-            // Add subtle blur effect that works with gradient
-            appearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterialDark)
-            
-            // Normal state
-            appearance.stackedLayoutAppearance.normal.iconColor = UIColor.white.withAlphaComponent(0.6)
-            appearance.stackedLayoutAppearance.normal.titleTextAttributes = [
-                .foregroundColor: UIColor.white.withAlphaComponent(0.6)
-            ]
-            
-            // Selected state - using accent color
-            appearance.stackedLayoutAppearance.selected.iconColor = UIColor(Color.accent)
-            appearance.stackedLayoutAppearance.selected.titleTextAttributes = [
-                .foregroundColor: UIColor(Color.accent)
-            ]
-        } else {
-            // Light mode styling - clean white background
-            appearance.configureWithOpaqueBackground()
-            appearance.backgroundColor = UIColor.systemBackground
-            appearance.shadowColor = UIColor.systemGray4
-            
-            // Normal state
-            appearance.stackedLayoutAppearance.normal.iconColor = UIColor.systemGray
-            appearance.stackedLayoutAppearance.normal.titleTextAttributes = [
-                .foregroundColor: UIColor.systemGray
-            ]
-            
-            // Selected state - using accent color
-            appearance.stackedLayoutAppearance.selected.iconColor = UIColor(Color.accent)
-            appearance.stackedLayoutAppearance.selected.titleTextAttributes = [
-                .foregroundColor: UIColor(Color.accent)
-            ]
-        }
-        
-        UITabBar.appearance().standardAppearance = appearance
-        UITabBar.appearance().scrollEdgeAppearance = appearance
     }
 }
 
