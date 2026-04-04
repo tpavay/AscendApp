@@ -18,6 +18,8 @@ enum AppIconToken: Hashable, Sendable {
     case tabLeaderboardSelected
     case tabSettings
     case tabSettingsSelected
+    case mapPin
+    case mapPinFill
 
     case settingsEditProfile
     case settingsAppearance
@@ -60,6 +62,10 @@ enum AppIconToken: Hashable, Sendable {
             return .asset("ph-tab-settings")
         case .tabSettingsSelected:
             return .asset("ph-tab-settings-selected")
+        case .mapPin:
+            return .asset("ph-map-pin")
+        case .mapPinFill:
+            return .asset("ph-map-pin-fill")
 
         case .settingsEditProfile:
             return .asset("ph-settings-edit-profile")

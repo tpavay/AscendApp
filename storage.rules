@@ -87,5 +87,11 @@ service firebase.storage {
       allow read: if isSignedIn();
       allow write: if false;
     }
+
+    // Climb landmark images are read-only from the app.
+    match /climb-images/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
   }
 }

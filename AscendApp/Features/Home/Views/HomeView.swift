@@ -16,6 +16,14 @@ struct HomeView: View {
     @State private var importCoordinator = WorkoutImportCoordinator.shared
     @State private var showingImportSheet = false
     @State private var showingGoalsSheet = false
+    @State private var showingWorkoutEntrySheet = false
+    @State private var showingWorkoutForm = false
+    @State private var showingCompletedView = false
+    @State private var completedWorkout: Workout?
+    @State private var showingClimbBrowse = false
+    @State private var showingRoutinesView = false
+    @State private var selectedHomeClimb: Climb?
+    @State private var globeViewModel = GlobeViewModel()
     @AppStorage("firstLaunchDate") private var firstLaunchDate: Double = 0
 
     private var greeting: String {
@@ -54,8 +62,7 @@ struct HomeView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
-                // Header Section
+            VStack(spacing: 20) {
                 HStack {
                     Text(greetingWithName)
                         .font(.montserratSemiBold(size: 20))
@@ -75,22 +82,78 @@ struct HomeView: View {
                     }
                 }
 
-                // Main Content Area
                 VStack(spacing: 20) {
-                    // This Week Card (retrospective - what happened)
+                    HomeLogWorkoutButton {
+                        showingWorkoutEntrySheet = true
+                    }
+
                     ThisWeekCard(workouts: workouts)
 
-                    // Weekly Goal Card (intention - what I'm working toward)
                     WeeklyGoalCard(workouts: workouts, showGoalsSheet: $showingGoalsSheet)
 
-                    // Routines Card (guided workouts)
+                    ClimbCardView(
+                        viewModel: globeViewModel,
+                        onBrowse: {
+                            showingClimbBrowse = true
+                        },
+                        onOpenClimb: { climb in
+                            selectedHomeClimb = climb
+                        }
+                    )
+
                     RoutinesHomeCard()
                 }
             }
-            .padding(20)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
         }
         .scrollIndicators(.hidden)
+        .safeAreaPadding(.top, 8)
         .themedBackground()
+        .navigationDestination(item: $selectedHomeClimb) { climb in
+            ClimbDetailView(climb: climb)
+        }
+        .navigationDestination(isPresented: $showingClimbBrowse) {
+            ClimbBrowseView(viewModel: globeViewModel)
+        }
+        .navigationDestination(isPresented: $showingRoutinesView) {
+            RoutinesView()
+        }
+        .sheet(isPresented: $showingWorkoutEntrySheet) {
+            HomeWorkoutActionSheet(
+                onManualEntry: presentWorkoutForm,
+                onStartRoutine: presentRoutines,
+                onImportWorkouts: presentImportSheet,
+                pendingImportCount: importCoordinator.pendingCount
+            )
+            .appSheetStyle(.fitted())
+        }
+        .sheet(isPresented: $showingWorkoutForm) {
+            WorkoutFormView(
+                showingWorkoutForm: $showingWorkoutForm,
+                onWorkoutCompleted: { workout in
+                    completedWorkout = workout
+                    showingWorkoutForm = false
+
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(300))
+                        showingCompletedView = true
+                    }
+                }
+            )
+            .interactiveDismissDisabled()
+        }
+        .fullScreenCover(isPresented: $showingCompletedView) {
+            if let completedWorkout {
+                WorkoutShareCarouselView(
+                    workout: completedWorkout,
+                    workoutCount: workouts.count,
+                    onDismiss: {
+                        showingCompletedView = false
+                    }
+                )
+            }
+        }
         .sheet(isPresented: $showingImportSheet) {
             WorkoutImportSheet()
         }
@@ -105,6 +168,7 @@ struct HomeView: View {
 
             // Configure the unified import service with model context
             importCoordinator.configure(modelContext: modelContext)
+            globeViewModel.loadIfNeeded(modelContext: modelContext)
 
             // Check for workouts from all sources on app launch
             await importCoordinator.refreshPendingImports(trigger: .automatic)
@@ -115,9 +179,43 @@ struct HomeView: View {
                 await importCoordinator.refreshPendingImports(trigger: .automatic)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .climbStateDidChange)) { _ in
+            globeViewModel.refresh(modelContext: modelContext)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .climbCatalogDidChange)) { _ in
+            globeViewModel.reloadCatalog(modelContext: modelContext)
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
             // Reset throttling when app goes to background so next foreground check works
             importCoordinator.resetAutomaticCheckThrottle()
+        }
+    }
+
+    private func presentWorkoutForm() {
+        showingWorkoutEntrySheet = false
+
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            showingWorkoutForm = true
+        }
+    }
+
+    private func presentRoutines() {
+        showingWorkoutEntrySheet = false
+
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            showingRoutinesView = true
+        }
+    }
+
+    private func presentImportSheet() {
+        showingWorkoutEntrySheet = false
+
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            await importCoordinator.refreshPendingImports(trigger: .manualReview)
+            showingImportSheet = true
         }
     }
 }
@@ -128,5 +226,15 @@ struct HomeView: View {
             .environment(AuthenticationViewModel())
             .environment(TabRouter())
     }
-    .modelContainer(for: [Workout.self, WorkoutSourceLink.self, Goal.self], inMemory: true)
+    .modelContainer(
+        for: [
+            Workout.self,
+            WorkoutSourceLink.self,
+            Goal.self,
+            Routine.self,
+            RoutineFolder.self,
+            ClimbAttempt.self
+        ],
+        inMemory: true
+    )
 }
