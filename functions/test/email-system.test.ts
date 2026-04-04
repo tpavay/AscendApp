@@ -11,7 +11,10 @@ import {
   hashRateLimitIp,
 } from "../src/email/rateLimit";
 import {getNextRetryDelayMs} from "../src/email/retry";
-import {renderWaitlistWelcomeEmail} from "../src/email/templates";
+import {
+  renderFeedbackAdminNotifyEmail,
+  renderWaitlistWelcomeEmail,
+} from "../src/email/templates";
 
 test("waitlist dedupe keys and job ids are deterministic", () => {
   const recipientHash = "abc123";
@@ -147,4 +150,89 @@ test("waitlist template includes beta invite CTA when configured", () => {
       process.env.TRANSACTIONAL_EMAIL_CONFIG = originalConfig;
     }
   }
+});
+
+// =============================================================================
+// Feedback Admin Notification Template
+// =============================================================================
+
+const baseFeedbackPayload = {
+  appVersion: "1.2.0",
+  buildNumber: "42",
+  deviceModel: "iPhone",
+  feedbackId: "abc123",
+  message: "The app crashes when I tap the leaderboard tab.",
+  osVersion: "17.4",
+  type: "bug_report",
+  userEmail: "tester@example.com",
+  userId: "uid_xyz",
+};
+
+test("feedback template renders correct subject per type", () => {
+  const bugReport = renderFeedbackAdminNotifyEmail({
+    ...baseFeedbackPayload,
+    type: "bug_report",
+  });
+  assert.equal(bugReport.subject, "Ascend Feedback: Bug Report");
+
+  const featureRequest = renderFeedbackAdminNotifyEmail({
+    ...baseFeedbackPayload,
+    type: "feature_request",
+  });
+  assert.equal(featureRequest.subject, "Ascend Feedback: Feature Request");
+
+  const getHelp = renderFeedbackAdminNotifyEmail({
+    ...baseFeedbackPayload,
+    type: "get_help",
+  });
+  assert.equal(getHelp.subject, "Ascend Feedback: Help Request");
+});
+
+test("feedback template escapes html in user message and email", () => {
+  const rendered = renderFeedbackAdminNotifyEmail({
+    ...baseFeedbackPayload,
+    message: "<script>alert('xss')</script>",
+    userEmail: "user<evil>@test.com",
+  });
+
+  assert.doesNotMatch(rendered.html, /<script>/);
+  assert.match(rendered.html, /&lt;script&gt;/);
+  assert.doesNotMatch(rendered.html, /user<evil>/);
+  assert.match(rendered.html, /user&lt;evil&gt;@test\.com/);
+});
+
+test("feedback template includes all device metadata", () => {
+  const rendered = renderFeedbackAdminNotifyEmail(baseFeedbackPayload);
+
+  assert.match(rendered.html, /iPhone/);
+  assert.match(rendered.html, /17\.4/);
+  assert.match(rendered.html, /1\.2\.0/);
+  assert.match(rendered.html, /42/);
+  assert.match(rendered.html, /abc123/);
+  assert.match(rendered.html, /uid_xyz/);
+});
+
+test("feedback template plain text contains key fields", () => {
+  const rendered = renderFeedbackAdminNotifyEmail(baseFeedbackPayload);
+
+  assert.match(rendered.text, /Bug Report/);
+  assert.match(rendered.text, /tester@example\.com/);
+  assert.match(
+    rendered.text,
+    /The app crashes when I tap the leaderboard tab\./
+  );
+  assert.match(rendered.text, /iPhone/);
+  assert.match(rendered.text, /17\.4/);
+  assert.match(rendered.text, /1\.2\.0/);
+  assert.match(rendered.text, /abc123/);
+});
+
+test("feedback template handles unknown type gracefully", () => {
+  const rendered = renderFeedbackAdminNotifyEmail({
+    ...baseFeedbackPayload,
+    type: "unknown_type",
+  });
+
+  assert.equal(rendered.subject, "Ascend Feedback: unknown_type");
+  assert.match(rendered.text, /unknown_type/);
 });

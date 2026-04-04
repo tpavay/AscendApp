@@ -8,6 +8,7 @@ export interface TransactionalEmailConfig {
   provider: TransactionalEmailProvider;
   apiKey: string;
   betaInviteUrl?: string;
+  feedbackNotificationEmail?: string;
   fromEmail: string;
   fromName: string;
   replyTo?: string;
@@ -59,6 +60,18 @@ export interface EmailJobDocument {
   status: EmailJobStatus;
   type: EmailType;
   updatedAt: admin.firestore.Timestamp;
+}
+
+export interface FeedbackAdminNotifyPayload {
+  appVersion: string;
+  buildNumber: string;
+  deviceModel: string;
+  feedbackId: string;
+  message: string;
+  osVersion: string;
+  type: string;
+  userEmail: string;
+  userId: string;
 }
 
 export interface EmailRateLimitDocument {

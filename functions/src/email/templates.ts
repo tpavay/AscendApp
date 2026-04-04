@@ -1,6 +1,7 @@
 import {getBetaInviteUrl, getMarketingWebsiteUrl} from "./config";
 import type {
   EmailJobPayload,
+  FeedbackAdminNotifyPayload,
   TransactionalEmailRenderResult,
   WaitlistWelcomePayload,
 } from "./types";
@@ -156,4 +157,126 @@ export function renderWaitlistWelcomeEmailFromPayload(
   payload: EmailJobPayload
 ): TransactionalEmailRenderResult {
   return renderWaitlistWelcomeEmail(parseWaitlistWelcomePayload(payload));
+}
+
+// =============================================================================
+// Feedback Admin Notification
+// =============================================================================
+
+const FEEDBACK_TYPE_LABELS: Record<string, string> = {
+  bug_report: "Bug Report",
+  feature_request: "Feature Request",
+  get_help: "Help Request",
+};
+
+const FEEDBACK_TYPE_COLORS: Record<string, string> = {
+  bug_report: "#ef4444",
+  feature_request: "#b4cc00",
+  get_help: "#3b82f6",
+};
+
+/**
+ * Returns the human-readable label for a feedback type.
+ * @param {string} type - Raw feedback type value
+ * @return {string} Display label
+ */
+function feedbackTypeLabel(type: string): string {
+  return FEEDBACK_TYPE_LABELS[type] ?? type;
+}
+
+/**
+ * Returns the accent color for a feedback type.
+ * @param {string} type - Raw feedback type value
+ * @return {string} Hex color string
+ */
+function feedbackTypeColor(type: string): string {
+  return FEEDBACK_TYPE_COLORS[type] ?? "#6b7280";
+}
+
+/**
+ * Renders the admin notification email for a feedback submission.
+ * @param {FeedbackAdminNotifyPayload} payload - Feedback document data
+ * @return {TransactionalEmailRenderResult} Subject and rendered bodies
+ */
+export function renderFeedbackAdminNotifyEmail(
+  payload: FeedbackAdminNotifyPayload
+): TransactionalEmailRenderResult {
+  const label = feedbackTypeLabel(payload.type);
+  const color = feedbackTypeColor(payload.type);
+  const subject = `Ascend Feedback: ${label}`;
+
+  const escapedMessage = escapeHtml(payload.message);
+  const escapedEmail = escapeHtml(payload.userEmail);
+  const escapedUserId = escapeHtml(payload.userId);
+  const escapedDevice = escapeHtml(payload.deviceModel);
+  const escapedOs = escapeHtml(payload.osVersion);
+  const escapedAppVersion = escapeHtml(payload.appVersion);
+  const escapedBuild = escapeHtml(payload.buildNumber);
+  const escapedFeedbackId = escapeHtml(payload.feedbackId);
+  const escapedLabel = escapeHtml(label);
+
+  const text = [
+    `New ${label} from ${payload.userEmail}`,
+    "",
+    "Message:",
+    payload.message,
+    "",
+    "---",
+    `User: ${payload.userEmail} (${payload.userId})`,
+    `Device: ${payload.deviceModel}, iOS ${payload.osVersion}`,
+    `App: v${payload.appVersion} (${payload.buildNumber})`,
+    `Feedback ID: ${payload.feedbackId}`,
+  ].join("\n");
+
+  // eslint-disable-next-line max-len
+  const metaRow = (labelText: string, value: string): string => `<tr><td style="padding:6px 12px 6px 0;font-size:13px;color:#9ca3af;white-space:nowrap;vertical-align:top;">${labelText}</td><td style="padding:6px 0;font-size:13px;color:#374151;">${value}</td></tr>`;
+
+  const html = [
+    "<!doctype html>",
+    // eslint-disable-next-line max-len
+    "<html lang=\"en\"><body style=\"margin:0;padding:0;background:#f4f2eb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#111111;\">",
+    // eslint-disable-next-line max-len
+    "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" style=\"background:#f4f2eb;padding:24px 12px;\"><tr><td align=\"center\">",
+    // eslint-disable-next-line max-len
+    "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" style=\"max-width:620px;background:#ffffff;border:1px solid rgba(17,17,17,0.08);border-radius:24px;overflow:hidden;\">",
+
+    // Header
+    // eslint-disable-next-line max-len
+    "<tr><td style=\"background:#111111;padding:20px 28px;\"><span style=\"font-size:14px;color:#ffffff;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;\">Ascend Feedback</span></td></tr>",
+
+    // Type badge + user
+    "<tr><td style=\"padding:28px 28px 0;\">",
+    // eslint-disable-next-line max-len
+    `<span style="display:inline-block;padding:6px 14px;border-radius:8px;background:${color};color:#ffffff;font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;">${escapedLabel}</span>`,
+    // eslint-disable-next-line max-len
+    `<p style="margin:14px 0 0;font-size:14px;color:#6b7280;">From <strong style="color:#111111;">${escapedEmail}</strong></p>`,
+    "</td></tr>",
+
+    // Message
+    "<tr><td style=\"padding:20px 28px;\">",
+    // eslint-disable-next-line max-len
+    `<div style="padding:16px 20px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;font-size:15px;line-height:1.65;color:#374151;white-space:pre-wrap;">${escapedMessage}</div>`,
+    "</td></tr>",
+
+    // Metadata
+    "<tr><td style=\"padding:0 28px 28px;\">",
+    // eslint-disable-next-line max-len
+    "<table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" style=\"width:100%;\">",
+    metaRow("User ID", escapedUserId),
+    // eslint-disable-next-line max-len
+    metaRow("Device", `${escapedDevice}, iOS ${escapedOs}`),
+    // eslint-disable-next-line max-len
+    metaRow("App Version", `v${escapedAppVersion} (${escapedBuild})`),
+    metaRow("Feedback ID", escapedFeedbackId),
+    "</table>",
+    "</td></tr>",
+
+    // Footer
+    // eslint-disable-next-line max-len
+    "<tr><td style=\"padding:0 28px 24px;\"><div style=\"border-top:1px solid rgba(17,17,17,0.08);padding-top:16px;text-align:center;\"><p style=\"margin:0;font-size:12px;color:#9ca3af;\">Reply to this email to respond directly to the user.</p></div></td></tr>",
+
+    "</table></td></tr></table></body></html>",
+  ].join("");
+
+  return {html, subject, text};
 }
