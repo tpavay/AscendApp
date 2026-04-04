@@ -62,6 +62,7 @@ export function getTransactionalEmailConfig(): TransactionalEmailConfig {
     provider: config.provider,
     apiKey: config.apiKey,
     betaInviteUrl: config.betaInviteUrl,
+    feedbackNotificationEmail: config.feedbackNotificationEmail,
     fromEmail: config.fromEmail,
     fromName: config.fromName,
     replyTo: config.replyTo,
@@ -91,6 +92,16 @@ export function getMarketingWebsiteUrl(): string {
   }
 
   return DEFAULT_MARKETING_WEBSITE_URL;
+}
+
+/**
+ * Returns the admin email address for feedback notifications.
+ * Falls back to replyTo, then fromEmail.
+ * @return {string} Admin notification recipient
+ */
+export function getFeedbackNotificationEmail(): string {
+  const config = getTransactionalEmailConfig();
+  return config.feedbackNotificationEmail ?? config.replyTo ?? config.fromEmail;
 }
 
 /**
