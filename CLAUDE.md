@@ -299,8 +299,9 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
   2. Deploy Firebase Functions
   3. Deploy Firestore Rules
   4. Deploy Firestore Indexes
-  5. Deploy Firebase Hosting
-  6. Upload to TestFlight (last — hardest to reverse)
+  5. Deploy Storage Rules
+  6. Deploy Firebase Hosting
+  7. Upload to TestFlight (last — hardest to reverse)
 - `.github/workflows/deploy-production.yml` runs on pushes to `main` and manual dispatch. It mirrors the staging pipeline, including Firestore index deploys, with Release configuration and remains gated behind `PRODUCTION_READY=true` plus GitHub `production` environment protection.
 
 ### Deploy Authentication (OIDC)

@@ -159,8 +159,8 @@ jobs:
       - name: Build web app
         run: npm --prefix web run build
 
-      - name: Deploy Functions, Rules, Indexes, and Hosting
-        run: firebase deploy --project ascend-staging-fa7d5 --only functions,firestore:rules,firestore:indexes,hosting --non-interactive
+      - name: Deploy Functions, Rules, Indexes, Storage, and Hosting
+        run: firebase deploy --project ascend-staging-fa7d5 --only functions,firestore:rules,firestore:indexes,storage,hosting --non-interactive
 
   upload-testflight:
     name: Upload to TestFlight (Staging)
