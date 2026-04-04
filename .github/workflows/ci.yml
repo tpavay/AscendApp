@@ -5,6 +5,7 @@ on:
     branches: [develop]
     paths:
       - "AscendApp/**"
+      - "AscendAppTests/**"
       - "AscendApp.xcodeproj/**"
       - ".github/workflows/ci.yml"
 
@@ -81,6 +82,81 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             clean build
 
-      - name: Tests placeholder
+      - name: Select simulator
+        id: simulator
+        shell: bash
         run: |
-          echo "TODO: add test target and xcodebuild test invocation."
+          set -euo pipefail
+
+          preferred_names=(
+            "iPhone 16 Pro"
+            "iPhone 16"
+            "iPhone 16 Pro Max"
+            "iPhone 16 Plus"
+            "iPhone 15 Pro"
+            "iPhone 15"
+          )
+
+          destinations="$(
+            xcodebuild \
+              -project AscendApp.xcodeproj \
+              -scheme "AscendApp-Staging" \
+              -showdestinations
+          )"
+
+          parsed_destinations="$(
+            printf '%s\n' "$destinations" | sed -n 's/.*platform:iOS Simulator,.*id:\([^,}]*\), OS:[^,}]*, name:\(.*\) }.*/\1|\2/p'
+          )"
+
+          simulator_id=""
+
+          for name in "${preferred_names[@]}"; do
+            simulator_id="$(
+              printf '%s\n' "$parsed_destinations" | awk -F'|' -v target="$name" '
+                $2 == target {
+                  id = $1
+                }
+                END {
+                  if (id != "") {
+                    print id
+                  }
+                }
+              '
+            )"
+
+            if [ -n "$simulator_id" ]; then
+              break
+            fi
+          done
+
+          if [ -z "$simulator_id" ]; then
+            simulator_id="$(
+              printf '%s\n' "$parsed_destinations" | awk -F'|' '
+                $2 ~ /^iPhone/ {
+                  id = $1
+                }
+                END {
+                  if (id != "") {
+                    print id
+                  }
+                }
+              '
+            )"
+          fi
+
+          if [ -z "$simulator_id" ]; then
+            echo "::error::No available iPhone simulator destination found."
+            exit 1
+          fi
+
+          echo "id=$simulator_id" >> "$GITHUB_OUTPUT"
+
+      - name: Run tests
+        run: |
+          xcodebuild \
+            -project AscendApp.xcodeproj \
+            -scheme "AscendApp-Staging" \
+            -configuration Staging \
+            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.id }}" \
+            ENABLE_TESTABILITY=YES \
+            test

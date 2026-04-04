@@ -200,7 +200,14 @@ final class WorkoutImportCoordinator {
         let outcome = await importCandidateInternal(candidate, modelContext: modelContext)
 
         switch outcome {
-        case .imported, .updatedExisting:
+        case .imported(let workout):
+            pendingCandidates.removeAll { $0.id == candidate.id }
+            do {
+                try recalculateDerivedData(modelContext: modelContext, newWorkouts: [workout])
+            } catch {
+                lastErrorMessage = error.localizedDescription
+            }
+        case .updatedExisting:
             pendingCandidates.removeAll { $0.id == candidate.id }
             do {
                 try recalculateDerivedData(modelContext: modelContext)
@@ -450,7 +457,10 @@ final class WorkoutImportCoordinator {
 
         if !importedWorkouts.isEmpty || !updatedWorkouts.isEmpty {
             do {
-                try recalculateDerivedData(modelContext: modelContext)
+                try recalculateDerivedData(
+                    modelContext: modelContext,
+                    newWorkouts: importedWorkouts
+                )
             } catch {
                 lastErrorMessage = error.localizedDescription
             }
@@ -866,7 +876,7 @@ final class WorkoutImportCoordinator {
         return try modelContext.fetch(descriptor)
     }
 
-    private func recalculateDerivedData(modelContext: ModelContext) throws {
+    private func recalculateDerivedData(modelContext: ModelContext, newWorkouts: [Workout] = []) throws {
         let allWorkouts = try fetchAllWorkouts(from: modelContext)
         let settings = SettingsManager.shared
 
@@ -879,7 +889,10 @@ final class WorkoutImportCoordinator {
         }
 
         // Recalculate PRs and leaderboard stats
-        try WorkoutMutationHandler.shared.workoutsDidChange(modelContext: modelContext)
+        try WorkoutMutationHandler.shared.workoutsDidChange(
+            modelContext: modelContext,
+            newWorkouts: newWorkouts
+        )
 
         try modelContext.save()
     }

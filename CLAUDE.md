@@ -100,6 +100,40 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
 - Import architecture uses one canonical `Workout` plus local `WorkoutSourceLink` provenance records per provider. New import UI and state should flow through `WorkoutImportCoordinator`, not provider-specific views/services.
 - Apple Health is read-only. First connect may backfill historical workouts, but routine checks must stay incremental and sample-only until a workout is actually imported.
 
+### Climb Anything V1 Architecture
+- `Climb Anything` is a 3-screen loop:
+  - `Home` is a stateful entry card and does **not** show the globe
+  - `Browse` owns the searchable globe experience
+  - `Climb Detail` is the primary climb destination
+- Globe pins should use state-driven location-pin styling instead of colored dots:
+  - available climbs use a hollow outlined pin
+  - the active climb uses a filled pin with a static double-pin glow treatment
+  - completed climbs use a filled circular check badge instead of a pin
+- Home climb states are:
+  - never climbed
+  - inactive with completion history
+  - active climb in progress
+- `ClimbAttempt` is the source of truth for climb progress and history. It replaces the earlier completion-only model.
+- Only one climb attempt may be `active` at a time. Starting another climb should confirm replacement and mark the old attempt `abandoned`.
+- New workouts should auto-advance the active climb only when the workout's actual session start time is on or after the climb activation time. Import time or insertion time must never qualify an older workout for climb progress.
+- Non-`multiSession` climbs are one-workout challenges. The first eligible workout must fully complete the climb or the attempt becomes `failed`, stops being active immediately, and remains visible in climb history as an attempt rather than a completion.
+- Active climb progress application should flow through the shared workout mutation pipeline so manual logging and imports behave consistently.
+- Climb detail has 3 swipe pages:
+  - `Overview` (real)
+  - `Your History` (real)
+  - `Leaderboard` (present but clearly coming soon in v1)
+- Per-climb rank and total-climber counts must stay hidden until real backend data exists.
+- Climb content uses a remote-first catalog and remote-only climb images:
+  - a tiny hosted manifest at `/climbs/manifest.json`
+  - a versioned hosted catalog at `/climbs/catalog-v{N}.json`
+  - Storage-backed image assets at `climb-images/{climbId}/v{imageSetVersion}/{hero|card|thumb}.heic`
+- The app should keep a tiny bundled/bootstrap fallback for climb metadata only, so Home and Browse can still render if the remote catalog has never been fetched and there is no disk-cached catalog yet.
+- Once the hosted catalog has been fetched successfully, subsequent launches should prefer the disk-cached catalog before falling back to the bundled bootstrap catalog.
+- Climb images should not ship inside the iOS app bundle. Artwork is remote-only, and image misses should render the climb artwork placeholder until the remote image is cached locally.
+- Remote climb catalog and remote climb images should use shared disk-backed cache infrastructure under `Shared/Services/Caching`, while climb-specific fetch/decode logic stays inside climb repositories.
+- Home, Browse, and Detail should render from cached/local state first, then refresh remote climb content in the background instead of blocking the UI on network fetches.
+- Reusable climb card surfaces should share `ClimbSplitCardSurface`, `ClimbLeadingArtworkPanel`, and `AnimatedClimbCardBorder` instead of reimplementing split layouts, image clipping, or tier-border animation per screen.
+
 ### Onboarding V2 (Issue #63)
 - Root routing uses onboarding completion before normal auth/home flow.
 - Onboarding sequence is: welcome, HealthKit permission, measurement system, base level, personal details (DOB + gender), body metrics (height + bodyweight), location permission, notifications permission, then mandatory auth.
@@ -259,7 +293,7 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
 - PRs should target `develop` by default and include `Closes #<number>` in the PR body.
 
 ### Workflows
-- `.github/workflows/ci.yml` runs on PRs to `develop` and verifies the iOS app builds with the `AscendApp-Staging` scheme using `CODE_SIGNING_ALLOWED=NO`.
+- `.github/workflows/ci.yml` runs on PRs to `develop`, verifies the iOS app builds with the `AscendApp-Staging` scheme using `CODE_SIGNING_ALLOWED=NO`, and runs the `AscendAppTests` suite on an iPhone simulator with `ENABLE_TESTABILITY=YES`.
 - `.github/workflows/deploy-staging.yml` runs on pushes to `develop` and manual dispatch, and executes sequential jobs (stop on failure):
   1. Build iOS app (Staging scheme, produce IPA)
   2. Deploy Firebase Functions

@@ -75,12 +75,13 @@ struct AscendApp: App {
                 Goal.self,
                 Routine.self,
                 RoutineFolder.self,
+                ClimbAttempt.self,
                 WeightPersonalRecord.self,
                 AggregateWeightRecord.self,
                 PendingMediaUpload.self
             ]))
             return try ModelContainer(
-                for: Workout.self, WorkoutSourceLink.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self, WeightPersonalRecord.self, AggregateWeightRecord.self, PendingMediaUpload.self,
+                for: Workout.self, WorkoutSourceLink.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self, ClimbAttempt.self, WeightPersonalRecord.self, AggregateWeightRecord.self, PendingMediaUpload.self,
                 configurations: config
             )
         } catch {
@@ -108,12 +109,13 @@ struct AscendApp: App {
                     Goal.self,
                     Routine.self,
                     RoutineFolder.self,
+                    ClimbAttempt.self,
                     WeightPersonalRecord.self,
                     AggregateWeightRecord.self,
                     PendingMediaUpload.self
                 ]))
                 return try ModelContainer(
-                    for: Workout.self, WorkoutSourceLink.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self, WeightPersonalRecord.self, AggregateWeightRecord.self, PendingMediaUpload.self,
+                    for: Workout.self, WorkoutSourceLink.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self, ClimbAttempt.self, WeightPersonalRecord.self, AggregateWeightRecord.self, PendingMediaUpload.self,
                     configurations: config
                 )
             } catch {
