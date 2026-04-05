@@ -152,6 +152,7 @@ class WorkoutFormViewModel {
             // Recalculate PRs and leaderboard stats
             try WorkoutMutationHandler.shared.workoutsDidChange(
                 modelContext: modelContext,
+                mutation: .created([LeaderboardWorkoutSnapshot(workout: workout)]),
                 newWorkouts: [workout]
             )
 

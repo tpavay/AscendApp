@@ -13,7 +13,6 @@ struct LeaderboardView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.modelContext) private var modelContext
-    @Query private var workouts: [Workout]
 
     @State private var viewModel: LeaderboardViewModel
     @State private var scrollResetTrigger = 0
@@ -540,11 +539,11 @@ struct LeaderboardView: View {
                 .font(.system(size: 42))
                 .foregroundStyle(.accent)
 
-            Text("No leaderboard data yet")
+            Text("No entries yet")
                 .font(.montserratBold(size: 20))
                 .foregroundStyle(colorScheme == .dark ? .white : .black)
 
-            Text("Pull to refresh after you've completed a workout to see how you stack up.")
+            Text("No one has posted stats for this leaderboard and timeframe yet.")
                 .font(.montserratRegular(size: 14))
                 .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
                 .multilineTextAlignment(.center)
@@ -596,8 +595,7 @@ struct LeaderboardView: View {
         await viewModel.refreshLeaderboard(
             userId: userId,
             displayName: authVM.displayName,
-            photoURL: authVM.displayPhotoURL,
-            workouts: workouts
+            photoURL: authVM.displayPhotoURL
         )
     }
 

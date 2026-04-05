@@ -741,6 +741,7 @@ struct EditWorkoutView: View {
         
         let selectedImagesSnapshot = selectedImages
         var newlyUploadedPhotos: [Photo] = []
+        let leaderboardSnapshotBeforeEdit = LeaderboardWorkoutSnapshot(workout: workout)
         
         do {
             if !selectedImagesSnapshot.isEmpty {
@@ -782,7 +783,13 @@ struct EditWorkoutView: View {
             print("✅ Successfully updated workout with \(workout.photos.count) photos")
 
             // Recalculate PRs and leaderboard stats after edit
-            try WorkoutMutationHandler.shared.workoutsDidChange(modelContext: modelContext)
+            try WorkoutMutationHandler.shared.workoutsDidChange(
+                modelContext: modelContext,
+                mutation: .updated(
+                    before: leaderboardSnapshotBeforeEdit,
+                    after: LeaderboardWorkoutSnapshot(workout: workout)
+                )
+            )
             
             let photosToDelete = photosMarkedForDeletion
             if !photosToDelete.isEmpty {

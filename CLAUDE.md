@@ -188,13 +188,32 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
 - The staircase is decorative only. It should stay accessibility-hidden, use app-defined colors (`.accent`, heatmap colors, named asset colors), and avoid ad hoc hex values inside feature views.
 
 ### Week Start + Leaderboard Windowing
-- User preference `weekStartDay` is stored in `SettingsManager` (`Sunday` or `Monday`) and surfaced in account settings.
-- Goals and home summaries should respect this preference (or a goal's locked week settings when applicable).
-- Weekly leaderboard period identifiers currently derive from app-configured week start + current timezone.
-- Product direction:
-  - Use user week-start preference for personal UX (goal/home summaries).
-  - For competitive/global leaderboards, prefer a canonical week window (single app-wide standard) to avoid fairness drift between users.
-  - If canonical windows are adopted, keep personal week views separate from ranking windows.
+- Ascend now uses a single app-wide Monday week start. The old user-configurable week-start preference and selection UI are removed.
+- Goals and home summaries should use Monday-based weeks in the relevant local timezone.
+- Competitive/global leaderboards use canonical Monday-based weeks in `UTC`.
+- Leaderboard documents are current-period-only, not historical archives:
+  - one weekly document per user
+  - one monthly document per user
+  - one yearly document per user
+  - one all-time document per user
+- Leaderboard docs must store:
+  - `schemaVersion`
+  - `timeFrame`
+  - `periodKey`
+  - `periodStartAt`
+  - `totalSteps`
+  - `totalFloors`
+  - `totalWorkouts`
+  - `totalDuration`
+  - `stepsPerMinute`
+- `steps` is the canonical climb leaderboard metric. `floors` remains supporting/display data only and must never change rank order.
+- Pace leaderboards remain in product scope, but they rank by canonical `stepsPerMinute`, not viewer-preference floors-per-minute.
+- Leaderboard publication is mutation-driven:
+  - workout create/import/delete always affects leaderboard publication
+  - workout edits only affect leaderboard publication when `date`, `duration`, `steps`, or `floors` change
+  - photo-only, notes-only, METs, heart-rate, calories, and other non-leaderboard edits must not trigger leaderboard publication
+- Leaderboard refresh UI should never own the only Firestore publication path. Users must appear remotely even if they never open the leaderboard tab.
+- Local leaderboard state should update incrementally for the current periods only. Full-history rebuilds are for migration, repair, or schema backfill only.
 
 ### Leaderboard Seeding Policy (Debug / CI)
 - Firestore client rules only allow writes to `leaderboard_stats` where `userId == request.auth.uid`.

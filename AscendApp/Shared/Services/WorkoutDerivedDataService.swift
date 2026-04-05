@@ -1,4 +1,3 @@
-import FirebaseAuth
 import Foundation
 import SwiftData
 
@@ -41,12 +40,6 @@ struct WorkoutDerivedDataService {
             measurementSystem: settingsManager.measurementSystem,
             stepHeight: settingsManager.stepHeight
         )
-
-        if let user = Auth.auth().currentUser {
-            let leaderboardService = LeaderboardService.shared
-            leaderboardService.configure(modelContext: modelContext)
-            try leaderboardService.updateAllTimeFrames(for: user.uid, workouts: allWorkouts)
-        }
 
         try modelContext.save()
         try RoutineService(modelContext: modelContext).ensureBuiltInRoutinesExist()

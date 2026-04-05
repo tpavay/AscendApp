@@ -26,9 +26,9 @@ final class LeaderboardTestDataSeeder {
         print("Seeding leaderboard data for \(displayName) (\(userId))...")
 
         for timeFrame in LeaderboardTimeFrame.allCases {
-            let period = timeFrame.periodIdentifier()
+            let period = timeFrame.currentPeriod()
             let stats = generateRandomStats(for: timeFrame)
-            let docId = "\(userId)_\(timeFrame.rawValue)_\(period)"
+            let docId = "\(userId)_\(timeFrame.rawValue)"
 
             let docRef = db.collection("leaderboard_stats").document(docId)
 
@@ -37,17 +37,15 @@ final class LeaderboardTestDataSeeder {
                 "displayName": displayName,
                 "photoURL": photoURL,
                 "timeFrame": timeFrame.rawValue,
-                "periodIdentifier": period,
+                "schemaVersion": LeaderboardStats.currentSchemaVersion,
+                "periodKey": period.key,
+                "periodStartAt": Timestamp(date: period.startAt),
                 "totalSteps": stats.totalSteps,
                 "totalFloors": stats.totalFloors,
                 "totalWorkouts": stats.totalWorkouts,
                 "totalDuration": stats.totalDuration,
-                "averageStepsPerMinute": stats.averageStepsPerMinute,
-                "averageFloorsPerMinute": stats.averageFloorsPerMinute,
-                "lastUpdated": FieldValue.serverTimestamp(),
-                "isTestData": true,
-                "seedSource": "debug-tools",
-                "seededAt": FieldValue.serverTimestamp()
+                "stepsPerMinute": stats.stepsPerMinute,
+                "lastUpdated": FieldValue.serverTimestamp()
             ], merge: true)
         }
 
@@ -63,8 +61,7 @@ final class LeaderboardTestDataSeeder {
         print("Clearing seeded leaderboard data for \(userId)...")
 
         for timeFrame in LeaderboardTimeFrame.allCases {
-            let period = timeFrame.periodIdentifier()
-            let docId = "\(userId)_\(timeFrame.rawValue)_\(period)"
+            let docId = "\(userId)_\(timeFrame.rawValue)"
             let docRef = db.collection("leaderboard_stats").document(docId)
 
             try await docRef.delete()
@@ -75,7 +72,7 @@ final class LeaderboardTestDataSeeder {
 
     private func generateRandomStats(
         for timeFrame: LeaderboardTimeFrame
-    ) -> (totalSteps: Int, totalFloors: Int, totalWorkouts: Int, totalDuration: Double, averageStepsPerMinute: Double, averageFloorsPerMinute: Double) {
+    ) -> (totalSteps: Int, totalFloors: Int, totalWorkouts: Int, totalDuration: Double, stepsPerMinute: Double) {
 
         let multiplier: Double
         switch timeFrame {
@@ -100,10 +97,9 @@ final class LeaderboardTestDataSeeder {
         let totalDuration = baseDurationPerWorkout * Double(baseWorkouts) * multiplier
 
         let totalMinutes = totalDuration / 60.0
-        let averageStepsPerMinute = totalMinutes > 0 ? Double(totalSteps) / totalMinutes : 0
-        let averageFloorsPerMinute = totalMinutes > 0 ? Double(totalFloors) / totalMinutes : 0
+        let stepsPerMinute = totalMinutes > 0 ? Double(totalSteps) / totalMinutes : 0
 
-        return (totalSteps, totalFloors, totalWorkouts, totalDuration, averageStepsPerMinute, averageFloorsPerMinute)
+        return (totalSteps, totalFloors, totalWorkouts, totalDuration, stepsPerMinute)
     }
 }
 

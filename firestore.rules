@@ -17,15 +17,15 @@ service cloud.firestore {
       return timeFrame in ["weekly", "monthly", "yearly", "all_time"];
     }
 
-    function isValidPeriodIdentifier(timeFrame, periodIdentifier) {
+    function isValidPeriodKey(timeFrame, periodKey) {
       return
         (timeFrame == "weekly" &&
-          periodIdentifier.matches("^\\d{4}-W(0[1-9]|[1-4][0-9]|5[0-3])$")) ||
+          periodKey.matches("^\\d{4}-W(0[1-9]|[1-4][0-9]|5[0-3])$")) ||
         (timeFrame == "monthly" &&
-          periodIdentifier.matches("^\\d{4}-M(0[1-9]|1[0-2])$")) ||
+          periodKey.matches("^\\d{4}-M(0[1-9]|1[0-2])$")) ||
         (timeFrame == "yearly" &&
-          periodIdentifier.matches("^\\d{4}$")) ||
-        (timeFrame == "all_time" && periodIdentifier == "all");
+          periodKey.matches("^\\d{4}$")) ||
+        (timeFrame == "all_time" && periodKey == "all");
     }
 
     function isValidUserDocument() {
@@ -67,13 +67,14 @@ service cloud.firestore {
           "displayName",
           "photoURL",
           "timeFrame",
-          "periodIdentifier",
+          "schemaVersion",
+          "periodKey",
+          "periodStartAt",
           "totalSteps",
           "totalFloors",
           "totalWorkouts",
           "totalDuration",
-          "averageStepsPerMinute",
-          "averageFloorsPerMinute",
+          "stepsPerMinute",
           "lastUpdated"
         ]) &&
         request.resource.data.keys().hasAll([
@@ -81,13 +82,14 @@ service cloud.firestore {
           "displayName",
           "photoURL",
           "timeFrame",
-          "periodIdentifier",
+          "schemaVersion",
+          "periodKey",
+          "periodStartAt",
           "totalSteps",
           "totalFloors",
           "totalWorkouts",
           "totalDuration",
-          "averageStepsPerMinute",
-          "averageFloorsPerMinute",
+          "stepsPerMinute",
           "lastUpdated"
         ]) &&
         request.resource.data.userId == request.auth.uid &&
@@ -97,15 +99,16 @@ service cloud.firestore {
         request.resource.data.photoURL.size() <= 2048 &&
         request.resource.data.timeFrame is string &&
         isValidTimeFrame(request.resource.data.timeFrame) &&
-        request.resource.data.periodIdentifier is string &&
-        isValidPeriodIdentifier(
+        request.resource.data.schemaVersion is int &&
+        request.resource.data.schemaVersion == 2 &&
+        request.resource.data.periodKey is string &&
+        isValidPeriodKey(
           request.resource.data.timeFrame,
-          request.resource.data.periodIdentifier
+          request.resource.data.periodKey
         ) &&
+        request.resource.data.periodStartAt is timestamp &&
         docId ==
-          request.auth.uid + "_" +
-          request.resource.data.timeFrame + "_" +
-          request.resource.data.periodIdentifier &&
+          request.auth.uid + "_" + request.resource.data.timeFrame &&
         request.resource.data.totalSteps is int &&
         request.resource.data.totalSteps >= 0 &&
         request.resource.data.totalFloors is int &&
@@ -113,8 +116,7 @@ service cloud.firestore {
         request.resource.data.totalWorkouts is int &&
         request.resource.data.totalWorkouts >= 0 &&
         isNonNegativeNumber(request.resource.data.totalDuration) &&
-        isNonNegativeNumber(request.resource.data.averageStepsPerMinute) &&
-        isNonNegativeNumber(request.resource.data.averageFloorsPerMinute) &&
+        isNonNegativeNumber(request.resource.data.stepsPerMinute) &&
         request.resource.data.lastUpdated is timestamp;
     }
 
@@ -207,8 +209,7 @@ service cloud.firestore {
       allow update: if isSignedIn() &&
         isValidLeaderboardDocument(docId) &&
         request.resource.data.userId == resource.data.userId &&
-        request.resource.data.timeFrame == resource.data.timeFrame &&
-        request.resource.data.periodIdentifier == resource.data.periodIdentifier;
+        request.resource.data.timeFrame == resource.data.timeFrame;
       allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
     }
 

@@ -5,7 +5,6 @@ import SwiftData
 @Observable
 class GoalsViewModel {
     private var goalService: GoalService?
-    private let settingsManager = SettingsManager.shared
 
     var activeGoal: Goal?
     var progress: GoalProgress?
@@ -107,10 +106,7 @@ class GoalsViewModel {
         if let goal = activeGoal {
             return goal.resetDayName
         }
-        // If no goal, use app preference
-        let dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-        let index = (settingsManager.weekStartFirstWeekday - 1) % 7
-        return dayNames[index]
+        return WeekConfiguration.shortDayName()
     }
 
     /// Returns the full reset day info (e.g., "Monday", "Sunday")
@@ -118,9 +114,7 @@ class GoalsViewModel {
         if let goal = activeGoal {
             return goal.resetDayFullName
         }
-        let dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-        let index = (settingsManager.weekStartFirstWeekday - 1) % 7
-        return dayNames[index]
+        return WeekConfiguration.fullDayName()
     }
 
     /// Returns the timezone display name for the current context

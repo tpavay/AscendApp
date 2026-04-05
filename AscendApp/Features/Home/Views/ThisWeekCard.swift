@@ -28,7 +28,7 @@ struct ThisWeekCard: View {
 
     /// Uses active goal's locked reset day when available, otherwise app preference.
     private var firstWeekday: Int {
-        viewModel.activeGoal?.firstWeekday ?? settingsManager.weekStartFirstWeekday
+        viewModel.activeGoal?.firstWeekday ?? WeekConfiguration.mondayFirstWeekday
     }
 
     private var summary: WeekActivitySummary? {
@@ -214,9 +214,7 @@ struct ThisWeekCard: View {
     // MARK: - Helpers
 
     private var resetDayName: String {
-        let dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-        let index = (firstWeekday - 1) % 7
-        return dayNames[index]
+        WeekConfiguration.fullDayName(for: firstWeekday)
     }
 
     private func formatDuration(_ duration: TimeInterval) -> String {

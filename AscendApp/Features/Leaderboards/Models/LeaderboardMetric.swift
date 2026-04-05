@@ -8,46 +8,43 @@
 import Foundation
 
 enum LeaderboardMetric: String, CaseIterable, Codable, Identifiable {
-    case climb = "climb"  // Shows steps or floors based on user preference
+    case climb = "climb"
     case workouts = "workouts"
     case duration = "duration"
-    case pace = "pace"  // Shows steps/min or floors/min based on user preference
+    case pace = "pace"
     
     var id: String { rawValue }
     
-    /// Display name based on user's preferred workout metric
     func displayName(for preferredMetric: WorkoutMetric) -> String {
         switch self {
         case .climb:
-            return preferredMetric.displayName
+            return "Steps"
         case .workouts:
             return "Workouts"
         case .duration:
             return "Duration"
         case .pace:
-            return "\(preferredMetric.displayName)/Min"
+            return "Steps/Min"
         }
     }
     
-    /// Unit label based on user's preferred workout metric
     func unit(for preferredMetric: WorkoutMetric) -> String {
         switch self {
         case .climb:
-            return preferredMetric.unit
+            return WorkoutMetric.steps.unit
         case .workouts:
             return "workouts"
         case .duration:
             return ""
         case .pace:
-            return "\(preferredMetric.unit)/min"
+            return "\(WorkoutMetric.steps.unit)/min"
         }
     }
     
-    /// Icon for this metric
     func icon(for preferredMetric: WorkoutMetric) -> String {
         switch self {
         case .climb:
-            return preferredMetric == .steps ? "figure.stairs" : "building.2"
+            return "figure.stairs"
         case .workouts:
             return "flame.fill"
         case .duration:
@@ -57,11 +54,10 @@ enum LeaderboardMetric: String, CaseIterable, Codable, Identifiable {
         }
     }
     
-    /// Short name based on user's preferred workout metric
     func shortName(for preferredMetric: WorkoutMetric) -> String {
         switch self {
         case .climb:
-            return preferredMetric.displayName
+            return "Steps"
         case .workouts:
             return "Workouts"
         case .duration:
@@ -87,5 +83,18 @@ enum LeaderboardMetric: String, CaseIterable, Codable, Identifiable {
     
     var shortName: String {
         shortName(for: .steps)
+    }
+
+    var sortField: String {
+        switch self {
+        case .climb:
+            return "totalSteps"
+        case .workouts:
+            return "totalWorkouts"
+        case .duration:
+            return "totalDuration"
+        case .pace:
+            return "stepsPerMinute"
+        }
     }
 }

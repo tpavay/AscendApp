@@ -312,11 +312,6 @@ struct EditProfileView: View {
                 destination: MeasurementSystemSelectionView()
             ),
             SettingsOption(
-                icon: .settingsWeekStart,
-                title: "Week Starts On",
-                destination: WeekStartSelectionView()
-            ),
-            SettingsOption(
                 icon: .settingsIntegrations,
                 title: "Integrations",
                 destination: IntegrationsView()
