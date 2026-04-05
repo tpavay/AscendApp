@@ -6,6 +6,12 @@
  * Seeds or clears multi-user leaderboard test data using the Firebase Admin SDK
  * (bypasses Firestore security rules).
  *
+ * This script must match the app's current leaderboard schema:
+ * - one current-period doc per user per timeframe
+ * - Monday-based weekly periods
+ * - UTC period windowing
+ * - canonical steps-based pace field (`stepsPerMinute`)
+ *
  * Usage:
  *   node scripts/seed-leaderboard.mjs seed --project dev
  *   node scripts/seed-leaderboard.mjs clear --project dev
@@ -28,6 +34,7 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 
 const COLLECTION = "leaderboard_stats";
 const BATCH_LIMIT = 500; // Firestore batch write limit
+const SCHEMA_VERSION = 2;
 
 const TEST_USERS = [
   { id: "test_user_1", name: "Sarah Johnson" },
@@ -91,97 +98,88 @@ const AVATAR_BACKGROUNDS = [
 ];
 
 // ---------------------------------------------------------------------------
-// Period identifier logic — ported from LeaderboardTimeFrame.swift
+// Period logic — matches LeaderboardTimeFrame.swift
 // ---------------------------------------------------------------------------
 
-/**
- * Returns the ISO week number and ISO week-numbering year for a date.
- * Uses configurable first weekday (1 = Sunday, 2 = Monday — matching Calendar.firstWeekday).
- */
-function weekInfo(date, firstWeekday = 1) {
-  // For Sunday-start weeks we use a simple approach matching Apple's Calendar behavior:
-  // The week containing Jan 1 is week 1 of that year.
-  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-
-  // Day of week: 0=Sun … 6=Sat
-  const dow = d.getDay();
-
-  // Shift so that firstWeekday maps to 0
-  // firstWeekday: 1=Sun, 2=Mon, …, 7=Sat
-  const shift = (firstWeekday - 1) % 7; // 0 for Sunday, 1 for Monday
-  const adjustedDow = (dow - shift + 7) % 7;
-
-  // Find the start of the week containing this date
-  const weekStart = new Date(d);
-  weekStart.setDate(d.getDate() - adjustedDow);
-
-  // Find what year this week "belongs to" using yearForWeekOfYear logic:
-  // The year of the Thursday (for Mon-start) or Wednesday (for Sun-start)
-  // equivalent of the week. Apple uses the rule: the year that contains
-  // the majority of the week's days — approximated by the 4th day of the week.
-  // Actually, Apple's `yearForWeekOfYear` with `firstWeekday = 1` (Sunday)
-  // assigns week 1 as the week containing Jan 1. Let's replicate that.
-  //
-  // Simpler approach matching Calendar.current behavior:
-  // - Week number = how many firstWeekday-boundaries have passed since the
-  //   start of the year that "owns" this week.
-  // - The owning year is determined by where Jan 1 falls.
-
-  // Jan 1 of the current calendar year
-  const jan1 = new Date(d.getFullYear(), 0, 1);
-  const jan1Dow = jan1.getDay();
-  const jan1Adjusted = (jan1Dow - shift + 7) % 7;
-
-  // Start of the week containing Jan 1
-  const jan1WeekStart = new Date(jan1);
-  jan1WeekStart.setDate(jan1.getDate() - jan1Adjusted);
-
-  // If our date is before the week containing Jan 1 of its year,
-  // it belongs to the previous year's last week.
-  if (d < jan1WeekStart) {
-    // Recurse with Dec 31 of previous year
-    return weekInfo(new Date(d.getFullYear() - 1, 11, 31), firstWeekday);
-  }
-
-  // Check if this date might belong to week 1 of NEXT year.
-  // That happens if the next year's Jan 1 week-start is <= d.
-  const nextJan1 = new Date(d.getFullYear() + 1, 0, 1);
-  const nextJan1Dow = nextJan1.getDay();
-  const nextJan1Adjusted = (nextJan1Dow - shift + 7) % 7;
-  const nextJan1WeekStart = new Date(nextJan1);
-  nextJan1WeekStart.setDate(nextJan1.getDate() - nextJan1Adjusted);
-
-  if (d >= nextJan1WeekStart) {
-    return { year: d.getFullYear() + 1, week: 1 };
-  }
-
-  // Week number: count weeks from jan1WeekStart to the week containing d
-  const diffMs = weekStart.getTime() - jan1WeekStart.getTime();
-  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-  const weekNum = Math.floor(diffDays / 7) + 1;
-
-  return { year: d.getFullYear(), week: weekNum };
+function utcDate(year, month, day) {
+  return new Date(Date.UTC(year, month, day));
 }
 
 /**
- * Generates the period identifier for a given time frame, matching the
- * Swift `LeaderboardTimeFrame.periodIdentifier()` output.
+ * Normalizes a date to 00:00:00 UTC.
  */
-function periodIdentifier(timeFrameKey, date = new Date(), firstWeekday = 1) {
+function startOfUTCDay(date) {
+  return utcDate(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+/**
+ * Monday-based week start, matching WeekConfiguration.calendar(timeZone: .gmt)
+ * with firstWeekday = 2 and minimumDaysInFirstWeek = 1.
+ */
+function startOfWeekUTC(date) {
+  const start = startOfUTCDay(date);
+  const daysSinceMonday = (start.getUTCDay() + 6) % 7;
+  start.setUTCDate(start.getUTCDate() - daysSinceMonday);
+  return start;
+}
+
+function weekInfoUTC(date) {
+  const normalizedDate = startOfUTCDay(date);
+  const weekStart = startOfWeekUTC(normalizedDate);
+  const calendarYear = normalizedDate.getUTCFullYear();
+
+  const firstWeekStart = startOfWeekUTC(utcDate(calendarYear, 0, 1));
+  if (weekStart < firstWeekStart) {
+    return weekInfoUTC(utcDate(calendarYear - 1, 11, 31));
+  }
+
+  const nextYearFirstWeekStart = startOfWeekUTC(utcDate(calendarYear + 1, 0, 1));
+  if (weekStart >= nextYearFirstWeekStart) {
+    return {
+      year: calendarYear + 1,
+      week: 1,
+      startAt: weekStart,
+    };
+  }
+
+  const diffMs = weekStart.getTime() - firstWeekStart.getTime();
+  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+  return {
+    year: calendarYear,
+    week: Math.floor(diffDays / 7) + 1,
+    startAt: weekStart,
+  };
+}
+
+function currentPeriod(timeFrameKey, date = new Date()) {
   switch (timeFrameKey) {
     case "weekly": {
-      const { year, week } = weekInfo(date, firstWeekday);
-      return `${year}-W${String(week).padStart(2, "0")}`;
+      const { year, week, startAt } = weekInfoUTC(date);
+      return {
+        key: `${year}-W${String(week).padStart(2, "0")}`,
+        startAt,
+      };
     }
     case "monthly": {
-      const year = date.getFullYear();
-      const month = date.getMonth() + 1;
-      return `${year}-M${String(month).padStart(2, "0")}`;
+      const year = date.getUTCFullYear();
+      const month = date.getUTCMonth() + 1;
+      return {
+        key: `${year}-M${String(month).padStart(2, "0")}`,
+        startAt: utcDate(year, month - 1, 1),
+      };
     }
-    case "yearly":
-      return `${date.getFullYear()}`;
+    case "yearly": {
+      const year = date.getUTCFullYear();
+      return {
+        key: `${year}`,
+        startAt: utcDate(year, 0, 1),
+      };
+    }
     case "all_time":
-      return "all";
+      return {
+        key: "all",
+        startAt: new Date(0),
+      };
     default:
       throw new Error(`Unknown time frame: ${timeFrameKey}`);
   }
@@ -234,16 +232,14 @@ function generateStats(multiplier) {
   const totalDuration = baseDurationPerWorkout * baseWorkouts * multiplier;
 
   const totalMinutes = totalDuration / 60;
-  const averageStepsPerMinute = totalMinutes > 0 ? totalSteps / totalMinutes : 0;
-  const averageFloorsPerMinute = totalMinutes > 0 ? totalFloors / totalMinutes : 0;
+  const stepsPerMinute = totalMinutes > 0 ? totalSteps / totalMinutes : 0;
 
   return {
     totalSteps,
     totalFloors,
     totalWorkouts,
     totalDuration,
-    averageStepsPerMinute,
-    averageFloorsPerMinute,
+    stepsPerMinute,
   };
 }
 
@@ -317,9 +313,9 @@ async function seed(db, dryRun) {
 
   for (const user of TEST_USERS) {
     for (const tf of TIME_FRAMES) {
-      const period = periodIdentifier(tf.key, now);
+      const period = currentPeriod(tf.key, now);
       const stats = generateStats(tf.multiplier);
-      const docId = `${user.id}_${tf.key}_${period}`;
+      const docId = `${user.id}_${tf.key}`;
 
       docs.push({
         docId,
@@ -328,13 +324,14 @@ async function seed(db, dryRun) {
           displayName: user.name,
           photoURL: avatarURL(user.name),
           timeFrame: tf.key,
-          periodIdentifier: period,
+          schemaVersion: SCHEMA_VERSION,
+          periodKey: period.key,
+          periodStartAt: period.startAt,
           totalSteps: stats.totalSteps,
           totalFloors: stats.totalFloors,
           totalWorkouts: stats.totalWorkouts,
           totalDuration: stats.totalDuration,
-          averageStepsPerMinute: stats.averageStepsPerMinute,
-          averageFloorsPerMinute: stats.averageFloorsPerMinute,
+          stepsPerMinute: stats.stepsPerMinute,
           lastUpdated: FieldValue.serverTimestamp(),
           isTestData: true,
           seedSource: "leaderboard-script",
@@ -353,6 +350,7 @@ async function seed(db, dryRun) {
       // Replace FieldValue objects with readable placeholders
       preview.lastUpdated = "<serverTimestamp>";
       preview.seededAt = "<serverTimestamp>";
+      preview.periodStartAt = preview.periodStartAt.toISOString();
       console.log(`  ${doc.docId}`);
       console.log(`    ${JSON.stringify(preview, null, 2).split("\n").join("\n    ")}\n`);
     }

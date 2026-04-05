@@ -41,17 +41,12 @@ final class Goal {
 
     /// Returns the day name for when this goal resets (e.g., "Mon", "Sun")
     var resetDayName: String {
-        // firstWeekday: 1 = Sunday, 2 = Monday, etc.
-        let dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-        let index = (firstWeekday - 1) % 7
-        return dayNames[index]
+        WeekConfiguration.shortDayName(for: firstWeekday)
     }
 
     /// Returns the full reset day name (e.g., "Monday", "Sunday")
     var resetDayFullName: String {
-        let dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-        let index = (firstWeekday - 1) % 7
-        return dayNames[index]
+        WeekConfiguration.fullDayName(for: firstWeekday)
     }
 
     /// Returns a short timezone display name (e.g., "Chicago time")

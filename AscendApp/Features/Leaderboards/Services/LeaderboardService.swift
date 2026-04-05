@@ -1,10 +1,3 @@
-//
-//  LeaderboardService.swift
-//  AscendApp
-//
-//  Created by Tyler Pavay on 10/3/25.
-//
-
 import Foundation
 import SwiftData
 
@@ -21,229 +14,313 @@ final class LeaderboardService {
         self.modelContext = modelContext
     }
 
-    // Update local leaderboard stats from workouts
-    func updateLeaderboardStats(
+    func rebuildCurrentStatsIfNeeded(
         for userId: String,
-        timeFrame: LeaderboardTimeFrame,
+        workouts: [Workout],
+        referenceDate: Date = Date()
+    ) throws -> Bool {
+        if try needsCurrentSchemaRebuild(for: userId, referenceDate: referenceDate) == false {
+            return false
+        }
+
+        try rebuildCurrentStats(for: userId, workouts: workouts, referenceDate: referenceDate)
+        return true
+    }
+
+    func rebuildCurrentStats(
+        for userId: String,
         workouts: [Workout],
         referenceDate: Date = Date()
     ) throws {
-        guard let context = modelContext else {
-            throw LeaderboardError.notConfigured
+        let context = try requireContext()
+        let existingStats = try fetchUserStats(for: userId)
+
+        for stat in existingStats {
+            context.delete(stat)
         }
 
-        let settings = SettingsManager.shared
-        let firstWeekday = settings.weekStartFirstWeekday
-        let timeZone = TimeZone.current
-        let periodIdentifier = timeFrame.periodIdentifier(
-            for: referenceDate,
-            firstWeekday: firstWeekday,
-            timeZone: timeZone
-        )
-
-        // Fetch or create stats for this period
-        let predicate = #Predicate<LeaderboardStats> { stats in
-            stats.userId == userId &&
-            stats.timeFrame == timeFrame.rawValue &&
-            stats.periodIdentifier == periodIdentifier
-        }
-
-        let descriptor = FetchDescriptor<LeaderboardStats>(predicate: predicate)
-        let existingStats = try context.fetch(descriptor)
-
-        let stats: LeaderboardStats
-        if let existing = existingStats.first {
-            stats = existing
-
-            // Check if we need to reset for new period
-            if timeFrame.shouldReset(
-                lastUpdated: existing.lastUpdated,
-                referenceDate: referenceDate,
-                firstWeekday: firstWeekday,
-                timeZone: timeZone
-            ) {
-                // Reset stats for new period
-                stats.periodIdentifier = periodIdentifier
-                stats.totalSteps = 0
-                stats.totalFloors = 0
-                stats.totalWorkouts = 0
-                stats.totalDuration = 0
-                stats.averageStepsPerMinute = 0
-                stats.averageFloorsPerMinute = 0
-            }
-        } else {
-            stats = LeaderboardStats(
-                userId: userId,
-                timeFrame: timeFrame,
-                periodIdentifier: periodIdentifier
-            )
+        for timeFrame in LeaderboardTimeFrame.allCases {
+            let period = timeFrame.currentPeriod(referenceDate: referenceDate)
+            let aggregate = aggregate(for: timeFrame, workouts: workouts, referenceDate: referenceDate)
+            let stats = LeaderboardStats(userId: userId, timeFrame: timeFrame, period: period)
+            stats.replaceTotals(with: aggregate, period: period, updatedAt: referenceDate)
             context.insert(stats)
         }
 
-        // Filter workouts for this time frame
-        let startDate = timeFrame.startDate(
-            for: referenceDate,
-            firstWeekday: firstWeekday,
-            timeZone: timeZone
-        )
-        let relevantWorkouts = workouts.filter { $0.date >= startDate }
-
-        // Update stats
-        stats.updateFromWorkouts(relevantWorkouts)
-
         try context.save()
     }
 
-    // Update all time frames for a user
-    func updateAllTimeFrames(for userId: String, workouts: [Workout], referenceDate: Date = Date()) throws {
-        for timeFrame in LeaderboardTimeFrame.allCases {
-            try updateLeaderboardStats(
-                for: userId,
-                timeFrame: timeFrame,
-                workouts: workouts,
-                referenceDate: referenceDate
-            )
+    func applyMutationImpact(
+        _ impact: LeaderboardMutationImpact,
+        for userId: String,
+        referenceDate: Date = Date()
+    ) throws -> Bool {
+        guard impact != .none else { return false }
+
+        let context = try requireContext()
+        if impact == .rebuildAll {
+            let workouts = try fetchAllWorkouts()
+            try rebuildCurrentStats(for: userId, workouts: workouts, referenceDate: referenceDate)
+            return true
         }
+
+        if try needsCurrentSchemaRebuild(for: userId, referenceDate: referenceDate) {
+            let workouts = try fetchAllWorkouts()
+            try rebuildCurrentStats(for: userId, workouts: workouts, referenceDate: referenceDate)
+            return true
+        }
+
+        let statsByTimeFrame = try currentStatsByTimeFrame(for: userId)
+        var touchedStats = false
+
+        if case .incremental(let changes) = impact {
+            for timeFrame in LeaderboardTimeFrame.allCases {
+                let period = timeFrame.currentPeriod(referenceDate: referenceDate)
+                let stats = try ensureCurrentStats(
+                    for: userId,
+                    timeFrame: timeFrame,
+                    period: period,
+                    existing: statsByTimeFrame[timeFrame],
+                    context: context,
+                    updatedAt: referenceDate
+                )
+
+                var delta = LeaderboardAggregate.zero
+                for change in changes {
+                    if let before = change.before, period.contains(before.date, referenceDate: referenceDate) {
+                        delta = delta - before.aggregate
+                    }
+                    if let after = change.after, period.contains(after.date, referenceDate: referenceDate) {
+                        delta = delta + after.aggregate
+                    }
+                }
+
+                if delta != .zero {
+                    stats.apply(delta: delta, period: period, updatedAt: referenceDate)
+                    touchedStats = true
+                } else if stats.needsSync {
+                    touchedStats = true
+                }
+            }
+        }
+
+        if touchedStats {
+            try context.save()
+        }
+        return touchedStats
     }
 
-    // Sync local stats to Firestore - includes both steps and floors
-    func syncToFirestore(
-        userId: String,
-        displayName: String,
-        photoURL: URL?
-    ) async throws {
-        guard let context = modelContext else {
-            throw LeaderboardError.notConfigured
-        }
-
-        // Fetch all stats that need syncing
-        let predicate = #Predicate<LeaderboardStats> { stats in
-            stats.userId == userId && stats.needsSync
-        }
-
-        let descriptor = FetchDescriptor<LeaderboardStats>(predicate: predicate)
-        let statsToSync = try context.fetch(descriptor)
-
-        // Extract Sendable data from each stat (on MainActor)
-        let dataToSync: [(
-            userId: String,
-            displayName: String,
-            photoURL: URL?,
-            timeFrame: String,
-            periodIdentifier: String,
-            totalSteps: Int,
-            totalFloors: Int,
-            totalWorkouts: Int,
-            totalDuration: Double,
-            averageStepsPerMinute: Double,
-            averageFloorsPerMinute: Double,
-            lastUpdated: Date
-        )] = statsToSync.compactMap { stats in
-            // Don't create empty remote leaderboard rows for users with no activity.
-            let hasActivity = stats.totalWorkouts > 0 ||
-                stats.totalSteps > 0 ||
-                stats.totalFloors > 0 ||
-                stats.totalDuration > 0 ||
-                stats.averageStepsPerMinute > 0 ||
-                stats.averageFloorsPerMinute > 0
-
-            guard hasActivity else { return nil }
-
-            return (
-                userId: stats.userId,
-                displayName: displayName,
-                photoURL: photoURL,
-                timeFrame: stats.timeFrame,
-                periodIdentifier: stats.periodIdentifier,
-                totalSteps: stats.totalSteps,
-                totalFloors: stats.totalFloors,
-                totalWorkouts: stats.totalWorkouts,
-                totalDuration: stats.totalDuration,
-                averageStepsPerMinute: stats.averageStepsPerMinute,
-                averageFloorsPerMinute: stats.averageFloorsPerMinute,
-                lastUpdated: stats.lastUpdated
-            )
-        }
-
-        // Sync each stat to Firestore using Sendable data
-        for data in dataToSync {
-            try await repository.syncStatsToFirestore(
-                userId: data.userId,
-                displayName: data.displayName,
-                photoURL: data.photoURL,
-                timeFrame: data.timeFrame,
-                periodIdentifier: data.periodIdentifier,
-                totalSteps: data.totalSteps,
-                totalFloors: data.totalFloors,
-                totalWorkouts: data.totalWorkouts,
-                totalDuration: data.totalDuration,
-                averageStepsPerMinute: data.averageStepsPerMinute,
-                averageFloorsPerMinute: data.averageFloorsPerMinute,
-                lastUpdated: data.lastUpdated
-            )
-        }
-
-        // Mark all as synced (back on MainActor)
-        for stats in statsToSync {
-            stats.lastSyncedToFirestore = Date()
-            stats.needsSync = false
-        }
-
-        try context.save()
-    }
-
-    // Fetch user's local stats
     func getLocalStats(
         for userId: String,
         timeFrame: LeaderboardTimeFrame
     ) throws -> LeaderboardStats? {
-        guard let context = modelContext else {
-            throw LeaderboardError.notConfigured
-        }
-
-        let settings = SettingsManager.shared
-        let periodIdentifier = timeFrame.periodIdentifier(
-            firstWeekday: settings.weekStartFirstWeekday,
-            timeZone: TimeZone.current
-        )
-
-        let predicate = #Predicate<LeaderboardStats> { stats in
-            stats.userId == userId &&
-            stats.timeFrame == timeFrame.rawValue &&
-            stats.periodIdentifier == periodIdentifier
-        }
-
-        let descriptor = FetchDescriptor<LeaderboardStats>(predicate: predicate)
-        return try context.fetch(descriptor).first
+        let currentStats = try currentStatsByTimeFrame(for: userId)
+        return currentStats[timeFrame]
     }
-    
-    // Update profile picture URL across all user's leaderboard documents in Firestore
+
+    func prepareSyncPayloads(
+        userId: String,
+        displayName: String,
+        photoURL: URL?
+    ) throws -> [LeaderboardSyncPayload] {
+        let context = try requireContext()
+        let predicate = #Predicate<LeaderboardStats> { stats in
+            stats.userId == userId && stats.needsSync
+        }
+        let statsToSync = try context.fetch(FetchDescriptor<LeaderboardStats>(predicate: predicate))
+
+        return statsToSync.compactMap { stats in
+            guard let timeFrame = LeaderboardTimeFrame(rawValue: stats.timeFrame) else { return nil }
+            return LeaderboardSyncPayload(
+                localStatID: stats.id,
+                snapshotLastUpdated: stats.lastUpdated,
+                userId: stats.userId,
+                displayName: displayName,
+                photoURL: photoURL,
+                timeFrame: timeFrame,
+                schemaVersion: stats.schemaVersion,
+                periodKey: stats.periodKey,
+                periodStartAt: stats.periodStartAt,
+                totalSteps: stats.totalSteps,
+                totalFloors: stats.totalFloors,
+                totalWorkouts: stats.totalWorkouts,
+                totalDuration: stats.totalDuration,
+                stepsPerMinute: stats.stepsPerMinute,
+                operation: stats.hasActivity ? .upsert : .delete
+            )
+        }
+    }
+
+    func markSynced(payloads: [LeaderboardSyncPayload], syncedAt: Date = Date()) throws {
+        guard !payloads.isEmpty else { return }
+
+        let context = try requireContext()
+        let stats = try fetchAllStats()
+        let statsByID = Dictionary(uniqueKeysWithValues: stats.map { ($0.id, $0) })
+
+        for payload in payloads {
+            guard let stat = statsByID[payload.localStatID] else { continue }
+            guard stat.lastUpdated <= payload.snapshotLastUpdated else { continue }
+            stat.lastSyncedToFirestore = syncedAt
+            stat.needsSync = false
+        }
+
+        try context.save()
+    }
+
+    func syncPayload(_ payload: LeaderboardSyncPayload) async throws {
+        switch payload.operation {
+        case .upsert:
+            try await repository.upsertStats(payload)
+        case .delete:
+            try await repository.deleteStats(
+                userId: payload.userId,
+                timeFrame: payload.timeFrame
+            )
+        }
+    }
+
+    func deleteLegacyRemoteStats(userId: String) async throws {
+        try await repository.deleteLegacyStats(
+            userId: userId,
+            keepingDocumentIDs: Set(LeaderboardTimeFrame.allCases.map {
+                repository.documentID(userId: userId, timeFrame: $0)
+            })
+        )
+    }
+
     func updateProfilePictureURL(userId: String, photoURL: URL?) async throws {
         try await repository.updateProfilePictureURL(
             userId: userId,
             photoURL: photoURL?.absoluteString ?? ""
         )
+        await LeaderboardSessionCache.shared.updateCurrentUserProfile(
+            userId: userId,
+            displayName: nil,
+            photoURL: photoURL
+        )
     }
-    
-    // Update display name across all user's leaderboard documents in Firestore
+
     func updateDisplayName(userId: String, displayName: String) async throws {
         try await repository.updateDisplayName(
             userId: userId,
             displayName: displayName
         )
+        await LeaderboardSessionCache.shared.updateCurrentUserProfile(
+            userId: userId,
+            displayName: displayName,
+            photoURL: nil
+        )
+    }
+
+    private func aggregate(
+        for timeFrame: LeaderboardTimeFrame,
+        workouts: [Workout],
+        referenceDate: Date
+    ) -> LeaderboardAggregate {
+        workouts.reduce(into: .zero) { aggregate, workout in
+            guard timeFrame.contains(workout.date, referenceDate: referenceDate) else { return }
+            aggregate = aggregate + LeaderboardWorkoutSnapshot(workout: workout).aggregate
+        }
+    }
+
+    private func needsCurrentSchemaRebuild(
+        for userId: String,
+        referenceDate: Date
+    ) throws -> Bool {
+        let stats = try fetchUserStats(for: userId)
+        guard stats.count == LeaderboardTimeFrame.allCases.count else { return true }
+
+        let grouped = Dictionary(grouping: stats, by: \.timeFrame)
+        guard grouped.values.allSatisfy({ $0.count == 1 }) else { return true }
+
+        for timeFrame in LeaderboardTimeFrame.allCases {
+            guard let stat = stats.first(where: { $0.timeFrame == timeFrame.rawValue }) else {
+                return true
+            }
+
+            let period = timeFrame.currentPeriod(referenceDate: referenceDate)
+            if stat.schemaVersion != LeaderboardStats.currentSchemaVersion ||
+                stat.periodKey != period.key ||
+                stat.periodStartAt != period.startAt {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func currentStatsByTimeFrame(for userId: String) throws -> [LeaderboardTimeFrame: LeaderboardStats] {
+        let stats = try fetchUserStats(for: userId)
+        var mapped: [LeaderboardTimeFrame: LeaderboardStats] = [:]
+
+        for stat in stats {
+            guard let timeFrame = LeaderboardTimeFrame(rawValue: stat.timeFrame) else { continue }
+            mapped[timeFrame] = stat
+        }
+
+        return mapped
+    }
+
+    private func ensureCurrentStats(
+        for userId: String,
+        timeFrame: LeaderboardTimeFrame,
+        period: LeaderboardPeriod,
+        existing: LeaderboardStats?,
+        context: ModelContext,
+        updatedAt: Date
+    ) throws -> LeaderboardStats {
+        if let existing {
+            if existing.schemaVersion != LeaderboardStats.currentSchemaVersion ||
+                existing.periodKey != period.key ||
+                existing.periodStartAt != period.startAt {
+                existing.reset(for: period, updatedAt: updatedAt)
+            }
+            return existing
+        }
+
+        let stats = LeaderboardStats(userId: userId, timeFrame: timeFrame, period: period)
+        stats.reset(for: period, updatedAt: updatedAt)
+        context.insert(stats)
+        return stats
+    }
+
+    private func fetchUserStats(for userId: String) throws -> [LeaderboardStats] {
+        let context = try requireContext()
+        let predicate = #Predicate<LeaderboardStats> { stats in
+            stats.userId == userId
+        }
+        return try context.fetch(FetchDescriptor<LeaderboardStats>(predicate: predicate))
+    }
+
+    private func fetchAllStats() throws -> [LeaderboardStats] {
+        let context = try requireContext()
+        return try context.fetch(FetchDescriptor<LeaderboardStats>())
+    }
+
+    private func fetchAllWorkouts() throws -> [Workout] {
+        let context = try requireContext()
+        return try context.fetch(
+            FetchDescriptor<Workout>(sortBy: [SortDescriptor(\.date, order: .forward)])
+        )
+    }
+
+    private func requireContext() throws -> ModelContext {
+        guard let modelContext else {
+            throw LeaderboardError.notConfigured
+        }
+
+        return modelContext
     }
 }
 
 enum LeaderboardError: LocalizedError {
     case notConfigured
-    case syncFailed
 
     var errorDescription: String? {
         switch self {
         case .notConfigured:
             return "Leaderboard service not configured with model context"
-        case .syncFailed:
-            return "Failed to sync leaderboard data"
         }
     }
 }

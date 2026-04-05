@@ -317,13 +317,17 @@ struct WorkoutListView: View {
 
         // Only delete workouts if ALL photo deletions succeeded
         do {
+            let deletedSnapshots = workoutsToDelete.map(LeaderboardWorkoutSnapshot.init(workout:))
             for workout in workoutsToDelete {
                 modelContext.delete(workout)
             }
             try modelContext.save()
 
             // Recalculate PRs and leaderboard stats after deletion
-            try WorkoutMutationHandler.shared.workoutsDidChange(modelContext: modelContext)
+            try WorkoutMutationHandler.shared.workoutsDidChange(
+                modelContext: modelContext,
+                mutation: .deleted(deletedSnapshots)
+            )
 
             await MainActor.run {
                 isDeleting = false

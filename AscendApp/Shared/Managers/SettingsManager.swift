@@ -24,8 +24,6 @@ final class SettingsManager {
     private let manualBaseLevelOverrideKey = "manualBaseLevelOverride"
     private let hasCompletedBaseLevelOnboardingKey = "hasCompletedBaseLevelOnboarding"
     private let firstLaunchDateKey = "firstLaunchDate"
-    private let weekStartDayKey = "weekStartDay"
-    
     var preferredWorkoutMetric: WorkoutMetric {
         didSet {
             savePreferredMetric()
@@ -81,16 +79,6 @@ final class SettingsManager {
         didSet {
             saveHasCompletedBaseLevelOnboarding()
         }
-    }
-
-    var weekStartDay: WeekStartDay {
-        didSet {
-            saveWeekStartDay()
-        }
-    }
-
-    var weekStartFirstWeekday: Int {
-        weekStartDay.firstWeekday
     }
 
     var effectiveBaseLevel: Int {
@@ -189,12 +177,6 @@ final class SettingsManager {
             }
         }
 
-        if let savedWeekStart = UserDefaults.standard.string(forKey: weekStartDayKey),
-           let weekStartDay = WeekStartDay(rawValue: savedWeekStart) {
-            self.weekStartDay = weekStartDay
-        } else {
-            self.weekStartDay = WeekStartDay.from(firstWeekday: Calendar.current.firstWeekday)
-        }
     }
     
     private func savePreferredMetric() {
@@ -250,11 +232,6 @@ final class SettingsManager {
         UserDefaults.standard.synchronize()
     }
 
-    private func saveWeekStartDay() {
-        UserDefaults.standard.set(weekStartDay.rawValue, forKey: weekStartDayKey)
-        UserDefaults.standard.synchronize()
-    }
-    
     private func convertStepHeight(from oldSystem: MeasurementSystem, to newSystem: MeasurementSystem) {
         guard oldSystem != newSystem else { return }
         
@@ -327,12 +304,6 @@ final class SettingsManager {
     func resolveBaseLevelBootstrap(hasWorkoutHistory: Bool) {
         if hasWorkoutHistory {
             hasCompletedBaseLevelOnboarding = true
-        }
-    }
-
-    func setWeekStartDay(_ day: WeekStartDay) {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            weekStartDay = day
         }
     }
 

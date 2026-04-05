@@ -19,7 +19,7 @@ final class GoalService {
     func createGoal(metric: GoalMetric, target: Int) throws -> Goal {
         // 1. Capture locked settings at creation time
         let timeZoneId = TimeZone.current.identifier
-        let firstWeekday = SettingsManager.shared.weekStartFirstWeekday
+        let firstWeekday = WeekConfiguration.mondayFirstWeekday
         let createdWeekStart = computeWeekStart(
             for: Date(),
             timeZoneId: timeZoneId,
@@ -46,6 +46,25 @@ final class GoalService {
         try modelContext.save()
 
         return goal
+    }
+
+    /// Migrates any active goal to the canonical Monday-based weekly window.
+    func migrateActiveGoalToMondayIfNeeded(timeZoneId: String = TimeZone.current.identifier) throws {
+        guard let activeGoal = try getActiveGoal() else { return }
+        guard activeGoal.firstWeekday != WeekConfiguration.mondayFirstWeekday ||
+                activeGoal.timeZoneId != timeZoneId else {
+            return
+        }
+
+        activeGoal.firstWeekday = WeekConfiguration.mondayFirstWeekday
+        activeGoal.timeZoneId = timeZoneId
+        activeGoal.createdWeekStart = computeWeekStart(
+            for: Date(),
+            timeZoneId: timeZoneId,
+            firstWeekday: WeekConfiguration.mondayFirstWeekday
+        )
+
+        try modelContext.save()
     }
 
     /// Fetches the currently active goal
@@ -86,8 +105,7 @@ final class GoalService {
 
     /// Computes the start of the week for a given date using specified timezone and firstWeekday
     private func computeWeekStart(for date: Date, timeZoneId: String, firstWeekday: Int) -> Date {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: timeZoneId) ?? .current
+        var calendar = WeekConfiguration.calendar(timeZone: TimeZone(identifier: timeZoneId) ?? .current)
         calendar.firstWeekday = firstWeekday
 
         guard let interval = calendar.dateInterval(of: .weekOfYear, for: date) else {

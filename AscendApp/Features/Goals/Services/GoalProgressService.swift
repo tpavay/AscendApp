@@ -8,8 +8,7 @@ struct GoalProgressService {
     /// - Parameter goal: The goal with locked timezone and firstWeekday
     /// - Returns: A calendar configured with the goal's settings
     static func makeCalendar(for goal: Goal) -> Calendar {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: goal.timeZoneId) ?? .current
+        var calendar = WeekConfiguration.calendar(timeZone: TimeZone(identifier: goal.timeZoneId) ?? .current)
         calendar.firstWeekday = goal.firstWeekday
         return calendar
     }

@@ -15,8 +15,6 @@ struct LeaderboardHubView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(TabRouter.self) private var tabRouter
     @Environment(AuthenticationViewModel.self) private var authVM
-    @Environment(\.modelContext) private var modelContext
-    @Query private var workouts: [Workout]
     @State private var settingsManager = SettingsManager.shared
 
     @State private var selectedTimeFrame: LeaderboardTimeFrame = .weekly
@@ -26,8 +24,8 @@ struct LeaderboardHubView: View {
     @State private var activeLoadID = UUID()
 
     private let repository = LeaderboardRepository.shared
-    private let leaderboardService = LeaderboardService.shared
     private let previewLimit = 3
+    private let networkTimeoutSeconds = 15.0
 
     private var preferredMetric: WorkoutMetric {
         settingsManager.preferredWorkoutMetric
@@ -38,7 +36,13 @@ struct LeaderboardHubView: View {
             VStack(spacing: 8) {
                 hubHeader
 
-                if hasAnyEntries {
+                if isLoading && previewEntries.isEmpty {
+                    loadingState
+                } else if let errorMessage, previewEntries.isEmpty && hasAnyEntries == false {
+                    globalErrorState(message: errorMessage)
+                } else if hasAnyEntries == false {
+                    globalEmptyState
+                } else {
                     ForEach(LeaderboardMetric.allCases) { metric in
                         LeaderboardCategoryCard(
                             metric: metric,
@@ -47,12 +51,6 @@ struct LeaderboardHubView: View {
                             selectedTimeFrame: selectedTimeFrame
                         )
                     }
-                } else if isLoading {
-                    loadingState
-                } else if let errorMessage {
-                    globalErrorState(message: errorMessage)
-                } else {
-                    globalEmptyState
                 }
             }
             .padding(.horizontal, 20)
@@ -85,6 +83,7 @@ struct LeaderboardHubView: View {
         activeLoadID = loadID
         isLoading = true
         errorMessage = nil
+        var syncError: Error?
 
         defer {
             if activeLoadID == loadID {
@@ -102,23 +101,32 @@ struct LeaderboardHubView: View {
 
         if mode == .refresh {
             do {
-                leaderboardService.configure(modelContext: modelContext)
-                try leaderboardService.updateAllTimeFrames(for: userId, workouts: workouts)
-                try await leaderboardService.syncToFirestore(
-                    userId: userId,
-                    displayName: authVM.displayName,
-                    photoURL: authVM.displayPhotoURL
-                )
+                try await withLeaderboardTimeout(seconds: networkTimeoutSeconds) {
+                    try await LeaderboardSyncCoordinator.shared.flushNow(
+                        userId: userId,
+                        displayName: authVM.displayName,
+                        photoURL: authVM.displayPhotoURL
+                    )
+                }
             } catch {
-                // Continue to fetch remote standings even if local sync fails.
+                syncError = error
             }
+        } else if let cachedEntries = await LeaderboardSessionCache.shared.previewEntries(for: selectedTimeFrame) {
+            guard activeLoadID == loadID else { return }
+            previewEntries = Dictionary(uniqueKeysWithValues: cachedEntries.map { metric, stats in
+                (metric, makePreviewEntries(from: stats, metric: metric, userId: userId))
+            })
+            errorMessage = nil
+            isLoading = false
+            return
         }
 
+        var fetchedStats: [LeaderboardMetric: [FirestoreLeaderboardStats]] = [:]
         var fetchedEntries: [LeaderboardMetric: [LeaderboardEntry]] = [:]
         var failedMetrics = 0
         let repository = self.repository
         let previewLimit = self.previewLimit
-        let preferredMetric = self.preferredMetric
+        let selectedTimeFrame = self.selectedTimeFrame
         let metricResults = await withTaskGroup(
             of: (LeaderboardMetric, [FirestoreLeaderboardStats]?, Bool).self,
             returning: [(LeaderboardMetric, [FirestoreLeaderboardStats]?, Bool)].self
@@ -126,27 +134,31 @@ struct LeaderboardHubView: View {
             for metric in LeaderboardMetric.allCases {
                 group.addTask {
                     do {
-                        let stats = try await repository.fetchLeaderboard(
-                            metric: metric,
-                            timeFrame: selectedTimeFrame,
-                            limit: previewLimit,
-                            preferredWorkoutMetric: preferredMetric,
-                            source: mode == .fast ? .default : .server
-                        )
+                        let stats = try await withLeaderboardTimeout(seconds: networkTimeoutSeconds) {
+                            try await repository.fetchLeaderboard(
+                                metric: metric,
+                                timeFrame: selectedTimeFrame,
+                                limit: previewLimit,
+                                source: mode == .refresh ? .server : .default
+                            )
+                        }
                         return (metric, stats, false)
                     } catch {
+                        if let cachedStats = await LeaderboardSessionCache.shared.previewEntries(for: selectedTimeFrame)?[metric] {
+                            return (metric, cachedStats, false)
+                        }
+
                         if mode == .refresh {
                             do {
-                                let cachedStats = try await repository.fetchLeaderboard(
+                                let cacheStats = try await repository.fetchLeaderboard(
                                     metric: metric,
                                     timeFrame: selectedTimeFrame,
                                     limit: previewLimit,
-                                    preferredWorkoutMetric: preferredMetric,
                                     source: .cache
                                 )
-                                return (metric, cachedStats, false)
+                                return (metric, cacheStats, false)
                             } catch {
-                                // Fall through to failed metric accounting.
+                                return (metric, nil, true)
                             }
                         }
 
@@ -163,11 +175,9 @@ struct LeaderboardHubView: View {
         }
 
         for (metric, stats, didFail) in metricResults {
-            if let stats {
-                fetchedEntries[metric] = makePreviewEntries(from: stats, metric: metric, userId: userId)
-            } else {
-                fetchedEntries[metric] = []
-            }
+            let resolvedStats = stats ?? []
+            fetchedStats[metric] = resolvedStats
+            fetchedEntries[metric] = makePreviewEntries(from: resolvedStats, metric: metric, userId: userId)
 
             if didFail {
                 failedMetrics += 1
@@ -176,8 +186,31 @@ struct LeaderboardHubView: View {
 
         guard activeLoadID == loadID else { return }
         previewEntries = fetchedEntries
+        await LeaderboardSessionCache.shared.setPreviewEntries(fetchedStats, for: selectedTimeFrame)
         if failedMetrics == LeaderboardMetric.allCases.count {
-            errorMessage = "Couldn’t load leaderboard previews right now."
+            switch syncError.map(LeaderboardNetworkIssue.classify) ?? .other {
+            case .offline:
+                errorMessage = "Offline - showing cached data"
+            case .slowConnection:
+                errorMessage = "Connection is slow - showing cached data"
+            case .other:
+                errorMessage = "Couldn’t load leaderboard previews right now."
+            }
+        } else if failedMetrics > 0 {
+            errorMessage = "Some leaderboard previews are showing cached data."
+        } else if let syncError {
+            switch LeaderboardNetworkIssue.classify(syncError) {
+            case .offline:
+                errorMessage = "Latest changes haven’t synced yet."
+            case .slowConnection:
+                errorMessage = "Connection is slow. Latest changes may take a moment to appear."
+            case .other:
+                errorMessage = hasAnyEntries
+                    ? "Latest changes haven’t synced yet."
+                    : "Couldn’t publish your latest leaderboard stats yet."
+            }
+        } else {
+            errorMessage = nil
         }
     }
 
@@ -187,7 +220,7 @@ struct LeaderboardHubView: View {
         userId: String
     ) -> [LeaderboardEntry] {
         stats.enumerated().map { index, stat in
-            let value = stat.value(for: metric, preferredWorkoutMetric: preferredMetric)
+            let value = stat.value(for: metric)
             return LeaderboardEntry(
                 userId: stat.userId,
                 displayName: stat.displayName,
@@ -235,16 +268,16 @@ struct LeaderboardHubView: View {
     }
 
     private var globalEmptyState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "person.3.fill")
+        VStack(spacing: 12) {
+            Image(systemName: "person.3.sequence.fill")
                 .font(.system(size: 34))
                 .foregroundStyle(.secondary)
 
-            Text("No leaderboard data yet")
+            Text("No leaderboard entries yet")
                 .font(.montserratSemiBold(size: 20))
                 .foregroundStyle(.primary)
 
-            Text("Complete a workout and pull to refresh to populate weekly standings.")
+            Text("\(selectedTimeFrame.displayName) rankings are still empty. Be the first to post stats for this period.")
                 .font(.montserratRegular(size: 14))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -302,12 +335,14 @@ private struct LeaderboardCategoryCard: View {
 
                 Spacer()
 
-                NavigationLink {
-                    LeaderboardView(lockedMetric: metric, initialTimeFrame: selectedTimeFrame)
-                } label: {
-                    Text("See all")
-                        .font(.montserratSemiBold(size: 16))
-                        .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .gray)
+                if entries.isEmpty == false {
+                    NavigationLink {
+                        LeaderboardView(lockedMetric: metric, initialTimeFrame: selectedTimeFrame)
+                    } label: {
+                        Text("See all")
+                            .font(.montserratSemiBold(size: 16))
+                            .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .gray)
+                    }
                 }
             }
 

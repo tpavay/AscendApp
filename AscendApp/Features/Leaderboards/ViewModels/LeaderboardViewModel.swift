@@ -1,23 +1,17 @@
-//
-//  LeaderboardViewModel.swift
-//  AscendApp
-//
-//  Created by Tyler Pavay on 10/3/25.
-//
-
 import Foundation
-import SwiftData
 import Observation
+import SwiftData
+@preconcurrency import FirebaseFirestore
 
 @MainActor
 @Observable
-class LeaderboardViewModel {
+final class LeaderboardViewModel {
     var selectedMetric: LeaderboardMetric = .climb
     var selectedTimeFrame: LeaderboardTimeFrame = .weekly
     var searchText: String = "" {
         didSet {
             guard searchText != oldValue else { return }
-            resetPaginationForSearchChange()
+            resetPagination()
         }
     }
     var leaderboardEntries: [LeaderboardEntry] = []
@@ -26,29 +20,23 @@ class LeaderboardViewModel {
     var errorMessage: String?
     var isOffline = false
     var showingTopLeaders = true
-    
+
     private let service = LeaderboardService.shared
     private let repository = LeaderboardRepository.shared
-    private let settingsManager = SettingsManager.shared
-    private var currentUserId: String?
     private let pageSize = 25
+    private let networkTimeoutSeconds = 15.0
     private(set) var visibleEntryLimit = 25
-    
-    /// The user's preferred workout metric (steps or floors)
-    var preferredWorkoutMetric: WorkoutMetric {
-        settingsManager.preferredWorkoutMetric
-    }
-    
+    private var currentUserId: String?
+
     func configure(userId: String, modelContext: ModelContext) {
-        self.currentUserId = userId
+        currentUserId = userId
         service.configure(modelContext: modelContext)
     }
 
     var displayedEntries: [LeaderboardEntry] {
         let entries = filteredEntries
         guard !entries.isEmpty else { return [] }
-        let limit = min(visibleEntryLimit, entries.count)
-        return Array(entries.prefix(limit))
+        return Array(entries.prefix(min(visibleEntryLimit, entries.count)))
     }
 
     var resetStatusText: String {
@@ -58,130 +46,137 @@ class LeaderboardViewModel {
     var hasCachedEntries: Bool {
         !leaderboardEntries.isEmpty
     }
-    
+
     func refreshLeaderboard(
         userId: String,
         displayName: String,
-        photoURL: URL?,
-        workouts: [Workout]
+        photoURL: URL?
     ) async {
         isLoading = true
         errorMessage = nil
         isOffline = false
+        var syncError: Error?
 
         do {
-            // 1. Update local stats from workouts
-            try service.updateAllTimeFrames(for: userId, workouts: workouts)
-
-            // 2. Sync to Firestore
-            try await service.syncToFirestore(
-                userId: userId,
-                displayName: displayName,
-                photoURL: photoURL
-            )
-
-            // 3. Fetch leaderboard from Firestore
-            await loadLeaderboard(userId: userId)
-
-        } catch {
-            handleError(error, context: "refresh")
-        }
-
-        isLoading = false
-    }
-    
-    func loadLeaderboard(userId: String) async {
-        isLoading = true
-        errorMessage = nil
-        isOffline = false
-
-        do {
-            let stats = try await repository.fetchLeaderboard(
-                metric: selectedMetric,
-                timeFrame: selectedTimeFrame,
-                limit: 100,
-                preferredWorkoutMetric: preferredWorkoutMetric
-            )
-
-            // Convert to leaderboard entries with rankings
-            var entries: [LeaderboardEntry] = []
-            var currentUserEntry: LeaderboardEntry?
-            for (index, stat) in stats.enumerated() {
-                let value = stat.value(for: selectedMetric, preferredWorkoutMetric: preferredWorkoutMetric)
-                let entry = LeaderboardEntry(
-                    userId: stat.userId,
-                    displayName: stat.displayName,
-                    photoURL: stat.photoURL.flatMap { URL(string: $0) },
-                    rank: index + 1,
-                    value: value,
-                    formattedValue: formatValue(value, for: selectedMetric),
-                    isCurrentUser: stat.userId == userId
+            try await withLeaderboardTimeout(seconds: networkTimeoutSeconds) {
+                try await LeaderboardSyncCoordinator.shared.flushNow(
+                    userId: userId,
+                    displayName: displayName,
+                    photoURL: photoURL
                 )
-
-                entries.append(entry)
-
-                if stat.userId == userId {
-                    currentUserEntry = entry
-                }
             }
-
-            leaderboardEntries = entries
-
-            // If user not in leaderboard yet, create a placeholder entry
-            if currentUserEntry == nil {
-                if let localStats = try service.getLocalStats(for: userId, timeFrame: selectedTimeFrame) {
-                    let value = localStats.value(for: selectedMetric, preferredWorkoutMetric: preferredWorkoutMetric)
-                    currentUserEntry = LeaderboardEntry(
-                        userId: userId,
-                        displayName: "You",
-                        photoURL: nil,
-                        rank: entries.count + 1,
-                        value: value,
-                        formattedValue: formatValue(value, for: selectedMetric),
-                        isCurrentUser: true
-                    )
-                }
-            }
-
-            userEntry = currentUserEntry
-            resetPagination()
-
         } catch {
-            handleError(error, context: "load")
+            syncError = error
+        }
+
+        await loadLeaderboard(userId: userId, forceRefresh: true)
+
+        guard let syncError else { return }
+        switch LeaderboardNetworkIssue.classify(syncError) {
+        case .offline:
+            isOffline = true
+            errorMessage = "You're offline. Pull to retry."
+        case .slowConnection:
+            isOffline = false
+            errorMessage = leaderboardEntries.isEmpty
+                ? "Leaderboard sync is still timing out."
+                : "Latest changes may take a moment to appear."
+        case .other:
+            isOffline = false
+            errorMessage = leaderboardEntries.isEmpty
+                ? "Couldn’t publish your latest leaderboard stats yet."
+                : "Latest changes haven’t synced yet."
+        }
+    }
+
+    func loadLeaderboard(userId: String, forceRefresh: Bool = false) async {
+        isLoading = leaderboardEntries.isEmpty
+        if forceRefresh {
+            errorMessage = nil
+            isOffline = false
+        }
+
+        if forceRefresh == false,
+           let cachedStats = await LeaderboardSessionCache.shared.detailEntries(
+                for: selectedMetric,
+                timeFrame: selectedTimeFrame
+           ) {
+            apply(stats: cachedStats, userId: userId)
+            errorMessage = nil
+            isOffline = false
+            isLoading = false
+            return
+        }
+
+        do {
+            let source: FirestoreSource = forceRefresh ? .server : .default
+            let stats = try await withLeaderboardTimeout(seconds: networkTimeoutSeconds) {
+                try await self.repository.fetchLeaderboard(
+                    metric: self.selectedMetric,
+                    timeFrame: self.selectedTimeFrame,
+                    limit: 100,
+                    source: source
+                )
+            }
+            await LeaderboardSessionCache.shared.setDetailEntries(
+                stats,
+                for: selectedMetric,
+                timeFrame: selectedTimeFrame
+            )
+            apply(stats: stats, userId: userId)
+            errorMessage = nil
+            isOffline = false
+        } catch {
+            if let cachedStats = await LeaderboardSessionCache.shared.detailEntries(
+                for: selectedMetric,
+                timeFrame: selectedTimeFrame
+            ) {
+                if cachedStats.isEmpty {
+                    leaderboardEntries = []
+                    userEntry = try? placeholderEntry(for: userId)
+                    handleError(error, context: "load")
+                } else {
+                    apply(stats: cachedStats, userId: userId)
+                    handleCachedFallbackError(error)
+                }
+                isLoading = false
+                return
+            }
+
+            do {
+                let cacheStats = try await repository.fetchLeaderboard(
+                    metric: selectedMetric,
+                    timeFrame: selectedTimeFrame,
+                    limit: 100,
+                    source: .cache
+                )
+                await LeaderboardSessionCache.shared.setDetailEntries(
+                    cacheStats,
+                    for: selectedMetric,
+                    timeFrame: selectedTimeFrame
+                )
+                if cacheStats.isEmpty {
+                    leaderboardEntries = []
+                    userEntry = try? placeholderEntry(for: userId)
+                    handleError(error, context: "load")
+                } else {
+                    apply(stats: cacheStats, userId: userId)
+                    handleCachedFallbackError(error)
+                }
+            } catch {
+                leaderboardEntries = []
+                userEntry = try? placeholderEntry(for: userId)
+                handleError(error, context: "load")
+            }
         }
 
         isLoading = false
     }
 
-    private func handleError(_ error: Error, context: String) {
-        let nsError = error as NSError
-
-        // Check for network-related errors
-        let networkErrorCodes = [
-            NSURLErrorNotConnectedToInternet,
-            NSURLErrorNetworkConnectionLost,
-            NSURLErrorTimedOut,
-            NSURLErrorCannotConnectToHost,
-            NSURLErrorCannotFindHost,
-            NSURLErrorDNSLookupFailed
-        ]
-
-        if networkErrorCodes.contains(nsError.code) || nsError.domain == NSURLErrorDomain {
-            isOffline = true
-            if hasCachedEntries {
-                errorMessage = "Offline - showing cached data"
-            } else {
-                errorMessage = "No internet connection. Please check your network and try again."
-            }
-        } else {
-            errorMessage = "Failed to \(context) leaderboard: \(error.localizedDescription)"
-        }
-    }
-    
     func toggleView() {
         showingTopLeaders.toggle()
     }
-    
+
     func scrollToUser() {
         showingTopLeaders = false
     }
@@ -192,50 +187,10 @@ class LeaderboardViewModel {
         guard visibleEntryLimit < totalEntries else { return }
         visibleEntryLimit = min(visibleEntryLimit + pageSize, totalEntries)
     }
-    
-    private func resetPagination() {
-        visibleEntryLimit = min(pageSize, filteredEntries.count)
-    }
 
-    private func resetPaginationForSearchChange() {
-        resetPagination()
-    }
-
-    private var filteredEntries: [LeaderboardEntry] {
-        let trimmedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedQuery.isEmpty else { return leaderboardEntries }
-        return leaderboardEntries.filter { entry in
-            entry.displayName.range(of: trimmedQuery, options: .caseInsensitive) != nil
-        }
-    }
-    
-    private func formatValue(_ value: Double, for metric: LeaderboardMetric) -> String {
-        switch metric {
-        case .climb, .workouts:
-            return value.formatted(.number.precision(.fractionLength(0)))
-        case .duration:
-            return formatDuration(value)
-        case .pace:
-            return value.formatted(.number.precision(.fractionLength(1)))
-        }
-    }
-    
-    private func formatDuration(_ duration: TimeInterval) -> String {
-        let hours = Int(duration) / 3600
-        let minutes = (Int(duration) % 3600) / 60
-
-        if hours > 0 {
-            return "\(hours)h \(minutes)m"
-        } else {
-            return "\(minutes)m"
-        }
-    }
-
-    /// Update the current user's display info in the local cache
     func updateCurrentUserProfile(userId: String?, displayName: String, photoURL: URL?) {
-        guard let userId = userId else { return }
+        guard let userId else { return }
 
-        // Update in leaderboardEntries array
         if let index = leaderboardEntries.firstIndex(where: { $0.userId == userId }) {
             let existing = leaderboardEntries[index]
             leaderboardEntries[index] = LeaderboardEntry(
@@ -249,7 +204,6 @@ class LeaderboardViewModel {
             )
         }
 
-        // Update userEntry if it matches
         if let entry = userEntry, entry.userId == userId {
             userEntry = LeaderboardEntry(
                 userId: entry.userId,
@@ -260,6 +214,107 @@ class LeaderboardViewModel {
                 formattedValue: entry.formattedValue,
                 isCurrentUser: true
             )
+        }
+
+        Task {
+            await LeaderboardSessionCache.shared.updateCurrentUserProfile(
+                userId: userId,
+                displayName: displayName,
+                photoURL: photoURL
+            )
+        }
+    }
+
+    private var filteredEntries: [LeaderboardEntry] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return leaderboardEntries }
+        return leaderboardEntries.filter { $0.displayName.localizedStandardContains(query) }
+    }
+
+    private func apply(stats: [FirestoreLeaderboardStats], userId: String) {
+        let entries = stats.enumerated().map { index, stat in
+            let value = stat.value(for: selectedMetric)
+            return LeaderboardEntry(
+                userId: stat.userId,
+                displayName: stat.displayName,
+                photoURL: stat.photoURL.flatMap(URL.init(string:)),
+                rank: index + 1,
+                value: value,
+                formattedValue: formatValue(value, for: selectedMetric),
+                isCurrentUser: stat.userId == userId
+            )
+        }
+
+        leaderboardEntries = entries
+        userEntry = entries.first(where: { $0.userId == userId }) ?? (try? placeholderEntry(for: userId))
+        resetPagination()
+    }
+
+    private func placeholderEntry(for userId: String) throws -> LeaderboardEntry? {
+        guard let localStats = try service.getLocalStats(for: userId, timeFrame: selectedTimeFrame) else {
+            return nil
+        }
+
+        let value = localStats.value(for: selectedMetric)
+        return LeaderboardEntry(
+            userId: userId,
+            displayName: "You",
+            photoURL: nil,
+            rank: leaderboardEntries.count + 1,
+            value: value,
+            formattedValue: formatValue(value, for: selectedMetric),
+            isCurrentUser: true
+        )
+    }
+
+    private func resetPagination() {
+        visibleEntryLimit = min(pageSize, filteredEntries.count)
+    }
+
+    private func formatValue(_ value: Double, for metric: LeaderboardMetric) -> String {
+        switch metric {
+        case .climb, .workouts:
+            return value.formatted(.number.precision(.fractionLength(0)))
+        case .duration:
+            let totalSeconds = Int(value.rounded())
+            let hours = totalSeconds / 3600
+            let minutes = (totalSeconds % 3600) / 60
+            if hours > 0 {
+                return "\(hours)h \(minutes)m"
+            }
+            return "\(minutes)m"
+        case .pace:
+            return value.formatted(.number.precision(.fractionLength(1)))
+        }
+    }
+
+    private func handleCachedFallbackError(_ error: Error) {
+        switch LeaderboardNetworkIssue.classify(error) {
+        case .offline:
+            isOffline = true
+            errorMessage = "Offline - showing cached data"
+        case .slowConnection:
+            isOffline = false
+            errorMessage = "Connection is slow - showing cached data"
+        case .other:
+            isOffline = false
+            errorMessage = "Showing cached data. Latest refresh failed."
+        }
+    }
+
+    private func handleError(_ error: Error, context: String) {
+        switch LeaderboardNetworkIssue.classify(error) {
+        case .offline:
+            isOffline = true
+            errorMessage = "You're offline. Pull to retry."
+        case .slowConnection:
+            isOffline = false
+            errorMessage = "Leaderboard request timed out. Pull to retry."
+        case .other:
+            isOffline = false
+            errorMessage = context == "load"
+                ? "Couldn’t load this leaderboard right now."
+                : "Couldn’t refresh this leaderboard right now."
         }
     }
 }

@@ -838,8 +838,12 @@ struct WorkoutDetailView: View {
 
         modelContext.delete(workout)
         do {
+            let deletedSnapshot = LeaderboardWorkoutSnapshot(workout: workout)
             try modelContext.save()
-            try WorkoutMutationHandler.shared.workoutsDidChange(modelContext: modelContext)
+            try WorkoutMutationHandler.shared.workoutsDidChange(
+                modelContext: modelContext,
+                mutation: .deleted([deletedSnapshot])
+            )
 
             await MainActor.run {
                 isDeleting = false
