@@ -5,10 +5,11 @@ struct AnimatedClimbCardBorder: ViewModifier {
     let shadowColor: Color
     let cornerRadius: CGFloat
     let lineWidth: CGFloat
+    let isEmphasized: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var animateGradient = false
     @State private var pulseShadow = false
+    @State private var rotationAngle: Double = 0
 
     func body(content: Content) -> some View {
         content
@@ -22,38 +23,54 @@ struct AnimatedClimbCardBorder: ViewModifier {
             .onAppear {
                 guard !reduceMotion else { return }
 
-                withAnimation(.linear(duration: 5.6).repeatForever(autoreverses: true)) {
-                    animateGradient = true
+                withAnimation(.linear(duration: rotationDuration).repeatForever(autoreverses: false)) {
+                    rotationAngle = 360
                 }
 
-                withAnimation(.easeInOut(duration: 2.8).repeatForever(autoreverses: true)) {
+                withAnimation(.easeInOut(duration: shadowPulseDuration).repeatForever(autoreverses: true)) {
                     pulseShadow = true
                 }
             }
     }
 
+    private var rotationDuration: Double {
+        isEmphasized ? 13.2 : 10.8
+    }
+
+    private var shadowPulseDuration: Double {
+        isEmphasized ? 3.4 : 4.0
+    }
+
+    private var secondaryRotationOffset: Double {
+        isEmphasized ? -22 : -18
+    }
+
+    private var highlightLeadAngle: Double {
+        isEmphasized ? 58 : 46
+    }
+
     private var shadowOpacity: Double {
         if reduceMotion {
-            return 0.05
+            return isEmphasized ? 0.12 : 0.08
         }
 
-        return pulseShadow ? 0.12 : 0.05
+        if isEmphasized {
+            return pulseShadow ? 0.3 : 0.16
+        }
+
+        return pulseShadow ? 0.18 : 0.1
     }
 
     private var shadowRadius: CGFloat {
         if reduceMotion {
-            return 6
+            return isEmphasized ? 10 : 8
         }
 
-        return pulseShadow ? 10 : 6
-    }
+        if isEmphasized {
+            return pulseShadow ? 22 : 12
+        }
 
-    private var gradientStartPoint: UnitPoint {
-        animateGradient ? .bottomTrailing : .topLeading
-    }
-
-    private var gradientEndPoint: UnitPoint {
-        animateGradient ? .topLeading : .bottomTrailing
+        return pulseShadow ? 14 : 8
     }
 
     private var resolvedColors: [Color] {
@@ -61,27 +78,118 @@ struct AnimatedClimbCardBorder: ViewModifier {
 
         if baseColors.count == 1 {
             let color = baseColors[0]
-            return [color.opacity(0.08), color.opacity(0.45), color.opacity(0.14)]
+            return [
+                color.lighter(by: 0.1),
+                color,
+                color.darker(by: 0.12),
+                color
+            ]
         }
 
-        return [
-            baseColors[0].opacity(0.1),
-            baseColors[0].opacity(0.34),
-            baseColors[1].opacity(0.72),
-            baseColors[1].opacity(0.12)
-        ]
+        let opacity = isEmphasized
+            ? (reduceMotion ? 0.72 : 0.96)
+            : (reduceMotion ? 0.62 : 0.88)
+
+        return baseColors.map { $0.opacity(opacity) }
     }
 
     private var borderOverlay: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .strokeBorder(
-                LinearGradient(
+                AngularGradient(
                     colors: resolvedColors,
-                    startPoint: gradientStartPoint,
-                    endPoint: gradientEndPoint
+                    center: .center,
+                    angle: .degrees(rotationAngle)
                 ),
                 lineWidth: lineWidth
             )
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(
+                        AngularGradient(
+                            colors: resolvedColors.map { $0.opacity(reduceMotion ? 0.18 : (isEmphasized ? 0.54 : 0.34)) },
+                            center: .center,
+                            angle: .degrees(rotationAngle + secondaryRotationOffset)
+                        ),
+                        lineWidth: lineWidth + (isEmphasized ? 1.2 : 0.8)
+                    )
+                    .blur(radius: reduceMotion ? 1.5 : (isEmphasized ? 5.5 : 3.2))
+            }
+            .overlay {
+                if !reduceMotion {
+                    movingHighlightOverlay
+                }
+            }
+    }
+
+    private var movingHighlightOverlay: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .strokeBorder(
+                AngularGradient(
+                    stops: highlightStops,
+                    center: .center,
+                    angle: .degrees(rotationAngle + highlightLeadAngle)
+                ),
+                lineWidth: lineWidth + (isEmphasized ? 1.6 : 1.1)
+            )
+            .blur(radius: isEmphasized ? 1.2 : 0.8)
+            .shadow(color: shadowColor.opacity(isEmphasized ? 0.7 : 0.46), radius: isEmphasized ? 8 : 5)
+            .blendMode(.plusLighter)
+    }
+
+    private var highlightStops: [Gradient.Stop] {
+        let palette = highlightPalette
+
+        guard palette.count > 1 else {
+            let edgeGlow = palette[0]
+            let coreGlow = Color.white.opacity(isEmphasized ? 0.98 : 0.86)
+
+            return [
+                .init(color: .clear, location: 0.0),
+                .init(color: .clear, location: 0.68),
+                .init(color: edgeGlow.opacity(0.0), location: 0.79),
+                .init(color: edgeGlow.opacity(isEmphasized ? 0.52 : 0.4), location: 0.86),
+                .init(color: coreGlow, location: 0.9),
+                .init(color: edgeGlow.opacity(isEmphasized ? 0.74 : 0.58), location: 0.94),
+                .init(color: .clear, location: 0.985),
+                .init(color: .clear, location: 1.0)
+            ]
+        }
+
+        let fadeStart = 0.7
+        let arcStart = 0.79
+        let arcEnd = 0.985
+        let span = arcEnd - arcStart
+
+        var stops: [Gradient.Stop] = [
+            .init(color: .clear, location: 0.0),
+            .init(color: .clear, location: fadeStart),
+            .init(color: palette[0].opacity(0.0), location: arcStart - 0.03)
+        ]
+
+        for (index, color) in palette.enumerated() {
+            let progress = Double(index) / Double(max(palette.count - 1, 1))
+            let location = arcStart + (span * progress)
+            let opacity = isEmphasized ? 0.96 : 0.82
+            stops.append(.init(color: color.opacity(opacity), location: location))
+        }
+
+        stops.append(.init(color: palette[palette.count - 1].opacity(0.0), location: arcEnd))
+        stops.append(.init(color: .clear, location: 1.0))
+
+        return stops
+    }
+
+    private var highlightPalette: [Color] {
+        let basePalette = colors.isEmpty ? [shadowColor] : colors
+
+        if basePalette.count == 1 {
+            return [basePalette[0].lighter(by: isEmphasized ? 0.18 : 0.12)]
+        }
+
+        return basePalette.map { color in
+            color.lighter(by: isEmphasized ? 0.12 : 0.08)
+        }
     }
 }
 
@@ -90,14 +198,16 @@ extension View {
         colors: [Color],
         shadowColor: Color,
         cornerRadius: CGFloat = 28,
-        lineWidth: CGFloat = 1.5
+        lineWidth: CGFloat = 1.5,
+        isEmphasized: Bool = false
     ) -> some View {
         modifier(
             AnimatedClimbCardBorder(
                 colors: colors,
                 shadowColor: shadowColor,
                 cornerRadius: cornerRadius,
-                lineWidth: lineWidth
+                lineWidth: lineWidth,
+                isEmphasized: isEmphasized
             )
         )
     }

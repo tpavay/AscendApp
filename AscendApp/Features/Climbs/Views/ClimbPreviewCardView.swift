@@ -11,10 +11,11 @@ struct ClimbPreviewCardView: View {
                 ClimbSplitCardSurface(
                     leadingWidth: 110,
                     minimumHeight: 138,
-                    glowColor: .clear,
-                    borderColors: [summary.climb.tier.color.opacity(0.58), summary.climb.tier.color],
-                    shadowColor: summary.climb.tier.color,
+                    glowColor: summary.climb.tier.glowColor,
+                    borderColors: summary.climb.tier.borderColors,
+                    shadowColor: summary.climb.tier.shadowColor,
                     lineWidth: 1.8,
+                    isEmphasizedBorderStyle: summary.climb.tier.usesEmphasizedBorderStyle,
                     leading: {
                         ClimbLeadingArtworkPanel(climb: summary.climb)
                     },

@@ -8,6 +8,7 @@ struct ClimbSplitCardSurface<Leading: View, Content: View>: View {
     let shadowColor: Color
     let cornerRadius: CGFloat
     let lineWidth: CGFloat
+    let isEmphasizedBorderStyle: Bool
     let leading: Leading
     let content: Content
 
@@ -19,6 +20,7 @@ struct ClimbSplitCardSurface<Leading: View, Content: View>: View {
         shadowColor: Color,
         cornerRadius: CGFloat = 28,
         lineWidth: CGFloat = 1.25,
+        isEmphasizedBorderStyle: Bool = false,
         @ViewBuilder leading: () -> Leading,
         @ViewBuilder content: () -> Content
     ) {
@@ -29,6 +31,7 @@ struct ClimbSplitCardSurface<Leading: View, Content: View>: View {
         self.shadowColor = shadowColor
         self.cornerRadius = cornerRadius
         self.lineWidth = lineWidth
+        self.isEmphasizedBorderStyle = isEmphasizedBorderStyle
         self.leading = leading()
         self.content = content()
     }
@@ -49,7 +52,8 @@ struct ClimbSplitCardSurface<Leading: View, Content: View>: View {
             colors: borderColors,
             shadowColor: shadowColor,
             cornerRadius: cornerRadius,
-            lineWidth: lineWidth
+            lineWidth: lineWidth,
+            isEmphasized: isEmphasizedBorderStyle
         )
     }
 

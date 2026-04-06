@@ -46,6 +46,17 @@ extension Color {
                          opacity: a)
         }
 
+    func lighter(by amount: CGFloat) -> Color {
+            let ui = UIColor(self)
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            ui.getRed(&r, green: &g, blue: &b, alpha: &a)
+            return Color(.sRGB,
+                         red: min(r + amount, 1),
+                         green: min(g + amount, 1),
+                         blue: min(b + amount, 1),
+                         opacity: a)
+        }
+
     /// Custom gray colors
     static let customGray = Color(hex: "888888")
     static let darkGray = Color(hex: "333333")

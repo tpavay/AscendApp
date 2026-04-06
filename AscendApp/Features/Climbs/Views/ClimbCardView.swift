@@ -34,9 +34,10 @@ struct ClimbCardView: View {
         ClimbSplitCardSurface(
             leadingWidth: 108,
             minimumHeight: 132,
-            glowColor: featuredNewUserClimb.tier.color.opacity(0.1),
-            borderColors: [featuredNewUserClimb.tier.color.opacity(0.35), featuredNewUserClimb.tier.color],
-            shadowColor: featuredNewUserClimb.tier.color,
+            glowColor: featuredNewUserClimb.tier.glowColor,
+            borderColors: featuredNewUserClimb.tier.borderColors,
+            shadowColor: featuredNewUserClimb.tier.shadowColor,
+            isEmphasizedBorderStyle: featuredNewUserClimb.tier.usesEmphasizedBorderStyle,
             leading: {
                 ClimbLeadingArtworkPanel(climb: featuredNewUserClimb)
             },
@@ -124,9 +125,10 @@ struct ClimbCardView: View {
         ClimbSplitCardSurface(
             leadingWidth: 118,
             minimumHeight: 132,
-            glowColor: summary.climb.tier.color.opacity(0.1),
-            borderColors: [summary.climb.tier.color.opacity(0.35), summary.climb.tier.color],
-            shadowColor: summary.climb.tier.color,
+            glowColor: summary.climb.tier.glowColor,
+            borderColors: summary.climb.tier.borderColors,
+            shadowColor: summary.climb.tier.shadowColor,
+            isEmphasizedBorderStyle: summary.climb.tier.usesEmphasizedBorderStyle,
             leading: {
                 ClimbLeadingArtworkPanel(climb: summary.climb)
             },

@@ -274,7 +274,6 @@ struct GoalCompletionCelebrationScreen: View {
     @MainActor
     private func runSequence() async {
         let haptics = HapticsManager.shared
-        let sounds = CelebrationSoundManager.shared
 
         withAnimation(.easeOut(duration: 0.12)) {
             kickerOpacity = 1
@@ -285,14 +284,13 @@ struct GoalCompletionCelebrationScreen: View {
             badgeGlowOpacity = 1.0
         }
         haptics.trigger(.mediumImpact)
-        sounds.playLightningStrike()
         try? await Task.sleep(for: .milliseconds(120))
 
         withAnimation(.easeInOut(duration: 0.58)) {
             chainProgress = 1
             chainGlowOpacity = 1
         }
-        await animateDrivePulseHaptics(haptics: haptics, sounds: sounds)
+        await animateDrivePulseHaptics(haptics: haptics)
 
         try? await Task.sleep(for: .milliseconds(120))
         for (index, metric) in supportingMetrics.enumerated() {
@@ -304,8 +302,7 @@ struct GoalCompletionCelebrationScreen: View {
                 to: metric.value,
                 duration: 0.42 + (Double(index) * 0.08),
                 assign: { animatedMetricValues[metric.kind] = $0 },
-                haptics: haptics,
-                sounds: sounds
+                haptics: haptics
             )
         }
 
@@ -328,7 +325,6 @@ struct GoalCompletionCelebrationScreen: View {
         }
 
         await haptics.goalCompletionBurst()
-        sounds.playElectricExplosion()
 
         withAnimation(.easeOut(duration: 0.2)) {
             shakeAmplitude = 0
@@ -342,8 +338,7 @@ struct GoalCompletionCelebrationScreen: View {
         to target: Int,
         duration: Double,
         assign: (Int) -> Void,
-        haptics: HapticsManager,
-        sounds: CelebrationSoundManager
+        haptics: HapticsManager
     ) async {
         let clampedTarget = max(target, 1)
         let tickCount = min(34, max(10, Int(ceil(Double(clampedTarget) / 120.0))))
@@ -356,9 +351,6 @@ struct GoalCompletionCelebrationScreen: View {
             assign(current)
 
             haptics.trigger(.lightImpact)
-            if index.isMultiple(of: 2) {
-                sounds.playCountTick()
-            }
 
             if index < tickCount - 1 {
                 try? await Task.sleep(for: .milliseconds(intervalMs))
@@ -367,16 +359,14 @@ struct GoalCompletionCelebrationScreen: View {
 
         assign(clampedTarget)
         haptics.trigger(.heavyImpact)
-        sounds.playStatLand()
     }
 
     @MainActor
-    private func animateDrivePulseHaptics(haptics: HapticsManager, sounds: CelebrationSoundManager) async {
+    private func animateDrivePulseHaptics(haptics: HapticsManager) async {
         let pulses = 8
         for index in 0..<pulses {
             let progress = Double(index) / Double(max(pulses - 1, 1))
             haptics.triggerTraceSweep(progress: progress)
-            sounds.playTracePulse(progress: progress)
             if index < pulses - 1 {
                 try? await Task.sleep(for: .milliseconds(72))
             }

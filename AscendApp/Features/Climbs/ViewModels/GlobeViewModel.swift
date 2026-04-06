@@ -21,9 +21,10 @@ final class GlobeViewModel {
 
     private let climbService: ClimbService
     private let autoSpinResumeDelay: TimeInterval = 6
+    private let overviewCameraDistance: CLLocationDistance = GlobeViewModel.defaultOverviewCameraDistance
     private var hasLoaded = false
-    private var currentLatitude = 18.0
-    private var currentLongitude = 8.0
+    private var currentLatitude = GlobeViewModel.defaultLatitude
+    private var currentLongitude = GlobeViewModel.defaultLongitude
     private var suppressCameraInteraction = false
     private var lastUserInteractionAt = Date.distantPast
 
@@ -117,7 +118,7 @@ final class GlobeViewModel {
 
     func selectPreview(_ climb: Climb, modelContext: ModelContext) {
         previewSummary = climbService.previewSummary(for: climb, modelContext: modelContext)
-        focus(on: climb, distance: 8_500_000)
+        focus(on: climb, distance: climb.browsePreviewCameraDistance)
         userDidInteract()
     }
 
@@ -131,6 +132,15 @@ final class GlobeViewModel {
 
     func dismissPreview() {
         previewSummary = nil
+        setCamera(latitude: currentLatitude, longitude: currentLongitude, distance: overviewCameraDistance)
+        userDidInteract()
+    }
+
+    func prepareForBrowseEntry() {
+        searchQuery = ""
+        previewSummary = nil
+        resetOverviewCamera()
+        userDidInteract()
     }
 
     func clearSearchAndResetCamera() {
@@ -144,7 +154,17 @@ final class GlobeViewModel {
         selectPreview(climb, modelContext: modelContext)
     }
 
-    func mapCameraDidChange() {
+    func mapCameraDidChange(_ context: MapCameraUpdateContext) {
+        mapCameraDidChange(
+            latitude: context.camera.centerCoordinate.latitude,
+            longitude: context.camera.centerCoordinate.longitude
+        )
+    }
+
+    func mapCameraDidChange(latitude: Double, longitude: Double) {
+        currentLatitude = latitude
+        currentLongitude = wrappedLongitude(longitude)
+
         if suppressCameraInteraction {
             suppressCameraInteraction = false
             return
@@ -166,12 +186,13 @@ final class GlobeViewModel {
         }
 
         currentLongitude = wrappedLongitude(currentLongitude + 0.12)
-        setCamera(latitude: currentLatitude, longitude: currentLongitude, distance: 28_000_000)
+        setCamera(latitude: currentLatitude, longitude: currentLongitude, distance: overviewCameraDistance)
     }
 
     func resetOverviewCamera() {
-        currentLatitude = 18
-        setCamera(latitude: currentLatitude, longitude: currentLongitude, distance: 28_000_000)
+        currentLatitude = GlobeViewModel.defaultLatitude
+        currentLongitude = GlobeViewModel.defaultLongitude
+        setCamera(latitude: currentLatitude, longitude: currentLongitude, distance: overviewCameraDistance)
     }
 
     private func focus(on climb: Climb, distance: CLLocationDistance) {
@@ -263,14 +284,22 @@ final class GlobeViewModel {
         }
     }
 
-    private static func makeCamera(longitude: Double) -> MapCamera {
+    private static let defaultLatitude = 18.0
+    private static let defaultLongitude = 8.0
+    private static let defaultOverviewCameraDistance: CLLocationDistance = 28_000_000
+
+    private static func makeCamera(latitude: Double, longitude: Double, distance: CLLocationDistance) -> MapCamera {
         MapCamera(
-            centerCoordinate: CLLocationCoordinate2D(latitude: 18, longitude: longitude),
-            distance: 28_000_000,
+            centerCoordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
+            distance: distance,
             heading: 0,
             pitch: 0
         )
     }
 
-    private static let defaultCamera = makeCamera(longitude: 8)
+    private static let defaultCamera = makeCamera(
+        latitude: defaultLatitude,
+        longitude: defaultLongitude,
+        distance: defaultOverviewCameraDistance
+    )
 }

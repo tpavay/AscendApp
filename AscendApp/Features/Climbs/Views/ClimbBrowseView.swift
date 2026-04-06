@@ -5,6 +5,8 @@ struct ClimbBrowseView: View {
 
     @Environment(\.modelContext) private var modelContext
     @State private var selectedDetailClimb: Climb?
+    @State private var showingHelpSheet = false
+    @FocusState private var isSearchFocused: Bool
 
     var body: some View {
         ZStack {
@@ -35,6 +37,10 @@ struct ClimbBrowseView: View {
         .navigationDestination(item: $selectedDetailClimb) { climb in
             ClimbDetailView(climb: climb, showsBrowseBackButton: true)
         }
+        .sheet(isPresented: $showingHelpSheet) {
+            ClimbBrowseHelpSheet()
+                .appSheetStyle(.fraction(0.8))
+        }
         .task {
             viewModel.loadIfNeeded(modelContext: modelContext)
         }
@@ -43,6 +49,9 @@ struct ClimbBrowseView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .climbCatalogDidChange)) { _ in
             viewModel.reloadCatalog(modelContext: modelContext)
+        }
+        .keyboardDoneToolbar {
+            isSearchFocused = false
         }
     }
 
@@ -74,10 +83,16 @@ struct ClimbBrowseView: View {
 
     private var headerAndSearch: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Climb Anything")
-                .font(.montserratBold(size: 28))
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.5), radius: 8, x: 0, y: 2)
+            HStack(alignment: .top, spacing: 12) {
+                Text("Climb Anything")
+                    .font(.montserratBold(size: 28))
+                    .foregroundStyle(.white)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .shadow(color: .black.opacity(0.5), radius: 8, x: 0, y: 2)
+
+                helpButton
+            }
 
             searchField
 
@@ -95,6 +110,29 @@ struct ClimbBrowseView: View {
         .padding(.top, 8)
     }
 
+    private var helpButton: some View {
+        Button {
+            showingHelpSheet = true
+        } label: {
+            Label("How it works", systemImage: "questionmark.circle")
+                .labelStyle(.iconOnly)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.94))
+                .frame(width: 40, height: 40)
+                .background(
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                        .environment(\.colorScheme, .dark)
+                )
+                .overlay(
+                    Circle()
+                        .stroke(.white.opacity(0.14), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Open help for climb tiers, map icons, and progress rules")
+    }
+
     // MARK: - Search Field
 
     private var searchField: some View {
@@ -109,6 +147,7 @@ struct ClimbBrowseView: View {
                 .textInputAutocapitalization(.words)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
+                .focused($isSearchFocused)
 
             if !viewModel.searchQuery.isEmpty {
                 Button {
