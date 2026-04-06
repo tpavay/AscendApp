@@ -1,0 +1,188 @@
+//
+//  GlobeViewModelTests.swift
+//  AscendAppTests
+//
+//  Created by Codex on 4/6/26.
+//
+
+import CoreLocation
+import MapKit
+import SwiftData
+import Testing
+@testable import AscendApp
+
+@MainActor
+struct GlobeViewModelTests {
+    @Test
+    func compactLandmarksUseTighterPreviewZoomThanLargeNaturalClimbs() {
+        let gatewayArch = makeClimb(
+            id: "gateway-arch",
+            category: "monument",
+            heightMeters: 192,
+            steps: 1_056,
+            floors: 53
+        )
+        let machuPicchu = makeClimb(
+            id: "machu-picchu",
+            category: "fortress",
+            heightMeters: 2_430,
+            steps: 13_365,
+            floors: 675,
+            multiSession: true
+        )
+        let matterhorn = makeClimb(
+            id: "matterhorn",
+            category: "mountain",
+            heightMeters: 4_478,
+            steps: 24_629,
+            floors: 1_244,
+            multiSession: true
+        )
+
+        #expect(gatewayArch.browsePreviewCameraDistance < machuPicchu.browsePreviewCameraDistance)
+        #expect(machuPicchu.browsePreviewCameraDistance < matterhorn.browsePreviewCameraDistance)
+        #expect((180_000.0...850_000.0).contains(gatewayArch.browsePreviewCameraDistance))
+        #expect((320_000.0...1_500_000.0).contains(machuPicchu.browsePreviewCameraDistance))
+        #expect((1_100_000.0...3_000_000.0).contains(matterhorn.browsePreviewCameraDistance))
+    }
+
+    @Test
+    func selectPreviewUsesClimbSpecificCameraDistance() throws {
+        let climb = makeClimb(
+            id: "gateway-arch",
+            latitude: 38.6247,
+            longitude: -90.1848,
+            category: "monument",
+            heightMeters: 192,
+            steps: 1_056,
+            floors: 53
+        )
+        let viewModel = GlobeViewModel(climbService: makeClimbService(with: [climb]))
+        let modelContext = try makeModelContext()
+
+        viewModel.selectPreview(climb, modelContext: modelContext)
+
+        let camera = try #require(viewModel.cameraPosition.camera)
+        #expect(viewModel.previewSummary?.climb.id == climb.id)
+        #expect(camera.distance == climb.browsePreviewCameraDistance)
+        #expect(camera.centerCoordinate.latitude == climb.latitude)
+        #expect(camera.centerCoordinate.longitude == climb.longitude)
+    }
+
+    @Test
+    func prepareForBrowseEntryClearsPreviewAndRestoresDefaultOverview() throws {
+        let climb = makeClimb(
+            id: "empire-state-building",
+            latitude: 40.7484,
+            longitude: -73.9857,
+            category: "skyscraper",
+            heightMeters: 381,
+            steps: 2_096,
+            floors: 106
+        )
+        let viewModel = GlobeViewModel(climbService: makeClimbService(with: [climb]))
+        let modelContext = try makeModelContext()
+
+        viewModel.searchQuery = "Empire"
+        viewModel.selectPreview(climb, modelContext: modelContext)
+        viewModel.prepareForBrowseEntry()
+
+        let camera = try #require(viewModel.cameraPosition.camera)
+        #expect(viewModel.searchQuery.isEmpty)
+        #expect(viewModel.previewSummary == nil)
+        #expect(camera.distance == 28_000_000)
+        #expect(camera.centerCoordinate.latitude == 18.0)
+        #expect(camera.centerCoordinate.longitude == 8.0)
+    }
+
+    @Test
+    func dismissPreviewRestoresOverviewZoomAtCurrentCenter() throws {
+        let climb = makeClimb(
+            id: "gateway-arch",
+            latitude: 38.6247,
+            longitude: -90.1848,
+            category: "monument",
+            heightMeters: 192,
+            steps: 1_056,
+            floors: 53
+        )
+        let viewModel = GlobeViewModel(climbService: makeClimbService(with: [climb]))
+        let modelContext = try makeModelContext()
+
+        viewModel.selectPreview(climb, modelContext: modelContext)
+        viewModel.mapCameraDidChange(latitude: 12.34, longitude: 56.78)
+        viewModel.dismissPreview()
+
+        let camera = try #require(viewModel.cameraPosition.camera)
+        #expect(viewModel.previewSummary == nil)
+        #expect(camera.distance == 28_000_000)
+        #expect(camera.centerCoordinate.latitude == 12.34)
+        #expect(camera.centerCoordinate.longitude == 56.78)
+    }
+
+    private func makeModelContext() throws -> ModelContext {
+        let container = try ModelContainer(
+            for: ClimbAttempt.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        return ModelContext(container)
+    }
+
+    private func makeClimbService(with climbs: [Climb]) -> ClimbService {
+        ClimbService(catalogRepository: StaticClimbCatalogRepository(climbs: climbs))
+    }
+
+    private func makeClimb(
+        id: String,
+        latitude: Double = 0,
+        longitude: Double = 0,
+        category: String,
+        heightMeters: Double,
+        steps: Int,
+        floors: Int,
+        multiSession: Bool = false
+    ) -> Climb {
+        Climb(
+            id: id,
+            name: id,
+            city: "City",
+            country: "Country",
+            continent: "Continent",
+            latitude: latitude,
+            longitude: longitude,
+            totalHeightMeters: heightMeters,
+            totalHeightFeet: heightMeters * 3.28084,
+            realClimbableHeightMeters: nil,
+            realClimbableHeightFeet: nil,
+            totalSteps: steps,
+            realStairCount: nil,
+            calculatedFloors: floors,
+            category: category,
+            tier: .gold,
+            tags: [],
+            multiSession: multiSession,
+            funFact: "Fact",
+            sourceURL: "https://example.com",
+            imageSetVersion: 1,
+            isPublished: true
+        )
+    }
+}
+
+private struct StaticClimbCatalogRepository: ClimbCatalogRepository {
+    let climbs: [Climb]
+
+    func loadInitialCatalog() throws -> ClimbCatalogSnapshot {
+        ClimbCatalogSnapshot(
+            climbs: climbs,
+            source: .bootstrap,
+            catalogVersion: 0,
+            featuredClimbId: climbs.first?.id,
+            updatedAt: nil
+        )
+    }
+
+    func refreshCatalog() async throws -> ClimbCatalogSnapshot {
+        try loadInitialCatalog()
+    }
+}

@@ -94,6 +94,7 @@ struct HomeView: View {
                     ClimbCardView(
                         viewModel: globeViewModel,
                         onBrowse: {
+                            globeViewModel.prepareForBrowseEntry()
                             showingClimbBrowse = true
                         },
                         onOpenClimb: { climb in

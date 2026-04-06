@@ -52,39 +52,53 @@ struct ConfirmationView: View {
         AppSheetScaffold(title: title, message: message) {
             EmptyView()
         } footer: {
-            HStack(spacing: 12) {
-                Button {
-                    onCancel()
-                } label: {
-                    if isCancelling {
-                        HStack(spacing: 6) {
-                            ProgressView()
-                                .tint(effectiveColorScheme == .dark ? .white : .black)
-                                .scaleEffect(0.8)
-                            Text("Stopping...")
-                        }
-                    } else {
-                        Text(cancelButtonText)
-                    }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    cancelButton
+                    confirmButton
                 }
-                .appSheetButtonStyle(tone: .secondary)
-                .disabled(isCancelling)
-                .opacity(isLoading && !isCancelling ? 0.7 : 1)
 
-                Button {
-                    onConfirm()
-                } label: {
-                    if isLoading {
-                        ProgressView()
-                            .tint(.white)
-                    } else {
-                        Text(confirmButtonText)
-                    }
+                VStack(spacing: 10) {
+                    cancelButton
+                    confirmButton
                 }
-                .appSheetButtonStyle(tone: isDestructive ? .destructive : .primary)
-                .disabled(isLoading || isCancelling)
             }
         }
+    }
+
+    private var cancelButton: some View {
+        Button {
+            onCancel()
+        } label: {
+            if isCancelling {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .tint(effectiveColorScheme == .dark ? .white : .black)
+                        .scaleEffect(0.8)
+                    Text("Stopping...")
+                }
+            } else {
+                Text(cancelButtonText)
+            }
+        }
+        .appSheetButtonStyle(tone: .secondary)
+        .disabled(isCancelling)
+        .opacity(isLoading && !isCancelling ? 0.7 : 1)
+    }
+
+    private var confirmButton: some View {
+        Button {
+            onConfirm()
+        } label: {
+            if isLoading {
+                ProgressView()
+                    .tint(.white)
+            } else {
+                Text(confirmButtonText)
+            }
+        }
+        .appSheetButtonStyle(tone: isDestructive ? .destructive : .primary)
+        .disabled(isLoading || isCancelling)
     }
 }
 

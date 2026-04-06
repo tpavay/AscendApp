@@ -60,7 +60,7 @@ enum AppSheetPreset {
         case .compactConfirmation:
             return AppSheetConfiguration(sizing: .contentHeight(minHeight: 170, extraPadding: -8), dragIndicator: .visible)
         case .destructiveConfirmation:
-            return AppSheetConfiguration(sizing: .contentHeight(minHeight: 170, extraPadding: -8), dragIndicator: .visible)
+            return AppSheetConfiguration(sizing: .contentHeight(minHeight: 182, extraPadding: 8), dragIndicator: .visible)
         case .actionMenu:
             return AppSheetConfiguration(sizing: .contentHeight(minHeight: 150, extraPadding: -18), dragIndicator: .visible)
         case .dialog(let height, let dragIndicator), .menu(let height, let dragIndicator), .height(let height, let dragIndicator):
@@ -613,12 +613,14 @@ struct AppSheetScaffold<Content: View, Footer: View>: View {
                     .font(.montserratBold(size: 20))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                     .multilineTextAlignment(textAlignment)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 if let message {
                     Text(message)
                         .font(.montserratRegular(size: 16))
                         .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .gray)
                         .multilineTextAlignment(textAlignment)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .frame(maxWidth: .infinity, alignment: headerFrameAlignment)

@@ -173,7 +173,7 @@ struct ClimbDetailView: View {
                         ),
                         style: .continuous
                     )
-                        .fill(viewModel.climb.tier.color.opacity(0.82))
+                        .fill(viewModel.climb.tier.detailStripStyle)
                         .frame(width: 48)
                         .overlay {
                             Text(stripOrderText)
@@ -209,10 +209,11 @@ struct ClimbDetailView: View {
         .frame(height: 390)
         .clipShape(heroShape)
         .animatedClimbCardBorder(
-            colors: [viewModel.climb.tier.color.opacity(0.5), viewModel.climb.tier.color],
-            shadowColor: viewModel.climb.tier.color,
+            colors: viewModel.climb.tier.borderColors,
+            shadowColor: viewModel.climb.tier.shadowColor,
             cornerRadius: 28,
-            lineWidth: 1.8
+            lineWidth: 1.8,
+            isEmphasized: viewModel.climb.tier.usesEmphasizedBorderStyle
         )
     }
 
@@ -334,6 +335,7 @@ struct ClimbDetailView: View {
                 HStack(spacing: 12) {
                     if !showsBrowseBackButton {
                         secondaryActionButton(title: "Browse Other Climbs") {
+                            browseViewModel.prepareForBrowseEntry()
                             showingBrowseClimbs = true
                         }
                     }

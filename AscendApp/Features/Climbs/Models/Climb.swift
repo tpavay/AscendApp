@@ -49,6 +49,23 @@ struct Climb: Codable, Identifiable, Hashable {
         !multiSession
     }
 
+    var browsePreviewCameraDistance: CLLocationDistance {
+        let footprint = max(
+            referenceHeightMeters,
+            Double(referenceStepCount) * 0.25,
+            Double(calculatedFloors) * 4.5
+        )
+
+        switch category.lowercased() {
+        case "mountain", "volcano", "rock", "waterfall":
+            return clampedCameraDistance(footprint * 300, min: 1_100_000, max: 3_000_000)
+        case "bridge", "fortress", "castle", "cathedral", "temple", "pyramid", "stadium":
+            return clampedCameraDistance(footprint * 420, min: 320_000, max: 1_500_000)
+        default:
+            return clampedCameraDistance(footprint * 700, min: 180_000, max: 850_000)
+        }
+    }
+
     static let preview = Climb(
         id: "empire-state-building",
         name: "Empire State Building",
@@ -197,5 +214,13 @@ struct Climb: Codable, Identifiable, Hashable {
         try container.encode(sourceURL, forKey: .sourceURL)
         try container.encode(imageSetVersion, forKey: .imageSetVersion)
         try container.encode(isPublished, forKey: .isPublished)
+    }
+
+    private func clampedCameraDistance(
+        _ proposedDistance: Double,
+        min minimumDistance: CLLocationDistance,
+        max maximumDistance: CLLocationDistance
+    ) -> CLLocationDistance {
+        min(max(proposedDistance, minimumDistance), maximumDistance)
     }
 }

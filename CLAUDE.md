@@ -102,9 +102,12 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
 
 ### Climb Anything V1 Architecture
 - `Climb Anything` is a 3-screen loop:
-  - `Home` is a stateful entry card and does **not** show the globe
-  - `Browse` owns the searchable globe experience
-  - `Climb Detail` is the primary climb destination
+- `Home` is a stateful entry card and does **not** show the globe
+- `Browse` owns the searchable globe experience
+- `Climb Detail` is the primary climb destination
+- Entering `Browse` from another surface should reset the globe to the default overview state and clear any stale preview card/search state from a previous visit.
+- Dismissing a browse preview card should clear the card and restore the overview zoom while preserving the user's current globe center.
+- Browse pin focus should derive camera zoom from climb metadata (category + climb size signals) so compact landmarks can zoom tighter than large natural climbs without per-climb camera overrides.
 - Globe pins should use state-driven location-pin styling instead of colored dots:
   - available climbs use a hollow outlined pin
   - the active climb uses a filled pin with a static double-pin glow treatment
@@ -133,6 +136,7 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
 - Remote climb catalog and remote climb images should use shared disk-backed cache infrastructure under `Shared/Services/Caching`, while climb-specific fetch/decode logic stays inside climb repositories.
 - Home, Browse, and Detail should render from cached/local state first, then refresh remote climb content in the background instead of blocking the UI on network fetches.
 - Reusable climb card surfaces should share `ClimbSplitCardSurface`, `ClimbLeadingArtworkPanel`, and `AnimatedClimbCardBorder` instead of reimplementing split layouts, image clipping, or tier-border animation per screen.
+- All climb tiers should use the shared rotating border treatment from `AnimatedClimbCardBorder`, with each tier driven by its own color tokens; mythic remains the emphasized tier with the purple-forward prismatic palette and strongest glow.
 
 ### Onboarding V2 (Issue #63)
 - Root routing uses onboarding completion before normal auth/home flow.
@@ -229,6 +233,7 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
 - **Icon consistency**: Use the same icon for the same action across screens (for example, overflow menus should use one consistent `ellipsis` style app-wide unless product design explicitly says otherwise)
 - **Level sliders**: Reuse the shared `SegmentedHeatmapSlider` for 1-25 heatmap-based level selection (base level onboarding/settings and routine interval builder) instead of creating screen-specific segmented sliders
 - **Sheets**: Use `AppSheetPreset` with `.appSheetStyle(...)` for sheet sizing, drag indicator behavior, and sheet surface background instead of raw `presentationDetents` arrays at call sites. Use `AppSheetScaffold` for reusable sheet layouts, `AppSheetOptionRow` for menu-style options, and `appSheetButtonStyle(...)` for consistent sheet button semantics. Prefer a dedicated preset/layout pair for dense action sheets when they need tighter row density than general compact dialogs, and avoid root-level `Spacer()`-driven layouts in compact sheets.
+- **Keyboard dismissal**: Reuse the shared `keyboardDoneToolbar(...)` helper with `KeyboardDismissButton` for text-entry keyboards that need an explicit Done action instead of re-creating keyboard toolbar buttons per screen.
 - **Integrations UI**: Keep integrations list cards as overview surfaces, not inline control panels. Shared card styling and structure should live under `Features/Integrations/Shared`, while provider-specific actions live in provider-owned manage sheets or detail surfaces.
 
 ---

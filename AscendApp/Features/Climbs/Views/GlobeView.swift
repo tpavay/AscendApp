@@ -16,8 +16,8 @@ struct GlobeView: View {
         }
         .mapStyle(.imagery(elevation: .realistic))
         .mapControls {}
-        .onMapCameraChange(frequency: .continuous) { _ in
-            viewModel.mapCameraDidChange()
+        .onMapCameraChange(frequency: .continuous) { context in
+            viewModel.mapCameraDidChange(context)
         }
     }
 
