@@ -240,6 +240,7 @@
 				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_PATH)",
 				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Resources/DWARF/${PRODUCT_NAME}.debug.dylib",
 				"$(SRCROOT)/scripts/link-firebase-plists.sh",
+				"$(SRCROOT)/AscendApp/Info.plist",
 				"$(SRCROOT)/AscendApp/App/Firebase/GoogleService-Info-Dev.plist",
 				"$(SRCROOT)/AscendApp/App/Firebase/GoogleService-Info-Staging.plist",
 				"$(SRCROOT)/AscendApp/App/Firebase/GoogleService-Info-Production.plist",
