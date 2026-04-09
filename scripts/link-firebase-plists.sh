@@ -154,5 +154,40 @@ MSG
   fi
 }
 
+validate_selected_plist_google_url_scheme() {
+  if [ -z "$required_plist" ] || [ -z "${INFOPLIST_FILE:-}" ]; then
+    return 0
+  fi
+
+  selected_plist="$TARGET_DIR/$required_plist"
+  if [ ! -f "$selected_plist" ]; then
+    echo "error: Selected Firebase plist not found: $selected_plist"
+    exit 1
+  fi
+
+  info_plist_path="${PROJECT_ROOT}/${INFOPLIST_FILE}"
+  if [ ! -f "$info_plist_path" ]; then
+    echo "error: App Info.plist not found: $info_plist_path"
+    exit 1
+  fi
+
+  reversed_client_id="$(/usr/libexec/PlistBuddy -c 'Print :REVERSED_CLIENT_ID' "$selected_plist" 2>/dev/null || true)"
+  if [ -z "$reversed_client_id" ]; then
+    echo "error: Could not read REVERSED_CLIENT_ID from Firebase plist: $selected_plist"
+    exit 1
+  fi
+
+  if ! /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes' "$info_plist_path" 2>/dev/null | grep -Fq "$reversed_client_id"; then
+    cat <<MSG
+error: Missing Google Sign-In URL scheme for selected Firebase plist.
+  required scheme: $reversed_client_id
+  info plist:      $info_plist_path
+  firebase plist:  $selected_plist
+MSG
+    exit 1
+  fi
+}
+
 validate_selected_plist_bundle_id
+validate_selected_plist_google_url_scheme
 copy_selected_plist_into_bundle
