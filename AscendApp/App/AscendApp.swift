@@ -22,19 +22,10 @@ struct AscendApp: App {
     }
 
     private static func configureFirebase() {
-        #if DEBUG
-        let configFile = "GoogleService-Info-Dev"
-        #elseif STAGING
-        let configFile = "GoogleService-Info-Staging"
-        #else
-        let configFile = "GoogleService-Info-Production"
-        #endif
-
-        guard let filePath = Bundle.main.path(forResource: configFile, ofType: "plist"),
-              let options = FirebaseOptions(contentsOfFile: filePath) else {
-            fatalError("Missing Firebase config: \(configFile).plist")
+        guard Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil else {
+            fatalError("Missing Firebase config: GoogleService-Info.plist")
         }
-        FirebaseApp.configure(options: options)
+        FirebaseApp.configure()
     }
 
     var body: some Scene {

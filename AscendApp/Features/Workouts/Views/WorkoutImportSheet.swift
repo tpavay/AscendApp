@@ -83,6 +83,12 @@ struct WorkoutImportSheet: View {
             }
         }
         .themedBackground()
+        .analyticsScreen(
+            WorkoutImportAnalyticsScreen.sheet(
+                candidateCount: candidateCount,
+                hevyConnected: hevyManager.isConnected
+            )
+        )
         .interactiveDismissDisabled(importCoordinator.isImporting || showingCelebration)
         .safeAreaInset(edge: .bottom) {
             if isSelectionMode && candidateCount > 0 {
