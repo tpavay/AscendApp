@@ -67,6 +67,7 @@ final class WorkoutImportCoordinator {
     private let workoutReader: any HealthKitWorkoutReading
     private let metricsReader: any HealthKitMetricsReading
     private let hevyManager: HevyManager
+    private let telemetry: TelemetryManager
     private let leaderboardService = LeaderboardService.shared
 
     private var modelContext: ModelContext?
@@ -76,12 +77,14 @@ final class WorkoutImportCoordinator {
         authorizationController: any HealthKitAuthorizationControlling = HealthKitAuthorizationClient.shared,
         workoutReader: any HealthKitWorkoutReading = HealthKitWorkoutReader.shared,
         metricsReader: any HealthKitMetricsReading = HealthKitMetricsReader.shared,
-        hevyManager: HevyManager = .shared
+        hevyManager: HevyManager = .shared,
+        telemetry: TelemetryManager = .shared
     ) {
         self.authorizationController = authorizationController
         self.workoutReader = workoutReader
         self.metricsReader = metricsReader
         self.hevyManager = hevyManager
+        self.telemetry = telemetry
         self.lastCheckAt = HealthKitSyncState.lastSuccessfulCheckAt
     }
 
@@ -190,6 +193,13 @@ final class WorkoutImportCoordinator {
             return .failed(candidateID: candidate.id)
         }
 
+        telemetry.track(
+            WorkoutImportAnalyticsEvent.started(
+                mode: .single,
+                candidates: [candidate]
+            )
+        )
+
         isImporting = true
         currentImportingCandidateID = candidate.id
         defer {
@@ -218,16 +228,30 @@ final class WorkoutImportCoordinator {
             break
         }
 
+        telemetry.track(
+            WorkoutImportAnalyticsEvent.finished(
+                mode: .single,
+                candidate: candidate,
+                outcome: outcome
+            )
+        )
+
         return outcome
     }
 
     func importCandidates(ids: Set<String>) async -> ImportBatchResult {
         let candidates = pendingCandidates.filter { ids.contains($0.id) }
-        return await importCandidatesInternal(candidates: candidates)
+        return await importCandidatesInternal(
+            candidates: candidates,
+            mode: .selected
+        )
     }
 
     func importAllCandidates() async -> ImportBatchResult {
-        await importCandidatesInternal(candidates: pendingCandidates)
+        await importCandidatesInternal(
+            candidates: pendingCandidates,
+            mode: .all
+        )
     }
 
     func isImported(_ candidate: ImportedWorkoutCandidate) -> Bool {
@@ -420,7 +444,10 @@ final class WorkoutImportCoordinator {
         return matches.first
     }
 
-    private func importCandidatesInternal(candidates: [ImportedWorkoutCandidate]) async -> ImportBatchResult {
+    private func importCandidatesInternal(
+        candidates: [ImportedWorkoutCandidate],
+        mode: WorkoutImportAnalyticsEvent.ImportMode
+    ) async -> ImportBatchResult {
         guard let modelContext else {
             return ImportBatchResult(importedWorkouts: [], updatedWorkouts: [], failedCandidateIDs: [])
         }
@@ -428,6 +455,13 @@ final class WorkoutImportCoordinator {
         guard !candidates.isEmpty else {
             return ImportBatchResult(importedWorkouts: [], updatedWorkouts: [], failedCandidateIDs: [])
         }
+
+        telemetry.track(
+            WorkoutImportAnalyticsEvent.started(
+                mode: mode,
+                candidates: candidates
+            )
+        )
 
         isImporting = true
         defer {
@@ -466,11 +500,21 @@ final class WorkoutImportCoordinator {
             }
         }
 
-        return ImportBatchResult(
+        let result = ImportBatchResult(
             importedWorkouts: importedWorkouts,
             updatedWorkouts: updatedWorkouts,
             failedCandidateIDs: failedCandidateIDs
         )
+
+        telemetry.track(
+            WorkoutImportAnalyticsEvent.finished(
+                mode: mode,
+                candidates: candidates,
+                result: result
+            )
+        )
+
+        return result
     }
 
     private func importCandidateInternal(

@@ -32,7 +32,7 @@ Organized by **features**, not file types. One type per file.
 AscendApp/
 ├── App/                        # App entry point, Firebase config
 │   ├── AscendApp.swift         # Firebase init, environment selection, deep links
-│   └── Firebase/               # GoogleService-Info-{Dev,Staging}.plist
+│   └── Firebase/               # Environment-specific GoogleService-Info plists
 ├── Features/
 │   ├── Workouts/               # Logging, detail, editing, sharing, import
 │   ├── Routines/               # Workout routines and folders
@@ -59,6 +59,8 @@ Three Firebase environments. App selects at compile time via `#if DEBUG / #elsei
 | Dev | `ascend-f2e4f` | Debug | `AscendApp` |
 | Staging | `ascend-staging-fa7d5` | Staging | `AscendApp-Staging` |
 | Production | `ascend-prod-9c8f2` | Release | `AscendApp` |
+
+Environment plists live in `AscendApp/App/Firebase`, but the build must copy the selected one into the built app bundle as `GoogleService-Info.plist`. App startup should use `FirebaseApp.configure()` with the bundled default plist, not runtime `FirebaseOptions(contentsOfFile:)`, so Firebase Analytics resolves the correct app ID reliably.
 
 **Environment-agnostic URLs**: Never hardcode Firebase project IDs. Derive from `FirebaseApp.app()?.options.projectID`:
 ```swift
@@ -99,6 +101,15 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
 - Workout import supports individual import, selected-batch import, and import-all from the same sheet.
 - Import architecture uses one canonical `Workout` plus local `WorkoutSourceLink` provenance records per provider. New import UI and state should flow through `WorkoutImportCoordinator`, not provider-specific views/services.
 - Apple Health is read-only. First connect may backfill historical workouts, but routine checks must stay incremental and sample-only until a workout is actually imported.
+
+### Analytics Architecture
+- `TelemetryManager` remains the app-facing facade, while reusable telemetry types and sinks live under `Shared/Services/Telemetry`.
+- Feature analytics definitions should live in feature-owned `Analytics/` folders (for example `Features/Workouts/Analytics`) as typed `TelemetryEvent` / `TelemetryScreen` definitions.
+- Feature code must not import Firebase directly for analytics or breadcrumbs. Route analytics through `TelemetryManager` and shared sinks only.
+- Log product events from the owning view model, coordinator, manager, or service instead of scattering calls through leaf views. The main exception is SwiftUI screen tracking, which should use the shared `.analyticsScreen(...)` modifier.
+- Keep analytics parameters low-cardinality and privacy-safe. Do not log raw user-entered text, email, DOB, exact location, exact health samples, or other high-sensitivity payloads.
+- New analytics work should include focused tests using `InMemoryTelemetrySink` so event contracts can be verified without a Firebase runtime.
+- DEBUG builds expose a Telemetry Console inside Debug Tools so recent events and screen views can be inspected locally when running with telemetry enabled.
 
 ### Climb Anything V1 Architecture
 - `Climb Anything` is a 3-screen loop:

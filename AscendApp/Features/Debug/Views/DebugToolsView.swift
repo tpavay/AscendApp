@@ -101,6 +101,18 @@ struct DebugToolsView: View {
                     )
                 }
                 .buttonStyle(.plain)
+
+                NavigationLink {
+                    TelemetryConsoleView()
+                } label: {
+                    inspectionRow(
+                        title: "Telemetry Console",
+                        description: "Inspect recent analytics events, screen views, and breadcrumbs",
+                        icon: "waveform.path.ecg.rectangle",
+                        iconColor: .mint
+                    )
+                }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 20)
         }
