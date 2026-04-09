@@ -89,6 +89,17 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
 - When adding a new share card, prefer a new card type + preset + layout view instead of branching inside an existing card view so current card layouts stay isolated.
 - Do not reintroduce backend-driven workout share backgrounds or Firestore-configured stat layouts unless product explicitly chooses that direction again.
 
+### Privacy Manifest Maintenance Rule
+- `AscendApp/PrivacyInfo.xcprivacy` is a machine-readable Apple privacy manifest that ships inside the app bundle. It is REQUIRED for App Store submission and must stay in sync with reality.
+- Update `AscendApp/PrivacyInfo.xcprivacy` in the SAME PR whenever you:
+  1. **Collect a new data type** — any new field written to Firestore, Firebase Storage, Crashlytics, Analytics, a new HealthKit metric read, or a new profile/onboarding field captured from the user. Add or extend an entry under `NSPrivacyCollectedDataTypes` with the right Apple data type, `Linked` flag, and purpose(s).
+  2. **Call a new "required reason" API category** — `UserDefaults`, file timestamp APIs (`.contentModificationDateKey`, `stat`, `getattrlist`, etc.), system boot time (`mach_absolute_time`, `systemUptime`), disk space (`volumeAvailableCapacity`, `statfs`), or active keyboards (`UITextInputMode.activeInputModes`). Add an entry under `NSPrivacyAccessedAPITypes` with an Apple-approved reason code from https://developer.apple.com/documentation/bundleresources/privacy_manifest_files/describing_use_of_required_reason_api.
+  3. **Add or upgrade a third-party SDK** — open the SDK's bundled `PrivacyInfo.xcprivacy` and add any new data type / API reason it forces on the host app.
+  4. **Start performing tracking** in the ATT sense (cross-app or cross-site identifiers, ad networks, IDFA collection) — flip `NSPrivacyTracking` to `true`, populate `NSPrivacyTrackingDomains`, implement the ATT prompt via `ATTrackingManager`, and add `NSUserTrackingUsageDescription` to `Info.plist`.
+- The privacy manifest, the user-facing Privacy Policy at `ascendstepper.com/privacy`, the App Store Connect "App Privacy" questionnaire (nutrition labels), and the `NS*UsageDescription` strings in `Info.plist` must all describe the SAME set of data practices. If you change one, change all four.
+- The current manifest declares NO tracking and NO ads. Firebase Analytics is enabled in Release/TestFlight only, with `IS_ADS_ENABLED=false`. Do not enable ad SDKs or IDFA collection without flipping `NSPrivacyTracking` and adding ATT.
+- When in doubt about whether something needs to be declared, declare it. Under-declaring is a rejection risk; over-declaring is not.
+
 ### Firestore Schema-Change Rule
 - `firestore.rules` uses strict `hasOnly` + `hasAll` field validation on every collection. Adding, removing, or renaming a field in the app **requires a matching update to `firestore.rules`** — otherwise writes will be rejected at the server.
 - The same `firestore.rules` file must be deployed to all environments (dev, staging, production) to catch schema mismatches early. Never test against loose rules in dev while production has strict ones.
@@ -151,7 +162,7 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
 
 ### Onboarding V2 (Issue #63)
 - Root routing uses onboarding completion before normal auth/home flow.
-- Onboarding sequence is: welcome, HealthKit permission, measurement system, base level, personal details (DOB + gender), body metrics (height + bodyweight), location permission, notifications permission, then mandatory auth.
+- Onboarding sequence is: welcome, HealthKit permission, measurement system, base level, personal details (DOB + gender), body metrics (height + bodyweight), notifications permission, then mandatory auth.
 - Auth is the final onboarding step with Apple/Google only (no "sign in later").
 - Onboarding draft/progress persists locally across app restarts; uninstall/reinstall resets via app data removal.
 - Bodyweight is a single profile-level value (set in onboarding, editable in settings) and is intended to be the app-wide source for body mass usage.

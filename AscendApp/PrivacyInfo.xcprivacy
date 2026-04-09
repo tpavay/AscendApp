@@ -1,0 +1,253 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PrivacyInfo.xcprivacy — Apple privacy manifest for AscendApp.
+
+  WHAT THIS IS
+  This file is the machine-readable declaration Apple uses at submission/upload
+  time to validate (a) what user data the app collects, (b) which "required
+  reason" APIs the app calls and why, and (c) whether the app performs
+  cross-app/cross-site tracking. It is REQUIRED for App Store submission.
+
+  EDIT THIS FILE WHENEVER YOU:
+    - Collect a new data type (any new field written to Firestore, Firebase
+      Storage, Crashlytics, Analytics, a new HealthKit metric read, a new
+      profile field captured in onboarding, etc.) → update
+      NSPrivacyCollectedDataTypes.
+    - Call a new "required reason" API category (UserDefaults, file timestamp
+      APIs, system boot time, disk space, active keyboards) → update
+      NSPrivacyAccessedAPITypes with an Apple-approved reason code.
+    - Add or upgrade a third-party SDK → check that SDK's bundled
+      PrivacyInfo.xcprivacy and add any new entries it forces on the host app.
+    - Start performing cross-app/cross-site tracking (ATT-defined) → flip
+      NSPrivacyTracking to true, populate NSPrivacyTrackingDomains, add the
+      ATT prompt, and add NSUserTrackingUsageDescription to Info.plist.
+
+  MUST STAY CONSISTENT WITH:
+    - ascendstepper.com/privacy (user-facing Privacy Policy)
+    - App Store Connect → App Privacy questionnaire (nutrition labels)
+    - Info.plist NS*UsageDescription strings
+
+  See CLAUDE.md / AGENTS.md → "Privacy Manifest Maintenance Rule" for the
+  full checklist tied to concrete code-change triggers.
+
+  Apple references:
+    - https://developer.apple.com/documentation/bundleresources/privacy_manifest_files
+    - https://developer.apple.com/documentation/bundleresources/privacy_manifest_files/describing_data_use_in_privacy_manifests
+    - https://developer.apple.com/documentation/bundleresources/privacy_manifest_files/describing_use_of_required_reason_api
+-->
+<plist version="1.0">
+<dict>
+    <!-- ============================================================ -->
+    <!-- TRACKING                                                     -->
+    <!-- ============================================================ -->
+    <!--
+      Ascend does not perform cross-app or cross-site tracking as defined by
+      App Tracking Transparency. Firebase Analytics is enabled in
+      Release/TestFlight builds but is configured without IDFA collection
+      (IS_ADS_ENABLED=false) and is used only for first-party app telemetry.
+      No ad networks are integrated.
+    -->
+    <key>NSPrivacyTracking</key>
+    <false/>
+    <key>NSPrivacyTrackingDomains</key>
+    <array/>
+
+    <!-- ============================================================ -->
+    <!-- DATA TYPES COLLECTED                                         -->
+    <!-- ============================================================ -->
+    <key>NSPrivacyCollectedDataTypes</key>
+    <array>
+        <!-- Email Address — Sign in with Apple / Google, profile, feedback -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeEmailAddress</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+                <string>NSPrivacyCollectedDataTypePurposeCustomerSupport</string>
+            </array>
+        </dict>
+
+        <!-- Name — first name, last name, display name -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeName</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+
+        <!-- Health & Fitness — HealthKit reads, workout metrics -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeHealth</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeFitness</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+
+        <!-- Photos or Videos — workout media stored under users/{uid}/ -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypePhotosorVideos</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+
+        <!-- User ID — Firebase Auth UID -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeUserID</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+
+        <!-- Other User Content — feedback submissions (free-text) -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeOtherUserContent</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeCustomerSupport</string>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+
+        <!-- Product Interaction — first-party telemetry breadcrumbs (Release/TestFlight only) -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeProductInteraction</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+
+        <!-- Crash Data — Firebase Crashlytics -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeCrashData</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+
+        <!-- Performance Data — non-fatal error logging via Crashlytics.recordError -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypePerformanceData</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+
+        <!-- Other Diagnostic Data — feedback submission attaches device model, OS version, app/build version -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeOtherDiagnosticData</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeCustomerSupport</string>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+    </array>
+
+    <!-- ============================================================ -->
+    <!-- REQUIRED REASON API USAGE                                    -->
+    <!-- ============================================================ -->
+    <key>NSPrivacyAccessedAPITypes</key>
+    <array>
+        <!--
+          UserDefaults — pervasive use across SettingsManager, UserDataRepository,
+          StravaManager, FeedbackService for first-party preferences and caches.
+          Reason CA92.1: access info from same app, same group, or same App Clip.
+        -->
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>CA92.1</string>
+            </array>
+        </dict>
+
+        <!--
+          File Timestamp — DiskAssetCache reads .contentModificationDateKey on
+          files inside the app's caches directory for cache eviction.
+          Reason C617.1: access timestamps for files inside the app container,
+          app group container, or the app's CloudKit container.
+        -->
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>C617.1</string>
+            </array>
+
+        </dict>
+    </array>
+</dict>
+</plist>
