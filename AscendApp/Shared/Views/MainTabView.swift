@@ -11,11 +11,16 @@ import SwiftData
 struct MainTabView: View {
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
+    @Environment(NetworkConnectivityService.self) private var connectivityService
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
     @State private var tabRouter = TabRouter()
     @State private var hasCheckedRatingOnLaunch = false
     @State private var showingBaseLevelOnboarding = false
+    @State private var showBackOnlineBanner = false
+    @State private var onlineBannerTask: Task<Void, Never>?
+    @State private var showOfflineHighlight = false
+    @State private var offlineHighlightTask: Task<Void, Never>?
 
     // Easy configuration - just change this array to modify tabs
     private let tabs = TabItem.activeTabs
@@ -43,6 +48,9 @@ struct MainTabView: View {
             checkForRatingPromptOnLaunch()
             syncBaseLevelOnboardingPresentation()
         }
+        .onChange(of: connectivityService.isConnected) { oldValue, newValue in
+            handleConnectivityChange(from: oldValue, to: newValue)
+        }
         .onChange(of: settingsManager.hasCompletedBaseLevelOnboarding) { _, _ in
             syncBaseLevelOnboardingPresentation()
         }
@@ -50,58 +58,44 @@ struct MainTabView: View {
             BaseLevelOnboardingView()
         }
         .themeAware()
+        .animation(.smooth(duration: 0.2), value: connectivityService.isConnected)
+        .animation(.smooth(duration: 0.2), value: showBackOnlineBanner)
     }
 
     // MARK: - Custom Tab Bar
 
     private var tabBar: some View {
-        HStack(spacing: 0) {
-            ForEach(tabs) { tab in
-                tabBarButton(for: tab)
-            }
-        }
-        .padding(.top, 8)
-        .padding(.bottom, 2)
-        .background {
-            tabBarBackground
-                .ignoresSafeArea(edges: .bottom)
-        }
-    }
-
-    private func tabBarButton(for tab: TabItem) -> some View {
-        let isSelected = tabRouter.selectedTab == tab.identifier
-        return Button {
+        MainTabBarView(
+            tabs: tabs,
+            selectedTab: tabRouter.selectedTab,
+            effectiveColorScheme: effectiveColorScheme,
+            status: tabBarStatus,
+            statusBackground: tabBarAccentBackground
+        ) { tab in
             guard tabRouter.selectedTab != tab.identifier else { return }
+
             let generator = UIImpactFeedbackGenerator(style: .light)
             generator.impactOccurred()
             tabRouter.selectedTab = tab.identifier
-        } label: {
-            VStack(spacing: 3) {
-                let iconToUse = iconToken(for: tab, isSelected: isSelected)
-                tabBarIcon(for: iconToUse)
-                    .frame(width: 24, height: 24)
-                Text(tab.title)
-                    .font(.system(size: 10, weight: isSelected ? .semibold : .regular))
-            }
-            .foregroundStyle(isSelected ? Color.accent : effectiveColorScheme == .dark ? .white.opacity(0.6) : Color.gray)
-            .frame(maxWidth: .infinity)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
     }
 
-    @ViewBuilder
-    private var tabBarBackground: some View {
-        if effectiveColorScheme == .dark {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-        } else {
-            VStack(spacing: 0) {
-                Divider()
-                Rectangle()
-                    .fill(Color(uiColor: .systemBackground))
-            }
+    private var tabBarStatus: MainTabBarView.Status? {
+        if connectivityService.isConnected == false {
+            return .init(message: "You're offline", iconName: "wifi.slash")
+        } else if showBackOnlineBanner {
+            return .init(message: "You're back online", iconName: "checkmark.circle.fill")
         }
+        return nil
+    }
+
+    private var tabBarAccentBackground: Color? {
+        if showOfflineHighlight {
+            return Color.blue
+        } else if showBackOnlineBanner {
+            return Color.green
+        }
+        return nil
     }
 
     // MARK: - Helpers
@@ -125,41 +119,51 @@ struct MainTabView: View {
         showingBaseLevelOnboarding = settingsManager.shouldPresentBaseLevelOnboarding
     }
 
-    private func iconToken(for tab: TabItem, isSelected: Bool) -> AppIconToken {
-        if isSelected, let selectedIcon = tab.selectedIcon {
-            return selectedIcon
+    private func handleConnectivityChange(from oldValue: Bool, to newValue: Bool) {
+        guard oldValue != newValue else { return }
+
+        onlineBannerTask?.cancel()
+        offlineHighlightTask?.cancel()
+
+        if newValue {
+            showOfflineHighlight = false
+            showBackOnlineBanner = true
+            onlineBannerTask = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(3))
+                showBackOnlineBanner = false
+            }
+        } else {
+            showBackOnlineBanner = false
+            showOfflineHighlight = true
+            offlineHighlightTask = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(5))
+                if connectivityService.isConnected == false {
+                    showOfflineHighlight = false
+                }
+            }
         }
-        return tab.icon
     }
 
-    @ViewBuilder
-    private func tabBarIcon(for token: AppIconToken) -> some View {
-        switch token.source {
-        case .asset(let name):
-            Image(uiImage: resizedTabBarImage(named: name))
-        case .systemSymbol:
-            AppIcon(token: token, pointSize: 20)
-        }
-    }
-
-    private func resizedTabBarImage(named name: String) -> UIImage {
-        let size = CGSize(width: 24, height: 24)
-        guard let sourceImage = UIImage(named: name) else {
-            return UIImage(systemName: "questionmark.circle") ?? UIImage()
-        }
-
-        let format = UIGraphicsImageRendererFormat.default()
-        let renderer = UIGraphicsImageRenderer(size: size, format: format)
-
-        let rendered = renderer.image { _ in
-            sourceImage.draw(in: CGRect(origin: .zero, size: size))
-        }
-
-        return rendered.withRenderingMode(.alwaysTemplate)
-    }
 }
 
 #Preview {
     MainTabView()
         .environment(AuthenticationViewModel())
+        .environment(NetworkConnectivityService.shared)
+}
+
+#Preview("Offline Connectivity Banner") {
+    MainTabBarPreviewScaffold(
+        selectedTab: .home,
+        status: .init(message: "You're offline", iconName: "wifi.slash"),
+        statusBackground: .blue
+    )
+}
+
+#Preview("Back Online Connectivity Banner") {
+    MainTabBarPreviewScaffold(
+        selectedTab: .leaderboard,
+        status: .init(message: "You're back online", iconName: "checkmark.circle.fill"),
+        statusBackground: .green
+    )
 }

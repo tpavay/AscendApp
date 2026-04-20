@@ -19,7 +19,8 @@ struct RootView: View {
             case .authenticated, .restoringSession:
                 MainTabView()
             case .authenticatingWithApple,
-                 .authenticatingWithGoogle:
+                 .authenticatingWithGoogle,
+                 .authenticatingWithInternalQA:
                 ProgressView("Signing In...")
                     .themedBackground()
             case .unauthenticated:
@@ -31,27 +32,37 @@ struct RootView: View {
         .task {
             // Resume any pending uploads from previous session
             await uploadManager.processPendingUploads(modelContext: modelContext)
-            await bootstrapLeaderboardState()
+            await bootstrapAuthenticatedLocalState()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             // Retry pending uploads when app comes to foreground (network may have restored)
             Task {
                 await uploadManager.processPendingUploads(modelContext: modelContext)
-                await bootstrapLeaderboardState()
+                await bootstrapAuthenticatedLocalState()
             }
         }
         .onChange(of: authVM.user?.uid) { _, _ in
             Task {
-                await bootstrapLeaderboardState()
+                await bootstrapAuthenticatedLocalState()
             }
         }
     }
 
     @MainActor
-    private func bootstrapLeaderboardState() async {
+    private func bootstrapAuthenticatedLocalState() async {
         guard let user = authVM.user else { return }
 
         do {
+            try WorkoutRemoteSyncMigrationService.runIfNeeded(
+                modelContext: modelContext,
+                currentUserId: user.uid
+            )
+
+            await WorkoutSyncCoordinator.shared.processPendingWorkouts(
+                modelContext: modelContext,
+                currentUserId: user.uid
+            )
+
             let goalService = GoalService(modelContext: modelContext)
             try goalService.migrateActiveGoalToMondayIfNeeded()
 
@@ -81,7 +92,7 @@ struct RootView: View {
                 photoURL: photoURL
             )
         } catch {
-            print("Leaderboard bootstrap failed: \(error)")
+            print("Authenticated bootstrap failed: \(error)")
         }
     }
 }

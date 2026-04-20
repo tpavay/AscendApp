@@ -77,7 +77,7 @@ final class AccountDeletionService {
         }
 
         let userId = user.uid
-        let totalSteps = 10
+        let totalSteps = 11
         var completedSteps = 0
         var hasStagedLocalDeletion = false
         var hasCommittedLocalDeletion = false
@@ -115,9 +115,9 @@ final class AccountDeletionService {
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 3: Delete all user media from Firebase Storage (storage-level sweep)
-        updateProgress("Deleting workout media...")
-        try await deleteAllUserMedia(userId: userId)
+        // Step 3: Delete all user-scoped Storage data (storage-level sweep)
+        updateProgress("Deleting stored files...")
+        try await deleteAllUserStorage(userId: userId)
         completedSteps += 1
         try Task.checkCancellation()
 
@@ -139,26 +139,32 @@ final class AccountDeletionService {
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 7: Delete Firestore user document
+        // Step 7: Delete Firestore workout backup documents
+        updateProgress("Deleting workout backups...")
+        try await deleteWorkoutBackups(userId: userId)
+        completedSteps += 1
+        try Task.checkCancellation()
+
+        // Step 8: Delete Firestore user document
         updateProgress("Deleting user profile...")
         try await deleteUserDocument(userId: userId)
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 8: Stage local deletion (rollback if auth deletion fails)
+        // Step 9: Stage local deletion (rollback if auth deletion fails)
         updateProgress("Preparing local data cleanup...")
         try stageLocalDataDeletion(modelContext: modelContext)
         hasStagedLocalDeletion = true
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 9: Delete Firebase Auth account (credentials already fresh from Step 1)
+        // Step 10: Delete Firebase Auth account (credentials already fresh from Step 1)
         updateProgress("Deleting account...")
         try await deleteAuthAccount()
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 10: Commit local deletion and clear caches
+        // Step 11: Commit local deletion and clear caches
         updateProgress("Finalizing local cleanup...")
         try commitStagedLocalDeletion(modelContext: modelContext)
         hasCommittedLocalDeletion = true
@@ -210,7 +216,6 @@ final class AccountDeletionService {
             if error.code == AuthErrorCode.requiresRecentLogin.rawValue {
                 // This shouldn't happen since we reauthenticated upfront,
                 // but handle it gracefully rather than losing data.
-                let providerIDs = user.providerData.map { $0.providerID }
                 try await ensureFreshAuthentication(
                     user: user
                 )
@@ -226,7 +231,7 @@ final class AccountDeletionService {
 
     /// Sweeps all user-scoped Storage prefixes and deletes every file.
     /// This is independent of SwiftData — it catches orphaned files too.
-    private nonisolated func deleteAllUserMedia(userId: String) async throws {
+    private nonisolated func deleteAllUserStorage(userId: String) async throws {
         let userRoot = Storage.storage().reference()
             .child("users")
             .child(userId)
@@ -235,6 +240,7 @@ final class AccountDeletionService {
             userRoot.child("photos"),
             userRoot.child("videos"),
             userRoot.child("profile_pictures"),
+            userRoot.child("workout_heart_rate"),
         ]
 
         for prefix in prefixes {
@@ -333,6 +339,38 @@ final class AccountDeletionService {
         }
     }
 
+    /// Deletes all private workout backup documents stored under the user's Firestore subcollection.
+    private func deleteWorkoutBackups(userId: String) async throws {
+        do {
+            let snapshot = try await db.collection("users")
+                .document(userId)
+                .collection("workouts")
+                .getDocuments()
+
+            guard !snapshot.documents.isEmpty else { return }
+
+            var batch = db.batch()
+            var operationsInBatch = 0
+
+            for document in snapshot.documents {
+                batch.deleteDocument(document.reference)
+                operationsInBatch += 1
+
+                if operationsInBatch == 500 {
+                    try await batch.commit()
+                    batch = db.batch()
+                    operationsInBatch = 0
+                }
+            }
+
+            if operationsInBatch > 0 {
+                try await batch.commit()
+            }
+        } catch {
+            throw DeletionError.firestoreDeletionFailed(error.localizedDescription)
+        }
+    }
+
     /// Disconnects cloud integrations before auth account deletion
     private func disconnectCloudIntegrations() async throws {
         do {
@@ -408,6 +446,12 @@ final class AccountDeletionService {
             let pendingUploads = try modelContext.fetch(pendingUploadDescriptor)
             for upload in pendingUploads {
                 modelContext.delete(upload)
+            }
+
+            let pendingWorkoutDeletionDescriptor = FetchDescriptor<PendingWorkoutDeletion>()
+            let pendingWorkoutDeletions = try modelContext.fetch(pendingWorkoutDeletionDescriptor)
+            for pendingDeletion in pendingWorkoutDeletions {
+                modelContext.delete(pendingDeletion)
             }
         } catch {
             throw DeletionError.localDataDeletionFailed(error.localizedDescription)

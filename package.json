@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:firebase-rules": "npx -y firebase-tools@latest emulators:exec --project demo-ascendapp-rules --only firestore,storage \"node --test tests/firebase-rules/*.test.mjs\""
   },
   "repository": {
     "type": "git",
@@ -18,6 +19,8 @@
   "homepage": "https://github.com/tpavay/AscendApp#readme",
   "description": "",
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.0",
+    "firebase": "^12.4.0",
     "firebase-tools": "^14.27.0"
   }
 }

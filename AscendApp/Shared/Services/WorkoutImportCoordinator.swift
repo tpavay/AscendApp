@@ -936,9 +936,8 @@ final class WorkoutImportCoordinator {
         try WorkoutMutationHandler.shared.workoutsDidChange(
             modelContext: modelContext,
             mutation: .imported(newWorkouts.map(LeaderboardWorkoutSnapshot.init(workout:))),
-            newWorkouts: newWorkouts
+            newWorkouts: newWorkouts,
+            changedWorkouts: newWorkouts
         )
-
-        try modelContext.save()
     }
 }

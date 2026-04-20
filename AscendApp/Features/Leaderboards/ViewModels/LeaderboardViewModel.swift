@@ -24,7 +24,7 @@ final class LeaderboardViewModel {
     private let service = LeaderboardService.shared
     private let repository = LeaderboardRepository.shared
     private let pageSize = 25
-    private let networkTimeoutSeconds = 15.0
+    private let networkTimeoutSeconds = LeaderboardRefreshPolicy.networkTimeoutSeconds
     private(set) var visibleEntryLimit = 25
     private var currentUserId: String?
 
@@ -50,37 +50,55 @@ final class LeaderboardViewModel {
     func refreshLeaderboard(
         userId: String,
         displayName: String,
-        photoURL: URL?
+        photoURL: URL?,
+        isNetworkConnected: Bool
     ) async {
         isLoading = true
         errorMessage = nil
         isOffline = false
         var syncError: Error?
 
-        do {
-            try await withLeaderboardTimeout(seconds: networkTimeoutSeconds) {
-                try await LeaderboardSyncCoordinator.shared.flushNow(
-                    userId: userId,
-                    displayName: displayName,
-                    photoURL: photoURL
-                )
+        if isNetworkConnected == false {
+            syncError = URLError(.notConnectedToInternet)
+        } else {
+            do {
+                try await withLeaderboardTimeout(seconds: networkTimeoutSeconds) {
+                    try await LeaderboardSyncCoordinator.shared.flushNow(
+                        userId: userId,
+                        displayName: displayName,
+                        photoURL: photoURL
+                    )
+                }
+            } catch {
+                syncError = error
             }
-        } catch {
-            syncError = error
         }
 
-        await loadLeaderboard(userId: userId, forceRefresh: true)
+        let refreshIssue = syncError.map(LeaderboardNetworkIssue.classify)
+        let shouldForceRemoteRefresh: Bool = {
+            guard let refreshIssue else { return true }
+            switch refreshIssue {
+            case .offline, .slowConnection:
+                return false
+            case .other:
+                return true
+            }
+        }()
+
+        await loadLeaderboard(
+            userId: userId,
+            forceRefresh: shouldForceRemoteRefresh,
+            isNetworkConnected: isNetworkConnected
+        )
 
         guard let syncError else { return }
         switch LeaderboardNetworkIssue.classify(syncError) {
         case .offline:
             isOffline = true
-            errorMessage = "You're offline. Pull to retry."
+            errorMessage = nil
         case .slowConnection:
             isOffline = false
-            errorMessage = leaderboardEntries.isEmpty
-                ? "Leaderboard sync is still timing out."
-                : "Latest changes may take a moment to appear."
+            errorMessage = "Latest changes may take a moment to appear."
         case .other:
             isOffline = false
             errorMessage = leaderboardEntries.isEmpty
@@ -89,7 +107,11 @@ final class LeaderboardViewModel {
         }
     }
 
-    func loadLeaderboard(userId: String, forceRefresh: Bool = false) async {
+    func loadLeaderboard(
+        userId: String,
+        forceRefresh: Bool = false,
+        isNetworkConnected: Bool? = nil
+    ) async {
         isLoading = leaderboardEntries.isEmpty
         if forceRefresh {
             errorMessage = nil
@@ -101,11 +123,44 @@ final class LeaderboardViewModel {
                 for: selectedMetric,
                 timeFrame: selectedTimeFrame
            ) {
-            apply(stats: cachedStats, userId: userId)
+            apply(stats: reconcileCurrentUserStats(cachedStats, userId: userId), userId: userId)
             errorMessage = nil
             isOffline = false
             isLoading = false
             return
+        }
+
+        if isNetworkConnected == false {
+            do {
+                let cacheStats = try await repository.fetchLeaderboard(
+                    metric: selectedMetric,
+                    timeFrame: selectedTimeFrame,
+                    limit: 100,
+                    source: .cache
+                )
+                let reconciledStats = reconcileCurrentUserStats(cacheStats, userId: userId)
+                await LeaderboardSessionCache.shared.setDetailEntries(
+                    reconciledStats,
+                    for: selectedMetric,
+                    timeFrame: selectedTimeFrame
+                )
+                if cacheStats.isEmpty {
+                    leaderboardEntries = []
+                    userEntry = try? placeholderEntry(for: userId)
+                    handleError(URLError(.notConnectedToInternet), context: "load")
+                } else {
+                    apply(stats: reconciledStats, userId: userId)
+                    handleCachedFallbackError(URLError(.notConnectedToInternet))
+                }
+                isLoading = false
+                return
+            } catch {
+                leaderboardEntries = []
+                userEntry = try? placeholderEntry(for: userId)
+                handleError(URLError(.notConnectedToInternet), context: "load")
+                isLoading = false
+                return
+            }
         }
 
         do {
@@ -118,12 +173,13 @@ final class LeaderboardViewModel {
                     source: source
                 )
             }
+            let reconciledStats = reconcileCurrentUserStats(stats, userId: userId)
             await LeaderboardSessionCache.shared.setDetailEntries(
-                stats,
+                reconciledStats,
                 for: selectedMetric,
                 timeFrame: selectedTimeFrame
             )
-            apply(stats: stats, userId: userId)
+            apply(stats: reconciledStats, userId: userId)
             errorMessage = nil
             isOffline = false
         } catch {
@@ -131,12 +187,13 @@ final class LeaderboardViewModel {
                 for: selectedMetric,
                 timeFrame: selectedTimeFrame
             ) {
+                let reconciledStats = reconcileCurrentUserStats(cachedStats, userId: userId)
                 if cachedStats.isEmpty {
                     leaderboardEntries = []
                     userEntry = try? placeholderEntry(for: userId)
                     handleError(error, context: "load")
                 } else {
-                    apply(stats: cachedStats, userId: userId)
+                    apply(stats: reconciledStats, userId: userId)
                     handleCachedFallbackError(error)
                 }
                 isLoading = false
@@ -150,8 +207,9 @@ final class LeaderboardViewModel {
                     limit: 100,
                     source: .cache
                 )
+                let reconciledStats = reconcileCurrentUserStats(cacheStats, userId: userId)
                 await LeaderboardSessionCache.shared.setDetailEntries(
-                    cacheStats,
+                    reconciledStats,
                     for: selectedMetric,
                     timeFrame: selectedTimeFrame
                 )
@@ -160,7 +218,7 @@ final class LeaderboardViewModel {
                     userEntry = try? placeholderEntry(for: userId)
                     handleError(error, context: "load")
                 } else {
-                    apply(stats: cacheStats, userId: userId)
+                    apply(stats: reconciledStats, userId: userId)
                     handleCachedFallbackError(error)
                 }
             } catch {
@@ -271,6 +329,24 @@ final class LeaderboardViewModel {
         visibleEntryLimit = min(pageSize, filteredEntries.count)
     }
 
+    private func reconcileCurrentUserStats(
+        _ stats: [FirestoreLeaderboardStats],
+        userId: String
+    ) -> [FirestoreLeaderboardStats] {
+        guard let localStats = try? service.getLocalStats(for: userId, timeFrame: selectedTimeFrame) else {
+            return stats
+        }
+
+        return LeaderboardCurrentUserReconciler.reconcileDetailStats(
+            stats,
+            metric: selectedMetric,
+            userId: userId,
+            localStats: localStats,
+            displayName: userEntry?.displayName ?? "You",
+            photoURL: userEntry?.photoURL
+        )
+    }
+
     private func formatValue(_ value: Double, for metric: LeaderboardMetric) -> String {
         switch metric {
         case .climb, .workouts:
@@ -292,10 +368,10 @@ final class LeaderboardViewModel {
         switch LeaderboardNetworkIssue.classify(error) {
         case .offline:
             isOffline = true
-            errorMessage = "Offline - showing cached data"
+            errorMessage = nil
         case .slowConnection:
             isOffline = false
-            errorMessage = "Connection is slow - showing cached data"
+            errorMessage = "Latest changes may take a moment to appear."
         case .other:
             isOffline = false
             errorMessage = "Showing cached data. Latest refresh failed."

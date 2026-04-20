@@ -128,6 +128,12 @@ class Workout {
     var stepsPerFloor: Int // Snapshot of conversion rate at workout creation (for historical accuracy)
     var notes: String
     var createdAt: Date
+    var ownerUserId: String?
+    var lastModifiedAt: Date = Date()
+    var lastRemoteSyncAt: Date?
+    var lastRemoteHeartRateSeriesStoragePath: String?
+    var remoteSyncStatusRawValue: String = WorkoutRemoteSyncStatus.pendingUpsert.rawValue
+    var lastRemoteSyncError: String?
     var avgHeartRate: Int? // Average heart rate in BPM
     var maxHeartRate: Int? // Maximum heart rate in BPM
     var caloriesBurned: Int? // Calories burned during workout
@@ -258,6 +264,7 @@ class Workout {
     }
 
     init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int, floors: Int, stepsPerFloor: Int = 16, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil, hevyWorkoutId: String? = nil, photos: [Photo] = [], highlightedPhotoId: UUID? = nil, personalRecordTypes: [String]? = nil, weightConfiguration: WeightConfiguration? = nil) {
+        let createdAt = Date()
         self.id = UUID()
         self.name = name.isEmpty ? "Workout" : name
         self.date = date
@@ -266,7 +273,13 @@ class Workout {
         self.floors = floors
         self.stepsPerFloor = stepsPerFloor
         self.notes = notes
-        self.createdAt = Date()
+        self.createdAt = createdAt
+        self.ownerUserId = nil
+        self.lastModifiedAt = createdAt
+        self.lastRemoteSyncAt = nil
+        self.lastRemoteHeartRateSeriesStoragePath = nil
+        self.remoteSyncStatusRawValue = WorkoutRemoteSyncStatus.pendingUpsert.rawValue
+        self.lastRemoteSyncError = nil
         self.avgHeartRate = avgHeartRate
         self.maxHeartRate = maxHeartRate
         self.caloriesBurned = caloriesBurned
@@ -287,6 +300,33 @@ class Workout {
         self.sourceLinks = []
         self.personalRecordTypes = personalRecordTypes
         self.weightConfiguration = weightConfiguration
+    }
+
+    var remoteSyncStatus: WorkoutRemoteSyncStatus {
+        get { WorkoutRemoteSyncStatus(rawValue: remoteSyncStatusRawValue) ?? .pendingUpsert }
+        set { remoteSyncStatusRawValue = newValue.rawValue }
+    }
+
+    func markPendingRemoteUpsert(ownerUserId: String, modifiedAt: Date = Date()) {
+        self.ownerUserId = ownerUserId
+        lastModifiedAt = modifiedAt
+        remoteSyncStatus = .pendingUpsert
+        lastRemoteSyncError = nil
+    }
+
+    func markRemoteSyncSucceeded(
+        syncedAt: Date = Date(),
+        heartRateSeriesStoragePath: String?
+    ) {
+        lastRemoteSyncAt = syncedAt
+        lastRemoteHeartRateSeriesStoragePath = heartRateSeriesStoragePath
+        remoteSyncStatus = .synced
+        lastRemoteSyncError = nil
+    }
+
+    func markRemoteSyncFailed(_ errorMessage: String) {
+        remoteSyncStatus = .failed
+        lastRemoteSyncError = errorMessage
     }
     
     // Computed properties for convenience
@@ -644,7 +684,7 @@ class Workout {
 }
 
 // MARK: - Heart Rate Data Extensions
-struct HeartRateDataPoint: Codable, Equatable {
+struct HeartRateDataPoint: Codable, Equatable, Sendable {
     let timestamp: Date
     let heartRate: Int
 }

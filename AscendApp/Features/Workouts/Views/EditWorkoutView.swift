@@ -82,12 +82,14 @@ struct EditWorkoutView: View {
     
     private var isFormValid: Bool {
         // Steps/floors is optional - only validate if provided
-        let metricValid = metricValue.isEmpty || Int(metricValue) != nil
+        let metricValid = WorkoutInputValidation.isValidOptionalMetric(metricValue)
 
         // Workout name is optional - will use default if empty
-        let nameValid = workoutName.isEmpty || workoutName.count <= 50
+        let nameValid = WorkoutInputValidation.isValidWorkoutName(workoutName)
+        let notesValid = WorkoutInputValidation.isValidNotes(notes)
 
         let basicValidation = nameValid &&
+        notesValid &&
         !durationMinutes.isEmpty &&
         !durationSeconds.isEmpty &&
         metricValid &&
@@ -105,9 +107,9 @@ struct EditWorkoutView: View {
         let durationValid = totalDurationSeconds > 0
         
         // Validate health metrics if provided
-        let avgHRValid = avgHeartRate.isEmpty || (Int(avgHeartRate) != nil && (Int(avgHeartRate) ?? 0) >= 25 && (Int(avgHeartRate) ?? 0) <= 230)
-        let maxHRValid = maxHeartRate.isEmpty || (Int(maxHeartRate) != nil && (Int(maxHeartRate) ?? 0) >= 25 && (Int(maxHeartRate) ?? 0) <= 230)
-        let caloriesValid = caloriesBurned.isEmpty || (Int(caloriesBurned) != nil && (Int(caloriesBurned) ?? 0) >= 0)
+        let avgHRValid = WorkoutInputValidation.isValidOptionalHeartRate(avgHeartRate)
+        let maxHRValid = WorkoutInputValidation.isValidOptionalHeartRate(maxHeartRate)
+        let caloriesValid = WorkoutInputValidation.isValidOptionalCalories(caloriesBurned)
         
         return basicValidation && durationValid && avgHRValid && maxHRValid && caloriesValid && !isSaving
     }
@@ -269,7 +271,7 @@ struct EditWorkoutView: View {
                                     fieldIdentifier: WorkoutFormField.avgHeartRate
                                 )
                                 .onChange(of: avgHeartRate) { _, newValue in
-                                    avgHeartRate = filterNumericInput(newValue)
+                                    avgHeartRate = WorkoutInputValidation.filterNumericInput(newValue)
                                 }
 
                                 // Maximum Heart Rate
@@ -282,7 +284,7 @@ struct EditWorkoutView: View {
                                     fieldIdentifier: WorkoutFormField.maxHeartRate
                                 )
                                 .onChange(of: maxHeartRate) { _, newValue in
-                                    maxHeartRate = filterNumericInput(newValue)
+                                    maxHeartRate = WorkoutInputValidation.filterNumericInput(newValue)
                                 }
 
                                 // Calories Burned
@@ -295,7 +297,7 @@ struct EditWorkoutView: View {
                                     fieldIdentifier: WorkoutFormField.caloriesBurned
                                 )
                                 .onChange(of: caloriesBurned) { _, newValue in
-                                    caloriesBurned = filterNumericInput(newValue)
+                                    caloriesBurned = WorkoutInputValidation.filterNumericInput(newValue)
                                 }
                             }
                         }
@@ -317,11 +319,11 @@ struct EditWorkoutView: View {
             .onChange(of: focusedField) { oldFocus, newFocus in
                 // Validate fields when focus changes
                 if oldFocus == .avgHeartRate {
-                    validateHeartRateOnSubmit($avgHeartRate)
+                    avgHeartRate = WorkoutInputValidation.normalizeHeartRateOnSubmit(avgHeartRate)
                 } else if oldFocus == .maxHeartRate {
-                    validateHeartRateOnSubmit($maxHeartRate)
+                    maxHeartRate = WorkoutInputValidation.normalizeHeartRateOnSubmit(maxHeartRate)
                 } else if oldFocus == .caloriesBurned {
-                    validateCaloriesOnSubmit()
+                    caloriesBurned = WorkoutInputValidation.normalizeCaloriesOnSubmit(caloriesBurned)
                 }
             }
             .scrollDismissesKeyboard(.interactively)
@@ -336,7 +338,7 @@ struct EditWorkoutView: View {
                 text: $workoutName,
                 focusedField: $focusedField,
                 fieldIdentifier: WorkoutFormField.workoutName,
-                maxLength: 50
+                maxLength: WorkoutInputValidation.nameMaxLength
             )
 
             // Description
@@ -346,7 +348,8 @@ struct EditWorkoutView: View {
                 placeholder: "Add a description for your workout",
                 text: $notes,
                 focusedField: $focusedField,
-                fieldIdentifier: WorkoutFormField.notes
+                fieldIdentifier: WorkoutFormField.notes,
+                maxLength: WorkoutInputValidation.notesMaxLength
             )
             
             if existingPhotos.isEmpty {
@@ -394,7 +397,7 @@ struct EditWorkoutView: View {
                         fieldIdentifier: WorkoutFormField.metricValue
                     )
                     .onChange(of: metricValue) { _, newValue in
-                        metricValue = filterNumericInput(newValue)
+                        metricValue = WorkoutInputValidation.filterNumericInput(newValue)
                     }
 
                     // Effort Rating
@@ -625,39 +628,6 @@ struct EditWorkoutView: View {
         }
     }
     
-    private func validateHeartRateOnSubmit(_ field: Binding<String>) {
-        let digits = field.wrappedValue.filter { $0.isNumber }
-        if digits.isEmpty { 
-            field.wrappedValue = ""
-            return 
-        }
-        
-        guard let value = Int(digits) else { return }
-        
-        if value < 25 { 
-            field.wrappedValue = "25" 
-        } else if value > 230 { 
-            field.wrappedValue = "230" 
-        } else {
-            field.wrappedValue = String(value)
-        }
-    }
-    
-    private func validateCaloriesOnSubmit() {
-        let digits = caloriesBurned.filter { $0.isNumber }
-        if digits.isEmpty { 
-            caloriesBurned = ""
-            return 
-        }
-        
-        guard let value = Int(digits) else { return }
-        caloriesBurned = value < 0 ? "0" : String(value)
-    }
-    
-    private func filterNumericInput(_ input: String) -> String {
-        return input.filter { $0.isNumber }
-    }
-    
     private func effortRatingDisplayText() -> String {
         guard let rating = effortRating else {
             return "Add effort rating (optional)"
@@ -788,7 +758,8 @@ struct EditWorkoutView: View {
                 mutation: .updated(
                     before: leaderboardSnapshotBeforeEdit,
                     after: LeaderboardWorkoutSnapshot(workout: workout)
-                )
+                ),
+                changedWorkouts: [workout]
             )
             
             let photosToDelete = photosMarkedForDeletion
@@ -831,11 +802,7 @@ struct EditWorkoutView: View {
     }
     
     private func cleanupVideoFiles() {
-        for item in selectedImages {
-            if let videoURL = item.videoURL {
-                try? FileManager.default.removeItem(at: videoURL)
-            }
-        }
+        SelectedMediaPreparationService.cleanupTemporaryVideoFiles(in: selectedImages)
     }
     
     private func ensureHighlightSelectionIsValid() {

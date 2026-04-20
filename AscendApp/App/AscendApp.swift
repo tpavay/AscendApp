@@ -38,6 +38,7 @@ struct AscendApp: App {
             }
         }
         .environment(authVM)
+        .environment(NetworkConnectivityService.shared)
         .environment(MediaUploadManager.shared)  // For async media upload status observation
         .modelContainer(createModelContainer())
     }
@@ -69,10 +70,11 @@ struct AscendApp: App {
                 ClimbAttempt.self,
                 WeightPersonalRecord.self,
                 AggregateWeightRecord.self,
-                PendingMediaUpload.self
+                PendingMediaUpload.self,
+                PendingWorkoutDeletion.self
             ]))
             return try ModelContainer(
-                for: Workout.self, WorkoutSourceLink.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self, ClimbAttempt.self, WeightPersonalRecord.self, AggregateWeightRecord.self, PendingMediaUpload.self,
+                for: Workout.self, WorkoutSourceLink.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self, ClimbAttempt.self, WeightPersonalRecord.self, AggregateWeightRecord.self, PendingMediaUpload.self, PendingWorkoutDeletion.self,
                 configurations: config
             )
         } catch {
@@ -103,10 +105,11 @@ struct AscendApp: App {
                     ClimbAttempt.self,
                     WeightPersonalRecord.self,
                     AggregateWeightRecord.self,
-                    PendingMediaUpload.self
+                    PendingMediaUpload.self,
+                    PendingWorkoutDeletion.self
                 ]))
                 return try ModelContainer(
-                    for: Workout.self, WorkoutSourceLink.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self, ClimbAttempt.self, WeightPersonalRecord.self, AggregateWeightRecord.self, PendingMediaUpload.self,
+                    for: Workout.self, WorkoutSourceLink.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self, ClimbAttempt.self, WeightPersonalRecord.self, AggregateWeightRecord.self, PendingMediaUpload.self, PendingWorkoutDeletion.self,
                     configurations: config
                 )
             } catch {

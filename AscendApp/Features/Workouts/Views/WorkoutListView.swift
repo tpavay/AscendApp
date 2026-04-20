@@ -277,6 +277,16 @@ struct WorkoutListView: View {
         }
 
         let workoutsToDelete = workouts.filter { selectedWorkouts.contains($0.id) }
+        let remoteSyncUserId = workoutsToDelete.lazy.compactMap { workout in
+            workout.ownerUserId ?? authVM.user?.uid
+        }.first
+
+        for workout in workoutsToDelete {
+            await MediaUploadManager.shared.cancelUploads(
+                for: workout.id,
+                modelContext: modelContext
+            )
+        }
 
         // Delete photos from Firebase first - ALL must succeed
         let photoService = PhotoService()
@@ -316,18 +326,34 @@ struct WorkoutListView: View {
         }
 
         // Only delete workouts if ALL photo deletions succeeded
+        var shouldProcessRemoteDeletion = false
         do {
+            let didQueueRemoteDeletion = try WorkoutSyncCoordinator.shared.enqueuePendingDeletions(
+                for: workoutsToDelete,
+                fallbackUserId: authVM.user?.uid,
+                modelContext: modelContext
+            )
             let deletedSnapshots = workoutsToDelete.map(LeaderboardWorkoutSnapshot.init(workout:))
             for workout in workoutsToDelete {
                 modelContext.delete(workout)
             }
             try modelContext.save()
+            shouldProcessRemoteDeletion = didQueueRemoteDeletion
 
             // Recalculate PRs and leaderboard stats after deletion
             try WorkoutMutationHandler.shared.workoutsDidChange(
                 modelContext: modelContext,
                 mutation: .deleted(deletedSnapshots)
             )
+
+            if shouldProcessRemoteDeletion, let remoteSyncUserId {
+                Task { @MainActor in
+                    await WorkoutSyncCoordinator.shared.processPendingWorkouts(
+                        modelContext: modelContext,
+                        currentUserId: remoteSyncUserId
+                    )
+                }
+            }
 
             await MainActor.run {
                 isDeleting = false
@@ -337,6 +363,16 @@ struct WorkoutListView: View {
             }
         } catch {
             print("❌ Error deleting workouts: \(error)")
+
+            if shouldProcessRemoteDeletion, let remoteSyncUserId {
+                Task { @MainActor in
+                    await WorkoutSyncCoordinator.shared.processPendingWorkouts(
+                        modelContext: modelContext,
+                        currentUserId: remoteSyncUserId
+                    )
+                }
+            }
+
             await MainActor.run {
                 isDeleting = false
                 showingDeleteConfirmation = false

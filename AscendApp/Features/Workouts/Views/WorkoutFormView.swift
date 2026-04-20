@@ -125,7 +125,7 @@ struct WorkoutFormView: View {
                 text: $viewModel.workoutName,
                 focusedField: $focusedField,
                 fieldIdentifier: WorkoutFormField.workoutName,
-                maxLength: 50
+                maxLength: WorkoutInputValidation.nameMaxLength
             )
 
             // Description
@@ -135,7 +135,8 @@ struct WorkoutFormView: View {
                 placeholder: "Add a description for your workout",
                 text: $viewModel.notes,
                 focusedField: $focusedField,
-                fieldIdentifier: WorkoutFormField.notes
+                fieldIdentifier: WorkoutFormField.notes,
+                maxLength: WorkoutInputValidation.notesMaxLength
             )
 
             PhotoGalleryView(

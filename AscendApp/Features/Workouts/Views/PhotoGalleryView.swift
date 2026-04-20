@@ -5,10 +5,8 @@
 //  Created by Tyler Pavay on 9/20/25.
 //
 
-
 import SwiftUI
 import PhotosUI
-import AVFoundation
 
 struct PhotoGalleryView: View {
     @Binding private var selectedImages: [SelectedPhotoItem]
@@ -23,6 +21,8 @@ struct PhotoGalleryView: View {
     @State private var showErrorAlert = false
     @State private var errorMessage = ""
     @State private var isLoadingMedia = false // Loading state for media processing
+    @State private var mediaProcessingTask: Task<Void, Never>?
+    @State private var activeProcessingToken = UUID()
     
     init(
         selectedImages: Binding<[SelectedPhotoItem]>,
@@ -88,10 +88,11 @@ struct PhotoGalleryView: View {
                 .scrollTargetBehavior(.paging)
             }
         }
-        .onChange(of: selectedPhotos) {
-            Task {
-                await processNewPhotos(selectedPhotos)
-            }
+        .onChange(of: selectedPhotos) { _, newItems in
+            beginProcessing(newItems)
+        }
+        .onDisappear {
+            cancelMediaProcessing()
         }
         .sheet(item: $itemForActionSheet) { item in
             SelectedPhotoActionSheet(
@@ -168,140 +169,65 @@ struct PhotoGalleryView: View {
 
 extension PhotoGalleryView {
     @MainActor
-    private func processNewPhotos(_ newItems: [PhotosPickerItem]) async {
-        // Set loading state
+    private func beginProcessing(_ newItems: [PhotosPickerItem]) {
+        mediaProcessingTask?.cancel()
+
+        guard !newItems.isEmpty else {
+            activeProcessingToken = UUID()
+            mediaProcessingTask = nil
+            isLoadingMedia = false
+            return
+        }
+
+        let token = UUID()
+        activeProcessingToken = token
         isLoadingMedia = true
-        
-        // Validate total media count first
-        let potentialTotal = totalMediaCount + newItems.count
-        if potentialTotal > 3 {
-            errorMessage = "Only 3 combined photos and videos (max 1 video) can be added to a given workout."
-            showErrorAlert = true
-            selectedPhotos.removeAll()
-            isLoadingMedia = false
-            return
-        }
-        
-        // Count videos in new items
-        var newVideoCount = 0
-        for item in newItems {
-            if let contentType = item.supportedContentTypes.first?.identifier,
-               contentType.contains("video") || contentType.contains("movie") {
-                newVideoCount += 1
-            }
-        }
-        
-        // Check video limit (including existing videos)
-        if totalVideoCount + newVideoCount > 1 {
-            errorMessage = "You can only add one video with a max length of 15 seconds."
-            showErrorAlert = true
-            selectedPhotos.removeAll()
-            isLoadingMedia = false
-            return
-        }
-        
-        // Process photos/videos on background, update UI on main
-        let newSelectedImages = await withTaskGroup(of: SelectedPhotoItem?.self) { group in
-            for item in newItems {
-                group.addTask {
-                    await createSelectedPhotoItem(from: item)
-                }
+
+        mediaProcessingTask = Task {
+            defer {
+                finishProcessing(token)
             }
 
-            var results: [SelectedPhotoItem] = []
-            for await result in group {
-                if let item = result {
-                    results.append(item)
-                }
+            let preparationOutcome = await SelectedMediaPreparationService.prepareItems(
+                newItems,
+                currentMediaCount: totalMediaCount,
+                currentVideoCount: totalVideoCount
+            )
+
+            guard activeProcessingToken == token else {
+                SelectedMediaPreparationService.cleanupTemporaryVideoFiles(in: preparationOutcome.items)
+                return
             }
-            return results
-        }
 
-        // Check if any videos exceed 15 seconds or have unknown duration
-        var validItems: [SelectedPhotoItem] = []
-        var hasInvalidVideo = false
-
-        for item in newSelectedImages {
-            if item.isVideo {
-                // Reject if duration is unknown (nil) or exceeds 15 seconds
-                guard let duration = item.duration, duration <= 15 else {
-                    hasInvalidVideo = true
-                    // Clean up the temporary file
-                    if let videoURL = item.videoURL {
-                        try? FileManager.default.removeItem(at: videoURL)
-                    }
-                    continue
-                }
+            if let alertMessage = preparationOutcome.alertMessage {
+                errorMessage = alertMessage
+                showErrorAlert = true
             }
-            validItems.append(item)
+
+            guard preparationOutcome.wasCancelled == false else {
+                return
+            }
+
+            selectedImages.append(contentsOf: preparationOutcome.items)
         }
+    }
 
-        // Show error if any video was invalid
-        if hasInvalidVideo {
-            errorMessage = "Video must be 15 seconds or less."
-            showErrorAlert = true
-        }
-
-        // Add valid items
-        selectedImages.append(contentsOf: validItems)
-
-        // Clear loading state
-        isLoadingMedia = false
+    @MainActor
+    private func cancelMediaProcessing() {
+        activeProcessingToken = UUID()
+        mediaProcessingTask?.cancel()
+        mediaProcessingTask = nil
         selectedPhotos.removeAll()
+        isLoadingMedia = false
     }
 
-    private func createSelectedPhotoItem(from item: PhotosPickerItem) async -> SelectedPhotoItem? {
-        // Check if it's a video
-        if let contentType = item.supportedContentTypes.first?.identifier,
-           contentType.contains("video") || contentType.contains("movie") {
-            return await createVideoItem(from: item)
-        } else {
-            return await createPhotoItem(from: item)
-        }
-    }
-    
-    private func createPhotoItem(from item: PhotosPickerItem) async -> SelectedPhotoItem? {
-        guard let data = try? await item.loadTransferable(type: Data.self),
-              let uiImage = UIImage(data: data) else {
-            return nil
-        }
+    @MainActor
+    private func finishProcessing(_ token: UUID) {
+        guard activeProcessingToken == token else { return }
 
-        return SelectedPhotoItem(
-            pickerItem: item,
-            image: Image(uiImage: uiImage),
-            localIdentifier: item.itemIdentifier ?? UUID().uuidString,
-            isVideo: false,
-            duration: nil
-        )
-    }
-    
-    private func createVideoItem(from item: PhotosPickerItem) async -> SelectedPhotoItem? {
-        guard let movie = try? await item.loadTransferable(type: VideoPickerTransferable.self) else {
-            return nil
-        }
-        
-        let asset = AVURLAsset(url: movie.url)
-        let duration = try? await asset.load(.duration).seconds
-        
-        // Generate thumbnail
-        let imageGenerator = AVAssetImageGenerator(asset: asset)
-        imageGenerator.appliesPreferredTrackTransform = true
-        
-        guard let cgImage = try? await imageGenerator.image(at: .zero).image,
-              let duration = duration else {
-            return nil
-        }
-        
-        let uiImage = UIImage(cgImage: cgImage)
-        
-        return SelectedPhotoItem(
-            pickerItem: item,
-            image: Image(uiImage: uiImage),
-            localIdentifier: item.itemIdentifier ?? UUID().uuidString,
-            isVideo: true,
-            duration: duration,
-            videoURL: movie.url
-        )
+        mediaProcessingTask = nil
+        selectedPhotos.removeAll()
+        isLoadingMedia = false
     }
 
     private func deletePhoto(_ item: SelectedPhotoItem) {
@@ -311,10 +237,7 @@ extension PhotoGalleryView {
             highlightedSelectedItemId = nil
         }
 
-        // Clean up video temporary file if it exists
-        if let videoURL = item.videoURL {
-            try? FileManager.default.removeItem(at: videoURL)
-        }
+        SelectedMediaPreparationService.cleanupTemporaryVideoFile(at: item.videoURL)
 
         photoToDelete = nil
     }

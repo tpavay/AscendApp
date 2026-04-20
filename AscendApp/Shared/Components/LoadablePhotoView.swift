@@ -13,6 +13,8 @@ struct LoadablePhotoView: View {
     let cornerRadius: CGFloat
     let onTap: (() -> Void)?
 
+    @Environment(NetworkConnectivityService.self) private var connectivityService
+
     @State private var loadedImage: UIImage?
     @State private var isLoading = true
 
@@ -93,6 +95,10 @@ struct LoadablePhotoView: View {
         .task {
             await loadMedia()
         }
+        .onChange(of: connectivityService.isConnected) { oldValue, newValue in
+            guard oldValue == false, newValue == true else { return }
+            retryFailedLoadIfNeeded()
+        }
     }
 
     private func loadMedia() async {
@@ -123,8 +129,16 @@ struct LoadablePhotoView: View {
         let totalSeconds = Int(duration.rounded())
         let minutes = totalSeconds / 60
         let seconds = totalSeconds % 60
-        
+
         return "\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
+    }
+
+    private func retryFailedLoadIfNeeded() {
+        guard isLoading == false, loadedImage == nil else { return }
+        isLoading = true
+        Task {
+            await loadMedia()
+        }
     }
 }
 

@@ -280,6 +280,7 @@ private struct AppSheetButtonModifier: ViewModifier {
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(strokeColor, lineWidth: 1)
             )
+            .contentShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 

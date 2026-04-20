@@ -12,9 +12,11 @@ struct LeaderboardHubView: View {
         case refresh
     }
 
+    @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @Environment(TabRouter.self) private var tabRouter
     @Environment(AuthenticationViewModel.self) private var authVM
+    @Environment(NetworkConnectivityService.self) private var connectivityService
     @State private var settingsManager = SettingsManager.shared
 
     @State private var selectedTimeFrame: LeaderboardTimeFrame = .weekly
@@ -25,7 +27,7 @@ struct LeaderboardHubView: View {
 
     private let repository = LeaderboardRepository.shared
     private let previewLimit = 3
-    private let networkTimeoutSeconds = 15.0
+    private let networkTimeoutSeconds = LeaderboardRefreshPolicy.networkTimeoutSeconds
 
     private var preferredMetric: WorkoutMetric {
         settingsManager.preferredWorkoutMetric
@@ -43,6 +45,13 @@ struct LeaderboardHubView: View {
                 } else if hasAnyEntries == false {
                     globalEmptyState
                 } else {
+                    if let errorMessage {
+                        StatusBannerView(
+                            message: errorMessage,
+                            style: .warning
+                        )
+                    }
+
                     ForEach(LeaderboardMetric.allCases) { metric in
                         LeaderboardCategoryCard(
                             metric: metric,
@@ -99,7 +108,9 @@ struct LeaderboardHubView: View {
             return
         }
 
-        if mode == .refresh {
+        if mode == .refresh, connectivityService.isConnected == false {
+            syncError = URLError(.notConnectedToInternet)
+        } else if mode == .refresh {
             do {
                 try await withLeaderboardTimeout(seconds: networkTimeoutSeconds) {
                     try await LeaderboardSyncCoordinator.shared.flushNow(
@@ -121,8 +132,18 @@ struct LeaderboardHubView: View {
             return
         }
 
+        let refreshIssue = syncError.map(LeaderboardNetworkIssue.classify)
+        let shouldPreferCachedRefresh: Bool = {
+            guard mode == .refresh, let refreshIssue else { return false }
+            switch refreshIssue {
+            case .offline, .slowConnection:
+                return true
+            case .other:
+                return false
+            }
+        }()
+
         var fetchedStats: [LeaderboardMetric: [FirestoreLeaderboardStats]] = [:]
-        var fetchedEntries: [LeaderboardMetric: [LeaderboardEntry]] = [:]
         var failedMetrics = 0
         let repository = self.repository
         let previewLimit = self.previewLimit
@@ -133,6 +154,24 @@ struct LeaderboardHubView: View {
         ) { group in
             for metric in LeaderboardMetric.allCases {
                 group.addTask {
+                    if shouldPreferCachedRefresh {
+                        if let cachedStats = await LeaderboardSessionCache.shared.previewEntries(for: selectedTimeFrame)?[metric] {
+                            return (metric, cachedStats, false)
+                        }
+
+                        do {
+                            let cacheStats = try await repository.fetchLeaderboard(
+                                metric: metric,
+                                timeFrame: selectedTimeFrame,
+                                limit: previewLimit,
+                                source: .cache
+                            )
+                            return (metric, cacheStats, false)
+                        } catch {
+                            return (metric, nil, true)
+                        }
+                    }
+
                     do {
                         let stats = try await withLeaderboardTimeout(seconds: networkTimeoutSeconds) {
                             try await repository.fetchLeaderboard(
@@ -177,22 +216,35 @@ struct LeaderboardHubView: View {
         for (metric, stats, didFail) in metricResults {
             let resolvedStats = stats ?? []
             fetchedStats[metric] = resolvedStats
-            fetchedEntries[metric] = makePreviewEntries(from: resolvedStats, metric: metric, userId: userId)
 
             if didFail {
                 failedMetrics += 1
             }
         }
 
+        if let localStats = currentUserLocalStats(for: userId) {
+            fetchedStats = LeaderboardCurrentUserReconciler.reconcilePreviewStats(
+                fetchedStats,
+                userId: userId,
+                localStats: localStats,
+                displayName: authVM.displayName,
+                photoURL: authVM.displayPhotoURL
+            )
+        }
+
+        let fetchedEntries = Dictionary(uniqueKeysWithValues: fetchedStats.map { metric, stats in
+            (metric, makePreviewEntries(from: stats, metric: metric, userId: userId))
+        })
+
         guard activeLoadID == loadID else { return }
         previewEntries = fetchedEntries
         await LeaderboardSessionCache.shared.setPreviewEntries(fetchedStats, for: selectedTimeFrame)
         if failedMetrics == LeaderboardMetric.allCases.count {
-            switch syncError.map(LeaderboardNetworkIssue.classify) ?? .other {
+            switch refreshIssue ?? .other {
             case .offline:
-                errorMessage = "Offline - showing cached data"
+                errorMessage = hasAnyEntries ? nil : "You're offline. Pull to retry."
             case .slowConnection:
-                errorMessage = "Connection is slow - showing cached data"
+                errorMessage = "Latest changes may take a moment to appear."
             case .other:
                 errorMessage = "Couldn’t load leaderboard previews right now."
             }
@@ -201,9 +253,9 @@ struct LeaderboardHubView: View {
         } else if let syncError {
             switch LeaderboardNetworkIssue.classify(syncError) {
             case .offline:
-                errorMessage = "Latest changes haven’t synced yet."
+                errorMessage = nil
             case .slowConnection:
-                errorMessage = "Connection is slow. Latest changes may take a moment to appear."
+                errorMessage = "Latest changes may take a moment to appear."
             case .other:
                 errorMessage = hasAnyEntries
                     ? "Latest changes haven’t synced yet."
@@ -233,6 +285,11 @@ struct LeaderboardHubView: View {
         }
     }
 
+    private func currentUserLocalStats(for userId: String) -> LeaderboardStats? {
+        LeaderboardService.shared.configure(modelContext: modelContext)
+        return try? LeaderboardService.shared.getLocalStats(for: userId, timeFrame: selectedTimeFrame)
+    }
+
     private func formatValue(_ value: Double, for metric: LeaderboardMetric) -> String {
         switch metric {
         case .climb, .workouts:
@@ -250,7 +307,7 @@ struct LeaderboardHubView: View {
         }
     }
 
-    private let hubTimeFrames: [LeaderboardTimeFrame] = [.weekly, .monthly, .allTime]
+    private let hubTimeFrames: [LeaderboardTimeFrame] = [.weekly, .monthly, .yearly, .allTime]
 
     private var hubHeader: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -559,6 +616,7 @@ private extension View {
     NavigationStack {
         LeaderboardHubView()
             .environment(AuthenticationViewModel())
+            .environment(NetworkConnectivityService.shared)
             .environment(TabRouter())
     }
 }

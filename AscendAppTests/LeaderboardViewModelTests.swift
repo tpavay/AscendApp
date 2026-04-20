@@ -8,6 +8,7 @@ struct LeaderboardViewModelTests {
     func cachedFastPathClearsStaleOfflineBannerState() async {
         let cache = LeaderboardSessionCache.shared
         await cache.invalidateAll()
+        let userId = UUID().uuidString
 
         let viewModel = LeaderboardViewModel()
         viewModel.selectedMetric = .climb
@@ -15,10 +16,10 @@ struct LeaderboardViewModelTests {
         viewModel.isOffline = true
         viewModel.errorMessage = "Offline - showing cached data"
 
-        let stats = [makeRemoteStat(userId: "user-1", displayName: "User")]
+        let stats = [makeRemoteStat(userId: userId, displayName: "User")]
         await cache.setDetailEntries(stats, for: .climb, timeFrame: .weekly)
 
-        await viewModel.loadLeaderboard(userId: "user-1")
+        await viewModel.loadLeaderboard(userId: userId)
 
         #expect(viewModel.isOffline == false)
         #expect(viewModel.errorMessage == nil)

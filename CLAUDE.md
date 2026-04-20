@@ -68,6 +68,15 @@ let hostingURL = "https://\(projectId).web.app"
 let functionsURL = "https://\(region)-\(projectId).cloudfunctions.net"
 ```
 
+### Internal QA Sign-In
+- Internal QA sign-in exists only for **dev** and **staging** builds and must stay unavailable in production.
+- Internal QA sign-in must create a real Firebase-authenticated user session (email/password in dev/staging), not a fake authenticated client state.
+- Gate the feature by both build configuration and Firebase project ID so the UI only appears for `ascend-f2e4f` and `ascend-staging-fa7d5`.
+- Local simulator/automation credentials should come from user-local scheme environment variables or other non-committed secrets sources such as `ASC_INTERNAL_QA_EMAIL` and `ASC_INTERNAL_QA_PASSWORD`.
+- XcodeBuildMCP simulator automation should inject `ASC_INTERNAL_QA_EMAIL` and `ASC_INTERNAL_QA_PASSWORD` through `session_set_defaults(env: ...)` or `launch_app_sim(env: ...)` instead of relying on user-local Xcode scheme environment inheritance.
+- Do not persist Internal QA credentials in repo-local `.xcodebuildmcp/config.yaml`; keep them in user-local scheme settings or pass them into the MCP session at runtime.
+- Never commit QA credentials, never bundle them into production builds, and never use the internal QA path to bypass Firestore/Storage/Auth server enforcement.
+
 ### Data Models (SwiftData)
 Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightPersonalRecord, AggregateWeightRecord, PendingMediaUpload
 
@@ -76,9 +85,24 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
   - `users/{uid}/photos/...`
   - `users/{uid}/videos/...`
   - `users/{uid}/profile_pictures/...`
+  - `users/{uid}/workout_heart_rate/...`
 - Never write user media to shared root paths (`photos/`, `videos/`, `profile_pictures/`) in production.
 - Legacy share card template assets may still live under `share-card-templates/...`, but workout share cards in v1 must not fetch their backgrounds or layout config from Firebase.
-- Account deletion and cleanup should target only the authenticated user's scoped prefix.
+- Account deletion and cleanup should target only the authenticated user's scoped prefixes, including durable workout heart-rate sidecars and private workout backup documents.
+
+### Workout Durability Architecture
+- Canonical private workout backups live at `users/{uid}/workouts/{workoutId}`. These documents are the durable backend record for private workout metadata, while `Workout` in SwiftData remains the local-first cache and editing surface.
+- Workout document IDs should use the workout's stable UUID string. Heart-rate sidecars must use the matching Storage path `users/{uid}/workout_heart_rate/{workoutId}.json.gz` so cleanup and repair flows can derive both resources from the same identity.
+- `WorkoutRemoteRepository` owns Firestore upserts/deletes for the canonical workout document, and `WorkoutHeartRateStorageRepository` owns the gzip-compressed heart-rate sidecar upload/delete path.
+- Full heart-rate chart samples should not be embedded directly in Firestore workout documents. Store the full series as a Storage sidecar and keep only pointer/metadata fields in Firestore, alongside summary values like average and max heart rate.
+- A workout that includes heart-rate series data is not fully synced until both the Storage sidecar upload and Firestore workout document upsert succeed.
+- Local workout sync state lives on `Workout` itself (`ownerUserId`, last-modified timestamp, last-remote-sync timestamp, last remote heart-rate sidecar path, sync status, and last sync error) so the app can track pending remote backup work without changing the current local-first UX.
+- Existing on-device workouts are backfilled once per signed-in user into that sync model. Phase 1 explicitly assumes one account per install for this backfill, so shared local workout history is not a supported multi-account scenario yet.
+- Pending remote deletes are tracked locally in `PendingWorkoutDeletion` so delete/retry flows can become durable without overloading the canonical workout record.
+- Workout backup is mutation-driven for create/edit/import flows. `WorkoutMutationHandler` persists the local sync-state changes and immediately kicks the remote coordinator after successful mutations instead of waiting for the user to relaunch the app.
+- Background media uploads are part of the same durability contract. When `Workout.photos` or `highlightedPhotoId` changes after upload completion, the app should mark that workout pending and republish the private workout backup immediately.
+- `WorkoutSyncCoordinator` is the single orchestrator for pending workout backup work. It currently runs both during authenticated bootstrap/foreground repair and from mutation-triggered flushes, processes pending workout deletions before pending upserts, uploads any required heart-rate sidecar before the Firestore upsert, and coalesces overlapping process requests so launch/auth/lifecycle hooks do not issue duplicate remote work for the same workout.
+- Future public sharing or social features must not read directly from the private workout backup collection. Public posts/comments/likes should use separate public models.
 
 ### Workout Share Card Architecture
 - Workout share cards in v1 use bundled poster background assets so the share surface renders instantly and offline.
@@ -107,6 +131,13 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
   1. Update `firestore.rules` to allow the new/changed fields
   2. Update Swift model + write logic
   3. Deploy rules to all environments before or alongside the app update
+
+### Connectivity UX
+- `NetworkConnectivityService` is the app-wide source of truth for immediate connected-vs-offline UX using `NWPathMonitor`.
+- App-wide offline and back-online messaging should be owned by `MainTabView` as a slim conditional status row inside the custom tab bar chrome, so connectivity state appears in one consistent bottom-of-screen location without covering feature content.
+- When connectivity drops, the custom tab bar should briefly emphasize the offline transition by tinting the full tab-bar chrome blue before settling back to the normal tab-bar background with the compact offline status text still visible.
+- Use connectivity state to fail fast for user-initiated refreshes or uploads when there is no network path, instead of waiting for request timeouts to tell the user they are offline.
+- Request-level failures and timeouts are still a separate concern. Features should keep their own timeout/error handling for slow connections, backend failures, or partial cached-data fallbacks.
 
 ### Import UX
 - Workout import supports individual import, selected-batch import, and import-all from the same sheet.
