@@ -7,6 +7,7 @@
 
 import Foundation
 import FirebaseAuth
+import FirebaseCore
 import Observation
 import PhotosUI
 import SwiftUI
@@ -15,10 +16,20 @@ enum AuthenticationState {
     case authenticated
     case authenticatingWithApple
     case authenticatingWithGoogle
+    case authenticatingWithInternalQA
     case unauthenticated
 
     /// Shown while restoring a session on app launch (waiting for profile fetch)
     case restoringSession
+
+    var isAuthenticating: Bool {
+        switch self {
+        case .authenticatingWithApple, .authenticatingWithGoogle, .authenticatingWithInternalQA:
+            return true
+        case .authenticated, .unauthenticated, .restoringSession:
+            return false
+        }
+    }
 }
 
 
@@ -66,7 +77,8 @@ class AuthenticationViewModel {
 
                     // Check if we're in an interactive sign-in flow (already showing progress)
                     let isInteractiveSignIn = self.authenticationState == .authenticatingWithGoogle ||
-                                               self.authenticationState == .authenticatingWithApple
+                                               self.authenticationState == .authenticatingWithApple ||
+                                               self.authenticationState == .authenticatingWithInternalQA
 
                     // Load cached display name immediately
                     let cachedDisplayName = UserDataRepository.shared.getCachedDisplayName() ?? user.displayName ?? ""
@@ -163,6 +175,46 @@ extension AuthenticationViewModel {
                 errorMessage = error.localizedDescription
                 authenticationState = .unauthenticated
             }
+        }
+    }
+
+    func signInWithInternalQA(email: String, password: String) async {
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard InternalQASignInAvailability.isEnabled(projectID: FirebaseApp.app()?.options.projectID) else {
+            errorMessage = "Internal QA sign-in is unavailable in this build."
+            authenticationState = .unauthenticated
+            return
+        }
+
+        guard !trimmedEmail.isEmpty else {
+            errorMessage = "Enter the internal QA email address."
+            authenticationState = .unauthenticated
+            return
+        }
+
+        guard !password.isEmpty else {
+            errorMessage = "Enter the internal QA password."
+            authenticationState = .unauthenticated
+            return
+        }
+
+        authenticationState = .authenticatingWithInternalQA
+        errorMessage = nil
+
+        do {
+            _ = try await authenticationService.signInWithEmail(email: trimmedEmail, password: password)
+            TelemetryManager.shared.log(.authInteractiveSignInSuccess)
+        } catch {
+            TelemetryManager.shared.log(.authSignInFailed)
+            TelemetryManager.shared.recordError(
+                error,
+                context: .auth,
+                code: "internal_qa_sign_in_failed",
+                additionalInfo: ["provider": "internal_qa"]
+            )
+            errorMessage = error.localizedDescription
+            authenticationState = .unauthenticated
         }
     }
     

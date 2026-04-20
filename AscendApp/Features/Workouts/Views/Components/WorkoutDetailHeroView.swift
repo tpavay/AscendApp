@@ -84,6 +84,8 @@ private struct HeroMediaItem: View {
     let geometry: GeometryProxy
     let onTap: () -> Void
 
+    @Environment(NetworkConnectivityService.self) private var connectivityService
+
     @State private var loadedImage: UIImage?
     @State private var isLoading = true
     @State private var player: AVPlayer?
@@ -106,6 +108,10 @@ private struct HeroMediaItem: View {
         }
         .task(id: photo.id) {
             await loadMedia()
+        }
+        .onChange(of: connectivityService.isConnected) { oldValue, newValue in
+            guard oldValue == false, newValue == true else { return }
+            retryFailedLoadIfNeeded()
         }
         .onChange(of: isVisible) { _, visible in
             updatePlayback(isVisible: visible)
@@ -236,5 +242,20 @@ private struct HeroMediaItem: View {
     private func toggleMute() {
         isMuted.toggle()
         player?.isMuted = isMuted
+    }
+
+    private func retryFailedLoadIfNeeded() {
+        guard isLoading == false else { return }
+
+        if photo.isVideo {
+            guard player == nil else { return }
+        } else {
+            guard loadedImage == nil else { return }
+        }
+
+        isLoading = true
+        Task {
+            await loadMedia()
+        }
     }
 }

@@ -27,6 +27,19 @@ service firebase.storage {
         request.resource.contentType.matches("video/.*");
     }
 
+    function validWorkoutHeartRateFileName(fileName) {
+      return fileName.matches("^[0-9a-fA-F-]{36}\\.json\\.gz$");
+    }
+
+    function isCompressedHeartRateUpload(maxBytes) {
+      return request.resource != null &&
+        request.resource.size > 0 &&
+        request.resource.size <= maxBytes &&
+        request.resource.contentType.matches(
+          "application/(gzip|x-gzip|octet-stream)"
+        );
+    }
+
     // User workout photos.
     match /users/{userId}/photos/{fileName} {
       allow get: if isOwner(userId) && validFileName(fileName);
@@ -45,6 +58,16 @@ service firebase.storage {
         validFileName(fileName) &&
         isVideoUpload(200 * 1024 * 1024);
       allow delete: if isOwner(userId) && validFileName(fileName);
+    }
+
+    // User workout heart-rate sidecars.
+    match /users/{userId}/workout_heart_rate/{fileName} {
+      allow get: if isOwner(userId) && validWorkoutHeartRateFileName(fileName);
+      allow list: if isOwner(userId);
+      allow create, update: if isOwner(userId) &&
+        validWorkoutHeartRateFileName(fileName) &&
+        isCompressedHeartRateUpload(5 * 1024 * 1024);
+      allow delete: if isOwner(userId) && validWorkoutHeartRateFileName(fileName);
     }
 
     // User profile pictures.

@@ -1,4 +1,5 @@
 import AuthenticationServices
+import FirebaseCore
 import SwiftUI
 
 struct SignUpView: View {
@@ -83,8 +84,7 @@ struct SignUpView: View {
                                 .stroke(.accent, lineWidth: 1)
                         )
                     }
-                    .disabled(authVM.authenticationState == .authenticatingWithApple ||
-                              authVM.authenticationState ==  .authenticatingWithGoogle)
+                    .disabled(authVM.authenticationState.isAuthenticating)
 
                     // Google Sign In Button with secondary styling
                     Button(action: { Task {
@@ -120,8 +120,49 @@ struct SignUpView: View {
                                 .stroke(colorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.3), lineWidth: 1)
                         )
                     }
-                    .disabled(authVM.authenticationState == .authenticatingWithApple ||
-                              authVM.authenticationState == .authenticatingWithGoogle)
+                    .disabled(authVM.authenticationState.isAuthenticating)
+
+                    if canShowInternalQASignIn {
+                        NavigationLink(destination: InternalQASignInView()) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "person.badge.key")
+                                    .font(.system(size: 18, weight: .semibold))
+
+                                Text("Internal QA Sign In")
+                                    .font(.montserratSemiBold)
+
+                                Spacer()
+
+                                Text("Dev/Staging")
+                                    .font(.montserratSemiBold(size: 12))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(
+                                        Capsule()
+                                            .fill(Color.orange.opacity(colorScheme == .dark ? 0.22 : 0.14))
+                                    )
+                            }
+                            .foregroundStyle(colorScheme == .dark ? .white : .black)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 55)
+                            .padding(.horizontal, 14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(colorScheme == .dark ? Color.orange.opacity(0.12) : Color.orange.opacity(0.08))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .stroke(Color.orange.opacity(colorScheme == .dark ? 0.45 : 0.35), lineWidth: 1)
+                            )
+                        }
+                        .disabled(authVM.authenticationState.isAuthenticating)
+
+                        Text("Internal QA sign-in uses a real Firebase account and is only available in dev and staging builds.")
+                            .font(.montserratRegular(size: 12))
+                            .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .gray.opacity(0.85))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 8)
+                    }
                 }
                 .padding(.horizontal, 24)
 
@@ -136,6 +177,12 @@ struct SignUpView: View {
                     .padding(.bottom, 40)
         }
         .themedBackground()
+    }
+
+    private var canShowInternalQASignIn: Bool {
+        InternalQASignInAvailability.isEnabled(
+            projectID: FirebaseApp.app()?.options.projectID
+        )
     }
 }
 

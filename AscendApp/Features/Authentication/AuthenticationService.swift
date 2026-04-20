@@ -17,6 +17,7 @@ enum AuthenticationError: LocalizedError {
     case noRootViewController
     case noIDToken
     case signInFailed(String)
+    case emailPasswordSignInFailed(String)
     case signOutFailed(String)
     case appleSignInFailed(String)
     case invalidAppleCredential
@@ -28,7 +29,7 @@ extension AuthenticationError {
         switch self {
         case .noClientID, .noRootViewController, .noIDToken, .invalidAppleCredential:
             return "Something went wrong. Please try again."
-        case .signInFailed, .appleSignInFailed:
+        case .signInFailed, .emailPasswordSignInFailed, .appleSignInFailed:
             return "Unable to sign in. Please check your connection and try again."
         case .signOutFailed:
             return "Unable to sign out. Please try again."
@@ -46,6 +47,8 @@ extension AuthenticationError {
             return "ID token is missing from Google Sign-In"
         case .signInFailed(let error):
             return "Sign-in failed: \(error)"
+        case .emailPasswordSignInFailed(let error):
+            return "Email/password sign-in failed: \(error)"
         case .signOutFailed(let error):
             return "Sign-out failed: \(error)"
         case .appleSignInFailed(let error):
@@ -118,6 +121,17 @@ class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
             }
             
             throw AuthenticationError.signInFailed(error.localizedDescription)
+        }
+    }
+
+    func signInWithEmail(email: String, password: String) async throws -> User {
+        do {
+            let result = try await Auth.auth().signIn(withEmail: email, password: password)
+            let firebaseUser = result.user
+            print("User \(firebaseUser.uid) signed in with email \(firebaseUser.email ?? "unknown")")
+            return firebaseUser
+        } catch {
+            throw AuthenticationError.emailPasswordSignInFailed(error.localizedDescription)
         }
     }
 
@@ -281,7 +295,7 @@ extension AuthenticationService {
                 errorToThrow = AuthenticationError.appleSignInFailed("Apple Sign-in failed")
             case .notInteractive:
                 errorToThrow = AuthenticationError.appleSignInFailed("Apple Sign-in requires user interaction")
-            @unknown default:
+            default:
                 errorToThrow = AuthenticationError.appleSignInFailed("Apple Sign-in failed with unknown error")
             }
         } else {

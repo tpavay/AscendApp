@@ -836,14 +836,47 @@ struct WorkoutDetailView: View {
             }
         }
 
+        let remoteSyncUserId = workout.ownerUserId ?? authVM.user?.uid
+        let didQueueRemoteDeletion: Bool
+
+        do {
+            didQueueRemoteDeletion = try WorkoutSyncCoordinator.shared.enqueuePendingDeletions(
+                for: [workout],
+                fallbackUserId: authVM.user?.uid,
+                modelContext: modelContext
+            )
+        } catch {
+            print("❌ Error queueing remote workout deletion: \(error)")
+            await MainActor.run {
+                isDeleting = false
+                showingDeleteConfirmation = false
+                deleteErrorMessage = "Failed to prepare workout deletion. Please try again."
+                showingDeleteError = true
+                HapticsManager.shared.trigger(.error)
+            }
+            return
+        }
+
+        var shouldProcessRemoteDeletion = false
+
         modelContext.delete(workout)
         do {
             let deletedSnapshot = LeaderboardWorkoutSnapshot(workout: workout)
             try modelContext.save()
+            shouldProcessRemoteDeletion = didQueueRemoteDeletion
             try WorkoutMutationHandler.shared.workoutsDidChange(
                 modelContext: modelContext,
                 mutation: .deleted([deletedSnapshot])
             )
+
+            if shouldProcessRemoteDeletion, let remoteSyncUserId {
+                Task { @MainActor in
+                    await WorkoutSyncCoordinator.shared.processPendingWorkouts(
+                        modelContext: modelContext,
+                        currentUserId: remoteSyncUserId
+                    )
+                }
+            }
 
             await MainActor.run {
                 isDeleting = false
@@ -853,6 +886,16 @@ struct WorkoutDetailView: View {
             }
         } catch {
             print("❌ Error deleting workout: \(error)")
+
+            if shouldProcessRemoteDeletion, let remoteSyncUserId {
+                Task { @MainActor in
+                    await WorkoutSyncCoordinator.shared.processPendingWorkouts(
+                        modelContext: modelContext,
+                        currentUserId: remoteSyncUserId
+                    )
+                }
+            }
+
             await MainActor.run {
                 isDeleting = false
                 showingDeleteConfirmation = false

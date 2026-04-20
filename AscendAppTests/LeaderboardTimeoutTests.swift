@@ -1,14 +1,14 @@
-import Foundation
 import Testing
 @testable import AscendApp
 
 struct LeaderboardTimeoutTests {
     @Test
-    func timeoutFailsSlowOperations() async {
+    func timeoutCompletesWhenOperationDoesNotCooperateWithCancellation() async {
         await #expect(throws: LeaderboardTimeoutError.operationTimedOut) {
-            try await withLeaderboardTimeout(seconds: 0.05) {
-                try await Task.sleep(for: .milliseconds(200))
-                return 1
+            let _: Int = try await withLeaderboardTimeout(seconds: 0.1) {
+                try await withCheckedThrowingContinuation { (_: CheckedContinuation<Int, Error>) in
+                    // Intentionally never resumes to simulate a non-cooperative async dependency.
+                }
             }
         }
     }

@@ -13,6 +13,7 @@ struct LeaderboardView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.modelContext) private var modelContext
+    @Environment(NetworkConnectivityService.self) private var connectivityService
 
     @State private var viewModel: LeaderboardViewModel
     @State private var scrollResetTrigger = 0
@@ -51,7 +52,7 @@ struct LeaderboardView: View {
     }
 
     private var lockedTimeFrames: [LeaderboardTimeFrame] {
-        [.weekly, .monthly, .allTime]
+        [.weekly, .monthly, .yearly, .allTime]
     }
 
     private var isLockedMetricView: Bool {
@@ -86,11 +87,11 @@ struct LeaderboardView: View {
                                 .frame(height: 0)
                                 .id(ScrollTarget.top)
 
-                            if viewModel.isOffline && viewModel.hasCachedEntries {
-                                offlineBanner
-                                    .padding(.bottom, isLockedMetricView ? 12 : 0)
-                            } else if let error = viewModel.errorMessage, viewModel.hasCachedEntries {
-                                errorBanner(error)
+                            if let error = viewModel.errorMessage, viewModel.hasCachedEntries {
+                                StatusBannerView(
+                                    message: error,
+                                    style: .warning
+                                )
                                     .padding(.bottom, isLockedMetricView ? 12 : 0)
                             }
 
@@ -495,44 +496,6 @@ struct LeaderboardView: View {
         .padding(.vertical, 40)
     }
 
-    private var offlineBanner: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "wifi.slash")
-                .foregroundStyle(.orange)
-
-            Text("Offline - showing cached data")
-                .font(.montserratRegular(size: 13))
-                .foregroundStyle(colorScheme == .dark ? .white : .black)
-                .multilineTextAlignment(.leading)
-        }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.orange.opacity(0.15) : Color.orange.opacity(0.1))
-        )
-        .padding(.horizontal, 20)
-    }
-
-    private func errorBanner(_ message: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
-
-            Text(message)
-                .font(.montserratRegular(size: 13))
-                .foregroundStyle(colorScheme == .dark ? .white : .black)
-                .multilineTextAlignment(.leading)
-        }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.red.opacity(0.2) : Color.red.opacity(0.1))
-        )
-        .padding(.horizontal, 20)
-    }
-
     private var emptyStateView: some View {
         VStack(spacing: 12) {
             Image(systemName: "person.3.fill")
@@ -587,7 +550,10 @@ struct LeaderboardView: View {
 
     private func loadData() async {
         guard let userId = authVM.user?.uid else { return }
-        await viewModel.loadLeaderboard(userId: userId)
+        await viewModel.loadLeaderboard(
+            userId: userId,
+            isNetworkConnected: connectivityService.isConnected
+        )
     }
 
     private func refreshData() async {
@@ -595,7 +561,8 @@ struct LeaderboardView: View {
         await viewModel.refreshLeaderboard(
             userId: userId,
             displayName: authVM.displayName,
-            photoURL: authVM.displayPhotoURL
+            photoURL: authVM.displayPhotoURL,
+            isNetworkConnected: connectivityService.isConnected
         )
     }
 
@@ -616,6 +583,7 @@ struct LeaderboardView: View {
     NavigationStack {
         LeaderboardView()
             .environment(AuthenticationViewModel())
+            .environment(NetworkConnectivityService.shared)
             .environment(TabRouter())
     }
     .modelContainer(for: [Workout.self, WorkoutSourceLink.self], inMemory: true)

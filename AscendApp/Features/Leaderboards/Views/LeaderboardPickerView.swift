@@ -30,6 +30,8 @@ struct LeaderboardPickerView: View {
                 } label: {
                     Text(timeFrame.displayName)
                         .font(.montserratMedium(size: 14))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                         .foregroundStyle(
                             isSelected
                                 ? .accent
@@ -74,7 +76,7 @@ struct LeaderboardPickerView: View {
 #Preview {
     LeaderboardPickerView(
         selectedTimeFrame: .constant(.weekly),
-        timeFrames: [.weekly, .monthly, .allTime]
+        timeFrames: [.weekly, .monthly, .yearly, .allTime]
     )
     .padding()
     .themedBackground()

@@ -124,6 +124,296 @@ service cloud.firestore {
       return type in ["feature_request", "bug_report", "get_help"];
     }
 
+    function isValidWorkoutSource(source) {
+      return source in [
+        "manual",
+        "apple_health",
+        "garmin",
+        "fitbit",
+        "hevy"
+      ];
+    }
+
+    function isValidIntegrityLevel(level) {
+      return level in ["verified", "unverified"];
+    }
+
+    function isValidWorkoutId(workoutId) {
+      return workoutId.matches("^[0-9a-fA-F-]{36}$");
+    }
+
+    function isValidWorkoutMediaId(mediaId) {
+      return isValidWorkoutId(mediaId);
+    }
+
+    function isValidWorkoutMediaType(type) {
+      return type in ["photo", "video"];
+    }
+
+    function isValidWorkoutWeightEquipmentType(type) {
+      return type in [
+        "weighted_vest",
+        "dumbbells",
+        "barbell",
+        "ankle_weights",
+        "wrist_weights"
+      ];
+    }
+
+    function isValidWorkoutMediaItem(item) {
+      return item is map &&
+        item.keys().hasOnly([
+          "id",
+          "url",
+          "uploadedAt",
+          "type",
+          "durationSeconds"
+        ]) &&
+        item.keys().hasAll([
+          "id",
+          "url",
+          "uploadedAt",
+          "type"
+        ]) &&
+        item.id is string &&
+        isValidWorkoutMediaId(item.id) &&
+        item.url is string &&
+        item.url.size() > 0 &&
+        item.url.size() <= 2048 &&
+        item.uploadedAt is timestamp &&
+        item.type is string &&
+        isValidWorkoutMediaType(item.type) &&
+        (!item.keys().hasAny(["durationSeconds"]) ||
+          (isNonNegativeNumber(item.durationSeconds) &&
+            item.type == "video"));
+    }
+
+    function mediaListContainsId(media, mediaId) {
+      return media is list &&
+        media.size() > 0 &&
+        (
+          media[0].id == mediaId ||
+          (media.size() > 1 && media[1].id == mediaId) ||
+          (media.size() > 2 && media[2].id == mediaId)
+        );
+    }
+
+    function isValidWorkoutMediaList(media) {
+      return media is list &&
+        media.size() <= 3 &&
+        (media.size() == 0 || isValidWorkoutMediaItem(media[0])) &&
+        (media.size() <= 1 || isValidWorkoutMediaItem(media[1])) &&
+        (media.size() <= 2 || isValidWorkoutMediaItem(media[2]));
+    }
+
+    function isValidWorkoutWeightEntry(entry) {
+      return entry is map &&
+        entry.keys().hasOnly([
+          "id",
+          "equipmentType",
+          "weightValue",
+          "isEnabled"
+        ]) &&
+        entry.keys().hasAll([
+          "id",
+          "equipmentType",
+          "weightValue",
+          "isEnabled"
+        ]) &&
+        entry.id is string &&
+        isValidWorkoutId(entry.id) &&
+        entry.equipmentType is string &&
+        isValidWorkoutWeightEquipmentType(entry.equipmentType) &&
+        isNonNegativeNumber(entry.weightValue) &&
+        entry.isEnabled is bool;
+    }
+
+    function hasUniqueWorkoutWeightEquipmentTypes(entries) {
+      return
+        (entries.size() <= 1 || entries[0].equipmentType != entries[1].equipmentType) &&
+        (entries.size() <= 2 || entries[0].equipmentType != entries[2].equipmentType) &&
+        (entries.size() <= 3 || entries[0].equipmentType != entries[3].equipmentType) &&
+        (entries.size() <= 4 || entries[0].equipmentType != entries[4].equipmentType) &&
+        (entries.size() <= 2 || entries[1].equipmentType != entries[2].equipmentType) &&
+        (entries.size() <= 3 || entries[1].equipmentType != entries[3].equipmentType) &&
+        (entries.size() <= 4 || entries[1].equipmentType != entries[4].equipmentType) &&
+        (entries.size() <= 3 || entries[2].equipmentType != entries[3].equipmentType) &&
+        (entries.size() <= 4 || entries[2].equipmentType != entries[4].equipmentType) &&
+        (entries.size() <= 4 || entries[3].equipmentType != entries[4].equipmentType);
+    }
+
+    function isValidWorkoutWeightEntryList(entries) {
+      return entries is list &&
+        entries.size() <= 5 &&
+        (entries.size() == 0 || isValidWorkoutWeightEntry(entries[0])) &&
+        (entries.size() <= 1 || isValidWorkoutWeightEntry(entries[1])) &&
+        (entries.size() <= 2 || isValidWorkoutWeightEntry(entries[2])) &&
+        (entries.size() <= 3 || isValidWorkoutWeightEntry(entries[3])) &&
+        (entries.size() <= 4 || isValidWorkoutWeightEntry(entries[4])) &&
+        hasUniqueWorkoutWeightEquipmentTypes(entries);
+    }
+
+    function isValidWorkoutWeightConfiguration(config) {
+      return config is map &&
+        config.keys().hasOnly(["entries"]) &&
+        config.keys().hasAll(["entries"]) &&
+        isValidWorkoutWeightEntryList(config.entries);
+    }
+
+    function isValidWorkoutHeartRateSeriesReference(userId, workoutId, reference) {
+      return reference is map &&
+        reference.keys().hasOnly([
+          "storagePath",
+          "encoding",
+          "sampleCount",
+          "seriesStartAt",
+          "seriesEndAt"
+        ]) &&
+        reference.keys().hasAll([
+          "storagePath",
+          "encoding",
+          "sampleCount",
+          "seriesStartAt",
+          "seriesEndAt"
+        ]) &&
+        reference.storagePath is string &&
+        reference.storagePath.size() <= 256 &&
+        reference.storagePath ==
+          "users/" + userId + "/workout_heart_rate/" + workoutId + ".json.gz" &&
+        reference.encoding == "json+gzip" &&
+        reference.sampleCount is int &&
+        reference.sampleCount > 0 &&
+        reference.seriesStartAt is timestamp &&
+        reference.seriesEndAt is timestamp &&
+        reference.seriesEndAt >= reference.seriesStartAt;
+    }
+
+    function currentWorkoutSchemaVersion() {
+      return 1;
+    }
+
+    function isSupportedWorkoutSchemaVersion(version) {
+      return version is int &&
+        version == currentWorkoutSchemaVersion();
+    }
+
+    function isValidWorkoutDocument(userId, workoutId) {
+      return isValidWorkoutId(workoutId) &&
+        request.resource.data.keys().hasOnly([
+          "userId",
+          "schemaVersion",
+          "name",
+          "startedAt",
+          "durationSeconds",
+          "steps",
+          "floors",
+          "stepsPerFloor",
+          "notes",
+          "source",
+          "integrityLevel",
+          "createdAt",
+          "updatedAt",
+          "avgHeartRateBpm",
+          "maxHeartRateBpm",
+          "caloriesBurned",
+          "effortRating",
+          "averageMETs",
+          "deviceModel",
+          "sourceMetadata",
+          "healthKitUUID",
+          "hevyWorkoutId",
+          "media",
+          "highlightedMediaId",
+          "weightConfiguration",
+          "heartRateSeries"
+        ]) &&
+        request.resource.data.keys().hasAll([
+          "userId",
+          "schemaVersion",
+          "name",
+          "startedAt",
+          "durationSeconds",
+          "steps",
+          "floors",
+          "stepsPerFloor",
+          "notes",
+          "source",
+          "integrityLevel",
+          "createdAt",
+          "updatedAt"
+        ]) &&
+        request.resource.data.userId == userId &&
+        isSupportedWorkoutSchemaVersion(request.resource.data.schemaVersion) &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() > 0 &&
+        request.resource.data.name.size() <= 120 &&
+        request.resource.data.startedAt is timestamp &&
+        isNonNegativeNumber(request.resource.data.durationSeconds) &&
+        request.resource.data.steps is int &&
+        request.resource.data.steps >= 0 &&
+        request.resource.data.floors is int &&
+        request.resource.data.floors >= 0 &&
+        request.resource.data.stepsPerFloor is int &&
+        request.resource.data.stepsPerFloor > 0 &&
+        request.resource.data.stepsPerFloor <= 100 &&
+        request.resource.data.notes is string &&
+        request.resource.data.notes.size() <= 5000 &&
+        request.resource.data.source is string &&
+        isValidWorkoutSource(request.resource.data.source) &&
+        request.resource.data.integrityLevel is string &&
+        isValidIntegrityLevel(request.resource.data.integrityLevel) &&
+        request.resource.data.createdAt is timestamp &&
+        request.resource.data.updatedAt is timestamp &&
+        (!request.resource.data.keys().hasAny(["avgHeartRateBpm"]) ||
+          (request.resource.data.avgHeartRateBpm is int &&
+            request.resource.data.avgHeartRateBpm >= 25 &&
+            request.resource.data.avgHeartRateBpm <= 240)) &&
+        (!request.resource.data.keys().hasAny(["maxHeartRateBpm"]) ||
+          (request.resource.data.maxHeartRateBpm is int &&
+            request.resource.data.maxHeartRateBpm >= 25 &&
+            request.resource.data.maxHeartRateBpm <= 240)) &&
+        (!request.resource.data.keys().hasAny(["caloriesBurned"]) ||
+          (request.resource.data.caloriesBurned is int &&
+            request.resource.data.caloriesBurned >= 0)) &&
+        (!request.resource.data.keys().hasAny(["effortRating"]) ||
+          (isNonNegativeNumber(request.resource.data.effortRating) &&
+            request.resource.data.effortRating <= 5)) &&
+        (!request.resource.data.keys().hasAny(["averageMETs"]) ||
+          isNonNegativeNumber(request.resource.data.averageMETs)) &&
+        (!request.resource.data.keys().hasAny(["deviceModel"]) ||
+          (request.resource.data.deviceModel is string &&
+            request.resource.data.deviceModel.size() <= 120)) &&
+        (!request.resource.data.keys().hasAny(["sourceMetadata"]) ||
+          (request.resource.data.sourceMetadata is string &&
+            request.resource.data.sourceMetadata.size() <= 4000)) &&
+        (!request.resource.data.keys().hasAny(["healthKitUUID"]) ||
+          (request.resource.data.healthKitUUID is string &&
+            request.resource.data.healthKitUUID.size() <= 128)) &&
+        (!request.resource.data.keys().hasAny(["hevyWorkoutId"]) ||
+          (request.resource.data.hevyWorkoutId is string &&
+            request.resource.data.hevyWorkoutId.size() <= 128)) &&
+        (!request.resource.data.keys().hasAny(["media"]) ||
+          isValidWorkoutMediaList(request.resource.data.media)) &&
+        (!request.resource.data.keys().hasAny(["highlightedMediaId"]) ||
+          (request.resource.data.highlightedMediaId is string &&
+            isValidWorkoutMediaId(request.resource.data.highlightedMediaId) &&
+            request.resource.data.keys().hasAny(["media"]) &&
+            mediaListContainsId(
+              request.resource.data.media,
+              request.resource.data.highlightedMediaId
+            ))) &&
+        (!request.resource.data.keys().hasAny(["weightConfiguration"]) ||
+          isValidWorkoutWeightConfiguration(
+            request.resource.data.weightConfiguration
+          )) &&
+        (!request.resource.data.keys().hasAny(["heartRateSeries"]) ||
+          isValidWorkoutHeartRateSeriesReference(
+            userId,
+            workoutId,
+            request.resource.data.heartRateSeries
+          ));
+    }
+
     function userRateLimitDocPath() {
       return /databases/$(database)/documents/userRateLimits/$(request.auth.uid);
     }
@@ -200,6 +490,18 @@ service cloud.firestore {
       match /integrations/{integrationId} {
         allow read: if isOwner(userId);
         allow write: if false;
+      }
+
+      match /workouts/{workoutId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+          isValidWorkoutDocument(userId, workoutId);
+        allow update: if isOwner(userId) &&
+          isValidWorkoutDocument(userId, workoutId) &&
+          request.resource.data.userId == resource.data.userId &&
+          request.resource.data.schemaVersion == resource.data.schemaVersion &&
+          request.resource.data.createdAt == resource.data.createdAt;
+        allow delete: if isOwner(userId);
       }
     }
 

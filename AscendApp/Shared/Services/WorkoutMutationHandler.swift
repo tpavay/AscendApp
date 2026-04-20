@@ -5,7 +5,8 @@ import SwiftData
 /// Centralized handler for post-workout-mutation side effects.
 ///
 /// Every code path that creates, edits, deletes, or imports workouts should call
-/// `workoutsDidChange(modelContext:mutation:newWorkouts:)` after the mutation is persisted.
+/// `workoutsDidChange(modelContext:mutation:newWorkouts:changedWorkouts:)`
+/// after the mutation is persisted.
 @MainActor
 final class WorkoutMutationHandler {
     static let shared = WorkoutMutationHandler()
@@ -18,8 +19,16 @@ final class WorkoutMutationHandler {
     func workoutsDidChange(
         modelContext: ModelContext,
         mutation: WorkoutMutation = .rebuildAll,
-        newWorkouts: [Workout] = []
+        newWorkouts: [Workout] = [],
+        changedWorkouts: [Workout] = []
     ) throws {
+        let currentUser = Auth.auth().currentUser
+        let currentUserId = currentUser?.uid
+
+        if let currentUserId {
+            markChangedWorkoutsForRemoteSync(changedWorkouts, userId: currentUserId)
+        }
+
         try PersonalRecordService.recalculateAllPersonalRecords(
             modelContext: modelContext,
             measurementSystem: settingsManager.measurementSystem,
@@ -28,26 +37,52 @@ final class WorkoutMutationHandler {
 
         try ClimbService.shared.apply(workouts: newWorkouts, modelContext: modelContext)
 
-        guard let user = Auth.auth().currentUser else { return }
-        let userId = user.uid
+        if let currentUser {
+            let userId = currentUser.uid
+            leaderboardService.configure(modelContext: modelContext)
+            let impact = LeaderboardMutationImpact.classify(mutation)
+            let didUpdateLeaderboard = try leaderboardService.applyMutationImpact(impact, for: userId)
 
-        leaderboardService.configure(modelContext: modelContext)
-        let impact = LeaderboardMutationImpact.classify(mutation)
-        let didUpdateLeaderboard = try leaderboardService.applyMutationImpact(impact, for: userId)
-        guard didUpdateLeaderboard else { return }
+            try modelContext.save()
 
-        let cachedDisplayName = UserDataRepository.shared.getCachedDisplayName()?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let displayName = cachedDisplayName?.isEmpty == false ? cachedDisplayName! : (user.displayName ?? "You")
-        let cachedPhotoURL = UserDataRepository.shared.getCachedProfilePictureURL().flatMap(URL.init(string:))
-        let photoURL = cachedPhotoURL ?? user.photoURL
+            if !changedWorkouts.isEmpty {
+                Task { @MainActor in
+                    await WorkoutSyncCoordinator.shared.processPendingWorkouts(
+                        modelContext: modelContext,
+                        currentUserId: userId
+                    )
+                }
+            }
 
-        Task {
-            await LeaderboardSessionCache.shared.invalidateAll()
-            await LeaderboardSyncCoordinator.shared.enqueueSync(
-                userId: userId,
-                displayName: displayName,
-                photoURL: photoURL
-            )
+            guard didUpdateLeaderboard else { return }
+
+            let cachedDisplayName = UserDataRepository.shared.getCachedDisplayName()?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let displayName = cachedDisplayName?.isEmpty == false ? cachedDisplayName! : (currentUser.displayName ?? "You")
+            let cachedPhotoURL = UserDataRepository.shared.getCachedProfilePictureURL().flatMap(URL.init(string:))
+            let photoURL = cachedPhotoURL ?? currentUser.photoURL
+
+            Task {
+                await LeaderboardSessionCache.shared.invalidateAll()
+                await LeaderboardSyncCoordinator.shared.enqueueSync(
+                    userId: userId,
+                    displayName: displayName,
+                    photoURL: photoURL
+                )
+            }
+
+            return
+        }
+
+        try modelContext.save()
+    }
+
+    func markChangedWorkoutsForRemoteSync(
+        _ changedWorkouts: [Workout],
+        userId: String,
+        modifiedAt: Date = Date()
+    ) {
+        for workout in changedWorkouts {
+            workout.markPendingRemoteUpsert(ownerUserId: userId, modifiedAt: modifiedAt)
         }
     }
 }

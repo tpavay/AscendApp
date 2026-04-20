@@ -1,5 +1,9 @@
 import Foundation
 
+enum LeaderboardRefreshPolicy {
+    static let networkTimeoutSeconds = 10.0
+}
+
 enum LeaderboardTimeoutError: LocalizedError {
     case operationTimedOut
 
@@ -49,18 +53,43 @@ func withLeaderboardTimeout<T: Sendable>(
     seconds: Double,
     operation: @escaping @Sendable () async throws -> T
 ) async throws -> T {
-    try await withThrowingTaskGroup(of: T.self) { group in
-        group.addTask {
-            try await operation()
+    try await withCheckedThrowingContinuation { continuation in
+        let state = LeaderboardTimeoutContinuationState(continuation: continuation)
+
+        let operationTask = Task {
+            do {
+                let value = try await operation()
+                await state.resume(with: .success(value))
+            } catch {
+                await state.resume(with: .failure(error))
+            }
         }
 
-        group.addTask {
-            try await Task.sleep(for: .seconds(seconds))
-            throw LeaderboardTimeoutError.operationTimedOut
-        }
+        Task {
+            do {
+                try await Task.sleep(for: .seconds(seconds))
+            } catch {
+                return
+            }
 
-        let result = try await group.next()!
-        group.cancelAll()
-        return result
+            operationTask.cancel()
+            await state.resume(with: .failure(LeaderboardTimeoutError.operationTimedOut))
+        }
+    }
+}
+
+private actor LeaderboardTimeoutContinuationState<T: Sendable> {
+    private var continuation: CheckedContinuation<T, Error>?
+    private var hasResumed = false
+
+    init(continuation: CheckedContinuation<T, Error>) {
+        self.continuation = continuation
+    }
+
+    func resume(with result: Result<T, Error>) {
+        guard hasResumed == false, let continuation else { return }
+        hasResumed = true
+        self.continuation = nil
+        continuation.resume(with: result)
     }
 }

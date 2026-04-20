@@ -29,7 +29,13 @@ struct DurationPickerSheet: View {
             Button {
                 onDone()
             } label: {
-                Text("Done")
+                HStack {
+                    Spacer()
+                    Text("Done")
+                    Spacer()
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
             }
             .appSheetButtonStyle(tone: .primary)
         }
