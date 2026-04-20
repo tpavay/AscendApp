@@ -12,6 +12,14 @@ struct MainTabBarPreviewScaffold: View {
     let status: MainTabBarView.Status?
     let statusBackground: Color?
 
+    private static let previewTabs: [TabItem] = [
+        TabItem(identifier: .home, title: "Home", icon: .tabHome, selectedIcon: .tabHomeSelected) { Color.clear },
+        TabItem(identifier: .workouts, title: "Workouts", icon: .tabWorkouts, selectedIcon: .tabWorkoutsSelected) { Color.clear },
+        TabItem(identifier: .progress, title: "Progress", icon: .tabProgress, selectedIcon: .tabProgressSelected) { Color.clear },
+        TabItem(identifier: .leaderboard, title: "Leaderboard", icon: .tabLeaderboard, selectedIcon: .tabLeaderboardSelected) { Color.clear },
+        TabItem(identifier: .settings, title: "Settings", icon: .tabSettings, selectedIcon: .tabSettingsSelected) { Color.clear }
+    ]
+
     var body: some View {
         ZStack {
             Color.black
@@ -49,7 +57,7 @@ struct MainTabBarPreviewScaffold: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             MainTabBarView(
-                tabs: MainTabBarView.previewTabs,
+                tabs: Self.previewTabs,
                 selectedTab: selectedTab,
                 effectiveColorScheme: .dark,
                 status: status,
