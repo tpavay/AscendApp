@@ -5,7 +5,6 @@
 //  Created by Codex on 3/11/26.
 //
 
-import FirebaseAuth
 import Foundation
 import HealthKit
 import SwiftData
@@ -13,6 +12,8 @@ import Observation
 
 enum ImportRefreshTrigger {
     case automatic
+    case backgroundObserver
+    case homeEntry
     case manualReview
     case manualSync
 }
@@ -35,6 +36,10 @@ protocol WorkoutDataProviding {
 @Observable
 final class WorkoutImportCoordinator {
     static let shared = WorkoutImportCoordinator()
+
+    enum ImportInboxResolution {
+        case showImportSheet
+    }
 
     enum ImportOutcome {
         case imported(Workout)
@@ -69,22 +74,34 @@ final class WorkoutImportCoordinator {
     private let hevyManager: HevyManager
     private let telemetry: TelemetryManager
     private let leaderboardService = LeaderboardService.shared
+    private let settingsManager: SettingsManager
+    private let reviewStateStore: WorkoutAutoImportReviewStateStore
+    private let ignoredAppleHealthWorkoutStore: IgnoredAppleHealthWorkoutStore
 
     private var modelContext: ModelContext?
     private var lastAutomaticCheckAt: Date?
+    private var refreshTask: Task<Void, Never>?
+    private var activeRefreshTrigger: ImportRefreshTrigger?
+    var currentAutoImportedReviewWorkoutID: UUID?
 
     init(
         authorizationController: any HealthKitAuthorizationControlling = HealthKitAuthorizationClient.shared,
         workoutReader: any HealthKitWorkoutReading = HealthKitWorkoutReader.shared,
         metricsReader: any HealthKitMetricsReading = HealthKitMetricsReader.shared,
         hevyManager: HevyManager = .shared,
-        telemetry: TelemetryManager = .shared
+        telemetry: TelemetryManager = .shared,
+        settingsManager: SettingsManager = .shared,
+        reviewStateStore: WorkoutAutoImportReviewStateStore = WorkoutAutoImportReviewStateStore(),
+        ignoredAppleHealthWorkoutStore: IgnoredAppleHealthWorkoutStore = IgnoredAppleHealthWorkoutStore()
     ) {
         self.authorizationController = authorizationController
         self.workoutReader = workoutReader
         self.metricsReader = metricsReader
         self.hevyManager = hevyManager
         self.telemetry = telemetry
+        self.settingsManager = settingsManager
+        self.reviewStateStore = reviewStateStore
+        self.ignoredAppleHealthWorkoutStore = ignoredAppleHealthWorkoutStore
         self.lastCheckAt = HealthKitSyncState.lastSuccessfulCheckAt
     }
 
@@ -92,8 +109,20 @@ final class WorkoutImportCoordinator {
         pendingCandidates.count
     }
 
+    var pendingAutoImportedReviewCount: Int {
+        reviewStateStore.hasUnseenWorkout() ? 1 : 0
+    }
+
+    var attentionCount: Int {
+        pendingCount + pendingAutoImportedReviewCount
+    }
+
     var appleHealthPendingCount: Int {
         pendingCandidates.filter { $0.sourceProviders.contains(.appleHealth) }.count
+    }
+
+    var appleHealthAttentionCount: Int {
+        appleHealthPendingCount + pendingAutoImportedReviewCount
     }
 
     var appleHealthConnectionState: AppleHealthConnectionState {
@@ -122,8 +151,13 @@ final class WorkoutImportCoordinator {
 
         do {
             try WorkoutSourceMigrationService.runIfNeeded(modelContext: modelContext)
+            try pruneAutoImportedReviewState(modelContext: modelContext)
         } catch {
             lastErrorMessage = error.localizedDescription
+        }
+
+        Task {
+            await syncAppleHealthAutomationServices()
         }
     }
 
@@ -151,14 +185,35 @@ final class WorkoutImportCoordinator {
             return false
         }
 
-        let didRefresh = await performAppleHealthRefreshIfNeeded(trigger: .manualSync)
-        if didRefresh {
-            lastErrorMessage = nil
-        }
-        return didRefresh
+        await refreshPendingImports(trigger: .manualSync)
+        await syncAppleHealthAutomationServices()
+        return lastErrorMessage == nil
     }
 
     func refreshPendingImports(trigger: ImportRefreshTrigger) async {
+        if let refreshTask {
+            let activeRefreshTrigger = activeRefreshTrigger
+            await refreshTask.value
+
+            if activeRefreshTrigger?.covers(trigger) == false {
+                await refreshPendingImports(trigger: trigger)
+            }
+
+            return
+        }
+
+        let refreshTask = Task { @MainActor [weak self] in
+            await self?.performRefreshPendingImports(trigger: trigger)
+            self?.refreshTask = nil
+            self?.activeRefreshTrigger = nil
+        }
+        self.refreshTask = refreshTask
+        activeRefreshTrigger = trigger
+
+        await refreshTask.value
+    }
+
+    private func performRefreshPendingImports(trigger: ImportRefreshTrigger) async {
         guard let modelContext else { return }
 
         if trigger == .automatic,
@@ -177,15 +232,28 @@ final class WorkoutImportCoordinator {
         do {
             try WorkoutSourceMigrationService.runIfNeeded(modelContext: modelContext)
             await authorizationController.refreshAuthorizationRequestStatus()
+            let previousSuccessfulCheckAt = HealthKitSyncState.lastSuccessfulCheckAt ?? lastCheckAt
             _ = await performAppleHealthRefreshIfNeeded(trigger: trigger)
 
             let existingIndex = try buildExistingWorkoutIndex(modelContext: modelContext)
             pendingCandidates = try await buildPendingCandidates(existingIndex: existingIndex)
+            try pruneAutoImportedReviewState(modelContext: modelContext)
+            await autoImportEligibleAppleHealthCandidatesIfNeeded(
+                modelContext: modelContext,
+                missingActivationFallback: previousSuccessfulCheckAt
+            )
             lastCheckAt = Date()
             lastErrorMessage = nil
         } catch {
             lastErrorMessage = error.localizedDescription
         }
+
+        await syncAppleHealthAutomationServices()
+    }
+
+    func prepareImportInbox() async -> ImportInboxResolution {
+        await refreshPendingImports(trigger: .manualReview)
+        return .showImportSheet
     }
 
     func importCandidate(_ candidate: ImportedWorkoutCandidate) async -> ImportOutcome {
@@ -269,17 +337,48 @@ final class WorkoutImportCoordinator {
         lastAutomaticCheckAt = nil
     }
 
+    @discardableResult
+    func presentPendingAutoImportedReviewOnHomeIfNeeded() -> Bool {
+        guard let nextWorkoutID = reviewStateStore.latestUnseenWorkoutID() else {
+            currentAutoImportedReviewWorkoutID = nil
+            return false
+        }
+
+        if currentAutoImportedReviewWorkoutID != nextWorkoutID {
+            currentAutoImportedReviewWorkoutID = nextWorkoutID
+        }
+
+        return true
+    }
+
+    func dismissCurrentAutoImportedReview() {
+        currentAutoImportedReviewWorkoutID = nil
+    }
+
+    func completeAutoImportedReview(for workoutID: UUID) {
+        markAutoImportedReviewHandled(for: workoutID)
+        reviewStateStore.clearLatestWorkout(ifMatches: workoutID)
+        if currentAutoImportedReviewWorkoutID == workoutID {
+            currentAutoImportedReviewWorkoutID = nil
+        }
+    }
+
+    func handleAppleHealthAutoImportPreferenceChanged() async {
+        await syncAppleHealthAutomationServices()
+    }
+
     private func performAppleHealthRefreshIfNeeded(trigger: ImportRefreshTrigger) async -> Bool {
         guard authorizationController.isHealthDataAvailable else { return false }
 
-        let isExplicitRefresh = trigger == .manualReview || trigger == .manualSync
+        let shouldRequestAuthorization = trigger == .manualSync
+        let shouldAllowInitialBackfill = trigger == .homeEntry || trigger == .manualReview || trigger == .manualSync
 
         if authorizationController.connectionState == .revoked {
             return false
         }
 
         if !authorizationController.hasRequestedAuthorization {
-            guard isExplicitRefresh else { return false }
+            guard shouldRequestAuthorization else { return false }
             let granted = await authorizationController.requestAuthorization()
             if !granted {
                 lastErrorMessage = authorizationController.lastPermissionErrorMessage
@@ -288,7 +387,7 @@ final class WorkoutImportCoordinator {
         }
 
         if !authorizationController.hasCompletedInitialBackfill {
-            guard isExplicitRefresh else { return false }
+            guard shouldAllowInitialBackfill else { return false }
         }
 
         do {
@@ -298,6 +397,9 @@ final class WorkoutImportCoordinator {
             HealthKitSyncState.updateCachedWorkoutSamples(
                 added: result.addedSamples,
                 deletedExternalRecordIDs: result.deletedExternalRecordIDs
+            )
+            ignoredAppleHealthWorkoutStore.prune(
+                validExternalRecordIDs: Set(HealthKitSyncState.cachedWorkoutSamples.map(\.externalRecordID))
             )
             HealthKitSyncState.workoutAnchorData = result.anchorData
             HealthKitSyncState.lastSuccessfulCheckAt = Date()
@@ -315,8 +417,49 @@ final class WorkoutImportCoordinator {
         }
     }
 
+    private func autoImportEligibleAppleHealthCandidatesIfNeeded(
+        modelContext: ModelContext,
+        missingActivationFallback: Date?
+    ) async {
+        guard settingsManager.appleHealthAutoImportEnabled else { return }
+
+        let policy = AppleHealthAutoImportPolicy(
+            activatedAt: settingsManager.appleHealthAutoImportActivatedAt,
+            missingActivationFallback: missingActivationFallback
+        )
+        let autoImportCandidates = pendingCandidates.filter(policy.shouldAutoImport(_:))
+        guard !autoImportCandidates.isEmpty else { return }
+
+        let result = await importCandidatesInternal(
+            candidates: autoImportCandidates,
+            mode: .automatic
+        )
+
+        for workout in result.importedWorkouts {
+            recordAutoImportedWorkoutForReview(workout)
+        }
+
+        do {
+            try pruneAutoImportedReviewState(modelContext: modelContext)
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func syncAppleHealthAutomationServices() async {
+        let shouldObserveForAutoImport =
+            settingsManager.appleHealthAutoImportEnabled &&
+            authorizationController.connectionState == .connected &&
+            authorizationController.hasCompletedInitialBackfill
+
+        await HealthKitBackgroundSyncManager.shared.updateObservation(enabled: shouldObserveForAutoImport)
+    }
+
     private func buildPendingCandidates(existingIndex: ExistingWorkoutIndex) async throws -> [ImportedWorkoutCandidate] {
-        let appleSamples = HealthKitSyncState.cachedWorkoutSamples.sorted { $0.startDate > $1.startDate }
+        let ignoredAppleHealthWorkoutIDs = ignoredAppleHealthWorkoutStore.load()
+        let appleSamples = HealthKitSyncState.cachedWorkoutSamples
+            .filter { !ignoredAppleHealthWorkoutIDs.contains($0.externalRecordID) }
+            .sorted { $0.startDate > $1.startDate }
         let hevyMetricType = HevySyncState.templateType == "floors" ? WorkoutMetric.floors : WorkoutMetric.steps
 
         var matchedAppleIDs = Set<String>()
@@ -526,6 +669,12 @@ final class WorkoutImportCoordinator {
 
             switch candidate.kind {
             case .appleHealth:
+                guard let appleHealthSample = candidate.appleHealthSample else {
+                    return .failed(candidateID: candidate.id)
+                }
+                if let existingWorkout = existingIndex.workout(forAppleHealthID: appleHealthSample.externalRecordID) {
+                    return .updatedExisting(existingWorkout)
+                }
                 return try await importAppleHealthCandidate(candidate, modelContext: modelContext)
             case .hevy, .linkedHevyAppleHealth:
                 return try await importHevyCandidate(
@@ -553,6 +702,11 @@ final class WorkoutImportCoordinator {
         let settings = SettingsManager.shared
         let workout = hkWorkout.toAscendWorkout(with: metrics, stepsPerFloor: settings.stepsPerFloor)
         let appleHealthLink = makeAppleHealthSourceLink(from: sample, workout: workout)
+
+        let refreshedIndex = try buildExistingWorkoutIndex(modelContext: modelContext)
+        if let existingWorkout = refreshedIndex.workout(forAppleHealthID: sample.externalRecordID) {
+            return .updatedExisting(existingWorkout)
+        }
 
         modelContext.insert(workout)
         modelContext.insert(appleHealthLink)
@@ -920,6 +1074,69 @@ final class WorkoutImportCoordinator {
         return try modelContext.fetch(descriptor)
     }
 
+    private func pruneAutoImportedReviewState(modelContext: ModelContext) throws {
+        let validWorkoutIDs = try Set(fetchAllWorkouts(from: modelContext).map(\.id))
+        reviewStateStore.prune(validIDs: validWorkoutIDs)
+
+        if let currentAutoImportedReviewWorkoutID,
+           !validWorkoutIDs.contains(currentAutoImportedReviewWorkoutID) {
+            self.currentAutoImportedReviewWorkoutID = nil
+        }
+    }
+
+    private func recordAutoImportedWorkoutForReview(_ workout: Workout) {
+        let referenceDate = autoImportedReviewReferenceDate(for: workout)
+        reviewStateStore.recordLatestWorkout(
+            id: workout.id,
+            referenceDate: referenceDate
+        )
+
+        if let currentAutoImportedReviewWorkoutID,
+           currentAutoImportedReviewWorkoutID != workout.id,
+           let currentReferenceDate = autoImportedReferenceDate(forWorkoutID: currentAutoImportedReviewWorkoutID),
+           currentReferenceDate >= referenceDate {
+            return
+        }
+
+        currentAutoImportedReviewWorkoutID = workout.id
+    }
+
+    private func markAutoImportedReviewHandled(for workoutID: UUID) {
+        if let referenceDate = autoImportedReferenceDate(forWorkoutID: workoutID) {
+            reviewStateStore.markHandled(referenceDate: referenceDate)
+            return
+        }
+
+        if let latestReferenceDate = reviewStateStore.latestReferenceDate(for: workoutID) {
+            reviewStateStore.markHandled(referenceDate: latestReferenceDate)
+        }
+    }
+
+    private func autoImportedReferenceDate(forWorkoutID workoutID: UUID) -> Date? {
+        guard let modelContext else { return nil }
+
+        let workoutID = workoutID
+        let descriptor = FetchDescriptor<Workout>(
+            predicate: #Predicate<Workout> { workout in
+                workout.id == workoutID
+            }
+        )
+
+        guard let workout = try? modelContext.fetch(descriptor).first else {
+            return nil
+        }
+
+        return autoImportedReviewReferenceDate(for: workout)
+    }
+
+    private func autoImportedReviewReferenceDate(for workout: Workout) -> Date {
+        workout.date.addingTimeInterval(workout.duration)
+    }
+
+    func ignoreAppleHealthWorkout(externalRecordID: String) {
+        ignoredAppleHealthWorkoutStore.insert(externalRecordID)
+    }
+
     private func recalculateDerivedData(modelContext: ModelContext, newWorkouts: [Workout] = []) throws {
         let allWorkouts = try fetchAllWorkouts(from: modelContext)
         let settings = SettingsManager.shared
@@ -939,5 +1156,97 @@ final class WorkoutImportCoordinator {
             newWorkouts: newWorkouts,
             changedWorkouts: newWorkouts
         )
+    }
+
+#if DEBUG
+    func debugQueueSimulatedAutoImportedReview(modelContext: ModelContext) async throws -> Workout {
+        let workout = try await debugCreateSimulatedAppleHealthWorkout(modelContext: modelContext)
+        currentAutoImportedReviewWorkoutID = nil
+        print("DEBUG auto-import queued review workout: \(workout.id.uuidString)")
+        return workout
+    }
+
+    func debugClearSimulatedAutoImports(modelContext: ModelContext) throws -> Int {
+        let workouts = try fetchAllWorkouts(from: modelContext).filter { workout in
+            workout.healthKitUUID?.hasPrefix("debug-auto-import-") == true
+        }
+
+        for workout in workouts {
+            modelContext.delete(workout)
+        }
+
+        try modelContext.save()
+        try recalculateDerivedData(modelContext: modelContext)
+        try pruneAutoImportedReviewState(modelContext: modelContext)
+
+        print("DEBUG auto-import cleared simulated workouts: \(workouts.count)")
+        return workouts.count
+    }
+
+    private func debugCreateSimulatedAppleHealthWorkout(
+        modelContext: ModelContext
+    ) async throws -> Workout {
+        let duration: TimeInterval = 26 * 60
+        let completedAt = Date().addingTimeInterval(-60)
+        let startedAt = completedAt.addingTimeInterval(-duration)
+        let externalRecordID = "debug-auto-import-\(UUID().uuidString.lowercased())"
+        let sample = HealthKitWorkoutSample(
+            externalRecordID: externalRecordID,
+            startDate: startedAt,
+            endDate: completedAt,
+            duration: duration,
+            sourceName: "Apple Watch Simulator",
+            sourceBundleIdentifier: "com.apple.Health",
+            deviceModel: "Apple Watch Simulator"
+        )
+
+        let stepsPerFloor = settingsManager.stepsPerFloor
+        let floors = 132
+        let workout = Workout(
+            name: "Simulated Apple Health Import",
+            date: sample.startDate,
+            duration: sample.duration,
+            steps: Workout.floorsToSteps(floors, stepsPerFloor: stepsPerFloor),
+            floors: floors,
+            stepsPerFloor: stepsPerFloor,
+            notes: "Debug-only Apple Health auto-import simulation.",
+            avgHeartRate: 146,
+            maxHeartRate: 168,
+            caloriesBurned: 318,
+            averageMETs: 9.1,
+            source: .appleHealth,
+            deviceModel: sample.deviceModel,
+            sourceMetadata: appleHealthMetadataJSON(for: sample),
+            healthKitUUID: sample.externalRecordID
+        )
+        let sourceLink = makeAppleHealthSourceLink(from: sample, workout: workout)
+
+        modelContext.insert(workout)
+        modelContext.insert(sourceLink)
+        try modelContext.save()
+        try recalculateDerivedData(modelContext: modelContext, newWorkouts: [workout])
+
+        recordAutoImportedWorkoutForReview(workout)
+
+        lastErrorMessage = nil
+        return workout
+    }
+#endif
+}
+
+private extension ImportRefreshTrigger {
+    var capabilityLevel: Int {
+        switch self {
+        case .automatic, .backgroundObserver:
+            return 0
+        case .homeEntry, .manualReview:
+            return 1
+        case .manualSync:
+            return 2
+        }
+    }
+
+    func covers(_ trigger: ImportRefreshTrigger) -> Bool {
+        capabilityLevel >= trigger.capabilityLevel
     }
 }

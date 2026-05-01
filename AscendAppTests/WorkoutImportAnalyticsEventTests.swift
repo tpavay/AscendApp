@@ -68,6 +68,18 @@ struct WorkoutImportAnalyticsEventTests {
         #expect(record.parameters["source_mix"] == .string("mixed"))
     }
 
+    @Test
+    func automaticModeRecordsAutomaticImportValue() {
+        let candidate = ImportedWorkoutCandidate.appleHealth(sample: makeAppleHealthSample(id: "ah_automatic"))
+
+        let record = WorkoutImportAnalyticsEvent
+            .started(mode: .automatic, candidates: [candidate])
+            .record
+
+        #expect(record.parameters["import_mode"] == .string("automatic"))
+        #expect(record.parameters["source_mix"] == .string("apple_health_only"))
+    }
+
     private func makeAppleHealthSample(id: String) -> HealthKitWorkoutSample {
         let startDate = Date(timeIntervalSince1970: 1_775_390_400)
         return HealthKitWorkoutSample(

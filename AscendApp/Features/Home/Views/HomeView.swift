@@ -10,10 +10,12 @@ import SwiftData
 
 struct HomeView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
+    @Environment(TabRouter.self) private var tabRouter
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
     @State private var importCoordinator = WorkoutImportCoordinator.shared
+    @State private var settingsManager = SettingsManager.shared
     @State private var showingImportSheet = false
     @State private var showingGoalsSheet = false
     @State private var showingWorkoutEntrySheet = false
@@ -25,6 +27,24 @@ struct HomeView: View {
     @State private var selectedHomeClimb: Climb?
     @State private var globeViewModel = GlobeViewModel()
     @AppStorage("firstLaunchDate") private var firstLaunchDate: Double = 0
+    @State private var showingImportCoachMark = false
+    @State private var importBellFrame: CGRect = .zero
+    @State private var autoImportedReviewWorkout: Workout?
+
+    private let importCoachMarkWidth: CGFloat = 248
+    private let importCoachMarkHorizontalPadding: CGFloat = 20
+
+    private var isHomeTabSelected: Bool {
+        tabRouter.selectedTab == .home
+    }
+
+    private var hasBlockingModalPresentation: Bool {
+        showingWorkoutEntrySheet ||
+        showingWorkoutForm ||
+        showingCompletedView ||
+        showingImportSheet ||
+        showingGoalsSheet
+    }
 
     private var greeting: String {
         // If first launch date not set, this is the first launch
@@ -70,15 +90,10 @@ struct HomeView: View {
 
                     Spacer()
 
-                    // Notification bell for workout imports
-                    NotificationBellView(pendingImports: importCoordinator.pendingCount) {
-                        Task {
-                            await importCoordinator.refreshPendingImports(trigger: .manualReview)
-                            showingImportSheet = true
-                        }
-                    }
-                    .onChange(of: importCoordinator.pendingCount) { oldValue, newValue in
+                    importBell
+                    .onChange(of: importCoordinator.attentionCount) { oldValue, newValue in
                         print("🔄 HomeView detected count change from \(oldValue) to \(newValue)")
+                        syncAutoImportedReviewPresentation()
                     }
                 }
 
@@ -111,6 +126,28 @@ struct HomeView: View {
         .scrollIndicators(.hidden)
         .safeAreaPadding(.top, 8)
         .themedBackground()
+        .coordinateSpace(name: "homeView")
+        .overlay(alignment: .topLeading) {
+            GeometryReader { geometry in
+                if showingImportCoachMark, importBellFrame != .zero {
+                    let coachMarkOriginX = importCoachMarkOriginX(containerWidth: geometry.size.width)
+                    AppleHealthImportCoachMarkView(
+                        pointerX: importBellFrame.midX - coachMarkOriginX,
+                        onOpen: openImportInbox,
+                        onDismiss: dismissImportCoachMark
+                    )
+                    .offset(
+                        x: coachMarkOriginX,
+                        y: importBellFrame.maxY + 12
+                    )
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(1)
+                }
+            }
+        }
+        .onPreferenceChange(ImportBellFramePreferenceKey.self) { frame in
+            importBellFrame = frame
+        }
         .navigationDestination(item: $selectedHomeClimb) { climb in
             ClimbDetailView(climb: climb)
         }
@@ -125,7 +162,7 @@ struct HomeView: View {
                 onManualEntry: presentWorkoutForm,
                 onStartRoutine: presentRoutines,
                 onImportWorkouts: presentImportSheet,
-                pendingImportCount: importCoordinator.pendingCount
+                pendingImportCount: importCoordinator.attentionCount
             )
             .appSheetStyle(.fitted())
         }
@@ -161,6 +198,22 @@ struct HomeView: View {
         .sheet(isPresented: $showingGoalsSheet) {
             GoalsSheet(isPresented: $showingGoalsSheet, workouts: workouts)
         }
+        .sheet(item: $autoImportedReviewWorkout, onDismiss: {
+            importCoordinator.dismissCurrentAutoImportedReview()
+        }) { workout in
+            AutoImportedWorkoutReviewView(
+                workout: workout,
+                onDone: {
+                    importCoordinator.completeAutoImportedReview(for: workout.id)
+                    autoImportedReviewWorkout = nil
+                },
+                onDelete: {
+                    importCoordinator.completeAutoImportedReview(for: workout.id)
+                    autoImportedReviewWorkout = nil
+                }
+            )
+            .appSheetStyle(.detents([.fraction(0.75), .large]), isInteractiveDismissDisabled: true)
+        }
         .task {
             // Set first launch date if not already set
             if firstLaunchDate == 0 {
@@ -170,14 +223,34 @@ struct HomeView: View {
             // Configure the unified import service with model context
             importCoordinator.configure(modelContext: modelContext)
             globeViewModel.loadIfNeeded(modelContext: modelContext)
+            syncImportCoachMarkPresentation()
 
             // Check for workouts from all sources on app launch
-            await importCoordinator.refreshPendingImports(trigger: .automatic)
+            await importCoordinator.refreshPendingImports(trigger: .homeEntry)
+            syncAutoImportedReviewPresentation()
+        }
+        .onChange(of: authVM.user?.uid) { _, _ in
+            syncImportCoachMarkPresentation()
+        }
+        .onChange(of: tabRouter.selectedTab) { _, newValue in
+            guard newValue == .home else { return }
+            Task {
+                await importCoordinator.refreshPendingImports(trigger: .homeEntry)
+                syncAutoImportedReviewPresentation()
+            }
+        }
+        .onChange(of: importCoordinator.currentAutoImportedReviewWorkoutID) { _, _ in
+            syncAutoImportedReviewPresentation()
+        }
+        .onChange(of: showingImportSheet) { _, isShowing in
+            guard !isShowing else { return }
+            syncAutoImportedReviewPresentation()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             // Check for new workouts when app comes to foreground (throttled to prevent spam)
             Task {
                 await importCoordinator.refreshPendingImports(trigger: .automatic)
+                syncAutoImportedReviewPresentation()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .climbStateDidChange)) { _ in
@@ -190,6 +263,36 @@ struct HomeView: View {
             // Reset throttling when app goes to background so next foreground check works
             importCoordinator.resetAutomaticCheckThrottle()
         }
+    }
+
+    private var importBell: some View {
+        ZStack {
+            NotificationBellView(
+                pendingImports: importCoordinator.attentionCount,
+                isHighlighted: showingImportCoachMark
+            ) {
+                openImportInbox()
+            }
+        }
+        .frame(width: 44, height: 44)
+        .background {
+            GeometryReader { geometry in
+                Color.clear
+                    .preference(
+                        key: ImportBellFramePreferenceKey.self,
+                        value: geometry.frame(in: .named("homeView"))
+                    )
+            }
+        }
+        .zIndex(showingImportCoachMark ? 1 : 0)
+    }
+
+    private func importCoachMarkOriginX(containerWidth: CGFloat) -> CGFloat {
+        let minimumX = importCoachMarkHorizontalPadding
+        let maximumX = max(minimumX, containerWidth - importCoachMarkWidth - importCoachMarkHorizontalPadding)
+        let preferredPointerInset: CGFloat = 26
+        let preferredX = importBellFrame.midX - (importCoachMarkWidth - preferredPointerInset)
+        return min(max(preferredX, minimumX), maximumX)
     }
 
     private func presentWorkoutForm() {
@@ -211,6 +314,7 @@ struct HomeView: View {
     }
 
     private func presentImportSheet() {
+        dismissImportCoachMark()
         showingWorkoutEntrySheet = false
 
         Task {
@@ -218,6 +322,63 @@ struct HomeView: View {
             await importCoordinator.refreshPendingImports(trigger: .manualReview)
             showingImportSheet = true
         }
+    }
+
+    private func openImportInbox() {
+        dismissImportCoachMark()
+
+        Task {
+            _ = await importCoordinator.prepareImportInbox()
+            showingImportSheet = true
+        }
+    }
+
+    private func syncImportCoachMarkPresentation() {
+        guard let userID = authVM.user?.uid else {
+            showingImportCoachMark = false
+            return
+        }
+
+        showingImportCoachMark = !settingsManager.hasSeenAppleHealthImportCoachMark(for: userID)
+    }
+
+    private func dismissImportCoachMark() {
+        if let userID = authVM.user?.uid {
+            settingsManager.markAppleHealthImportCoachMarkSeen(for: userID)
+        }
+
+        withAnimation(.spring(duration: 0.28)) {
+            showingImportCoachMark = false
+        }
+    }
+
+    private func syncAutoImportedReviewPresentation() {
+        guard isHomeTabSelected else { return }
+        guard !hasBlockingModalPresentation else { return }
+
+        if importCoordinator.presentPendingAutoImportedReviewOnHomeIfNeeded() {
+            autoImportedReviewWorkout = resolveWorkout(id: importCoordinator.currentAutoImportedReviewWorkoutID)
+            if autoImportedReviewWorkout == nil {
+                importCoordinator.dismissCurrentAutoImportedReview()
+            }
+            return
+        }
+
+        if importCoordinator.currentAutoImportedReviewWorkoutID == nil {
+            autoImportedReviewWorkout = nil
+        }
+    }
+
+    private func resolveWorkout(id: UUID?) -> Workout? {
+        guard let id else { return nil }
+        let workoutID = id
+        let descriptor = FetchDescriptor<Workout>(
+            predicate: #Predicate<Workout> { workout in
+                workout.id == workoutID
+            }
+        )
+
+        return try? modelContext.fetch(descriptor).first
     }
 }
 

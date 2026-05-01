@@ -538,15 +538,19 @@ struct AppSheetOptionRow: View {
                 Text(title)
                     .font(.montserratSemiBold(size: 16))
                     .foregroundStyle(titleColor)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 if let subtitle {
                     Text(subtitle)
                         .font(.montserratRegular(size: 13))
                         .foregroundStyle(subtitleColor)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-
-            Spacer(minLength: 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .layoutPriority(1)
 
             if let trailingSymbol {
                 Image(systemName: trailingSymbol)

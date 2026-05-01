@@ -15,6 +15,7 @@ enum AppTab: Hashable {
     case settings
 }
 
+@MainActor
 @Observable
 final class TabRouter {
     var selectedTab: AppTab = .home

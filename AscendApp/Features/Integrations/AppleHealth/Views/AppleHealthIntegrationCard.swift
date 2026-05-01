@@ -12,6 +12,7 @@ import UIKit
 struct AppleHealthIntegrationCard: View {
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
+    @State private var settingsManager = SettingsManager.shared
     @State private var themeManager = ThemeManager.shared
     @State private var importCoordinator = WorkoutImportCoordinator.shared
     @State private var showingManageSheet = false
@@ -19,6 +20,7 @@ struct AppleHealthIntegrationCard: View {
     @State private var shouldPresentImportsAfterManageDismiss = false
     @State private var actionTask: Task<Void, Never>?
     @State private var isConnecting = false
+    @State private var isConfiguringDefaultAutoImport = false
     @State private var alertMessage = ""
     @State private var showingErrorAlert = false
 
@@ -31,7 +33,14 @@ struct AppleHealthIntegrationCard: View {
     }
 
     private var pendingCount: Int {
-        importCoordinator.appleHealthPendingCount
+        importCoordinator.appleHealthAttentionCount
+    }
+
+    private var autoImportEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { settingsManager.appleHealthAutoImportEnabled },
+            set: { settingsManager.setAppleHealthAutoImportEnabled($0) }
+        )
     }
 
     var body: some View {
@@ -54,14 +63,13 @@ struct AppleHealthIntegrationCard: View {
             )
         }
         .sheet(isPresented: $showingManageSheet, onDismiss: presentImportsAfterManageSheetDismissal) {
-            IntegrationManageSheet(
-                assetImage: "appleHealth-icon",
-                title: "Apple Health",
-                message: nil,
-                actions: manageActions,
-                onDismiss: {
-                    showingManageSheet = false
-                }
+            AppleHealthManageSheet(
+                isPresented: $showingManageSheet,
+                autoImportEnabled: autoImportEnabledBinding,
+                attentionCount: pendingCount,
+                onSyncNow: triggerManualSyncFromManageSheet,
+                onReviewImports: queueImportReviewFromManageSheet,
+                onOpenHealthPermissions: openPermissionsFromManageSheet
             )
         }
         .sheet(isPresented: $showingImportSheet) {
@@ -74,6 +82,10 @@ struct AppleHealthIntegrationCard: View {
         }
         .task {
             importCoordinator.configure(modelContext: modelContext)
+        }
+        .onChange(of: settingsManager.appleHealthAutoImportEnabled) { _, _ in
+            guard !isConfiguringDefaultAutoImport else { return }
+            handleAutoImportToggleChanged()
         }
     }
 
@@ -103,10 +115,6 @@ struct AppleHealthIntegrationCard: View {
         }
     }
 
-    private var reviewImportsTitle: String {
-        pendingCount > 0 ? "Review Imports (\(pendingCount))" : "Review Imports"
-    }
-
     private var headerStatusLabel: String? {
         switch connectionState {
         case .unavailable:
@@ -114,7 +122,7 @@ struct AppleHealthIntegrationCard: View {
         case .neverConnected:
             return nil
         case .connected:
-            return "Connected"
+            return settingsManager.appleHealthAutoImportEnabled ? "Connected • Auto-Import On" : "Connected"
         case .revoked:
             return "Permissions Disabled"
         }
@@ -127,6 +135,9 @@ struct AppleHealthIntegrationCard: View {
         case .neverConnected:
             return "Import your stairstepper workouts from Apple Health."
         case .connected:
+            if settingsManager.appleHealthAutoImportEnabled {
+                return "New Apple Health workouts import automatically and stay ready for quick review in Ascend."
+            }
             return "Import your stairstepper workouts from Apple Health."
         case .revoked:
             return "Import your stairstepper workouts from Apple Health."
@@ -144,50 +155,31 @@ struct AppleHealthIntegrationCard: View {
         }
     }
 
-    private var manageActions: [IntegrationManageAction] {
-        [
-            IntegrationManageAction(
-                systemImage: "arrow.clockwise",
-                title: "Sync now",
-                iconTint: .accent,
-                isEnabled: connectionState == .connected
-            ) {
-                triggerManualSyncFromManageSheet()
-            },
-            IntegrationManageAction(
-                systemImage: "magnifyingglass",
-                title: "Review imports",
-                iconTint: .accent,
-                badgeCount: pendingCount,
-                isEnabled: pendingCount > 0
-            ) {
-                queueImportReviewFromManageSheet()
-            },
-            IntegrationManageAction(
-                systemImage: "lock",
-                title: "Manage permissions",
-                iconTint: .accent
-            ) {
-                openPermissionsFromManageSheet()
-            }
-        ]
-    }
-
     private func connectAppleHealth() {
         actionTask?.cancel()
         isConnecting = true
         actionTask = Task {
             let didConnect = await importCoordinator.requestAppleHealthAuthorizationIfNeeded()
+            guard didConnect else {
+                await MainActor.run {
+                    isConnecting = false
+
+                    if let errorMessage = importCoordinator.lastErrorMessage, !errorMessage.isEmpty {
+                        presentError(errorMessage)
+                    }
+                }
+                return
+            }
+
             await MainActor.run {
                 isConnecting = false
-
-                if didConnect {
-                    if importCoordinator.pendingCount > 0 {
-                        showingImportSheet = true
-                    }
-                } else if let errorMessage = importCoordinator.lastErrorMessage, !errorMessage.isEmpty {
-                    presentError(errorMessage)
-                }
+                isConfiguringDefaultAutoImport = true
+                settingsManager.setAppleHealthAutoImportEnabled(true)
+            }
+            await importCoordinator.handleAppleHealthAutoImportPreferenceChanged()
+            await MainActor.run {
+                isConfiguringDefaultAutoImport = false
+                showingImportSheet = importCoordinator.pendingCount > 0
             }
         }
     }
@@ -208,13 +200,13 @@ struct AppleHealthIntegrationCard: View {
     private func queueImportReviewFromManageSheet() {
         actionTask?.cancel()
         actionTask = Task {
-            await importCoordinator.refreshPendingImports(trigger: .manualReview)
+            let resolution = await importCoordinator.prepareImportInbox()
             await MainActor.run {
                 if let errorMessage = importCoordinator.lastErrorMessage, !errorMessage.isEmpty {
                     presentError(errorMessage)
                     shouldPresentImportsAfterManageDismiss = false
                 } else {
-                    shouldPresentImportsAfterManageDismiss = true
+                    shouldPresentImportsAfterManageDismiss = resolution == .showImportSheet
                 }
                 showingManageSheet = false
             }
@@ -235,6 +227,13 @@ struct AppleHealthIntegrationCard: View {
     private func openHealthApp() {
         guard let healthURL = URL(string: "x-apple-health://") else { return }
         UIApplication.shared.open(healthURL)
+    }
+
+    private func handleAutoImportToggleChanged() {
+        actionTask?.cancel()
+        actionTask = Task {
+            await importCoordinator.handleAppleHealthAutoImportPreferenceChanged()
+        }
     }
 
     private func presentError(_ message: String) {

@@ -12,6 +12,13 @@ import SwiftData
 struct EditWorkoutView: View {
     let workout: Workout
     @Binding var showingEditWorkout: Bool
+    let title: String
+    let primaryActionTitle: String
+    let cancelActionTitle: String?
+    let destructiveActionTitle: String?
+    let onSave: (() -> Void)?
+    let onCancel: (() -> Void)?
+    let onDestructiveAction: (() -> Void)?
     
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -57,6 +64,28 @@ struct EditWorkoutView: View {
     @FocusState private var focusedField: WorkoutFormField?
     
     private let photoService = PhotoService()
+
+    init(
+        workout: Workout,
+        showingEditWorkout: Binding<Bool>,
+        title: String = "Edit Workout",
+        primaryActionTitle: String = "Update",
+        cancelActionTitle: String? = "Cancel",
+        destructiveActionTitle: String? = nil,
+        onSave: (() -> Void)? = nil,
+        onCancel: (() -> Void)? = nil,
+        onDestructiveAction: (() -> Void)? = nil
+    ) {
+        self.workout = workout
+        self._showingEditWorkout = showingEditWorkout
+        self.title = title
+        self.primaryActionTitle = primaryActionTitle
+        self.cancelActionTitle = cancelActionTitle
+        self.destructiveActionTitle = destructiveActionTitle
+        self.onSave = onSave
+        self.onCancel = onCancel
+        self.onDestructiveAction = onDestructiveAction
+    }
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -209,16 +238,23 @@ struct EditWorkoutView: View {
     private var permanentHeader: some View {
         VStack(spacing: 0) {
             HStack {
-                Button("Cancel") {
-                    cleanupVideoFiles()
-                    showingEditWorkout = false
+                if let cancelActionTitle {
+                    Button(cancelActionTitle) {
+                        cleanupVideoFiles()
+                        onCancel?()
+                        showingEditWorkout = false
+                    }
+                    .font(.montserratRegular)
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    .frame(minWidth: 80, alignment: .leading)
+                } else {
+                    Color.clear
+                        .frame(width: 80, height: 1)
                 }
-                .font(.montserratRegular)
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
 
                 Spacer()
 
-                Text("Edit Workout")
+                Text(title)
                     .font(.montserratSemiBold(size: 18))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
 
@@ -234,13 +270,13 @@ struct EditWorkoutView: View {
                             .scaleEffect(0.8)
                             .progressViewStyle(CircularProgressViewStyle(tint: .accent))
                     } else {
-                        Text("Update")
+                        Text(primaryActionTitle)
                     }
                 }
                 .font(.montserratSemiBold)
                 .foregroundStyle(isFormValid ? .accent : .gray)
                 .disabled(!isFormValid)
-                .frame(width: 80)
+                .frame(minWidth: 80)
             }
             .padding(.horizontal, 20)
             .padding(.top, 8)
@@ -307,6 +343,16 @@ struct EditWorkoutView: View {
                                 configuration: $weightConfiguration,
                                 measurementSystem: settingsManager.measurementSystem
                             )
+                        }
+
+                        if let destructiveActionTitle {
+                            Button(role: .destructive) {
+                                onDestructiveAction?()
+                            } label: {
+                                Text(destructiveActionTitle)
+                            }
+                            .appSheetButtonStyle(tone: .destructive)
+                            .disabled(isSaving)
                         }
                     }
 
@@ -768,11 +814,12 @@ struct EditWorkoutView: View {
                     try? await photoService.deletePhotos(photosToDelete)
                 }
             }
-            
+
             // Clean up video files
             cleanupVideoFiles()
 
             showingEditWorkout = false
+            onSave?()
         } catch {
             if !newlyUploadedPhotos.isEmpty {
                 Task {

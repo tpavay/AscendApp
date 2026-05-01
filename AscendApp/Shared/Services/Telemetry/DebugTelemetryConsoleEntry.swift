@@ -232,6 +232,8 @@ private extension DebugTelemetryConsoleEntry {
             return "Selected workouts"
         case "all":
             return "Import all"
+        case "automatic":
+            return "Automatic import"
         case "apple_health_only":
             return "Apple Health only"
         case "hevy_only":
@@ -301,7 +303,7 @@ private extension DebugTelemetryConsoleEntry {
         case "candidate_count_bucket":
             return "How many workout candidates were included in this import action."
         case "import_mode":
-            return "Whether the user imported one workout, a selected set, or everything available."
+            return "Whether the user imported one workout, a selected set, everything available, or an automatic Apple Health import."
         case "source_mix":
             return "Which source combination the imported workouts came from."
         case "imported_count_bucket":
