@@ -9,6 +9,7 @@ import SwiftUI
 import SwiftData
 
 struct WorkoutImportSheet: View {
+    @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(\.modelContext) private var modelContext
@@ -23,6 +24,8 @@ struct WorkoutImportSheet: View {
     @State private var isSelectionMode = false
     @State private var selectedCandidateIDs: Set<String> = []
     @State private var isRequestingAppleHealthAuthorization = false
+    @State private var isEnablingAutoImportFromPrompt = false
+    @State private var dismissedAutoImportPromptThisSession = false
     @State private var autoImportStatusMessage: String?
     @State private var setupAlertMessage = ""
     @State private var showingSetupAlert = false
@@ -60,6 +63,15 @@ struct WorkoutImportSheet: View {
         shouldShowAppleHealthSetupCard
     }
 
+    private var shouldShowAutoImportPromptBanner: Bool {
+        guard let userID = authVM.user?.uid else { return false }
+
+        return appleHealthConnectionState == .connected &&
+            !settingsManager.appleHealthAutoImportEnabled &&
+            !dismissedAutoImportPromptThisSession &&
+            !settingsManager.hasDismissedAppleHealthAutoImportPrompt(for: userID)
+    }
+
     private var allCandidatesSelected: Bool {
         candidateCount > 0 && selectedCount == candidateCount
     }
@@ -78,6 +90,17 @@ struct WorkoutImportSheet: View {
                         autoImportEnabledCard(message: autoImportStatusMessage)
                             .padding(.horizontal, 20)
                             .padding(.top, shouldShowAppleHealthSetupCard ? 0 : 20)
+                    }
+
+                    if shouldShowAutoImportPromptBanner {
+                        AppleHealthAutoImportPromptBanner(
+                            effectiveColorScheme: effectiveColorScheme,
+                            isEnabling: isEnablingAutoImportFromPrompt,
+                            onTurnOn: enableAutoImportFromPrompt,
+                            onDismiss: dismissAutoImportPrompt
+                        )
+                        .padding(.horizontal, 20)
+                        .padding(.top, shouldShowAppleHealthSetupCard || autoImportStatusMessage != nil ? 0 : 20)
                     }
 
                     if shouldHideGenericEmptyState {
@@ -588,6 +611,30 @@ struct WorkoutImportSheet: View {
     private func openHealthPermissions() {
         guard let healthURL = URL(string: "x-apple-health://") else { return }
         openURL(healthURL)
+    }
+
+    private func enableAutoImportFromPrompt() {
+        guard !isEnablingAutoImportFromPrompt else { return }
+
+        dismissAutoImportPrompt()
+        isEnablingAutoImportFromPrompt = true
+        settingsManager.setAppleHealthAutoImportEnabled(true)
+
+        Task {
+            await importCoordinator.handleAppleHealthAutoImportPreferenceChanged()
+            await MainActor.run {
+                isEnablingAutoImportFromPrompt = false
+                autoImportStatusMessage = defaultAutoImportStatusMessage
+            }
+        }
+    }
+
+    private func dismissAutoImportPrompt() {
+        dismissedAutoImportPromptThisSession = true
+
+        if let userID = authVM.user?.uid {
+            settingsManager.markAppleHealthAutoImportPromptDismissed(for: userID)
+        }
     }
 
     private var defaultAutoImportStatusMessage: String {

@@ -15,7 +15,6 @@ struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
     @State private var importCoordinator = WorkoutImportCoordinator.shared
-    @State private var settingsManager = SettingsManager.shared
     @State private var showingImportSheet = false
     @State private var showingGoalsSheet = false
     @State private var showingWorkoutEntrySheet = false
@@ -27,12 +26,7 @@ struct HomeView: View {
     @State private var selectedHomeClimb: Climb?
     @State private var globeViewModel = GlobeViewModel()
     @AppStorage("firstLaunchDate") private var firstLaunchDate: Double = 0
-    @State private var showingImportCoachMark = false
-    @State private var importBellFrame: CGRect = .zero
     @State private var autoImportedReviewWorkout: Workout?
-
-    private let importCoachMarkWidth: CGFloat = 248
-    private let importCoachMarkHorizontalPadding: CGFloat = 20
 
     private var isHomeTabSelected: Bool {
         tabRouter.selectedTab == .home
@@ -126,28 +120,6 @@ struct HomeView: View {
         .scrollIndicators(.hidden)
         .safeAreaPadding(.top, 8)
         .themedBackground()
-        .coordinateSpace(name: "homeView")
-        .overlay(alignment: .topLeading) {
-            GeometryReader { geometry in
-                if showingImportCoachMark, importBellFrame != .zero {
-                    let coachMarkOriginX = importCoachMarkOriginX(containerWidth: geometry.size.width)
-                    AppleHealthImportCoachMarkView(
-                        pointerX: importBellFrame.midX - coachMarkOriginX,
-                        onOpen: openImportInbox,
-                        onDismiss: dismissImportCoachMark
-                    )
-                    .offset(
-                        x: coachMarkOriginX,
-                        y: importBellFrame.maxY + 12
-                    )
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .zIndex(1)
-                }
-            }
-        }
-        .onPreferenceChange(ImportBellFramePreferenceKey.self) { frame in
-            importBellFrame = frame
-        }
         .navigationDestination(item: $selectedHomeClimb) { climb in
             ClimbDetailView(climb: climb)
         }
@@ -223,14 +195,10 @@ struct HomeView: View {
             // Configure the unified import service with model context
             importCoordinator.configure(modelContext: modelContext)
             globeViewModel.loadIfNeeded(modelContext: modelContext)
-            syncImportCoachMarkPresentation()
 
             // Check for workouts from all sources on app launch
             await importCoordinator.refreshPendingImports(trigger: .homeEntry)
             syncAutoImportedReviewPresentation()
-        }
-        .onChange(of: authVM.user?.uid) { _, _ in
-            syncImportCoachMarkPresentation()
         }
         .onChange(of: tabRouter.selectedTab) { _, newValue in
             guard newValue == .home else { return }
@@ -266,33 +234,10 @@ struct HomeView: View {
     }
 
     private var importBell: some View {
-        ZStack {
-            NotificationBellView(
-                pendingImports: importCoordinator.attentionCount,
-                isHighlighted: showingImportCoachMark
-            ) {
-                openImportInbox()
-            }
+        NotificationBellView(pendingImports: importCoordinator.attentionCount) {
+            openImportInbox()
         }
         .frame(width: 44, height: 44)
-        .background {
-            GeometryReader { geometry in
-                Color.clear
-                    .preference(
-                        key: ImportBellFramePreferenceKey.self,
-                        value: geometry.frame(in: .named("homeView"))
-                    )
-            }
-        }
-        .zIndex(showingImportCoachMark ? 1 : 0)
-    }
-
-    private func importCoachMarkOriginX(containerWidth: CGFloat) -> CGFloat {
-        let minimumX = importCoachMarkHorizontalPadding
-        let maximumX = max(minimumX, containerWidth - importCoachMarkWidth - importCoachMarkHorizontalPadding)
-        let preferredPointerInset: CGFloat = 26
-        let preferredX = importBellFrame.midX - (importCoachMarkWidth - preferredPointerInset)
-        return min(max(preferredX, minimumX), maximumX)
     }
 
     private func presentWorkoutForm() {
@@ -314,7 +259,6 @@ struct HomeView: View {
     }
 
     private func presentImportSheet() {
-        dismissImportCoachMark()
         showingWorkoutEntrySheet = false
 
         Task {
@@ -325,30 +269,9 @@ struct HomeView: View {
     }
 
     private func openImportInbox() {
-        dismissImportCoachMark()
-
         Task {
             _ = await importCoordinator.prepareImportInbox()
             showingImportSheet = true
-        }
-    }
-
-    private func syncImportCoachMarkPresentation() {
-        guard let userID = authVM.user?.uid else {
-            showingImportCoachMark = false
-            return
-        }
-
-        showingImportCoachMark = !settingsManager.hasSeenAppleHealthImportCoachMark(for: userID)
-    }
-
-    private func dismissImportCoachMark() {
-        if let userID = authVM.user?.uid {
-            settingsManager.markAppleHealthImportCoachMarkSeen(for: userID)
-        }
-
-        withAnimation(.spring(duration: 0.28)) {
-            showingImportCoachMark = false
         }
     }
 

@@ -150,7 +150,8 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
   - Home may surface one quick-edit review sheet for only the latest unseen auto-imported workout
   - if a newer unseen auto-import arrives before review is completed, it replaces the older unresolved review candidate
   - completing or deleting that review should advance the review watermark so older auto-imported workouts never surface one-by-one later
-- The Home header bell is the primary import entry point. Newly authenticated users should get a one-time per-user coach mark there that explains imports and review, rather than a dedicated Apple Health onboarding screen.
+- The Home header bell is the primary import entry point, but it should not show a pointer-style coach mark.
+- Existing users who already have Apple Health connected but have auto-import off should see a dismissible auto-import banner inside `WorkoutImportSheet` the next time they open imports; dismissal is one-time per user and should not reappear.
 - `WorkoutImportSheet` should own Apple Health setup regardless of entry path using inline setup states, not a setup sheet layered on top of the import page. The bell and other manual review entry points should always open the import page rather than jumping straight into the auto-import review flow.
 - While Apple Health still needs setup, suppress the generic `No New Workouts` empty state so setup remains the only focus.
 - After Apple Health access is granted, enable auto-import by default and show inline guidance for where to change that later in Settings > Edit Profile > Integrations > Apple Health.
