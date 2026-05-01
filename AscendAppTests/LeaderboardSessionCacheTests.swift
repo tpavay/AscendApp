@@ -5,8 +5,7 @@ import Testing
 struct LeaderboardSessionCacheTests {
     @Test
     func cacheUpdatesCurrentUserAcrossPreviewAndDetailEntries() async {
-        let cache = LeaderboardSessionCache.shared
-        await cache.invalidateAll()
+        let cache = LeaderboardSessionCache()
 
         let weeklyStats = [
             makeRemoteStat(userId: "current-user", displayName: "Before", photoURL: "https://example.com/before.png", steps: 1_200, floors: 75),
@@ -37,8 +36,6 @@ struct LeaderboardSessionCacheTests {
         #expect(await cache.detailEntries(for: .climb, timeFrame: .weekly) == nil)
         #expect(await cache.previewEntries(for: .weekly) == nil)
         #expect(await cache.detailEntries(for: .climb, timeFrame: .monthly)?.count == 1)
-
-        await cache.invalidateAll()
     }
 
     private func makeRemoteStat(

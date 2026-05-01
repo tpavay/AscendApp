@@ -6,11 +6,10 @@ import Testing
 struct LeaderboardViewModelTests {
     @Test
     func cachedFastPathClearsStaleOfflineBannerState() async {
-        let cache = LeaderboardSessionCache.shared
-        await cache.invalidateAll()
+        let cache = LeaderboardSessionCache()
         let userId = UUID().uuidString
 
-        let viewModel = LeaderboardViewModel()
+        let viewModel = LeaderboardViewModel(sessionCache: cache)
         viewModel.selectedMetric = .climb
         viewModel.selectedTimeFrame = .weekly
         viewModel.isOffline = true
@@ -24,8 +23,6 @@ struct LeaderboardViewModelTests {
         #expect(viewModel.isOffline == false)
         #expect(viewModel.errorMessage == nil)
         #expect(viewModel.leaderboardEntries.count == 1)
-
-        await cache.invalidateAll()
     }
 
     private func makeRemoteStat(userId: String, displayName: String) -> FirestoreLeaderboardStats {
