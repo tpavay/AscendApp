@@ -10,8 +10,10 @@ import SwiftData
 
 struct WorkoutImportSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
+    @State private var settingsManager = SettingsManager.shared
     @State private var themeManager = ThemeManager.shared
     @State private var importCoordinator = WorkoutImportCoordinator.shared
     @State private var hevyManager = HevyManager.shared
@@ -20,6 +22,10 @@ struct WorkoutImportSheet: View {
     @State private var importTask: Task<Void, Never>?
     @State private var isSelectionMode = false
     @State private var selectedCandidateIDs: Set<String> = []
+    @State private var isRequestingAppleHealthAuthorization = false
+    @State private var autoImportStatusMessage: String?
+    @State private var setupAlertMessage = ""
+    @State private var showingSetupAlert = false
 
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -41,6 +47,19 @@ struct WorkoutImportSheet: View {
         selectedCandidateIDs.intersection(candidateIDs).count
     }
 
+    private var appleHealthConnectionState: AppleHealthConnectionState {
+        importCoordinator.appleHealthConnectionState
+    }
+
+    private var shouldShowAppleHealthSetupCard: Bool {
+        importCoordinator.isAppleHealthAvailable &&
+        (appleHealthConnectionState == .neverConnected || appleHealthConnectionState == .revoked)
+    }
+
+    private var shouldHideGenericEmptyState: Bool {
+        shouldShowAppleHealthSetupCard
+    }
+
     private var allCandidatesSelected: Bool {
         candidateCount > 0 && selectedCount == candidateCount
     }
@@ -48,8 +67,22 @@ struct WorkoutImportSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 0) {
-                    if importCoordinator.isChecking && candidates.isEmpty {
+                VStack(spacing: 20) {
+                    if shouldShowAppleHealthSetupCard {
+                        appleHealthSetupCard
+                            .padding(.horizontal, 20)
+                            .padding(.top, 20)
+                    }
+
+                    if let autoImportStatusMessage {
+                        autoImportEnabledCard(message: autoImportStatusMessage)
+                            .padding(.horizontal, 20)
+                            .padding(.top, shouldShowAppleHealthSetupCard ? 0 : 20)
+                    }
+
+                    if shouldHideGenericEmptyState {
+                        EmptyView()
+                    } else if importCoordinator.isChecking && candidates.isEmpty {
                         loadingStateView
                     } else if candidates.isEmpty {
                         emptyStateView
@@ -103,9 +136,15 @@ struct WorkoutImportSheet: View {
                 }
             }
         }
+        .alert("Apple Health", isPresented: $showingSetupAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(setupAlertMessage)
+        }
         .task {
             importCoordinator.configure(modelContext: modelContext)
             syncSelectionWithCandidates()
+            await importCoordinator.refreshPendingImports(trigger: .manualReview)
         }
         .onChange(of: candidates.map(\.id)) { _, _ in
             syncSelectionWithCandidates()
@@ -159,13 +198,131 @@ struct WorkoutImportSheet: View {
         }
         .padding(.horizontal, 40)
         .padding(.top, 60)
+        .padding(.bottom, 24)
     }
 
     private var emptyStateMessage: String {
+        if shouldShowAppleHealthSetupCard {
+            if hevyManager.isConnected {
+                return "Connect Apple Health here, or keep importing from your connected sources."
+            }
+            return "Connect Apple Health above to import existing workouts and optionally auto-import new ones."
+        }
+
         if hevyManager.isConnected {
             return "All your Apple Health and Hevy workouts are already imported."
         }
         return "All your Apple Health workouts are already imported."
+    }
+
+    private var appleHealthSetupCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 12) {
+                Image("appleHealth-icon")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 36, height: 36)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(appleHealthSetupTitle)
+                        .font(.montserratSemiBold(size: 16))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+                    if !appleHealthSetupSubtitle.isEmpty {
+                        Text(appleHealthSetupSubtitle)
+                            .font(.montserratRegular(size: 13))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            Text(appleHealthSetupMessage)
+                .font(.montserratRegular(size: 14))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if !appleHealthSetupSecondaryLine.isEmpty {
+                Text(appleHealthSetupSecondaryLine)
+                    .font(.montserratRegular(size: 13))
+                    .foregroundStyle(.secondary.opacity(0.92))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Button(appleHealthSetupButtonTitle) {
+                handleAppleHealthSetupButtonTapped()
+            }
+            .appSheetButtonStyle()
+            .disabled(isRequestingAppleHealthAuthorization)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(effectiveColorScheme == .dark ? Color.white.opacity(0.06) : Color.white)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(effectiveColorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.08), lineWidth: 1)
+        }
+    }
+
+    private var appleHealthSetupTitle: String {
+        switch appleHealthConnectionState {
+        case .neverConnected:
+            return "Import Apple Health workouts"
+        case .revoked:
+            return "Reconnect Apple Health"
+        case .connected, .unavailable:
+            return "Apple Health"
+        }
+    }
+
+    private var appleHealthSetupSubtitle: String {
+        switch appleHealthConnectionState {
+        case .neverConnected:
+            return ""
+        case .revoked:
+            return "Health permissions were turned off outside Ascend."
+        case .connected, .unavailable:
+            return ""
+        }
+    }
+
+    private var appleHealthSetupMessage: String {
+        switch appleHealthConnectionState {
+        case .neverConnected:
+            return "Connect Apple Health to import your existing stairstepper workouts and automatically import new ones when you finish them."
+        case .revoked:
+            return "Re-enable workout access in the Health app to bring Apple Health workouts into Ascend again."
+        case .connected, .unavailable:
+            return ""
+        }
+    }
+
+    private var appleHealthSetupSecondaryLine: String {
+        switch appleHealthConnectionState {
+        case .neverConnected:
+            return "Turn off auto-import anytime in Settings > Edit Profile > Integrations > Apple Health."
+        case .revoked, .connected, .unavailable:
+            return ""
+        }
+    }
+
+    private var appleHealthSetupButtonTitle: String {
+        if isRequestingAppleHealthAuthorization, appleHealthConnectionState == .neverConnected {
+            return "Connecting..."
+        }
+
+        switch appleHealthConnectionState {
+        case .neverConnected:
+            return "Connect Apple Health"
+        case .revoked:
+            return "Open Health Permissions"
+        case .connected, .unavailable:
+            return "Manage"
+        }
     }
 
     private var workoutListSection: some View {
@@ -236,6 +393,53 @@ struct WorkoutImportSheet: View {
             onPrimaryTapped: importSelectedWorkouts,
             isPrimaryDisabled: selectedCount == 0 || importCoordinator.isImporting
         )
+    }
+
+    private func autoImportEnabledCard(message: String) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 12) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.accent)
+                    .frame(width: 36, height: 36)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Apple Health connected")
+                        .font(.montserratSemiBold(size: 16))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+                    Text("Auto-import is on")
+                        .font(.montserratRegular(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 0)
+
+                Button {
+                    autoImportStatusMessage = nil
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Text(message)
+                .font(.montserratRegular(size: 14))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(effectiveColorScheme == .dark ? Color.white.opacity(0.06) : Color.white)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(effectiveColorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.08), lineWidth: 1)
+        }
     }
 
     private func importWorkout(_ candidate: ImportedWorkoutCandidate) {
@@ -342,6 +546,57 @@ struct WorkoutImportSheet: View {
         withAnimation(.easeInOut(duration: 0.2)) {
             isSelectionMode = false
         }
+    }
+
+    private func handleAppleHealthSetupButtonTapped() {
+        switch appleHealthConnectionState {
+        case .neverConnected:
+            requestAppleHealthAuthorization()
+        case .revoked:
+            openHealthPermissions()
+        case .connected, .unavailable:
+            break
+        }
+    }
+
+    private func requestAppleHealthAuthorization() {
+        guard !isRequestingAppleHealthAuthorization else { return }
+
+        isRequestingAppleHealthAuthorization = true
+        Task {
+            let didConnect = await importCoordinator.requestAppleHealthAuthorizationIfNeeded()
+
+            guard didConnect else {
+                await MainActor.run {
+                    isRequestingAppleHealthAuthorization = false
+                    if let errorMessage = importCoordinator.lastErrorMessage, !errorMessage.isEmpty {
+                        presentSetupAlert(errorMessage)
+                    }
+                }
+                return
+            }
+
+            await MainActor.run {
+                isRequestingAppleHealthAuthorization = false
+                settingsManager.setAppleHealthAutoImportEnabled(true)
+                autoImportStatusMessage = defaultAutoImportStatusMessage
+            }
+            await importCoordinator.handleAppleHealthAutoImportPreferenceChanged()
+        }
+    }
+
+    private func openHealthPermissions() {
+        guard let healthURL = URL(string: "x-apple-health://") else { return }
+        openURL(healthURL)
+    }
+
+    private var defaultAutoImportStatusMessage: String {
+        "New Apple Health workouts will auto-import by default. You can change this anytime in Settings > Edit Profile > Integrations > Apple Health."
+    }
+
+    private func presentSetupAlert(_ message: String) {
+        setupAlertMessage = message
+        showingSetupAlert = true
     }
 
     private typealias PreGoalCapture = (goal: Goal, progress: GoalProgress, referenceDate: Date)
@@ -546,5 +801,6 @@ struct ImportedWorkoutCandidateRow: View {
 
 #Preview {
     WorkoutImportSheet()
+        .environment(AuthenticationViewModel())
         .modelContainer(for: [Workout.self, WorkoutSourceLink.self, Goal.self], inMemory: true)
 }

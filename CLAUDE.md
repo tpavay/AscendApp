@@ -101,6 +101,20 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
 - Workout import supports individual import, selected-batch import, and import-all from the same sheet.
 - Import architecture uses one canonical `Workout` plus local `WorkoutSourceLink` provenance records per provider. New import UI and state should flow through `WorkoutImportCoordinator`, not provider-specific views/services.
 - Apple Health is read-only. First connect may backfill historical workouts, but routine checks must stay incremental and sample-only until a workout is actually imported.
+- Apple Health auto-import is optional and user-controlled from the Apple Health manage sheet.
+- Auto-import only applies to newly finished Apple Health workouts from the moment the user enables it; older pending history remains in the manual review/import flow.
+- If older local settings have auto-import enabled but no stored activation timestamp, use the previous successful HealthKit check as the conservative activation fallback so newly discovered workouts can import without opening older pending history.
+- Auto-imported Apple Health workouts should use a single latest-unseen review model, not a backlog queue:
+  - Home may surface one quick-edit review sheet for only the latest unseen auto-imported workout
+  - if a newer unseen auto-import arrives before review is completed, it replaces the older unresolved review candidate
+  - completing or deleting that review should advance the review watermark so older auto-imported workouts never surface one-by-one later
+- The Home header bell is the primary import entry point. Newly authenticated users should get a one-time per-user coach mark there that explains imports and review, rather than a dedicated Apple Health onboarding screen.
+- `WorkoutImportSheet` should own Apple Health setup regardless of entry path using inline setup states, not a setup sheet layered on top of the import page. The bell and other manual review entry points should always open the import page rather than jumping straight into the auto-import review flow.
+- While Apple Health still needs setup, suppress the generic `No New Workouts` empty state so setup remains the only focus.
+- After Apple Health access is granted, enable auto-import by default and show inline guidance for where to change that later in Settings > Edit Profile > Integrations > Apple Health.
+- The auto-import review screen is a cleanup pass on an already-saved workout, so it should use `Done` instead of `Save`, omit `Not Now`, open as a quick-edit sheet (about 75% height with expansion to large) that cannot be swiped away, allow edits to `title`, `notes`, `media`, `duration`, and `steps`, keep the imported workout date visible but read-only, and keep the destructive `Delete Workout` action inside the sheet content while suppressing re-import of that same Apple Health sample.
+- HealthKit auto-import freshness should use HealthKit observer/background delivery when available, while keeping the existing launch/foreground incremental refresh as a fallback.
+- HealthKit observer callbacks should only wake the import pipeline; the coordinator must serialize refreshes and fetch changes with an anchored query before completing observer delivery.
 
 ### Analytics Architecture
 - `TelemetryManager` remains the app-facing facade, while reusable telemetry types and sinks live under `Shared/Services/Telemetry`.

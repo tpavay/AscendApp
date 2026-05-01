@@ -49,7 +49,7 @@ struct WorkoutListView: View {
                     isInDeleteMode: isInDeleteMode,
                     totalCount: workouts.count,
                     effectiveColorScheme: effectiveColorScheme,
-                    pendingImportCount: importCoordinator.pendingCount,
+                    pendingImportCount: importCoordinator.attentionCount,
                     workouts: workouts,
                     filterState: filterState,
                     onCancelDelete: exitDeleteMode,
@@ -132,7 +132,7 @@ struct WorkoutListView: View {
                             handleImportTapped()
                         }
                     },
-                    pendingImportCount: importCoordinator.pendingCount
+                    pendingImportCount: importCoordinator.attentionCount
                 )
                 .appSheetStyle(.fitted())
             }
@@ -248,8 +248,10 @@ struct WorkoutListView: View {
 
     private func handleImportTapped() {
         Task {
-            await importCoordinator.refreshPendingImports(trigger: .manualReview)
-            showingImportSheet = true
+            let resolution = await importCoordinator.prepareImportInbox()
+            if resolution == .showImportSheet {
+                showingImportSheet = true
+            }
         }
     }
 

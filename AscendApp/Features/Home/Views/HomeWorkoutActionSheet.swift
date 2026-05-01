@@ -47,8 +47,8 @@ struct HomeWorkoutActionSheet: View {
                 optionButton(action: onImportWorkouts) {
                     AppSheetOptionRow(
                         systemImage: "square.and.arrow.down",
-                        title: "Import Workouts",
-                        subtitle: "Apple Health and connected sources",
+                        title: "Import or Review",
+                        subtitle: "Apple Health, connected sources, and auto-import follow-up",
                         iconTint: .accent,
                         badgeCount: pendingImportCount,
                         trailingSymbol: "chevron.right",

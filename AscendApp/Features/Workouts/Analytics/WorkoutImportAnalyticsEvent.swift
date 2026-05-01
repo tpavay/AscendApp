@@ -117,6 +117,7 @@ extension WorkoutImportAnalyticsEvent {
         case single
         case selected
         case all
+        case automatic
     }
 
     enum Outcome: String {

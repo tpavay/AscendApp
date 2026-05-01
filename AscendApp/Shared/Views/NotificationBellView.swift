@@ -15,9 +15,22 @@ extension View {
 
 struct NotificationBellView: View {
     let pendingImports: Int
+    let isHighlighted: Bool
     let action: () -> Void
     
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHighlightAnimating = false
+
+    init(
+        pendingImports: Int,
+        isHighlighted: Bool = false,
+        action: @escaping () -> Void
+    ) {
+        self.pendingImports = pendingImports
+        self.isHighlighted = isHighlighted
+        self.action = action
+    }
     
     var body: some View {
         Button(action: action) {
@@ -47,14 +60,48 @@ struct NotificationBellView: View {
                         .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
                 }
             }
+            .frame(width: 44, height: 44)
+            .background {
+                if isHighlighted {
+                    Circle()
+                        .fill(.accent.opacity(reduceMotion ? 0.14 : (isHighlightAnimating ? 0.08 : 0.18)))
+                        .frame(width: 44, height: 44)
+                }
+            }
+            .overlay {
+                if isHighlighted {
+                    Circle()
+                        .stroke(.accent.opacity(reduceMotion ? 0.5 : (isHighlightAnimating ? 0.06 : 0.7)), lineWidth: 2)
+                        .frame(width: 44, height: 44)
+                        .scaleEffect(reduceMotion ? 1 : (isHighlightAnimating ? 1.18 : 0.94))
+                        .opacity(reduceMotion ? 1 : (isHighlightAnimating ? 0 : 1))
+                }
+            }
         }
-        .buttonStyle(PlainButtonStyle())
+        .buttonStyle(.plain)
+        .accessibilityLabel("Import or review workouts")
+        .accessibilityHint("Opens Apple Health and connected workout imports")
         .onAppear {
+            syncHighlightAnimation()
             if pendingImports > 0 {
                 print("🔔 NotificationBellView showing badge: \(pendingImports)")
             } else {
                 print("🔔 NotificationBellView no badge - count: \(pendingImports)")
             }
+        }
+        .onChange(of: isHighlighted) { _, _ in
+            syncHighlightAnimation()
+        }
+    }
+
+    private func syncHighlightAnimation() {
+        guard isHighlighted, !reduceMotion else {
+            isHighlightAnimating = false
+            return
+        }
+
+        withAnimation(.easeOut(duration: 1.05).repeatForever(autoreverses: false)) {
+            isHighlightAnimating = true
         }
     }
 }

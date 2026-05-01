@@ -46,36 +46,21 @@ final class HealthKitWorkoutReader: HealthKitWorkoutReading {
         }
 
         let anchor = HealthKitSyncState.unarchiveAnchor(from: anchorData)
-        let predicate = stairWorkoutPredicate()
+        let predicate = Self.stairWorkoutPredicate()
+        let descriptor = HKAnchoredObjectQueryDescriptor<HKWorkout>(
+            predicates: [.workout(predicate)],
+            anchor: anchor
+        )
+        let result = try await descriptor.result(for: healthStore)
+        let addedSamples = result.addedSamples.map(Self.makeSample(from:))
+        let deletedExternalRecordIDs = result.deletedObjects.map { $0.uuid.uuidString }
+        let newAnchorData = HealthKitSyncState.archive(anchor: result.newAnchor)
 
-        return try await withCheckedThrowingContinuation { continuation in
-            let query = HKAnchoredObjectQuery(
-                type: HKObjectType.workoutType(),
-                predicate: predicate,
-                anchor: anchor,
-                limit: HKObjectQueryNoLimit
-            ) { _, samples, deletedObjects, newAnchor, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                    return
-                }
-
-                let workouts = (samples as? [HKWorkout]) ?? []
-                let addedSamples = workouts.map(Self.makeSample(from:))
-                let deletedExternalRecordIDs = deletedObjects?.map { $0.uuid.uuidString } ?? []
-                let newAnchorData = HealthKitSyncState.archive(anchor: newAnchor)
-
-                continuation.resume(
-                    returning: HealthKitWorkoutDiscoveryResult(
-                        addedSamples: addedSamples,
-                        deletedExternalRecordIDs: deletedExternalRecordIDs,
-                        anchorData: newAnchorData
-                    )
-                )
-            }
-
-            healthStore.execute(query)
-        }
+        return HealthKitWorkoutDiscoveryResult(
+            addedSamples: addedSamples,
+            deletedExternalRecordIDs: deletedExternalRecordIDs,
+            anchorData: newAnchorData
+        )
     }
 
     func fetchWorkout(withExternalRecordID externalRecordID: String) async throws -> HKWorkout? {
@@ -110,7 +95,7 @@ final class HealthKitWorkoutReader: HealthKitWorkoutReading {
             end: dateRange.upperBound,
             options: .strictStartDate
         )
-        let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [stairWorkoutPredicate(), datePredicate])
+        let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [Self.stairWorkoutPredicate(), datePredicate])
         let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
 
         return try await withCheckedThrowingContinuation { continuation in
@@ -133,7 +118,7 @@ final class HealthKitWorkoutReader: HealthKitWorkoutReading {
         }
     }
 
-    private func stairWorkoutPredicate() -> NSPredicate {
+    nonisolated static func stairWorkoutPredicate() -> NSPredicate {
         NSCompoundPredicate(orPredicateWithSubpredicates: [
             HKQuery.predicateForWorkouts(with: .stairClimbing),
             HKQuery.predicateForWorkouts(with: .stepTraining)

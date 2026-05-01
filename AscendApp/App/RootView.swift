@@ -12,6 +12,7 @@ struct RootView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.modelContext) private var modelContext
     @Environment(MediaUploadManager.self) private var uploadManager
+    @State private var importCoordinator = WorkoutImportCoordinator.shared
 
     var body: some View {
         Group {
@@ -29,6 +30,7 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.25), value: authVM.authenticationState)
         .themeAware()
         .task {
+            importCoordinator.configure(modelContext: modelContext)
             // Resume any pending uploads from previous session
             await uploadManager.processPendingUploads(modelContext: modelContext)
             await bootstrapLeaderboardState()
@@ -36,6 +38,7 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             // Retry pending uploads when app comes to foreground (network may have restored)
             Task {
+                importCoordinator.configure(modelContext: modelContext)
                 await uploadManager.processPendingUploads(modelContext: modelContext)
                 await bootstrapLeaderboardState()
             }

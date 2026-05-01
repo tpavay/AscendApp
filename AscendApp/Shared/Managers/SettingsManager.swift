@@ -24,6 +24,9 @@ final class SettingsManager {
     private let manualBaseLevelOverrideKey = "manualBaseLevelOverride"
     private let hasCompletedBaseLevelOnboardingKey = "hasCompletedBaseLevelOnboarding"
     private let firstLaunchDateKey = "firstLaunchDate"
+    private let appleHealthAutoImportEnabledKey = "appleHealthAutoImportEnabled"
+    private let appleHealthAutoImportActivatedAtKey = "appleHealthAutoImportActivatedAt"
+    private let appleHealthImportCoachMarkSeenUserIDsKey = "appleHealthImportCoachMarkSeenUserIDs"
     var preferredWorkoutMetric: WorkoutMetric {
         didSet {
             savePreferredMetric()
@@ -78,6 +81,24 @@ final class SettingsManager {
     var hasCompletedBaseLevelOnboarding: Bool {
         didSet {
             saveHasCompletedBaseLevelOnboarding()
+        }
+    }
+
+    var appleHealthAutoImportEnabled: Bool {
+        didSet {
+            if appleHealthAutoImportEnabled && !oldValue {
+                appleHealthAutoImportActivatedAt = Date()
+            } else if !appleHealthAutoImportEnabled {
+                appleHealthAutoImportActivatedAt = nil
+            }
+
+            saveAppleHealthAutoImportEnabled()
+        }
+    }
+
+    var appleHealthAutoImportActivatedAt: Date? {
+        didSet {
+            saveAppleHealthAutoImportActivatedAt()
         }
     }
 
@@ -177,6 +198,9 @@ final class SettingsManager {
             }
         }
 
+        self.appleHealthAutoImportEnabled = UserDefaults.standard.bool(forKey: appleHealthAutoImportEnabledKey)
+        self.appleHealthAutoImportActivatedAt = UserDefaults.standard.object(forKey: appleHealthAutoImportActivatedAtKey) as? Date
+
     }
     
     private func savePreferredMetric() {
@@ -232,6 +256,16 @@ final class SettingsManager {
         UserDefaults.standard.synchronize()
     }
 
+    private func saveAppleHealthAutoImportEnabled() {
+        UserDefaults.standard.set(appleHealthAutoImportEnabled, forKey: appleHealthAutoImportEnabledKey)
+        UserDefaults.standard.synchronize()
+    }
+
+    private func saveAppleHealthAutoImportActivatedAt() {
+        UserDefaults.standard.set(appleHealthAutoImportActivatedAt, forKey: appleHealthAutoImportActivatedAtKey)
+        UserDefaults.standard.synchronize()
+    }
+
     private func convertStepHeight(from oldSystem: MeasurementSystem, to newSystem: MeasurementSystem) {
         guard oldSystem != newSystem else { return }
         
@@ -259,7 +293,27 @@ final class SettingsManager {
             measurementSystem = system
         }
     }
-    
+
+    func setAppleHealthAutoImportEnabled(_ enabled: Bool) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            appleHealthAutoImportEnabled = enabled
+        }
+    }
+
+    func hasSeenAppleHealthImportCoachMark(for userID: String) -> Bool {
+        Set(UserDefaults.standard.stringArray(forKey: appleHealthImportCoachMarkSeenUserIDsKey) ?? [])
+            .contains(userID)
+    }
+
+    func markAppleHealthImportCoachMarkSeen(for userID: String) {
+        var seenUserIDs = Set(UserDefaults.standard.stringArray(forKey: appleHealthImportCoachMarkSeenUserIDsKey) ?? [])
+        let inserted = seenUserIDs.insert(userID).inserted
+        guard inserted else { return }
+
+        UserDefaults.standard.set(Array(seenUserIDs).sorted(), forKey: appleHealthImportCoachMarkSeenUserIDsKey)
+        UserDefaults.standard.synchronize()
+    }
+
     func setStepHeight(_ height: Double) {
         stepHeight = height
     }
