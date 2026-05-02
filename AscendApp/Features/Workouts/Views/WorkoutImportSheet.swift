@@ -468,17 +468,13 @@ struct WorkoutImportSheet: View {
     private func importWorkout(_ candidate: ImportedWorkoutCandidate) {
         selectedCandidateIDs.remove(candidate.id)
         importTask = Task {
-            let referenceDate = Date()
-            let preGoalCapture = capturePreGoalSnapshot(referenceDate: referenceDate)
             let outcome = await importCoordinator.importCandidate(candidate)
 
             switch outcome {
             case .imported(let workout):
-                let goalSnapshot = buildGoalSnapshot(preGoalCapture: preGoalCapture)
                 celebrationData = buildCelebrationData(
                     importedWorkouts: [workout],
-                    failedCount: 0,
-                    goalSnapshot: goalSnapshot
+                    failedCount: 0
                 )
                 showingCelebration = true
             case .updatedExisting, .failed:
@@ -491,16 +487,12 @@ struct WorkoutImportSheet: View {
 
     private func importAllWorkouts() {
         importTask = Task {
-            let referenceDate = Date()
-            let preGoalCapture = capturePreGoalSnapshot(referenceDate: referenceDate)
             let result = await importCoordinator.importAllCandidates()
 
             if result.successCount > 0 {
-                let goalSnapshot = buildGoalSnapshot(preGoalCapture: preGoalCapture)
                 celebrationData = buildCelebrationData(
                     importedWorkouts: result.importedWorkouts,
-                    failedCount: result.failedCount,
-                    goalSnapshot: goalSnapshot
+                    failedCount: result.failedCount
                 )
                 showingCelebration = true
             }
@@ -514,16 +506,12 @@ struct WorkoutImportSheet: View {
         guard !selectedIDs.isEmpty else { return }
 
         importTask = Task {
-            let referenceDate = Date()
-            let preGoalCapture = capturePreGoalSnapshot(referenceDate: referenceDate)
             let result = await importCoordinator.importCandidates(ids: selectedIDs)
 
             if result.successCount > 0 {
-                let goalSnapshot = buildGoalSnapshot(preGoalCapture: preGoalCapture)
                 celebrationData = buildCelebrationData(
                     importedWorkouts: result.importedWorkouts,
-                    failedCount: result.failedCount,
-                    goalSnapshot: goalSnapshot
+                    failedCount: result.failedCount
                 )
                 showingCelebration = true
             }
@@ -646,44 +634,9 @@ struct WorkoutImportSheet: View {
         showingSetupAlert = true
     }
 
-    private typealias PreGoalCapture = (goal: Goal, progress: GoalProgress, referenceDate: Date)
-
-    private func capturePreGoalSnapshot(referenceDate: Date) -> PreGoalCapture? {
-        do {
-            let existingWorkouts = try ImportCelebrationService.fetchAllWorkouts(modelContext: modelContext)
-            guard let capture = ImportCelebrationService.captureGoalSnapshot(
-                modelContext: modelContext,
-                existingWorkouts: existingWorkouts,
-                referenceDate: referenceDate
-            ) else {
-                return nil
-            }
-            return (goal: capture.goal, progress: capture.progress, referenceDate: referenceDate)
-        } catch {
-            return nil
-        }
-    }
-
-    private func buildGoalSnapshot(preGoalCapture: PreGoalCapture?) -> GoalCelebrationSnapshot? {
-        guard let preGoalCapture else { return nil }
-
-        do {
-            let allWorkoutsAfterImport = try ImportCelebrationService.fetchAllWorkouts(modelContext: modelContext)
-            return ImportCelebrationService.buildGoalData(
-                preGoal: preGoalCapture.goal,
-                preProgress: preGoalCapture.progress,
-                allWorkoutsAfterImport: allWorkoutsAfterImport,
-                referenceDate: preGoalCapture.referenceDate
-            )
-        } catch {
-            return nil
-        }
-    }
-
     private func buildCelebrationData(
         importedWorkouts: [Workout],
-        failedCount: Int,
-        goalSnapshot: GoalCelebrationSnapshot?
+        failedCount: Int
     ) -> ImportCelebrationData {
         let settings = SettingsManager.shared
         let totalDuration = importedWorkouts.reduce(0.0) { $0 + $1.duration }
@@ -703,8 +656,7 @@ struct WorkoutImportSheet: View {
             totalSteps: totalSteps,
             totalFloors: totalFloors,
             totalVerticalClimb: totalVerticalClimb,
-            verticalClimbUnit: settings.measurementSystem.distanceUnit,
-            goalSnapshot: goalSnapshot
+            verticalClimbUnit: settings.measurementSystem.distanceUnit
         )
     }
 }
@@ -849,5 +801,5 @@ struct ImportedWorkoutCandidateRow: View {
 #Preview {
     WorkoutImportSheet()
         .environment(AuthenticationViewModel())
-        .modelContainer(for: [Workout.self, WorkoutSourceLink.self, Goal.self], inMemory: true)
+        .modelContainer(for: [Workout.self, WorkoutSourceLink.self], inMemory: true)
 }

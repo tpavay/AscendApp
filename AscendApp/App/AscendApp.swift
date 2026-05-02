@@ -64,7 +64,6 @@ struct AscendApp: App {
                 WorkoutSourceLink.self,
                 LeaderboardStats.self,
                 PersonalRecord.self,
-                Goal.self,
                 Routine.self,
                 RoutineFolder.self,
                 ClimbAttempt.self,
@@ -74,7 +73,7 @@ struct AscendApp: App {
                 PendingWorkoutDeletion.self
             ]))
             return try ModelContainer(
-                for: Workout.self, WorkoutSourceLink.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self, ClimbAttempt.self, WeightPersonalRecord.self, AggregateWeightRecord.self, PendingMediaUpload.self, PendingWorkoutDeletion.self,
+                for: Workout.self, WorkoutSourceLink.self, LeaderboardStats.self, PersonalRecord.self, Routine.self, RoutineFolder.self, ClimbAttempt.self, WeightPersonalRecord.self, AggregateWeightRecord.self, PendingMediaUpload.self, PendingWorkoutDeletion.self,
                 configurations: config
             )
         } catch {
@@ -99,7 +98,6 @@ struct AscendApp: App {
                     WorkoutSourceLink.self,
                     LeaderboardStats.self,
                     PersonalRecord.self,
-                    Goal.self,
                     Routine.self,
                     RoutineFolder.self,
                     ClimbAttempt.self,
@@ -109,7 +107,7 @@ struct AscendApp: App {
                     PendingWorkoutDeletion.self
                 ]))
                 return try ModelContainer(
-                    for: Workout.self, WorkoutSourceLink.self, LeaderboardStats.self, PersonalRecord.self, Goal.self, Routine.self, RoutineFolder.self, ClimbAttempt.self, WeightPersonalRecord.self, AggregateWeightRecord.self, PendingMediaUpload.self, PendingWorkoutDeletion.self,
+                    for: Workout.self, WorkoutSourceLink.self, LeaderboardStats.self, PersonalRecord.self, Routine.self, RoutineFolder.self, ClimbAttempt.self, WeightPersonalRecord.self, AggregateWeightRecord.self, PendingMediaUpload.self, PendingWorkoutDeletion.self,
                     configurations: config
                 )
             } catch {

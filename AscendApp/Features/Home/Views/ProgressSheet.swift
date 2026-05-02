@@ -11,15 +11,12 @@ struct ProgressSheet: View {
     let workouts: [Workout]
 
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.modelContext) private var modelContext
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
     @State private var selectedDate = Date()
     @State private var showIntensityExplanation = false
     @State private var selectedCalendarDay: CalendarDay?
     @State private var workoutToEdit: Workout?
-    @State private var showingGoalsSheet = false
-    @State private var goalsViewModel = GoalsViewModel()
     @State private var selectedHeatMapMetric: HeatMapMetric = .effortScore
     @State private var showMoreMetrics = false
     @State private var heatMapAnimationID = UUID()
@@ -113,11 +110,6 @@ struct ProgressSheet: View {
             .padding(.horizontal, 24)
             .padding(.top, 20)
 
-            // Weekly Goal Card
-            weeklyGoalCard
-                .padding(.horizontal, 24)
-                .padding(.top, 24)
-
             // Weekly streak hero (primary streak metric)
             weeklyStreakView
                 .padding(.horizontal, 24)
@@ -159,27 +151,6 @@ struct ProgressSheet: View {
                     }
                 }
             ))
-        }
-        .sheet(isPresented: $showingGoalsSheet) {
-            GoalsSheet(isPresented: $showingGoalsSheet, workouts: workouts)
-        }
-        .onAppear {
-            goalsViewModel.configure(modelContext: modelContext)
-            goalsViewModel.loadActiveGoal()
-            goalsViewModel.calculateProgress(from: workouts)
-        }
-        .onChange(of: workouts.count) { _, _ in
-            goalsViewModel.calculateProgress(from: workouts)
-        }
-        .onChange(of: showingGoalsSheet) { oldValue, newValue in
-            if oldValue && !newValue {
-                goalsViewModel.loadActiveGoal()
-                goalsViewModel.calculateProgress(from: workouts)
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .weeklyGoalDidChange)) { _ in
-            goalsViewModel.loadActiveGoal()
-            goalsViewModel.calculateProgress(from: workouts)
         }
     }
 
@@ -247,123 +218,6 @@ struct ProgressSheet: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 20)
-    }
-
-    // MARK: - Weekly Goal Card
-
-    private var weeklyGoalCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let goal = goalsViewModel.activeGoal,
-               let progress = goalsViewModel.progress {
-                // Has goal state
-                // Header: Title and Edit button
-                HStack {
-                    Text("Weekly Goal")
-                        .font(.montserratBold(size: 20))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                    Spacer()
-
-                    Button(action: { showingGoalsSheet = true }) {
-                        Text("Edit")
-                            .font(.montserratMedium(size: 14))
-                            .foregroundStyle(.accent)
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                // Progress row: "X / Y stair sessions" with progress bar
-                HStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(formatGoalProgressText(current: progress.current, target: progress.target, metric: goal.metric))
-                            .font(.montserratBold(size: 16))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                        Text(formatRemainingText(remaining: progress.remaining, metric: goal.metric))
-                            .font(.montserratRegular(size: 13))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
-                    }
-
-                    Spacer()
-
-                    // Segmented progress bar
-                    WeeklyGoalProgressBar(
-                        current: progress.current,
-                        target: progress.target,
-                        metric: goal.metric
-                    )
-                    .frame(width: 140)
-                }
-
-                // Reset info
-                Text("Resets every \(goal.resetDayFullName)")
-                    .font(.montserratRegular(size: 12))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.4) : .gray.opacity(0.7))
-                    .padding(.top, 4)
-            } else {
-                // Empty state - no goal set
-                Text("Weekly Goal")
-                    .font(.montserratBold(size: 18))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                Text("Set a weekly stair target to stay consistent.")
-                    .font(.montserratRegular(size: 13))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-
-                Button(action: { showingGoalsSheet = true }) {
-                    Text("Set your first goal")
-                        .font(.montserratSemiBold(size: 13))
-                        .foregroundStyle(.black)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 20)
-                                .fill(.accent)
-                        )
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 2)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
-                )
-        )
-    }
-
-    private func formatGoalProgressText(current: Int, target: Int, metric: GoalMetric) -> String {
-        if metric == .duration {
-            return "\(formatDurationMinutes(current)) / \(formatDurationMinutes(target))"
-        }
-        let unit = metric == .workouts ? "stair \(target == 1 ? "session" : "sessions")" : metric.unit
-        return "\(current.formatted()) / \(target.formatted()) \(unit)"
-    }
-
-    private func formatRemainingText(remaining: Int, metric: GoalMetric) -> String {
-        if remaining == 0 {
-            return "Goal complete!"
-        }
-        if metric == .duration {
-            return "\(formatDurationMinutes(remaining)) left this week"
-        }
-        let unit = metric == .workouts ? (remaining == 1 ? "session" : "sessions") : metric.unit
-        return "\(remaining.formatted()) \(unit) left this week"
-    }
-
-    private func formatDurationMinutes(_ minutes: Int) -> String {
-        let hours = minutes / 60
-        let mins = minutes % 60
-        if hours > 0 {
-            return "\(hours)h \(mins)m"
-        } else {
-            return "\(mins)m"
-        }
     }
 
     private var calendarSection: some View {
@@ -1049,55 +903,6 @@ struct ProgressSheet: View {
             )
         }
         .buttonStyle(PlainButtonStyle())
-    }
-}
-
-// MARK: - Weekly Goal Progress Bar
-
-private struct WeeklyGoalProgressBar: View {
-    let current: Int
-    let target: Int
-    let metric: GoalMetric
-
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var themeManager = ThemeManager.shared
-
-    private var effectiveColorScheme: ColorScheme {
-        themeManager.effectiveColorScheme(for: colorScheme)
-    }
-
-    /// For workouts, use target as segment count (e.g., 4 segments for 4 workouts)
-    /// For other metrics, use a fixed 7 segments
-    private var segmentCount: Int {
-        if metric == .workouts {
-            return max(target, 1)
-        }
-        return 7
-    }
-
-    private var filledSegments: Int {
-        guard target > 0 else { return 0 }
-        if metric == .workouts {
-            // For workouts, each segment = 1 workout
-            return min(current, target)
-        }
-        // For other metrics, calculate proportionally
-        let progress = Double(current) / Double(target)
-        return min(Int(ceil(progress * Double(segmentCount))), segmentCount)
-    }
-
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(0..<segmentCount, id: \.self) { index in
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(index < filledSegments ? Color.accentColor : emptyColor)
-                    .frame(height: 10)
-            }
-        }
-    }
-
-    private var emptyColor: Color {
-        effectiveColorScheme == .dark ? .white.opacity(0.15) : .gray.opacity(0.2)
     }
 }
 

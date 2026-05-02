@@ -215,7 +215,6 @@ final class TelemetryManager: @unchecked Sendable {
         case celebrationScreen1Completed = "celebration:screen1_completed"
         case celebrationScreen2Completed = "celebration:screen2_completed"
         case celebrationDismissed = "celebration:dismissed"
-        case celebrationGoalCompleted = "celebration:goal_completed"
 
         var record: TelemetryRecord {
             TelemetryRecord(

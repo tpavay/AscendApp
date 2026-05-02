@@ -16,7 +16,6 @@ struct HomeView: View {
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
     @State private var importCoordinator = WorkoutImportCoordinator.shared
     @State private var showingImportSheet = false
-    @State private var showingGoalsSheet = false
     @State private var showingWorkoutEntrySheet = false
     @State private var showingWorkoutForm = false
     @State private var showingCompletedView = false
@@ -36,8 +35,7 @@ struct HomeView: View {
         showingWorkoutEntrySheet ||
         showingWorkoutForm ||
         showingCompletedView ||
-        showingImportSheet ||
-        showingGoalsSheet
+        showingImportSheet
     }
 
     private var greeting: String {
@@ -97,8 +95,6 @@ struct HomeView: View {
                     }
 
                     ThisWeekCard(workouts: workouts)
-
-                    WeeklyGoalCard(workouts: workouts, showGoalsSheet: $showingGoalsSheet)
 
                     ClimbCardView(
                         viewModel: globeViewModel,
@@ -166,9 +162,6 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showingImportSheet) {
             WorkoutImportSheet()
-        }
-        .sheet(isPresented: $showingGoalsSheet) {
-            GoalsSheet(isPresented: $showingGoalsSheet, workouts: workouts)
         }
         .sheet(item: $autoImportedReviewWorkout, onDismiss: {
             importCoordinator.dismissCurrentAutoImportedReview()
@@ -315,7 +308,6 @@ struct HomeView: View {
         for: [
             Workout.self,
             WorkoutSourceLink.self,
-            Goal.self,
             Routine.self,
             RoutineFolder.self,
             ClimbAttempt.self

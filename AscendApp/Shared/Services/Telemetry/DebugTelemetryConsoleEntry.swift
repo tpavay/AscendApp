@@ -448,13 +448,6 @@ private extension DebugTelemetryConsoleEntry {
             whenItFires: "This fires when the user exits the celebration flow.",
             whyTracked: "It helps show whether users are engaging with or bailing out of celebration moments."
         ),
-        "celebration:goal_completed": Metadata(
-            title: "Goal Celebration Recorded",
-            feature: "Celebration",
-            summary: "A goal-completion celebration event was recorded.",
-            whenItFires: "This fires when Ascend records a goal completion celebration.",
-            whyTracked: "It helps measure goal completions and milestone frequency."
-        )
     ]
 }
 #endif

@@ -184,7 +184,6 @@ struct WorkoutImportCoordinatorDuplicateImportTests {
             WorkoutSourceLink.self,
             LeaderboardStats.self,
             PersonalRecord.self,
-            Goal.self,
             Routine.self,
             RoutineFolder.self,
             ClimbAttempt.self,
