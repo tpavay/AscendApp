@@ -78,7 +78,7 @@ let functionsURL = "https://\(region)-\(projectId).cloudfunctions.net"
 - Never commit QA credentials, never bundle them into production builds, and never use the internal QA path to bypass Firestore/Storage/Auth server enforcement.
 
 ### Data Models (SwiftData)
-Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightPersonalRecord, AggregateWeightRecord, PendingMediaUpload
+Workout, LeaderboardStats, PersonalRecord, Routine, RoutineFolder, WeightPersonalRecord, AggregateWeightRecord, PendingMediaUpload
 
 ### Firebase Storage Pathing + Rules
 - User-generated media must be stored under user-scoped prefixes:
@@ -261,7 +261,8 @@ Workout, LeaderboardStats, PersonalRecord, Goal, Routine, RoutineFolder, WeightP
 
 ### Week Start + Leaderboard Windowing
 - Ascend now uses a single app-wide Monday week start. The old user-configurable week-start preference and selection UI are removed.
-- Goals and home summaries should use Monday-based weeks in the relevant local timezone.
+- Per-week user-configurable numeric targets are intentionally out of scope. Do not reintroduce target cards, setup prompts, or CRUD unless product explicitly chooses that direction again.
+- Home summaries should use Monday-based weeks in the relevant local timezone.
 - Competitive/global leaderboards use canonical Monday-based weeks in `UTC`.
 - Leaderboard documents are current-period-only, not historical archives:
   - one weekly document per user

@@ -412,12 +412,6 @@ final class AccountDeletionService {
                 modelContext.delete(record)
             }
 
-            let goalsDescriptor = FetchDescriptor<Goal>()
-            let goals = try modelContext.fetch(goalsDescriptor)
-            for goal in goals {
-                modelContext.delete(goal)
-            }
-
             let routineDescriptor = FetchDescriptor<Routine>()
             let routines = try modelContext.fetch(routineDescriptor)
             for routine in routines {

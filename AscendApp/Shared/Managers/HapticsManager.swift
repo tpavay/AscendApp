@@ -111,19 +111,4 @@ final class HapticsManager {
         notification.notificationOccurred(.success)
     }
 
-    /// Heavy×3 rapid taps followed by a success notification — used for goal completion
-    func goalCompletionBurst() async {
-        let heavy = UIImpactFeedbackGenerator(style: .heavy)
-        heavy.prepare()
-
-        for _ in 0..<3 {
-            heavy.impactOccurred()
-            try? await Task.sleep(for: .milliseconds(80))
-        }
-
-        try? await Task.sleep(for: .milliseconds(100))
-        let notification = UINotificationFeedbackGenerator()
-        notification.prepare()
-        notification.notificationOccurred(.success)
-    }
 }

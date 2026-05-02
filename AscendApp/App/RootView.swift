@@ -66,9 +66,6 @@ struct RootView: View {
                 currentUserId: user.uid
             )
 
-            let goalService = GoalService(modelContext: modelContext)
-            try goalService.migrateActiveGoalToMondayIfNeeded()
-
             let leaderboardService = LeaderboardService.shared
             leaderboardService.configure(modelContext: modelContext)
 

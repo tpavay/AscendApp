@@ -44,10 +44,6 @@ class ImportCelebrationViewModel {
     var buttonOpacity: Double = 0
     var statGridScale: CGFloat = 1.0
     var heroScale: CGFloat = 1.0
-    var showGoalSection = false
-    var goalSectionOpacity: Double = 0
-    var goalBarProgress: Double = 0
-    var showGoalCompletionScreen = false
 
     private var animationTask: Task<Void, Never>?
 
@@ -55,7 +51,6 @@ class ImportCelebrationViewModel {
 
     init(data: ImportCelebrationData) {
         self.data = data
-        goalBarProgress = data.goalSnapshot?.previousPercent ?? 0
 
         // Initialize all stat opacities to 0
         for stat in visibleStats {
@@ -77,10 +72,6 @@ class ImportCelebrationViewModel {
     var subtitleText: String? {
         guard data.hasPartialFailure else { return nil }
         return "Imported \(data.importedCount) of \(data.totalCount) workouts"
-    }
-
-    var goalSnapshot: GoalCelebrationSnapshot? {
-        data.goalSnapshot
     }
 
     var visibleStats: [StatItem] {
@@ -176,67 +167,14 @@ class ImportCelebrationViewModel {
         phase = .settled
         try? await Task.sleep(for: .milliseconds(reduceMotion ? 80 : 180))
 
-        // Reveal goal impact section after stats complete.
-        withAnimation(.easeIn(duration: reduceMotion ? 0.1 : 0.25)) {
-            showGoalSection = true
-            goalSectionOpacity = 1.0
-        }
-
-        if let goalSnapshot {
-            try? await Task.sleep(for: .milliseconds(reduceMotion ? 80 : 140))
-
-            if reduceMotion {
-                goalBarProgress = goalSnapshot.newPercent
-            } else {
-                await animateGoalBar(
-                    from: goalSnapshot.previousPercent,
-                    to: goalSnapshot.newPercent,
-                    duration: 1.2,
-                    haptics: haptics
-                )
-            }
-
-            if goalSnapshot.goalCompleted {
-                await runGoalCompletionTakeover(haptics: haptics, reduceMotion: reduceMotion)
-            } else {
-                haptics.trigger(.mediumImpact)
-                try? await Task.sleep(for: .milliseconds(reduceMotion ? 60 : 120))
-                await haptics.celebrationBurst()
-            }
-        } else {
-            try? await Task.sleep(for: .milliseconds(reduceMotion ? 60 : 120))
-            await haptics.celebrationBurst()
-        }
+        try? await Task.sleep(for: .milliseconds(reduceMotion ? 60 : 120))
+        await haptics.celebrationBurst()
 
         // T+2.2s: Button fades in
         guard !Task.isCancelled else { return }
         withAnimation(.easeIn(duration: reduceMotion ? 0.1 : 0.3)) {
             buttonOpacity = 1.0
         }
-    }
-
-    private func runGoalCompletionTakeover(
-        haptics: HapticsManager,
-        reduceMotion: Bool
-    ) async {
-        guard !Task.isCancelled else { return }
-
-        TelemetryManager.shared.log(.celebrationGoalCompleted)
-
-        withAnimation(.easeIn(duration: reduceMotion ? 0.1 : 0.18)) {
-            showGoalCompletionScreen = true
-        }
-
-        try? await Task.sleep(for: .milliseconds(reduceMotion ? 40 : 100))
-        haptics.trigger(.heavyImpact)
-
-        if reduceMotion {
-            haptics.trigger(.success)
-            return
-        }
-
-        try? await Task.sleep(for: .milliseconds(100))
-        await haptics.goalCompletionBurst()
     }
 
     private func triggerFinalStatImpact(haptics: HapticsManager, reduceMotion: Bool) async {
@@ -295,36 +233,4 @@ class ImportCelebrationViewModel {
         statProgress[stat.type] = 1.0
     }
 
-    private func animateGoalBar(from start: Double, to end: Double, duration: Double, haptics: HapticsManager) async {
-        goalBarProgress = start
-
-        withAnimation(.easeInOut(duration: duration)) {
-            goalBarProgress = end
-        }
-
-        let tickTask = Task {
-            await emitGoalBarTicks(from: start, to: end, duration: duration, haptics: haptics)
-        }
-
-        try? await Task.sleep(for: .milliseconds(Int((duration * 1000).rounded())))
-        await tickTask.value
-    }
-
-    private func emitGoalBarTicks(from start: Double, to end: Double, duration: Double, haptics: HapticsManager) async {
-        let delta = abs(end - start)
-        guard delta > 0.001 else { return }
-
-        // Roughly one tick per 10% moved, capped to avoid haptic spam.
-        let tickCount = min(8, max(1, Int(ceil(delta * 10))))
-        let intervalMs = max(70, Int((duration / Double(tickCount)) * 1000))
-
-        for index in 0..<tickCount {
-            guard !Task.isCancelled else { return }
-            haptics.trigger(.lightImpact)
-
-            if index < tickCount - 1 {
-                try? await Task.sleep(for: .milliseconds(intervalMs))
-            }
-        }
-    }
 }
