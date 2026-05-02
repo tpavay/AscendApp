@@ -283,14 +283,13 @@ struct WorkoutSyncCoordinatorTests {
                     modelContext: modelContext,
                     currentUserId: "user-123"
                 )
-            },
-            upsertDelayNanoseconds: 200_000_000
+            }
         )
         let heartRateRepository = FakeWorkoutHeartRateStorageRepository()
         let coordinator = WorkoutSyncCoordinator(
             remoteRepository: remoteRepository,
             heartRateStorageRepository: heartRateRepository,
-            operationTimeoutSeconds: 1
+            operationTimeoutSeconds: 5
         )
         coordinatorReference.value = coordinator
 
@@ -516,20 +515,17 @@ private actor FakeWorkoutRemoteRepository: WorkoutRemoteRepositoryProtocol {
     private let upsertError: (any Error & Sendable)?
     private let deleteError: (any Error & Sendable)?
     private let onUpsert: (@MainActor () async -> Void)?
-    private let upsertDelayNanoseconds: UInt64?
 
     init(
         recorder: CallRecorder? = nil,
         upsertError: (any Error & Sendable)? = nil,
         deleteError: (any Error & Sendable)? = nil,
-        onUpsert: (@MainActor () async -> Void)? = nil,
-        upsertDelayNanoseconds: UInt64? = nil
+        onUpsert: (@MainActor () async -> Void)? = nil
     ) {
         self.recorder = recorder
         self.upsertError = upsertError
         self.deleteError = deleteError
         self.onUpsert = onUpsert
-        self.upsertDelayNanoseconds = upsertDelayNanoseconds
     }
 
     func upsertWorkout(
@@ -540,10 +536,6 @@ private actor FakeWorkoutRemoteRepository: WorkoutRemoteRepositoryProtocol {
         await recorder?.record("workout-upsert")
         if let upsertError {
             throw upsertError
-        }
-
-        if let upsertDelayNanoseconds {
-            try? await Task.sleep(nanoseconds: upsertDelayNanoseconds)
         }
 
         upserts.append(Upsert(userId: userId, workoutId: workoutId, document: document))

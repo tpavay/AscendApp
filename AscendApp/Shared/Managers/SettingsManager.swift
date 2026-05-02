@@ -26,7 +26,7 @@ final class SettingsManager {
     private let firstLaunchDateKey = "firstLaunchDate"
     private let appleHealthAutoImportEnabledKey = "appleHealthAutoImportEnabled"
     private let appleHealthAutoImportActivatedAtKey = "appleHealthAutoImportActivatedAt"
-    private let appleHealthImportCoachMarkSeenUserIDsKey = "appleHealthImportCoachMarkSeenUserIDs"
+    private let appleHealthAutoImportPromptDismissedUserIDsKey = "appleHealthAutoImportPromptDismissedUserIDs"
     var preferredWorkoutMetric: WorkoutMetric {
         didSet {
             savePreferredMetric()
@@ -300,17 +300,17 @@ final class SettingsManager {
         }
     }
 
-    func hasSeenAppleHealthImportCoachMark(for userID: String) -> Bool {
-        Set(UserDefaults.standard.stringArray(forKey: appleHealthImportCoachMarkSeenUserIDsKey) ?? [])
+    func hasDismissedAppleHealthAutoImportPrompt(for userID: String) -> Bool {
+        Set(UserDefaults.standard.stringArray(forKey: appleHealthAutoImportPromptDismissedUserIDsKey) ?? [])
             .contains(userID)
     }
 
-    func markAppleHealthImportCoachMarkSeen(for userID: String) {
-        var seenUserIDs = Set(UserDefaults.standard.stringArray(forKey: appleHealthImportCoachMarkSeenUserIDsKey) ?? [])
-        let inserted = seenUserIDs.insert(userID).inserted
+    func markAppleHealthAutoImportPromptDismissed(for userID: String) {
+        var dismissedUserIDs = Set(UserDefaults.standard.stringArray(forKey: appleHealthAutoImportPromptDismissedUserIDsKey) ?? [])
+        let inserted = dismissedUserIDs.insert(userID).inserted
         guard inserted else { return }
 
-        UserDefaults.standard.set(Array(seenUserIDs).sorted(), forKey: appleHealthImportCoachMarkSeenUserIDsKey)
+        UserDefaults.standard.set(Array(dismissedUserIDs).sorted(), forKey: appleHealthAutoImportPromptDismissedUserIDsKey)
         UserDefaults.standard.synchronize()
     }
 

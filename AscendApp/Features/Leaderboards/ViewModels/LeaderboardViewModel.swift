@@ -23,10 +23,15 @@ final class LeaderboardViewModel {
 
     private let service = LeaderboardService.shared
     private let repository = LeaderboardRepository.shared
+    private let sessionCache: LeaderboardSessionCache
     private let pageSize = 25
     private let networkTimeoutSeconds = LeaderboardRefreshPolicy.networkTimeoutSeconds
     private(set) var visibleEntryLimit = 25
     private var currentUserId: String?
+
+    init(sessionCache: LeaderboardSessionCache = .shared) {
+        self.sessionCache = sessionCache
+    }
 
     func configure(userId: String, modelContext: ModelContext) {
         currentUserId = userId
@@ -119,7 +124,7 @@ final class LeaderboardViewModel {
         }
 
         if forceRefresh == false,
-           let cachedStats = await LeaderboardSessionCache.shared.detailEntries(
+           let cachedStats = await sessionCache.detailEntries(
                 for: selectedMetric,
                 timeFrame: selectedTimeFrame
            ) {
@@ -139,7 +144,7 @@ final class LeaderboardViewModel {
                     source: .cache
                 )
                 let reconciledStats = reconcileCurrentUserStats(cacheStats, userId: userId)
-                await LeaderboardSessionCache.shared.setDetailEntries(
+                await sessionCache.setDetailEntries(
                     reconciledStats,
                     for: selectedMetric,
                     timeFrame: selectedTimeFrame
@@ -174,7 +179,7 @@ final class LeaderboardViewModel {
                 )
             }
             let reconciledStats = reconcileCurrentUserStats(stats, userId: userId)
-            await LeaderboardSessionCache.shared.setDetailEntries(
+            await sessionCache.setDetailEntries(
                 reconciledStats,
                 for: selectedMetric,
                 timeFrame: selectedTimeFrame
@@ -183,7 +188,7 @@ final class LeaderboardViewModel {
             errorMessage = nil
             isOffline = false
         } catch {
-            if let cachedStats = await LeaderboardSessionCache.shared.detailEntries(
+            if let cachedStats = await sessionCache.detailEntries(
                 for: selectedMetric,
                 timeFrame: selectedTimeFrame
             ) {
@@ -208,7 +213,7 @@ final class LeaderboardViewModel {
                     source: .cache
                 )
                 let reconciledStats = reconcileCurrentUserStats(cacheStats, userId: userId)
-                await LeaderboardSessionCache.shared.setDetailEntries(
+                await sessionCache.setDetailEntries(
                     reconciledStats,
                     for: selectedMetric,
                     timeFrame: selectedTimeFrame
@@ -274,8 +279,9 @@ final class LeaderboardViewModel {
             )
         }
 
+        let sessionCache = sessionCache
         Task {
-            await LeaderboardSessionCache.shared.updateCurrentUserProfile(
+            await sessionCache.updateCurrentUserProfile(
                 userId: userId,
                 displayName: displayName,
                 photoURL: photoURL
