@@ -3,6 +3,7 @@ import SwiftUI
 struct ClimbBrowseView: View {
     @Bindable var viewModel: GlobeViewModel
 
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @State private var selectedDetailClimb: Climb?
     @State private var showingHelpSheet = false
@@ -25,15 +26,16 @@ struct ClimbBrowseView: View {
             }
 
             VStack(spacing: 0) {
-                headerAndSearch
+                topChrome
                 Spacer()
                 previewCardArea
             }
         }
         .toolbarBackground(.clear, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+        .toolbar(.hidden, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(false)
+        .navigationBarBackButtonHidden(true)
         .navigationDestination(item: $selectedDetailClimb) { climb in
             ClimbDetailView(climb: climb, showsBrowseBackButton: true)
         }
@@ -60,20 +62,25 @@ struct ClimbBrowseView: View {
     private var globeEdgeOverlays: some View {
         VStack(spacing: 0) {
             LinearGradient(
-                colors: [Color.night.opacity(0.85), Color.night.opacity(0.4), .clear],
+                colors: [
+                    Color.black.opacity(0.96),
+                    Color.black.opacity(0.74),
+                    Color.black.opacity(0.28),
+                    .clear
+                ],
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .frame(height: 120)
+            .frame(height: 250)
 
             Spacer()
 
             LinearGradient(
-                colors: [.clear, Color.night.opacity(0.6), Color.night.opacity(0.95)],
+                colors: [.clear, Color.black.opacity(0.56), Color.black.opacity(0.96)],
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .frame(height: 160)
+            .frame(height: 220)
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
@@ -81,56 +88,83 @@ struct ClimbBrowseView: View {
 
     // MARK: - Header & Search
 
-    private var headerAndSearch: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                Text("Climb Anything")
-                    .font(.montserratBold(size: 28))
-                    .foregroundStyle(.white)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .shadow(color: .black.opacity(0.5), radius: 8, x: 0, y: 2)
+    private var topChrome: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                globeControlButton(
+                    systemName: "chevron.left",
+                    accessibilityLabel: "Back"
+                ) {
+                    dismiss()
+                }
+
+                Spacer(minLength: 0)
 
                 helpButton
             }
 
-            searchField
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Live Climbs")
+                    .font(.montserratBold(size: 32))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .shadow(color: .black.opacity(0.72), radius: 12, x: 0, y: 3)
 
-            if viewModel.isRefreshingCatalog {
-                ProgressView()
-                    .tint(.white.opacity(0.9))
-                    .scaleEffect(0.85)
-            }
+                HStack(spacing: 10) {
+                    searchField
 
-            if !viewModel.searchSuggestions.isEmpty {
-                suggestionsList
+                    if viewModel.isRefreshingCatalog {
+                        ProgressView()
+                            .tint(.white.opacity(0.88))
+                            .scaleEffect(0.85)
+                    }
+                }
+
+                if !viewModel.searchSuggestions.isEmpty {
+                    suggestionsList
+                }
             }
         }
         .padding(.horizontal, 20)
-        .padding(.top, 8)
+        .padding(.top, 10)
+        .safeAreaPadding(.top)
     }
 
     private var helpButton: some View {
-        Button {
+        globeControlButton(
+            systemName: "questionmark",
+            accessibilityLabel: "How Live Climbs work"
+        ) {
             showingHelpSheet = true
-        } label: {
-            Label("How it works", systemImage: "questionmark.circle")
-                .labelStyle(.iconOnly)
-                .font(.system(size: 18, weight: .semibold))
+        }
+        .accessibilityHint("Open help for climb tiers, map icons, and progress rules")
+    }
+
+    private func globeControlButton(
+        systemName: String,
+        accessibilityLabel: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 19, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.94))
-                .frame(width: 40, height: 40)
+                .frame(width: 46, height: 46)
                 .background(
                     Circle()
-                        .fill(.ultraThinMaterial)
-                        .environment(\.colorScheme, .dark)
+                        .fill(Color.black.opacity(0.46))
                 )
                 .overlay(
                     Circle()
-                        .stroke(.white.opacity(0.14), lineWidth: 1)
+                        .stroke(.white.opacity(0.16), lineWidth: 1)
                 )
+                .shadow(color: .black.opacity(0.36), radius: 10, x: 0, y: 4)
         }
         .buttonStyle(.plain)
-        .accessibilityHint("Open help for climb tiers, map icons, and progress rules")
+        .accessibilityLabel(accessibilityLabel)
     }
 
     // MARK: - Search Field
@@ -139,10 +173,10 @@ struct ClimbBrowseView: View {
         HStack(spacing: 12) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.7))
+                .foregroundStyle(.white.opacity(0.66))
 
             TextField("Search climbs", text: $viewModel.searchQuery)
-                .font(.montserratMedium(size: 15))
+                .font(.montserratMedium(size: 14))
                 .foregroundStyle(.white)
                 .textInputAutocapitalization(.words)
                 .autocorrectionDisabled()
@@ -161,17 +195,16 @@ struct ClimbBrowseView: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.vertical, 13)
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .environment(\.colorScheme, .dark)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.black.opacity(isSearchFocused ? 0.72 : 0.54))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(.white.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(.white.opacity(isSearchFocused ? 0.22 : 0.12), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.3), radius: 12, x: 0, y: 4)
+        .shadow(color: .black.opacity(0.34), radius: 14, x: 0, y: 5)
         .disabled(viewModel.visibleClimbs.isEmpty)
     }
 

@@ -586,5 +586,5 @@ struct LeaderboardView: View {
             .environment(NetworkConnectivityService.shared)
             .environment(TabRouter())
     }
-    .modelContainer(for: [Workout.self, WorkoutSourceLink.self], inMemory: true)
+    .modelContainer(for: [Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self], inMemory: true)
 }

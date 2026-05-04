@@ -86,6 +86,10 @@ final class ClimbService {
             return nil
         }
 
+        guard shouldSurfaceActiveAttempt(attempt, climb: climb) else {
+            return nil
+        }
+
         return ActiveClimbSummary(
             attemptId: attempt.id,
             climb: climb,
@@ -200,9 +204,7 @@ final class ClimbService {
     }
 
     func replaceActiveClimb(with climb: Climb, modelContext: ModelContext) throws -> ClimbAttempt {
-        let attempts = fetchAttempts(modelContext: modelContext)
-
-        if let activeAttempt = attempts.first(where: { $0.status == .active }) {
+        if let activeAttempt = storedActiveAttempt(modelContext: modelContext) {
             if activeAttempt.climbId == climb.id {
                 return activeAttempt
             }
@@ -231,9 +233,43 @@ final class ClimbService {
         return true
     }
 
+    func prepareLiveClimbAttempt(
+        for climb: Climb,
+        startedAt: Date,
+        replacingActiveClimb: Bool,
+        modelContext: ModelContext
+    ) throws -> ClimbAttempt {
+        let attempts = fetchAttempts(modelContext: modelContext)
+
+        if let activeAttempt = attempts.first(where: { $0.status == .active }) {
+            if activeAttempt.climbId == climb.id {
+                return activeAttempt
+            }
+
+            if let activeClimb = try self.climb(for: activeAttempt.climbId),
+               isUnrecordedSingleSessionAttempt(activeAttempt, climb: activeClimb) {
+                activeAttempt.status = .abandoned
+                activeAttempt.endedAt = startedAt
+            } else {
+                guard replacingActiveClimb else {
+                    throw StartError.activeClimbConflict
+                }
+
+                activeAttempt.status = .abandoned
+                activeAttempt.endedAt = startedAt
+            }
+        }
+
+        let attempt = ClimbAttempt(climbId: climb.id, startedAt: startedAt)
+        modelContext.insert(attempt)
+        try modelContext.save()
+        postStateChangeNotification()
+        return attempt
+    }
+
     func apply(workouts: [Workout], modelContext: ModelContext) throws {
         guard !workouts.isEmpty,
-              let activeAttempt = try activeAttempt(modelContext: modelContext),
+              let activeAttempt = storedActiveAttempt(modelContext: modelContext),
               let climb = try climb(for: activeAttempt.climbId) else {
             return
         }
@@ -260,12 +296,25 @@ final class ClimbService {
             activeAttempt.sessionsCount += 1
             didChange = true
 
+            try WorkoutParticipationService.addClimbAttemptParticipationIfNeeded(
+                for: workout,
+                attempt: activeAttempt,
+                userId: workout.ownerUserId,
+                leaderboardEligible: false,
+                modelContext: modelContext
+            )
+
             if activeAttempt.accumulatedSteps >= climb.referenceStepCount {
                 activeAttempt.status = .completed
                 activeAttempt.endedAt = Self.sessionEndDate(for: workout)
                 activeAttempt.completedAt = Self.sessionEndDate(for: workout)
                 activeAttempt.bestCompletionDurationSeconds = activeAttempt.accumulatedDurationSeconds
                 activeAttempt.completedInSingleSessionMulti = climb.multiSession && activeAttempt.sessionsCount == 1
+                try WorkoutParticipationService.setLeaderboardEligibility(
+                    true,
+                    forClimbAttemptId: activeAttempt.id,
+                    modelContext: modelContext
+                )
                 break
             }
 
@@ -286,7 +335,8 @@ final class ClimbService {
     }
 
     static func isEligibleForActiveClimb(_ workout: Workout, startedAt: Date) -> Bool {
-        sessionStartDate(for: workout) >= startedAt
+        workout.source == .headphoneMotion &&
+            sessionStartDate(for: workout) >= startedAt
     }
 
     static func sessionStartDate(for workout: Workout) -> Date {
@@ -324,6 +374,24 @@ final class ClimbService {
     }
 
     func activeAttempt(modelContext: ModelContext) throws -> ClimbAttempt? {
+        let activeAttempts = fetchAttempts(modelContext: modelContext).filter { $0.status == .active }
+
+        for attempt in activeAttempts {
+            guard let climb = try climb(for: attempt.climbId) else {
+                return attempt
+            }
+
+            if isUnrecordedSingleSessionAttempt(attempt, climb: climb) {
+                continue
+            }
+
+            return attempt
+        }
+
+        return nil
+    }
+
+    private func storedActiveAttempt(modelContext: ModelContext) -> ClimbAttempt? {
         fetchAttempts(modelContext: modelContext).first { $0.status == .active }
     }
 
@@ -375,5 +443,16 @@ final class ClimbService {
 
     private func postCatalogChangeNotification() {
         NotificationCenter.default.post(name: .climbCatalogDidChange, object: nil)
+    }
+
+    private func shouldSurfaceActiveAttempt(_ attempt: ClimbAttempt, climb: Climb) -> Bool {
+        !isUnrecordedSingleSessionAttempt(attempt, climb: climb)
+    }
+
+    private func isUnrecordedSingleSessionAttempt(_ attempt: ClimbAttempt, climb: Climb) -> Bool {
+        climb.isSingleSession &&
+            attempt.status == .active &&
+            attempt.sessionsCount == 0 &&
+            attempt.accumulatedSteps == 0
     }
 }

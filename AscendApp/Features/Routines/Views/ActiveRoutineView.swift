@@ -23,7 +23,7 @@ struct ActiveRoutineView: View {
 
             switch viewModel.phase {
             case .countdown:
-                CountdownOverlay(value: viewModel.countdownValue)
+                LiveSessionCountdownOverlay(value: viewModel.countdownValue)
             case .active, .complete:
                 activeWorkoutView
             }
@@ -89,21 +89,15 @@ struct ActiveRoutineView: View {
                 .padding(.bottom, bottomPadding + Layout.stairBottomOffset)
 
                 VStack(spacing: 0) {
-                    Text(routine.name)
-                        .font(.montserratMedium(size: Layout.routineNameFontSize))
-                        .tracking(Layout.routineNameTracking)
-                        .foregroundStyle(.white.opacity(Layout.routineNameOpacity))
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, Layout.routineNameTopPadding)
-
                     SegmentedProgressBar(
+                        title: routine.name,
                         intervals: viewModel.intervals,
                         elapsedLabel: viewModel.formattedElapsed,
                         totalLabel: viewModel.formattedTotalDuration,
                         elapsedTime: viewModel.timelineElapsed
                     )
                     .padding(.horizontal, Layout.horizontalPadding)
-                    .padding(.top, Layout.progressBarTopPadding)
+                    .padding(.top, Layout.timelineTopPadding)
 
                     VStack(spacing: 0) {
                         Text(viewModel.formattedRemainingInInterval)
@@ -198,7 +192,12 @@ struct ActiveRoutineView: View {
                 name: routine.name,
                 duration: viewModel.actualElapsed,
                 weightConfiguration: routine.defaultWeightConfiguration,
-                difficulty: routine.difficulty
+                difficulty: routine.difficulty,
+                attribution: RoutineWorkoutAttribution(
+                    routineId: routine.id,
+                    routineSource: routine.source,
+                    templateId: routine.templateId
+                )
             )
         )
     }
@@ -214,11 +213,7 @@ struct ActiveRoutineView: View {
 
 private enum Layout {
     static let horizontalPadding: CGFloat = 20
-    static let routineNameTopPadding: CGFloat = 8
-    static let routineNameFontSize: CGFloat = 12
-    static let routineNameTracking = 0.5
-    static let routineNameOpacity = 0.2
-    static let progressBarTopPadding: CGFloat = 10
+    static let timelineTopPadding: CGFloat = 8
     static let headerToTimerSpacing: CGFloat = 40
     static let timerFontSize: CGFloat = 112
     static let timerTracking = -5.0

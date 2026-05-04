@@ -84,6 +84,7 @@ struct LeaderboardServiceTests {
         let container = try ModelContainer(
             for: Workout.self,
             WorkoutSourceLink.self,
+            WorkoutParticipation.self,
             LeaderboardStats.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )

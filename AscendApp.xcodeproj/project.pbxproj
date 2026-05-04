@@ -358,6 +358,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "Ascend uses motion from compatible headphones to track steps during Live Climbs.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Ascend saves your workout posters to your Photos library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend needs access to your photo library to attach photos and videos to workouts.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -526,6 +527,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "Ascend uses motion from compatible headphones to track steps during Live Climbs.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Ascend saves your workout posters to your Photos library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend needs access to your photo library to attach photos and videos to workouts.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -569,6 +571,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "Ascend uses motion from compatible headphones to track steps during Live Climbs.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Ascend saves your workout posters to your Photos library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend needs access to your photo library to attach photos and videos to workouts.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

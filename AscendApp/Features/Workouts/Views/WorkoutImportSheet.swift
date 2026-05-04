@@ -801,5 +801,5 @@ struct ImportedWorkoutCandidateRow: View {
 #Preview {
     WorkoutImportSheet()
         .environment(AuthenticationViewModel())
-        .modelContainer(for: [Workout.self, WorkoutSourceLink.self], inMemory: true)
+        .modelContainer(for: [Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self], inMemory: true)
 }

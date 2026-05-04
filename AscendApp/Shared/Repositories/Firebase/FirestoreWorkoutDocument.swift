@@ -29,6 +29,7 @@ struct FirestoreWorkoutDocument: Codable, Equatable, Sendable {
     let highlightedMediaId: String?
     let weightConfiguration: FirestoreWorkoutWeightConfiguration?
     let heartRateSeries: FirestoreWorkoutHeartRateSeriesReference?
+    let participations: [FirestoreWorkoutParticipation]?
 
     init(
         userId: String,
@@ -56,7 +57,8 @@ struct FirestoreWorkoutDocument: Codable, Equatable, Sendable {
         media: [FirestoreWorkoutMediaItem]? = nil,
         highlightedMediaId: String? = nil,
         weightConfiguration: FirestoreWorkoutWeightConfiguration? = nil,
-        heartRateSeries: FirestoreWorkoutHeartRateSeriesReference? = nil
+        heartRateSeries: FirestoreWorkoutHeartRateSeriesReference? = nil,
+        participations: [FirestoreWorkoutParticipation]? = nil
     ) {
         self.userId = userId
         self.schemaVersion = schemaVersion
@@ -84,5 +86,6 @@ struct FirestoreWorkoutDocument: Codable, Equatable, Sendable {
         self.highlightedMediaId = highlightedMediaId
         self.weightConfiguration = weightConfiguration
         self.heartRateSeries = heartRateSeries
+        self.participations = participations
     }
 }

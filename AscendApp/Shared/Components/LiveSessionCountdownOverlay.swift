@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct CountdownOverlay: View {
+struct LiveSessionCountdownOverlay: View {
     let value: Int
 
     @State private var scale: CGFloat = 1.0
@@ -8,19 +8,16 @@ struct CountdownOverlay: View {
 
     var body: some View {
         ZStack {
-            // Background blur
-            Color.black.opacity(0.85)
+            Color.black
                 .ignoresSafeArea()
 
-            // Countdown number
             Text("\(value)")
                 .font(.montserratBold(size: 180))
                 .foregroundStyle(.white)
                 .scaleEffect(scale)
                 .opacity(opacity)
         }
-        .onChange(of: value) { _, newValue in
-            // Animate on value change
+        .onChange(of: value) { _, _ in
             withAnimation(.easeOut(duration: 0.15)) {
                 scale = 1.3
                 opacity = 0.5
@@ -38,5 +35,5 @@ struct CountdownOverlay: View {
 }
 
 #Preview {
-    CountdownOverlay(value: 3)
+    LiveSessionCountdownOverlay(value: 3)
 }

@@ -247,7 +247,7 @@ struct AppleHealthIntegrationCard: View {
         .padding()
         .themedBackground()
         .preferredColorScheme(.light)
-        .modelContainer(for: [Workout.self, WorkoutSourceLink.self], inMemory: true)
+        .modelContainer(for: [Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self], inMemory: true)
 }
 
 #Preview("Dark Theme") {
@@ -255,5 +255,5 @@ struct AppleHealthIntegrationCard: View {
         .padding()
         .themedBackground()
         .preferredColorScheme(.dark)
-        .modelContainer(for: [Workout.self, WorkoutSourceLink.self], inMemory: true)
+        .modelContainer(for: [Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self], inMemory: true)
 }

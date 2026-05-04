@@ -6,8 +6,8 @@ import {
   assertSucceeds,
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { doc, setDoc } from 'firebase/firestore';
-import { ref, uploadBytes } from 'firebase/storage';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { getBytes, ref, uploadBytes } from 'firebase/storage';
 
 const projectId = 'demo-ascendapp-rules';
 const firestoreRules = readFileSync(new URL('../../firestore.rules', import.meta.url), 'utf8');
@@ -19,6 +19,7 @@ const workoutId = '550e8400-e29b-41d4-a716-446655440000';
 const mediaId = '11111111-1111-1111-1111-111111111111';
 const secondMediaId = '22222222-2222-2222-2222-222222222222';
 const weightEntryId = '33333333-3333-3333-3333-333333333333';
+const participationId = '44444444-4444-4444-4444-444444444444';
 
 let testEnv;
 
@@ -58,6 +59,37 @@ test('owner can write a valid workout backup document', async () => {
       entries: [makeWeightEntry()],
     },
     heartRateSeries: makeHeartRateSeriesReference(userId, workoutId),
+  })));
+});
+
+test('owner can write a workout with routine template participation', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertSucceeds(setDoc(workoutRef, makeWorkoutDocument({
+    participations: [makeRoutineTemplateParticipation()],
+  })));
+});
+
+test('owner can write a headphone motion workout with climb attempt participation', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertSucceeds(setDoc(workoutRef, makeWorkoutDocument({
+    source: 'headphone_motion',
+    integrityLevel: 'verified',
+    participations: [makeClimbAttemptParticipation()],
+  })));
+});
+
+test('climb attempt participation requires headphone motion source', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    source: 'manual',
+    integrityLevel: 'unverified',
+    participations: [makeClimbAttemptParticipation()],
   })));
 });
 
@@ -149,6 +181,82 @@ test('heart-rate sidecars must be compressed uploads', async () => {
   }));
 });
 
+test('signed-in users can read server-published live replay leaderboard windows', async () => {
+  const contextKey = 'live_climb__pyramid-giza';
+
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    const db = adminContext.firestore();
+    await setDoc(doc(db, `live_replay_leaderboards/${contextKey}`), {
+      schemaVersion: 1,
+      contextType: 'live_climb',
+      contextId: 'pyramid-giza',
+      totalClimbers: 247,
+      updatedAt: new Date('2026-05-04T12:00:00.000Z'),
+    });
+    await setDoc(doc(db, `live_replay_leaderboards/${contextKey}/splitBuckets/60/entries/attempt-1`), {
+      userId: otherUserId,
+      displayName: 'Sarah K.',
+      avatarToken: 'SK',
+      photoURL: 'https://example.com/sarah.jpg',
+      stepsAtBucket: 1389,
+      rank: 12,
+      completionDurationSeconds: 872,
+      updatedAt: new Date('2026-05-04T12:00:00.000Z'),
+    });
+  });
+
+  const context = testEnv.authenticatedContext(userId);
+  await assertSucceeds(getDoc(doc(context.firestore(), `live_replay_leaderboards/${contextKey}`)));
+  await assertSucceeds(getDoc(doc(
+    context.firestore(),
+    `live_replay_leaderboards/${contextKey}/splitBuckets/60/entries/attempt-1`
+  )));
+});
+
+test('signed-in users can read server-owned live replay avatars', async () => {
+  const avatarPath = 'live-replay-avatars/live-replay-v1-dev/avatar-001.jpg';
+
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await uploadBytes(ref(adminContext.storage(), avatarPath), new Uint8Array([1, 2, 3]), {
+      contentType: 'image/jpeg',
+    });
+  });
+
+  const context = testEnv.authenticatedContext(userId);
+  const anonymousContext = testEnv.unauthenticatedContext();
+
+  await assertSucceeds(getBytes(ref(context.storage(), avatarPath)));
+  await assertFails(getBytes(ref(anonymousContext.storage(), avatarPath)));
+  await assertFails(uploadBytes(ref(context.storage(), avatarPath), new Uint8Array([4, 5, 6]), {
+    contentType: 'image/jpeg',
+  }));
+});
+
+test('clients cannot write live replay leaderboard indexes', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const contextKey = 'live_climb__pyramid-giza';
+
+  await assertFails(setDoc(doc(context.firestore(), `live_replay_leaderboards/${contextKey}`), {
+    schemaVersion: 1,
+    contextType: 'live_climb',
+    contextId: 'pyramid-giza',
+    totalClimbers: 1,
+    updatedAt: new Date('2026-05-04T12:00:00.000Z'),
+  }));
+
+  await assertFails(setDoc(doc(
+    context.firestore(),
+    `live_replay_leaderboards/${contextKey}/splitBuckets/60/entries/${userId}`
+  ), {
+    userId,
+    displayName: 'You',
+    avatarToken: 'YOU',
+    stepsAtBucket: 1200,
+    rank: 1,
+    updatedAt: new Date('2026-05-04T12:00:00.000Z'),
+  }));
+});
+
 function makeWorkoutDocument(overrides = {}) {
   return {
     userId,
@@ -193,5 +301,41 @@ function makeHeartRateSeriesReference(ownerUserId, ownerWorkoutId) {
     sampleCount: 3,
     seriesStartAt: new Date('2026-04-10T06:30:00.000Z'),
     seriesEndAt: new Date('2026-04-10T06:45:00.000Z'),
+  };
+}
+
+function makeRoutineTemplateParticipation() {
+  return {
+    id: participationId,
+    workoutId,
+    userId,
+    contextType: 'routine_template',
+    contextId: 'pyramid_climb',
+    contextVersion: 1,
+    rulesVersion: 1,
+    role: 'primary',
+    leaderboardEligible: true,
+    verificationTier: 'provider_verified',
+    metricsSnapshot: makeMetricsSnapshot(),
+    createdAt: new Date('2026-04-10T07:00:00.000Z'),
+  };
+}
+
+function makeClimbAttemptParticipation() {
+  return {
+    ...makeRoutineTemplateParticipation(),
+    contextType: 'climb_attempt',
+    contextId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    verificationTier: 'sensor_verified',
+  };
+}
+
+function makeMetricsSnapshot() {
+  return {
+    startedAt: new Date('2026-04-10T06:30:00.000Z'),
+    durationSeconds: 1800,
+    steps: 1200,
+    floors: 75,
+    stepsPerMinute: 40,
   };
 }

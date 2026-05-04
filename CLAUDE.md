@@ -87,6 +87,7 @@ Workout, LeaderboardStats, PersonalRecord, Routine, RoutineFolder, WeightPersona
   - `users/{uid}/profile_pictures/...`
   - `users/{uid}/workout_heart_rate/...`
 - Never write user media to shared root paths (`photos/`, `videos/`, `profile_pictures/`) in production.
+- Server-owned synthetic Live Replay avatar fixtures may live under `live-replay-avatars/{seedPackId}/...`; they are not user media, should be read-only to clients, and must be written only by admin/server tooling.
 - Legacy share card template assets may still live under `share-card-templates/...`, but workout share cards in v1 must not fetch their backgrounds or layout config from Firebase.
 - Account deletion and cleanup should target only the authenticated user's scoped prefixes, including durable workout heart-rate sidecars and private workout backup documents.
 
@@ -103,6 +104,16 @@ Workout, LeaderboardStats, PersonalRecord, Routine, RoutineFolder, WeightPersona
 - Background media uploads are part of the same durability contract. When `Workout.photos` or `highlightedPhotoId` changes after upload completion, the app should mark that workout pending and republish the private workout backup immediately.
 - `WorkoutSyncCoordinator` is the single orchestrator for pending workout backup work. It currently runs both during authenticated bootstrap/foreground repair and from mutation-triggered flushes, processes pending workout deletions before pending upserts, uploads any required heart-rate sidecar before the Firestore upsert, and coalesces overlapping process requests so launch/auth/lifecycle hooks do not issue duplicate remote work for the same workout.
 - Future public sharing or social features must not read directly from the private workout backup collection. Public posts/comments/likes should use separate public models.
+
+### Workout Source + Context Architecture
+- `Workout` is the canonical activity: what the user actually did, including date, duration, steps, floors, health metrics, notes, media, and source.
+- `WorkoutSource` is the capture method. `headphone_motion` is the brand-agnostic source for compatible headphone motion tracking and displays as `Headphone Tracking`; it is verified, but it is not a `WorkoutProvider` because there is no external provider record to dedupe against.
+- Headphone motion tracking should stay behind reusable shared services under `Shared/Services/HeadphoneMotion`: Core Motion adapts `CMDeviceMotion` into app-owned `HeadphoneMotionSample` values, while `HeadphoneMotionStepDetector` remains pure compute so the step algorithm is unit-testable without headphones or simulator hardware. Core Motion callbacks must terminate inside a non-actor runner; UI-facing observable services should receive value updates on `MainActor` and must not be captured directly by Core Motion handlers.
+- `WorkoutProvider` + `WorkoutSourceLink` remain only for external provenance and dedupe records such as Apple Health and Hevy.
+- Feature attribution belongs in `WorkoutParticipation`, not as feature-specific nullable fields on `Workout`. Use participation records for intentional routine template, local routine, climb attempt, challenge, group challenge, program session, and future achievement contexts.
+- Built-in routine leaderboards should use `routine_template` participation with the stable built-in template ID. User-created or copied routines may use local `routine` participation for history, but they are not public-leaderboard eligible until a future shared routine identity exists.
+- Live Climb participation is live-only in v1: only `headphone_motion` workouts created from the Live Climb flow may create `climb_attempt` participation or affect climb leaderboard eligibility. Manual logs, imports, and routine completions must not progress or complete Live Climbs.
+- Passive climb-equivalent badges, profile achievements, lifetime milestones, and collections are interpretations derived from workouts. They should not be modeled as leaderboard-eligible participation unless product explicitly turns them into intentional challenge contexts.
 
 ### Workout Share Card Architecture
 - Workout share cards in v1 use bundled poster background assets so the share surface renders instantly and offline.
@@ -168,11 +179,20 @@ Workout, LeaderboardStats, PersonalRecord, Routine, RoutineFolder, WeightPersona
 - New analytics work should include focused tests using `InMemoryTelemetrySink` so event contracts can be verified without a Firebase runtime.
 - DEBUG builds expose a Telemetry Console inside Debug Tools so recent events and screen views can be inspected locally when running with telemetry enabled.
 
-### Climb Anything V1 Architecture
-- `Climb Anything` is a 3-screen loop:
+### Live Climbs V1 Architecture
+- `Live Climbs` is a 3-screen loop:
 - `Home` is a stateful entry card and does **not** show the globe
 - `Browse` owns the searchable globe experience
 - `Climb Detail` is the primary climb destination
+- Home should always show a concrete daily recommended Live Climb so the feature feels active and discoverable. Tapping the Home card opens that climb's detail screen.
+- The recommended Home Live Climb should be persisted by local calendar day so it stays the same for the full day even if climb completion state changes.
+- The Home daily climb card is fully tappable and should not include redundant in-card CTA text, chevrons, or browse-all copy.
+- Hardware capability should not be surfaced as a warning on Home or Browse. Live Climb attempts still require compatible headphones with motion tracking, but that gate belongs at the actual start-live-attempt point.
+- Climb Detail should use a flippable climb card: the front shows the landmark image/name/location, and the back shows tier plus the fun fact. The tier step range belongs directly under the tier label; do not repeat climb steps/floors on the back because those already live below the card.
+- Climb Detail should provide a compact top-right Phosphor `globe-hemisphere-west` action for browsing other climbs. Keep this icon standalone with an invisible tap target, not inside a visible circular/chip background. Do not put browse copy or browse buttons on the Home daily card.
+- Climb Detail should explain headphone requirements through a compact persistent help icon, not an inline text box. Help copy should include a `Compatible Headphones` list, a subtle link to Apple's current compatibility page, and avoid extra "why" paragraphs or "preview the route" phrasing.
+- Climb Detail should show Live Climb community state as one avatar/caption row, but the caption should only report the completed count (`0 completed`, `1 completed`, `{N} completed`). Do not show attempted/climber totals in the caption because completions are the meaningful public stat.
+- In the Climb Detail community row, show up to 3 visible avatars without an overflow-count pill. If the current user has completed the climb, pin them first with an accent ring/glow; if they attempted but did not complete, pin them first with a dashed accent ring and subtle pulse.
 - Entering `Browse` from another surface should reset the globe to the default overview state and clear any stale preview card/search state from a previous visit.
 - Dismissing a browse preview card should clear the card and restore the overview zoom while preserving the user's current globe center.
 - Browse pin focus should derive camera zoom from climb metadata (category + climb size signals) so compact landmarks can zoom tighter than large natural climbs without per-climb camera overrides.
@@ -186,9 +206,19 @@ Workout, LeaderboardStats, PersonalRecord, Routine, RoutineFolder, WeightPersona
   - active climb in progress
 - `ClimbAttempt` is the source of truth for climb progress and history. It replaces the earlier completion-only model.
 - Only one climb attempt may be `active` at a time. Starting another climb should confirm replacement and mark the old attempt `abandoned`.
-- New workouts should auto-advance the active climb only when the workout's actual session start time is on or after the climb activation time. Import time or insertion time must never qualify an older workout for climb progress.
-- Non-`multiSession` climbs are one-workout challenges. The first eligible workout must fully complete the climb or the attempt becomes `failed`, stops being active immediately, and remains visible in climb history as an attempt rather than a completion.
-- Active climb progress application should flow through the shared workout mutation pipeline so manual logging and imports behave consistently.
+- Manual entries, Apple Health imports, and routines must not complete or progress Live Climbs. Live Climb completions should come from the dedicated headphone-motion live attempt flow.
+- Live Climb attempts should create a `headphone_motion` workout only after a live headphone-motion session stops with recorded steps. The workout should use the live session start time as `Workout.date`, store compact algorithm/session metadata in `sourceMetadata`, and flow through `ClimbService.apply(...)` plus `WorkoutMutationHandler` so climb progress, participations, leaderboards, PRs, and remote backup stay on the normal mutation path.
+- Saved Live Climb attempts are immutable competitive history in the app UI. Use the in-session discard action before saving if an attempt should not count; once saved, workout-log delete affordances should not remove the underlying attempt history.
+- Live replay leaderboards are context-agnostic under `Shared/Services/LiveReplayLeaderboard`. Live Climbs and future routine race views should use `LiveReplayLeaderboardContext`, `LiveReplaySplitSampler`, and `LiveReplayLeaderboardService` instead of cloning climb-specific comparison logic.
+- Live replay leaderboard rank compares the live user's current steps against completed leaderboard-eligible attempts at the same elapsed-time bucket. Failed, abandoned, partial, or otherwise ineligible attempts must not publish into replay indexes, and tied completed attempts rank ahead of the current live user so a new attempt starts at the bottom of the completed field.
+- Live sessions should record compact split checkpoint curves locally at fixed intervals and store them with the saved source metadata. The app should not write leaderboard split indexes from the client during a session; public replay windows are read-only client data and should be server-published from saved attempts.
+- Replay leaderboard rows may denormalize public display fields (`displayName`, `avatarToken`, optional `photoURL`) so clients do not read private `users/{uid}` documents for profile data during live sessions.
+- `functions/src/liveReplayLeaderboard.ts` owns the server publisher from private workout backups to `live_replay_leaderboards/{contextKey}/splitBuckets/{bucketIndex}/entries/{workoutId}`. Keep that index denormalized and small; do not make live-session client code write directly to it.
+- During a live session, time, steps, progress, SPM, and other sensor stats must update locally every second without waiting on Firestore. The replay leaderboard may refresh a tiny window around the user every 5-10 seconds or on bucket changes, and stale/failed backend reads must not interrupt tracking. Clients should project fetched replay rows forward between backend reads using denormalized `finalSteps` plus completion duration or fallback pace so visible competitors do not appear frozen.
+- The live attempt screen should make the replay leaderboard the primary surface: keep elapsed time in compact top chrome, show the climb's total target steps inline with the leaderboard heading, use the current user's row as the horizontal accent progress indicator with their profile photo when available, and keep pause/resume plus end-attempt controls compact at the bottom. Pre-start countdown should fully obscure the live UI until recording begins. Pausing should suspend headphone-motion updates and active duration until resumed.
+- Non-`multiSession` climbs are one-live-attempt challenges. The live attempt must fully complete the climb or it becomes `failed`, stops being active immediately, and remains visible in climb history as an attempt rather than a completion.
+- General workout entry surfaces should stay separate from Live Climbs because manual entries, imports, and routines cannot progress Live Climb attempts.
+- General workout launcher copy should use `Add Workout` for the top-level action, then name the creation method inside the sheet (`Manual Entry`, `Start Routine`, `Import`) instead of mixing `start` and `log` verbs at multiple levels.
 - Climb detail has 3 swipe pages:
   - `Overview` (real)
   - `Your History` (real)
@@ -252,6 +282,7 @@ Workout, LeaderboardStats, PersonalRecord, Routine, RoutineFolder, WeightPersona
 - `ActiveRoutineViewModel` is the source of truth for an in-progress routine session. `ActiveRoutineView` should render from the view model instead of owning workout progression in ad hoc `@State`.
 - Timer updates should flow through the view model using `Timer.publish(...).autoconnect()` and Date-delta math rather than `Task.sleep` loops, so pauses and foregrounding do not distort elapsed time.
 - The live player UI is composed from focused components:
+  - `LiveSessionCountdownOverlay` and `LiveSessionTimelineView` for shared countdown and top timeline chrome used by routines and Live Climbs
   - `SegmentedProgressBar` for the thin full-width routine timeline
   - `LiveIntervalLevelPill` for the current level and optional non-standard step type
   - `StaircaseView` for the right-edge routine progress visualization
@@ -293,6 +324,10 @@ Workout, LeaderboardStats, PersonalRecord, Routine, RoutineFolder, WeightPersona
 - Multi-user seed data should not be written from client debug tools in shared environments.
 - Use server-side seeding (Admin SDK / Cloud Function / CI job) for deterministic multi-user leaderboard fixtures.
 - For local-only iteration, use Firestore emulator or seed only the authenticated user.
+- Live replay leaderboard seed data must be Admin SDK/server-written into the read-only `live_replay_leaderboards` index, never client-written during a live session.
+- `scripts/seed-live-replay-leaderboards.mjs` is dev-only and must hard-refuse any project other than `ascend-f2e4f`; use it for repeatable active/warm Live Climb replay fixtures.
+- Live replay seed entries must carry `isSynthetic`, `source`, and `seedPackId` so synthetic replay data can be filtered, cleared, or phased out later. Do not claim seeded replay rows are users climbing right now.
+- Seeded replay curves should be calibrated from historical workout pace distributions when available. Apple Health-derived step counts should be conservatively reduced before shaping synthetic attempts because imported stair-stepper data can overestimate steps.
 
 ### Workout Seeding Policy (Debug)
 - Debug Tools includes local SwiftData workout seeding presets for Simulator workflows (`App Store Screenshots`, `Quick Demo`).

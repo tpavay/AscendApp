@@ -15,6 +15,21 @@ struct RoutinePrefillData {
     let duration: TimeInterval
     let weightConfiguration: WeightConfiguration?
     let difficulty: Int?
+    let attribution: RoutineWorkoutAttribution?
+
+    init(
+        name: String,
+        duration: TimeInterval,
+        weightConfiguration: WeightConfiguration?,
+        difficulty: Int?,
+        attribution: RoutineWorkoutAttribution? = nil
+    ) {
+        self.name = name
+        self.duration = duration
+        self.weightConfiguration = weightConfiguration
+        self.difficulty = difficulty
+        self.attribution = attribution
+    }
 }
 
 struct WorkoutFormView: View {
@@ -109,7 +124,8 @@ struct WorkoutFormView: View {
                     name: routine.name,
                     duration: routine.duration,
                     weightConfiguration: routine.weightConfiguration,
-                    difficulty: routine.difficulty
+                    difficulty: routine.difficulty,
+                    attribution: routine.attribution
                 )
             }
         }
@@ -352,12 +368,12 @@ enum WorkoutFormField: Hashable {
 #Preview {
     @Previewable @State var showForm = true
     WorkoutFormView(showingWorkoutForm: $showForm) { _ in }
-        .modelContainer(for: [Workout.self, WorkoutSourceLink.self], inMemory: true)
+        .modelContainer(for: [Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self], inMemory: true)
 }
 
 #Preview("Dark") {
     @Previewable @State var showForm = true
     WorkoutFormView(showingWorkoutForm: $showForm) { _ in }
-        .modelContainer(for: [Workout.self, WorkoutSourceLink.self], inMemory: true)
+        .modelContainer(for: [Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self], inMemory: true)
         .preferredColorScheme(.dark)
 }

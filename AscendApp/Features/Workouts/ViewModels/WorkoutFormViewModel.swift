@@ -49,6 +49,7 @@ class WorkoutFormViewModel {
     var uploadError: String? = nil
     var durationFormatted: String = ""
     private var rawDurationDigits: String = ""
+    private var routineAttribution: RoutineWorkoutAttribution?
 
     // Dependencies
     private let workoutService: WorkoutService
@@ -74,10 +75,12 @@ class WorkoutFormViewModel {
         name: String,
         duration: TimeInterval,
         weightConfiguration: WeightConfiguration?,
-        difficulty: Int?
+        difficulty: Int?,
+        attribution: RoutineWorkoutAttribution? = nil
     ) {
         // Use routine name as workout name
         workoutName = name
+        routineAttribution = attribution
 
         // Set duration from elapsed time
         let totalSeconds = Int(duration)
@@ -149,6 +152,12 @@ class WorkoutFormViewModel {
             let workout = try await workoutService.createWorkout(from: request)
 
             modelContext.insert(workout)
+            try WorkoutParticipationService.addRoutineParticipationIfNeeded(
+                for: workout,
+                attribution: routineAttribution,
+                userId: nil,
+                modelContext: modelContext
+            )
             try modelContext.save()
 
             // Recalculate PRs and leaderboard stats

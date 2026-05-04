@@ -473,16 +473,20 @@ struct WorkoutDetailView: View {
             }
         }
 
-        Button(action: {
-            showingEditWorkout = true
-        }) {
-            Label("Edit Workout", systemImage: "pencil")
-        }
+        if workout.isLiveClimbAttemptWorkout {
+            Label("Live climb result locked", systemImage: "lock.fill")
+        } else {
+            Button(action: {
+                showingEditWorkout = true
+            }) {
+                Label("Edit Workout", systemImage: "pencil")
+            }
 
-        Button(role: .destructive, action: {
-            showingDeleteConfirmation = true
-        }) {
-            Label("Delete Workout", systemImage: "trash")
+            Button(role: .destructive, action: {
+                showingDeleteConfirmation = true
+            }) {
+                Label("Delete Workout", systemImage: "trash")
+            }
         }
     }
 
@@ -796,6 +800,15 @@ struct WorkoutDetailView: View {
     }
 
     private func deleteWorkout() async {
+        guard !workout.isLiveClimbAttemptWorkout else {
+            await MainActor.run {
+                showingDeleteConfirmation = false
+                deleteErrorMessage = "Live climb attempts are saved as competitive history and cannot be deleted from the workout log."
+                showingDeleteError = true
+            }
+            return
+        }
+
         await MainActor.run {
             isDeleting = true
         }

@@ -36,6 +36,24 @@ final class GlobeViewModel {
         visibleClimbs.count
     }
 
+    var dailyRecommendedClimb: Climb? {
+        guard !visibleClimbs.isEmpty else { return nil }
+
+        let defaults = UserDefaults.standard
+        let todayKey = Self.dailyRecommendationDayKey
+
+        if defaults.string(forKey: Self.dailyRecommendationDayDefaultsKey) == todayKey,
+           let storedClimbId = defaults.string(forKey: Self.dailyRecommendationClimbDefaultsKey),
+           let storedClimb = visibleClimbs.first(where: { $0.id == storedClimbId }) {
+            return storedClimb
+        }
+
+        let climb = nextDailyRecommendedClimb()
+        defaults.set(todayKey, forKey: Self.dailyRecommendationDayDefaultsKey)
+        defaults.set(climb?.id, forKey: Self.dailyRecommendationClimbDefaultsKey)
+        return climb
+    }
+
     var firstFeaturedClimb: Climb? {
         if let featuredClimbId,
            let featuredClimb = visibleClimbs.first(where: { $0.id == featuredClimbId }) {
@@ -283,6 +301,54 @@ final class GlobeViewModel {
             }
         }
     }
+
+    private func sortedDailyClimbs(_ climbs: [Climb]) -> [Climb] {
+        climbs.sorted { lhs, rhs in
+            if lhs.tier == rhs.tier {
+                return lhs.id < rhs.id
+            }
+            return lhs.tier < rhs.tier
+        }
+    }
+
+    private func nextDailyRecommendedClimb() -> Climb? {
+        let uncompletedSingleSessionClimbs = sortedDailyClimbs(
+            visibleClimbs.filter { !$0.multiSession && !completedClimbIds.contains($0.id) }
+        )
+        if let climb = dailyClimb(from: uncompletedSingleSessionClimbs) {
+            return climb
+        }
+
+        let singleSessionClimbs = sortedDailyClimbs(visibleClimbs.filter { !$0.multiSession })
+        if let climb = dailyClimb(from: singleSessionClimbs) {
+            return climb
+        }
+
+        let uncompletedClimbs = sortedDailyClimbs(visibleClimbs.filter { !completedClimbIds.contains($0.id) })
+        if let climb = dailyClimb(from: uncompletedClimbs) {
+            return climb
+        }
+
+        return dailyClimb(from: sortedDailyClimbs(visibleClimbs))
+    }
+
+    private func dailyClimb(from climbs: [Climb]) -> Climb? {
+        guard !climbs.isEmpty else { return nil }
+
+        let dayOrdinal = Calendar.current.ordinality(of: .day, in: .era, for: Date()) ?? 0
+        return climbs[dayOrdinal % climbs.count]
+    }
+
+    private static var dailyRecommendationDayKey: String {
+        let components = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        let year = components.year ?? 0
+        let month = components.month ?? 0
+        let day = components.day ?? 0
+        return "\(year)-\(month)-\(day)"
+    }
+
+    private static let dailyRecommendationDayDefaultsKey = "liveClimbDailyRecommendationDay"
+    private static let dailyRecommendationClimbDefaultsKey = "liveClimbDailyRecommendationClimbId"
 
     private static let defaultLatitude = 18.0
     private static let defaultLongitude = 8.0

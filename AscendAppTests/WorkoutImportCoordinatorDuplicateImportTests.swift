@@ -182,6 +182,7 @@ struct WorkoutImportCoordinatorDuplicateImportTests {
         let container = try ModelContainer(
             for: Workout.self,
             WorkoutSourceLink.self,
+            WorkoutParticipation.self,
             LeaderboardStats.self,
             PersonalRecord.self,
             Routine.self,

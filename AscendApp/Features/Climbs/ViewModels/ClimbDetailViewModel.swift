@@ -8,16 +8,24 @@ final class ClimbDetailViewModel {
     var climb: Climb
     var activeSummary: ActiveClimbSummary?
     var historySummary: ClimbHistorySummary
+    var leaderboardSummary: LiveReplayLeaderboardSummary = .empty
+    var leaderboardPreviewRows: [LiveReplayLeaderboardRow] = []
     var collectionOrder: Int?
     var projectedCollectionOrder: Int?
     var loadErrorMessage: String?
 
     private let climbService: ClimbService
+    private let leaderboardService: LiveReplayLeaderboardServicing
 
-    init(climb: Climb, climbService: ClimbService = .shared) {
+    init(
+        climb: Climb,
+        climbService: ClimbService = .shared,
+        leaderboardService: LiveReplayLeaderboardServicing = LiveReplayLeaderboardService.shared
+    ) {
         self.climb = climb
         self.historySummary = .empty(for: climb)
         self.climbService = climbService
+        self.leaderboardService = leaderboardService
     }
 
     var title: String {
@@ -41,25 +49,39 @@ final class ClimbDetailViewModel {
         historySummary.completionsCount > 0
     }
 
+    var hasAttemptHistory: Bool {
+        historySummary.attemptsCount > 0
+    }
+
+    var hasIncompleteAttemptHistory: Bool {
+        historySummary.failedAttemptsCount > 0 || (isCurrentActiveClimb && !hasCompletionHistory)
+    }
+
     var actionTitle: String {
         if isCurrentActiveClimb {
-            return "Continue Climb"
+            guard let activeSummary,
+                  activeSummary.climb.multiSession,
+                  activeSummary.sessionsCount > 0 else {
+                return "Start Live Climb"
+            }
+
+            return "Continue Live Climb"
         }
 
-        if hasCompletionHistory {
-            return "Completed"
-        }
-
-        return "Start Climb"
+        return "Start Live Climb"
     }
 
     var isActionEnabled: Bool {
-        isCurrentActiveClimb || !hasCompletionHistory
+        true
     }
 
     var progressSummary: ActiveClimbSummary? {
-        guard isCurrentActiveClimb else { return nil }
+        guard showsPersistentProgressControls else { return nil }
         return activeSummary
+    }
+
+    var showsPersistentProgressControls: Bool {
+        isCurrentActiveClimb && climb.multiSession
     }
 
     var estimatedTimeText: String {
@@ -67,6 +89,22 @@ final class ClimbDetailViewModel {
             for: climb.referenceStepCount,
             spm: SettingsManager.shared.effectiveBaseLevelSPM
         )
+    }
+
+    var communityCompletedCount: Int {
+        max(leaderboardSummary.completedCount, hasCompletionHistory ? 1 : 0)
+    }
+
+    var communityTotalClimbers: Int {
+        max(
+            leaderboardSummary.totalClimbers,
+            communityCompletedCount,
+            hasAttemptHistory || isCurrentActiveClimb ? 1 : 0
+        )
+    }
+
+    var showsCommunityStats: Bool {
+        true
     }
 
     var stripOrderText: String? {
@@ -91,6 +129,33 @@ final class ClimbDetailViewModel {
             collectionOrder = nil
             projectedCollectionOrder = nil
             loadErrorMessage = error.localizedDescription
+        }
+    }
+
+    func refreshLeaderboardSummary() async {
+        let context = LiveReplayLeaderboardContext.liveClimb(
+            climbId: climb.id,
+            targetSteps: climb.referenceStepCount
+        )
+        async let fetchedSummary = leaderboardService.fetchSummary(context: context)
+        async let fetchedPreviewWindow = leaderboardService.refreshIfNeeded(
+            context: context,
+            elapsedSeconds: 0,
+            currentSteps: 0,
+            force: true
+        )
+
+        do {
+            leaderboardSummary = try await fetchedSummary
+        } catch {
+            leaderboardSummary = .empty
+        }
+
+        do {
+            let previewWindow = try await fetchedPreviewWindow
+            leaderboardPreviewRows = previewWindow?.rows ?? []
+        } catch {
+            leaderboardPreviewRows = []
         }
     }
 

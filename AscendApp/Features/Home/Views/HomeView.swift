@@ -20,7 +20,6 @@ struct HomeView: View {
     @State private var showingWorkoutForm = false
     @State private var showingCompletedView = false
     @State private var completedWorkout: Workout?
-    @State private var showingClimbBrowse = false
     @State private var showingRoutinesView = false
     @State private var selectedHomeClimb: Climb?
     @State private var globeViewModel = GlobeViewModel()
@@ -98,10 +97,6 @@ struct HomeView: View {
 
                     ClimbCardView(
                         viewModel: globeViewModel,
-                        onBrowse: {
-                            globeViewModel.prepareForBrowseEntry()
-                            showingClimbBrowse = true
-                        },
                         onOpenClimb: { climb in
                             selectedHomeClimb = climb
                         }
@@ -118,9 +113,6 @@ struct HomeView: View {
         .themedBackground()
         .navigationDestination(item: $selectedHomeClimb) { climb in
             ClimbDetailView(climb: climb)
-        }
-        .navigationDestination(isPresented: $showingClimbBrowse) {
-            ClimbBrowseView(viewModel: globeViewModel)
         }
         .navigationDestination(isPresented: $showingRoutinesView) {
             RoutinesView()
