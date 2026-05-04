@@ -50,7 +50,7 @@ struct IntegrationsView: View {
         IntegrationsView()
     }
     .preferredColorScheme(.light)
-    .modelContainer(for: [Workout.self, WorkoutSourceLink.self], inMemory: true)
+    .modelContainer(for: [Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self], inMemory: true)
 }
 
 #Preview("Dark Theme") {
@@ -58,5 +58,5 @@ struct IntegrationsView: View {
         IntegrationsView()
     }
     .preferredColorScheme(.dark)
-    .modelContainer(for: [Workout.self, WorkoutSourceLink.self], inMemory: true)
+    .modelContainer(for: [Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self], inMemory: true)
 }

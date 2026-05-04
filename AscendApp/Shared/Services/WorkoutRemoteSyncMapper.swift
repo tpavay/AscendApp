@@ -50,6 +50,14 @@ enum WorkoutRemoteSyncMapper {
             )
         }
 
+        let participations = workout.participations.isEmpty
+            ? nil
+            : workout.participations
+                .sorted { $0.createdAt < $1.createdAt }
+                .map { participation in
+                    firestoreParticipation(participation, workout: workout, userId: userId)
+                }
+
         let document = FirestoreWorkoutDocument(
             userId: userId,
             name: workout.name,
@@ -75,7 +83,8 @@ enum WorkoutRemoteSyncMapper {
             media: media,
             highlightedMediaId: highlightedMediaId,
             weightConfiguration: weightConfiguration,
-            heartRateSeries: heartRateSeriesReference
+            heartRateSeries: heartRateSeriesReference,
+            participations: participations
         )
 
         return WorkoutRemoteSyncSnapshot(
@@ -96,8 +105,38 @@ private extension WorkoutRemoteSyncMapper {
         WorkoutSource.appleHealth.rawValue,
         WorkoutSource.garmin.rawValue,
         WorkoutSource.fitbit.rawValue,
-        WorkoutSource.hevy.rawValue
+        WorkoutSource.hevy.rawValue,
+        WorkoutSource.headphoneMotion.rawValue
     ]
+
+    static func firestoreParticipation(
+        _ participation: WorkoutParticipation,
+        workout: Workout,
+        userId: String
+    ) -> FirestoreWorkoutParticipation {
+        let snapshot = participation.metricsSnapshot ?? WorkoutParticipationMetricsSnapshot(workout: workout)
+
+        return FirestoreWorkoutParticipation(
+            id: participation.id.uuidString,
+            workoutId: workout.id.uuidString,
+            userId: participation.userId ?? userId,
+            contextType: participation.contextType.rawValue,
+            contextId: participation.contextId,
+            contextVersion: participation.contextVersion,
+            rulesVersion: participation.rulesVersion,
+            role: participation.role.rawValue,
+            leaderboardEligible: participation.leaderboardEligible,
+            verificationTier: participation.verificationTier.rawValue,
+            metricsSnapshot: FirestoreWorkoutParticipationMetricsSnapshot(
+                startedAt: snapshot.startedAt,
+                durationSeconds: snapshot.durationSeconds,
+                steps: snapshot.steps,
+                floors: snapshot.floors,
+                stepsPerMinute: snapshot.stepsPerMinute
+            ),
+            createdAt: participation.createdAt
+        )
+    }
 
     static func heartRateBlob(for workout: Workout) throws -> WorkoutHeartRateStorageBlob? {
         let samples = workout.heartRateTimeSeries

@@ -65,8 +65,10 @@ struct ClimbServiceTests {
             steps: 800,
             floors: 50,
             stepsPerFloor: 16,
-            source: .manual
+            source: .headphoneMotion
         )
+        modelContext.insert(workout)
+        try modelContext.save()
 
         try service.apply(workouts: [workout], modelContext: modelContext)
 
@@ -85,6 +87,8 @@ struct ClimbServiceTests {
         #expect(historySummary.failedAttemptsCount == 1)
         #expect(historySummary.attemptsCount == 1)
         #expect(historySummary.recentEntries.first?.status == .failed)
+        #expect(workout.participations.first?.contextType == .climbAttempt)
+        #expect(workout.participations.first?.leaderboardEligible == false)
     }
 
     @Test
@@ -104,8 +108,10 @@ struct ClimbServiceTests {
             steps: 800,
             floors: 50,
             stepsPerFloor: 16,
-            source: .manual
+            source: .headphoneMotion
         )
+        modelContext.insert(workout)
+        try modelContext.save()
 
         try service.apply(workouts: [workout], modelContext: modelContext)
 
@@ -116,11 +122,45 @@ struct ClimbServiceTests {
         #expect(attempt.accumulatedSteps == 800)
         #expect(attempt.sessionsCount == 1)
         #expect(try service.activeAttempt(modelContext: modelContext)?.climbId == climb.id)
+        #expect(workout.participations.first?.contextType == .climbAttempt)
+        #expect(workout.participations.first?.leaderboardEligible == false)
+    }
+
+    @Test
+    func manualWorkoutDoesNotAdvanceActiveLiveClimb() throws {
+        let climb = makeClimb(id: "headphone-only-climb", multiSession: true, requiredSteps: 1_000)
+        let service = ClimbService(catalogRepository: TestClimbCatalogRepository(climbs: [climb]))
+        let modelContext = try makeModelContext()
+        let climbStartedAt = Date(timeIntervalSince1970: 1_775_217_600)
+
+        modelContext.insert(ClimbAttempt(climbId: climb.id, startedAt: climbStartedAt))
+
+        let workout = Workout(
+            name: "Manual Workout",
+            date: climbStartedAt.addingTimeInterval(60),
+            duration: 900,
+            steps: 1_200,
+            floors: 75,
+            stepsPerFloor: 16,
+            source: .manual
+        )
+        modelContext.insert(workout)
+        try modelContext.save()
+
+        try service.apply(workouts: [workout], modelContext: modelContext)
+
+        let attempt = try #require(try service.activeAttempt(modelContext: modelContext))
+        #expect(attempt.accumulatedSteps == 0)
+        #expect(attempt.sessionsCount == 0)
+        #expect(workout.participations.isEmpty)
     }
 
     private func makeModelContext() throws -> ModelContext {
         let container = try ModelContainer(
             for: ClimbAttempt.self,
+            Workout.self,
+            WorkoutSourceLink.self,
+            WorkoutParticipation.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
         return ModelContext(container)

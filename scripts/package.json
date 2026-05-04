@@ -2,6 +2,13 @@
   "name": "ascend-scripts",
   "private": true,
   "type": "module",
+  "scripts": {
+    "seed:live-replay": "node seed-live-replay-leaderboards.mjs seed --project dev",
+    "clear:live-replay": "node seed-live-replay-leaderboards.mjs clear --project dev"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "firebase-admin": "^13.6.0"
   }

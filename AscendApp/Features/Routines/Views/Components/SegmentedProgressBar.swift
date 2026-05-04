@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SegmentedProgressBar: View {
+    let title: String?
     let intervals: [RoutineInterval]
     let elapsedLabel: String
     let totalLabel: String
@@ -8,21 +9,27 @@ struct SegmentedProgressBar: View {
 
     @Environment(\.colorScheme) private var colorScheme
 
+    init(
+        title: String? = nil,
+        intervals: [RoutineInterval],
+        elapsedLabel: String,
+        totalLabel: String,
+        elapsedTime: TimeInterval
+    ) {
+        self.title = title
+        self.intervals = intervals
+        self.elapsedLabel = elapsedLabel
+        self.totalLabel = totalLabel
+        self.elapsedTime = elapsedTime
+    }
+
     var body: some View {
-        VStack(spacing: Metrics.labelSpacing) {
-            HStack {
-                Text(elapsedLabel)
-                    .font(.montserratSemiBold(size: Metrics.elapsedLabelFontSize))
-                    .foregroundStyle(.white.opacity(Metrics.elapsedLabelOpacity))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Text(totalLabel)
-                    .font(.montserratMedium(size: Metrics.sideLabelFontSize))
-                    .foregroundStyle(.white.opacity(Metrics.sideLabelOpacity))
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-            .monospacedDigit()
-
+        LiveSessionTimelineView(
+            title: title,
+            elapsedLabel: elapsedLabel,
+            totalLabel: totalLabel,
+            barHeight: Metrics.barHeight
+        ) {
             GeometryReader { geometry in
                 let totalGapWidth = CGFloat(max(intervals.count - 1, 0)) * Metrics.segmentGap
                 let availableWidth = max(geometry.size.width - totalGapWidth, 0)
@@ -54,7 +61,6 @@ struct SegmentedProgressBar: View {
                     }
                 }
             }
-            .frame(height: Metrics.barHeight)
         }
     }
 
@@ -143,11 +149,6 @@ private struct SegmentShape: Shape {
 }
 
 private enum Metrics {
-    static let labelSpacing: CGFloat = 4
-    static let elapsedLabelFontSize: CGFloat = 12
-    static let elapsedLabelOpacity = 0.7
-    static let sideLabelFontSize: CGFloat = 11
-    static let sideLabelOpacity = 0.25
     static let segmentGap: CGFloat = 1
     static let barHeight: CGFloat = 1.5
     static let minimumSegmentWidth: CGFloat = 3
@@ -162,6 +163,7 @@ private enum Metrics {
         Color.black.ignoresSafeArea()
 
         SegmentedProgressBar(
+            title: "Pyramid Climb",
             intervals: BuiltInRoutines.previewTemplates[6].intervals,
             elapsedLabel: "6:22",
             totalLabel: "20:00",

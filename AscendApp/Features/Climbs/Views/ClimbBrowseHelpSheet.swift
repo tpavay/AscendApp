@@ -20,36 +20,37 @@ struct ClimbBrowseHelpSheet: View {
     private var quickStartSteps: [(title: String, description: String)] {
         [
             (
+                title: "Connect headphones",
+                description: "Live climb attempts require compatible headphones with motion tracking."
+            ),
+            (
                 title: "Browse or search",
-                description: "Spin the globe or use search to find a landmark climb you want to chase."
+                description: "Spin the globe or use search to find a landmark climb you want to race."
             ),
             (
-                title: "Start one climb",
-                description: "Open a climb card and make it active. You can only have one active climb at a time."
+                title: "Start live",
+                description: "Open a climb and start a live attempt when your headphones are connected."
             ),
             (
-                title: "Log or import workouts",
-                description: "New workouts move the active climb forward as long as the workout started after you activated the climb."
-            ),
-            (
-                title: "Finish it or switch",
-                description: "Completed climbs stay in your history, and starting a different climb will replace the current active attempt."
+                title: "Earn the card",
+                description: "Complete the live attempt to add the landmark card to your collection."
             )
         ]
     }
 
     private var progressRules: [String] {
         [
-            "Single-session climbs must be finished in one workout or the attempt fails immediately.",
-            "Multi-session climbs keep your progress across multiple eligible workouts.",
-            "Completed climbs stay visible so you can revisit the detail screen and history later."
+            "Manual entries, imports, and routines do not complete Live Climbs.",
+            "Single-session climbs must be finished in one live attempt.",
+            "Multi-session climbs keep live progress across eligible live sessions.",
+            "Completed Live Climbs stay visible so you can revisit the detail screen and history later."
         ]
     }
 
     var body: some View {
         AppSheetScaffold(
-            title: "How Climb Anything Works",
-            message: "Pick a landmark, start it, then let new workouts move it forward.",
+            title: "How Live Climbs Work",
+            message: "Race real landmarks with headphone motion and earn climb cards.",
             headerAlignment: .leading,
             contentAlignment: .leading
         ) {

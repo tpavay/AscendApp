@@ -4,6 +4,14 @@ import Testing
 
 struct FirestoreWorkoutDocumentTests {
     @Test
+    func headphoneMotionSourceIsVerifiedAndNotAProvider() {
+        #expect(WorkoutSource.headphoneMotion.rawValue == "headphone_motion")
+        #expect(WorkoutSource.headphoneMotion.displayName == "Headphone Tracking")
+        #expect(WorkoutSource.headphoneMotion.isVerified)
+        #expect(WorkoutProvider(workoutSource: .headphoneMotion) == nil)
+    }
+
+    @Test
     func workoutDocumentRoundTripsWithNestedContracts() throws {
         let createdAt = makeDate(year: 2026, month: 4, day: 11, hour: 8)
         let updatedAt = makeDate(year: 2026, month: 4, day: 11, hour: 9)
@@ -55,7 +63,29 @@ struct FirestoreWorkoutDocumentTests {
                 sampleCount: 3,
                 seriesStartAt: startedAt,
                 seriesEndAt: updatedAt
-            )
+            ),
+            participations: [
+                FirestoreWorkoutParticipation(
+                    id: "33333333-3333-3333-3333-333333333333",
+                    workoutId: "550e8400-e29b-41d4-a716-446655440000",
+                    userId: "user-123",
+                    contextType: "routine_template",
+                    contextId: "pyramid_climb",
+                    contextVersion: 1,
+                    rulesVersion: 1,
+                    role: "primary",
+                    leaderboardEligible: true,
+                    verificationTier: "provider_verified",
+                    metricsSnapshot: FirestoreWorkoutParticipationMetricsSnapshot(
+                        startedAt: startedAt,
+                        durationSeconds: 1_800,
+                        steps: 1_200,
+                        floors: 75,
+                        stepsPerMinute: 40
+                    ),
+                    createdAt: updatedAt
+                )
+            ]
         )
 
         let encoded = try JSONEncoder().encode(document)

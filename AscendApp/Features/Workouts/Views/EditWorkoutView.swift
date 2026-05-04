@@ -922,5 +922,5 @@ struct EditWorkoutView: View {
     )
     
     EditWorkoutView(workout: sampleWorkout, showingEditWorkout: $showEdit)
-        .modelContainer(for: [Workout.self, WorkoutSourceLink.self], inMemory: true)
+        .modelContainer(for: [Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self], inMemory: true)
 }

@@ -433,6 +433,7 @@ struct WorkoutSyncCoordinatorTests {
         let container = try ModelContainer(
             for: Workout.self,
             WorkoutSourceLink.self,
+            WorkoutParticipation.self,
             PendingWorkoutDeletion.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )

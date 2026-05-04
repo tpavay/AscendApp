@@ -116,5 +116,11 @@ service firebase.storage {
       allow read: if isSignedIn();
       allow write: if false;
     }
+
+    // Synthetic live replay avatars are server-owned and read-only from the app.
+    match /live-replay-avatars/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
   }
 }

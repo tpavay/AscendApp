@@ -15,6 +15,7 @@ enum WorkoutSource: String, CaseIterable, Codable {
     case strava = "strava"           // Future: Strava
     case fitbit = "fitbit"           // Future: Fitbit
     case hevy = "hevy"               // Imported from Hevy app
+    case headphoneMotion = "headphone_motion" // Live tracking from compatible headphones
 
     var displayName: String {
         switch self {
@@ -30,6 +31,8 @@ enum WorkoutSource: String, CaseIterable, Codable {
             return "Fitbit"
         case .hevy:
             return "Hevy"
+        case .headphoneMotion:
+            return "Headphone Tracking"
         }
     }
 
@@ -37,7 +40,7 @@ enum WorkoutSource: String, CaseIterable, Codable {
         switch self {
         case .manual:
             return false
-        case .appleHealth, .garmin, .strava, .fitbit, .hevy:
+        case .appleHealth, .garmin, .strava, .fitbit, .hevy, .headphoneMotion:
             return true
         }
     }
@@ -82,7 +85,7 @@ enum WorkoutProvider: String, CaseIterable, Codable, Sendable {
 
     init?(workoutSource: WorkoutSource) {
         switch workoutSource {
-        case .manual:
+        case .manual, .headphoneMotion:
             return nil
         case .appleHealth:
             self = .appleHealth
@@ -152,6 +155,8 @@ class Workout {
     var highlightedPhotoId: UUID? // ID of the photo/video to display on workout cards
     @Relationship(deleteRule: .cascade, inverse: \WorkoutSourceLink.workout)
     var sourceLinks: [WorkoutSourceLink]
+    @Relationship(deleteRule: .cascade, inverse: \WorkoutParticipation.workout)
+    var participations: [WorkoutParticipation]
 
     // Strava sync tracking - stored as JSON for Codable compatibility
     var stravaSyncData: String?
@@ -298,6 +303,7 @@ class Workout {
         // Default to first photo if not specified and photos exist
         self.highlightedPhotoId = highlightedPhotoId ?? photos.first?.id
         self.sourceLinks = []
+        self.participations = []
         self.personalRecordTypes = personalRecordTypes
         self.weightConfiguration = weightConfiguration
     }
@@ -415,6 +421,11 @@ class Workout {
         sourceLinks
             .map(\.provider)
             .sorted { $0.displayName < $1.displayName }
+    }
+
+    var isLiveClimbAttemptWorkout: Bool {
+        source == .headphoneMotion &&
+            participations.contains { $0.contextType == .climbAttempt }
     }
 
     func sourceLink(for provider: WorkoutProvider) -> WorkoutSourceLink? {

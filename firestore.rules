@@ -130,7 +130,8 @@ service cloud.firestore {
         "apple_health",
         "garmin",
         "fitbit",
-        "hevy"
+        "hevy",
+        "headphone_motion"
       ];
     }
 
@@ -288,6 +289,134 @@ service cloud.firestore {
         reference.seriesEndAt >= reference.seriesStartAt;
     }
 
+    function isValidWorkoutParticipationContextType(type) {
+      return type in [
+        "routine_template",
+        "routine",
+        "climb_attempt",
+        "challenge",
+        "group_challenge",
+        "program_session",
+        "achievement"
+      ];
+    }
+
+    function isValidWorkoutParticipationRole(role) {
+      return role in ["primary", "secondary", "passive_earned"];
+    }
+
+    function isValidWorkoutParticipationVerificationTier(tier) {
+      return tier in ["unverified", "provider_verified", "sensor_verified"];
+    }
+
+    function isValidWorkoutParticipationMetricsSnapshot(snapshot) {
+      return snapshot is map &&
+        snapshot.keys().hasOnly([
+          "startedAt",
+          "durationSeconds",
+          "steps",
+          "floors",
+          "stepsPerMinute"
+        ]) &&
+        snapshot.keys().hasAll([
+          "startedAt",
+          "durationSeconds",
+          "steps",
+          "floors",
+          "stepsPerMinute"
+        ]) &&
+        snapshot.startedAt is timestamp &&
+        isNonNegativeNumber(snapshot.durationSeconds) &&
+        snapshot.steps is int &&
+        snapshot.steps >= 0 &&
+        snapshot.floors is int &&
+        snapshot.floors >= 0 &&
+        isNonNegativeNumber(snapshot.stepsPerMinute);
+    }
+
+    function isValidWorkoutParticipationItem(userId, workoutId, item, workoutSource) {
+      return item is map &&
+        item.keys().hasOnly([
+          "id",
+          "workoutId",
+          "userId",
+          "contextType",
+          "contextId",
+          "contextVersion",
+          "rulesVersion",
+          "role",
+          "leaderboardEligible",
+          "verificationTier",
+          "metricsSnapshot",
+          "createdAt"
+        ]) &&
+        item.keys().hasAll([
+          "id",
+          "workoutId",
+          "userId",
+          "contextType",
+          "contextId",
+          "contextVersion",
+          "rulesVersion",
+          "role",
+          "leaderboardEligible",
+          "verificationTier",
+          "metricsSnapshot",
+          "createdAt"
+        ]) &&
+        item.id is string &&
+        isValidWorkoutId(item.id) &&
+        item.workoutId == workoutId &&
+        item.userId == userId &&
+        item.contextType is string &&
+        isValidWorkoutParticipationContextType(item.contextType) &&
+        item.contextId is string &&
+        item.contextId.size() > 0 &&
+        item.contextId.size() <= 160 &&
+        item.contextVersion is int &&
+        item.contextVersion > 0 &&
+        item.contextVersion <= 1000 &&
+        item.rulesVersion is int &&
+        item.rulesVersion > 0 &&
+        item.rulesVersion <= 1000 &&
+        item.role is string &&
+        isValidWorkoutParticipationRole(item.role) &&
+        item.leaderboardEligible is bool &&
+        item.verificationTier is string &&
+        isValidWorkoutParticipationVerificationTier(item.verificationTier) &&
+        isValidWorkoutParticipationMetricsSnapshot(item.metricsSnapshot) &&
+        item.createdAt is timestamp &&
+        (
+          item.contextType != "climb_attempt" ||
+          (
+            workoutSource == "headphone_motion" &&
+            item.verificationTier == "sensor_verified" &&
+            item.role == "primary"
+          )
+        );
+    }
+
+    function isValidWorkoutParticipationList(userId, workoutId, participations, workoutSource) {
+      return participations is list &&
+        participations.size() <= 8 &&
+        (participations.size() == 0 ||
+          isValidWorkoutParticipationItem(userId, workoutId, participations[0], workoutSource)) &&
+        (participations.size() <= 1 ||
+          isValidWorkoutParticipationItem(userId, workoutId, participations[1], workoutSource)) &&
+        (participations.size() <= 2 ||
+          isValidWorkoutParticipationItem(userId, workoutId, participations[2], workoutSource)) &&
+        (participations.size() <= 3 ||
+          isValidWorkoutParticipationItem(userId, workoutId, participations[3], workoutSource)) &&
+        (participations.size() <= 4 ||
+          isValidWorkoutParticipationItem(userId, workoutId, participations[4], workoutSource)) &&
+        (participations.size() <= 5 ||
+          isValidWorkoutParticipationItem(userId, workoutId, participations[5], workoutSource)) &&
+        (participations.size() <= 6 ||
+          isValidWorkoutParticipationItem(userId, workoutId, participations[6], workoutSource)) &&
+        (participations.size() <= 7 ||
+          isValidWorkoutParticipationItem(userId, workoutId, participations[7], workoutSource));
+    }
+
     function currentWorkoutSchemaVersion() {
       return 1;
     }
@@ -325,7 +454,8 @@ service cloud.firestore {
           "media",
           "highlightedMediaId",
           "weightConfiguration",
-          "heartRateSeries"
+          "heartRateSeries",
+          "participations"
         ]) &&
         request.resource.data.keys().hasAll([
           "userId",
@@ -411,6 +541,13 @@ service cloud.firestore {
             userId,
             workoutId,
             request.resource.data.heartRateSeries
+          )) &&
+        (!request.resource.data.keys().hasAny(["participations"]) ||
+          isValidWorkoutParticipationList(
+            userId,
+            workoutId,
+            request.resource.data.participations,
+            request.resource.data.source
           ));
     }
 
@@ -513,6 +650,23 @@ service cloud.firestore {
         request.resource.data.userId == resource.data.userId &&
         request.resource.data.timeFrame == resource.data.timeFrame;
       allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // Time-aligned replay leaderboard indexes are server-published from saved attempts.
+    // Clients only read tiny window buckets during live sessions.
+    match /live_replay_leaderboards/{contextKey} {
+      allow read: if isSignedIn();
+      allow write: if false;
+
+      match /splitBuckets/{bucketId} {
+        allow read: if isSignedIn();
+        allow write: if false;
+
+        match /entries/{entryId} {
+          allow read: if isSignedIn();
+          allow write: if false;
+        }
+      }
     }
 
     match /feedback/{feedbackId} {

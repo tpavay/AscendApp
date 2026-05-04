@@ -89,6 +89,9 @@ private extension WorkoutRemoteRepository {
         if let heartRateSeries = document.heartRateSeries {
             data["heartRateSeries"] = firestoreHeartRateSeriesReference(heartRateSeries)
         }
+        if let participations = document.participations {
+            data["participations"] = participations.map(firestoreParticipation(_:))
+        }
 
         return data
     }
@@ -128,6 +131,35 @@ private extension WorkoutRemoteRepository {
             "sampleCount": reference.sampleCount,
             "seriesStartAt": Timestamp(date: reference.seriesStartAt),
             "seriesEndAt": Timestamp(date: reference.seriesEndAt)
+        ]
+    }
+
+    func firestoreParticipation(_ participation: FirestoreWorkoutParticipation) -> [String: Any] {
+        [
+            "id": participation.id,
+            "workoutId": participation.workoutId,
+            "userId": participation.userId,
+            "contextType": participation.contextType,
+            "contextId": participation.contextId,
+            "contextVersion": participation.contextVersion,
+            "rulesVersion": participation.rulesVersion,
+            "role": participation.role,
+            "leaderboardEligible": participation.leaderboardEligible,
+            "verificationTier": participation.verificationTier,
+            "metricsSnapshot": firestoreParticipationMetricsSnapshot(participation.metricsSnapshot),
+            "createdAt": Timestamp(date: participation.createdAt)
+        ]
+    }
+
+    func firestoreParticipationMetricsSnapshot(
+        _ snapshot: FirestoreWorkoutParticipationMetricsSnapshot
+    ) -> [String: Any] {
+        [
+            "startedAt": Timestamp(date: snapshot.startedAt),
+            "durationSeconds": snapshot.durationSeconds,
+            "steps": snapshot.steps,
+            "floors": snapshot.floors,
+            "stepsPerMinute": snapshot.stepsPerMinute
         ]
     }
 }

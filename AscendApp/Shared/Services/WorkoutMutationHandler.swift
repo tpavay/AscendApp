@@ -35,8 +35,6 @@ final class WorkoutMutationHandler {
             stepHeight: settingsManager.stepHeight
         )
 
-        try ClimbService.shared.apply(workouts: newWorkouts, modelContext: modelContext)
-
         if let currentUser {
             let userId = currentUser.uid
             leaderboardService.configure(modelContext: modelContext)

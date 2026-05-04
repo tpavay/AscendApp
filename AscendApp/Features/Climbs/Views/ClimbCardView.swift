@@ -2,60 +2,63 @@ import SwiftUI
 
 struct ClimbCardView: View {
     @Bindable var viewModel: GlobeViewModel
-    let onBrowse: () -> Void
     let onOpenClimb: (Climb) -> Void
 
     var body: some View {
-        switch viewModel.homeCardState {
-        case .neverClimbed(let totalClimbs):
-            Button(action: onBrowse) {
-                newUserCard(totalClimbs: totalClimbs)
-            }
-            .buttonStyle(.plain)
-            .accessibilityHint("Browse landmark climbs")
-
-        case .inactive(let summary):
-            Button(action: onBrowse) {
-                completedCard(summary: summary)
-            }
-            .buttonStyle(.plain)
-            .accessibilityHint("Choose your next climb")
-
-        case .active(let summary):
-            Button(action: { onOpenClimb(summary.climb) }) {
-                activeCard(summary: summary)
-            }
-            .buttonStyle(.plain)
-            .accessibilityHint("Open your active climb")
-        }
+        dailyRecommendationEntry()
     }
 
-    private func newUserCard(totalClimbs: Int) -> some View {
+    private func dailyRecommendationEntry() -> some View {
+        Button(action: { onOpenClimb(recommendedHomeClimb) }) {
+            dailyRecommendationCard(climb: recommendedHomeClimb)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Open today's recommended live climb")
+    }
+
+    private func dailyRecommendationCard(climb: Climb) -> some View {
         ClimbSplitCardSurface(
-            leadingWidth: 108,
+            leadingWidth: 118,
             minimumHeight: 132,
-            glowColor: featuredNewUserClimb.tier.glowColor,
-            borderColors: featuredNewUserClimb.tier.borderColors,
-            shadowColor: featuredNewUserClimb.tier.shadowColor,
-            isEmphasizedBorderStyle: featuredNewUserClimb.tier.usesEmphasizedBorderStyle,
+            glowColor: climb.tier.glowColor,
+            borderColors: climb.tier.borderColors,
+            shadowColor: climb.tier.shadowColor,
+            isEmphasizedBorderStyle: climb.tier.usesEmphasizedBorderStyle,
             leading: {
-                ClimbLeadingArtworkPanel(climb: featuredNewUserClimb)
+                ClimbLeadingArtworkPanel(climb: climb)
             },
             content: {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("Climb Anything")
-                        .font(.montserratBold(size: 15))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("TODAY'S LIVE CLIMB")
+                        .font(.montserratSemiBold(size: 10))
+                        .tracking(1.3)
+                        .foregroundStyle(climb.tier.color)
+
+                    Text(climb.name)
+                        .font(.montserratBold(size: 17))
                         .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.86)
+
+                    Text(climb.displayLocation)
+                        .font(.montserratRegular(size: 12))
+                        .foregroundStyle(.white.opacity(0.62))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.84)
 
-                    Text("\(totalClimbs.formatted())+ real-world landmarks. Collect cards. Explore climbs.")
-                        .font(.montserratRegular(size: 10.5))
-                        .foregroundStyle(.white.opacity(0.68))
-                        .lineLimit(3)
-                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 8) {
+                        Text("\(climb.referenceStepCount.formatted()) steps")
+                            .font(.montserratSemiBold(size: 12))
+                            .foregroundStyle(.white.opacity(0.9))
 
-                    inlineAction(title: "Explore climbs")
+                        Text("|")
+                            .font(.montserratMedium(size: 11))
+                            .foregroundStyle(.white.opacity(0.26))
+
+                        Text(estimatedTimeText(for: climb))
+                            .font(.montserratSemiBold(size: 12))
+                            .foregroundStyle(.white.opacity(0.82))
+                    }
+                    .lineLimit(1)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
@@ -84,7 +87,7 @@ struct ClimbCardView: View {
             content: {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("LAST COMPLETED")
+                        Text("LAST LIVE CLIMB")
                             .font(.montserratSemiBold(size: 11))
                             .tracking(1.4)
                             .foregroundStyle(Color(hex: "E7D58F"))
@@ -110,10 +113,6 @@ struct ClimbCardView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(Color(hex: "E2C56A"))
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
@@ -134,7 +133,7 @@ struct ClimbCardView: View {
             },
             content: {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("ACTIVE CLIMB")
+                    Text("LIVE CLIMB")
                         .font(.montserratSemiBold(size: 11))
                         .tracking(1.6)
                         .foregroundStyle(summary.climb.tier.color)
@@ -187,7 +186,11 @@ struct ClimbCardView: View {
         )
     }
 
-    private var featuredNewUserClimb: Climb {
+    private var recommendedHomeClimb: Climb {
+        if let dailyRecommendedClimb = viewModel.dailyRecommendedClimb {
+            return dailyRecommendedClimb
+        }
+
         if let featuredClimbId = viewModel.featuredClimbId,
            let featuredClimb = viewModel.visibleClimbs.first(where: { $0.id == featuredClimbId }) {
             return featuredClimb
@@ -200,15 +203,11 @@ struct ClimbCardView: View {
         return viewModel.visibleClimbs.first ?? .preview
     }
 
-    private func inlineAction(title: String) -> some View {
-        HStack(spacing: 10) {
-            Text(title)
-                .font(.montserratBold(size: 14))
-
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .bold))
-        }
-        .foregroundStyle(.accent)
+    private func estimatedTimeText(for climb: Climb) -> String {
+        ClimbEstimatedTimeFormatter.estimatedTimeText(
+            for: climb.referenceStepCount,
+            spm: SettingsManager.shared.effectiveBaseLevelSPM
+        )
     }
 
     private func completedCardSubtitle(summary: CompletedClimbSummary) -> String {

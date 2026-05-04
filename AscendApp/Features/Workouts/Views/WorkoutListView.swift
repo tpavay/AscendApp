@@ -216,7 +216,8 @@ struct WorkoutListView: View {
 
 
     private var areAllWorkoutsSelected: Bool {
-        !workouts.isEmpty && selectedWorkouts.count == workouts.count
+        let deletableWorkoutCount = workouts.filter { !$0.isLiveClimbAttemptWorkout }.count
+        return deletableWorkoutCount > 0 && selectedWorkouts.count == deletableWorkoutCount
     }
 
     private var deleteActionBar: some View {
@@ -236,11 +237,24 @@ struct WorkoutListView: View {
         if areAllWorkoutsSelected {
             selectedWorkouts.removeAll()
         } else {
-            selectedWorkouts = Set(workouts.map { $0.id })
+            selectedWorkouts = Set(workouts.filter { !$0.isLiveClimbAttemptWorkout }.map(\.id))
         }
     }
 
     private func handleDeleteTapped() {
+        guard !selectedWorkouts.isEmpty else { return }
+
+        let selectedWorkoutModels = workouts.filter { selectedWorkouts.contains($0.id) }
+        let protectedWorkoutIds = selectedWorkoutModels
+            .filter(\.isLiveClimbAttemptWorkout)
+            .map(\.id)
+
+        if !protectedWorkoutIds.isEmpty {
+            selectedWorkouts.subtract(protectedWorkoutIds)
+            deleteErrorMessage = "Live climb attempts are saved as competitive history and cannot be deleted from the workout log."
+            showingDeleteError = true
+        }
+
         if !selectedWorkouts.isEmpty {
             showingDeleteConfirmation = true
         }
@@ -266,6 +280,12 @@ struct WorkoutListView: View {
     }
 
     private func toggleWorkoutSelection(_ workoutId: UUID) {
+        guard workouts.first(where: { $0.id == workoutId })?.isLiveClimbAttemptWorkout != true else {
+            deleteErrorMessage = "Live climb attempts are saved as competitive history and cannot be deleted from the workout log."
+            showingDeleteError = true
+            return
+        }
+
         if selectedWorkouts.contains(workoutId) {
             selectedWorkouts.remove(workoutId)
         } else {
@@ -278,7 +298,20 @@ struct WorkoutListView: View {
             isDeleting = true
         }
 
-        let workoutsToDelete = workouts.filter { selectedWorkouts.contains($0.id) }
+        let workoutsToDelete = workouts.filter {
+            selectedWorkouts.contains($0.id) && !$0.isLiveClimbAttemptWorkout
+        }
+
+        guard !workoutsToDelete.isEmpty else {
+            await MainActor.run {
+                isDeleting = false
+                showingDeleteConfirmation = false
+                deleteErrorMessage = "Live climb attempts are saved as competitive history and cannot be deleted from the workout log."
+                showingDeleteError = true
+            }
+            return
+        }
+
         let remoteSyncUserId = workoutsToDelete.lazy.compactMap { workout in
             workout.ownerUserId ?? authVM.user?.uid
         }.first
@@ -390,5 +423,5 @@ struct WorkoutListView: View {
     NavigationStack {
         WorkoutListView()
     }
-    .modelContainer(for: [Workout.self, WorkoutSourceLink.self], inMemory: true)
+    .modelContainer(for: [Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self], inMemory: true)
 }
