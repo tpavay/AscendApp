@@ -13,7 +13,7 @@ enum ClimbTier: String, Codable, CaseIterable, Comparable {
     var color: Color {
         switch self {
         case .common:
-            return Color(hex: "AEB8C8")
+            return Color(hex: "8FAE9C")
         case .bronze:
             return Color(hex: "D99143")
         case .silver:

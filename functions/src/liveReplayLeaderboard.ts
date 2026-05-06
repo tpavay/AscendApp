@@ -1,9 +1,12 @@
 import {onDocumentWritten} from "firebase-functions/v2/firestore";
 import * as admin from "firebase-admin";
+import {
+  MAX_REPLAY_SPLIT_CHECKPOINTS,
+  normalizeReplaySplitSteps,
+} from "./liveReplaySplitNormalization.js";
 
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
 const LIVE_CLIMB_CONTEXT_TYPE = "live_climb";
-const MAX_SPLIT_CHECKPOINTS = 360;
 
 interface LiveReplayIndexPayload {
   contextKey: string;
@@ -20,6 +23,12 @@ interface PublicUserSnapshot {
   displayName: string;
   avatarToken: string;
   photoURL: string | null;
+}
+
+interface PublishedReplayBest {
+  workoutId: string;
+  completionDurationSeconds: number;
+  bucketCount: number;
 }
 
 /**
@@ -45,19 +54,30 @@ export const onWorkoutReplaySplitsWritten = onDocumentWritten(
       return;
     }
 
-    const db = admin.firestore();
-    const writer = db.bulkWriter();
-
-    if (beforePayload) {
-      deleteReplayEntries(writer, beforePayload, workoutId);
+    if (
+      beforePayload &&
+      (!afterPayload || beforePayload.contextKey !== afterPayload.contextKey)
+    ) {
+      await removeBestReplayEntries(beforePayload, userId, workoutId);
     }
 
     if (afterPayload) {
       const publicUser = await publicUserSnapshot(userId);
-      writeReplayEntries(writer, afterPayload, userId, workoutId, publicUser);
+      await publishBestReplayEntries(
+        afterPayload,
+        userId,
+        workoutId,
+        publicUser
+      );
     }
 
-    await writer.close();
+    if (beforePayload) {
+      await deleteLegacyWorkoutReplayEntries(beforePayload, workoutId);
+    }
+
+    if (afterPayload) {
+      await deleteLegacyWorkoutReplayEntries(afterPayload, workoutId);
+    }
   }
 );
 
@@ -99,7 +119,7 @@ function parseLiveReplayPayload(
     metadata.splitIntervalSeconds
   );
   const splitSteps = integerArrayValue(metadata.splitSteps)
-    ?.slice(0, MAX_SPLIT_CHECKPOINTS);
+    ?.slice(0, MAX_REPLAY_SPLIT_CHECKPOINTS);
   const finalDurationSeconds = nonNegativeNumberValue(data.durationSeconds);
   const finalSteps = nonNegativeIntegerValue(data.steps);
   const targetStepCount = positiveIntegerValue(metadata.targetStepCount);
@@ -115,12 +135,19 @@ function parseLiveReplayPayload(
     return null;
   }
 
+  const normalizedSplitSteps = normalizeReplaySplitSteps({
+    splitIntervalSeconds,
+    splitSteps,
+    finalDurationSeconds,
+    finalSteps,
+  });
+
   return {
     contextKey: contextKey(LIVE_CLIMB_CONTEXT_TYPE, climbId),
     contextType: LIVE_CLIMB_CONTEXT_TYPE,
     contextId: climbId,
     splitIntervalSeconds,
-    splitSteps,
+    splitSteps: normalizedSplitSteps,
     finalDurationSeconds,
     finalSteps,
     targetStepCount,
@@ -152,62 +179,203 @@ function hasEligibleClimbAttemptParticipation(value: unknown): boolean {
  * Removes bucket entries for an old live-attempt payload.
  * @param {FirebaseFirestore.BulkWriter} writer Bulk writer.
  * @param {LiveReplayIndexPayload} payload Previous replay payload.
- * @param {string} workoutId Workout document ID.
+ * @param {string} entryId Public row document ID.
  */
 function deleteReplayEntries(
   writer: FirebaseFirestore.BulkWriter,
   payload: LiveReplayIndexPayload,
-  workoutId: string
+  entryId: string
 ): void {
   for (let index = 0; index < payload.splitSteps.length; index += 1) {
-    writer.delete(entryReference(payload, index, workoutId));
+    writer.delete(entryReference(payload, index, entryId));
   }
 }
 
 /**
- * Writes summary and bucket entries for a saved live-attempt payload.
- * @param {FirebaseFirestore.BulkWriter} writer Bulk writer.
+ * Deletes legacy workout-id keyed replay entries left by older publishers.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @param {string} workoutId Workout document ID.
+ */
+async function deleteLegacyWorkoutReplayEntries(
+  payload: LiveReplayIndexPayload,
+  workoutId: string
+): Promise<void> {
+  const writer = admin.firestore().bulkWriter();
+  deleteReplayEntries(writer, payload, workoutId);
+  await writer.close();
+}
+
+/**
+ * Publishes a saved attempt only if it is the user's best public replay row.
  * @param {LiveReplayIndexPayload} payload Replay payload.
  * @param {string} userId Owner user ID.
  * @param {string} workoutId Workout document ID.
  * @param {PublicUserSnapshot} publicUser Public display snapshot.
  */
-function writeReplayEntries(
-  writer: FirebaseFirestore.BulkWriter,
+async function publishBestReplayEntries(
   payload: LiveReplayIndexPayload,
   userId: string,
   workoutId: string,
   publicUser: PublicUserSnapshot
-): void {
+): Promise<void> {
+  const db = admin.firestore();
   const now = admin.firestore.FieldValue.serverTimestamp();
-  const leaderboardRef = admin.firestore()
+  const leaderboardRef = db
     .collection(LIVE_REPLAY_COLLECTION)
     .doc(payload.contextKey);
+  const bestRef = userBestAttemptReference(payload, userId);
 
-  writer.set(leaderboardRef, {
-    bucketIntervalSeconds: payload.splitIntervalSeconds,
-    contextId: payload.contextId,
-    contextType: payload.contextType,
-    schemaVersion: 1,
-    targetStepCount: payload.targetStepCount,
-    updatedAt: now,
-  }, {merge: true});
+  await db.runTransaction(async (transaction) => {
+    const currentBest = publishedReplayBest(
+      (await transaction.get(bestRef)).data()
+    );
+    if (
+      currentBest &&
+      currentBest.workoutId !== workoutId &&
+      currentBest.completionDurationSeconds <= payload.finalDurationSeconds
+    ) {
+      return;
+    }
 
-  for (let index = 0; index < payload.splitSteps.length; index += 1) {
-    writer.set(entryReference(payload, index, workoutId), {
-      avatarToken: publicUser.avatarToken,
-      completionDurationSeconds: payload.finalDurationSeconds,
-      displayName: publicUser.displayName,
-      finalSteps: payload.finalSteps,
-      photoURL: publicUser.photoURL ?? "",
+    transaction.set(leaderboardRef, {
+      bucketIntervalSeconds: payload.splitIntervalSeconds,
+      contextId: payload.contextId,
+      contextType: payload.contextType,
       schemaVersion: 1,
-      splitIntervalSeconds: payload.splitIntervalSeconds,
-      stepsAtBucket: payload.splitSteps[index],
+      targetStepCount: payload.targetStepCount,
       updatedAt: now,
+    }, {merge: true});
+
+    transaction.set(bestRef, {
+      bucketCount: payload.splitSteps.length,
+      completionDurationSeconds: payload.finalDurationSeconds,
+      contextId: payload.contextId,
+      contextType: payload.contextType,
+      finalSteps: payload.finalSteps,
+      schemaVersion: 1,
       userId,
       workoutId,
-    });
+      updatedAt: now,
+    }, {merge: true});
+
+    for (let index = 0; index < payload.splitSteps.length; index += 1) {
+      transaction.set(entryReference(payload, index, userId), {
+        avatarToken: publicUser.avatarToken,
+        completionDurationSeconds: payload.finalDurationSeconds,
+        displayName: publicUser.displayName,
+        finalSteps: payload.finalSteps,
+        photoURL: publicUser.photoURL ?? "",
+        schemaVersion: 1,
+        splitIntervalSeconds: payload.splitIntervalSeconds,
+        stepsAtBucket: payload.splitSteps[index],
+        updatedAt: now,
+        userId,
+        workoutId,
+      });
+    }
+
+    const previousBucketCount = currentBest?.bucketCount ?? 0;
+    for (
+      let index = payload.splitSteps.length;
+      index < previousBucketCount;
+      index += 1
+    ) {
+      transaction.delete(entryReference(payload, index, userId));
+    }
+  });
+}
+
+/**
+ * Removes replay entries when the user's published best attempt is removed.
+ * @param {LiveReplayIndexPayload} payload Previous replay payload.
+ * @param {string} userId Owner user ID.
+ * @param {string} workoutId Workout document ID.
+ */
+async function removeBestReplayEntries(
+  payload: LiveReplayIndexPayload,
+  userId: string,
+  workoutId: string
+): Promise<void> {
+  const db = admin.firestore();
+  const bestRef = userBestAttemptReference(payload, userId);
+
+  await db.runTransaction(async (transaction) => {
+    const currentBest = publishedReplayBest(
+      (await transaction.get(bestRef)).data()
+    );
+    if (!currentBest || currentBest.workoutId !== workoutId) {
+      return;
+    }
+
+    for (let index = 0; index < currentBest.bucketCount; index += 1) {
+      transaction.delete(entryReference(payload, index, userId));
+    }
+
+    transaction.delete(bestRef);
+  });
+}
+
+/**
+ * Parses the per-user published-best guard document.
+ * @param {FirebaseFirestore.DocumentData | undefined} data Firestore data.
+ * @return {PublishedReplayBest | null} Published best snapshot, if valid.
+ */
+function publishedReplayBest(
+  data: FirebaseFirestore.DocumentData | undefined
+): PublishedReplayBest | null {
+  const workoutId = stringValue(data?.workoutId);
+  const completionDurationSeconds = nonNegativeNumberValue(
+    data?.completionDurationSeconds
+  );
+  const bucketCount = positiveIntegerValue(data?.bucketCount);
+
+  if (!workoutId || completionDurationSeconds === null || !bucketCount) {
+    return null;
   }
+
+  return {
+    workoutId,
+    completionDurationSeconds,
+    bucketCount,
+  };
+}
+
+/**
+ * Stores the one published replay row selected for a user in this context.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @param {string} userId Owner user ID.
+ * @return {FirebaseFirestore.DocumentReference} User best document reference.
+ */
+function userBestAttemptReference(
+  payload: LiveReplayIndexPayload,
+  userId: string
+): FirebaseFirestore.DocumentReference {
+  return admin.firestore()
+    .collection(LIVE_REPLAY_COLLECTION)
+    .doc(payload.contextKey)
+    .collection("userBestAttempts")
+    .doc(userId);
+}
+
+/**
+ * Bucket entry document reference for a replay payload.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @param {number} bucketIndex Split bucket index.
+ * @param {string} entryId Public row document ID.
+ * @return {FirebaseFirestore.DocumentReference} Entry document reference.
+ */
+function entryReference(
+  payload: LiveReplayIndexPayload,
+  bucketIndex: number,
+  entryId: string
+): FirebaseFirestore.DocumentReference {
+  return admin.firestore()
+    .collection(LIVE_REPLAY_COLLECTION)
+    .doc(payload.contextKey)
+    .collection("splitBuckets")
+    .doc(String(bucketIndex))
+    .collection("entries")
+    .doc(entryId);
 }
 
 /**
@@ -230,27 +398,6 @@ async function publicUserSnapshot(userId: string): Promise<PublicUserSnapshot> {
     displayName,
     photoURL: urlStringValue(data?.profilePictureURL),
   };
-}
-
-/**
- * Bucket entry document reference for a replay payload.
- * @param {LiveReplayIndexPayload} payload Replay payload.
- * @param {number} bucketIndex Split bucket index.
- * @param {string} workoutId Workout document ID.
- * @return {FirebaseFirestore.DocumentReference} Entry document reference.
- */
-function entryReference(
-  payload: LiveReplayIndexPayload,
-  bucketIndex: number,
-  workoutId: string
-): FirebaseFirestore.DocumentReference {
-  return admin.firestore()
-    .collection(LIVE_REPLAY_COLLECTION)
-    .doc(payload.contextKey)
-    .collection("splitBuckets")
-    .doc(String(bucketIndex))
-    .collection("entries")
-    .doc(workoutId);
 }
 
 /**

@@ -5,6 +5,11 @@ protocol LiveReplayLeaderboardRepository: Sendable {
         context: LiveReplayLeaderboardContext
     ) async throws -> LiveReplayLeaderboardSummary
 
+    func fetchCompletionRank(
+        context: LiveReplayLeaderboardContext,
+        completionDurationSeconds: TimeInterval
+    ) async throws -> LiveReplayCompletionRank
+
     func fetchWindow(
         context: LiveReplayLeaderboardContext,
         bucketIndex: Int,

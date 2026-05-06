@@ -5,6 +5,11 @@ protocol LiveReplayLeaderboardServicing: Sendable {
         context: LiveReplayLeaderboardContext
     ) async throws -> LiveReplayLeaderboardSummary
 
+    func fetchCompletionRank(
+        context: LiveReplayLeaderboardContext,
+        completionDurationSeconds: TimeInterval
+    ) async throws -> LiveReplayCompletionRank
+
     func refreshIfNeeded(
         context: LiveReplayLeaderboardContext,
         elapsedSeconds: Int,
@@ -48,6 +53,16 @@ actor LiveReplayLeaderboardService: LiveReplayLeaderboardServicing {
         context: LiveReplayLeaderboardContext
     ) async throws -> LiveReplayLeaderboardSummary {
         try await repository.fetchSummary(context: context)
+    }
+
+    func fetchCompletionRank(
+        context: LiveReplayLeaderboardContext,
+        completionDurationSeconds: TimeInterval
+    ) async throws -> LiveReplayCompletionRank {
+        try await repository.fetchCompletionRank(
+            context: context,
+            completionDurationSeconds: completionDurationSeconds
+        )
     }
 
     func refreshIfNeeded(

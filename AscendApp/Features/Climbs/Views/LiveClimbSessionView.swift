@@ -11,10 +11,17 @@ struct LiveClimbSessionView: View {
     @State private var countdownValue = 3
     @State private var hasStartedRecording = false
 
-    init(climb: Climb, replacingActiveClimb: Bool = false) {
+    private let liveTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    init(
+        climb: Climb,
+        replacingActiveClimb: Bool = false,
+        analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown
+    ) {
         _viewModel = State(initialValue: LiveClimbSessionViewModel(
             climb: climb,
-            replacingActiveClimb: replacingActiveClimb
+            replacingActiveClimb: replacingActiveClimb,
+            analyticsEntryPoint: analyticsEntryPoint
         ))
     }
 
@@ -23,26 +30,21 @@ struct LiveClimbSessionView: View {
             Color.black
                 .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                topChrome
+            if let savedWorkout = viewModel.savedWorkout,
+               viewModel.phase == .saved(.completed) {
+                LiveClimbCompletionSummaryView(
+                    climb: viewModel.climb,
+                    workout: savedWorkout,
+                    leaderboardRank: viewModel.completionLeaderboardRank,
+                    leaderboardTotal: viewModel.completionLeaderboardTotal,
+                    onDone: { dismiss() }
+                )
+            } else {
+                sessionContent
 
-                liveLeaderboardSection
-                    .frame(maxHeight: .infinity)
-                    .padding(.horizontal, 18)
-                    .padding(.top, 12)
-
-                savedSummary
-                    .padding(.horizontal, 24)
-                    .padding(.top, 8)
-
-                bottomControls
-                    .padding(.horizontal, 22)
-                    .padding(.top, 10)
-                    .padding(.bottom, 18)
-            }
-
-            if !hasStartedRecording && viewModel.phase == .idle {
-                LiveSessionCountdownOverlay(value: countdownValue)
+                if !hasStartedRecording && viewModel.phase == .idle {
+                    LiveSessionCountdownOverlay(value: countdownValue)
+                }
             }
         }
         .preferredColorScheme(.dark)
@@ -59,7 +61,7 @@ struct LiveClimbSessionView: View {
                 )
             }
         }
-        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+        .onReceive(liveTick) { _ in
             guard hasStartedRecording, viewModel.isActivelyRecording else { return }
             viewModel.recordLiveSplitSample()
             Task {
@@ -80,6 +82,26 @@ struct LiveClimbSessionView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(viewModel.discardMessage)
+        }
+    }
+
+    private var sessionContent: some View {
+        VStack(spacing: 0) {
+            topChrome
+
+            liveLeaderboardSection
+                .frame(maxHeight: .infinity)
+                .padding(.horizontal, 18)
+                .padding(.top, 12)
+
+            savedSummary
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+
+            bottomControls
+                .padding(.horizontal, 22)
+                .padding(.top, 10)
+                .padding(.bottom, 18)
         }
     }
 
