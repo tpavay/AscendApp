@@ -4,6 +4,7 @@ import SwiftUI
 
 struct ClimbDetailView: View {
     let showsBrowseBackButton: Bool
+    let analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint
     private let initialCollectionOrder: Int?
 
     @Environment(\.dismiss) private var dismiss
@@ -12,6 +13,7 @@ struct ClimbDetailView: View {
     @State private var themeManager = ThemeManager.shared
     @State private var viewModel: ClimbDetailViewModel
     @State private var selectedPage = 0
+    @State private var detailPageHeights: [Int: CGFloat] = [:]
     @State private var showingReplaceConfirmation = false
     @State private var showingEndClimbConfirmation = false
     @State private var showingBrowseClimbs = false
@@ -19,12 +21,19 @@ struct ClimbDetailView: View {
     @State private var liveSessionReplacesActiveClimb = false
     @State private var showingHeadphoneHelp = false
     @State private var isHeroCardFlipped = false
+    @State private var didTrackDetailViewed = false
     @State private var browseViewModel = GlobeViewModel()
     @State private var headphoneMotionService = HeadphoneMotionReadinessService.shared
     @State private var actionErrorMessage: String?
 
-    init(climb: Climb, showsBrowseBackButton: Bool = false, initialCollectionOrder: Int? = nil) {
+    init(
+        climb: Climb,
+        showsBrowseBackButton: Bool = false,
+        analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown,
+        initialCollectionOrder: Int? = nil
+    ) {
         self.showsBrowseBackButton = showsBrowseBackButton
+        self.analyticsEntryPoint = analyticsEntryPoint
         self.initialCollectionOrder = initialCollectionOrder
         _viewModel = State(initialValue: ClimbDetailViewModel(climb: climb))
     }
@@ -64,8 +73,7 @@ struct ClimbDetailView: View {
 
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    browseViewModel.prepareForBrowseEntry()
-                    showingBrowseClimbs = true
+                    presentBrowseFromDetail()
                 } label: {
                     AppIcon(token: .globeHemisphereWest, pointSize: 23)
                         .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.88) : .black.opacity(0.78))
@@ -77,12 +85,13 @@ struct ClimbDetailView: View {
             }
         }
         .navigationDestination(isPresented: $showingBrowseClimbs) {
-            ClimbBrowseView(viewModel: browseViewModel)
+            ClimbBrowseView(viewModel: browseViewModel, analyticsEntryPoint: .detailBrowse)
         }
         .navigationDestination(isPresented: $showingLiveClimbSession) {
             LiveClimbSessionView(
                 climb: viewModel.climb,
-                replacingActiveClimb: liveSessionReplacesActiveClimb
+                replacingActiveClimb: liveSessionReplacesActiveClimb,
+                analyticsEntryPoint: analyticsEntryPoint
             )
         }
         .sheet(isPresented: $showingHeadphoneHelp) {
@@ -129,6 +138,7 @@ struct ClimbDetailView: View {
             Text(actionErrorMessage ?? "Something went wrong.")
         }
         .task {
+            trackDetailViewedIfNeeded()
             headphoneMotionService.refresh()
             viewModel.refresh(modelContext: modelContext)
             if let initialCollectionOrder {
@@ -358,16 +368,110 @@ struct ClimbDetailView: View {
 
             Spacer(minLength: 0)
         }
+        .animation(.smooth(duration: 0.25), value: selectedPage)
     }
 
     private var detailPages: some View {
-        TabView(selection: $selectedPage) {
-            overviewPage.tag(0)
-            historyPage.tag(1)
-            leaderboardPage.tag(2)
+        ZStack(alignment: .topLeading) {
+            selectedDetailPageMeasurer
+
+            TabView(selection: $selectedPage) {
+                ForEach(0..<3, id: \.self) { pageIndex in
+                    detailPageContent(for: pageIndex)
+                        .tag(pageIndex)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(height: detailPageHeight)
         }
-        .frame(height: 500)
-        .tabViewStyle(.page(indexDisplayMode: .never))
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .clipped()
+        .onPreferenceChange(ClimbDetailPageHeightPreferenceKey.self) { heights in
+            detailPageHeights.merge(heights) { _, newValue in newValue }
+        }
+        .animation(.smooth(duration: 0.25), value: detailPageHeight)
+    }
+
+    private var selectedDetailPageMeasurer: some View {
+        detailPageContent(for: selectedPage)
+            .fixedSize(horizontal: false, vertical: true)
+            .background(
+                GeometryReader { geometry in
+                    Color.clear.preference(
+                        key: ClimbDetailPageHeightPreferenceKey.self,
+                        value: [selectedPage: geometry.size.height]
+                    )
+                }
+            )
+            .hidden()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    private var detailPageHeight: CGFloat {
+        detailPageHeights[selectedPage] ?? detailPageHeights.values.max() ?? 320
+    }
+
+    @ViewBuilder
+    private func detailPageContent(for pageIndex: Int) -> some View {
+        switch pageIndex {
+        case 0:
+            overviewPage
+        case 1:
+            historyPage
+        case 2:
+            leaderboardPage
+        default:
+            EmptyView()
+        }
+    }
+
+    private var historyMetrics: [HistoryMetric] {
+        var metrics = [
+            HistoryMetric(
+                id: "completions",
+                value: viewModel.historySummary.completionsCount.formatted(),
+                label: "COMPLETIONS"
+            ),
+            HistoryMetric(
+                id: "attempts",
+                value: viewModel.historySummary.attemptsCount.formatted(),
+                label: "ATTEMPTS"
+            )
+        ]
+
+        if let bestCompletionDurationSeconds = viewModel.historySummary.bestCompletionDurationSeconds {
+            metrics.append(HistoryMetric(
+                id: "best",
+                value: DurationFormatter.format(duration: TimeInterval(bestCompletionDurationSeconds)),
+                label: "BEST TIME"
+            ))
+        }
+
+        if let averageCompletionDurationSeconds = viewModel.historySummary.averageCompletionDurationSeconds {
+            metrics.append(HistoryMetric(
+                id: "average",
+                value: DurationFormatter.format(duration: TimeInterval(averageCompletionDurationSeconds)),
+                label: "AVG TIME"
+            ))
+        }
+
+        return metrics
+    }
+
+    private var historyMetricColumns: [GridItem] {
+        Array(
+            repeating: GridItem(.flexible(minimum: 72), spacing: 14),
+            count: min(historyMetrics.count, 4)
+        )
+    }
+
+    private var historyMetricsGrid: some View {
+        LazyVGrid(columns: historyMetricColumns, alignment: .leading, spacing: 14) {
+            ForEach(historyMetrics) { metric in
+                historyMetric(value: metric.value, label: metric.label)
+            }
+        }
         .animation(.easeInOut(duration: 0.18), value: selectedPage)
     }
 
@@ -427,8 +531,7 @@ struct ClimbDetailView: View {
                 HStack(spacing: 12) {
                     if !showsBrowseBackButton {
                         secondaryActionButton(title: "Browse Other Climbs") {
-                            browseViewModel.prepareForBrowseEntry()
-                            showingBrowseClimbs = true
+                            presentBrowseFromDetail()
                         }
                     }
 
@@ -440,7 +543,7 @@ struct ClimbDetailView: View {
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var historyPage: some View {
@@ -454,44 +557,25 @@ struct ClimbDetailView: View {
                     .font(.montserratRegular(size: 15))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.72) : .black.opacity(0.62))
             } else {
-                HStack(alignment: .firstTextBaseline, spacing: 24) {
-                    historyMetric(
-                        value: viewModel.historySummary.completionsCount.formatted(),
-                        label: "COMPLETIONS"
-                    )
-
-                    historyMetric(
-                        value: viewModel.historySummary.attemptsCount.formatted(),
-                        label: "ATTEMPTS"
-                    )
-
-                    if let bestCompletionDurationSeconds = viewModel.historySummary.bestCompletionDurationSeconds {
-                        historyMetric(
-                            value: DurationFormatter.format(duration: TimeInterval(bestCompletionDurationSeconds)),
-                            label: "BEST TIME"
-                        ).layoutPriority(1)
-                    }
-                }
-                .padding(.vertical, 2)
+                historyMetricsGrid
+                    .padding(.vertical, 2)
 
                 Text("RECENT ATTEMPTS")
                     .font(.montserratSemiBold(size: 12))
                     .tracking(1.2)
                     .foregroundStyle(Color.customGray)
 
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 0) {
-                        ForEach(viewModel.historySummary.recentEntries) { entry in
-                            historyRow(for: entry)
-                        }
+                VStack(spacing: 0) {
+                    ForEach(viewModel.historySummary.recentEntries) { entry in
+                        historyRow(for: entry)
                     }
-                    .padding(.top, -2)
                 }
+                .padding(.top, -2)
             }
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var leaderboardPage: some View {
@@ -507,12 +591,10 @@ struct ClimbDetailView: View {
             Text("Landmark-specific leaderboards are planned, but this climb-first pass keeps everything private for now while the core progress loop ships.")
                 .font(.montserratRegular(size: 15))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.72) : .black.opacity(0.62))
-
-            Spacer(minLength: 0)
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var metricDivider: some View {
@@ -568,22 +650,33 @@ struct ClimbDetailView: View {
     }
 
     private var communityCaption: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 0) {
-            Text(viewModel.communityCompletedCount.formatted())
-                .font(.montserratBold(size: 17))
-                .foregroundStyle(.accent)
-                .monospacedDigit()
+        Group {
+            if viewModel.communityCompletedCount == 0 {
+                Text("Be the first to complete this climb")
+                    .font(.montserratRegular(size: 17))
+                    .foregroundStyle(communitySecondaryColor)
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: 0) {
+                    Text(viewModel.communityCompletedCount.formatted())
+                        .font(.montserratBold(size: 17))
+                        .foregroundStyle(.accent)
+                        .monospacedDigit()
 
-            Text(" completed")
-                .font(.montserratRegular(size: 17))
-                .foregroundStyle(communitySecondaryColor)
+                    Text(" completed")
+                        .font(.montserratRegular(size: 17))
+                        .foregroundStyle(communitySecondaryColor)
+                }
+            }
         }
         .lineLimit(1)
         .minimumScaleFactor(0.78)
     }
 
     private var communityAccessibilityLabel: String {
-        "\(viewModel.communityCompletedCount) completed"
+        if viewModel.communityCompletedCount == 0 {
+            return "Be the first to complete this climb"
+        }
+        return "\(viewModel.communityCompletedCount) completed"
     }
 
     private var visibleCommunityAvatars: [ClimbCommunityAvatar] {
@@ -715,7 +808,7 @@ struct ClimbDetailView: View {
                 .tracking(1.0)
                 .foregroundStyle(Color.customGray)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func historyRow(for entry: ClimbHistoryEntry) -> some View {
@@ -926,7 +1019,24 @@ struct ClimbDetailView: View {
     private static let appleHeadphoneCompatibilityURL = URL(string: "https://support.apple.com/en-us/102596")!
 
     private func handlePrimaryAction() {
+        let canStart = headphoneMotionService.readiness.canStartLiveClimb
+        TelemetryManager.shared.track(
+            LiveClimbAnalyticsEvent.detailStartTapped(
+                climb: viewModel.climb,
+                entryPoint: analyticsEntryPoint,
+                actionState: startActionState,
+                canStart: canStart
+            )
+        )
+
         guard headphoneMotionService.readiness.canStartLiveClimb else {
+            TelemetryManager.shared.track(
+                LiveClimbAnalyticsEvent.detailStartBlocked(
+                    climb: viewModel.climb,
+                    entryPoint: analyticsEntryPoint,
+                    reason: .headphonesUnavailable
+                )
+            )
             actionErrorMessage = "Live climb attempts require compatible headphones."
             return
         }
@@ -948,6 +1058,36 @@ struct ClimbDetailView: View {
         showingLiveClimbSession = true
     }
 
+    private var startActionState: LiveClimbAnalyticsEvent.StartActionState {
+        guard viewModel.isActionEnabled else { return .disabled }
+        if viewModel.isCurrentActiveClimb {
+            return .resumeActive
+        }
+        if viewModel.conflictingActiveSummary != nil {
+            return .replaceActive
+        }
+        return .newAttempt
+    }
+
+    private func presentBrowseFromDetail() {
+        TelemetryManager.shared.track(
+            LiveClimbAnalyticsEvent.detailBrowseTapped(climb: viewModel.climb)
+        )
+        browseViewModel.prepareForBrowseEntry()
+        showingBrowseClimbs = true
+    }
+
+    private func trackDetailViewedIfNeeded() {
+        guard !didTrackDetailViewed else { return }
+        didTrackDetailViewed = true
+        TelemetryManager.shared.track(
+            LiveClimbAnalyticsEvent.detailViewed(
+                climb: viewModel.climb,
+                entryPoint: analyticsEntryPoint
+            )
+        )
+    }
+
 }
 
 private struct ClimbCommunityAvatar: Identifiable {
@@ -962,6 +1102,20 @@ private struct ClimbCommunityAvatar: Identifiable {
     let photoURL: URL?
     let backgroundColor: Color
     let style: Style
+}
+
+private struct HistoryMetric: Identifiable {
+    let id: String
+    let value: String
+    let label: String
+}
+
+private struct ClimbDetailPageHeightPreferenceKey: PreferenceKey {
+    static let defaultValue: [Int: CGFloat] = [:]
+
+    static func reduce(value: inout [Int: CGFloat], nextValue: () -> [Int: CGFloat]) {
+        value.merge(nextValue()) { _, newValue in newValue }
+    }
 }
 
 private struct ClimbCommunityAvatarView: View {
@@ -1033,8 +1187,8 @@ private struct ClimbCommunityAvatarView: View {
                 .stroke(effectiveColorScheme == .dark ? .black.opacity(0.3) : .white.opacity(0.8), lineWidth: 2)
         case .currentCompleted:
             Circle()
-                .stroke(Color.accent, lineWidth: 3)
-                .padding(1)
+                .stroke(Color.accent, lineWidth: 2.5)
+                .padding(1.5)
         case .currentAttempted:
             Circle()
                 .stroke(
@@ -1048,7 +1202,7 @@ private struct ClimbCommunityAvatarView: View {
     private var glowColor: Color {
         switch avatar.style {
         case .currentCompleted:
-            return Color.accent.opacity(0.72)
+            return Color.accent.opacity(0.48)
         case .currentAttempted:
             return Color.accent.opacity(isPulsing ? 0.46 : 0.18)
         case .regular:
@@ -1059,7 +1213,7 @@ private struct ClimbCommunityAvatarView: View {
     private var glowRadius: CGFloat {
         switch avatar.style {
         case .currentCompleted:
-            return 9
+            return 6
         case .currentAttempted:
             return isPulsing ? 7 : 3
         case .regular:

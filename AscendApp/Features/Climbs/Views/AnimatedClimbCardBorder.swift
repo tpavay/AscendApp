@@ -1,11 +1,18 @@
 import SwiftUI
 
+enum ClimbCardBorderAnimationStyle {
+    case full
+    case ambient
+    case `static`
+}
+
 struct AnimatedClimbCardBorder: ViewModifier {
     let colors: [Color]
     let shadowColor: Color
     let cornerRadius: CGFloat
     let lineWidth: CGFloat
     let isEmphasized: Bool
+    let animationStyle: ClimbCardBorderAnimationStyle
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulseShadow = false
@@ -21,20 +28,42 @@ struct AnimatedClimbCardBorder: ViewModifier {
                 y: 0
             )
             .onAppear {
-                guard !reduceMotion else { return }
-
-                withAnimation(.linear(duration: rotationDuration).repeatForever(autoreverses: false)) {
-                    rotationAngle = 360
+                if shouldRotate {
+                    withAnimation(.linear(duration: rotationDuration).repeatForever(autoreverses: false)) {
+                        rotationAngle = 360
+                    }
                 }
 
-                withAnimation(.easeInOut(duration: shadowPulseDuration).repeatForever(autoreverses: true)) {
-                    pulseShadow = true
+                if shouldPulseShadow {
+                    withAnimation(.easeInOut(duration: shadowPulseDuration).repeatForever(autoreverses: true)) {
+                        pulseShadow = true
+                    }
                 }
             }
     }
 
+    private var shouldRotate: Bool {
+        animationStyle != .static && !reduceMotion
+    }
+
+    private var shouldPulseShadow: Bool {
+        animationStyle == .full && !reduceMotion
+    }
+
+    private var shouldShowMovingHighlight: Bool {
+        animationStyle == .full && !reduceMotion
+    }
+
+    private var shouldShowAmbientHighlight: Bool {
+        animationStyle == .ambient && !reduceMotion
+    }
+
     private var rotationDuration: Double {
-        isEmphasized ? 13.2 : 10.8
+        if animationStyle == .ambient {
+            return isEmphasized ? 11.4 : 8.8
+        }
+
+        return isEmphasized ? 13.2 : 10.8
     }
 
     private var shadowPulseDuration: Double {
@@ -50,8 +79,12 @@ struct AnimatedClimbCardBorder: ViewModifier {
     }
 
     private var shadowOpacity: Double {
-        if reduceMotion {
+        if reduceMotion || animationStyle == .static {
             return isEmphasized ? 0.12 : 0.08
+        }
+
+        if animationStyle == .ambient {
+            return isEmphasized ? 0.18 : 0.11
         }
 
         if isEmphasized {
@@ -62,8 +95,12 @@ struct AnimatedClimbCardBorder: ViewModifier {
     }
 
     private var shadowRadius: CGFloat {
-        if reduceMotion {
+        if reduceMotion || animationStyle == .static {
             return isEmphasized ? 10 : 8
+        }
+
+        if animationStyle == .ambient {
+            return isEmphasized ? 14 : 9
         }
 
         if isEmphasized {
@@ -87,8 +124,8 @@ struct AnimatedClimbCardBorder: ViewModifier {
         }
 
         let opacity = isEmphasized
-            ? (reduceMotion ? 0.72 : 0.96)
-            : (reduceMotion ? 0.62 : 0.88)
+            ? (shouldRotate ? 0.96 : 0.72)
+            : (shouldRotate ? 0.88 : 0.62)
 
         return baseColors.map { $0.opacity(opacity) }
     }
@@ -107,19 +144,45 @@ struct AnimatedClimbCardBorder: ViewModifier {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(
                         AngularGradient(
-                            colors: resolvedColors.map { $0.opacity(reduceMotion ? 0.18 : (isEmphasized ? 0.54 : 0.34)) },
+                            colors: resolvedColors.map { $0.opacity(secondaryBorderOpacity) },
                             center: .center,
                             angle: .degrees(rotationAngle + secondaryRotationOffset)
                         ),
                         lineWidth: lineWidth + (isEmphasized ? 1.2 : 0.8)
                     )
-                    .blur(radius: reduceMotion ? 1.5 : (isEmphasized ? 5.5 : 3.2))
+                    .blur(radius: secondaryBlurRadius)
             }
             .overlay {
-                if !reduceMotion {
+                if shouldShowMovingHighlight {
                     movingHighlightOverlay
+                } else if shouldShowAmbientHighlight {
+                    ambientHighlightOverlay
                 }
             }
+    }
+
+    private var secondaryBorderOpacity: Double {
+        if reduceMotion || animationStyle == .static {
+            return 0.18
+        }
+
+        if animationStyle == .ambient {
+            return isEmphasized ? 0.36 : 0.24
+        }
+
+        return isEmphasized ? 0.54 : 0.34
+    }
+
+    private var secondaryBlurRadius: CGFloat {
+        if reduceMotion || animationStyle == .static {
+            return 1.5
+        }
+
+        if animationStyle == .ambient {
+            return isEmphasized ? 2.4 : 1.8
+        }
+
+        return isEmphasized ? 5.5 : 3.2
     }
 
     private var movingHighlightOverlay: some View {
@@ -135,6 +198,19 @@ struct AnimatedClimbCardBorder: ViewModifier {
             .blur(radius: isEmphasized ? 1.2 : 0.8)
             .shadow(color: shadowColor.opacity(isEmphasized ? 0.7 : 0.46), radius: isEmphasized ? 8 : 5)
             .blendMode(.plusLighter)
+    }
+
+    private var ambientHighlightOverlay: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .strokeBorder(
+                AngularGradient(
+                    stops: highlightStops,
+                    center: .center,
+                    angle: .degrees(rotationAngle + highlightLeadAngle)
+                ),
+                lineWidth: lineWidth + (isEmphasized ? 1.1 : 0.8)
+            )
+            .opacity(isEmphasized ? 0.78 : 0.64)
     }
 
     private var highlightStops: [Gradient.Stop] {
@@ -199,7 +275,8 @@ extension View {
         shadowColor: Color,
         cornerRadius: CGFloat = 28,
         lineWidth: CGFloat = 1.5,
-        isEmphasized: Bool = false
+        isEmphasized: Bool = false,
+        animationStyle: ClimbCardBorderAnimationStyle = .full
     ) -> some View {
         modifier(
             AnimatedClimbCardBorder(
@@ -207,7 +284,8 @@ extension View {
                 shadowColor: shadowColor,
                 cornerRadius: cornerRadius,
                 lineWidth: lineWidth,
-                isEmphasized: isEmphasized
+                isEmphasized: isEmphasized,
+                animationStyle: animationStyle
             )
         )
     }

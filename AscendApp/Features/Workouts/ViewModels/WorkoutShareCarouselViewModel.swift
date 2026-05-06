@@ -13,17 +13,20 @@ import UIKit
 /// v1 ships a single bundled poster card while keeping the carousel shell in place.
 enum ShareCardType: Identifiable, Equatable {
     case poster
+    case liveClimb(Climb)
 
     var id: String {
         switch self {
         case .poster:
             return "poster"
+        case .liveClimb(let climb):
+            return "liveClimb-\(climb.id)"
         }
     }
 
     var preset: WorkoutShareCardPreset {
         switch self {
-        case .poster:
+        case .poster, .liveClimb:
             return .defaultSquarePoster
         }
     }
@@ -51,9 +54,13 @@ final class WorkoutShareCarouselViewModel {
 
     let workout: Workout
     let workoutCount: Int?
-    let availableCards: [ShareCardType] = [.poster]
+    var liveClimbRank: Int?
+    var liveClimbRankTotal: Int?
+    var liveClimbRankIsLoading = false
+    let availableCards: [ShareCardType]
 
     private let composer = WorkoutShareCardComposer()
+    private let leaderboardService: LiveReplayLeaderboardServicing = LiveReplayLeaderboardService.shared
 
     var currentCardType: ShareCardType {
         guard currentCardIndex < availableCards.count else {
@@ -65,11 +72,17 @@ final class WorkoutShareCarouselViewModel {
     init(workout: Workout, workoutCount: Int) {
         self.workout = workout
         self.workoutCount = workoutCount
+        self.liveClimbRank = nil
+        self.liveClimbRankTotal = nil
+        self.availableCards = Self.availableCards(for: workout)
     }
 
-    init(workout: Workout) {
+    init(workout: Workout, liveClimbRank: Int? = nil, liveClimbRankTotal: Int? = nil) {
         self.workout = workout
         self.workoutCount = nil
+        self.liveClimbRank = liveClimbRank
+        self.liveClimbRankTotal = liveClimbRankTotal
+        self.availableCards = Self.availableCards(for: workout)
     }
 
     func composition(
@@ -136,6 +149,54 @@ final class WorkoutShareCarouselViewModel {
                     preferredMetric: preferredMetric
                 )
             )
+        case .liveClimb(let climb):
+            WorkoutLiveClimbShareCard(
+                workout: workout,
+                climb: climb,
+                rank: liveClimbRank,
+                rankTotal: liveClimbRankTotal,
+                isRankLoading: liveClimbRankIsLoading
+            )
+        }
+    }
+
+    func loadLiveClimbCompletionRankIfNeeded() async {
+        guard liveClimbRank == nil,
+              !liveClimbRankIsLoading,
+              let climb = availableCards.compactMap({ cardType -> Climb? in
+                  if case .liveClimb(let climb) = cardType {
+                      return climb
+                  }
+                  return nil
+              }).first
+        else {
+            return
+        }
+
+        liveClimbRankIsLoading = true
+        defer {
+            liveClimbRankIsLoading = false
+        }
+
+        let context = LiveReplayLeaderboardContext.liveClimb(
+            climbId: climb.id,
+            targetSteps: climb.referenceStepCount
+        )
+
+        do {
+            let completionRank = try await leaderboardService.fetchCompletionRank(
+                context: context,
+                completionDurationSeconds: workout.duration
+            )
+
+            withAnimation(.easeOut(duration: 0.2)) {
+                liveClimbRank = completionRank.rank
+                liveClimbRankTotal = completionRank.completedCount
+            }
+        } catch {
+#if DEBUG
+            print("Live Climb completion rank fetch failed: \(error.localizedDescription)")
+#endif
         }
     }
 
@@ -217,5 +278,13 @@ final class WorkoutShareCarouselViewModel {
                 }
             }
         }
+    }
+
+    private static func availableCards(for workout: Workout) -> [ShareCardType] {
+        guard let climb = LiveClimbWorkoutSummaryData.climb(for: workout) else {
+            return [.poster]
+        }
+
+        return [.liveClimb(climb), .poster]
     }
 }

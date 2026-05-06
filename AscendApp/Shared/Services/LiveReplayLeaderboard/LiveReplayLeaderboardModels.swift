@@ -26,6 +26,18 @@ struct LiveReplayLeaderboardSummary: Equatable, Sendable {
     )
 }
 
+struct LiveReplayCompletionRank: Equatable, Sendable {
+    let rank: Int
+    let completedCount: Int
+    let updatedAt: Date?
+
+    init(rank: Int, completedCount: Int, updatedAt: Date?) {
+        self.rank = max(rank, 1)
+        self.completedCount = max(completedCount, 1)
+        self.updatedAt = updatedAt
+    }
+}
+
 struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
     let id: String
     let rank: Int?

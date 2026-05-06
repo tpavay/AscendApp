@@ -28,6 +28,9 @@ struct WorkoutDetailView: View {
     @State private var isDeleting = false
     @State private var isCancelling = false
     @State private var deleteTask: Task<Void, Never>? = nil
+#if DEBUG
+    @State private var showingLiveClimbSummaryPreview = false
+#endif
 
     // Strava-style layout state
     @State private var sheetPosition: SheetPosition = .middle
@@ -77,6 +80,25 @@ struct WorkoutDetailView: View {
             .sheet(isPresented: $showingShareWorkoutView) {
                 WorkoutShareCarouselView(workout: workout)
             }
+#if DEBUG
+            .fullScreenCover(isPresented: $showingLiveClimbSummaryPreview) {
+                if let climb = liveClimbSummaryPreviewClimb {
+                    LiveClimbCompletionSummaryView(
+                        climb: climb,
+                        workout: workout,
+                        leaderboardRank: nil,
+                        leaderboardTotal: nil,
+                        onDone: {
+                            showingLiveClimbSummaryPreview = false
+                        }
+                    )
+                } else {
+                    LiveClimbSummaryPreviewUnavailableView {
+                        showingLiveClimbSummaryPreview = false
+                    }
+                }
+            }
+#endif
             .onAppear {
                 if hasMedia {
                     currentPhotoIndex = 0
@@ -451,6 +473,16 @@ struct WorkoutDetailView: View {
             Label("Share", systemImage: "square.and.arrow.up")
         }
 
+#if DEBUG
+        if canPreviewLiveClimbSummary {
+            Button {
+                showingLiveClimbSummaryPreview = true
+            } label: {
+                Label("Preview Completion Summary", systemImage: "flag.checkered")
+            }
+        }
+#endif
+
         if FeatureFlags.isStravaEnabled && stravaManager.isConnected {
             if workout.isSyncedToStrava {
                 Label("Synced to Strava", systemImage: "checkmark.circle.fill")
@@ -489,6 +521,17 @@ struct WorkoutDetailView: View {
             }
         }
     }
+
+#if DEBUG
+    private var canPreviewLiveClimbSummary: Bool {
+        LiveClimbWorkoutSummaryData.metadata(for: workout)?.climbId != nil
+    }
+
+    @MainActor
+    private var liveClimbSummaryPreviewClimb: Climb? {
+        LiveClimbWorkoutSummaryData.climb(for: workout)
+    }
+#endif
 
     // MARK: - Strava Sync Badge
 
@@ -919,6 +962,44 @@ struct WorkoutDetailView: View {
         }
     }
 }
+
+#if DEBUG
+private struct LiveClimbSummaryPreviewUnavailableView: View {
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 34, weight: .bold))
+                .foregroundStyle(.accent)
+
+            VStack(spacing: 8) {
+                Text("Summary unavailable")
+                    .font(.montserratBold(size: 22))
+                    .foregroundStyle(.white)
+
+                Text("This workout has Live Climb metadata, but its climb could not be loaded.")
+                    .font(.montserratMedium(size: 14))
+                    .foregroundStyle(.white.opacity(0.62))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 28)
+            }
+
+            Button(action: onDismiss) {
+                Text("Done")
+                    .font(.montserratBold(size: 15))
+                    .foregroundStyle(.black)
+                    .frame(width: 160, height: 48)
+                    .background(Capsule().fill(Color.accent))
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black.ignoresSafeArea())
+        .preferredColorScheme(.dark)
+    }
+}
+#endif
 
 // MARK: - Delete Confirmation
 

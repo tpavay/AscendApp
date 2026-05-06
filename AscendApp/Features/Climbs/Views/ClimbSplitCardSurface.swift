@@ -9,6 +9,7 @@ struct ClimbSplitCardSurface<Leading: View, Content: View>: View {
     let cornerRadius: CGFloat
     let lineWidth: CGFloat
     let isEmphasizedBorderStyle: Bool
+    let borderAnimationStyle: ClimbCardBorderAnimationStyle
     let leading: Leading
     let content: Content
 
@@ -21,6 +22,7 @@ struct ClimbSplitCardSurface<Leading: View, Content: View>: View {
         cornerRadius: CGFloat = 28,
         lineWidth: CGFloat = 1.25,
         isEmphasizedBorderStyle: Bool = false,
+        borderAnimationStyle: ClimbCardBorderAnimationStyle = .full,
         @ViewBuilder leading: () -> Leading,
         @ViewBuilder content: () -> Content
     ) {
@@ -32,6 +34,7 @@ struct ClimbSplitCardSurface<Leading: View, Content: View>: View {
         self.cornerRadius = cornerRadius
         self.lineWidth = lineWidth
         self.isEmphasizedBorderStyle = isEmphasizedBorderStyle
+        self.borderAnimationStyle = borderAnimationStyle
         self.leading = leading()
         self.content = content()
     }
@@ -53,7 +56,8 @@ struct ClimbSplitCardSurface<Leading: View, Content: View>: View {
             shadowColor: shadowColor,
             cornerRadius: cornerRadius,
             lineWidth: lineWidth,
-            isEmphasized: isEmphasizedBorderStyle
+            isEmphasized: isEmphasizedBorderStyle,
+            animationStyle: borderAnimationStyle
         )
     }
 

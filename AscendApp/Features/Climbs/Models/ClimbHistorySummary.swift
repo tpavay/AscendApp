@@ -6,6 +6,7 @@ struct ClimbHistorySummary: Equatable {
     let completionsCount: Int
     let failedAttemptsCount: Int
     let bestCompletionDurationSeconds: Int?
+    let averageCompletionDurationSeconds: Int?
     let recentEntries: [ClimbHistoryEntry]
 
     static func empty(for climb: Climb) -> ClimbHistorySummary {
@@ -15,6 +16,7 @@ struct ClimbHistorySummary: Equatable {
             completionsCount: 0,
             failedAttemptsCount: 0,
             bestCompletionDurationSeconds: nil,
+            averageCompletionDurationSeconds: nil,
             recentEntries: []
         )
     }

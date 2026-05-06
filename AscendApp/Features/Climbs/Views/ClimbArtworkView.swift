@@ -1,46 +1,45 @@
 import SwiftUI
+import UIKit
 
 struct ClimbArtworkView: View {
     let climb: Climb
     let variant: ClimbImageVariant
     private let imageRepository: any ClimbImageRepository
+    private let cacheKey: String
 
-    @State private var resolvedURL: URL?
-    @State private var isLoading = false
+    @State private var loadedImage: UIImage?
+    @State private var loadedImageKey: String?
+    @State private var isLoading: Bool
 
     init(
         climb: Climb,
         variant: ClimbImageVariant,
         imageRepository: any ClimbImageRepository = FirebaseClimbImageRepository.shared
     ) {
+        let cacheKey = Self.cacheKey(for: climb, variant: variant)
+        let cachedImage = ClimbArtworkMemoryCache.shared.image(for: cacheKey)
+
         self.climb = climb
         self.variant = variant
         self.imageRepository = imageRepository
+        self.cacheKey = cacheKey
+        self._loadedImage = State(initialValue: cachedImage)
+        self._loadedImageKey = State(initialValue: cachedImage == nil ? nil : cacheKey)
+        self._isLoading = State(initialValue: cachedImage == nil)
     }
 
     var body: some View {
         ZStack {
-            if let resolvedURL {
-                AsyncImage(url: resolvedURL) { phase in
-                    switch phase {
-                    case .empty:
-                        placeholder
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFill()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    case .failure:
-                        placeholder
-                    @unknown default:
-                        placeholder
-                    }
-                }
+            if let displayImage {
+                Image(uiImage: displayImage)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 placeholder
             }
 
-            if isLoading {
+            if isLoading, displayImage == nil {
                 ProgressView()
                     .tint(.white.opacity(0.85))
                     .scaleEffect(0.9)
@@ -48,9 +47,17 @@ struct ClimbArtworkView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
-        .task(id: taskKey) {
-            await resolveArtwork()
+        .task(id: cacheKey) {
+            await loadArtwork()
         }
+    }
+
+    private var displayImage: UIImage? {
+        if loadedImageKey == cacheKey, let loadedImage {
+            return loadedImage
+        }
+
+        return ClimbArtworkMemoryCache.shared.image(for: cacheKey)
     }
 
     private var placeholder: some View {
@@ -92,7 +99,7 @@ struct ClimbArtworkView: View {
         }
     }
 
-    private var taskKey: String {
+    private static func cacheKey(for climb: Climb, variant: ClimbImageVariant) -> String {
         "\(climb.id)-\(variant.rawValue)-v\(climb.imageSetVersion)"
     }
 
@@ -112,13 +119,122 @@ struct ClimbArtworkView: View {
     }
 
     @MainActor
-    private func resolveArtwork() async {
+    private func loadArtwork() async {
+        if let cachedImage = ClimbArtworkMemoryCache.shared.image(for: cacheKey) {
+            loadedImage = cachedImage
+            loadedImageKey = cacheKey
+            isLoading = false
+            return
+        }
+
         isLoading = true
-        let url = await imageRepository.resolveImageURL(for: climb, variant: variant)
+
+        let resolvedURL: URL?
+        if let cachedResolution = ClimbArtworkMemoryCache.shared.resolvedURL(for: cacheKey) {
+            resolvedURL = cachedResolution.url
+        } else {
+            let url = await imageRepository.resolveImageURL(for: climb, variant: variant)
+            guard !Task.isCancelled else { return }
+            ClimbArtworkMemoryCache.shared.storeResolvedURL(url, for: cacheKey)
+            resolvedURL = url
+        }
+
+        guard let resolvedURL else {
+            isLoading = false
+            return
+        }
+
+        if let cachedURLImage = ImageCache.shared.image(for: resolvedURL) {
+            ClimbArtworkMemoryCache.shared.store(cachedURLImage, for: cacheKey)
+            loadedImage = cachedURLImage
+            loadedImageKey = cacheKey
+            isLoading = false
+            return
+        }
+
+        let image = await ClimbArtworkImageLoader.shared.loadImage(from: resolvedURL)
 
         guard !Task.isCancelled else { return }
 
-        resolvedURL = url
+        if let image {
+            ClimbArtworkMemoryCache.shared.store(image, for: cacheKey)
+            loadedImage = image
+            loadedImageKey = cacheKey
+        }
+
         isLoading = false
+    }
+}
+
+private struct CachedClimbArtworkURL {
+    let url: URL?
+}
+
+private final class ClimbArtworkMemoryCache: @unchecked Sendable {
+    static let shared = ClimbArtworkMemoryCache()
+
+    private let images = NSCache<NSString, UIImage>()
+    private let lock = NSLock()
+    private var resolvedURLs: [String: URL?] = [:]
+
+    private init() {
+        images.countLimit = 72
+        images.totalCostLimit = 64 * 1024 * 1024
+    }
+
+    func image(for key: String) -> UIImage? {
+        images.object(forKey: key as NSString)
+    }
+
+    func store(_ image: UIImage, for key: String) {
+        let pixelWidth = Int(image.size.width * image.scale)
+        let pixelHeight = Int(image.size.height * image.scale)
+        images.setObject(
+            image,
+            forKey: key as NSString,
+            cost: pixelWidth * pixelHeight * 4
+        )
+    }
+
+    func resolvedURL(for key: String) -> CachedClimbArtworkURL? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard resolvedURLs.keys.contains(key) else { return nil }
+        return CachedClimbArtworkURL(url: resolvedURLs[key] ?? nil)
+    }
+
+    func storeResolvedURL(_ url: URL?, for key: String) {
+        lock.lock()
+        resolvedURLs[key] = url
+        lock.unlock()
+    }
+}
+
+private struct ClimbArtworkImageLoader: Sendable {
+    static let shared = ClimbArtworkImageLoader()
+
+    func loadImage(from url: URL) async -> UIImage? {
+        if let cachedImage = ImageCache.shared.image(for: url) {
+            return cachedImage
+        }
+
+        let image: UIImage?
+        if url.isFileURL {
+            image = loadLocalImage(from: url)
+        } else {
+            image = await RemoteMediaLoader.shared.loadPhoto(from: url)
+        }
+
+        if let image {
+            ImageCache.shared.store(image, for: url)
+        }
+
+        return image
+    }
+
+    private func loadLocalImage(from url: URL) -> UIImage? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return UIImage(data: data)
     }
 }

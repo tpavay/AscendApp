@@ -161,9 +161,12 @@ final class ClimbService {
                 Self.attemptSortDate(for: lhs) > Self.attemptSortDate(for: rhs)
             }
 
-        let bestDuration = completedAttempts
+        let completedDurations = completedAttempts
             .compactMap { $0.bestCompletionDurationSeconds ?? $0.accumulatedDurationSeconds }
-            .min()
+        let bestDuration = completedDurations.min()
+        let averageDuration = completedDurations.count > 1
+            ? Int((Double(completedDurations.reduce(0, +)) / Double(completedDurations.count)).rounded())
+            : nil
 
         let recentEntries = relevantAttempts.prefix(8).map { attempt in
             let duration = attempt.bestCompletionDurationSeconds ?? attempt.accumulatedDurationSeconds
@@ -184,6 +187,7 @@ final class ClimbService {
             completionsCount: completedAttempts.count,
             failedAttemptsCount: relevantAttempts.filter { $0.status == .failed }.count,
             bestCompletionDurationSeconds: bestDuration,
+            averageCompletionDurationSeconds: averageDuration,
             recentEntries: recentEntries
         )
     }

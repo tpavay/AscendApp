@@ -40,8 +40,12 @@ struct WorkoutShareCarouselView: View {
     }
     
     /// Initialize for share flow (from workout detail)
-    init(workout: Workout) {
-        _viewModel = State(initialValue: WorkoutShareCarouselViewModel(workout: workout))
+    init(workout: Workout, liveClimbRank: Int? = nil, liveClimbRankTotal: Int? = nil) {
+        _viewModel = State(initialValue: WorkoutShareCarouselViewModel(
+            workout: workout,
+            liveClimbRank: liveClimbRank,
+            liveClimbRankTotal: liveClimbRankTotal
+        ))
         self.isCompletionFlow = false
         self.onDismiss = nil
     }
@@ -101,7 +105,21 @@ struct WorkoutShareCarouselView: View {
         }
         .themedBackground()
         .sheet(item: $sharePayload) { payload in
-            ActivityView(activityItems: payload.items, excludedActivityTypes: payload.excludedTypes)
+            ActivityView(
+                activityItems: payload.items,
+                excludedActivityTypes: payload.excludedTypes,
+                completion: { _, completed, _, _ in
+                    guard let climb = payload.analyticsClimb else { return }
+                    TelemetryManager.shared.track(
+                        LiveClimbAnalyticsEvent.shareActivityCompleted(
+                            climb: climb,
+                            surface: .systemSheet,
+                            cardType: payload.analyticsCardType,
+                            completed: completed
+                        )
+                    )
+                }
+            )
                 .ignoresSafeArea()
         }
         .alert("Unable to Share", isPresented: $showingShareError) {
@@ -111,6 +129,9 @@ struct WorkoutShareCarouselView: View {
         }
         .overlay(alignment: .top) {
             copyConfirmationOverlay
+        }
+        .task(id: viewModel.workout.id) {
+            await viewModel.loadLiveClimbCompletionRankIfNeeded()
         }
         .onAppear {
             if isCompletionFlow {
@@ -171,7 +192,7 @@ struct WorkoutShareCarouselView: View {
         let shadowColor = effectiveColorScheme == .dark ? Color.black.opacity(0.3) : Color.black.opacity(0.1)
 
         switch cardType {
-        case .poster:
+        case .poster, .liveClimb:
             viewModel.cardView(
                 for: cardType,
                 measurementSystem: settingsManager.measurementSystem,
@@ -230,6 +251,7 @@ struct WorkoutShareCarouselView: View {
                 foregroundColor: actionForeground,
                 backgroundColor: actionBackground
             ) {
+                trackLiveClimbShareAction(.copyText)
                 viewModel.copyShareText(
                     measurementSystem: settingsManager.measurementSystem,
                     stepHeight: settingsManager.stepHeight,
@@ -255,6 +277,7 @@ struct WorkoutShareCarouselView: View {
                     foregroundColor: actionForeground,
                     backgroundColor: actionBackground
                 ) {
+                    trackLiveClimbShareAction(.strava)
                     viewModel.syncToStrava(preferredMetric: settingsManager.preferredWorkoutMetric)
                 }
             }
@@ -315,6 +338,8 @@ struct WorkoutShareCarouselView: View {
     // MARK: - Share Actions
     
     private func shareViaSystemSheet() {
+        trackLiveClimbShareAction(.systemSheet)
+
         guard let image = viewModel.renderCurrentCard(
             measurementSystem: settingsManager.measurementSystem,
             stepHeight: settingsManager.stepHeight,
@@ -333,10 +358,16 @@ struct WorkoutShareCarouselView: View {
         )
         items.append(ShareTextActivityItemSource(text: text))
         
-        sharePayload = ActivitySharePayload(items: items)
+        sharePayload = ActivitySharePayload(
+            items: items,
+            analyticsClimb: liveClimbAnalyticsClimb,
+            analyticsCardType: currentShareCardAnalyticsType
+        )
     }
     
     private func shareToInstagramStories() {
+        trackLiveClimbShareAction(.instagramStories)
+
         guard let image = viewModel.renderCurrentCard(
             measurementSystem: settingsManager.measurementSystem,
             stepHeight: settingsManager.stepHeight,
@@ -383,6 +414,8 @@ struct WorkoutShareCarouselView: View {
     }
     
     private func shareToTwitter() {
+        trackLiveClimbShareAction(.x)
+
         let text = viewModel.shareText(
             measurementSystem: settingsManager.measurementSystem,
             stepHeight: settingsManager.stepHeight,
@@ -401,6 +434,35 @@ struct WorkoutShareCarouselView: View {
                 UIApplication.shared.open(webURL, options: [:], completionHandler: nil)
             }
         }
+    }
+
+    private var liveClimbAnalyticsClimb: Climb? {
+        viewModel.availableCards.compactMap { cardType -> Climb? in
+            if case .liveClimb(let climb) = cardType {
+                return climb
+            }
+            return nil
+        }.first
+    }
+
+    private var currentShareCardAnalyticsType: LiveClimbAnalyticsEvent.ShareCardAnalyticsType {
+        switch viewModel.currentCardType {
+        case .liveClimb:
+            return .liveClimb
+        case .poster:
+            return .poster
+        }
+    }
+
+    private func trackLiveClimbShareAction(_ surface: LiveClimbAnalyticsEvent.ShareSurface) {
+        guard let climb = liveClimbAnalyticsClimb else { return }
+        TelemetryManager.shared.track(
+            LiveClimbAnalyticsEvent.shareActionTapped(
+                climb: climb,
+                surface: surface,
+                cardType: currentShareCardAnalyticsType
+            )
+        )
     }
 }
 
@@ -558,6 +620,8 @@ private struct ActivitySharePayload: Identifiable {
     let id = UUID()
     let items: [Any]
     var excludedTypes: [UIActivity.ActivityType]? = nil
+    var analyticsClimb: Climb?
+    var analyticsCardType: LiveClimbAnalyticsEvent.ShareCardAnalyticsType = .poster
 }
 
 // MARK: - Int Extension for Ordinals

@@ -1,4 +1,5 @@
 import Foundation
+@preconcurrency import FirebaseAuth
 @preconcurrency import FirebaseFirestore
 
 final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepository, @unchecked Sendable {
@@ -21,6 +22,43 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             completedCount: intValue(for: "completedCount", in: data) ?? 0,
             personalBestDurationSeconds: doubleValue(for: "personalBestDurationSeconds", in: data),
             updatedAt: timestampValue(for: "updatedAt", in: data)
+        )
+    }
+
+    func fetchCompletionRank(
+        context: LiveReplayLeaderboardContext,
+        completionDurationSeconds: TimeInterval
+    ) async throws -> LiveReplayCompletionRank {
+        let resolvedDuration = max(completionDurationSeconds, 0)
+
+        async let summary = fetchSummary(context: context)
+        async let fasterCompletionCount = countRowsFasterThan(
+            context: context,
+            completionDurationSeconds: resolvedDuration
+        )
+        async let publishedCompletionCount = countRows(
+            context: context,
+            bucketIndex: 0
+        )
+        async let currentUserIsPublished = currentUserHasPublishedCompletion(
+            context: context
+        )
+
+        let resolvedSummary = try await summary
+        let fasterCount = try await fasterCompletionCount
+        let publishedCount = try await publishedCompletionCount
+        let hasPublishedCurrentUser = try await currentUserIsPublished
+        let localCompletionAdjustment = hasPublishedCurrentUser ? 0 : 1
+        let completedCount = max(
+            resolvedSummary.completedCount,
+            publishedCount + localCompletionAdjustment,
+            fasterCount + 1
+        )
+
+        return LiveReplayCompletionRank(
+            rank: min(fasterCount + 1, completedCount),
+            completedCount: completedCount,
+            updatedAt: resolvedSummary.updatedAt
         )
     }
 
@@ -146,6 +184,30 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
 
         let snapshot = try await query.count.getAggregation(source: .server)
         return snapshot.count.intValue
+    }
+
+    private func countRowsFasterThan(
+        context: LiveReplayLeaderboardContext,
+        completionDurationSeconds: TimeInterval
+    ) async throws -> Int {
+        let query = entriesCollection(context: context, bucketIndex: 0)
+            .whereField("completionDurationSeconds", isLessThan: max(completionDurationSeconds, 0))
+
+        let snapshot = try await query.count.getAggregation(source: .server)
+        return snapshot.count.intValue
+    }
+
+    private func currentUserHasPublishedCompletion(
+        context: LiveReplayLeaderboardContext
+    ) async throws -> Bool {
+        guard let uid = Auth.auth().currentUser?.uid else {
+            return false
+        }
+
+        let snapshot = try await entriesCollection(context: context, bucketIndex: 0)
+            .document(uid)
+            .getDocument(source: .server)
+        return snapshot.exists
     }
 
     private func optionalCountRowsAhead(

@@ -24,6 +24,7 @@ struct ClimbCardView: View {
             borderColors: climb.tier.borderColors,
             shadowColor: climb.tier.shadowColor,
             isEmphasizedBorderStyle: climb.tier.usesEmphasizedBorderStyle,
+            borderAnimationStyle: .ambient,
             leading: {
                 ClimbLeadingArtworkPanel(climb: climb)
             },

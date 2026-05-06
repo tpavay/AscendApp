@@ -167,9 +167,15 @@ final class GlobeViewModel {
         resetOverviewCamera()
     }
 
-    func selectSuggestion(_ climb: Climb, modelContext: ModelContext) {
+    func clearSearch() {
+        searchQuery = ""
+        previewSummary = nil
+    }
+
+    func selectSuggestion(_ climb: Climb) {
         searchQuery = climb.name
-        selectPreview(climb, modelContext: modelContext)
+        previewSummary = nil
+        userDidInteract()
     }
 
     func mapCameraDidChange(_ context: MapCameraUpdateContext) {

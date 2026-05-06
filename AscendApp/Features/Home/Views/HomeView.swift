@@ -21,6 +21,7 @@ struct HomeView: View {
     @State private var showingCompletedView = false
     @State private var completedWorkout: Workout?
     @State private var showingRoutinesView = false
+    @State private var showingClimbBrowse = false
     @State private var selectedHomeClimb: Climb?
     @State private var globeViewModel = GlobeViewModel()
     @AppStorage("firstLaunchDate") private var firstLaunchDate: Double = 0
@@ -89,20 +90,30 @@ struct HomeView: View {
                 }
 
                 VStack(spacing: 20) {
-                    HomeLogWorkoutButton {
-                        showingWorkoutEntrySheet = true
-                    }
-
                     ThisWeekCard(workouts: workouts)
 
                     ClimbCardView(
                         viewModel: globeViewModel,
                         onOpenClimb: { climb in
+                            TelemetryManager.shared.track(
+                                LiveClimbAnalyticsEvent.homeDailyTapped(
+                                    climb: climb,
+                                    homeState: globeViewModel.homeCardState
+                                )
+                            )
                             selectedHomeClimb = climb
                         }
                     )
 
+                    HomeExploreGlobeCard(climbs: globeViewModel.visibleClimbs) {
+                        presentClimbBrowse()
+                    }
+
                     RoutinesHomeCard()
+
+                    HomeLogWorkoutButton {
+                        showingWorkoutEntrySheet = true
+                    }
                 }
             }
             .padding(.horizontal, 20)
@@ -112,7 +123,10 @@ struct HomeView: View {
         .safeAreaPadding(.top, 8)
         .themedBackground()
         .navigationDestination(item: $selectedHomeClimb) { climb in
-            ClimbDetailView(climb: climb)
+            ClimbDetailView(climb: climb, analyticsEntryPoint: .homeDaily)
+        }
+        .navigationDestination(isPresented: $showingClimbBrowse) {
+            ClimbBrowseView(viewModel: globeViewModel, analyticsEntryPoint: .homeExplore)
         }
         .navigationDestination(isPresented: $showingRoutinesView) {
             RoutinesView()
@@ -243,6 +257,16 @@ struct HomeView: View {
         }
     }
 
+    private func presentClimbBrowse() {
+        TelemetryManager.shared.track(
+            LiveClimbAnalyticsEvent.homeExploreTapped(
+                totalClimbs: globeViewModel.visibleClimbs.count
+            )
+        )
+        globeViewModel.prepareForBrowseEntry()
+        showingClimbBrowse = true
+    }
+
     private func presentImportSheet() {
         showingWorkoutEntrySheet = false
 
@@ -287,6 +311,112 @@ struct HomeView: View {
         )
 
         return try? modelContext.fetch(descriptor).first
+    }
+}
+
+private struct HomeExploreGlobeCard: View {
+    let climbs: [Climb]
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                thumbnailStack
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(titleText)
+                        .font(.montserratBold(size: 15))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.88)
+
+                    Text("From Etna to Dubai")
+                        .font(.montserratRegular(size: 12))
+                        .foregroundStyle(.white.opacity(0.56))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                AppIcon(token: .disclosureChevronRight, pointSize: 14, weight: .semibold)
+                    .foregroundStyle(.white.opacity(0.48))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity)
+            .background(cardBackground)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Open the Live Climbs globe")
+    }
+
+    private var thumbnailStack: some View {
+        ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(.black.opacity(0.42))
+
+            ForEach(Array(stackedClimbs.enumerated()), id: \.offset) { index, climb in
+                ClimbArtworkView(climb: climb, variant: .thumb)
+                    .frame(width: 30, height: 34)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .stroke(.white.opacity(0.08), lineWidth: 1)
+                    )
+                    .offset(x: CGFloat(index) * 23)
+                    .zIndex(Double(index))
+            }
+            .padding(.leading, 4)
+        }
+        .frame(width: 80, height: 40)
+        .clipped()
+        .accessibilityHidden(true)
+    }
+
+    private var cardBackground: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(Color(hex: "111111"))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(.white.opacity(0.1), lineWidth: 1)
+            )
+    }
+
+    private var stackedClimbs: [Climb] {
+        let featuredIDs = [
+            "mount-etna",
+            "empire-state-building",
+            "burj-khalifa"
+        ]
+
+        let featuredClimbs = featuredIDs.compactMap { id in
+            climbs.first { $0.id == id }
+        }
+
+        return Array(uniqueClimbs(featuredClimbs + climbs).prefix(3))
+    }
+
+    private var titleText: String {
+        if climbs.count >= 100 {
+            return "Explore 100+ climbs"
+        }
+
+        if climbs.count > 0 {
+            return "Explore \(climbs.count.formatted()) climbs"
+        }
+
+        return "Explore climbs"
+    }
+
+    private func uniqueClimbs(_ climbs: [Climb]) -> [Climb] {
+        var seenIDs: Set<String> = []
+        var unique: [Climb] = []
+
+        for climb in climbs {
+            guard !seenIDs.contains(climb.id) else { continue }
+            seenIDs.insert(climb.id)
+            unique.append(climb)
+        }
+
+        return unique.isEmpty ? [.preview] : unique
     }
 }
 

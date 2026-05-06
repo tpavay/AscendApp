@@ -4,7 +4,9 @@
   "type": "module",
   "scripts": {
     "seed:live-replay": "node seed-live-replay-leaderboards.mjs seed --project dev",
-    "clear:live-replay": "node seed-live-replay-leaderboards.mjs clear --project dev"
+    "seed:live-replay:staging": "node seed-live-replay-leaderboards.mjs seed --project staging",
+    "clear:live-replay": "node seed-live-replay-leaderboards.mjs clear --project dev",
+    "clear:live-replay:staging": "node seed-live-replay-leaderboards.mjs clear --project staging"
   },
   "engines": {
     "node": ">=20"

@@ -104,7 +104,19 @@ private actor MockLiveReplayLeaderboardRepository: LiveReplayLeaderboardReposito
     ) async throws -> LiveReplayLeaderboardSummary {
         LiveReplayLeaderboardSummary(
             totalClimbers: 247,
+            completedCount: 89,
             personalBestDurationSeconds: 872,
+            updatedAt: Date(timeIntervalSince1970: 1_777_777_700)
+        )
+    }
+
+    func fetchCompletionRank(
+        context: LiveReplayLeaderboardContext,
+        completionDurationSeconds: TimeInterval
+    ) async throws -> LiveReplayCompletionRank {
+        LiveReplayCompletionRank(
+            rank: 12,
+            completedCount: 89,
             updatedAt: Date(timeIntervalSince1970: 1_777_777_700)
         )
     }

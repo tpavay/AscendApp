@@ -71,6 +71,7 @@ final class HeadphoneMotionSessionService {
     private(set) var duration: TimeInterval = 0
     private(set) var currentAcceleration: HeadphoneMotionVector = .zero
     private(set) var targetReached = false
+    private var onStepSample: ((LiveClimbStepSample) -> Void)?
 
     init(motionManager: CMHeadphoneMotionManager = CMHeadphoneMotionManager()) {
         self.runner = HeadphoneMotionSessionRunner(
@@ -96,6 +97,10 @@ final class HeadphoneMotionSessionService {
 
     func refreshAvailability() {
         isDeviceMotionAvailable = runner?.isDeviceMotionAvailable ?? false
+    }
+
+    func setStepSampleHandler(_ handler: ((LiveClimbStepSample) -> Void)?) {
+        onStepSample = handler
     }
 
     func startRecording(targetStepCount: Int? = nil) throws {
@@ -215,6 +220,15 @@ final class HeadphoneMotionSessionService {
         stepCount = update.stepCount
         sampleCount = update.sampleCount
         currentAcceleration = update.acceleration
+        if update.didDetectStep {
+            onStepSample?(
+                LiveClimbStepSample(
+                    elapsedSeconds: Int(activeDuration().rounded(.down)),
+                    cumulativeSteps: update.stepCount,
+                    source: .headphoneMotion
+                )
+            )
+        }
 
         if let targetStepCount,
            update.stepCount >= targetStepCount {
@@ -452,3 +466,5 @@ private final class HeadphoneMotionConnectionDelegate: NSObject, CMHeadphoneMoti
         onConnectionChange(false)
     }
 }
+
+extension HeadphoneMotionSessionService: LiveClimbStepSampleProducing {}

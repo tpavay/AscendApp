@@ -3,7 +3,7 @@
 /**
  * Live Replay Leaderboard Seed Script
  *
- * Seeds or clears dev-only replay leaderboard data for Live Climbs using the
+ * Seeds or clears dev/staging replay leaderboard data for Live Climbs using the
  * Firebase Admin SDK. The script writes the read-only public replay index:
  *
  * live_replay_leaderboards/{contextKey}/splitBuckets/{bucketIndex}/entries/{entryId}
@@ -12,6 +12,7 @@
  *   ASCEND_SEED_SOURCE_USER_ID=<uid> node scripts/seed-live-replay-leaderboards.mjs seed --project dev
  *   ASCEND_SEED_SOURCE_USER_ID=<uid> npm --prefix scripts run seed:live-replay
  *   node scripts/seed-live-replay-leaderboards.mjs seed --project dev --dry-run
+ *   node scripts/seed-live-replay-leaderboards.mjs seed --project staging --dry-run
  *   node scripts/seed-live-replay-leaderboards.mjs backfill-avatars --project dev --avatar-dir ~/Downloads/avatars
  *   node scripts/seed-live-replay-leaderboards.mjs clear --project dev
  *
@@ -30,12 +31,18 @@ import {FieldValue, getFirestore} from "firebase-admin/firestore";
 import {getStorage} from "firebase-admin/storage";
 
 const DEV_PROJECT_ID = "ascend-f2e4f";
+const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
 const LIVE_CLIMB_CONTEXT_TYPE = "live_climb";
-const DEFAULT_SEED_PACK_ID = "live-replay-v1-dev";
+const DEFAULT_DEV_SEED_PACK_ID = "live-replay-v1-dev";
+const DEFAULT_STAGING_SEED_PACK_ID = "live-replay-v1-staging";
 const DEFAULT_APPLE_HEALTH_STEP_FACTOR = 0.78;
 const BUCKET_INTERVAL_SECONDS = 10;
 const MAX_BUCKET_INDEX = 360;
+const ALLOWED_SEED_PROJECTS = new Map([
+  [DEV_PROJECT_ID, {defaultSeedPackId: DEFAULT_DEV_SEED_PACK_ID}],
+  [STAGING_PROJECT_ID, {defaultSeedPackId: DEFAULT_STAGING_SEED_PACK_ID}],
+]);
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
@@ -90,7 +97,7 @@ function parseArgs(argv) {
     project: "dev",
     dryRun: false,
     skipClear: false,
-    seedPackId: DEFAULT_SEED_PACK_ID,
+    seedPackId: null,
     sourceUserId: process.env.ASCEND_SEED_SOURCE_USER_ID ?? null,
     avatarDir: null,
     appleHealthStepFactor: DEFAULT_APPLE_HEALTH_STEP_FACTOR,
@@ -152,14 +159,15 @@ Usage:
   ASCEND_SEED_SOURCE_USER_ID=<uid> node scripts/seed-live-replay-leaderboards.mjs seed --project dev
   ASCEND_SEED_SOURCE_USER_ID=<uid> npm --prefix scripts run seed:live-replay
   node scripts/seed-live-replay-leaderboards.mjs seed --project dev --dry-run
+  node scripts/seed-live-replay-leaderboards.mjs seed --project staging --dry-run
   node scripts/seed-live-replay-leaderboards.mjs backfill-avatars --project dev --avatar-dir ~/Downloads/avatars
   node scripts/seed-live-replay-leaderboards.mjs clear --project dev
 
 Options:
-  --project <alias|projectId>           Firebase project alias or ID. Must resolve to ${DEV_PROJECT_ID}.
+  --project <alias|projectId>           Firebase project alias or ID. Must resolve to ${DEV_PROJECT_ID} or ${STAGING_PROJECT_ID}.
   --source-user <uid>                   User whose workout backups provide pace calibration.
   --avatar-dir <path>                   Optional curated avatar images to upload and assign to seeded names.
-  --seed-pack <id>                      Seed pack marker. Default: ${DEFAULT_SEED_PACK_ID}.
+  --seed-pack <id>                      Seed pack marker. Defaults by project: ${DEFAULT_DEV_SEED_PACK_ID}, ${DEFAULT_STAGING_SEED_PACK_ID}.
   --apple-health-step-factor <number>   Calibration for Apple Health steps. Default: ${DEFAULT_APPLE_HEALTH_STEP_FACTOR}.
   --dry-run                             Print the plan without writing.
   --skip-clear                          Do not clear existing entries for the seed pack before seeding.
@@ -179,11 +187,13 @@ async function main() {
   }
 
   const projectId = resolveProjectId(args.project);
-  if (projectId !== DEV_PROJECT_ID) {
+  const projectConfig = ALLOWED_SEED_PROJECTS.get(projectId);
+  if (!projectConfig) {
     throw new Error(
-      `Refusing to seed ${projectId}. This script is dev-only and only writes ${DEV_PROJECT_ID}.`
+      `Refusing to seed ${projectId}. This script only writes ${DEV_PROJECT_ID} or ${STAGING_PROJECT_ID}.`
     );
   }
+  args.seedPackId = args.seedPackId ?? projectConfig.defaultSeedPackId;
 
   initializeApp({
     credential: applicationDefault(),
@@ -507,6 +517,7 @@ function buildSeedPlan(climbsById, paceSamples, args, avatarURLs) {
 function generateAttempts(climb, config, completedCount, paceSamples, seedPackId, avatarURLs) {
   const targetSteps = referenceStepCount(climb);
   const attempts = [];
+  const usedProfileKeys = new Set();
 
   for (let index = 0; index < completedCount; index += 1) {
     const rng = mulberry32(hashString(`${seedPackId}:${climb.id}:${index}`));
@@ -521,13 +532,21 @@ function generateAttempts(climb, config, completedCount, paceSamples, seedPackId
     );
     const finalSteps = targetSteps;
     const displayName = displayNameForAttempt(climb.id, index);
+    const photoURL = avatarURLForDisplayName(displayName, avatarURLs);
+    const profileKey = syntheticProfileKey(displayName, photoURL);
+    if (usedProfileKeys.has(profileKey)) {
+      throw new Error(
+        `Duplicate synthetic replay profile for ${climb.id}: ${displayName}`
+      );
+    }
+    usedProfileKeys.add(profileKey);
 
     attempts.push({
       id: seedAttemptId(seedPackId, climb.id, index),
       userId: `seeded:${seedPackId}:${sanitizeContextId(climb.id)}:${index}`,
       displayName,
       avatarToken: avatarToken(displayName),
-      photoURL: avatarURLForDisplayName(displayName, avatarURLs),
+      photoURL,
       finalSteps,
       durationSeconds,
       completionDurationSeconds: durationSeconds,
@@ -790,7 +809,11 @@ function referenceStepCount(climb) {
 
 function displayNameForAttempt(climbId, index) {
   const offset = hashString(climbId) % SEEDED_DISPLAY_NAMES.length;
-  return SEEDED_DISPLAY_NAMES[(index + offset) % SEEDED_DISPLAY_NAMES.length];
+  if (index < SEEDED_DISPLAY_NAMES.length) {
+    return SEEDED_DISPLAY_NAMES[(index + offset) % SEEDED_DISPLAY_NAMES.length];
+  }
+
+  return `Climber ${String(index + 1).padStart(3, "0")}`;
 }
 
 function avatarURLForDisplayName(displayName, avatarURLs) {
@@ -800,6 +823,14 @@ function avatarURLForDisplayName(displayName, avatarURLs) {
   }
 
   return null;
+}
+
+function syntheticProfileKey(displayName, photoURL) {
+  if (photoURL) {
+    return `photo:${photoURL}`;
+  }
+
+  return `name:${displayName.trim().toLowerCase()}`;
 }
 
 function seedAttemptId(seedPackId, climbId, index) {
