@@ -49,6 +49,12 @@ struct LiveClimbSessionView: View {
         }
         .preferredColorScheme(.dark)
         .navigationBarBackButtonHidden(true)
+        .onAppear {
+            registerLiveActivityControls()
+        }
+        .onDisappear {
+            LiveClimbActivityCommandCenter.shared.unregister()
+        }
         .task {
             await runCountdownThenStart()
         }
@@ -66,6 +72,7 @@ struct LiveClimbSessionView: View {
             viewModel.recordLiveSplitSample()
             Task {
                 await viewModel.refreshReplayLeaderboardIfNeeded()
+                await viewModel.updateLiveActivity()
             }
         }
         .confirmationDialog(
@@ -312,6 +319,25 @@ struct LiveClimbSessionView: View {
         hasStartedRecording = true
         viewModel.start(modelContext: modelContext)
         await viewModel.refreshReplayLeaderboardIfNeeded(force: true)
+    }
+
+    private func registerLiveActivityControls() {
+        LiveClimbActivityCommandCenter.shared.register { command in
+            await handleLiveActivityCommand(command)
+        }
+    }
+
+    private func handleLiveActivityCommand(_ command: LiveClimbActivityCommand) async {
+        switch command {
+        case .togglePause:
+            viewModel.togglePause()
+            await viewModel.updateLiveActivity(force: true)
+        case .stop:
+            await viewModel.finishAndSave(
+                modelContext: modelContext,
+                reason: .userStopped
+            )
+        }
     }
 
     private func savedTitle(for status: ClimbAttemptStatus) -> String {
