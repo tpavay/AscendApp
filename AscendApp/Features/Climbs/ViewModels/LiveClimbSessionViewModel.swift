@@ -36,6 +36,7 @@ final class LiveClimbSessionViewModel {
     private let climbService: ClimbService
     private let settingsManager: SettingsManager
     private let leaderboardService: LiveReplayLeaderboardServicing
+    private let liveActivityManager: LiveClimbActivityManager
 
     private(set) var phase: LiveClimbSessionPhase = .idle
     private(set) var baselineSteps = 0
@@ -61,7 +62,8 @@ final class LiveClimbSessionViewModel {
         motionSession: HeadphoneMotionSessionService = HeadphoneMotionSessionService(),
         climbService: ClimbService = .shared,
         settingsManager: SettingsManager = .shared,
-        leaderboardService: LiveReplayLeaderboardServicing = LiveReplayLeaderboardService.shared
+        leaderboardService: LiveReplayLeaderboardServicing = LiveReplayLeaderboardService.shared,
+        liveActivityManager: LiveClimbActivityManager = .shared
     ) {
         self.climb = climb
         self.replacingActiveClimb = replacingActiveClimb
@@ -70,6 +72,7 @@ final class LiveClimbSessionViewModel {
         self.climbService = climbService
         self.settingsManager = settingsManager
         self.leaderboardService = leaderboardService
+        self.liveActivityManager = liveActivityManager
         self.stepTimelineRecorder = LiveClimbStepTimelineRecorder(intervalSeconds: 10)
         self.motionSession.setStepSampleHandler { [weak self] sample in
             self?.recordLiveStepSample(sample)
@@ -211,6 +214,9 @@ final class LiveClimbSessionViewModel {
                 )
             )
             recordLiveSplitSample()
+            Task { [weak self] in
+                await self?.beginLiveActivity()
+            }
         } catch {
             phase = .failed(error.localizedDescription)
         }
@@ -226,6 +232,7 @@ final class LiveClimbSessionViewModel {
         }
 
         phase = .saving
+        await updateLiveActivity(status: .saving, force: true)
 
         do {
             let result = try await motionSession.stopRecording(reason: reason)
@@ -250,8 +257,10 @@ final class LiveClimbSessionViewModel {
             let savedStatus = savedAttemptStatus(modelContext: modelContext)
             trackSavedAttempt(result: result, status: savedStatus)
             phase = .saved(savedStatus)
+            await liveActivityManager.end(status: .finished)
         } catch {
             phase = .failed(error.localizedDescription)
+            await liveActivityManager.end(status: .failed)
         }
     }
 
@@ -264,8 +273,14 @@ final class LiveClimbSessionViewModel {
             } else {
                 try motionSession.pauseRecording()
             }
+            Task { [weak self] in
+                await self?.updateLiveActivity(force: true)
+            }
         } catch {
             phase = .failed(error.localizedDescription)
+            Task { [weak self] in
+                await self?.liveActivityManager.end(status: .failed)
+            }
         }
     }
 
@@ -283,10 +298,13 @@ final class LiveClimbSessionViewModel {
         }
 
         do {
-            guard continuesPersistedAttempt && baselineSessionsCount == 0 && baselineSteps == 0 else { return }
-            _ = try climbService.abandonActiveClimb(modelContext: modelContext)
+            if continuesPersistedAttempt && baselineSessionsCount == 0 && baselineSteps == 0 {
+                _ = try climbService.abandonActiveClimb(modelContext: modelContext)
+            }
+            await liveActivityManager.end(status: .ended)
         } catch {
             phase = .failed(error.localizedDescription)
+            await liveActivityManager.end(status: .failed)
         }
     }
 
@@ -306,6 +324,9 @@ final class LiveClimbSessionViewModel {
               motionSession.status.isRecording else { return }
 
         _ = stepTimelineRecorder.record(sample)
+        Task { [weak self] in
+            await self?.updateLiveActivity()
+        }
     }
 
     func refreshReplayLeaderboardIfNeeded(force: Bool = false) async {
@@ -364,6 +385,12 @@ final class LiveClimbSessionViewModel {
 #endif
             leaderboardFetchFailed = true
         }
+
+        await updateLiveActivity(force: force || forceFreshWindow)
+    }
+
+    func updateLiveActivity(force: Bool = false) async {
+        await updateLiveActivity(status: nil, force: force)
     }
 
     private func shouldForceFreshLeaderboardWindowRefresh(now: Date) -> Bool {
@@ -394,6 +421,40 @@ final class LiveClimbSessionViewModel {
 
         lastPeriodicLeaderboardWindowRefreshAt = now
         return true
+    }
+
+    private func beginLiveActivity() async {
+        await liveActivityManager.start(
+            climb: climb,
+            steps: totalRecordedSteps,
+            rank: liveActivityRank,
+            rankTotal: leaderboardTotalClimbers,
+            duration: displayedDuration,
+            progress: totalProgressFraction,
+            isPaused: isPaused
+        )
+    }
+
+    private func updateLiveActivity(
+        status: LiveClimbActivityStatus?,
+        force: Bool = false
+    ) async {
+        guard phase == .recording || phase == .saving else { return }
+
+        await liveActivityManager.update(
+            steps: totalRecordedSteps,
+            rank: liveActivityRank,
+            rankTotal: leaderboardTotalClimbers,
+            duration: displayedDuration,
+            progress: totalProgressFraction,
+            isPaused: isPaused,
+            status: status,
+            force: force
+        )
+    }
+
+    private var liveActivityRank: Int? {
+        leaderboardRows.first(where: \.isCurrentUser)?.rank ?? leaderboardWindow?.currentUserRank
     }
 
     private func saveWorkout(
