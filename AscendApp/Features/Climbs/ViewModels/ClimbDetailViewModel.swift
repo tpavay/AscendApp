@@ -10,6 +10,10 @@ final class ClimbDetailViewModel {
     var historySummary: ClimbHistorySummary
     var leaderboardSummary: LiveReplayLeaderboardSummary = .empty
     var leaderboardPreviewRows: [LiveReplayLeaderboardRow] = []
+    var completionLeaderboard: LiveReplayCompletionLeaderboard = .empty
+    var personalCompletionRank: LiveReplayCompletionRank?
+    var isLeaderboardLoading = false
+    var leaderboardErrorMessage: String?
     var collectionOrder: Int?
     var projectedCollectionOrder: Int?
     var loadErrorMessage: String?
@@ -92,7 +96,11 @@ final class ClimbDetailViewModel {
     }
 
     var communityCompletedCount: Int {
-        max(leaderboardSummary.completedCount, hasCompletionHistory ? 1 : 0)
+        max(
+            leaderboardSummary.completedCount,
+            completionLeaderboard.completedCount,
+            hasCompletionHistory ? 1 : 0
+        )
     }
 
     var communityTotalClimbers: Int {
@@ -105,6 +113,24 @@ final class ClimbDetailViewModel {
 
     var showsCommunityStats: Bool {
         true
+    }
+
+    var hasCompletionLeaderboardRows: Bool {
+        !completionLeaderboard.rows.isEmpty
+    }
+
+    var completionLeaderboardRows: [LiveReplayLeaderboardRow] {
+        completionLeaderboard.rows
+    }
+
+    var completionLeaderboardCompletedCount: Int {
+        max(completionLeaderboard.completedCount, leaderboardSummary.completedCount)
+    }
+
+    var shouldShowPersonalRankSummary: Bool {
+        guard let personalCompletionRank else { return false }
+        return !completionLeaderboard.rows.contains(where: \.isCurrentUser) &&
+            personalCompletionRank.completedCount > 0
     }
 
     var stripOrderText: String? {
@@ -137,6 +163,9 @@ final class ClimbDetailViewModel {
             climbId: climb.id,
             targetSteps: climb.referenceStepCount
         )
+        isLeaderboardLoading = true
+        leaderboardErrorMessage = nil
+
         async let fetchedSummary = leaderboardService.fetchSummary(context: context)
         async let fetchedPreviewWindow = leaderboardService.refreshIfNeeded(
             context: context,
@@ -144,6 +173,11 @@ final class ClimbDetailViewModel {
             currentSteps: 0,
             force: true
         )
+        async let fetchedCompletionLeaderboard = leaderboardService.fetchCompletionLeaderboard(
+            context: context,
+            limit: 25
+        )
+        async let fetchedPersonalRank = fetchPersonalCompletionRank(context: context)
 
         do {
             leaderboardSummary = try await fetchedSummary
@@ -157,6 +191,41 @@ final class ClimbDetailViewModel {
         } catch {
             leaderboardPreviewRows = []
         }
+
+        do {
+            let leaderboard = try await fetchedCompletionLeaderboard
+            completionLeaderboard = leaderboard
+            leaderboardSummary = LiveReplayLeaderboardSummary(
+                totalClimbers: max(leaderboardSummary.totalClimbers, leaderboard.completedCount),
+                completedCount: max(leaderboardSummary.completedCount, leaderboard.completedCount),
+                personalBestDurationSeconds: leaderboardSummary.personalBestDurationSeconds,
+                updatedAt: leaderboardSummary.updatedAt ?? leaderboard.updatedAt
+            )
+        } catch {
+            completionLeaderboard = .empty
+            leaderboardErrorMessage = error.localizedDescription
+        }
+
+        do {
+            personalCompletionRank = try await fetchedPersonalRank
+        } catch {
+            personalCompletionRank = nil
+        }
+
+        isLeaderboardLoading = false
+    }
+
+    private func fetchPersonalCompletionRank(
+        context: LiveReplayLeaderboardContext
+    ) async throws -> LiveReplayCompletionRank? {
+        guard let bestCompletionDurationSeconds = historySummary.bestCompletionDurationSeconds else {
+            return nil
+        }
+
+        return try await leaderboardService.fetchCompletionRank(
+            context: context,
+            completionDurationSeconds: TimeInterval(bestCompletionDurationSeconds)
+        )
     }
 
     func startClimb(modelContext: ModelContext) throws {

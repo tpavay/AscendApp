@@ -121,6 +121,31 @@ private actor MockLiveReplayLeaderboardRepository: LiveReplayLeaderboardReposito
         )
     }
 
+    func fetchCompletionLeaderboard(
+        context: LiveReplayLeaderboardContext,
+        limit: Int
+    ) async throws -> LiveReplayCompletionLeaderboard {
+        LiveReplayCompletionLeaderboard(
+            rows: [
+                LiveReplayLeaderboardRow(
+                    id: "attempt-a",
+                    rank: 1,
+                    displayName: "Sarah K.",
+                    avatarToken: "SK",
+                    photoURL: URL(string: "https://example.com/sarah.jpg"),
+                    stepsAtBucket: 0,
+                    finalSteps: 809,
+                    deltaFromUser: 0,
+                    isCurrentUser: false,
+                    isPersonalBest: false,
+                    completionDurationSeconds: 800
+                )
+            ],
+            completedCount: 89,
+            updatedAt: Date(timeIntervalSince1970: 1_777_777_700)
+        )
+    }
+
     func fetchWindow(
         context: LiveReplayLeaderboardContext,
         bucketIndex: Int,

@@ -38,6 +38,28 @@ struct LiveReplayCompletionRank: Equatable, Sendable {
     }
 }
 
+struct LiveReplayCompletionLeaderboard: Equatable, Sendable {
+    let rows: [LiveReplayLeaderboardRow]
+    let completedCount: Int
+    let updatedAt: Date?
+
+    init(
+        rows: [LiveReplayLeaderboardRow],
+        completedCount: Int,
+        updatedAt: Date?
+    ) {
+        self.rows = rows
+        self.completedCount = max(completedCount, rows.count, 0)
+        self.updatedAt = updatedAt
+    }
+
+    static let empty = LiveReplayCompletionLeaderboard(
+        rows: [],
+        completedCount: 0,
+        updatedAt: nil
+    )
+}
+
 struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
     let id: String
     let rank: Int?
@@ -50,6 +72,17 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
     let isCurrentUser: Bool
     let isPersonalBest: Bool
     let completionDurationSeconds: TimeInterval?
+
+    var averageStepsPerMinute: Double? {
+        guard let completionDurationSeconds,
+              completionDurationSeconds > 0,
+              finalSteps > 0 else {
+            return nil
+        }
+
+        let value = Double(finalSteps) / (completionDurationSeconds / 60)
+        return value.isFinite ? value : nil
+    }
 
     static func currentUser(
         rank: Int?,

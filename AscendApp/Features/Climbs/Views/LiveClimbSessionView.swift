@@ -329,6 +329,8 @@ struct LiveClimbSessionView: View {
 }
 
 private struct LiveReplayLeaderboardPanel: View {
+    @State private var hasScrolledToInitialCurrentUser = false
+
     let rows: [LiveReplayLeaderboardRow]
     let targetSteps: Int
     let progress: Double
@@ -349,43 +351,53 @@ private struct LiveReplayLeaderboardPanel: View {
 
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
                     Text(targetSteps.formatted())
-                        .font(.montserratBold(size: 14))
+                        .font(.montserratBold(size: 20))
                         .foregroundStyle(primaryColor)
                         .monospacedDigit()
+                        .contentTransition(.numericText())
 
                     Text("STEPS")
-                        .font(.montserratBold(size: 12))
+                        .font(.montserratBold(size: 13))
                         .tracking(0.8)
                         .foregroundStyle(secondaryColor)
                 }
             }
             .padding(.horizontal, 4)
-            .padding(.bottom, 10)
+            .padding(.bottom, 12)
 
             Rectangle()
                 .fill(.white.opacity(0.08))
                 .frame(height: 1)
 
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(rows) { row in
-                        LiveReplayLeaderboardRowView(
-                            row: row,
-                            targetSteps: targetSteps,
-                            progress: progress,
-                            currentUserPhotoURL: currentUserPhotoURL,
-                            tint: tint,
-                            effectiveColorScheme: effectiveColorScheme
-                        )
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(rows) { row in
+                            LiveReplayLeaderboardRowView(
+                                row: row,
+                                targetSteps: targetSteps,
+                                progress: progress,
+                                currentUserPhotoURL: currentUserPhotoURL,
+                                tint: tint,
+                                effectiveColorScheme: effectiveColorScheme
+                            )
+                            .id(row.id)
+                        }
                     }
+                    .padding(.vertical, 8)
                 }
-                .padding(.vertical, 8)
+                .scrollIndicators(.hidden)
+                .onAppear {
+                    scrollToCurrentUserIfNeeded(using: proxy)
+                }
+                .onChange(of: currentUserRowID) { _, _ in
+                    scrollToCurrentUserIfNeeded(using: proxy)
+                }
+                .animation(
+                    .spring(response: 0.3, dampingFraction: 0.82),
+                    value: rows.map(\.id)
+                )
             }
-            .scrollIndicators(.hidden)
-            .animation(
-                .spring(response: 0.3, dampingFraction: 0.82),
-                value: rows.map(\.id)
-            )
 
             if fetchFailed && rows.count <= 1 {
                 Text("Leaderboard unavailable")
@@ -403,6 +415,26 @@ private struct LiveReplayLeaderboardPanel: View {
 
     private var secondaryColor: Color {
         effectiveColorScheme == .dark ? .white.opacity(0.42) : .black.opacity(0.4)
+    }
+
+    private var currentUserRowID: String? {
+        rows.first(where: \.isCurrentUser)?.id
+    }
+
+    private func scrollToCurrentUserIfNeeded(using proxy: ScrollViewProxy) {
+        guard !hasScrolledToInitialCurrentUser,
+              let currentUserRowID else {
+            return
+        }
+
+        hasScrolledToInitialCurrentUser = true
+
+        Task {
+            await Task.yield()
+            withAnimation(.easeOut(duration: 0.24)) {
+                proxy.scrollTo(currentUserRowID, anchor: .center)
+            }
+        }
     }
 }
 
@@ -422,30 +454,32 @@ private struct LiveReplayLeaderboardRowView: View {
 
             HStack(spacing: 10) {
                 Text(rankLabel)
-                    .font(.montserratBold(size: 13))
+                    .font(.montserratBold(size: 16))
                     .foregroundStyle(row.isCurrentUser ? tint : secondaryColor)
-                    .frame(width: 31, alignment: .center)
+                    .frame(width: 38, alignment: .center)
                     .monospacedDigit()
 
                 avatarView
 
                 Text(row.displayName)
-                    .font(.montserratBold(size: 14))
+                    .font(.montserratBold(size: 17))
                     .foregroundStyle(primaryColor)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.82)
+                    .minimumScaleFactor(0.78)
 
                 Spacer(minLength: 0)
 
                 Text(row.stepsAtBucket.formatted())
-                    .font(.montserratBold(size: row.isCurrentUser ? 15 : 17))
+                    .font(.montserratBold(size: row.isCurrentUser ? 24 : 22))
                     .foregroundStyle(row.isCurrentUser ? tint : primaryColor)
                     .monospacedDigit()
                     .contentTransition(.numericText())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.84)
             }
-            .padding(.trailing, 2)
+            .padding(.trailing, 4)
         }
-        .frame(height: row.isCurrentUser ? 58 : 57)
+        .frame(height: row.isCurrentUser ? 74 : 70)
         .accessibilityElement(children: .combine)
     }
 
@@ -496,7 +530,7 @@ private struct LiveReplayLeaderboardRowView: View {
                     avatarTokenView
                 }
             }
-            .frame(width: 35, height: 35)
+            .frame(width: 44, height: 44)
             .clipShape(Circle())
             .overlay(
                 Circle()
@@ -514,9 +548,9 @@ private struct LiveReplayLeaderboardRowView: View {
 
     private var avatarTokenView: some View {
         Text(row.avatarToken)
-            .font(.montserratBold(size: 10))
+            .font(.montserratBold(size: 13))
             .foregroundStyle(row.isCurrentUser ? .black : .white)
-            .frame(width: 35, height: 35)
+            .frame(width: 44, height: 44)
             .background(Circle().fill(row.isCurrentUser ? tint : avatarColor))
     }
 
