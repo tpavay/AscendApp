@@ -62,6 +62,38 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         )
     }
 
+    func fetchCompletionLeaderboard(
+        context: LiveReplayLeaderboardContext,
+        limit: Int
+    ) async throws -> LiveReplayCompletionLeaderboard {
+        let resolvedLimit = max(limit, 1)
+
+        async let summary = fetchSummary(context: context)
+        async let completedCount = countRows(context: context, bucketIndex: 0)
+        async let rowSnapshot = entriesCollection(context: context, bucketIndex: 0)
+            .order(by: "completionDurationSeconds", descending: false)
+            .limit(to: resolvedLimit)
+            .getDocuments(source: .server)
+
+        let resolvedSummary = try await summary
+        let resolvedCompletedCount = try await completedCount
+        let currentUserId = Auth.auth().currentUser?.uid
+        let rows = try await rowSnapshot.documents.enumerated().compactMap { offset, document in
+            parseCompletionRow(
+                id: document.documentID,
+                data: document.data(),
+                rank: offset + 1,
+                currentUserId: currentUserId
+            )
+        }
+
+        return LiveReplayCompletionLeaderboard(
+            rows: rows,
+            completedCount: max(resolvedSummary.completedCount, resolvedCompletedCount),
+            updatedAt: resolvedSummary.updatedAt
+        )
+    }
+
     func fetchWindow(
         context: LiveReplayLeaderboardContext,
         bucketIndex: Int,
@@ -265,6 +297,39 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             isCurrentUser: false,
             isPersonalBest: (data["isPersonalBest"] as? Bool) ?? false,
             completionDurationSeconds: doubleValue(for: "completionDurationSeconds", in: data)
+        )
+    }
+
+    private func parseCompletionRow(
+        id: String,
+        data: [String: Any],
+        rank: Int,
+        currentUserId: String?
+    ) -> LiveReplayLeaderboardRow? {
+        guard let completionDurationSeconds = doubleValue(
+            for: "completionDurationSeconds",
+            in: data
+        ) else {
+            return nil
+        }
+
+        let displayName = (data["displayName"] as? String)
+            .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }
+            ?? "Climber"
+        let stepsAtBucket = intValue(for: "stepsAtBucket", in: data) ?? 0
+
+        return LiveReplayLeaderboardRow(
+            id: id,
+            rank: max(rank, 1),
+            displayName: displayName,
+            avatarToken: (data["avatarToken"] as? String) ?? Self.avatarToken(for: displayName),
+            photoURL: photoURLValue(for: "photoURL", in: data),
+            stepsAtBucket: stepsAtBucket,
+            finalSteps: intValue(for: "finalSteps", in: data) ?? stepsAtBucket,
+            deltaFromUser: 0,
+            isCurrentUser: id == currentUserId,
+            isPersonalBest: id == currentUserId,
+            completionDurationSeconds: completionDurationSeconds
         )
     }
 

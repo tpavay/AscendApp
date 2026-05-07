@@ -231,8 +231,8 @@ Workout, LeaderboardStats, PersonalRecord, Routine, RoutineFolder, WeightPersona
 - Climb detail has 3 swipe pages:
   - `Overview` (real)
   - `Your History` (real)
-  - `Leaderboard` (present but clearly coming soon in v1)
-- Per-climb rank and total-climber counts must stay hidden until real backend data exists.
+  - `Leaderboard` (real; shows fastest completed attempts from the server-published replay index)
+- Per-climb rank and total-climber counts must stay hidden until real backend data exists; do not show placeholder public stats.
 - Climb content uses a remote-first catalog and remote-only climb images:
   - a tiny hosted manifest at `/climbs/manifest.json`
   - a versioned hosted catalog at `/climbs/catalog-v{N}.json`

@@ -580,21 +580,245 @@ struct ClimbDetailView: View {
 
     private var leaderboardPage: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Leaderboard")
-                .font(.montserratBold(size: 22))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Leaderboard")
+                        .font(.montserratBold(size: 22))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
 
-            Text("Coming Soon")
-                .font(.montserratBold(size: 20))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    Text("Fastest completion times")
+                        .font(.montserratRegular(size: 14))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.62) : .black.opacity(0.58))
+                }
 
-            Text("Landmark-specific leaderboards are planned, but this climb-first pass keeps everything private for now while the core progress loop ships.")
-                .font(.montserratRegular(size: 15))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.72) : .black.opacity(0.62))
+                Spacer(minLength: 0)
+
+                if viewModel.completionLeaderboardCompletedCount > 0 {
+                    Text("\(viewModel.completionLeaderboardCompletedCount.formatted()) completed")
+                        .font(.montserratSemiBold(size: 13))
+                        .foregroundStyle(.accent)
+                        .monospacedDigit()
+                }
+            }
+
+            if viewModel.isLeaderboardLoading && !viewModel.hasCompletionLeaderboardRows {
+                leaderboardLoadingState
+            } else if viewModel.hasCompletionLeaderboardRows {
+                if viewModel.shouldShowPersonalRankSummary {
+                    personalLeaderboardRankSummary
+                }
+
+                VStack(spacing: 0) {
+                    ForEach(viewModel.completionLeaderboardRows) { row in
+                        leaderboardRow(for: row)
+                    }
+                }
+            } else {
+                leaderboardEmptyState
+            }
+
+            if viewModel.leaderboardErrorMessage != nil,
+               !viewModel.isLeaderboardLoading {
+                Text("Leaderboard unavailable")
+                    .font(.montserratSemiBold(size: 12))
+                    .foregroundStyle(Color.red.opacity(0.82))
+            }
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private var leaderboardLoadingState: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .tint(.accent)
+
+            Text("Loading leaderboard")
+                .font(.montserratMedium(size: 14))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.64) : .black.opacity(0.58))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 24)
+    }
+
+    private var leaderboardEmptyState: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("No completed times yet")
+                .font(.montserratBold(size: 18))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+            Text("Complete this climb to put the first time on the board.")
+                .font(.montserratRegular(size: 14))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.66) : .black.opacity(0.58))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 16)
+    }
+
+    @ViewBuilder
+    private var personalLeaderboardRankSummary: some View {
+        if let personalCompletionRank = viewModel.personalCompletionRank,
+           let bestCompletionDurationSeconds = viewModel.historySummary.bestCompletionDurationSeconds {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Your best")
+                        .font(.montserratSemiBold(size: 12))
+                        .tracking(1.0)
+                        .foregroundStyle(Color.customGray)
+
+                    Text(DurationFormatter.format(duration: TimeInterval(bestCompletionDurationSeconds)))
+                        .font(.montserratBold(size: 20))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                        .monospacedDigit()
+                }
+
+                Spacer(minLength: 0)
+
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text("#\(personalCompletionRank.rank.formatted())")
+                        .font(.montserratBold(size: 20))
+                        .foregroundStyle(.accent)
+                        .monospacedDigit()
+
+                    Text("of \(personalCompletionRank.completedCount.formatted())")
+                        .font(.montserratSemiBold(size: 12))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.58) : .black.opacity(0.5))
+                        .monospacedDigit()
+                }
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.accent.opacity(effectiveColorScheme == .dark ? 0.12 : 0.10))
+            )
+        }
+    }
+
+    private func leaderboardRow(for row: LiveReplayLeaderboardRow) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text("#\(row.rank?.formatted() ?? "--")")
+                .font(.montserratBold(size: 15))
+                .foregroundStyle(row.isCurrentUser ? .accent : Color.customGray)
+                .frame(width: 46, alignment: .leading)
+                .monospacedDigit()
+
+            leaderboardAvatar(for: row)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 7) {
+                    Text(row.isCurrentUser ? "You" : row.displayName)
+                        .font(.montserratBold(size: 15))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+
+                    if row.isCurrentUser {
+                        Text("YOU")
+                            .font(.montserratBold(size: 9))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(Color.accent)
+                            )
+                    }
+                }
+
+                Text("\(row.finalSteps.formatted()) steps")
+                    .font(.montserratMedium(size: 12))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.54) : .black.opacity(0.48))
+                    .monospacedDigit()
+            }
+
+            Spacer(minLength: 8)
+
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(leaderboardDurationText(for: row))
+                    .font(.montserratBold(size: 17))
+                    .foregroundStyle(row.isCurrentUser ? .accent : (effectiveColorScheme == .dark ? .white : .black))
+                    .monospacedDigit()
+
+                if let averageStepsPerMinute = row.averageStepsPerMinute {
+                    Text("\(Int(averageStepsPerMinute.rounded()).formatted()) avg SPM")
+                        .font(.montserratSemiBold(size: 11))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.50) : .black.opacity(0.46))
+                        .monospacedDigit()
+                }
+            }
+        }
+        .padding(.vertical, 13)
+        .padding(.horizontal, row.isCurrentUser ? 12 : 0)
+        .background {
+            if row.isCurrentUser {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.accent.opacity(effectiveColorScheme == .dark ? 0.12 : 0.10))
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if !row.isCurrentUser {
+                Rectangle()
+                    .fill(.white.opacity(0.08))
+                    .frame(height: 1)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func leaderboardDurationText(for row: LiveReplayLeaderboardRow) -> String {
+        guard let completionDurationSeconds = row.completionDurationSeconds else {
+            return "--"
+        }
+
+        return DurationFormatter.format(duration: completionDurationSeconds)
+    }
+
+    @ViewBuilder
+    private func leaderboardAvatar(for row: LiveReplayLeaderboardRow) -> some View {
+        if let photoURL = row.isCurrentUser ? (row.photoURL ?? currentUserPhotoURL) : row.photoURL {
+            AsyncImage(
+                url: photoURL,
+                transaction: Transaction(animation: .easeInOut(duration: 0.2))
+            ) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                case .empty, .failure:
+                    leaderboardAvatarToken(for: row)
+                @unknown default:
+                    leaderboardAvatarToken(for: row)
+                }
+            }
+            .frame(width: 42, height: 42)
+            .clipShape(Circle())
+            .overlay(
+                Circle()
+                    .stroke(row.isCurrentUser ? Color.accent : .white.opacity(0.14), lineWidth: row.isCurrentUser ? 2 : 1)
+            )
+            .id(photoURL)
+        } else {
+            leaderboardAvatarToken(for: row)
+        }
+    }
+
+    private func leaderboardAvatarToken(for row: LiveReplayLeaderboardRow) -> some View {
+        Text(row.isCurrentUser ? currentUserAvatar.token : row.avatarToken)
+            .font(.montserratBold(size: 13))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .minimumScaleFactor(0.72)
+            .frame(width: 42, height: 42)
+            .background(
+                Circle()
+                    .fill(row.isCurrentUser ? Color.accent : communityAvatarColor(for: row.id))
+            )
+            .overlay(
+                Circle()
+                    .stroke(row.isCurrentUser ? Color.accent.opacity(0.7) : .white.opacity(0.14), lineWidth: 1)
+            )
     }
 
     private var metricDivider: some View {
