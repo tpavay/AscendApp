@@ -112,6 +112,8 @@ jobs:
           IOS_PROVISIONING_PROFILE_SPECIFIER: match AppStore com.TylerPavay.AscendApp.staging
           IOS_DEVELOPMENT_TEAM: QWGVB7TN4T
           IOS_STAGING_BUNDLE_ID: com.TylerPavay.AscendApp.staging
+          IOS_STAGING_WIDGET_BUNDLE_ID: com.TylerPavay.AscendApp.staging.LiveClimbWidgets
+          IOS_STAGING_WIDGET_PROVISIONING_PROFILE_SPECIFIER: match AppStore com.TylerPavay.AscendApp.staging.LiveClimbWidgets
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "120"
           BUILD_NUMBER: ${{ github.run_number }}
         run: bundle exec fastlane build_staging
