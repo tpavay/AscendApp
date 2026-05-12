@@ -117,9 +117,18 @@ enum LiveClimbWorkoutSummaryData {
                 finalDurationSeconds: durationSeconds,
                 finalSteps: max(workout.steps, 0)
             )
+            let finalBucketIndex = splitBucketIndex(
+                for: durationSeconds,
+                intervalSeconds: intervalSeconds
+            )
             points = normalizedSteps.enumerated().map { index, steps in
                 LiveClimbProgressPoint(
-                    elapsedSeconds: min(index * intervalSeconds, durationSeconds),
+                    elapsedSeconds: splitElapsedSeconds(
+                        forBucketIndex: index,
+                        intervalSeconds: intervalSeconds,
+                        finalDurationSeconds: durationSeconds,
+                        finalBucketIndex: finalBucketIndex
+                    ),
                     steps: min(max(steps, 0), resolvedTargetSteps)
                 )
             }
@@ -139,6 +148,24 @@ enum LiveClimbWorkoutSummaryData {
         }
 
         return normalized(points)
+    }
+
+    private static func splitBucketIndex(for elapsedSeconds: Int, intervalSeconds: Int) -> Int {
+        max(elapsedSeconds, 0) / max(intervalSeconds, 1)
+    }
+
+    private static func splitElapsedSeconds(
+        forBucketIndex index: Int,
+        intervalSeconds: Int,
+        finalDurationSeconds: Int,
+        finalBucketIndex: Int
+    ) -> Int {
+        let bucketStartSeconds = max(index, 0) * max(intervalSeconds, 1)
+        if index == finalBucketIndex {
+            return max(finalDurationSeconds, 1)
+        }
+
+        return min(bucketStartSeconds, max(finalDurationSeconds, 1))
     }
 
     private static func normalizedSplitSteps(

@@ -32,16 +32,19 @@ struct LiveClimbActivityWidget: Widget {
                 }
             } compactLeading: {
                 LiveClimbCompactMetricView(
-                    value: context.state.steps.formatted(),
-                    label: "steps"
-                )
-            } compactTrailing: {
-                LiveClimbCompactMetricView(
                     value: context.state.rankLabel,
                     label: "rank"
                 )
+            } compactTrailing: {
+                LiveClimbCompactMetricView(
+                    value: context.state.compactStepsLabel,
+                    label: "steps"
+                )
             } minimal: {
-                LiveClimbMinimalView(progress: context.state.clampedProgress)
+                LiveClimbMinimalView(
+                    progress: context.state.clampedProgress,
+                    stepsLabel: context.state.minimalStepsLabel
+                )
             }
             .keylineTint(.ascendAccent)
         }
@@ -100,10 +103,21 @@ private struct LiveClimbExpandedBottomView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            ProgressView(value: context.state.clampedProgress)
-                .progressViewStyle(.linear)
-                .tint(.ascendAccent)
-                .background(.white.opacity(0.12), in: Capsule())
+            if context.attributes.targetSteps > 0 {
+                ProgressView(value: context.state.clampedProgress)
+                    .progressViewStyle(.linear)
+                    .tint(.ascendAccent)
+                    .background(.white.opacity(0.12), in: Capsule())
+            } else {
+                Capsule()
+                    .fill(.white.opacity(0.12))
+                    .frame(height: 4)
+                    .overlay(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.ascendAccent)
+                            .frame(width: 42)
+                    }
+            }
 
             HStack(spacing: 12) {
                 LiveClimbMetricColumn(title: "Rank", value: context.state.rankDetailLabel)
@@ -142,6 +156,7 @@ private struct LiveClimbCompactMetricView: View {
 
 private struct LiveClimbMinimalView: View {
     let progress: Double
+    let stepsLabel: String
 
     var body: some View {
         ZStack {
@@ -152,6 +167,13 @@ private struct LiveClimbMinimalView: View {
                 .trim(from: 0, to: min(max(progress, 0), 1))
                 .stroke(Color.ascendAccent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                 .rotationEffect(.degrees(-90))
+
+            Text(stepsLabel)
+                .font(.system(size: 8, weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .minimumScaleFactor(0.6)
+                .lineLimit(1)
+                .foregroundStyle(.white)
         }
         .frame(width: 20, height: 20)
     }

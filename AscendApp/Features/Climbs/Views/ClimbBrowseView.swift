@@ -683,7 +683,10 @@ struct ClimbBrowseView: View {
 
     private var allClimbs: [Climb] {
         viewModel.visibleClimbs.sorted { lhs, rhs in
-            lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+            if lhs.referenceStepCount == rhs.referenceStepCount {
+                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+            }
+            return lhs.referenceStepCount < rhs.referenceStepCount
         }
     }
 

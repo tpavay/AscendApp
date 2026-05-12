@@ -83,6 +83,7 @@ struct WorkoutListView: View {
                 } else {
                     WorkoutResultsListView(
                         filteredWorkouts: filteredWorkouts,
+                        allWorkouts: workouts,
                         isInDeleteMode: isInDeleteMode,
                         effectiveColorScheme: effectiveColorScheme,
                         selectedWorkouts: selectedWorkouts,
@@ -375,7 +376,7 @@ struct WorkoutListView: View {
             try modelContext.save()
             shouldProcessRemoteDeletion = didQueueRemoteDeletion
 
-            // Recalculate PRs and leaderboard stats after deletion
+            // Refresh derived workout data and leaderboard stats after deletion.
             try WorkoutMutationHandler.shared.workoutsDidChange(
                 modelContext: modelContext,
                 mutation: .deleted(deletedSnapshots)

@@ -11,22 +11,20 @@ func workoutShareText(
     for workout: Workout,
     measurementSystem: MeasurementSystem,
     stepHeight: Double,
-    preferredMetric: WorkoutMetric
+    preferredMetric: WorkoutMetric,
+    bestEffort: RankedBestEffort? = nil
 ) -> String {
     let workoutTitle = workout.name.isEmpty ? "Stair workout" : workout.name
-    let achievedPRs = Set(workout.achievedPersonalRecords)
 
     var lines: [String] = [
         workoutTitle,
         ""
     ]
 
-    // Duration
-    let durationPR = achievedPRs.contains(.longestDuration) ? " (PR)" : ""
-    lines.append("Duration: \(workout.durationFormatted)\(durationPR)")
+    lines.append("Duration: \(workout.durationFormatted)")
 
     // Primary metric (steps or floors)
-    if let metricLine = primaryMetricLine(for: workout, preferredMetric: preferredMetric, achievedPRs: achievedPRs) {
+    if let metricLine = primaryMetricLine(for: workout, preferredMetric: preferredMetric) {
         lines.append(metricLine)
     }
 
@@ -43,8 +41,11 @@ func workoutShareText(
     if let pace = workout.pace(for: preferredMetric) {
         let paceText = formattedDecimal(pace, decimals: 1)
         let paceUnit = preferredMetric == .steps ? "steps/min" : "floors/min"
-        let pacePR = achievedPRs.contains(.highestAveragePace) ? " (PR)" : ""
-        lines.append("Pace: \(paceText) \(paceUnit)\(pacePR)")
+        lines.append("Pace: \(paceText) \(paceUnit)")
+    }
+
+    if let bestEffort {
+        lines.append("Best Effort: \(bestEffort.sentence)")
     }
 
     // Vertical climb
@@ -54,20 +55,17 @@ func workoutShareText(
             measurementSystem: measurementSystem
         )
         let verticalText = formattedDecimal(vertical, decimals: vertical < 100 ? 1 : 0)
-        let verticalPR = achievedPRs.contains(.highestVerticalClimb) ? " (PR)" : ""
-        lines.append("Vertical Climb: \(verticalText) \(measurementSystem.distanceAbbreviation)\(verticalPR)")
+        lines.append("Vertical Climb: \(verticalText) \(measurementSystem.distanceAbbreviation)")
     }
 
     // Avg heart rate
     if let avgHR = workout.avgHeartRate {
-        let avgHRPR = achievedPRs.contains(.highestAverageHeartRate) ? " (PR)" : ""
-        lines.append("Avg Heart Rate: \(avgHR) BPM\(avgHRPR)")
+        lines.append("Avg Heart Rate: \(avgHR) BPM")
     }
 
     // Max heart rate
     if let maxHR = workout.maxHeartRate {
-        let maxHRPR = achievedPRs.contains(.highestMaxHeartRate) ? " (PR)" : ""
-        lines.append("Max Heart Rate: \(maxHR) BPM\(maxHRPR)")
+        lines.append("Max Heart Rate: \(maxHR) BPM")
     }
 
     // Add attribution at the bottom
@@ -77,16 +75,14 @@ func workoutShareText(
     return lines.joined(separator: "\n")
 }
 
-private func primaryMetricLine(for workout: Workout, preferredMetric: WorkoutMetric, achievedPRs: Set<PersonalRecordType>) -> String? {
+private func primaryMetricLine(for workout: Workout, preferredMetric: WorkoutMetric) -> String? {
     let value = workout.metricValue(for: preferredMetric)
     let formattedValue = formattedInteger(value)
     switch preferredMetric {
     case .steps:
-        let stepsPR = achievedPRs.contains(.mostSteps) ? " (PR)" : ""
-        return "Steps: \(formattedValue)\(stepsPR)"
+        return "Steps: \(formattedValue)"
     case .floors:
-        let floorsPR = achievedPRs.contains(.mostFloors) ? " (PR)" : ""
-        return "Floors: \(formattedValue)\(floorsPR)"
+        return "Floors: \(formattedValue)"
     }
 }
 

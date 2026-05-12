@@ -10,7 +10,7 @@ struct HomeLogWorkoutButton: View {
                     Text("Add Workout")
                         .font(.montserratBold(size: 18))
 
-                    Text("Manual, routine, import")
+                    Text("Live, manual, routine, import")
                         .font(.montserratRegular(size: 12))
                         .foregroundStyle(.black.opacity(0.72))
                         .lineLimit(1)

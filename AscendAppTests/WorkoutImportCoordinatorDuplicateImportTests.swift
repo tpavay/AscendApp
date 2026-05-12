@@ -184,12 +184,9 @@ struct WorkoutImportCoordinatorDuplicateImportTests {
             WorkoutSourceLink.self,
             WorkoutParticipation.self,
             LeaderboardStats.self,
-            PersonalRecord.self,
             Routine.self,
             RoutineFolder.self,
             ClimbAttempt.self,
-            WeightPersonalRecord.self,
-            AggregateWeightRecord.self,
             PendingMediaUpload.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )

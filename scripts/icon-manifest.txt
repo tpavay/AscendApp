@@ -22,3 +22,6 @@ settingsDeleteAccount|trash|regular
 settingsNotifications|bell|regular
 
 disclosureChevronRight|caret-right|regular
+bestEffortTrophy|trophy|regular
+bestEffortChartLine|chart-line|regular
+bestEffortClock|clock|regular

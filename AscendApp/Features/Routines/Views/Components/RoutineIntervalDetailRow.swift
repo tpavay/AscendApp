@@ -82,9 +82,7 @@ struct RoutineIntervalDetailRow: View {
     private var leadingDecoration: some View {
         switch leadingStyle {
         case .accentBar:
-            Rectangle()
-                .fill(accentColor)
-                .frame(width: 4)
+            LeadingAccentStripe(color: accentColor, width: 4, cornerRadius: 14)
 
         case .indexBadge(let index):
             Text("\(index)")

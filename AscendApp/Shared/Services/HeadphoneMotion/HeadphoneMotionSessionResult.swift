@@ -6,6 +6,11 @@ enum HeadphoneMotionSessionStopReason: String, Codable, Sendable {
     case discarded = "discarded"
 }
 
+enum HeadphoneMotionWorkoutTrackingMode: String, Codable, Sendable {
+    case liveClimb = "live_climb"
+    case justClimb = "just_climb"
+}
+
 struct HeadphoneMotionSessionResult: Equatable, Sendable {
     let startedAt: Date
     let endedAt: Date
@@ -24,6 +29,7 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
     let algorithmVersion: Int
     let sampleRateAssumptionHz: Int
     let sampleCount: Int
+    let trackingMode: HeadphoneMotionWorkoutTrackingMode?
     let climbId: String?
     let targetStepCount: Int?
     let stopReason: HeadphoneMotionSessionStopReason
@@ -32,6 +38,7 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
 
     init(
         sampleCount: Int,
+        trackingMode: HeadphoneMotionWorkoutTrackingMode = .liveClimb,
         climbId: String?,
         targetStepCount: Int?,
         stopReason: HeadphoneMotionSessionStopReason,
@@ -41,6 +48,7 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
         self.algorithmVersion = HeadphoneMotionStepDetector.algorithmVersion
         self.sampleRateAssumptionHz = 50
         self.sampleCount = sampleCount
+        self.trackingMode = trackingMode
         self.climbId = climbId
         self.targetStepCount = targetStepCount
         self.stopReason = stopReason

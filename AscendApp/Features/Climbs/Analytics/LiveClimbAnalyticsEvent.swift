@@ -42,6 +42,17 @@ enum LiveClimbAnalyticsEvent: TelemetryEvent {
         entryPoint: EntryPoint,
         progressFraction: Double
     )
+    case justClimbStartTapped(entryPoint: EntryPoint, canStart: Bool)
+    case justClimbStartBlocked(entryPoint: EntryPoint, reason: BlockedReason)
+    case justClimbAttemptStarted(entryPoint: EntryPoint)
+    case justClimbAttemptCompleted(
+        entryPoint: EntryPoint,
+        durationSeconds: Int,
+        steps: Int,
+        rank: Int?,
+        rankTotal: Int?
+    )
+    case justClimbAttemptDiscarded(entryPoint: EntryPoint, steps: Int)
     case summaryViewed(climb: Climb, rank: Int?, rankTotal: Int?)
     case summaryShareTapped(climb: Climb, rank: Int?, rankTotal: Int?)
     case summaryDoneTapped(climb: Climb, surface: SummaryDismissSurface)
@@ -173,6 +184,53 @@ enum LiveClimbAnalyticsEvent: TelemetryEvent {
                 ]
             )
 
+        case .justClimbStartTapped(let entryPoint, let canStart):
+            return record(
+                name: "just_climb_start_tap",
+                parameters: [
+                    "entry_point": .string(entryPoint.rawValue),
+                    "can_start": .bool(canStart)
+                ]
+            )
+
+        case .justClimbStartBlocked(let entryPoint, let reason):
+            return record(
+                name: "just_climb_start_blocked",
+                parameters: [
+                    "entry_point": .string(entryPoint.rawValue),
+                    "blocked_reason": .string(reason.rawValue)
+                ]
+            )
+
+        case .justClimbAttemptStarted(let entryPoint):
+            return record(
+                name: "just_climb_attempt_started",
+                parameters: [
+                    "entry_point": .string(entryPoint.rawValue)
+                ]
+            )
+
+        case .justClimbAttemptCompleted(let entryPoint, let durationSeconds, let steps, let rank, let rankTotal):
+            return record(
+                name: "just_climb_attempt_completed",
+                parameters: [
+                    "entry_point": .string(entryPoint.rawValue),
+                    "duration_bucket": .string(DurationBucket(durationSeconds).rawValue),
+                    "steps_bucket": .string(CountBucket(steps).rawValue),
+                    "rank_bucket": .string(RankBucket(rank).rawValue),
+                    "rank_total_bucket": .string(CountBucket(rankTotal ?? 0).rawValue)
+                ]
+            )
+
+        case .justClimbAttemptDiscarded(let entryPoint, let steps):
+            return record(
+                name: "just_climb_attempt_discarded",
+                parameters: [
+                    "entry_point": .string(entryPoint.rawValue),
+                    "steps_bucket": .string(CountBucket(steps).rawValue)
+                ]
+            )
+
         case .summaryViewed(let climb, let rank, let rankTotal):
             return record(
                 name: "live_climb_summary_view",
@@ -273,6 +331,7 @@ enum LiveClimbAnalyticsEvent: TelemetryEvent {
 extension LiveClimbAnalyticsEvent {
     enum EntryPoint: String {
         case homeDaily = "home_daily"
+        case homeJustClimb = "home_just_climb"
         case homeExplore = "home_explore"
         case browseSearch = "browse_search"
         case browseSection = "browse_section"

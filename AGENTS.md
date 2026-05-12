@@ -1,7 +1,7 @@
 # Ascend — Project Guide
 
 ## What Is Ascend
-Ascend is a comprehensive stairstepper workout tracker for iOS. It serves the full spectrum of users — from someone who's never used a stairstepper to advanced athletes doing progressive overload with weighted vests. Users log workouts, track progress, set personal records, create routines, and compete on leaderboards.
+Ascend is a comprehensive stairstepper workout tracker for iOS. It serves the full spectrum of users — from someone who's never used a stairstepper to advanced athletes doing progressive overload with weighted vests. Users log workouts, track progress, earn Best Efforts, create routines, and compete on leaderboards.
 
 **Solo dev + AI assisted** (Tyler Pavay). Monetization plan: freemium with subscription (free core features at launch, premium tier for future advanced features). Near-term focus: polish, widgets, landing page, custom illustrations/animations, then App Store launch.
 
@@ -45,7 +45,7 @@ AscendApp/
 │   ├── Models/                 # SwiftData models, TabRouter
 │   ├── Views/                  # MainTabView, shared UI
 │   ├── Components/             # Reusable: FormTextField, FormButton, FormSection
-│   ├── Services/               # WorkoutImportCoordinator, WorkoutService, PersonalRecordService
+│   ├── Services/               # WorkoutImportCoordinator, WorkoutService, WorkoutMutationHandler
 │   └── Managers/               # StravaManager, ThemeManager, SettingsManager
 web/public/                     # Firebase-hosted website (landing page, privacy policy)
 functions/src/                  # Cloud Functions (TypeScript)
@@ -78,7 +78,21 @@ let functionsURL = "https://\(region)-\(projectId).cloudfunctions.net"
 - Never commit QA credentials, never bundle them into production builds, and never use the internal QA path to bypass Firestore/Storage/Auth server enforcement.
 
 ### Data Models (SwiftData)
-Workout, LeaderboardStats, PersonalRecord, Routine, RoutineFolder, WeightPersonalRecord, AggregateWeightRecord, PendingMediaUpload
+Workout, WorkoutSourceLink, WorkoutParticipation, LeaderboardStats, Routine, RoutineFolder, ClimbAttempt, PendingMediaUpload, PendingWorkoutDeletion
+
+### Best Efforts Architecture
+- Best Efforts are the only workout achievement layer. Do not reintroduce a parallel Personal Records system.
+- Workouts remain the source of truth. Best Efforts are derived from workout history for all-time and this-year scopes across all, bodyweight, weighted, and exact weight-loadout contexts.
+- Weighted Best Efforts must distinguish exact loadouts using the full enabled equipment configuration, such as `20 lb Vest` versus `20 lb Vest + 5 lb each Ankle`.
+- Best Effort metrics are stepper-specific and step-first: most steps, longest climb, highest average SPM, sampled time windows, and sampled fastest step targets. Do not add floors-based Best Efforts unless product explicitly changes direction.
+- Timeline efforts require real sampled Live Climb progress data. Manual entries and total-only imports can contribute whole-workout efforts, but not rolling-window or fastest-segment efforts.
+- Progress Best Efforts should default to a record-book overview, not a filter-heavy dashboard: show each available metric once with its current all-time best value and date, then open a dedicated metric detail screen on tap.
+- Best Efforts overview rows should stay table-like and low-noise: no per-row trophy icons or chevrons, metric title/date on the left, compact unitless value on the right when the unit is already implied by the title.
+- Metric detail screens should show the rank-1 laurel/wreath hero, a polished record progression chart, and record-setting history. The detail segmented control should only expose `Chart` and `History`; do not add a separate `Workout` tab. The chart card may use `Record Progression` plus a short metric-specific subtitle, but should avoid redundant generic titles like `Progression`; style it as a premium dark neon chart with a subtle accent area gradient, clean grid, no clutter from every point marker, a filled accent selected point, and a compact date/value callout on tap or drag. The history list should omit the current rank-1 record because it is already the hero, start at rank 2, use rank numbers without circular badges or trophy icons, avoid SPM subtitles, and navigate to the associated workout when a row is tapped. The detail hero should rely on the navigation title for metric context: keep the wreath area focused on the record value, centered inside the wreath, with comparison/date below, and do not repeat SPM or the metric title inside the wreath. Treat the detail hero as an integrated page header on the normal page background, without a heavy rounded card shell or gold gradient block. The segmented control and content cards should retain comfortable horizontal insets instead of spanning edge to edge.
+- Progress surfaces that preview Best Efforts should use a single premium featured-record card, not a mini list. Feature the newest current Best Effort, keep the whole card tappable, put the record value directly under the `Best Efforts` title, and keep preview metadata sparse: record name plus date only. Do not add `View All`, chevrons, trophy buttons, or count-chip clutter unless product explicitly asks for them.
+- Trends should answer whether training volume, pace, consistency, and time are changing compared with the previous matching period. Keep the surface insight-first: show a period pulse/summary and one selectable chart at a time, not a stack of every possible metric chart. Heart rate is contextual when available, not required for the core trend value.
+- Reserve full achievement sentences, such as `2nd fastest 3,000 steps all-time`, for workout list, workout summary/detail, Live Climb completion, and share surfaces where the effort appears out of record-category context.
+- Workout detail, Live Climb completion, share cards, and progress surfaces should display Best Efforts only.
 
 ### Firebase Storage Pathing + Rules
 - User-generated media must be stored under user-scoped prefixes:
@@ -191,6 +205,7 @@ Workout, LeaderboardStats, PersonalRecord, Routine, RoutineFolder, WeightPersona
 - The recommended Home Live Climb should be persisted by local calendar day so it stays the same for the full day even if climb completion state changes.
 - The Home daily climb card is fully tappable and should not include redundant in-card CTA text, chevrons, or browse-all copy.
 - Hardware capability should not be surfaced as a warning on Home or Browse. Live Climb attempts still require compatible headphones with motion tracking, but that gate belongs at the actual start-live-attempt point.
+- `Just Climb` is the open-ended live-tracked mode for users who want headphone-motion tracking without choosing a catalog climb. It should be reachable from the Add Workout flow, save a normal `headphone_motion` workout with `trackingMode=just_climb`, and must not create or progress a `ClimbAttempt`.
 - Climb Detail should use a flippable climb card: the front shows the landmark image/name/location, and the back shows tier plus the fun fact. The tier step range belongs directly under the tier label; do not repeat climb steps/floors on the back because those already live below the card.
 - Climb Detail should provide a compact top-right Phosphor `globe-hemisphere-west` action for browsing other climbs. Keep this icon standalone with an invisible tap target, not inside a visible circular/chip background. Do not put browse copy or browse buttons on the Home daily card.
 - Climb Detail should explain headphone requirements through a compact persistent help icon, not an inline text box. Help copy should include a `Compatible Headphones` list, a subtle link to Apple's current compatibility page, and avoid extra "why" paragraphs or "preview the route" phrasing.
@@ -210,12 +225,15 @@ Workout, LeaderboardStats, PersonalRecord, Routine, RoutineFolder, WeightPersona
 - `ClimbAttempt` is the source of truth for climb progress and history. It replaces the earlier completion-only model.
 - Only one climb attempt may be `active` at a time. Starting another climb should confirm replacement and mark the old attempt `abandoned`.
 - Manual entries, Apple Health imports, and routines must not complete or progress Live Climbs. Live Climb completions should come from the dedicated headphone-motion live attempt flow.
-- Live Climb attempts should create a `headphone_motion` workout only after a live headphone-motion session stops with recorded steps. The workout should use the live session start time as `Workout.date`, store compact algorithm/session metadata in `sourceMetadata`, and flow through `ClimbService.apply(...)` plus `WorkoutMutationHandler` so climb progress, participations, leaderboards, PRs, and remote backup stay on the normal mutation path.
+- Live Climb attempts should create a `headphone_motion` workout only after a live headphone-motion session stops with recorded steps. The workout should use the live session start time as `Workout.date`, store compact algorithm/session metadata in `sourceMetadata`, and flow through `ClimbService.apply(...)` plus `WorkoutMutationHandler` so climb progress, participations, leaderboards, Best Efforts, and remote backup stay on the normal mutation path.
+- Apple Health can enrich a saved Live Climb workout with wearable metrics, but it must not become the canonical Live Climb source. Enrichment is automatic only for confident one-to-one matches between one unlinked `headphone_motion` Live Climb workout and one unlinked Apple Health stair/step workout; ambiguous matches must be skipped rather than guessed. Enrichment may add heart rate, calories, device metadata, `healthKitUUID`, and an Apple Health `WorkoutSourceLink`, while preserving the Live Climb workout's source, steps, floors, duration, rank/replay metadata, and attempt participation.
+- Live Climb sessions should start a best-effort background execution helper alongside headphone motion: use iOS 26+ `HKWorkoutSession` with `UIBackgroundModes` `processing` when available, do not save HealthKit workouts or request new Health write permissions for this helper, and fall back to a short `UIApplication` background task on older OS versions.
 - Saved Live Climb attempts are immutable competitive history in the app UI. Use the in-session discard action before saving if an attempt should not count; once saved, workout-log delete affordances should not remove the underlying attempt history.
 - Completed Live Climb sessions should transition to a post-save summary before dismissal. The summary should use saved Live Climb step timeline metadata for adaptive pace-split rows, show workout vertical gain using the same step-height calculation as workout detail, and launch the existing workout share carousel with a Live Climb-specific card when climb metadata is available.
 - Live replay leaderboards are context-agnostic under `Shared/Services/LiveReplayLeaderboard`. Live Climbs and future routine race views should use `LiveReplayLeaderboardContext`, `LiveReplaySplitSampler`, and `LiveReplayLeaderboardService` instead of cloning climb-specific comparison logic.
 - Live replay leaderboard rank compares the live user's current steps against completed leaderboard-eligible attempts at the same elapsed-time bucket. Failed, abandoned, partial, or otherwise ineligible attempts must not publish into replay indexes, and tied completed attempts rank ahead of the current live user so a new attempt starts at the bottom of the completed field.
-- A public replay context should contain at most one completed row per user. If a user has multiple completed attempts for the same climb, publish only that user's best eligible attempt into the replay index.
+- Per-climb public replay contexts should contain at most one completed row per user. If a user has multiple completed attempts for the same climb, publish only that user's best eligible attempt into the replay index.
+- The global Just Climb replay context is `just_climb__global`. It should be server-published from all completed leaderboard-eligible Live Climb attempts plus saved Just Climb sessions, keyed by workout ID so users can race against all completed attempts rather than one best row per user. Because Just Climb has no target, completed competitors should remain visible at their final step total in later replay buckets instead of disappearing after their own finish time.
 - Post-completion summary and Live Climb share-card rank should be based on completion duration against completed bucket-zero replay entries, with `completedCount` as the denominator. Do not reuse the in-session time-window rank or total-climber count for completed share surfaces.
 - Future demographic or peer-group insights for Live Climbs should be modeled intentionally from declared profile fields, such as age range, gender, weight range, or region, and should stay opt-in/privacy-safe rather than inferred from sensitive data.
 - Live sessions should record compact source-neutral step timeline checkpoints locally at fixed intervals and store them with the saved source metadata. Hardware-specific producers, such as headphone motion or future wearable integrations, should emit cumulative step samples into the shared Live Climb recorder instead of making result/replay UI depend on one sensor source. The app should not write leaderboard split indexes from the client during a session; public replay windows are read-only client data and should be server-published from saved attempts.
@@ -267,7 +285,7 @@ Workout, LeaderboardStats, PersonalRecord, Routine, RoutineFolder, WeightPersona
   3. `equivalent level` relative to `effectiveBaseLevel`
   4. duration plus supporting signals (RPE, HR, METs, added weight) to produce the final effort score
 - Historical percentile remains a ranking layer over the unified effort score and other raw workout metrics. It should not become a separate competing definition of intensity.
-- All create/edit/delete/import flows that change workouts should run through `WorkoutDerivedDataService.recalculateAll(...)` so base level, effort values, percentile snapshots, personal records, and local leaderboard aggregates stay in sync.
+- All create/edit/delete/import flows that change workouts should run through `WorkoutDerivedDataService.recalculateAll(...)` so base level, effort values, percentile snapshots, Best Efforts inputs, and local leaderboard aggregates stay in sync.
 
 ### Routine Template Personalization
 - Built-in routines are now authored as relative templates, not fixed absolute levels.
@@ -344,7 +362,7 @@ Workout, LeaderboardStats, PersonalRecord, Routine, RoutineFolder, WeightPersona
 - Debug Tools includes local SwiftData workout seeding presets for Simulator workflows (`App Store Screenshots`, `Quick Demo`).
 - Seeded workout metadata is stored in `Workout.sourceMetadata` with `isTestData=true`, `seedSource="debug-tools"`, and `preset` for targeted cleanup.
 - Workout seeding is idempotent for debug usage: seeding replaces existing debug-seeded workouts before inserting the new preset.
-- Clearing seeded workouts must recalculate personal records and local leaderboard aggregates to keep derived data consistent.
+- Clearing seeded workouts must recalculate derived workout data and local leaderboard aggregates to keep derived data consistent.
 - Weighted vest debug data should use an intended pounds range and convert to kilograms when measurement system is metric.
 
 ### Leaderboard UX Flow

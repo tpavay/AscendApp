@@ -89,14 +89,29 @@ struct ProgressSheet: View {
     }
 
     // MARK: - Best Efforts
-    private var allBestEfforts: [BestEffort] {
-        BestEffortsBuilder.bestEfforts(from: workouts)
+    private var bestEffortBoard: BestEffortBoard {
+        BestEffortRankingBuilder.board(
+            from: workouts,
+            scope: .allTime,
+            context: .all
+        )
     }
-    
-    private var recentBestEfforts: [BestEffort] {
-        Array(allBestEfforts.prefix(3))
+
+    private var featuredBestEffort: RankedBestEffort? {
+        bestEffortBoard.allEfforts.sorted { lhs, rhs in
+            if lhs.workout.date != rhs.workout.date {
+                return lhs.workout.date > rhs.workout.date
+            }
+
+            if lhs.rank != rhs.rank {
+                return lhs.rank < rhs.rank
+            }
+
+            return lhs.id < rhs.id
+        }
+        .first
     }
-    
+
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
@@ -155,63 +170,33 @@ struct ProgressSheet: View {
     }
 
     private var bestEffortsPreviewSection: some View {
-        VStack(spacing: 16) {
-            HStack {
-                Text("Best Efforts")
-                    .font(.montserratBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                
-                Spacer()
-                
-                if !recentBestEfforts.isEmpty {
-                    NavigationLink {
-                        BestEffortsListView(workouts: workouts)
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text("View All")
-                                .font(.montserratMedium(size: 14))
-                                .foregroundStyle(.accent)
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundStyle(.accent)
-                        }
-                    }
-                    .buttonStyle(PlainButtonStyle())
+        Group {
+            if let featuredBestEffort {
+                NavigationLink {
+                    BestEffortsListView(workouts: workouts)
+                } label: {
+                    FeaturedBestEffortCard(
+                        effort: featuredBestEffort,
+                        colorScheme: effectiveColorScheme
+                    )
                 }
-            }
-            
-            if recentBestEfforts.isEmpty {
-                bestEffortsEmptyState
+                .buttonStyle(.plain)
             } else {
-                VStack(spacing: 10) {
-                    ForEach(recentBestEfforts) { effort in
-                        BestEffortRow(effort: effort, colorScheme: effectiveColorScheme)
-                    }
-                }
+                bestEffortsEmptyState
             }
         }
-        .padding(20)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
-                )
-        )
     }
     
     private var bestEffortsEmptyState: some View {
         VStack(spacing: 12) {
-            Image(systemName: "trophy")
-                .font(.system(size: 32, weight: .light))
+            AppIcon(token: .bestEffortTrophy, pointSize: 32, weight: .regular)
                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.4))
 
             Text("No Best Efforts Yet")
                 .font(.montserratSemiBold(size: 16))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
 
-            Text("Log or import workouts and come back here to see your personal records for total steps, duration, heart rate, and more.")
+            Text("Log or import workouts and come back here to see your top efforts for steps, duration, pace, and sampled intervals.")
                 .font(.montserratRegular(size: 13))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray.opacity(0.8))
                 .multilineTextAlignment(.center)
@@ -615,45 +600,125 @@ struct ProgressSheet: View {
         }
     }
 
-    // MARK: - Best Effort Row
-    private struct BestEffortRow: View {
-        let effort: BestEffort
+    // MARK: - Featured Best Effort Card
+    private struct FeaturedBestEffortCard: View {
+        let effort: RankedBestEffort
         let colorScheme: ColorScheme
-        
+
         var body: some View {
-            NavigationLink(destination: WorkoutDetailView(workout: effort.workout)) {
-                HStack(spacing: 12) {
-                    Image(systemName: effort.iconName)
-                        .font(.system(size: 20, weight: .medium))
-                        .foregroundStyle(.accent)
-                        .frame(width: 28)
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(effort.title)
-                            .font(.montserratSemiBold(size: 14))
-                            .foregroundStyle(colorScheme == .dark ? .white : .black)
+            ZStack(alignment: .trailing) {
+                background
+
+                Image("best-effort-laurel-wreath")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 246, height: 164)
+                    .opacity(colorScheme == .dark ? 0.34 : 0.24)
+                    .offset(x: 72, y: 0)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Best Efforts")
+                        .font(.montserratBold(size: 22))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text(heroValue)
+                            .font(.montserratBold(size: 56))
+                            .foregroundStyle(.white)
                             .lineLimit(1)
-                        
-                        Text(effort.detailText)
+                            .minimumScaleFactor(0.58)
+
+                        Text(metricTitle)
+                            .font(.montserratBold(size: 13))
+                            .tracking(1.1)
+                            .foregroundStyle(gold)
+                            .textCase(.uppercase)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.8)
+
+                        Text(effort.dateText)
                             .font(.montserratRegular(size: 12))
-                            .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
+                            .foregroundStyle(.white.opacity(0.58))
                             .lineLimit(1)
+                            .minimumScaleFactor(0.78)
                     }
-                    
-                    Spacer()
-                    
-                    Text(effort.valueText)
-                        .font(.montserratBold(size: 14))
-                        .foregroundStyle(colorScheme == .dark ? .white : .black)
-                        .multilineTextAlignment(.trailing)
                 }
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 22)
+                .padding(.vertical, 20)
+            }
+            .frame(minHeight: 188)
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(borderGradient, lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.28 : 0.1), radius: 18, x: 0, y: 10)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Best Efforts, \(metricTitle), \(effort.valueText), \(effort.dateText)")
+        }
+
+        private var background: some View {
+            ZStack {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(Color.black)
+
+                LinearGradient(
+                    colors: [
+                        Color.black,
+                        Color.black.opacity(0.94),
+                        gold.opacity(0.24)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+
+                RadialGradient(
+                    colors: [
+                        gold.opacity(0.24),
+                        Color.clear
+                    ],
+                    center: .trailing,
+                    startRadius: 0,
+                    endRadius: 230
                 )
             }
-            .buttonStyle(PlainButtonStyle())
+        }
+
+        private var heroValue: String {
+            switch effort.metric {
+            case .mostSteps, .mostStepsInTime, .highestAverageSPM:
+                return effort.compactValueText
+            case .longestClimb, .fastestStepTarget:
+                return BestEffortFormatting.clockTime(effort.performance.value)
+            }
+        }
+
+        private var metricTitle: String {
+            switch effort.metric {
+            case .highestAverageSPM:
+                return "Highest Avg. SPM"
+            case .mostSteps, .longestClimb, .mostStepsInTime, .fastestStepTarget:
+                return effort.metric.title
+            }
+        }
+
+        private var borderGradient: LinearGradient {
+            LinearGradient(
+                colors: [
+                    gold.opacity(0.64),
+                    Color.white.opacity(0.1),
+                    gold.opacity(0.24)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+
+        private var gold: Color {
+            BestEffortUIStyle.trophyColor(for: 1)
         }
     }
     

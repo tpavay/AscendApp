@@ -1,13 +1,14 @@
+import SwiftData
 import SwiftUI
 
 struct LiveClimbCompletionSummaryView: View {
-    let climb: Climb
+    let climb: Climb?
     let workout: Workout
     let leaderboardRank: Int?
     let leaderboardTotal: Int?
     let onDone: () -> Void
 
-    @State private var settingsManager = SettingsManager.shared
+    @Query(sort: \Workout.date, order: .reverse) private var allWorkouts: [Workout]
     @State private var showingShareSheet = false
     @State private var completionRank: LiveReplayCompletionRank?
     @State private var isLoadingCompletionRank = false
@@ -16,8 +17,12 @@ struct LiveClimbCompletionSummaryView: View {
     private var paceSplits: [LiveClimbPaceSplit] {
         LiveClimbWorkoutSummaryData.paceSplits(
             for: workout,
-            targetSteps: climb.referenceStepCount
+            targetSteps: climb?.referenceStepCount ?? max(workout.steps, 1)
         )
+    }
+
+    private var primaryBestEffort: RankedBestEffort? {
+        BestEffortRankingBuilder.primaryEffort(for: workout, from: allWorkouts)
     }
 
     var body: some View {
@@ -136,14 +141,7 @@ struct LiveClimbCompletionSummaryView: View {
 
     private var achievementCard: some View {
         HStack(spacing: 14) {
-            Image(systemName: achievementIconName)
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(.accent)
-                .frame(width: 48, height: 48)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(.white.opacity(0.06))
-                )
+            achievementIcon
 
             VStack(alignment: .leading, spacing: 5) {
                 Text(achievementTitle)
@@ -166,36 +164,53 @@ struct LiveClimbCompletionSummaryView: View {
 
     private var paceSplitsCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("PACE SPLITS")
-                        .font(.montserratBold(size: 11))
-                        .foregroundStyle(.accent)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Splits")
+                    .font(.montserratBold(size: 21))
+                    .foregroundStyle(.white)
 
-                    Text("\(paceSplitIntervalText) segments by steps/min")
-                        .font(.montserratMedium(size: 9))
-                        .foregroundStyle(.white.opacity(0.46))
+                HStack(spacing: 5) {
+                    Text(paceSplitSummaryText)
+                        .foregroundStyle(.white.opacity(0.54))
+
+                    Text("·")
+                        .foregroundStyle(.white.opacity(0.34))
+
+                    Text("avg")
+                        .foregroundStyle(.white.opacity(0.54))
+
+                    Text("\(averageSPMText) SPM")
+                        .foregroundStyle(.white)
                 }
-
-                Spacer(minLength: 0)
-
-                VStack(alignment: .trailing, spacing: 3) {
-                    Text("VERTICAL")
-                        .font(.montserratBold(size: 8))
-                        .foregroundStyle(.white.opacity(0.42))
-
-                    Text(verticalClimbText.uppercased())
-                        .font(.montserratBold(size: 12))
-                        .foregroundStyle(.accent)
-                }
+                .font(.montserratMedium(size: 12))
+                .lineLimit(1)
+                .minimumScaleFactor(0.74)
             }
 
-            VStack(spacing: 11) {
+            LiveClimbPaceTrendChart(
+                splits: paceSplits,
+                averageStepsPerMinute: averageSPMValue
+            )
+            .frame(height: 84)
+            .accessibilityHidden(true)
+
+            Rectangle()
+                .fill(.white.opacity(0.08))
+                .frame(height: 1)
+
+            VStack(spacing: 0) {
                 ForEach(paceSplits) { split in
                     LiveClimbPaceSplitRow(
                         split: split,
+                        minStepsPerMinute: minSplitSPM,
                         maxStepsPerMinute: maxSplitSPM
                     )
+
+                    if split.id != paceSplits.last?.id {
+                        Rectangle()
+                            .fill(.white.opacity(0.06))
+                            .frame(height: 1)
+                    }
                 }
             }
         }
@@ -205,13 +220,15 @@ struct LiveClimbCompletionSummaryView: View {
 
     private var shareButton: some View {
         Button {
-            TelemetryManager.shared.track(
-                LiveClimbAnalyticsEvent.summaryShareTapped(
-                    climb: climb,
-                    rank: displayedRank,
-                    rankTotal: displayedTotal
+            if let climb {
+                TelemetryManager.shared.track(
+                    LiveClimbAnalyticsEvent.summaryShareTapped(
+                        climb: climb,
+                        rank: displayedRank,
+                        rankTotal: displayedTotal
+                    )
                 )
-            )
+            }
             showingShareSheet = true
         } label: {
             Text("SHARE")
@@ -274,28 +291,55 @@ struct LiveClimbCompletionSummaryView: View {
             return "OUT OF \(displayedTotal.formatted())"
         }
 
-        return "LIVE CLIMB COMPLETE"
+        return climb == nil ? "JUST CLIMB COMPLETE" : "LIVE CLIMB COMPLETE"
     }
 
     private var averageSPMText: String {
-        guard let pace = workout.pace(for: .steps), pace > 0 else { return "0" }
-        return Int(pace.rounded()).formatted()
+        guard averageSPMValue > 0 else { return "0" }
+        return Int(averageSPMValue.rounded()).formatted()
+    }
+
+    private var averageSPMValue: Double {
+        guard let pace = workout.pace(for: .steps), pace > 0 else { return 0 }
+        return pace
+    }
+
+    private var achievementIcon: some View {
+        Group {
+            if let primaryBestEffort {
+                AppIcon(token: .bestEffortTrophy, pointSize: 20, weight: .bold)
+                    .foregroundStyle(primaryBestEffort.trophyColor)
+            } else {
+                Image(systemName: achievementIconName)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.accent)
+            }
+        }
+        .frame(width: 48, height: 48)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(.white.opacity(0.06))
+        )
     }
 
     private var achievementIconName: String {
-        workout.hasPersonalRecords ? "trophy.fill" : "checkmark.seal.fill"
+        "checkmark.seal.fill"
     }
 
     private var achievementTitle: String {
-        workout.hasPersonalRecords ? "PERSONAL RECORD" : "CLIMB COMPLETE"
+        if primaryBestEffort != nil {
+            return "BEST EFFORT"
+        }
+
+        return "CLIMB COMPLETE"
     }
 
     private var achievementSubtitle: String {
-        if let record = workout.achievedPersonalRecords.first {
-            return "\(record.displayName) · \(workout.durationFormatted)"
+        if let primaryBestEffort {
+            return primaryBestEffort.sentence
         }
 
-        return "\(climb.name) saved to history"
+        return "\(climb?.name ?? "Just Climb") saved to history"
     }
 
     private var displayedRank: Int? {
@@ -310,49 +354,55 @@ struct LiveClimbCompletionSummaryView: View {
         max(paceSplits.map(\.stepsPerMinute).max() ?? 0, 1)
     }
 
-    private var paceSplitIntervalText: String {
-        let splitDuration = paceSplits.first?.durationSeconds ??
-            LiveClimbWorkoutSummaryData.paceSplitDurationSeconds(
-                for: max(Int(workout.duration.rounded(.down)), 1)
-            )
-        return timeIntervalText(seconds: splitDuration)
+    private var minSplitSPM: Double {
+        paceSplits.map(\.stepsPerMinute).min() ?? 0
     }
 
-    private var verticalClimbText: String {
-        let verticalClimb = workout.totalVerticalClimb(
-            stepHeight: settingsManager.stepHeight,
-            measurementSystem: settingsManager.measurementSystem
-        )
-        let value = verticalClimb.formatted(.number.precision(.fractionLength(1)))
-        return "\(value) \(settingsManager.measurementSystem.distanceAbbreviation)"
+    private var paceSplitSummaryText: String {
+        let segmentLabel = paceSplits.count == 1 ? "segment" : "segments"
+        guard let firstSplit = paceSplits.first else {
+            return "0 segments"
+        }
+
+        guard paceSplits.allSatisfy({ $0.durationSeconds == firstSplit.durationSeconds }) else {
+            let finalDuration = paceSplits.last?.durationSeconds ?? firstSplit.durationSeconds
+            return "\(paceSplits.count) \(segmentLabel), final \(clockTime(finalDuration))"
+        }
+
+        return "\(paceSplits.count) x \(clockTime(firstSplit.durationSeconds)) \(segmentLabel)"
     }
 
     private func handleDoneTapped(surface: LiveClimbAnalyticsEvent.SummaryDismissSurface) {
-        TelemetryManager.shared.track(
-            LiveClimbAnalyticsEvent.summaryDoneTapped(
-                climb: climb,
-                surface: surface
+        if let climb {
+            TelemetryManager.shared.track(
+                LiveClimbAnalyticsEvent.summaryDoneTapped(
+                    climb: climb,
+                    surface: surface
+                )
             )
-        )
+        }
         onDone()
     }
 
     private func trackSummaryViewedIfNeeded() {
         guard !didTrackSummaryViewed else { return }
         didTrackSummaryViewed = true
-        TelemetryManager.shared.track(
-            LiveClimbAnalyticsEvent.summaryViewed(
-                climb: climb,
-                rank: displayedRank,
-                rankTotal: displayedTotal
+        if let climb {
+            TelemetryManager.shared.track(
+                LiveClimbAnalyticsEvent.summaryViewed(
+                    climb: climb,
+                    rank: displayedRank,
+                    rankTotal: displayedTotal
+                )
             )
-        )
+        }
     }
 
     @MainActor
     private func loadCompletionRank() async {
         guard completionRank == nil,
-              !isLoadingCompletionRank else {
+              !isLoadingCompletionRank,
+              let climb else {
             return
         }
 
@@ -379,29 +429,190 @@ struct LiveClimbCompletionSummaryView: View {
     }
 }
 
+private struct LiveClimbPaceTrendChart: View {
+    let splits: [LiveClimbPaceSplit]
+    let averageStepsPerMinute: Double
+
+    private var values: [Double] {
+        splits.map(\.stepsPerMinute)
+    }
+
+    private var axisBounds: (min: Double, max: Double) {
+        let allValues = values + [averageStepsPerMinute].filter { $0 > 0 }
+        guard let minValue = allValues.min(),
+              let maxValue = allValues.max() else {
+            return (0, 10)
+        }
+
+        let spread = max(maxValue - minValue, 1)
+        let padding = max(spread * 0.34, 4)
+        let lower = max(0, floor((minValue - padding) / 5) * 5)
+        let upper = ceil((maxValue + padding) / 5) * 5
+
+        if upper <= lower {
+            return (lower, lower + 10)
+        }
+
+        return (lower, upper)
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let plotRect = CGRect(
+                x: 30,
+                y: 8,
+                width: max(proxy.size.width - 30, 1),
+                height: max(proxy.size.height - 18, 1)
+            )
+            let points = points(in: plotRect)
+            let averageY = yPosition(for: averageStepsPerMinute, in: plotRect)
+            let bounds = axisBounds
+
+            ZStack(alignment: .topLeading) {
+                axisLabel(Int(bounds.max).formatted())
+                    .position(x: 13, y: plotRect.minY)
+
+                axisLabel(Int(bounds.min).formatted())
+                    .position(x: 13, y: plotRect.maxY)
+
+                Path { path in
+                    path.move(to: CGPoint(x: plotRect.minX, y: averageY))
+                    path.addLine(to: CGPoint(x: plotRect.maxX, y: averageY))
+                }
+                .stroke(
+                    .white.opacity(0.13),
+                    style: StrokeStyle(lineWidth: 1, dash: [4, 5])
+                )
+
+                Text("AVG \(Int(averageStepsPerMinute.rounded()).formatted())")
+                    .font(.montserratBold(size: 8))
+                    .foregroundStyle(.white.opacity(0.46))
+                    .padding(.horizontal, 3)
+                    .background(Color(hex: "17191B"))
+                    .position(
+                        x: plotRect.minX + 34,
+                        y: max(plotRect.minY + 10, averageY - 10)
+                    )
+
+                areaPath(points: points, plotRect: plotRect)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.accent.opacity(0.2),
+                                Color.accent.opacity(0.02)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+
+                linePath(points: points)
+                    .stroke(
+                        Color.accent,
+                        style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
+                    )
+
+                ForEach(Array(points.enumerated()), id: \.offset) { _, point in
+                    Circle()
+                        .fill(Color.accent)
+                        .frame(width: 5, height: 5)
+                        .position(point)
+                }
+            }
+        }
+    }
+
+    private func axisLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.montserratMedium(size: 9))
+            .foregroundStyle(.white.opacity(0.42))
+            .monospacedDigit()
+    }
+
+    private func points(in plotRect: CGRect) -> [CGPoint] {
+        guard !values.isEmpty else { return [] }
+        guard values.count > 1 else {
+            return [
+                CGPoint(
+                    x: plotRect.midX,
+                    y: yPosition(for: values[0], in: plotRect)
+                )
+            ]
+        }
+
+        let xStep = plotRect.width / CGFloat(values.count - 1)
+        return values.enumerated().map { index, value in
+            CGPoint(
+                x: plotRect.minX + CGFloat(index) * xStep,
+                y: yPosition(for: value, in: plotRect)
+            )
+        }
+    }
+
+    private func yPosition(for value: Double, in plotRect: CGRect) -> CGFloat {
+        let bounds = axisBounds
+        let range = max(bounds.max - bounds.min, 1)
+        let normalizedValue = min(max((value - bounds.min) / range, 0), 1)
+        return plotRect.maxY - CGFloat(normalizedValue) * plotRect.height
+    }
+
+    private func linePath(points: [CGPoint]) -> Path {
+        Path { path in
+            guard let firstPoint = points.first else { return }
+            path.move(to: firstPoint)
+
+            for point in points.dropFirst() {
+                path.addLine(to: point)
+            }
+        }
+    }
+
+    private func areaPath(points: [CGPoint], plotRect: CGRect) -> Path {
+        Path { path in
+            guard let firstPoint = points.first,
+                  let lastPoint = points.last else {
+                return
+            }
+
+            path.move(to: CGPoint(x: firstPoint.x, y: plotRect.maxY))
+            path.addLine(to: firstPoint)
+
+            for point in points.dropFirst() {
+                path.addLine(to: point)
+            }
+
+            path.addLine(to: CGPoint(x: lastPoint.x, y: plotRect.maxY))
+            path.closeSubpath()
+        }
+    }
+}
+
 private struct LiveClimbPaceSplitRow: View {
     let split: LiveClimbPaceSplit
+    let minStepsPerMinute: Double
     let maxStepsPerMinute: Double
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(timeRangeText)
-                    .font(.montserratBold(size: 10))
-                    .foregroundStyle(.white.opacity(0.76))
-                    .frame(width: 72, alignment: .leading)
+                    .font(.montserratBold(size: 13))
+                    .foregroundStyle(.white)
+                    .frame(width: 94, alignment: .leading)
                     .lineLimit(1)
                     .minimumScaleFactor(0.76)
+                    .monospacedDigit()
 
                 Text("\(split.steps.formatted()) steps")
-                    .font(.montserratMedium(size: 9))
+                    .font(.montserratMedium(size: 12))
                     .foregroundStyle(.white.opacity(0.42))
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
 
                 Spacer(minLength: 0)
 
                 Text("\(Int(split.stepsPerMinute.rounded()).formatted())")
-                    .font(.montserratBold(size: 13))
+                    .font(.montserratBold(size: 19))
                     .foregroundStyle(.white)
                     .monospacedDigit()
 
@@ -417,31 +628,27 @@ private struct LiveClimbPaceSplitRow: View {
 
                     Capsule()
                         .fill(Color.accent)
-                        .frame(width: max(proxy.size.width * barProgress, 6))
+                        .frame(width: max(proxy.size.width * barProgress, 7))
                 }
             }
-            .frame(height: 7)
+            .frame(height: 6)
         }
+        .padding(.vertical, 9)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(timeRangeText), \(split.steps.formatted()) steps, \(Int(split.stepsPerMinute.rounded()).formatted()) steps per minute")
     }
 
     private var barProgress: Double {
-        guard maxStepsPerMinute > 0 else { return 0 }
-        return min(max(split.stepsPerMinute / maxStepsPerMinute, 0), 1)
+        guard maxStepsPerMinute > minStepsPerMinute else { return 1 }
+
+        let range = maxStepsPerMinute - minStepsPerMinute
+        let normalizedValue = min(max((split.stepsPerMinute - minStepsPerMinute) / range, 0), 1)
+        return 0.25 + (normalizedValue * 0.75)
     }
 
     private var timeRangeText: String {
         "\(clockTime(split.startElapsedSeconds))-\(clockTime(split.endElapsedSeconds))"
     }
-}
-
-private func timeIntervalText(seconds: Int) -> String {
-    let safeSeconds = max(seconds, 1)
-    if safeSeconds < 60 {
-        return "\(safeSeconds)-sec"
-    }
-
-    let minutes = safeSeconds / 60
-    return minutes == 1 ? "1-min" : "\(minutes)-min"
 }
 
 private func clockTime(_ seconds: Int) -> String {
@@ -474,8 +681,7 @@ private extension Int {
             steps: 2_096,
             floors: 102,
             caloriesBurned: 420,
-            source: .headphoneMotion,
-            personalRecordTypes: ["longest_duration"]
+            source: .headphoneMotion
         ),
         leaderboardRank: 12,
         leaderboardTotal: 2_460,

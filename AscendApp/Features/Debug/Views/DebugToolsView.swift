@@ -79,18 +79,6 @@ struct DebugToolsView: View {
             // Navigation Links
             VStack(spacing: 12) {
                 NavigationLink {
-                    PersonalRecordsDebugView()
-                } label: {
-                    inspectionRow(
-                        title: "Personal Records",
-                        description: "View all current and historical PRs",
-                        icon: "trophy.fill",
-                        iconColor: .orange
-                    )
-                }
-                .buttonStyle(.plain)
-                
-                NavigationLink {
                     HapticsTestView()
                 } label: {
                     inspectionRow(

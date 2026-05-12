@@ -18,9 +18,7 @@ struct RoutineListCard: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             HStack(spacing: 0) {
-                Rectangle()
-                    .fill(accentColor)
-                    .frame(width: 4)
+                LeadingAccentStripe(color: accentColor, width: 4, cornerRadius: 16)
 
                 RoutineCardSurface(
                     cornerRadius: 16,

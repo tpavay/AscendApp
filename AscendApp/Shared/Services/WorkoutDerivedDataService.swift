@@ -35,12 +35,6 @@ struct WorkoutDerivedDataService {
             )
         }
 
-        try PersonalRecordService.recalculateAllPersonalRecords(
-            modelContext: modelContext,
-            measurementSystem: settingsManager.measurementSystem,
-            stepHeight: settingsManager.stepHeight
-        )
-
         try modelContext.save()
         try RoutineService(modelContext: modelContext).ensureBuiltInRoutinesExist()
         NotificationCenter.default.post(name: .routineTemplatesDidChange, object: nil)

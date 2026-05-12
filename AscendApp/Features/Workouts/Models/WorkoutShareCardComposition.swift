@@ -11,4 +11,5 @@ struct WorkoutShareCardComposition: Equatable {
     let preset: WorkoutShareCardPreset
     let heroStat: ShareCardResolvedStat
     let supportingStats: [ShareCardResolvedStat]
+    var bestEffortText: String?
 }

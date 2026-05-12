@@ -12,9 +12,11 @@ struct RoutineIntensityChartCard: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Rectangle()
-                .fill(accentColor)
-                .frame(width: accentBarWidth)
+            LeadingAccentStripe(
+                color: accentColor,
+                width: accentBarWidth,
+                cornerRadius: cornerRadius
+            )
 
             RoutineCardSurface(
                 cornerRadius: cornerRadius,

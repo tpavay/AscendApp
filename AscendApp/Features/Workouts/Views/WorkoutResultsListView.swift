@@ -9,12 +9,15 @@ import SwiftUI
 
 struct WorkoutResultsListView: View {
     let filteredWorkouts: [Workout]
+    let allWorkouts: [Workout]
     let isInDeleteMode: Bool
     let effectiveColorScheme: ColorScheme
     let selectedWorkouts: Set<UUID>
     let toggleSelection: (UUID) -> Void
-    
+
     var body: some View {
+        let primaryBestEffortsByWorkoutID = BestEffortRankingBuilder.primaryEffortsByWorkoutID(from: allWorkouts)
+
         ScrollView {
             LazyVStack(spacing: 12) {
                 if filteredWorkouts.isEmpty {
@@ -29,12 +32,18 @@ struct WorkoutResultsListView: View {
                         
                         if isInDeleteMode {
                             Button { toggleSelection(workout.id) } label: {
-                                WorkoutRowView(workout: workout)
+                                WorkoutRowView(
+                                    workout: workout,
+                                    bestEffort: primaryBestEffortsByWorkoutID[workout.id]
+                                )
                             }
                             .buttonStyle(.plain)
                         } else {
                             NavigationLink(destination: WorkoutDetailView(workout: workout)) {
-                                WorkoutRowView(workout: workout)
+                                WorkoutRowView(
+                                    workout: workout,
+                                    bestEffort: primaryBestEffortsByWorkoutID[workout.id]
+                                )
                             }
                             .buttonStyle(PlainButtonStyle())
                         }

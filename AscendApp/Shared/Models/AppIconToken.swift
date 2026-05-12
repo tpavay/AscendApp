@@ -35,6 +35,9 @@ enum AppIconToken: Hashable, Sendable {
     case settingsNotifications
 
     case disclosureChevronRight
+    case bestEffortTrophy
+    case bestEffortChartLine
+    case bestEffortClock
 
     enum Source: Hashable, Sendable {
         case asset(String)
@@ -95,6 +98,12 @@ enum AppIconToken: Hashable, Sendable {
 
         case .disclosureChevronRight:
             return .asset("ph-disclosure-chevron-right")
+        case .bestEffortTrophy:
+            return .asset("ph-best-effort-trophy")
+        case .bestEffortChartLine:
+            return .asset("ph-best-effort-chart-line")
+        case .bestEffortClock:
+            return .asset("ph-best-effort-clock")
         }
     }
 }

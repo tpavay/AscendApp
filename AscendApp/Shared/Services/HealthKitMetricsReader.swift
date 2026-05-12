@@ -21,6 +21,13 @@ struct WorkoutMetrics {
 @MainActor
 protocol HealthKitMetricsReading {
     func fetchMetrics(for workout: HKWorkout) async -> WorkoutMetrics
+    func fetchMetrics(for workout: HKWorkout, during dateRange: ClosedRange<Date>) async -> WorkoutMetrics
+}
+
+extension HealthKitMetricsReading {
+    func fetchMetrics(for workout: HKWorkout, during dateRange: ClosedRange<Date>) async -> WorkoutMetrics {
+        await fetchMetrics(for: workout)
+    }
 }
 
 @MainActor
@@ -34,16 +41,20 @@ final class HealthKitMetricsReader: HealthKitMetricsReading {
     }
 
     func fetchMetrics(for workout: HKWorkout) async -> WorkoutMetrics {
+        await fetchMetrics(for: workout, during: workout.startDate...workout.endDate)
+    }
+
+    func fetchMetrics(for workout: HKWorkout, during dateRange: ClosedRange<Date>) async -> WorkoutMetrics {
         var metrics = WorkoutMetrics()
 
-        if let stepCount = await fetchQuantityData(for: .stepCount, during: workout.startDate...workout.endDate) {
+        if let stepCount = await fetchQuantityData(for: .stepCount, during: dateRange, unit: .count()) {
             metrics.steps = Int(stepCount)
         }
 
-        let heartRateData = await fetchHeartRateData(during: workout.startDate...workout.endDate)
+        let heartRateData = await fetchHeartRateData(during: dateRange)
         metrics.avgHeartRate = heartRateData.average
         metrics.maxHeartRate = heartRateData.maximum
-        metrics.heartRateTimeSeries = await fetchHeartRateTimeSeries(during: workout.startDate...workout.endDate)
+        metrics.heartRateTimeSeries = await fetchHeartRateTimeSeries(during: dateRange)
 
         if let avgMetsQuantity = workout.metadata?["HKAverageMETs"] as? HKQuantity {
             let metsUnit = HKUnit.kilocalorie().unitDivided(
@@ -52,16 +63,12 @@ final class HealthKitMetricsReader: HealthKitMetricsReading {
             metrics.averageMETs = avgMetsQuantity.doubleValue(for: metsUnit)
         }
 
-        if let activeEnergyType = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned),
-           let caloriesStatistics = workout.statistics(for: activeEnergyType) {
-            let totalCalories = caloriesStatistics.sumQuantity()
-            metrics.caloriesBurned = Int(totalCalories?.doubleValue(for: .kilocalorie()) ?? 0)
+        if let calories = await fetchQuantityData(for: .activeEnergyBurned, during: dateRange, unit: .kilocalorie()) {
+            metrics.caloriesBurned = Int(calories)
         }
 
-        if let basalEnergyType = HKQuantityType.quantityType(forIdentifier: .basalEnergyBurned),
-           let restingCaloriesStatistics = workout.statistics(for: basalEnergyType) {
-            let restingCalories = restingCaloriesStatistics.sumQuantity()
-            metrics.restingCaloriesBurned = Int(restingCalories?.doubleValue(for: .kilocalorie()) ?? 0)
+        if let restingCalories = await fetchQuantityData(for: .basalEnergyBurned, during: dateRange, unit: .kilocalorie()) {
+            metrics.restingCaloriesBurned = Int(restingCalories)
         }
 
         return metrics
@@ -69,7 +76,8 @@ final class HealthKitMetricsReader: HealthKitMetricsReading {
 
     private func fetchQuantityData(
         for identifier: HKQuantityTypeIdentifier,
-        during dateRange: ClosedRange<Date>
+        during dateRange: ClosedRange<Date>,
+        unit: HKUnit
     ) async -> Double? {
         guard let quantityType = HKQuantityType.quantityType(forIdentifier: identifier) else { return nil }
 
@@ -81,7 +89,7 @@ final class HealthKitMetricsReader: HealthKitMetricsReading {
                 quantitySamplePredicate: predicate,
                 options: .cumulativeSum
             ) { _, result, _ in
-                let sum = result?.sumQuantity()?.doubleValue(for: .count()) ?? 0
+                let sum = result?.sumQuantity()?.doubleValue(for: unit) ?? 0
                 continuation.resume(returning: sum > 0 ? sum : nil)
             }
 

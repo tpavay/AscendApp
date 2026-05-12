@@ -6,6 +6,7 @@
 //
 
 import Photos
+import SwiftData
 import SwiftUI
 import UIKit
 
@@ -14,6 +15,7 @@ import UIKit
 struct WorkoutShareCarouselView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @Query(sort: \Workout.date, order: .reverse) private var allWorkouts: [Workout]
     
     @State private var viewModel: WorkoutShareCarouselViewModel
     @State private var themeManager = ThemeManager.shared
@@ -28,6 +30,10 @@ struct WorkoutShareCarouselView: View {
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
+    }
+
+    private var primaryBestEffort: RankedBestEffort? {
+        BestEffortRankingBuilder.primaryEffort(for: viewModel.workout, from: allWorkouts)
     }
     
     // MARK: - Initializers
@@ -197,7 +203,8 @@ struct WorkoutShareCarouselView: View {
                 for: cardType,
                 measurementSystem: settingsManager.measurementSystem,
                 stepHeight: settingsManager.stepHeight,
-                preferredMetric: settingsManager.preferredWorkoutMetric
+                preferredMetric: settingsManager.preferredWorkoutMetric,
+                bestEffort: primaryBestEffort
             )
             .frame(
                 width: WorkoutShareCarouselViewModel.displayCardWidth,
@@ -255,7 +262,8 @@ struct WorkoutShareCarouselView: View {
                 viewModel.copyShareText(
                     measurementSystem: settingsManager.measurementSystem,
                     stepHeight: settingsManager.stepHeight,
-                    preferredMetric: settingsManager.preferredWorkoutMetric
+                    preferredMetric: settingsManager.preferredWorkoutMetric,
+                    bestEffort: primaryBestEffort
                 )
             }
             
@@ -343,7 +351,8 @@ struct WorkoutShareCarouselView: View {
         guard let image = viewModel.renderCurrentCard(
             measurementSystem: settingsManager.measurementSystem,
             stepHeight: settingsManager.stepHeight,
-            preferredMetric: settingsManager.preferredWorkoutMetric
+            preferredMetric: settingsManager.preferredWorkoutMetric,
+            bestEffort: primaryBestEffort
         ) else {
             viewModel.shareErrorMessage = "We couldn't render the card. Please try again."
             showingShareError = true
@@ -354,7 +363,8 @@ struct WorkoutShareCarouselView: View {
         let text = viewModel.shareText(
             measurementSystem: settingsManager.measurementSystem,
             stepHeight: settingsManager.stepHeight,
-            preferredMetric: settingsManager.preferredWorkoutMetric
+            preferredMetric: settingsManager.preferredWorkoutMetric,
+            bestEffort: primaryBestEffort
         )
         items.append(ShareTextActivityItemSource(text: text))
         
@@ -371,7 +381,8 @@ struct WorkoutShareCarouselView: View {
         guard let image = viewModel.renderCurrentCard(
             measurementSystem: settingsManager.measurementSystem,
             stepHeight: settingsManager.stepHeight,
-            preferredMetric: settingsManager.preferredWorkoutMetric
+            preferredMetric: settingsManager.preferredWorkoutMetric,
+            bestEffort: primaryBestEffort
         ) else {
             viewModel.shareErrorMessage = "We couldn't render the card. Please try again."
             showingShareError = true
@@ -419,7 +430,8 @@ struct WorkoutShareCarouselView: View {
         let text = viewModel.shareText(
             measurementSystem: settingsManager.measurementSystem,
             stepHeight: settingsManager.stepHeight,
-            preferredMetric: settingsManager.preferredWorkoutMetric
+            preferredMetric: settingsManager.preferredWorkoutMetric,
+            bestEffort: primaryBestEffort
         )
 
         let encodedText = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
@@ -646,8 +658,7 @@ private extension Int {
             stepsPerFloor: 16,
             avgHeartRate: 145,
             maxHeartRate: 165,
-            caloriesBurned: 320,
-            personalRecordTypes: ["mostSteps"]
+            caloriesBurned: 320
         ),
         workoutCount: 535,
         onDismiss: {}
@@ -674,8 +685,7 @@ private extension Int {
             duration: 5040, // 1h 24min
             steps: 1200,
             floors: 75,
-            stepsPerFloor: 16,
-            personalRecordTypes: ["mostSteps", "longestDuration", "highestAveragePace"]
+            stepsPerFloor: 16
         ),
         workoutCount: 535,
         onDismiss: {}

@@ -8,7 +8,7 @@
 import SwiftUI
 
 /// Large side-by-side hero stats (duration + steps/floors) with a vertical divider.
-/// Supports PR-aware accent border when either stat is a personal record.
+/// Supports an optional accent border for highlighted stats.
 struct HeroStatsPair: View {
     let leftLabel: String
     let leftValue: String

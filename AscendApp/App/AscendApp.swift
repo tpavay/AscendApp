@@ -64,17 +64,14 @@ struct AscendApp: App {
                 WorkoutSourceLink.self,
                 WorkoutParticipation.self,
                 LeaderboardStats.self,
-                PersonalRecord.self,
                 Routine.self,
                 RoutineFolder.self,
                 ClimbAttempt.self,
-                WeightPersonalRecord.self,
-                AggregateWeightRecord.self,
                 PendingMediaUpload.self,
                 PendingWorkoutDeletion.self
             ]))
             return try ModelContainer(
-                for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, LeaderboardStats.self, PersonalRecord.self, Routine.self, RoutineFolder.self, ClimbAttempt.self, WeightPersonalRecord.self, AggregateWeightRecord.self, PendingMediaUpload.self, PendingWorkoutDeletion.self,
+                for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, LeaderboardStats.self, Routine.self, RoutineFolder.self, ClimbAttempt.self, PendingMediaUpload.self, PendingWorkoutDeletion.self,
                 configurations: config
             )
         } catch {
@@ -99,17 +96,14 @@ struct AscendApp: App {
                     WorkoutSourceLink.self,
                     WorkoutParticipation.self,
                     LeaderboardStats.self,
-                    PersonalRecord.self,
                     Routine.self,
                     RoutineFolder.self,
                     ClimbAttempt.self,
-                    WeightPersonalRecord.self,
-                    AggregateWeightRecord.self,
                     PendingMediaUpload.self,
                     PendingWorkoutDeletion.self
                 ]))
                 return try ModelContainer(
-                    for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, LeaderboardStats.self, PersonalRecord.self, Routine.self, RoutineFolder.self, ClimbAttempt.self, WeightPersonalRecord.self, AggregateWeightRecord.self, PendingMediaUpload.self, PendingWorkoutDeletion.self,
+                    for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, LeaderboardStats.self, Routine.self, RoutineFolder.self, ClimbAttempt.self, PendingMediaUpload.self, PendingWorkoutDeletion.self,
                     configurations: config
                 )
             } catch {

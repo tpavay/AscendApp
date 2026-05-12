@@ -406,12 +406,6 @@ final class AccountDeletionService {
                 modelContext.delete(stat)
             }
 
-            let recordsDescriptor = FetchDescriptor<PersonalRecord>()
-            let records = try modelContext.fetch(recordsDescriptor)
-            for record in records {
-                modelContext.delete(record)
-            }
-
             let routineDescriptor = FetchDescriptor<Routine>()
             let routines = try modelContext.fetch(routineDescriptor)
             for routine in routines {
@@ -422,18 +416,6 @@ final class AccountDeletionService {
             let folders = try modelContext.fetch(folderDescriptor)
             for folder in folders {
                 modelContext.delete(folder)
-            }
-
-            let weightPRDescriptor = FetchDescriptor<WeightPersonalRecord>()
-            let weightPRs = try modelContext.fetch(weightPRDescriptor)
-            for weightPR in weightPRs {
-                modelContext.delete(weightPR)
-            }
-
-            let aggregateWeightDescriptor = FetchDescriptor<AggregateWeightRecord>()
-            let aggregateWeightRecords = try modelContext.fetch(aggregateWeightDescriptor)
-            for aggregateRecord in aggregateWeightRecords {
-                modelContext.delete(aggregateRecord)
             }
 
             let pendingUploadDescriptor = FetchDescriptor<PendingMediaUpload>()
