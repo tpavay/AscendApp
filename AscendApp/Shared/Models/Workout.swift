@@ -316,6 +316,11 @@ class Workout {
         remoteSyncStatus = .failed
         lastRemoteSyncError = errorMessage
     }
+
+    func markRemoteSyncRejected(_ errorMessage: String) {
+        remoteSyncStatus = .rejected
+        lastRemoteSyncError = errorMessage
+    }
     
     // Computed properties for convenience
     var durationFormatted: String {

@@ -21,6 +21,7 @@ final class WorkoutService {
     @MainActor
     func createWorkout(from request: CreateWorkoutRequest,
                        with photos: [PhotosPickerItem]) async throws -> Workout {
+        try validate(request)
 
         // SAFE: this is an actor hop (MainActor -> PhotoService)
         let uploadedPhotos = try await photoService.uploadPhotos(photos)
@@ -51,6 +52,7 @@ final class WorkoutService {
     @MainActor
     func createWorkout(from request: CreateWorkoutRequest,
                        with selectedPhotos: [SelectedPhotoItem]) async throws -> Workout {
+        try validate(request)
 
         // SAFE: this is an actor hop (MainActor -> PhotoService)
         let uploadedPhotos = try await photoService.uploadSelectedPhotos(selectedPhotos)
@@ -81,6 +83,8 @@ final class WorkoutService {
     /// Photos will be uploaded asynchronously via MediaUploadManager.
     @MainActor
     func createWorkout(from request: CreateWorkoutRequest) async throws -> Workout {
+        try validate(request)
+
         let model = UIDevice.current.model
 
         return Workout(
@@ -100,6 +104,15 @@ final class WorkoutService {
             photos: [],  // Empty - will be populated by MediaUploadManager
             weightConfiguration: request.weightConfiguration
         )
+    }
+
+    private func validate(_ request: CreateWorkoutRequest) throws {
+        guard WorkoutPlausibilityPolicy.hasPlausibleTotals(
+            steps: request.steps,
+            duration: request.duration
+        ) else {
+            throw WorkoutServiceError.invalidWorkoutData
+        }
     }
 }
 

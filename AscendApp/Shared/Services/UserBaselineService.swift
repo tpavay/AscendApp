@@ -34,7 +34,10 @@ struct UserBaselineService {
     static func validSPMValues(from workouts: [Workout]) -> [Double] {
         workouts.compactMap { workout in
             guard let stepsPerMinute = workout.stepsPerMinute else { return nil }
-            guard workout.duration >= 300, stepsPerMinute < 190, !workout.hasWeights else { return nil }
+            guard workout.duration >= 300,
+                  WorkoutPlausibilityPolicy.hasPlausibleTotals(workout),
+                  stepsPerMinute < 190,
+                  !workout.hasWeights else { return nil }
             return stepsPerMinute
         }
     }

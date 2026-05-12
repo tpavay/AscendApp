@@ -145,9 +145,10 @@ struct BestEffortRankingBuilderTests {
         let liveWorkout = makeLiveClimbWorkout(
             name: "Sampled Live Climb",
             date: referenceDate,
-            duration: 300,
+            duration: 1_800,
             steps: 3_000,
-            splitSteps: [0, 400, 1_000, 2_000, 2_600, 3_000]
+            splitSteps: [0, 1_000, 1_800, 2_400, 2_800, 3_000],
+            intervalSeconds: 300
         )
         let importWithoutTimeline = makeWorkout(
             name: "Apple Health Import",
@@ -168,10 +169,41 @@ struct BestEffortRankingBuilderTests {
         let mostStepsInFive = try #require(board.category(.mostStepsInTime(minutes: 5))?.efforts.first)
 
         #expect(fastestThousand.workout.id == liveWorkout.id)
-        #expect(fastestThousand.valueText == "1:00")
-        #expect(fastestThousand.detailText.contains("2:00-3:00"))
+        #expect(fastestThousand.valueText == "5:00")
+        #expect(fastestThousand.detailText.contains("0:00-5:00"))
         #expect(mostStepsInFive.workout.id == liveWorkout.id)
-        #expect(mostStepsInFive.valueText == "3,000 steps")
+        #expect(mostStepsInFive.valueText == "1,000 steps")
+    }
+
+    @Test
+    func filtersImplausibleWorkoutTotalsFromBestEfforts() throws {
+        let referenceDate = date(year: 2026, month: 5, day: 10)
+        let impossible = makeWorkout(
+            name: "Bad Legacy Import",
+            date: date(year: 2024, month: 8, day: 21),
+            duration: 67.5363039970398,
+            steps: 966,
+            source: .appleHealth
+        )
+        let plausible = makeWorkout(
+            name: "Real Climb",
+            date: referenceDate,
+            duration: 1_200,
+            steps: 2_400
+        )
+
+        let board = BestEffortRankingBuilder.board(
+            from: [impossible, plausible],
+            scope: .allTime,
+            context: .all,
+            referenceDate: referenceDate
+        )
+
+        #expect(board.allEfforts.allSatisfy { $0.workout.id != impossible.id })
+
+        let highestAverageSPM = try #require(board.category(.highestAverageSPM)?.efforts.first)
+        #expect(highestAverageSPM.workout.id == plausible.id)
+        #expect(highestAverageSPM.valueText == "120 SPM")
     }
 
     @Test
@@ -255,14 +287,15 @@ struct BestEffortRankingBuilderTests {
         date: Date,
         duration: TimeInterval,
         steps: Int,
-        splitSteps: [Int]
+        splitSteps: [Int],
+        intervalSeconds: Int = 60
     ) -> Workout {
         let metadata = HeadphoneMotionWorkoutMetadata(
             sampleCount: splitSteps.count,
             climbId: "test-climb",
             targetStepCount: steps,
             stopReason: .targetReached,
-            splitCurve: LiveReplaySplitCurve(intervalSeconds: 60, steps: splitSteps)
+            splitCurve: LiveReplaySplitCurve(intervalSeconds: intervalSeconds, steps: splitSteps)
         )
 
         return Workout(

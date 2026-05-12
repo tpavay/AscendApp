@@ -126,13 +126,21 @@ class WorkoutFormViewModel {
         let seconds = Int(durationSeconds) ?? 0
         let totalDurationSeconds = hours * 3600 + minutes * 60 + seconds
         let durationValid = totalDurationSeconds > 0
+        let workoutTotalsValid = WorkoutInputValidation.isValidWorkoutTotals(
+            metricValue: metricValue,
+            preferredMetric: settingsManager.preferredWorkoutMetric,
+            stepsPerFloor: settingsManager.stepsPerFloor,
+            durationHours: hours,
+            durationMinutes: minutes,
+            durationSeconds: seconds
+        )
 
         // Validate health metrics if provided
         let avgHRValid = WorkoutInputValidation.isValidOptionalHeartRate(avgHeartRate)
         let maxHRValid = WorkoutInputValidation.isValidOptionalHeartRate(maxHeartRate)
         let caloriesValid = WorkoutInputValidation.isValidOptionalCalories(caloriesBurned)
 
-        return basicValidation && durationValid && avgHRValid && maxHRValid && caloriesValid && !isUploading
+        return basicValidation && durationValid && workoutTotalsValid && avgHRValid && maxHRValid && caloriesValid && !isUploading
     }
 
     // MARK: - Actions

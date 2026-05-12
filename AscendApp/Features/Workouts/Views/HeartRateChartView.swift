@@ -8,105 +8,137 @@
 import SwiftUI
 import Charts
 
+struct HeartRateChartDataSet: Equatable {
+    static let minimumLineSampleCount = 3
+
+    let points: [HeartRateChartPoint]
+    let duration: TimeInterval
+    let heartRateRange: ClosedRange<Int>
+    let heartRateTickValues: [Int]
+
+    var canPlotLine: Bool {
+        let distinctElapsedValues = Set(points.map { Int($0.elapsed.rounded()) })
+        return points.count >= Self.minimumLineSampleCount && distinctElapsedValues.count >= 2
+    }
+
+    init(
+        samples: [HeartRateDataPoint],
+        workoutStartTime: Date,
+        workoutDuration: TimeInterval
+    ) {
+        let visibleDuration = max(workoutDuration, 1)
+        let workoutEndTime = workoutStartTime.addingTimeInterval(visibleDuration)
+        let tolerance: TimeInterval = 60
+        let sortedSamples = samples
+            .filter { sample in
+                sample.heartRate > 0 &&
+                    sample.timestamp >= workoutStartTime.addingTimeInterval(-tolerance) &&
+                    sample.timestamp <= workoutEndTime.addingTimeInterval(tolerance)
+            }
+            .sorted { $0.timestamp < $1.timestamp }
+
+        points = sortedSamples.enumerated().map { index, sample in
+            let elapsed = sample.timestamp.timeIntervalSince(workoutStartTime)
+            return HeartRateChartPoint(
+                id: index,
+                elapsed: min(max(elapsed, 0), visibleDuration),
+                heartRate: sample.heartRate
+            )
+        }
+        duration = visibleDuration
+
+        let rates = points.map(\.heartRate)
+        heartRateRange = Self.range(for: rates)
+        heartRateTickValues = Self.tickValues(for: heartRateRange)
+    }
+
+    private static func range(for heartRates: [Int]) -> ClosedRange<Int> {
+        guard let minRate = heartRates.min(), let maxRate = heartRates.max() else {
+            return 60...180
+        }
+
+        if minRate == maxRate {
+            return max(30, minRate - 5)...(maxRate + 5)
+        }
+
+        let padding = max(3, Int(ceil(Double(maxRate - minRate) * 0.1)))
+        return max(30, minRate - padding)...(maxRate + padding)
+    }
+
+    private static func tickValues(for range: ClosedRange<Int>) -> [Int] {
+        let distance = range.upperBound - range.lowerBound
+        guard distance > 0 else { return [range.lowerBound] }
+
+        let interval = Double(distance) / 4.0
+        var ticks = (0...4).map { index in
+            range.lowerBound + Int(round(Double(index) * interval))
+        }
+        ticks[0] = range.lowerBound
+        ticks[4] = range.upperBound
+        return ticks
+    }
+}
+
+struct HeartRateChartPoint: Identifiable, Equatable {
+    let id: Int
+    let elapsed: TimeInterval
+    let heartRate: Int
+}
+
 struct HeartRateChartView: View {
     let heartRateData: [HeartRateDataPoint]
     let workoutStartTime: Date
     let workoutDuration: TimeInterval
+    let averageHeartRateBpm: Int?
+    let maxHeartRateBpm: Int?
     
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
     @State private var rawSelectedTime: TimeInterval?
     @State private var stickySelectedTime: TimeInterval?
-    @State private var selectedPoint: HeartRateDataPoint?
-    
-    // Use actual heart rate data timespan instead of workout duration
-    private var actualStartTime: Date {
-        heartRateData.first?.timestamp ?? workoutStartTime
-    }
-    
-    private var actualEndTime: Date {
-        heartRateData.last?.timestamp ?? workoutStartTime.addingTimeInterval(workoutDuration)
-    }
-    
-    private var actualDuration: TimeInterval {
-        actualEndTime.timeIntervalSince(actualStartTime)
+
+    private var dataSet: HeartRateChartDataSet {
+        HeartRateChartDataSet(
+            samples: heartRateData,
+            workoutStartTime: workoutStartTime,
+            workoutDuration: workoutDuration
+        )
     }
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
-    
-    // Convert heart rate data to chart-friendly format with elapsed time
-    private var chartData: [(elapsed: TimeInterval, heartRate: Int)] {
-        heartRateData.map { point in
-            (elapsed: point.timestamp.timeIntervalSince(actualStartTime), heartRate: point.heartRate)
-        }
-    }
-    
-    // Computed property to find the selected point — uses active touch or sticky (last-touched) time
-    private var computedSelectedPoint: HeartRateDataPoint? {
+
+    private var computedSelectedPoint: HeartRateChartPoint? {
         guard let activeTime = rawSelectedTime ?? stickySelectedTime else { return nil }
 
-        return heartRateData.min { point1, point2 in
-            let distance1 = abs(point1.timestamp.timeIntervalSince(actualStartTime) - activeTime)
-            let distance2 = abs(point2.timestamp.timeIntervalSince(actualStartTime) - activeTime)
+        return dataSet.points.min { point1, point2 in
+            let distance1 = abs(point1.elapsed - activeTime)
+            let distance2 = abs(point2.elapsed - activeTime)
             return distance1 < distance2
         }
     }
 
-    private var averageHeartRate: Int {
-        guard !heartRateData.isEmpty else { return 0 }
+    private var averageHeartRate: Int? {
+        if let averageHeartRateBpm {
+            return averageHeartRateBpm
+        }
+        guard !heartRateData.isEmpty else { return nil }
         return heartRateData.map(\.heartRate).reduce(0, +) / heartRateData.count
     }
 
-    private var maxHeartRate: Int {
-        heartRateData.map(\.heartRate).max() ?? 0
-    }
-    
-    // Heart rate range for Y-axis scaling
-    private var heartRateRange: ClosedRange<Int> {
-        guard !heartRateData.isEmpty else { return 60...180 }
-        
-        let minRate = heartRateData.map { $0.heartRate }.min() ?? 60
-        let maxRate = heartRateData.map { $0.heartRate }.max() ?? 180
-        
-        return minRate...maxRate
-    }
-    
-    // Y-axis tick values - always includes min, max, and 3 evenly distributed values in between
-    private var heartRateTickValues: [Int] {
-        guard !heartRateData.isEmpty else { return [60, 90, 120, 150, 180] }
-        
-        let minRate = heartRateData.map { $0.heartRate }.min() ?? 60
-        let maxRate = heartRateData.map { $0.heartRate }.max() ?? 180
-        
-        // If min and max are the same, just show that value
-        guard minRate != maxRate else { return [minRate] }
-        
-        // Calculate 3 evenly distributed ticks between min and max
-        let range = maxRate - minRate
-        let interval = Double(range) / 4.0 // 4 intervals to create 5 total ticks
-        
-        var ticks: [Int] = []
-        for i in 0...4 {
-            let tickValue = minRate + Int(round(Double(i) * interval))
-            ticks.append(tickValue)
-        }
-        
-        // Ensure the last tick is exactly the max value
-        ticks[4] = maxRate
-        
-        return ticks
+    private var maxHeartRate: Int? {
+        maxHeartRateBpm ?? heartRateData.map(\.heartRate).max()
     }
     
     var body: some View {
         VStack(spacing: 16) {
             headerView
             
-            if heartRateData.isEmpty {
-                emptyStateView
-            } else {
+            if dataSet.canPlotLine {
                 chartView
+            } else {
+                unavailableChartView
             }
         }
     }
@@ -121,21 +153,25 @@ struct HeartRateChartView: View {
                 Spacer()
 
                 HStack(spacing: 16) {
-                    HStack(spacing: 4) {
-                        Text("Avg")
-                            .font(.montserratRegular(size: 12))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
-                        Text("\(averageHeartRate)")
-                            .font(.montserratBold(size: 14))
-                            .foregroundStyle(.red)
+                    if let averageHeartRate {
+                        HStack(spacing: 4) {
+                            Text("Avg")
+                                .font(.montserratRegular(size: 12))
+                                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+                            Text("\(averageHeartRate)")
+                                .font(.montserratBold(size: 14))
+                                .foregroundStyle(.red)
+                        }
                     }
-                    HStack(spacing: 4) {
-                        Text("Max")
-                            .font(.montserratRegular(size: 12))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
-                        Text("\(maxHeartRate)")
-                            .font(.montserratBold(size: 14))
-                            .foregroundStyle(.red)
+                    if let maxHeartRate {
+                        HStack(spacing: 4) {
+                            Text("Max")
+                                .font(.montserratRegular(size: 12))
+                                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
+                            Text("\(maxHeartRate)")
+                                .font(.montserratBold(size: 14))
+                                .foregroundStyle(.red)
+                        }
                     }
                 }
             }
@@ -147,7 +183,7 @@ struct HeartRateChartView: View {
                     Text("\(selected.heartRate) BPM")
                         .font(.montserratBold(size: 16))
                         .foregroundStyle(.red)
-                    Text("at \(formatDuration(selected.timestamp.timeIntervalSince(actualStartTime)))")
+                    Text("at \(formatDuration(selected.elapsed))")
                         .font(.montserratRegular(size: 12))
                         .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
                 }
@@ -157,13 +193,13 @@ struct HeartRateChartView: View {
         .animation(.easeInOut(duration: 0.15), value: computedSelectedPoint != nil)
     }
     
-    private var emptyStateView: some View {
+    private var unavailableChartView: some View {
         VStack(spacing: 12) {
             Image(systemName: "heart.slash")
                 .font(.system(size: 32, weight: .light))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.4) : .gray)
             
-            Text("No heart rate data available")
+            Text(heartRateData.isEmpty ? "No heart-rate samples available" : "Not enough heart-rate samples to chart")
                 .font(.montserratRegular(size: 14))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
         }
@@ -181,19 +217,17 @@ struct HeartRateChartView: View {
     
     private var chartView: some View {
         Chart {
-            ForEach(Array(chartData.enumerated()), id: \.offset) { _, data in
+            ForEach(dataSet.points) { data in
                 heartRateLineMark(data: data)
             }
             
-            // Selected point indicators
             if let selected = computedSelectedPoint {
-                let elapsed = selected.timestamp.timeIntervalSince(actualStartTime)
-                selectedPointMarks(elapsed: elapsed, heartRate: selected.heartRate)
+                selectedPointMarks(elapsed: selected.elapsed, heartRate: selected.heartRate)
             }
         }
         .frame(height: 200)
-        .chartXScale(domain: 0...actualDuration)
-        .chartYScale(domain: heartRateRange)
+        .chartXScale(domain: 0...dataSet.duration)
+        .chartYScale(domain: dataSet.heartRateRange)
         .padding(16)
         .chartXAxis { xAxisMarks }
         .chartYAxis { yAxisMarks }
@@ -222,7 +256,7 @@ struct HeartRateChartView: View {
         }
     }
     
-    private func heartRateLineMark(data: (elapsed: TimeInterval, heartRate: Int)) -> some ChartContent {
+    private func heartRateLineMark(data: HeartRateChartPoint) -> some ChartContent {
         LineMark(
             x: .value("Time", data.elapsed),
             y: .value("Heart Rate", data.heartRate)
@@ -246,9 +280,9 @@ struct HeartRateChartView: View {
     }
     
     private var xAxisMarks: some AxisContent {
-        AxisMarks(values: [0, actualDuration / 4, actualDuration / 2, 3 * actualDuration / 4, actualDuration]) { value in
+        AxisMarks(values: [0, dataSet.duration / 4, dataSet.duration / 2, 3 * dataSet.duration / 4, dataSet.duration]) { value in
             if let elapsed = value.as(Double.self) {
-                let anchor: UnitPoint = elapsed == actualDuration ? .topTrailing : (elapsed == 0 ? .topLeading : .top)
+                let anchor: UnitPoint = elapsed == dataSet.duration ? .topTrailing : (elapsed == 0 ? .topLeading : .top)
                 AxisValueLabel(anchor: anchor) {
                     Text(formatDuration(elapsed))
                         .font(.montserratRegular(size: 10))
@@ -263,7 +297,7 @@ struct HeartRateChartView: View {
     }
 
     private var yAxisMarks: some AxisContent {
-        AxisMarks(position: .leading, values: heartRateTickValues) { value in
+        AxisMarks(position: .leading, values: dataSet.heartRateTickValues) { value in
             if let heartRate = value.as(Int.self) {
                 AxisValueLabel {
                     Text("\(heartRate)")
@@ -311,7 +345,9 @@ struct HeartRateChartView: View {
     HeartRateChartView(
         heartRateData: sampleData,
         workoutStartTime: startTime,
-        workoutDuration: 1800
+        workoutDuration: 1800,
+        averageHeartRateBpm: 129,
+        maxHeartRateBpm: 200
     )
     .padding()
 }

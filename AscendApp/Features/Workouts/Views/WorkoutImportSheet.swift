@@ -477,7 +477,7 @@ struct WorkoutImportSheet: View {
                     failedCount: 0
                 )
                 showingCelebration = true
-            case .updatedExisting, .failed:
+            case .updatedExisting, .skipped, .failed:
                 break
             }
 

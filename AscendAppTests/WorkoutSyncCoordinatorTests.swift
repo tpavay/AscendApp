@@ -106,6 +106,45 @@ struct WorkoutSyncCoordinatorTests {
     }
 
     @Test
+    func implausiblePendingWorkoutIsRejectedAndDoesNotBlockValidSync() async throws {
+        let modelContext = try makeModelContext()
+        let invalidWorkout = makeWorkout(
+            date: makeDate(year: 2024, month: 8, day: 21, hour: 8),
+            duration: 67.5363039970398,
+            steps: 966
+        )
+        invalidWorkout.markPendingRemoteUpsert(ownerUserId: "user-123", modifiedAt: invalidWorkout.createdAt)
+        let validWorkout = makeWorkout(date: makeDate(year: 2026, month: 4, day: 13, hour: 9))
+        validWorkout.markPendingRemoteUpsert(ownerUserId: "user-123", modifiedAt: validWorkout.createdAt)
+        modelContext.insert(invalidWorkout)
+        modelContext.insert(validWorkout)
+        try modelContext.save()
+
+        let remoteRepository = FakeWorkoutRemoteRepository()
+        let heartRateRepository = FakeWorkoutHeartRateStorageRepository()
+        let coordinator = WorkoutSyncCoordinator(
+            remoteRepository: remoteRepository,
+            heartRateStorageRepository: heartRateRepository,
+            operationTimeoutSeconds: 1
+        )
+
+        await coordinator.processPendingWorkouts(
+            modelContext: modelContext,
+            currentUserId: "user-123"
+        )
+
+        let workouts = try fetchWorkouts(in: modelContext)
+        let rejectedWorkout = try #require(workouts.first { $0.id == invalidWorkout.id })
+        let syncedWorkout = try #require(workouts.first { $0.id == validWorkout.id })
+        #expect(rejectedWorkout.remoteSyncStatus == .rejected)
+        #expect(rejectedWorkout.lastRemoteSyncError?.isEmpty == false)
+        #expect(syncedWorkout.remoteSyncStatus == .synced)
+
+        let upserts = await remoteRepository.recordedUpserts()
+        #expect(upserts.map(\.workoutId) == [validWorkout.id])
+    }
+
+    @Test
     func heartRateUploadFailureMarksWorkoutFailedWithoutUpsertingDocument() async throws {
         let modelContext = try makeModelContext()
         let workout = makeWorkout(
@@ -452,14 +491,16 @@ struct WorkoutSyncCoordinatorTests {
 
     private func makeWorkout(
         date: Date,
+        duration: TimeInterval = 1_800,
+        steps: Int = 1_000,
         heartRateSamples: [HeartRateDataPoint] = []
     ) -> Workout {
         Workout(
             name: "Workout",
             date: date,
-            duration: 1_800,
-            steps: 1_000,
-            floors: 63,
+            duration: duration,
+            steps: steps,
+            floors: Workout.stepsToFloors(steps, stepsPerFloor: 16),
             stepsPerFloor: 16,
             notes: "Test",
             heartRateTimeSeries: heartRateSamples.isEmpty ? nil : heartRateSamples,

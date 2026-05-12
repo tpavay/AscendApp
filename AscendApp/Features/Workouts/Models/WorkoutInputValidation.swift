@@ -12,6 +12,26 @@ enum WorkoutInputValidation {
         return intValue >= 0
     }
 
+    static func isValidWorkoutTotals(
+        metricValue: String,
+        preferredMetric: WorkoutMetric,
+        stepsPerFloor: Int,
+        durationHours: Int,
+        durationMinutes: Int,
+        durationSeconds: Int
+    ) -> Bool {
+        let enteredValue = Int(metricValue) ?? 0
+        let totalDuration = TimeInterval(durationHours * 3_600 + durationMinutes * 60 + durationSeconds)
+        let steps = preferredMetric == .steps
+            ? enteredValue
+            : Workout.floorsToSteps(enteredValue, stepsPerFloor: stepsPerFloor)
+
+        return WorkoutPlausibilityPolicy.hasPlausibleTotals(
+            steps: steps,
+            duration: totalDuration
+        )
+    }
+
     static func isValidWorkoutName(_ value: String) -> Bool {
         value.isEmpty || value.count <= nameMaxLength
     }

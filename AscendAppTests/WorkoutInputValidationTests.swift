@@ -31,6 +31,27 @@ struct WorkoutInputValidationTests {
     }
 
     @Test
+    func workoutTotalsRejectImplausibleAverageStepPace() {
+        #expect(WorkoutInputValidation.isValidWorkoutTotals(
+            metricValue: "966",
+            preferredMetric: .steps,
+            stepsPerFloor: 16,
+            durationHours: 0,
+            durationMinutes: 1,
+            durationSeconds: 7
+        ) == false)
+
+        #expect(WorkoutInputValidation.isValidWorkoutTotals(
+            metricValue: "2117",
+            preferredMetric: .steps,
+            stepsPerFloor: 16,
+            durationHours: 0,
+            durationMinutes: 18,
+            durationSeconds: 51
+        ))
+    }
+
+    @Test
     func heartRateNormalizationClampsToSupportedRange() {
         #expect(WorkoutInputValidation.normalizeHeartRateOnSubmit("") == "")
         #expect(WorkoutInputValidation.normalizeHeartRateOnSubmit("12") == "25")

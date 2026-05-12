@@ -306,8 +306,6 @@ struct WorkoutDetailView: View {
                 leftValue: workout.durationFormatted,
                 rightLabel: preferredMetric.displayName,
                 rightValue: formattedPrimaryMetric,
-                leftIsPR: false,
-                rightIsPR: false,
                 effectiveColorScheme: effectiveColorScheme
             )
 
@@ -320,11 +318,13 @@ struct WorkoutDetailView: View {
             }
 
             // Heart Rate Chart
-            if !workout.heartRateTimeSeries.isEmpty {
+            if !workout.heartRateTimeSeries.isEmpty || workout.avgHeartRate != nil || workout.maxHeartRate != nil {
                 HeartRateChartView(
                     heartRateData: workout.heartRateTimeSeries,
                     workoutStartTime: workout.date,
-                    workoutDuration: workout.duration
+                    workoutDuration: workout.duration,
+                    averageHeartRateBpm: workout.avgHeartRate,
+                    maxHeartRateBpm: workout.maxHeartRate
                 )
             }
 
@@ -333,7 +333,6 @@ struct WorkoutDetailView: View {
                 VerticalClimbCard(
                     value: verticalClimb.formatted(.number.precision(.fractionLength(1))),
                     unit: workout.verticalClimbUnit(measurementSystem: settingsManager.measurementSystem),
-                    isPR: false,
                     effectiveColorScheme: effectiveColorScheme
                 )
             }
@@ -688,8 +687,7 @@ struct WorkoutDetailView: View {
         if let pace = workout.pace(for: preferredMetric) {
             items.append(SecondaryStatItem(
                 label: "\(preferredMetric.unit)/Min",
-                value: pace.formatted(.number.precision(.fractionLength(1))),
-                isPR: false
+                value: pace.formatted(.number.precision(.fractionLength(1)))
             ))
         }
 
@@ -697,8 +695,7 @@ struct WorkoutDetailView: View {
         if let calories = workout.caloriesBurned {
             items.append(SecondaryStatItem(
                 label: "Calories",
-                value: "\(calories)",
-                isPR: false
+                value: "\(calories)"
             ))
         }
 
@@ -706,8 +703,7 @@ struct WorkoutDetailView: View {
         if let mets = workout.averageMETs {
             items.append(SecondaryStatItem(
                 label: "METs",
-                value: mets.formatted(.number.precision(.fractionLength(1))),
-                isPR: false
+                value: mets.formatted(.number.precision(.fractionLength(1)))
             ))
         }
 

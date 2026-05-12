@@ -255,15 +255,26 @@ private extension WorkoutSyncCoordinator {
             sortBy: [SortDescriptor(\Workout.lastModifiedAt)]
         )
 
-        return try modelContext.fetch(descriptor)
+        let workouts = try modelContext.fetch(descriptor)
             .filter { workout in
                 guard !pendingDeletionIds.contains(workout.id) else { return false }
                 let status = workout.remoteSyncStatus
                 return status == .pendingUpsert || status == .failed
             }
-            .map { workout in
-                try WorkoutRemoteSyncMapper.snapshot(from: workout)
+
+        var snapshots: [WorkoutRemoteSyncSnapshot] = []
+        for workout in workouts {
+            do {
+                snapshots.append(try WorkoutRemoteSyncMapper.snapshot(from: workout))
+            } catch WorkoutSyncError.implausibleWorkoutTotals {
+                workout.markRemoteSyncRejected(WorkoutSyncError.implausibleWorkoutTotals.localizedDescription)
+                try modelContext.save()
+            } catch {
+                throw error
             }
+        }
+
+        return snapshots
     }
 
     func loadPendingDeletions(

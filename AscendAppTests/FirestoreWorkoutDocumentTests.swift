@@ -133,6 +133,27 @@ struct FirestoreWorkoutDocumentTests {
         #expect(decoded.schemaVersion == WorkoutHeartRateStorageBlob.currentSchemaVersion)
     }
 
+    @Test
+    func heartRateStorageBlobCompressionProducesReadableGzip() throws {
+        let start = makeDate(year: 2026, month: 4, day: 10, hour: 6)
+        let blob = WorkoutHeartRateStorageBlob(
+            workoutId: "550e8400-e29b-41d4-a716-446655440000",
+            samples: [
+                HeartRateDataPoint(timestamp: start, heartRate: 118),
+                HeartRateDataPoint(timestamp: start.addingTimeInterval(300), heartRate: 132)
+            ]
+        )
+        let encoded = try JSONEncoder().encode(blob)
+
+        let compressed = try GzipCodec.compress(encoded)
+        let decompressed = try GzipCodec.decompress(compressed)
+        let decoded = try JSONDecoder().decode(WorkoutHeartRateStorageBlob.self, from: decompressed)
+
+        #expect(compressed.starts(with: Data([0x1f, 0x8b, 0x08])))
+        #expect(decompressed == encoded)
+        #expect(decoded == blob)
+    }
+
     private func makeDate(
         year: Int,
         month: Int,

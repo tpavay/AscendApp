@@ -667,6 +667,8 @@ enum BestEffortRankingBuilder {
     }
 
     private static func performance(for metric: BestEffortMetric, workout: Workout) -> BestEffortPerformance? {
+        guard WorkoutPlausibilityPolicy.hasPlausibleTotals(workout) else { return nil }
+
         switch metric {
         case .mostSteps:
             guard workout.steps > 0 else { return nil }
