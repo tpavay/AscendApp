@@ -18,6 +18,8 @@ struct HomeView: View {
     @State private var showingImportSheet = false
     @State private var showingWorkoutEntrySheet = false
     @State private var showingWorkoutForm = false
+    @State private var showingJustClimbSession = false
+    @State private var showingJustClimbStartError = false
     @State private var showingCompletedView = false
     @State private var completedWorkout: Workout?
     @State private var showingRoutinesView = false
@@ -33,6 +35,7 @@ struct HomeView: View {
 
     private var hasBlockingModalPresentation: Bool {
         showingWorkoutEntrySheet ||
+        showingJustClimbSession ||
         showingWorkoutForm ||
         showingCompletedView ||
         showingImportSheet
@@ -134,11 +137,18 @@ struct HomeView: View {
         .sheet(isPresented: $showingWorkoutEntrySheet) {
             HomeWorkoutActionSheet(
                 onManualEntry: presentWorkoutForm,
+                onJustClimb: presentJustClimb,
                 onStartRoutine: presentRoutines,
                 onImportWorkouts: presentImportSheet,
                 pendingImportCount: importCoordinator.attentionCount
             )
             .appSheetStyle(.fitted())
+        }
+        .fullScreenCover(isPresented: $showingJustClimbSession) {
+            LiveClimbSessionView(
+                mode: .justClimb,
+                analyticsEntryPoint: .homeJustClimb
+            )
         }
         .sheet(isPresented: $showingWorkoutForm) {
             WorkoutFormView(
@@ -168,6 +178,11 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showingImportSheet) {
             WorkoutImportSheet()
+        }
+        .alert("Compatible Headphones Required", isPresented: $showingJustClimbStartError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Just Climb uses compatible headphone motion to track steps in real time.")
         }
         .sheet(item: $autoImportedReviewWorkout, onDismiss: {
             importCoordinator.dismissCurrentAutoImportedReview()
@@ -245,6 +260,38 @@ struct HomeView: View {
         Task {
             try? await Task.sleep(for: .milliseconds(300))
             showingWorkoutForm = true
+        }
+    }
+
+    private func presentJustClimb() {
+        let readinessService = HeadphoneMotionReadinessService.shared
+        readinessService.refresh()
+        let canStart = readinessService.readiness.canStartLiveClimb
+
+        TelemetryManager.shared.track(
+            LiveClimbAnalyticsEvent.justClimbStartTapped(
+                entryPoint: .homeJustClimb,
+                canStart: canStart
+            )
+        )
+
+        showingWorkoutEntrySheet = false
+
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+
+            guard canStart else {
+                TelemetryManager.shared.track(
+                    LiveClimbAnalyticsEvent.justClimbStartBlocked(
+                        entryPoint: .homeJustClimb,
+                        reason: .headphonesUnavailable
+                    )
+                )
+                showingJustClimbStartError = true
+                return
+            }
+
+            showingJustClimbSession = true
         }
     }
 

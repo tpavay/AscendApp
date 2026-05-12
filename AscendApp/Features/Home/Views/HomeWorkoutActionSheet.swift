@@ -5,6 +5,7 @@ struct HomeWorkoutActionSheet: View {
     @State private var themeManager = ThemeManager.shared
 
     let onManualEntry: () -> Void
+    let onJustClimb: () -> Void
     let onStartRoutine: () -> Void
     let onImportWorkouts: () -> Void
     let pendingImportCount: Int
@@ -46,7 +47,7 @@ struct HomeWorkoutActionSheet: View {
     }
 
     private var sheetSubtitle: String {
-        "Choose manual entry, routine, or import."
+        "Choose live tracking, manual entry, routine, or import."
     }
 
     var body: some View {
@@ -81,31 +82,38 @@ struct HomeWorkoutActionSheet: View {
                 .tracking(1.0)
                 .foregroundStyle(secondaryTextColor)
 
-            primaryActionButton(action: onManualEntry)
+            primaryActionButton(action: onJustClimb)
 
             HStack(spacing: 10) {
+                secondaryActionTile(
+                    action: onManualEntry,
+                    systemImage: "square.and.pencil",
+                    title: "Manual",
+                    subtitle: "Steps and time"
+                )
+
                 secondaryActionTile(
                     action: onStartRoutine,
                     systemImage: "timer",
                     title: "Start Routine",
                     subtitle: "Guided intervals"
                 )
-
-                secondaryActionTile(
-                    action: onImportWorkouts,
-                    systemImage: "tray.and.arrow.down",
-                    title: pendingImportCount > 0 ? "Review" : "Import",
-                    subtitle: "Apple Health",
-                    badgeCount: pendingImportCount
-                )
             }
+
+            secondaryActionTile(
+                action: onImportWorkouts,
+                systemImage: "tray.and.arrow.down",
+                title: pendingImportCount > 0 ? "Review Imports" : "Import Workouts",
+                subtitle: "Apple Health",
+                badgeCount: pendingImportCount
+            )
         }
     }
 
     private func primaryActionButton(action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 14) {
-                Image(systemName: "square.and.pencil")
+                Image(systemName: "figure.walk")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.black)
                     .frame(width: 42, height: 42)
@@ -119,11 +127,11 @@ struct HomeWorkoutActionSheet: View {
                     )
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Manual Entry")
+                    Text("Just Climb")
                         .font(.montserratBold(size: 17))
                         .foregroundStyle(.black)
 
-                    Text("Enter steps and duration")
+                    Text("Track live and end anytime")
                         .font(.montserratRegular(size: 12))
                         .foregroundStyle(.black.opacity(0.62))
                         .lineLimit(1)

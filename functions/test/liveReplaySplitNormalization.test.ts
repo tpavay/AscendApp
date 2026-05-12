@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  extendReplaySplitStepsToMaxBuckets,
   normalizeReplaySplitSteps,
 } from "../src/liveReplaySplitNormalization.js";
 
@@ -42,4 +43,10 @@ test("clamps regressing replay buckets", () => {
   });
 
   assert.deepEqual(steps, [0, 18, 18, 40]);
+});
+
+test("extends open-ended replay curves after completion", () => {
+  const steps = extendReplaySplitStepsToMaxBuckets([0, 20, 40], 40, 6);
+
+  assert.deepEqual(steps, [0, 20, 40, 40, 40, 40]);
 });

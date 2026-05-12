@@ -108,7 +108,7 @@ struct WeightIndicatorBadge: View {
 
         WeightIndicatorBadge(size: .small)
 
-        // PR badge simulation
+        // Adjacent badge simulation
         HStack(spacing: 2) {
             Text("8")
                 .font(.montserratSemiBold(size: 12))

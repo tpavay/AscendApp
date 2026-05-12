@@ -1,12 +1,16 @@
 import {onDocumentWritten} from "firebase-functions/v2/firestore";
 import * as admin from "firebase-admin";
 import {
+  extendReplaySplitStepsToMaxBuckets,
   MAX_REPLAY_SPLIT_CHECKPOINTS,
   normalizeReplaySplitSteps,
 } from "./liveReplaySplitNormalization.js";
 
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
 const LIVE_CLIMB_CONTEXT_TYPE = "live_climb";
+const JUST_CLIMB_CONTEXT_TYPE = "just_climb";
+const JUST_CLIMB_GLOBAL_CONTEXT_ID = "global";
+const JUST_CLIMB_TRACKING_MODE = "just_climb";
 
 interface LiveReplayIndexPayload {
   contextKey: string;
@@ -43,62 +47,150 @@ export const onWorkoutReplaySplitsWritten = onDocumentWritten(
       Record<string, unknown> | undefined;
     const userId = event.params.userId;
     const workoutId = event.params.workoutId;
-    const beforePayload = parseLiveReplayPayload(beforeData, {
+    const beforeClimbPayload = parseLiveClimbReplayPayload(beforeData, {
       requireEligibleParticipation: false,
     });
-    const afterPayload = parseLiveReplayPayload(afterData, {
+    const afterClimbPayload = parseLiveClimbReplayPayload(afterData, {
       requireEligibleParticipation: true,
     });
+    const beforeGlobalPayload = parseGlobalReplayPayload(beforeData);
+    const afterGlobalPayload = parseGlobalReplayPayload(afterData);
 
-    if (!beforePayload && !afterPayload) {
+    if (
+      !beforeClimbPayload &&
+      !afterClimbPayload &&
+      !beforeGlobalPayload &&
+      !afterGlobalPayload
+    ) {
       return;
     }
 
+    const publicUser = afterClimbPayload || afterGlobalPayload ?
+      await publicUserSnapshot(userId) :
+      null;
+
     if (
-      beforePayload &&
-      (!afterPayload || beforePayload.contextKey !== afterPayload.contextKey)
+      beforeClimbPayload &&
+      (
+        !afterClimbPayload ||
+        beforeClimbPayload.contextKey !== afterClimbPayload.contextKey
+      )
     ) {
-      await removeBestReplayEntries(beforePayload, userId, workoutId);
+      await removeBestReplayEntries(beforeClimbPayload, userId, workoutId);
     }
 
-    if (afterPayload) {
-      const publicUser = await publicUserSnapshot(userId);
+    if (afterClimbPayload && publicUser) {
       await publishBestReplayEntries(
-        afterPayload,
+        afterClimbPayload,
         userId,
         workoutId,
         publicUser
       );
     }
 
-    if (beforePayload) {
-      await deleteLegacyWorkoutReplayEntries(beforePayload, workoutId);
+    if (beforeClimbPayload) {
+      await deleteLegacyWorkoutReplayEntries(beforeClimbPayload, workoutId);
     }
 
-    if (afterPayload) {
-      await deleteLegacyWorkoutReplayEntries(afterPayload, workoutId);
+    if (afterClimbPayload) {
+      await deleteLegacyWorkoutReplayEntries(afterClimbPayload, workoutId);
+    }
+
+    if (beforeGlobalPayload) {
+      await deleteReplayEntriesForId(beforeGlobalPayload, workoutId);
+    }
+
+    if (afterGlobalPayload && publicUser) {
+      await publishReplayEntries(
+        afterGlobalPayload,
+        workoutId,
+        userId,
+        publicUser
+      );
     }
   }
 );
 
 /**
- * Converts a private workout backup into a replay indexing payload.
+ * Converts a completed Live Climb backup into a per-climb replay payload.
  * @param {Record<string, unknown> | undefined} data Raw workout data.
  * @param {{requireEligibleParticipation: boolean}} options Parse options.
  * @return {LiveReplayIndexPayload | null} Parsed replay payload, if valid.
  */
-function parseLiveReplayPayload(
+function parseLiveClimbReplayPayload(
   data: Record<string, unknown> | undefined,
   options: {requireEligibleParticipation: boolean}
 ): LiveReplayIndexPayload | null {
-  if (!data || data.source !== "headphone_motion") {
+  const parsed = parseReplayPayloadParts(data);
+  if (!parsed) {
     return null;
   }
 
   if (
     options.requireEligibleParticipation &&
-    !hasEligibleClimbAttemptParticipation(data.participations)
+    !parsed.hasEligibleClimbAttempt
   ) {
+    return null;
+  }
+
+  const climbId = stringValue(parsed.metadata.climbId);
+  if (!climbId) {
+    return null;
+  }
+
+  return replayPayload(
+    parsed,
+    LIVE_CLIMB_CONTEXT_TYPE,
+    climbId
+  );
+}
+
+/**
+ * Converts any completed live-tracked climb into the global Just Climb payload.
+ * @param {Record<string, unknown> | undefined} data Raw workout data.
+ * @return {LiveReplayIndexPayload | null} Parsed replay payload, if valid.
+ */
+function parseGlobalReplayPayload(
+  data: Record<string, unknown> | undefined
+): LiveReplayIndexPayload | null {
+  const parsed = parseReplayPayloadParts(data);
+  if (!parsed) {
+    return null;
+  }
+
+  const trackingMode = stringValue(parsed.metadata.trackingMode);
+  const isJustClimb = trackingMode === JUST_CLIMB_TRACKING_MODE;
+  if (!parsed.hasEligibleClimbAttempt && !isJustClimb) {
+    return null;
+  }
+
+  return replayPayload(
+    parsed,
+    JUST_CLIMB_CONTEXT_TYPE,
+    JUST_CLIMB_GLOBAL_CONTEXT_ID,
+    {extendThroughMaxBucket: true}
+  );
+}
+
+interface ParsedReplayPayloadParts {
+  metadata: Record<string, unknown>;
+  hasEligibleClimbAttempt: boolean;
+  splitIntervalSeconds: number;
+  splitSteps: number[];
+  finalDurationSeconds: number;
+  finalSteps: number;
+  targetStepCount: number | null;
+}
+
+/**
+ * Parses source metadata and common replay fields from a private workout.
+ * @param {Record<string, unknown> | undefined} data Raw workout data.
+ * @return {ParsedReplayPayloadParts | null} Parsed common parts, if valid.
+ */
+function parseReplayPayloadParts(
+  data: Record<string, unknown> | undefined
+): ParsedReplayPayloadParts | null {
+  if (!data || data.source !== "headphone_motion") {
     return null;
   }
 
@@ -114,7 +206,6 @@ function parseLiveReplayPayload(
     return null;
   }
 
-  const climbId = stringValue(metadata.climbId);
   const splitIntervalSeconds = positiveIntegerValue(
     metadata.splitIntervalSeconds
   );
@@ -125,7 +216,6 @@ function parseLiveReplayPayload(
   const targetStepCount = positiveIntegerValue(metadata.targetStepCount);
 
   if (
-    !climbId ||
     !splitIntervalSeconds ||
     !splitSteps ||
     splitSteps.length === 0 ||
@@ -135,22 +225,55 @@ function parseLiveReplayPayload(
     return null;
   }
 
-  const normalizedSplitSteps = normalizeReplaySplitSteps({
+  return {
+    metadata,
+    hasEligibleClimbAttempt: hasEligibleClimbAttemptParticipation(
+      data.participations
+    ),
     splitIntervalSeconds,
     splitSteps,
     finalDurationSeconds,
     finalSteps,
+    targetStepCount,
+  };
+}
+
+/**
+ * Creates a context-specific replay payload from parsed common fields.
+ * @param {ParsedReplayPayloadParts} parsed Common replay fields.
+ * @param {string} contextType Replay context type.
+ * @param {string} contextId Replay context ID.
+ * @param {Object} options Replay shaping options.
+ * @return {LiveReplayIndexPayload} Replay payload.
+ */
+function replayPayload(
+  parsed: ParsedReplayPayloadParts,
+  contextType: string,
+  contextId: string,
+  options: {extendThroughMaxBucket?: boolean} = {}
+): LiveReplayIndexPayload {
+  const normalizedSplitSteps = normalizeReplaySplitSteps({
+    splitIntervalSeconds: parsed.splitIntervalSeconds,
+    splitSteps: parsed.splitSteps,
+    finalDurationSeconds: parsed.finalDurationSeconds,
+    finalSteps: parsed.finalSteps,
   });
+  const splitSteps = options.extendThroughMaxBucket === true ?
+    extendReplaySplitStepsToMaxBuckets(
+      normalizedSplitSteps,
+      parsed.finalSteps
+    ) :
+    normalizedSplitSteps;
 
   return {
-    contextKey: contextKey(LIVE_CLIMB_CONTEXT_TYPE, climbId),
-    contextType: LIVE_CLIMB_CONTEXT_TYPE,
-    contextId: climbId,
-    splitIntervalSeconds,
-    splitSteps: normalizedSplitSteps,
-    finalDurationSeconds,
-    finalSteps,
-    targetStepCount,
+    contextKey: contextKey(contextType, contextId),
+    contextType,
+    contextId,
+    splitIntervalSeconds: parsed.splitIntervalSeconds,
+    splitSteps,
+    finalDurationSeconds: parsed.finalDurationSeconds,
+    finalSteps: parsed.finalSteps,
+    targetStepCount: parsed.targetStepCount,
   };
 }
 
@@ -200,9 +323,68 @@ async function deleteLegacyWorkoutReplayEntries(
   payload: LiveReplayIndexPayload,
   workoutId: string
 ): Promise<void> {
+  await deleteReplayEntriesForId(payload, workoutId);
+}
+
+/**
+ * Deletes replay entries with the given public row document ID.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @param {string} entryId Public row document ID.
+ */
+async function deleteReplayEntriesForId(
+  payload: LiveReplayIndexPayload,
+  entryId: string
+): Promise<void> {
   const writer = admin.firestore().bulkWriter();
-  deleteReplayEntries(writer, payload, workoutId);
+  deleteReplayEntries(writer, payload, entryId);
   await writer.close();
+}
+
+/**
+ * Publishes one saved attempt as a public replay row in a context.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @param {string} entryId Public row document ID.
+ * @param {string} userId Owner user ID.
+ * @param {PublicUserSnapshot} publicUser Public display snapshot.
+ */
+async function publishReplayEntries(
+  payload: LiveReplayIndexPayload,
+  entryId: string,
+  userId: string,
+  publicUser: PublicUserSnapshot
+): Promise<void> {
+  const db = admin.firestore();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const leaderboardRef = db
+    .collection(LIVE_REPLAY_COLLECTION)
+    .doc(payload.contextKey);
+
+  await db.runTransaction(async (transaction) => {
+    transaction.set(leaderboardRef, {
+      bucketIntervalSeconds: payload.splitIntervalSeconds,
+      contextId: payload.contextId,
+      contextType: payload.contextType,
+      schemaVersion: 1,
+      targetStepCount: payload.targetStepCount,
+      updatedAt: now,
+    }, {merge: true});
+
+    for (let index = 0; index < payload.splitSteps.length; index += 1) {
+      transaction.set(entryReference(payload, index, entryId), {
+        avatarToken: publicUser.avatarToken,
+        completionDurationSeconds: payload.finalDurationSeconds,
+        displayName: publicUser.displayName,
+        finalSteps: payload.finalSteps,
+        photoURL: publicUser.photoURL ?? "",
+        schemaVersion: 1,
+        splitIntervalSeconds: payload.splitIntervalSeconds,
+        stepsAtBucket: payload.splitSteps[index],
+        updatedAt: now,
+        userId,
+        workoutId: entryId,
+      });
+    }
+  });
 }
 
 /**

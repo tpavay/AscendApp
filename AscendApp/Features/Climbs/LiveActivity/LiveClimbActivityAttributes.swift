@@ -21,6 +21,32 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
             rank.map { "#\($0)" } ?? "--"
         }
 
+        var compactStepsLabel: String {
+            max(steps, 0).formatted()
+        }
+
+        var minimalStepsLabel: String {
+            let stepCount = max(steps, 0)
+
+            guard stepCount >= 1_000 else {
+                return "\(stepCount)"
+            }
+
+            if stepCount >= 10_000 {
+                return "\(stepCount / 1_000)k"
+            }
+
+            let roundedTenths = (stepCount + 50) / 100
+            let wholeThousands = roundedTenths / 10
+            let tenths = roundedTenths % 10
+
+            if tenths == 0 {
+                return "\(wholeThousands)k"
+            }
+
+            return "\(wholeThousands).\(tenths)k"
+        }
+
         var rankDetailLabel: String {
             guard let rank else { return "Rank --" }
 

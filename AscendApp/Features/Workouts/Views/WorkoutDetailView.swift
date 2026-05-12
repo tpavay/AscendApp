@@ -5,6 +5,7 @@
 //  Created by Tyler Pavay on 8/28/25.
 //
 
+import SwiftData
 import SwiftUI
 
 struct WorkoutDetailView: View {
@@ -13,6 +14,7 @@ struct WorkoutDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(AuthenticationViewModel.self) private var authVM
+    @Query(sort: \Workout.date, order: .reverse) private var allWorkouts: [Workout]
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
     @State private var showingEditWorkout = false
@@ -210,8 +212,7 @@ struct WorkoutDetailView: View {
                     workoutName: workout.name,
                     dateText: formatWorkoutDateTime(),
                     weightSummary: weightSummary,
-                    prCount: workout.totalPRCount,
-                    prDetails: prDetails,
+                    bestEfforts: workoutBestEfforts,
                     effectiveColorScheme: effectiveColorScheme
                 )
                 .padding(.top, 80) // Account for header overlay
@@ -273,8 +274,7 @@ struct WorkoutDetailView: View {
                     workoutName: workout.name,
                     dateText: formatWorkoutDateTime(),
                     weightSummary: weightSummary,
-                    prCount: workout.totalPRCount,
-                    prDetails: prDetails,
+                    bestEfforts: workoutBestEfforts,
                     effectiveColorScheme: effectiveColorScheme
                 )
 
@@ -306,8 +306,8 @@ struct WorkoutDetailView: View {
                 leftValue: workout.durationFormatted,
                 rightLabel: preferredMetric.displayName,
                 rightValue: formattedPrimaryMetric,
-                leftIsPR: isStatAPR(.duration),
-                rightIsPR: isStatAPR(preferredMetric == .steps ? .steps : .floors),
+                leftIsPR: false,
+                rightIsPR: false,
                 effectiveColorScheme: effectiveColorScheme
             )
 
@@ -333,7 +333,7 @@ struct WorkoutDetailView: View {
                 VerticalClimbCard(
                     value: verticalClimb.formatted(.number.precision(.fractionLength(1))),
                     unit: workout.verticalClimbUnit(measurementSystem: settingsManager.measurementSystem),
-                    isPR: isStatAPR(.verticalClimb),
+                    isPR: false,
                     effectiveColorScheme: effectiveColorScheme
                 )
             }
@@ -689,7 +689,7 @@ struct WorkoutDetailView: View {
             items.append(SecondaryStatItem(
                 label: "\(preferredMetric.unit)/Min",
                 value: pace.formatted(.number.precision(.fractionLength(1))),
-                isPR: isStatAPR(.pace)
+                isPR: false
             ))
         }
 
@@ -698,7 +698,7 @@ struct WorkoutDetailView: View {
             items.append(SecondaryStatItem(
                 label: "Calories",
                 value: "\(calories)",
-                isPR: isStatAPR(.calories)
+                isPR: false
             ))
         }
 
@@ -707,7 +707,7 @@ struct WorkoutDetailView: View {
             items.append(SecondaryStatItem(
                 label: "METs",
                 value: mets.formatted(.number.precision(.fractionLength(1))),
-                isPR: false // No PR type for METs
+                isPR: false
             ))
         }
 
@@ -736,55 +736,8 @@ struct WorkoutDetailView: View {
         }
     }
 
-    /// Build the list of all PR details for the trophy badge popover
-    private var prDetails: [PRDetail] {
-        var details: [PRDetail] = []
-
-        // Standard PRs
-        for pr in workout.achievedPersonalRecords {
-            details.append(PRDetail(emoji: pr.emoji, name: pr.displayName, isWeightPR: false))
-        }
-
-        // Weight PRs (stored as raw string keys)
-        if let weightPRKeys = workout.weightPersonalRecordTypes {
-            for key in weightPRKeys {
-                // Try weight combo record types first
-                if let recordType = WeightRecordType(rawValue: key) {
-                    details.append(PRDetail(emoji: recordType.emoji, name: recordType.displayName, isWeightPR: true))
-                }
-                // Then aggregate weight record types
-                else if let aggType = AggregateWeightRecordType(rawValue: key) {
-                    details.append(PRDetail(emoji: aggType.emoji, name: aggType.displayName, isWeightPR: true))
-                }
-                // Unknown key — show generic
-                else {
-                    details.append(PRDetail(emoji: "🏋️", name: key, isWeightPR: true))
-                }
-            }
-        }
-
-        return details
-    }
-
-    // MARK: - PR Awareness
-
-    private enum StatIdentifier {
-        case duration, steps, floors, pace, avgHeartRate, maxHeartRate, verticalClimb, calories
-    }
-
-    private func isStatAPR(_ stat: StatIdentifier) -> Bool {
-        let prTypes = workout.achievedPersonalRecords
-        let metric = settingsManager.preferredWorkoutMetric
-        switch stat {
-        case .duration:       return prTypes.contains(.longestDuration)
-        case .steps:          return metric == .steps && prTypes.contains(.mostSteps)
-        case .floors:         return metric == .floors && prTypes.contains(.mostFloors)
-        case .pace:           return prTypes.contains(.highestAveragePace)
-        case .avgHeartRate:   return prTypes.contains(.highestAverageHeartRate)
-        case .maxHeartRate:   return prTypes.contains(.highestMaxHeartRate)
-        case .verticalClimb:  return prTypes.contains(.highestVerticalClimb)
-        case .calories:       return prTypes.contains(.mostCaloriesBurned)
-        }
+    private var workoutBestEfforts: [RankedBestEffort] {
+        BestEffortRankingBuilder.efforts(for: workout, from: allWorkouts)
     }
 
     // MARK: - Formatting

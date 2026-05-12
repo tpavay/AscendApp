@@ -6,6 +6,7 @@ struct WorkoutLiveClimbShareCard: View {
     let rank: Int?
     let rankTotal: Int?
     var isRankLoading = false
+    var bestEffortText: String?
 
     var body: some View {
         GeometryReader { geometry in
@@ -72,6 +73,12 @@ struct WorkoutLiveClimbShareCard: View {
 
             Spacer(minLength: 0)
 
+            if let bestEffortText {
+                bestEffortBanner(bestEffortText)
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, 10)
+            }
+
             VStack(spacing: 4) {
                 Text(climb.name)
                     .font(.montserratBold(size: 27))
@@ -89,6 +96,30 @@ struct WorkoutLiveClimbShareCard: View {
             .padding(.horizontal, 26)
             .padding(.bottom, 26)
         }
+    }
+
+    private func bestEffortBanner(_ text: String) -> some View {
+        HStack(spacing: 5) {
+            AppIcon(token: .bestEffortTrophy, pointSize: 10, weight: .bold)
+                .foregroundStyle(.accent.opacity(0.9))
+
+            Text(text.uppercased())
+                .font(.montserratBold(size: 7.4))
+                .tracking(0.8)
+                .foregroundStyle(.accent.opacity(0.86))
+                .lineLimit(1)
+                .minimumScaleFactor(0.62)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(
+            Capsule()
+                .fill(.black.opacity(0.5))
+                .overlay(
+                    Capsule()
+                        .stroke(.accent.opacity(0.24), lineWidth: 0.8)
+                )
+        )
     }
 
     private var rankBlock: some View {

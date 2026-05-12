@@ -16,7 +16,7 @@ struct SecondaryStatItem: Identifiable {
 }
 
 /// Compact row of 1–3 secondary stat cards (pace, calories, METs).
-/// Each card supports PR-aware accent borders.
+/// Each card supports an optional accent border.
 struct SecondaryStatsRow: View {
     let items: [SecondaryStatItem]
     let effectiveColorScheme: ColorScheme

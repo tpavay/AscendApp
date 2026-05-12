@@ -32,6 +32,17 @@ protocol WorkoutDataProviding {
     func refreshCandidates(existingIndex: WorkoutImportCoordinator.ExistingWorkoutIndex) async throws -> [ImportedWorkoutCandidate]
 }
 
+private struct LiveClimbAppleHealthCandidatePair {
+    let workout: Workout
+    let sample: HealthKitWorkoutSample
+    let score: Double
+}
+
+private struct LiveClimbAppleHealthMatch {
+    let workout: Workout
+    let sample: HealthKitWorkoutSample
+}
+
 @MainActor
 @Observable
 final class WorkoutImportCoordinator {
@@ -235,7 +246,14 @@ final class WorkoutImportCoordinator {
             let previousSuccessfulCheckAt = HealthKitSyncState.lastSuccessfulCheckAt ?? lastCheckAt
             _ = await performAppleHealthRefreshIfNeeded(trigger: trigger)
 
-            let existingIndex = try buildExistingWorkoutIndex(modelContext: modelContext)
+            var existingIndex = try buildExistingWorkoutIndex(modelContext: modelContext)
+            let enrichedWorkouts = try await enrichLiveClimbWorkoutsWithAppleHealthIfPossible(
+                existingIndex: existingIndex,
+                modelContext: modelContext
+            )
+            if !enrichedWorkouts.isEmpty {
+                existingIndex = try buildExistingWorkoutIndex(modelContext: modelContext)
+            }
             pendingCandidates = try await buildPendingCandidates(existingIndex: existingIndex)
             try pruneAutoImportedReviewState(modelContext: modelContext)
             await autoImportEligibleAppleHealthCandidatesIfNeeded(
@@ -365,6 +383,25 @@ final class WorkoutImportCoordinator {
 
     func handleAppleHealthAutoImportPreferenceChanged() async {
         await syncAppleHealthAutomationServices()
+    }
+
+    func enrichLiveClimbWorkoutWithAppleHealthIfPossible(
+        _ workout: Workout,
+        modelContext: ModelContext
+    ) async {
+        await authorizationController.refreshAuthorizationRequestStatus()
+        _ = await performAppleHealthRefreshIfNeeded(trigger: .backgroundObserver)
+
+        do {
+            let existingIndex = try buildExistingWorkoutIndex(modelContext: modelContext)
+            _ = try await enrichLiveClimbWorkoutsWithAppleHealthIfPossible(
+                existingIndex: existingIndex,
+                modelContext: modelContext,
+                eligibleWorkoutIDs: [workout.id]
+            )
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
     }
 
     private func performAppleHealthRefreshIfNeeded(trigger: ImportRefreshTrigger) async -> Bool {
@@ -551,6 +588,141 @@ final class WorkoutImportCoordinator {
         }
     }
 
+    @discardableResult
+    private func enrichLiveClimbWorkoutsWithAppleHealthIfPossible(
+        existingIndex: ExistingWorkoutIndex,
+        modelContext: ModelContext,
+        eligibleWorkoutIDs: Set<UUID>? = nil
+    ) async throws -> [Workout] {
+        guard authorizationController.connectionState == .connected else { return [] }
+
+        let ignoredAppleHealthWorkoutIDs = ignoredAppleHealthWorkoutStore.load()
+        let appleSamples = HealthKitSyncState.cachedWorkoutSamples
+            .filter { !ignoredAppleHealthWorkoutIDs.contains($0.externalRecordID) }
+            .filter { !isAppleHealthImported($0.externalRecordID, existingIndex: existingIndex) }
+
+        guard !appleSamples.isEmpty else { return [] }
+
+        let liveClimbWorkouts = existingIndex.allWorkouts.filter { workout in
+            if let eligibleWorkoutIDs, !eligibleWorkoutIDs.contains(workout.id) {
+                return false
+            }
+
+            return isEligibleForLiveClimbAppleHealthEnrichment(workout)
+        }
+
+        let matches = resolveLiveClimbAppleHealthMatches(
+            liveClimbWorkouts: liveClimbWorkouts,
+            appleSamples: appleSamples
+        )
+        guard !matches.isEmpty else { return [] }
+
+        var updatedWorkouts: [Workout] = []
+        var updates: [WorkoutMutation.Update] = []
+        var linkedAppleHealthIDs = Set<String>()
+
+        for match in matches {
+            guard let hkWorkout = try await workoutReader.fetchWorkout(withExternalRecordID: match.sample.externalRecordID),
+                  let metricWindow = liveClimbMetricWindow(for: match.workout, sample: match.sample) else {
+                continue
+            }
+
+            let metrics = await metricsReader.fetchMetrics(for: hkWorkout, during: metricWindow)
+            let before = LeaderboardWorkoutSnapshot(workout: match.workout)
+            applyAppleHealthEnrichmentMetrics(metrics, from: match.sample, to: match.workout)
+            ensureAppleHealthLinkExists(sample: match.sample, for: match.workout, modelContext: modelContext)
+
+            updatedWorkouts.append(match.workout)
+            updates.append(.init(before: before, after: LeaderboardWorkoutSnapshot(workout: match.workout)))
+            linkedAppleHealthIDs.insert(match.sample.externalRecordID)
+        }
+
+        guard !updatedWorkouts.isEmpty else { return [] }
+
+        try WorkoutMutationHandler.shared.workoutsDidChange(
+            modelContext: modelContext,
+            mutation: WorkoutMutation(updated: updates),
+            changedWorkouts: updatedWorkouts
+        )
+
+        pendingCandidates.removeAll { candidate in
+            guard let externalRecordID = candidate.appleHealthSample?.externalRecordID else { return false }
+            return linkedAppleHealthIDs.contains(externalRecordID)
+        }
+
+        return updatedWorkouts
+    }
+
+    private func isEligibleForLiveClimbAppleHealthEnrichment(_ workout: Workout) -> Bool {
+        workout.isLiveClimbAttemptWorkout && !hasAppleHealthLink(workout)
+    }
+
+    private func resolveLiveClimbAppleHealthMatches(
+        liveClimbWorkouts: [Workout],
+        appleSamples: [HealthKitWorkoutSample]
+    ) -> [LiveClimbAppleHealthMatch] {
+        let pairs = liveClimbWorkouts.flatMap { workout in
+            appleSamples.compactMap { sample -> LiveClimbAppleHealthCandidatePair? in
+                guard let score = liveClimbAppleHealthMatchScore(workout: workout, sample: sample) else {
+                    return nil
+                }
+
+                return LiveClimbAppleHealthCandidatePair(workout: workout, sample: sample, score: score)
+            }
+        }
+
+        let pairsByWorkoutID = Dictionary(grouping: pairs, by: { $0.workout.id })
+        let pairsByAppleHealthID = Dictionary(grouping: pairs, by: { $0.sample.externalRecordID })
+
+        return pairs
+            .filter { pair in
+                pairsByWorkoutID[pair.workout.id]?.count == 1 &&
+                    pairsByAppleHealthID[pair.sample.externalRecordID]?.count == 1
+            }
+            .sorted { lhs, rhs in
+                if lhs.workout.date != rhs.workout.date {
+                    return lhs.workout.date < rhs.workout.date
+                }
+
+                return lhs.score > rhs.score
+            }
+            .map { LiveClimbAppleHealthMatch(workout: $0.workout, sample: $0.sample) }
+    }
+
+    private func liveClimbAppleHealthMatchScore(
+        workout: Workout,
+        sample: HealthKitWorkoutSample
+    ) -> Double? {
+        let liveDuration = max(workout.duration, 1)
+        let liveStart = workout.date
+        let liveEnd = liveStart.addingTimeInterval(liveDuration)
+        let overlapStart = max(liveStart, sample.startDate)
+        let overlapEnd = min(liveEnd, sample.endDate)
+        let overlapDuration = overlapEnd.timeIntervalSince(overlapStart)
+        guard overlapDuration > 0 else { return nil }
+
+        let overlapRatio = overlapDuration / liveDuration
+        guard overlapRatio >= 0.70 else { return nil }
+
+        let startDelta = abs(sample.startDate.timeIntervalSince(liveStart))
+        guard startDelta <= 15 * 60 else { return nil }
+
+        return (overlapRatio * 100) - min(startDelta / 60, 15)
+    }
+
+    private func liveClimbMetricWindow(
+        for workout: Workout,
+        sample: HealthKitWorkoutSample
+    ) -> ClosedRange<Date>? {
+        let liveStart = workout.date
+        let liveEnd = workout.date.addingTimeInterval(max(workout.duration, 1))
+        let start = max(liveStart, sample.startDate)
+        let end = min(liveEnd, sample.endDate)
+
+        guard end > start else { return nil }
+        return start...end
+    }
+
     private func matchAppleHealthSample(
         toWorkoutWindowStart workoutWindowStart: Date,
         workoutWindowEnd: Date?,
@@ -706,6 +878,14 @@ final class WorkoutImportCoordinator {
         let refreshedIndex = try buildExistingWorkoutIndex(modelContext: modelContext)
         if let existingWorkout = refreshedIndex.workout(forAppleHealthID: sample.externalRecordID) {
             return .updatedExisting(existingWorkout)
+        }
+
+        let enrichedWorkouts = try await enrichLiveClimbWorkoutsWithAppleHealthIfPossible(
+            existingIndex: refreshedIndex,
+            modelContext: modelContext
+        )
+        if let enrichedWorkout = enrichedWorkouts.first(where: { $0.healthKitUUID == sample.externalRecordID }) {
+            return .updatedExisting(enrichedWorkout)
         }
 
         modelContext.insert(workout)
@@ -987,6 +1167,31 @@ final class WorkoutImportCoordinator {
         workout.healthKitUUID = sample.externalRecordID
     }
 
+    private func applyAppleHealthEnrichmentMetrics(
+        _ metrics: WorkoutMetrics,
+        from sample: HealthKitWorkoutSample,
+        to workout: Workout
+    ) {
+        if let avgHeartRate = metrics.avgHeartRate {
+            workout.avgHeartRate = avgHeartRate
+        }
+        if let maxHeartRate = metrics.maxHeartRate {
+            workout.maxHeartRate = maxHeartRate
+        }
+        if !metrics.heartRateTimeSeries.isEmpty {
+            workout.heartRateData = metrics.heartRateTimeSeries.encoded
+        }
+        if let caloriesBurned = metrics.caloriesBurned {
+            workout.caloriesBurned = caloriesBurned
+        }
+        if let averageMETs = metrics.averageMETs {
+            workout.averageMETs = averageMETs
+        }
+
+        workout.deviceModel = sample.deviceModel ?? sample.displaySourceName
+        workout.healthKitUUID = sample.externalRecordID
+    }
+
     private func ensureAppleHealthLinkExists(
         sample: HealthKitWorkoutSample,
         for workout: Workout,
@@ -1149,7 +1354,7 @@ final class WorkoutImportCoordinator {
             )
         }
 
-        // Recalculate PRs and leaderboard stats
+        // Refresh derived workout data and leaderboard stats.
         try WorkoutMutationHandler.shared.workoutsDidChange(
             modelContext: modelContext,
             mutation: .imported(newWorkouts.map(LeaderboardWorkoutSnapshot.init(workout:))),

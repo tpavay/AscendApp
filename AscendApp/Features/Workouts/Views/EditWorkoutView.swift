@@ -798,7 +798,7 @@ struct EditWorkoutView: View {
             try modelContext.save()
             print("✅ Successfully updated workout with \(workout.photos.count) photos")
 
-            // Recalculate PRs and leaderboard stats after edit
+            // Refresh derived workout data and leaderboard stats after edit.
             try WorkoutMutationHandler.shared.workoutsDidChange(
                 modelContext: modelContext,
                 mutation: .updated(

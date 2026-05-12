@@ -161,12 +161,6 @@ class Workout {
     // Strava sync tracking - stored as JSON for Codable compatibility
     var stravaSyncData: String?
 
-    // Personal Records tracking - stored as JSON for reliable CoreData serialization
-    var personalRecordTypesData: Data?
-
-    // Weight Personal Records tracking - stored as JSON
-    var weightPersonalRecordTypesData: Data?
-
     // Weight equipment tracking - stored as JSON
     var weightConfigurationData: Data?
 
@@ -174,21 +168,6 @@ class Workout {
     var percentileScoresData: Data?
     var effortScoreValue: Double?
     var equivalentLevelValue: Int?
-
-    // Computed property for easy access to personal record types
-    var personalRecordTypes: [String]? {
-        get {
-            guard let data = personalRecordTypesData else { return nil }
-            return try? JSONDecoder().decode([String].self, from: data)
-        }
-        set {
-            if let newValue = newValue {
-                personalRecordTypesData = try? JSONEncoder().encode(newValue)
-            } else {
-                personalRecordTypesData = nil
-            }
-        }
-    }
 
     // Computed property for easy access to weight configuration
     var weightConfiguration: WeightConfiguration? {
@@ -203,6 +182,10 @@ class Workout {
     /// Whether this workout has any weight equipment configured
     var hasWeights: Bool {
         !(weightConfiguration?.isEmpty ?? true)
+    }
+
+    var weightLoadoutKey: WeightLoadoutKey? {
+        WeightLoadoutKey(configuration: weightConfiguration)
     }
 
     // Computed property for easy access to percentile scores
@@ -268,7 +251,7 @@ class Workout {
         }
     }
 
-    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int, floors: Int, stepsPerFloor: Int = 16, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil, hevyWorkoutId: String? = nil, photos: [Photo] = [], highlightedPhotoId: UUID? = nil, personalRecordTypes: [String]? = nil, weightConfiguration: WeightConfiguration? = nil) {
+    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int, floors: Int, stepsPerFloor: Int = 16, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil, hevyWorkoutId: String? = nil, photos: [Photo] = [], highlightedPhotoId: UUID? = nil, weightConfiguration: WeightConfiguration? = nil) {
         let createdAt = Date()
         self.id = UUID()
         self.name = name.isEmpty ? "Workout" : name
@@ -304,7 +287,6 @@ class Workout {
         self.highlightedPhotoId = highlightedPhotoId ?? photos.first?.id
         self.sourceLinks = []
         self.participations = []
-        self.personalRecordTypes = personalRecordTypes
         self.weightConfiguration = weightConfiguration
     }
 
@@ -500,53 +482,6 @@ class Workout {
     func setHighlightedPhoto(_ photoId: UUID) {
         guard photos.contains(where: { $0.id == photoId }) else { return }
         highlightedPhotoId = photoId
-    }
-    
-    // MARK: - Personal Records
-    var achievedPersonalRecords: [PersonalRecordType] {
-        guard let recordTypes = personalRecordTypes else { return [] }
-        return recordTypes.compactMap { PersonalRecordType(rawValue: $0) }
-    }
-    
-    var hasPersonalRecords: Bool {
-        return !(personalRecordTypes?.isEmpty ?? true)
-    }
-    
-    func addPersonalRecord(_ type: PersonalRecordType) {
-        if personalRecordTypes == nil {
-            personalRecordTypes = []
-        }
-        if !(personalRecordTypes?.contains(type.rawValue) ?? false) {
-            personalRecordTypes?.append(type.rawValue)
-        }
-    }
-
-    // MARK: - Weight Personal Records
-
-    /// Computed property for easy access to weight personal record types
-    var weightPersonalRecordTypes: [String]? {
-        get {
-            guard let data = weightPersonalRecordTypesData else { return nil }
-            return try? JSONDecoder().decode([String].self, from: data)
-        }
-        set {
-            if let newValue = newValue {
-                weightPersonalRecordTypesData = try? JSONEncoder().encode(newValue)
-            } else {
-                weightPersonalRecordTypesData = nil
-            }
-        }
-    }
-
-    var hasWeightPersonalRecords: Bool {
-        return !(weightPersonalRecordTypes?.isEmpty ?? true)
-    }
-
-    /// Total PR count combining standard and weight PRs (for share cards)
-    var totalPRCount: Int {
-        let standardPRs = personalRecordTypes?.count ?? 0
-        let weightPRs = weightPersonalRecordTypes?.count ?? 0
-        return standardPRs + weightPRs
     }
     
     // MARK: - Streak Calculations

@@ -11,7 +11,6 @@ import SwiftData
 final class WorkoutMutationHandler {
     static let shared = WorkoutMutationHandler()
 
-    private let settingsManager = SettingsManager.shared
     private let leaderboardService = LeaderboardService.shared
 
     private init() {}
@@ -28,12 +27,6 @@ final class WorkoutMutationHandler {
         if let currentUserId {
             markChangedWorkoutsForRemoteSync(changedWorkouts, userId: currentUserId)
         }
-
-        try PersonalRecordService.recalculateAllPersonalRecords(
-            modelContext: modelContext,
-            measurementSystem: settingsManager.measurementSystem,
-            stepHeight: settingsManager.stepHeight
-        )
 
         if let currentUser {
             let userId = currentUser.uid

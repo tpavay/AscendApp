@@ -62,6 +62,8 @@ final class HeadphoneMotionSessionService {
     private var recordingStartedAt: Date?
     private var accumulatedPausedDuration: TimeInterval = 0
     private var pauseStartedAt: Date?
+    private var lastMotionUpdateAt: Date?
+    private var lastMotionRecoveryAttemptAt: Date?
 
     private(set) var isDeviceMotionAvailable = false
     private(set) var isConnected = false
@@ -126,6 +128,8 @@ final class HeadphoneMotionSessionService {
         recordingStartedAt = startedAt
         accumulatedPausedDuration = 0
         pauseStartedAt = nil
+        lastMotionUpdateAt = nil
+        lastMotionRecoveryAttemptAt = nil
         runner?.startRecording(startedAt: startedAt)
 
         startDurationTimer()
@@ -140,6 +144,7 @@ final class HeadphoneMotionSessionService {
         let pausedAt = Date()
         duration = activeDuration(at: pausedAt)
         pauseStartedAt = pausedAt
+        lastMotionUpdateAt = nil
         status = .paused
         durationTimer?.invalidate()
         durationTimer = nil
@@ -157,6 +162,8 @@ final class HeadphoneMotionSessionService {
             accumulatedPausedDuration += resumedAt.timeIntervalSince(pauseStartedAt)
         }
         pauseStartedAt = nil
+        lastMotionUpdateAt = nil
+        lastMotionRecoveryAttemptAt = nil
         status = isConnected ? .recording : .waitingForMotion
         runner?.resumeRecording(resumedAt: resumedAt)
         startDurationTimer()
@@ -194,6 +201,8 @@ final class HeadphoneMotionSessionService {
             recordingStartedAt = nil
             accumulatedPausedDuration = 0
             pauseStartedAt = nil
+            lastMotionUpdateAt = nil
+            lastMotionRecoveryAttemptAt = nil
             status = .finished
             return result
         } catch {
@@ -206,6 +215,11 @@ final class HeadphoneMotionSessionService {
         isConnected = connected
         if connected, status == .waitingForMotion {
             status = .recording
+            lastMotionUpdateAt = nil
+            lastMotionRecoveryAttemptAt = nil
+        } else if !connected, status == .recording {
+            status = .waitingForMotion
+            lastMotionUpdateAt = nil
         }
     }
 
@@ -217,6 +231,7 @@ final class HeadphoneMotionSessionService {
             status = .recording
         }
 
+        lastMotionUpdateAt = Date()
         stepCount = update.stepCount
         sampleCount = update.sampleCount
         currentAcceleration = update.acceleration
@@ -246,9 +261,30 @@ final class HeadphoneMotionSessionService {
         durationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.status.isRecording else { return }
-                self.duration = self.activeDuration()
+                let now = Date()
+                self.duration = self.activeDuration(at: now)
+                self.restartStalledMotionIfNeeded(at: now)
             }
         }
+    }
+
+    private func restartStalledMotionIfNeeded(at now: Date) {
+        guard status.isRecording,
+              !status.isPaused,
+              let recordingStartedAt else {
+            return
+        }
+
+        let lastUpdateAt = lastMotionUpdateAt ?? recordingStartedAt
+        guard now.timeIntervalSince(lastUpdateAt) >= 4 else { return }
+
+        if let lastMotionRecoveryAttemptAt,
+           now.timeIntervalSince(lastMotionRecoveryAttemptAt) < 5 {
+            return
+        }
+
+        lastMotionRecoveryAttemptAt = now
+        runner?.restartDeviceMotionUpdatesIfNeeded()
     }
 
     private func activeDuration(at date: Date = Date()) -> TimeInterval {
@@ -261,7 +297,7 @@ final class HeadphoneMotionSessionService {
     }
 }
 
-private final class HeadphoneMotionSessionRunner {
+private final class HeadphoneMotionSessionRunner: @unchecked Sendable {
     private let motionManager: CMHeadphoneMotionManager
     private let motionQueue: OperationQueue
     private let processor = HeadphoneMotionSessionProcessor()
@@ -270,6 +306,10 @@ private final class HeadphoneMotionSessionRunner {
     private let onConnectionChange: (Bool) -> Void
     private let onUpdate: (HeadphoneMotionSessionUpdate) -> Void
     private let onError: (String) -> Void
+    private var isRecording = false
+    private var isPausedByUser = false
+    private var restartWorkItem: DispatchWorkItem?
+    private var lastRestartAttemptAt: Date?
 
     var isDeviceMotionAvailable: Bool {
         motionManager.isDeviceMotionAvailable
@@ -298,11 +338,17 @@ private final class HeadphoneMotionSessionRunner {
     }
 
     deinit {
+        restartWorkItem?.cancel()
         motionManager.stopDeviceMotionUpdates()
+        motionManager.stopConnectionStatusUpdates()
         motionQueue.cancelAllOperations()
     }
 
     func startRecording(startedAt: Date) {
+        isRecording = true
+        isPausedByUser = false
+        startConnectionStatusUpdatesIfNeeded()
+
         motionQueue.addOperation { [processor] in
             processor.start(startedAt: startedAt)
         }
@@ -313,6 +359,8 @@ private final class HeadphoneMotionSessionRunner {
     }
 
     func pauseRecording(pausedAt: Date) {
+        isPausedByUser = true
+        restartWorkItem?.cancel()
         motionManager.stopDeviceMotionUpdates()
 
         motionQueue.addOperation { [processor] in
@@ -321,6 +369,8 @@ private final class HeadphoneMotionSessionRunner {
     }
 
     func resumeRecording(resumedAt: Date) {
+        isPausedByUser = false
+
         motionQueue.addOperation { [processor] in
             processor.resume(resumedAt: resumedAt)
         }
@@ -334,19 +384,44 @@ private final class HeadphoneMotionSessionRunner {
         reason: HeadphoneMotionSessionStopReason,
         completion: @escaping @Sendable (Result<HeadphoneMotionSessionResult, HeadphoneMotionSessionError>) -> Void
     ) {
+        isRecording = false
+        isPausedByUser = false
+        restartWorkItem?.cancel()
         motionManager.stopDeviceMotionUpdates()
+        motionManager.stopConnectionStatusUpdates()
 
         motionQueue.addOperation { [processor] in
             completion(processor.finish(endedAt: Date(), reason: reason))
         }
     }
 
+    func restartDeviceMotionUpdatesIfNeeded() {
+        guard isRecording,
+              !isPausedByUser else {
+            return
+        }
+
+        scheduleDeviceMotionRestart(delay: 0.25)
+    }
+
+    private func startConnectionStatusUpdatesIfNeeded() {
+        guard !motionManager.isConnectionStatusActive else { return }
+
+        motionManager.startConnectionStatusUpdates()
+    }
+
     private func startDeviceMotionUpdates() {
+        guard isRecording,
+              !isPausedByUser,
+              !motionManager.isDeviceMotionActive else {
+            return
+        }
+
         motionManager.startDeviceMotionUpdates(to: motionQueue) { [weak self, processor] motion, error in
             guard let self else { return }
 
             if let error {
-                self.onError(error.localizedDescription)
+                self.handleDeviceMotionError(error)
                 return
             }
 
@@ -355,6 +430,56 @@ private final class HeadphoneMotionSessionRunner {
             guard update.shouldPublish else { return }
 
             self.onUpdate(update)
+        }
+    }
+
+    private func handleDeviceMotionError(_ error: Error) {
+        guard isRecoverableMotionError(error) else {
+            onError(error.localizedDescription)
+            return
+        }
+
+        onConnectionChange(false)
+        scheduleDeviceMotionRestart(delay: 0.75)
+    }
+
+    private func scheduleDeviceMotionRestart(delay: TimeInterval) {
+        let now = Date()
+        if let lastRestartAttemptAt,
+           now.timeIntervalSince(lastRestartAttemptAt) < 1 {
+            return
+        }
+
+        lastRestartAttemptAt = now
+        restartWorkItem?.cancel()
+        motionManager.stopDeviceMotionUpdates()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.motionQueue.addOperation { [weak self] in
+                self?.startDeviceMotionUpdates()
+            }
+        }
+        restartWorkItem = workItem
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(
+            deadline: .now() + delay,
+            execute: workItem
+        )
+    }
+
+    private func isRecoverableMotionError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        guard nsError.domain == CMErrorDomain else { return true }
+
+        switch CMError(rawValue: UInt32(nsError.code)) {
+        case CMErrorNotAuthorized,
+             CMErrorNotEntitled,
+             CMErrorNotAvailable,
+             CMErrorMotionActivityNotAuthorized,
+             CMErrorMotionActivityNotEntitled,
+             CMErrorMotionActivityNotAvailable:
+            return false
+        default:
+            return true
         }
     }
 }

@@ -13,7 +13,8 @@ struct WorkoutShareCardComposer {
         measurementSystem: MeasurementSystem,
         stepHeight: Double,
         preferredMetric: WorkoutMetric,
-        preset: WorkoutShareCardPreset = .defaultSquarePoster
+        preset: WorkoutShareCardPreset = .defaultSquarePoster,
+        bestEffort: RankedBestEffort? = nil
     ) -> WorkoutShareCardComposition {
         let resolvedStats = resolvedStats(
             for: workout,
@@ -34,7 +35,8 @@ struct WorkoutShareCardComposer {
         return WorkoutShareCardComposition(
             preset: preset,
             heroStat: heroStat,
-            supportingStats: Array(supportingStats)
+            supportingStats: Array(supportingStats),
+            bestEffortText: bestEffort?.sentence
         )
     }
 

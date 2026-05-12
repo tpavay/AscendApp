@@ -22,6 +22,32 @@ final class LiveClimbActivityManager {
         progress: Double,
         isPaused: Bool
     ) async {
+        await start(
+            climb: climb,
+            sessionTitle: climb.name,
+            sessionSubtitle: climb.displayLocation,
+            targetSteps: climb.referenceStepCount,
+            steps: steps,
+            rank: rank,
+            rankTotal: rankTotal,
+            duration: duration,
+            progress: progress,
+            isPaused: isPaused
+        )
+    }
+
+    func start(
+        climb: Climb?,
+        sessionTitle: String,
+        sessionSubtitle: String,
+        targetSteps: Int,
+        steps: Int,
+        rank: Int?,
+        rankTotal: Int,
+        duration: TimeInterval,
+        progress: Double,
+        isPaused: Bool
+    ) async {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
             return
         }
@@ -30,10 +56,10 @@ final class LiveClimbActivityManager {
 
         let attributes = LiveClimbActivityAttributes(
             sessionID: UUID().uuidString,
-            climbID: climb.id,
-            climbName: climb.name,
-            climbLocation: climb.displayLocation,
-            targetSteps: climb.referenceStepCount
+            climbID: climb?.id ?? "just-climb",
+            climbName: sessionTitle,
+            climbLocation: sessionSubtitle,
+            targetSteps: max(targetSteps, 0)
         )
         let state = makeState(
             steps: steps,
@@ -62,6 +88,8 @@ final class LiveClimbActivityManager {
 #endif
             return
         }
+
+        guard let climb else { return }
 
         let photoRequest = LiveClimbActivityPhotoRequest(
             climbID: climb.id,

@@ -75,8 +75,8 @@ struct WorkoutMetricExplanationView: View {
                         
                         affectedAreaItem(
                             icon: "star.fill",
-                            title: "Personal Record Badges",
-                            description: "PR badges show \"Most Steps\" or \"Most Floors\" based on your selection. Other PR types (duration, pace, etc.) always appear."
+                            title: "Best Efforts",
+                            description: "Best Effort badges stay step-based and include exact weighted contexts when weights are used."
                         )
                     }
                     .padding(.horizontal, 24)

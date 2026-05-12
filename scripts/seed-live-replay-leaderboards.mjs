@@ -4,9 +4,12 @@
  * Live Replay Leaderboard Seed Script
  *
  * Seeds or clears dev/staging replay leaderboard data for Live Climbs using the
- * Firebase Admin SDK. The script writes the read-only public replay index:
+ * Firebase Admin SDK. The script writes the read-only public replay indexes:
  *
  * live_replay_leaderboards/{contextKey}/splitBuckets/{bucketIndex}/entries/{entryId}
+ *
+ * The seed pack writes per-climb Live Climb contexts and the open-ended global
+ * Just Climb context used by live tracked sessions without a climb target.
  *
  * Usage:
  *   ASCEND_SEED_SOURCE_USER_ID=<uid> node scripts/seed-live-replay-leaderboards.mjs seed --project dev
@@ -34,6 +37,8 @@ const DEV_PROJECT_ID = "ascend-f2e4f";
 const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
 const LIVE_CLIMB_CONTEXT_TYPE = "live_climb";
+const JUST_CLIMB_CONTEXT_TYPE = "just_climb";
+const JUST_CLIMB_GLOBAL_CONTEXT_ID = "global";
 const DEFAULT_DEV_SEED_PACK_ID = "live-replay-v1-dev";
 const DEFAULT_STAGING_SEED_PACK_ID = "live-replay-v1-staging";
 const DEFAULT_APPLE_HEALTH_STEP_FACTOR = 0.78;
@@ -507,10 +512,26 @@ function buildSeedPlan(climbsById, paceSamples, args, avatarURLs) {
     };
   });
 
+  const justClimbAttempts = climbPlans.flatMap((plan) => plan.attempts);
+  const justClimbClearAttemptIds = climbPlans.flatMap(
+    (plan) => plan.clearAttemptIds
+  );
+  const justClimbMaxBucketIndex = MAX_BUCKET_INDEX;
+  const justClimbPlan = {
+    attempts: justClimbAttempts,
+    clearAttemptIds: justClimbClearAttemptIds,
+    maxBucketIndex: justClimbMaxBucketIndex,
+    entryDocumentCount: justClimbAttempts.length * (justClimbMaxBucketIndex + 1),
+  };
+
   return {
     climbPlans,
-    totalEntryDocuments: climbPlans.reduce((sum, plan) => sum + plan.entryDocumentCount, 0),
-    totalSummaryDocuments: climbPlans.length,
+    justClimbPlan,
+    totalEntryDocuments: climbPlans.reduce(
+      (sum, plan) => sum + plan.entryDocumentCount,
+      justClimbPlan.entryDocumentCount
+    ),
+    totalSummaryDocuments: climbPlans.length + 1,
   };
 }
 
@@ -617,6 +638,16 @@ function printPlan(seedPlan, args, avatarFileCount, avatarURLCount) {
       ].join(" | ")
     );
   }
+
+  console.log(
+    [
+      "GLOBAL".padEnd(6),
+      "just-climb-global".padEnd(25),
+      `${seedPlan.justClimbPlan.attempts.length} completed`,
+      `${seedPlan.justClimbPlan.attempts.length} replay rows`,
+      `${seedPlan.justClimbPlan.maxBucketIndex + 1} buckets`,
+    ].join(" | ")
+  );
 }
 
 async function clearSeedPack(db, seedPlan, args) {
@@ -636,6 +667,15 @@ async function clearSeedPack(db, seedPlan, args) {
     }, {merge: true});
   }
 
+  writer.set(justClimbLeaderboardRef(db), {
+    completedCount: 0,
+    replayEntryCount: 0,
+    seedPackId: args.seedPackId,
+    seededAttemptCount: 0,
+    totalClimbers: 0,
+    updatedAt: now,
+  }, {merge: true});
+
   await writer.close();
   return deleted;
 }
@@ -649,6 +689,13 @@ function clearSeedEntriesFromPlan(db, writer, seedPlan) {
         writer.delete(entriesCollection(db, plan.climb.id, bucketIndex).doc(attemptId));
         deleted += 1;
       }
+    }
+  }
+
+  for (let bucketIndex = 0; bucketIndex <= MAX_BUCKET_INDEX; bucketIndex += 1) {
+    for (const attemptId of seedPlan.justClimbPlan.clearAttemptIds) {
+      writer.delete(justClimbEntriesCollection(db, bucketIndex).doc(attemptId));
+      deleted += 1;
     }
   }
 
@@ -707,23 +754,79 @@ async function writeSeedPlan(db, seedPlan, args) {
     }
   }
 
+  writer.set(justClimbLeaderboardRef(db), {
+    bucketIntervalSeconds: BUCKET_INTERVAL_SECONDS,
+    completedCount: seedPlan.justClimbPlan.attempts.length,
+    contextId: JUST_CLIMB_GLOBAL_CONTEXT_ID,
+    contextType: JUST_CLIMB_CONTEXT_TYPE,
+    replayEntryCount: seedPlan.justClimbPlan.attempts.length,
+    schemaVersion: 1,
+    seedPackId: args.seedPackId,
+    seededAttemptCount: seedPlan.justClimbPlan.attempts.length,
+    source: "seeded",
+    targetStepCount: null,
+    totalClimbers: seedPlan.justClimbPlan.attempts.length,
+    updatedAt: now,
+  }, {merge: true});
+  writes += 1;
+
+  for (
+    let bucketIndex = 0;
+    bucketIndex <= seedPlan.justClimbPlan.maxBucketIndex;
+    bucketIndex += 1
+  ) {
+    for (const attempt of seedPlan.justClimbPlan.attempts) {
+      const entryRef = justClimbEntriesCollection(db, bucketIndex)
+        .doc(attempt.id);
+      const stepsAtBucket = stepsAtBucketIndex(attempt, bucketIndex);
+      writer.set(entryRef, {
+        avatarToken: attempt.avatarToken,
+        completionDurationSeconds: attempt.completionDurationSeconds,
+        contextId: JUST_CLIMB_GLOBAL_CONTEXT_ID,
+        contextType: JUST_CLIMB_CONTEXT_TYPE,
+        displayName: attempt.displayName,
+        finalSteps: attempt.finalSteps,
+        isSynthetic: true,
+        photoURL: attempt.photoURL ?? "",
+        schemaVersion: 1,
+        seedPackId: args.seedPackId,
+        source: "synthetic",
+        splitIntervalSeconds: BUCKET_INTERVAL_SECONDS,
+        stepsAtBucket,
+        updatedAt: now,
+        userId: attempt.userId,
+        workoutId: attempt.id,
+      });
+      writes += 1;
+    }
+  }
+
   await writer.close();
   return writes;
 }
 
 async function backfillSeedAvatarURLs(db, args, avatarURLs) {
   const writer = bulkWriter(db);
-  const configs = [...ACTIVE_CLIMBS, ...WARM_CLIMBS];
+  const contexts = [
+    ...[...ACTIVE_CLIMBS, ...WARM_CLIMBS].map((config) => ({
+      label: config.id,
+      ref: leaderboardRef(db, config.id),
+    })),
+    {
+      label: "just-climb-global",
+      ref: justClimbLeaderboardRef(db),
+    },
+  ];
   let scanned = 0;
   let updated = 0;
 
-  for (const config of configs) {
-    const climbScannedStart = scanned;
-    const climbUpdatedStart = updated;
-    const splitBucketRefs = await leaderboardRef(db, config.id)
+  for (const context of contexts) {
+    const contextScannedStart = scanned;
+    const contextUpdatedStart = updated;
+    const splitBucketRefs = await context.ref
       .collection("splitBuckets")
       .listDocuments();
-    console.log(`Scanning ${config.id} (${splitBucketRefs.length} buckets)`);
+    console.log(`Scanning ${context.label} (${splitBucketRefs.length} buckets)`);
 
     for (const splitBucketRef of splitBucketRefs) {
       const snapshot = await splitBucketRef
@@ -750,8 +853,9 @@ async function backfillSeedAvatarURLs(db, args, avatarURLs) {
     }
 
     console.log(
-      `  ${config.id}: ${(updated - climbUpdatedStart).toLocaleString()} updated, ` +
-        `${(scanned - climbScannedStart).toLocaleString()} scanned`
+      `  ${context.label}: ` +
+        `${(updated - contextUpdatedStart).toLocaleString()} updated, ` +
+        `${(scanned - contextScannedStart).toLocaleString()} scanned`
     );
   }
 
@@ -772,13 +876,43 @@ function bulkWriter(db) {
 }
 
 function leaderboardRef(db, climbId) {
+  return contextLeaderboardRef(db, LIVE_CLIMB_CONTEXT_TYPE, climbId);
+}
+
+function justClimbLeaderboardRef(db) {
+  return contextLeaderboardRef(
+    db,
+    JUST_CLIMB_CONTEXT_TYPE,
+    JUST_CLIMB_GLOBAL_CONTEXT_ID
+  );
+}
+
+function contextLeaderboardRef(db, contextType, contextId) {
   return db
     .collection(LIVE_REPLAY_COLLECTION)
-    .doc(contextKey(LIVE_CLIMB_CONTEXT_TYPE, climbId));
+    .doc(contextKey(contextType, contextId));
 }
 
 function entriesCollection(db, climbId, bucketIndex) {
-  return leaderboardRef(db, climbId)
+  return entriesCollectionForContext(
+    db,
+    LIVE_CLIMB_CONTEXT_TYPE,
+    climbId,
+    bucketIndex
+  );
+}
+
+function justClimbEntriesCollection(db, bucketIndex) {
+  return entriesCollectionForContext(
+    db,
+    JUST_CLIMB_CONTEXT_TYPE,
+    JUST_CLIMB_GLOBAL_CONTEXT_ID,
+    bucketIndex
+  );
+}
+
+function entriesCollectionForContext(db, contextType, contextId, bucketIndex) {
+  return contextLeaderboardRef(db, contextType, contextId)
     .collection("splitBuckets")
     .doc(String(bucketIndex))
     .collection("entries");

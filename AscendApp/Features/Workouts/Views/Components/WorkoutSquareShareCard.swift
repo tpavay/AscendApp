@@ -40,6 +40,13 @@ struct WorkoutSquareShareCard: View {
                     .padding(.top, layout.supportingStatsTopPadding)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
+
+            if let bestEffortText = composition.bestEffortText {
+                bestEffortFooter(bestEffortText)
+                    .frame(width: size.width * 0.82)
+                    .padding(.bottom, 16)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            }
         }
     }
 
@@ -110,6 +117,30 @@ struct WorkoutSquareShareCard: View {
             .foregroundStyle(.accent.opacity(0.68))
             .lineLimit(1)
             .minimumScaleFactor(0.8)
+    }
+
+    private func bestEffortFooter(_ text: String) -> some View {
+        HStack(spacing: 5) {
+            AppIcon(token: .bestEffortTrophy, pointSize: 9, weight: .bold)
+                .foregroundStyle(.accent.opacity(0.84))
+
+            Text(text.uppercased())
+                .font(.montserratBold(size: 7.2))
+                .tracking(0.8)
+                .foregroundStyle(.accent.opacity(0.78))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(
+            Capsule()
+                .fill(.black.opacity(0.24))
+                .overlay(
+                    Capsule()
+                        .stroke(.accent.opacity(0.2), lineWidth: 0.8)
+                )
+        )
     }
 }
 

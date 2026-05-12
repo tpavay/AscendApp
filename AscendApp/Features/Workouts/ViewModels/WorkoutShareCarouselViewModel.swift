@@ -89,26 +89,30 @@ final class WorkoutShareCarouselViewModel {
         for cardType: ShareCardType,
         measurementSystem: MeasurementSystem,
         stepHeight: Double,
-        preferredMetric: WorkoutMetric
+        preferredMetric: WorkoutMetric,
+        bestEffort: RankedBestEffort? = nil
     ) -> WorkoutShareCardComposition {
         composer.compose(
             workout: workout,
             measurementSystem: measurementSystem,
             stepHeight: stepHeight,
             preferredMetric: preferredMetric,
-            preset: cardType.preset
+            preset: cardType.preset,
+            bestEffort: bestEffort
         )
     }
 
     func renderCurrentCard(
         measurementSystem: MeasurementSystem,
         stepHeight: Double,
-        preferredMetric: WorkoutMetric
+        preferredMetric: WorkoutMetric,
+        bestEffort: RankedBestEffort? = nil
     ) -> UIImage? {
         let content = currentCardView(
             measurementSystem: measurementSystem,
             stepHeight: stepHeight,
-            preferredMetric: preferredMetric
+            preferredMetric: preferredMetric,
+            bestEffort: bestEffort
         )
         .frame(width: Self.displayCardWidth, height: Self.displayCardHeight)
 
@@ -122,13 +126,15 @@ final class WorkoutShareCarouselViewModel {
     func currentCardView(
         measurementSystem: MeasurementSystem,
         stepHeight: Double,
-        preferredMetric: WorkoutMetric
+        preferredMetric: WorkoutMetric,
+        bestEffort: RankedBestEffort? = nil
     ) -> some View {
         cardView(
             for: currentCardType,
             measurementSystem: measurementSystem,
             stepHeight: stepHeight,
-            preferredMetric: preferredMetric
+            preferredMetric: preferredMetric,
+            bestEffort: bestEffort
         )
     }
 
@@ -137,7 +143,8 @@ final class WorkoutShareCarouselViewModel {
         for cardType: ShareCardType,
         measurementSystem: MeasurementSystem,
         stepHeight: Double,
-        preferredMetric: WorkoutMetric
+        preferredMetric: WorkoutMetric,
+        bestEffort: RankedBestEffort? = nil
     ) -> some View {
         switch cardType {
         case .poster:
@@ -146,7 +153,8 @@ final class WorkoutShareCarouselViewModel {
                     for: cardType,
                     measurementSystem: measurementSystem,
                     stepHeight: stepHeight,
-                    preferredMetric: preferredMetric
+                    preferredMetric: preferredMetric,
+                    bestEffort: bestEffort
                 )
             )
         case .liveClimb(let climb):
@@ -155,7 +163,8 @@ final class WorkoutShareCarouselViewModel {
                 climb: climb,
                 rank: liveClimbRank,
                 rankTotal: liveClimbRankTotal,
-                isRankLoading: liveClimbRankIsLoading
+                isRankLoading: liveClimbRankIsLoading,
+                bestEffortText: bestEffort?.sentence
             )
         }
     }
@@ -203,25 +212,29 @@ final class WorkoutShareCarouselViewModel {
     func shareText(
         measurementSystem: MeasurementSystem,
         stepHeight: Double,
-        preferredMetric: WorkoutMetric
+        preferredMetric: WorkoutMetric,
+        bestEffort: RankedBestEffort? = nil
     ) -> String {
         workoutShareText(
             for: workout,
             measurementSystem: measurementSystem,
             stepHeight: stepHeight,
-            preferredMetric: preferredMetric
+            preferredMetric: preferredMetric,
+            bestEffort: bestEffort
         )
     }
 
     func copyShareText(
         measurementSystem: MeasurementSystem,
         stepHeight: Double,
-        preferredMetric: WorkoutMetric
+        preferredMetric: WorkoutMetric,
+        bestEffort: RankedBestEffort? = nil
     ) {
         UIPasteboard.general.string = shareText(
             measurementSystem: measurementSystem,
             stepHeight: stepHeight,
-            preferredMetric: preferredMetric
+            preferredMetric: preferredMetric,
+            bestEffort: bestEffort
         )
         showCopyConfirmation("Copied!")
     }

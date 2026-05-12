@@ -28,9 +28,11 @@ struct RoutineThumbnailCard: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Rectangle()
-                .fill(accentColor)
-                .frame(width: accentBarWidth)
+            LeadingAccentStripe(
+                color: accentColor,
+                width: accentBarWidth,
+                cornerRadius: cornerRadius
+            )
 
             VStack(alignment: .leading, spacing: 12) {
                 Text(routine.name)

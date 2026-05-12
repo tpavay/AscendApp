@@ -57,6 +57,26 @@ struct LiveClimbAnalyticsEventTests {
     }
 
     @Test
+    func justClimbCompletionUsesOwnEventNameAndBuckets() {
+        let record = LiveClimbAnalyticsEvent
+            .justClimbAttemptCompleted(
+                entryPoint: .homeJustClimb,
+                durationSeconds: 1_240,
+                steps: 1_420,
+                rank: 4,
+                rankTotal: 120
+            )
+            .record
+
+        #expect(record.name == "just_climb_attempt_completed")
+        #expect(record.parameters["entry_point"] == .string("home_just_climb"))
+        #expect(record.parameters["duration_bucket"] == .string("20_45_min"))
+        #expect(record.parameters["steps_bucket"] == .string("100_plus"))
+        #expect(record.parameters["rank_bucket"] == .string("top_10"))
+        #expect(record.parameters["rank_total_bucket"] == .string("100_plus"))
+    }
+
+    @Test
     func shareActionTapIncludesSurfaceAndCardType() {
         let record = LiveClimbAnalyticsEvent
             .shareActionTapped(

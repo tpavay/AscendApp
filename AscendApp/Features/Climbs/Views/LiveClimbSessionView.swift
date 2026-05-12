@@ -25,6 +25,18 @@ struct LiveClimbSessionView: View {
         ))
     }
 
+    init(
+        mode: LiveClimbSessionMode,
+        replacingActiveClimb: Bool = false,
+        analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown
+    ) {
+        _viewModel = State(initialValue: LiveClimbSessionViewModel(
+            mode: mode,
+            replacingActiveClimb: replacingActiveClimb,
+            analyticsEntryPoint: analyticsEntryPoint
+        ))
+    }
+
     var body: some View {
         ZStack {
             Color.black
@@ -33,7 +45,7 @@ struct LiveClimbSessionView: View {
             if let savedWorkout = viewModel.savedWorkout,
                viewModel.phase == .saved(.completed) {
                 LiveClimbCompletionSummaryView(
-                    climb: viewModel.climb,
+                    climb: viewModel.mode.climb,
                     workout: savedWorkout,
                     leaderboardRank: viewModel.completionLeaderboardRank,
                     leaderboardTotal: viewModel.completionLeaderboardTotal,
@@ -133,18 +145,17 @@ struct LiveClimbSessionView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(viewModel.isRecording ? "Discard live climb" : "Close")
 
-            ClimbArtworkView(climb: viewModel.climb, variant: .thumb)
+            sessionArtwork
                 .frame(width: 42, height: 42)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(viewModel.climb.name)
+                Text(viewModel.mode.title)
                     .font(.montserratBold(size: 15))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
 
-                Text(viewModel.climb.displayLocation)
+                Text(viewModel.mode.subtitle)
                     .font(.montserratMedium(size: 11))
                     .foregroundStyle(.white.opacity(0.56))
                     .lineLimit(1)
@@ -169,11 +180,30 @@ struct LiveClimbSessionView: View {
         .padding(.top, 14)
     }
 
+    @ViewBuilder
+    private var sessionArtwork: some View {
+        if let climb = viewModel.mode.climb {
+            ClimbArtworkView(climb: climb, variant: .thumb)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        } else {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.accent)
+                .overlay {
+                    Image(systemName: "figure.walk")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(.black)
+                }
+        }
+    }
+
     private var liveLeaderboardSection: some View {
         LiveReplayLeaderboardPanel(
             rows: viewModel.leaderboardRows,
-            targetSteps: viewModel.climb.referenceStepCount,
-            progress: viewModel.totalProgressFraction,
+            progressScaleSteps: viewModel.leaderboardProgressScale,
+            targetStepGoal: viewModel.mode.targetStepCount,
+            progress: viewModel.mode.isJustClimb
+                ? viewModel.leaderboardCurrentProgressFraction
+                : viewModel.totalProgressFraction,
             currentUserPhotoURL: currentUserPhotoURL,
             fetchFailed: viewModel.leaderboardFetchFailed,
             tint: .accent,
@@ -341,6 +371,10 @@ struct LiveClimbSessionView: View {
     }
 
     private func savedTitle(for status: ClimbAttemptStatus) -> String {
+        if viewModel.mode.isJustClimb {
+            return "Climb Saved"
+        }
+
         switch status {
         case .completed:
             return "Climb Complete"
@@ -358,7 +392,8 @@ private struct LiveReplayLeaderboardPanel: View {
     @State private var hasScrolledToInitialCurrentUser = false
 
     let rows: [LiveReplayLeaderboardRow]
-    let targetSteps: Int
+    let progressScaleSteps: Int
+    let targetStepGoal: Int?
     let progress: Double
     let currentUserPhotoURL: URL?
     let fetchFailed: Bool
@@ -375,18 +410,7 @@ private struct LiveReplayLeaderboardPanel: View {
 
                 Spacer(minLength: 0)
 
-                HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text(targetSteps.formatted())
-                        .font(.montserratBold(size: 20))
-                        .foregroundStyle(primaryColor)
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
-
-                    Text("STEPS")
-                        .font(.montserratBold(size: 13))
-                        .tracking(0.8)
-                        .foregroundStyle(secondaryColor)
-                }
+                headerTrailingMetric
             }
             .padding(.horizontal, 4)
             .padding(.bottom, 12)
@@ -401,7 +425,7 @@ private struct LiveReplayLeaderboardPanel: View {
                         ForEach(rows) { row in
                             LiveReplayLeaderboardRowView(
                                 row: row,
-                                targetSteps: targetSteps,
+                                progressScaleSteps: progressScaleSteps,
                                 progress: progress,
                                 currentUserPhotoURL: currentUserPhotoURL,
                                 tint: tint,
@@ -431,6 +455,35 @@ private struct LiveReplayLeaderboardPanel: View {
                     .foregroundStyle(secondaryColor)
                     .frame(maxWidth: .infinity)
                     .padding(.top, 8)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var headerTrailingMetric: some View {
+        if let targetStepGoal {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text(targetStepGoal.formatted())
+                    .font(.montserratBold(size: 20))
+                    .foregroundStyle(primaryColor)
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+
+                Text("STEPS")
+                    .font(.montserratBold(size: 13))
+                    .tracking(0.8)
+                    .foregroundStyle(secondaryColor)
+            }
+        } else {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text("OPEN")
+                    .font(.montserratBold(size: 16))
+                    .foregroundStyle(primaryColor)
+
+                Text("CLIMB")
+                    .font(.montserratBold(size: 11))
+                    .tracking(0.8)
+                    .foregroundStyle(secondaryColor)
             }
         }
     }
@@ -466,7 +519,7 @@ private struct LiveReplayLeaderboardPanel: View {
 
 private struct LiveReplayLeaderboardRowView: View {
     let row: LiveReplayLeaderboardRow
-    let targetSteps: Int
+    let progressScaleSteps: Int
     let progress: Double
     let currentUserPhotoURL: URL?
     let tint: Color
@@ -518,8 +571,8 @@ private struct LiveReplayLeaderboardRowView: View {
             return min(max(progress, 0), 1)
         }
 
-        guard targetSteps > 0 else { return 0 }
-        return min(max(Double(row.stepsAtBucket) / Double(targetSteps), 0), 1)
+        guard progressScaleSteps > 0 else { return 0 }
+        return min(max(Double(row.stepsAtBucket) / Double(progressScaleSteps), 0), 1)
     }
 
     private var progressBackground: some View {

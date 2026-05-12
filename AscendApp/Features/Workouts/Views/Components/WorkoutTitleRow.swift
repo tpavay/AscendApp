@@ -17,13 +17,12 @@ enum WeightSummary {
     case none
 }
 
-/// Workout title row with left-aligned name, date + weight subtitle, and trailing PR trophy badge.
+/// Workout title row with left-aligned name, date + weight subtitle, and trailing Best Effort trophy badge.
 struct WorkoutTitleRow: View {
     let workoutName: String
     let dateText: String
     let weightSummary: WeightSummary
-    let prCount: Int
-    let prDetails: [PRDetail]
+    var bestEfforts: [RankedBestEffort] = []
     let effectiveColorScheme: ColorScheme
 
     @State private var showingWeightBreakdown = false
@@ -43,9 +42,8 @@ struct WorkoutTitleRow: View {
 
             Spacer(minLength: 4)
 
-            // Trailing: PR trophy badge
-            if prCount > 0 {
-                PRTrophyBadge(count: prCount, details: prDetails)
+            if !bestEfforts.isEmpty {
+                BestEffortTrophyBadge(bestEfforts: bestEfforts)
                     .padding(.top, 2)
             }
         }
@@ -129,8 +127,7 @@ struct WorkoutTitleRow: View {
             workoutName: "Afternoon stair stepper",
             dateText: "Mar 27 at 3:54 PM",
             weightSummary: .single(label: "20 lb vest"),
-            prCount: 4,
-            prDetails: [],
+            bestEfforts: [],
             effectiveColorScheme: .dark
         )
 
@@ -144,8 +141,7 @@ struct WorkoutTitleRow: View {
                     (name: "Dumbbells", weight: "10 lb")
                 ]
             ),
-            prCount: 2,
-            prDetails: [],
+            bestEfforts: [],
             effectiveColorScheme: .dark
         )
 
@@ -153,8 +149,7 @@ struct WorkoutTitleRow: View {
             workoutName: "Evening session",
             dateText: "Yesterday at 6:00 PM",
             weightSummary: .none,
-            prCount: 0,
-            prDetails: [],
+            bestEfforts: [],
             effectiveColorScheme: .dark
         )
     }

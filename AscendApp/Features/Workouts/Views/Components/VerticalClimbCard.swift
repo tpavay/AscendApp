@@ -8,7 +8,7 @@
 import SwiftUI
 
 /// Standalone horizontal card displaying vertical climb with a triangle icon.
-/// Supports PR-aware accent border.
+/// Supports an optional accent border.
 struct VerticalClimbCard: View {
     let value: String
     let unit: String

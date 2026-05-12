@@ -70,6 +70,35 @@ export function normalizeReplaySplitSteps(
 }
 
 /**
+ * Extends a completed replay curve so open-ended contexts keep showing the
+ * saved attempt at its final step total after that attempt ended.
+ * @param {number[]} splitSteps Normalized split steps.
+ * @param {number} finalSteps Final saved step count.
+ * @param {number} maxBucketCount Maximum number of buckets to emit.
+ * @return {number[]} Split steps filled through the requested bucket count.
+ */
+export function extendReplaySplitStepsToMaxBuckets(
+  splitSteps: number[],
+  finalSteps: number,
+  maxBucketCount = MAX_REPLAY_SPLIT_CHECKPOINTS
+): number[] {
+  const bucketCount = Math.min(
+    Math.max(Math.floor(maxBucketCount), 0),
+    MAX_REPLAY_SPLIT_CHECKPOINTS
+  );
+  const resolvedFinalSteps = Math.max(Math.floor(finalSteps), 0);
+  const extendedSteps = splitSteps
+    .slice(0, bucketCount)
+    .map((step) => Math.min(Math.max(Math.floor(step), 0), resolvedFinalSteps));
+
+  while (extendedSteps.length < bucketCount) {
+    extendedSteps.push(resolvedFinalSteps);
+  }
+
+  return extendedSteps;
+}
+
+/**
  * Returns a monotonic, non-negative split list with missing buckets filled.
  * @param {number[]} splitSteps Raw split steps.
  * @param {number} bucketCount Desired output bucket count.
