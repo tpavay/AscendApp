@@ -10,6 +10,10 @@ enum WorkoutRemoteSyncMapper {
             throw WorkoutSyncError.unsupportedSource(workout.source.rawValue)
         }
 
+        guard WorkoutPlausibilityPolicy.hasPlausibleTotals(workout) else {
+            throw WorkoutSyncError.implausibleWorkoutTotals
+        }
+
         let media = workout.photos.isEmpty
             ? nil
             : workout.photos.map { photo in

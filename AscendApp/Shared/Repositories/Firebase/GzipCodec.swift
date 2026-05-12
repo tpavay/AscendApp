@@ -3,22 +3,27 @@ import Foundation
 enum GzipCodec {
     enum Error: LocalizedError {
         case compressionFailed
+        case invalidGzipData
+        case decompressionFailed
 
         var errorDescription: String? {
             switch self {
             case .compressionFailed:
                 return "Failed to compress the heart-rate series."
+            case .invalidGzipData:
+                return "The heart-rate series is not valid gzip data."
+            case .decompressionFailed:
+                return "Failed to decompress the heart-rate series."
             }
         }
     }
 
     static func compress(_ data: Data) throws -> Data {
         guard let compressedNSData = try (data as NSData).compressed(using: .zlib) as Data?,
-              compressedNSData.count >= 6 else {
+              !compressedNSData.isEmpty else {
             throw Error.compressionFailed
         }
 
-        let deflatePayload = compressedNSData.dropFirst(2).dropLast(4)
         var gzipData = Data([
             0x1f, 0x8b, // magic
             0x08,       // deflate
@@ -27,7 +32,7 @@ enum GzipCodec {
             0x00,       // extra flags
             0xff        // OS unknown
         ])
-        gzipData.append(deflatePayload)
+        gzipData.append(compressedNSData)
 
         var crc32 = Self.crc32(for: data).littleEndian
         withUnsafeBytes(of: &crc32) { gzipData.append(contentsOf: $0) }
@@ -36,6 +41,23 @@ enum GzipCodec {
         withUnsafeBytes(of: &inputSize) { gzipData.append(contentsOf: $0) }
 
         return gzipData
+    }
+
+    static func decompress(_ data: Data) throws -> Data {
+        guard data.count >= 18,
+              data[0] == 0x1f,
+              data[1] == 0x8b,
+              data[2] == 0x08,
+              data[3] == 0x00 else {
+            throw Error.invalidGzipData
+        }
+
+        let compressedPayload = data.dropFirst(10).dropLast(8)
+        do {
+            return try (Data(compressedPayload) as NSData).decompressed(using: .zlib) as Data
+        } catch {
+            throw Error.decompressionFailed
+        }
     }
 }
 

@@ -167,7 +167,9 @@ Workout, WorkoutSourceLink, WorkoutParticipation, LeaderboardStats, Routine, Rou
 ### Import UX
 - Workout import supports individual import, selected-batch import, and import-all from the same sheet.
 - Import architecture uses one canonical `Workout` plus local `WorkoutSourceLink` provenance records per provider. New import UI and state should flow through `WorkoutImportCoordinator`, not provider-specific views/services.
+- Workout totals must pass the shared `WorkoutPlausibilityPolicy` before manual save, edit, import, remote backup, and Best Efforts ranking. Keep implausible average-step-rate records out of new data, and independently ignore any legacy implausible rows in Best Efforts.
 - Apple Health is read-only. First connect may backfill historical workouts, but routine checks must stay incremental and sample-only until a workout is actually imported.
+- Apple Health heart-rate chart samples must expand condensed `HKQuantitySample` records using `HKQuantitySeriesSampleQuery` and save the individual quantities. Parent heart-rate samples may represent aggregate blocks and should only be used as a fallback when no series children are returned.
 - Apple Health auto-import is optional and user-controlled from the Apple Health manage sheet.
 - Auto-import only applies to newly finished Apple Health workouts from the moment the user enables it; older pending history remains in the manual review/import flow.
 - If older local settings have auto-import enabled but no stored activation timestamp, use the previous successful HealthKit check as the conservative activation fallback so newly discovered workouts can import without opening older pending history.

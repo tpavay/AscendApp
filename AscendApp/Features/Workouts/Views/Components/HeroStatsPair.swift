@@ -8,28 +8,15 @@
 import SwiftUI
 
 /// Large side-by-side hero stats (duration + steps/floors) with a vertical divider.
-/// Supports an optional accent border for highlighted stats.
 struct HeroStatsPair: View {
     let leftLabel: String
     let leftValue: String
     let rightLabel: String
     let rightValue: String
-    let leftIsPR: Bool
-    let rightIsPR: Bool
     let effectiveColorScheme: ColorScheme
 
-    private var hasPR: Bool {
-        leftIsPR || rightIsPR
-    }
-
     private var borderColor: Color {
-        hasPR
-            ? .accent.opacity(0.6)
-            : (effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15))
-    }
-
-    private var borderWidth: CGFloat {
-        hasPR ? 1.5 : 1
+        effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15)
     }
 
     var body: some View {
@@ -49,7 +36,7 @@ struct HeroStatsPair: View {
                 .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
-                        .stroke(borderColor, lineWidth: borderWidth)
+                        .stroke(borderColor, lineWidth: 1)
                 )
         )
     }
@@ -77,8 +64,6 @@ struct HeroStatsPair: View {
             leftValue: "2:00:22",
             rightLabel: "Steps",
             rightValue: "10,849",
-            leftIsPR: false,
-            rightIsPR: true,
             effectiveColorScheme: .dark
         )
 
@@ -87,8 +72,6 @@ struct HeroStatsPair: View {
             leftValue: "30:00",
             rightLabel: "Floors",
             rightValue: "156",
-            leftIsPR: false,
-            rightIsPR: false,
             effectiveColorScheme: .dark
         )
     }

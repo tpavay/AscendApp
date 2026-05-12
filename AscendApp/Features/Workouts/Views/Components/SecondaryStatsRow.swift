@@ -12,11 +12,9 @@ struct SecondaryStatItem: Identifiable {
     let id = UUID()
     let label: String
     let value: String
-    let isPR: Bool
 }
 
 /// Compact row of 1–3 secondary stat cards (pace, calories, METs).
-/// Each card supports an optional accent border.
 struct SecondaryStatsRow: View {
     let items: [SecondaryStatItem]
     let effectiveColorScheme: ColorScheme
@@ -30,10 +28,7 @@ struct SecondaryStatsRow: View {
     }
 
     private func secondaryStatCard(item: SecondaryStatItem) -> some View {
-        let borderColor: Color = item.isPR
-            ? .accent.opacity(0.6)
-            : (effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15))
-        let borderWidth: CGFloat = item.isPR ? 1.5 : 1
+        let borderColor: Color = effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15)
 
         return VStack(spacing: 4) {
             Text(item.value)
@@ -55,7 +50,7 @@ struct SecondaryStatsRow: View {
                 .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
                 .overlay(
                     RoundedRectangle(cornerRadius: 14)
-                        .stroke(borderColor, lineWidth: borderWidth)
+                        .stroke(borderColor, lineWidth: 1)
                 )
         )
     }
@@ -64,9 +59,9 @@ struct SecondaryStatsRow: View {
 #Preview {
     SecondaryStatsRow(
         items: [
-            SecondaryStatItem(label: "Steps/Min", value: "90.1", isPR: true),
-            SecondaryStatItem(label: "Calories", value: "1,692", isPR: false),
-            SecondaryStatItem(label: "METs", value: "10.3", isPR: false)
+            SecondaryStatItem(label: "Steps/Min", value: "90.1"),
+            SecondaryStatItem(label: "Calories", value: "1,692"),
+            SecondaryStatItem(label: "METs", value: "10.3")
         ],
         effectiveColorScheme: .dark
     )

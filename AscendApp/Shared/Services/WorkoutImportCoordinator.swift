@@ -55,6 +55,7 @@ final class WorkoutImportCoordinator {
     enum ImportOutcome {
         case imported(Workout)
         case updatedExisting(Workout)
+        case skipped(candidateID: String)
         case failed(candidateID: String)
     }
 
@@ -310,6 +311,8 @@ final class WorkoutImportCoordinator {
             } catch {
                 lastErrorMessage = error.localizedDescription
             }
+        case .skipped(let candidateID):
+            pendingCandidates.removeAll { $0.id == candidateID }
         case .failed:
             break
         }
@@ -799,6 +802,8 @@ final class WorkoutImportCoordinator {
             case .updatedExisting(let workout):
                 updatedWorkouts.append(workout)
                 pendingCandidates.removeAll { $0.id == candidate.id }
+            case .skipped(let candidateID):
+                pendingCandidates.removeAll { $0.id == candidateID }
             case .failed(let candidateID):
                 failedCandidateIDs.append(candidateID)
             }
@@ -873,6 +878,10 @@ final class WorkoutImportCoordinator {
         let metrics = await metricsReader.fetchMetrics(for: hkWorkout)
         let settings = SettingsManager.shared
         let workout = hkWorkout.toAscendWorkout(with: metrics, stepsPerFloor: settings.stepsPerFloor)
+        guard WorkoutPlausibilityPolicy.hasPlausibleTotals(workout) else {
+            ignoredAppleHealthWorkoutStore.insert(sample.externalRecordID)
+            return .skipped(candidateID: candidate.id)
+        }
         let appleHealthLink = makeAppleHealthSourceLink(from: sample, workout: workout)
 
         let refreshedIndex = try buildExistingWorkoutIndex(modelContext: modelContext)
@@ -917,6 +926,16 @@ final class WorkoutImportCoordinator {
         } else {
             steps = metricValue
             floors = Workout.stepsToFloors(metricValue, stepsPerFloor: stepsPerFloor)
+        }
+
+        guard WorkoutPlausibilityPolicy.hasPlausibleTotals(
+            steps: steps,
+            duration: candidate.duration
+        ) else {
+            if let externalRecordID = candidate.appleHealthSample?.externalRecordID {
+                ignoredAppleHealthWorkoutStore.insert(externalRecordID)
+            }
+            return .skipped(candidateID: candidate.id)
         }
 
         if let existingWorkoutID = candidate.existingWorkoutID,

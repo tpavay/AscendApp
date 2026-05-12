@@ -51,6 +51,14 @@ struct AutoImportedWorkoutReviewView: View {
         let hours = Int(durationHours) ?? 0
         let totalDurationSeconds = hours * 3600 + (minutes ?? 0) * 60 + (seconds ?? 0)
         let stepsValid = stepsValue.isEmpty || Int(stepsValue) != nil
+        let workoutTotalsValid = WorkoutInputValidation.isValidWorkoutTotals(
+            metricValue: stepsValue,
+            preferredMetric: .steps,
+            stepsPerFloor: workout.stepsPerFloor,
+            durationHours: hours,
+            durationMinutes: minutes ?? 0,
+            durationSeconds: seconds ?? 0
+        )
 
         return !isSaving &&
             !isDeleting &&
@@ -60,7 +68,8 @@ struct AutoImportedWorkoutReviewView: View {
             (minutes ?? 0) < 60 &&
             (seconds ?? 0) < 60 &&
             totalDurationSeconds > 0 &&
-            stepsValid
+            stepsValid &&
+            workoutTotalsValid
     }
 
     private var totalDuration: TimeInterval {
@@ -435,6 +444,13 @@ struct AutoImportedWorkoutReviewView: View {
             }
 
             let steps = Int(stepsValue) ?? 0
+            guard WorkoutPlausibilityPolicy.hasPlausibleTotals(
+                steps: steps,
+                duration: totalDuration
+            ) else {
+                throw WorkoutServiceError.invalidWorkoutData
+            }
+
             workout.name = effectiveName
             workout.notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
             workout.duration = totalDuration

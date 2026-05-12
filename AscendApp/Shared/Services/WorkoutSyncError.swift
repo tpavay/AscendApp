@@ -5,6 +5,7 @@ enum WorkoutSyncError: LocalizedError {
     case missingOwner
     case unsupportedSource(String)
     case invalidHeartRateSeries
+    case implausibleWorkoutTotals
 
     var errorDescription: String? {
         switch self {
@@ -16,6 +17,8 @@ enum WorkoutSyncError: LocalizedError {
             return "Workout sync does not support source '\(source)' yet."
         case .invalidHeartRateSeries:
             return "Heart-rate samples must include at least one entry."
+        case .implausibleWorkoutTotals:
+            return "Workout totals are outside the supported range."
         }
     }
 }
