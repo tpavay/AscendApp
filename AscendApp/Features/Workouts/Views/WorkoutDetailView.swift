@@ -30,9 +30,9 @@ struct WorkoutDetailView: View {
     @State private var isDeleting = false
     @State private var isCancelling = false
     @State private var deleteTask: Task<Void, Never>? = nil
-#if DEBUG
     @State private var showingLiveClimbSummaryPreview = false
-#endif
+    @State private var liveClimbCompletionRank: LiveReplayCompletionRank?
+    @State private var isLoadingLiveClimbRank = false
 
     // Strava-style layout state
     @State private var sheetPosition: SheetPosition = .middle
@@ -82,14 +82,13 @@ struct WorkoutDetailView: View {
             .sheet(isPresented: $showingShareWorkoutView) {
                 WorkoutShareCarouselView(workout: workout)
             }
-#if DEBUG
             .fullScreenCover(isPresented: $showingLiveClimbSummaryPreview) {
-                if let climb = liveClimbSummaryPreviewClimb {
+                if liveClimbSummaryMetadata?.climbId == nil || liveClimbDetailClimb != nil {
                     LiveClimbCompletionSummaryView(
-                        climb: climb,
+                        climb: liveClimbDetailClimb,
                         workout: workout,
-                        leaderboardRank: nil,
-                        leaderboardTotal: nil,
+                        leaderboardRank: liveClimbCompletionRank?.rank,
+                        leaderboardTotal: liveClimbCompletionRank?.completedCount,
                         onDone: {
                             showingLiveClimbSummaryPreview = false
                         }
@@ -100,11 +99,13 @@ struct WorkoutDetailView: View {
                     }
                 }
             }
-#endif
             .onAppear {
                 if hasMedia {
                     currentPhotoIndex = 0
                 }
+            }
+            .task(id: workout.id) {
+                await loadLiveClimbCompletionRankIfNeeded()
             }
             .onChange(of: showingEditWorkout) { _, isShowing in
                 if !isShowing && hasMedia {
@@ -317,6 +318,16 @@ struct WorkoutDetailView: View {
                 )
             }
 
+            if canOpenLiveClimbSummary {
+                LiveClimbSummaryLinkRow(
+                    climb: liveClimbDetailClimb,
+                    effectiveColorScheme: effectiveColorScheme,
+                    onViewSummary: {
+                        showingLiveClimbSummaryPreview = true
+                    }
+                )
+            }
+
             // Heart Rate Chart
             if !workout.heartRateTimeSeries.isEmpty || workout.avgHeartRate != nil || workout.maxHeartRate != nil {
                 HeartRateChartView(
@@ -472,15 +483,13 @@ struct WorkoutDetailView: View {
             Label("Share", systemImage: "square.and.arrow.up")
         }
 
-#if DEBUG
-        if canPreviewLiveClimbSummary {
+        if canOpenLiveClimbSummary {
             Button {
                 showingLiveClimbSummaryPreview = true
             } label: {
-                Label("Preview Completion Summary", systemImage: "flag.checkered")
+                Label("View Completion Summary", systemImage: "flag.checkered")
             }
         }
-#endif
 
         if FeatureFlags.isStravaEnabled && stravaManager.isConnected {
             if workout.isSyncedToStrava {
@@ -521,16 +530,18 @@ struct WorkoutDetailView: View {
         }
     }
 
-#if DEBUG
-    private var canPreviewLiveClimbSummary: Bool {
-        LiveClimbWorkoutSummaryData.metadata(for: workout)?.climbId != nil
+    private var canOpenLiveClimbSummary: Bool {
+        liveClimbSummaryMetadata != nil
     }
 
     @MainActor
-    private var liveClimbSummaryPreviewClimb: Climb? {
+    private var liveClimbDetailClimb: Climb? {
         LiveClimbWorkoutSummaryData.climb(for: workout)
     }
-#endif
+
+    private var liveClimbSummaryMetadata: HeadphoneMotionWorkoutMetadata? {
+        LiveClimbWorkoutSummaryData.metadata(for: workout)
+    }
 
     // MARK: - Strava Sync Badge
 
@@ -791,6 +802,36 @@ struct WorkoutDetailView: View {
         }
     }
 
+    @MainActor
+    private func loadLiveClimbCompletionRankIfNeeded() async {
+        guard liveClimbCompletionRank == nil,
+              !isLoadingLiveClimbRank,
+              let climb = liveClimbDetailClimb else {
+            return
+        }
+
+        isLoadingLiveClimbRank = true
+        defer {
+            isLoadingLiveClimbRank = false
+        }
+
+        let context = LiveReplayLeaderboardContext.liveClimb(
+            climbId: climb.id,
+            targetSteps: climb.referenceStepCount
+        )
+
+        do {
+            liveClimbCompletionRank = try await LiveReplayLeaderboardService.shared.fetchCompletionRank(
+                context: context,
+                completionDurationSeconds: workout.duration
+            )
+        } catch {
+#if DEBUG
+            print("Workout detail Live Climb rank fetch failed: \(error.localizedDescription)")
+#endif
+        }
+    }
+
     private func deleteWorkout() async {
         guard !workout.isLiveClimbAttemptWorkout else {
             await MainActor.run {
@@ -912,7 +953,84 @@ struct WorkoutDetailView: View {
     }
 }
 
-#if DEBUG
+private struct LiveClimbSummaryLinkRow: View {
+    let climb: Climb?
+    let effectiveColorScheme: ColorScheme
+    let onViewSummary: () -> Void
+
+    var body: some View {
+        Button(action: onViewSummary) {
+            HStack(spacing: 14) {
+                leadingArtwork
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(climb?.name ?? "Just Climb Summary")
+                        .font(.montserratSemiBold(size: 15))
+                        .foregroundStyle(primaryTextColor)
+                        .lineLimit(1)
+
+                    Text("View saved summary")
+                        .font(.montserratMedium(size: 12))
+                        .foregroundStyle(secondaryTextColor)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 68, alignment: .leading)
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .background(cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(borderColor, lineWidth: 1)
+        )
+        .accessibilityLabel("View Live Climb summary")
+        .accessibilityHint("Opens the saved Live Climb summary for this workout.")
+    }
+
+    @ViewBuilder
+    private var leadingArtwork: some View {
+        if let climb {
+            ClimbArtworkView(climb: climb, variant: .thumb)
+                .frame(width: 38, height: 38)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(.white.opacity(effectiveColorScheme == .dark ? 0.10 : 0.08), lineWidth: 1)
+                )
+        } else {
+            AppIcon(token: .mountains, pointSize: 20, weight: .medium)
+                .foregroundStyle(primaryTextColor.opacity(0.74))
+                .frame(width: 38, height: 38)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(effectiveColorScheme == .dark ? .white.opacity(0.07) : .black.opacity(0.05))
+                )
+        }
+    }
+
+    private var primaryTextColor: Color {
+        effectiveColorScheme == .dark ? .white : .black
+    }
+
+    private var secondaryTextColor: Color {
+        effectiveColorScheme == .dark ? .white.opacity(0.52) : .black.opacity(0.48)
+    }
+
+    private var cardBackground: Color {
+        effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06)
+    }
+
+    private var borderColor: Color {
+        effectiveColorScheme == .dark ? .white.opacity(0.10) : .black.opacity(0.08)
+    }
+}
+
 private struct LiveClimbSummaryPreviewUnavailableView: View {
     let onDismiss: () -> Void
 
@@ -948,7 +1066,6 @@ private struct LiveClimbSummaryPreviewUnavailableView: View {
         .preferredColorScheme(.dark)
     }
 }
-#endif
 
 // MARK: - Delete Confirmation
 

@@ -5,7 +5,6 @@
 //  Created by GPT-5.1 on 11/20/25.
 //
 
-import Charts
 import SwiftUI
 
 struct BestEffortsListView: View {
@@ -601,193 +600,27 @@ private struct BestEffortProgressionChart: View {
     let efforts: [RankedBestEffort]
     let colorScheme: ColorScheme
 
-    @State private var selectedEffortID: RankedBestEffort.ID?
-
-    private var selectedEffort: RankedBestEffort? {
-        if let selectedEffortID,
-           let effort = efforts.first(where: { $0.id == selectedEffortID }) {
-            return effort
-        }
-
-        return efforts.last
-    }
-
     var body: some View {
-        Group {
-            if efforts.isEmpty {
-                emptyChartState
-            } else {
-                Chart {
-                    ForEach(efforts) { effort in
-                        AreaMark(
-                            x: .value("Date", effort.workout.date),
-                            yStart: .value("Baseline", yScaleDomain.lowerBound),
-                            yEnd: .value(metric.title, effort.performance.value)
-                        )
-                        .foregroundStyle(chartAreaGradient)
-                        .interpolationMethod(.monotone)
-                    }
-
-                    ForEach(efforts) { effort in
-                        LineMark(
-                            x: .value("Date", effort.workout.date),
-                            y: .value(metric.title, effort.performance.value)
-                        )
-                        .foregroundStyle(chartLine)
-                        .lineStyle(StrokeStyle(lineWidth: 2.8, lineCap: .round, lineJoin: .round))
-                        .interpolationMethod(.monotone)
-                    }
-
-                    if let selectedEffort {
-                        PointMark(
-                            x: .value("Selected Date", selectedEffort.workout.date),
-                            y: .value(metric.title, selectedEffort.performance.value)
-                        )
-                        .symbol {
-                            selectedPointSymbol
-                        }
-                    }
-                }
-                .chartXAxis {
-                    AxisMarks(values: .automatic(desiredCount: 4)) { _ in
-                        AxisValueLabel(format: .dateTime.month(.abbreviated).year(.twoDigits))
-                            .font(.montserratRegular(size: 10))
-                            .foregroundStyle(foregroundSubtle)
-                    }
-                }
-                .chartYAxis {
-                    AxisMarks(position: .leading, values: .automatic(desiredCount: 5)) { value in
-                        AxisGridLine(stroke: StrokeStyle(lineWidth: 0.75, dash: [2, 6]))
-                            .foregroundStyle(axisGrid)
-                        AxisValueLabel {
-                            if let rawValue = value.as(Double.self) {
-                                Text(BestEffortDisplay.axisLabel(rawValue, metric: metric))
-                            }
-                        }
-                        .font(.montserratRegular(size: 10))
-                        .foregroundStyle(foregroundSubtle)
-                    }
-                }
-                .chartYScale(domain: yScaleDomain)
-                .chartXScale(domain: xScaleDomain)
-                .chartLegend(.hidden)
-                .frame(maxWidth: .infinity)
-                .frame(height: 300)
-                .padding(.horizontal, 2)
-                .padding(.vertical, 8)
-                .chartOverlay { proxy in
-                    GeometryReader { geometry in
-                        ZStack(alignment: .topLeading) {
-                            selectionOverlay(proxy: proxy, geometry: geometry)
-
-                            Rectangle()
-                                .fill(.clear)
-                                .contentShape(Rectangle())
-                                .gesture(
-                                    DragGesture(minimumDistance: 0)
-                                        .onChanged { value in
-                                            updateSelectedEffort(
-                                                at: value.location,
-                                                proxy: proxy,
-                                                geometry: geometry
-                                            )
-                                        }
-                                )
-                        }
-                    }
-                }
-            }
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var selectedPointSymbol: some View {
-        Circle()
-            .fill(Color.accentColor)
-            .frame(width: 11, height: 11)
-            .overlay(
-                Circle()
-                    .stroke(Color.white.opacity(0.92), lineWidth: 2.1)
-            )
-            .shadow(color: Color.accentColor.opacity(0.72), radius: 9, x: 0, y: 0)
-    }
-
-    @ViewBuilder
-    private func selectionOverlay(proxy: ChartProxy, geometry: GeometryProxy) -> some View {
-        if let selectedEffort,
-           let rawX = proxy.position(forX: selectedEffort.workout.date),
-           let rawY = proxy.position(forY: selectedEffort.performance.value),
-           let plotFrameAnchor = proxy.plotFrame {
-            let plotFrame = geometry[plotFrameAnchor]
-            let selectedX = plotFrame.origin.x + rawX
-            let selectedY = plotFrame.origin.y + rawY
-            let calloutWidth: CGFloat = 132
-            let calloutHeight: CGFloat = 54
-            let clampedX = min(
-                max(selectedX - calloutWidth / 2, 0),
-                max(geometry.size.width - calloutWidth, 0)
-            )
-            let clampedY = max(selectedY - calloutHeight - 12, 4)
-
-            Rectangle()
-                .fill(selectionRule)
-                .frame(width: 1, height: plotFrame.height)
-                .position(x: selectedX, y: plotFrame.midY)
-
-            chartCallout(for: selectedEffort)
-                .frame(width: calloutWidth, height: calloutHeight, alignment: .leading)
-                .offset(x: clampedX, y: clampedY)
-        }
-    }
-
-    private func updateSelectedEffort(
-        at location: CGPoint,
-        proxy: ChartProxy,
-        geometry: GeometryProxy
-    ) {
-        guard let plotFrameAnchor = proxy.plotFrame else {
-            return
-        }
-
-        let plotFrame = geometry[plotFrameAnchor]
-        let xPosition = location.x - plotFrame.origin.x
-
-        guard xPosition >= 0,
-              xPosition <= plotFrame.width,
-              let date = proxy.value(atX: xPosition, as: Date.self),
-              let nearestEffort = nearestEffort(to: date)
-        else {
-            return
-        }
-
-        selectedEffortID = nearestEffort.id
-    }
-
-    private func nearestEffort(to date: Date) -> RankedBestEffort? {
-        efforts.min { lhs, rhs in
-            abs(lhs.workout.date.timeIntervalSince(date)) < abs(rhs.workout.date.timeIntervalSince(date))
-        }
-    }
-
-    private func chartCallout(for effort: RankedBestEffort) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(chartValueText(for: effort))
-                .font(.montserratBold(size: 15))
-                .foregroundStyle(Color.accentColor)
-
-            Text(effort.workout.date.formatted(.dateTime.month(.abbreviated).day().year()))
-                .font(.montserratMedium(size: 10))
-                .foregroundStyle(foregroundSubtle)
-        }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 9)
-        .background(calloutFill)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(cardStroke.opacity(1.4), lineWidth: 1)
+        ProgressLineChartView(
+            title: metric.title,
+            points: chartPoints,
+            colorScheme: colorScheme,
+            xAxisStyle: .monthYear,
+            emptyText: "No progression data yet.",
+            yAxisLabel: { BestEffortDisplay.axisLabel($0, metric: metric) }
         )
-        .shadow(color: .black.opacity(colorScheme == .dark ? 0.34 : 0.12), radius: 14, x: 0, y: 7)
+    }
+
+    private var chartPoints: [ProgressLineChartPoint] {
+        efforts.map { effort in
+            ProgressLineChartPoint(
+                id: effort.id,
+                date: effort.workout.date,
+                value: effort.performance.value,
+                valueText: chartValueText(for: effort),
+                dateText: effort.workout.date.formatted(.dateTime.month(.abbreviated).day().year())
+            )
+        }
     }
 
     private func chartValueText(for effort: RankedBestEffort) -> String {
@@ -797,76 +630,6 @@ private struct BestEffortProgressionChart: View {
         case .longestClimb, .fastestStepTarget:
             return BestEffortFormatting.clockTime(effort.performance.value)
         }
-    }
-
-    private var emptyChartState: some View {
-        Text("No progression data yet.")
-            .font(.montserratRegular(size: 13))
-            .foregroundStyle(foregroundSubtle)
-            .frame(maxWidth: .infinity, minHeight: 120)
-    }
-
-    private var yScaleDomain: ClosedRange<Double> {
-        let values = efforts.map(\.performance.value)
-        guard let minValue = values.min(), let maxValue = values.max() else {
-            return 0...1
-        }
-
-        if minValue == maxValue {
-            let padding = max(abs(maxValue) * 0.15, 1)
-            return max(minValue - padding, 0)...(maxValue + padding)
-        }
-
-        let padding = max((maxValue - minValue) * 0.18, maxValue * 0.04, 1)
-        return max(minValue - padding, 0)...(maxValue + padding)
-    }
-
-    private var xScaleDomain: ClosedRange<Date> {
-        let dates = efforts.map(\.workout.date)
-        guard let minDate = dates.min(), let maxDate = dates.max() else {
-            let now = Date()
-            return now...now
-        }
-
-        let interval = max(maxDate.timeIntervalSince(minDate), 1)
-        let padding = max(interval * 0.07, 86_400)
-        return minDate.addingTimeInterval(-padding)...maxDate.addingTimeInterval(padding)
-    }
-
-    private var foregroundSubtle: Color {
-        colorScheme == .dark ? .white.opacity(0.56) : .black.opacity(0.52)
-    }
-
-    private var cardStroke: Color {
-        colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.07)
-    }
-
-    private var axisGrid: Color {
-        colorScheme == .dark ? .white.opacity(0.1) : .black.opacity(0.08)
-    }
-
-    private var calloutFill: Color {
-        colorScheme == .dark ? Color(red: 0.055, green: 0.06, blue: 0.045).opacity(0.96) : .white
-    }
-
-    private var chartLine: Color {
-        Color.accentColor.opacity(colorScheme == .dark ? 0.98 : 0.98)
-    }
-
-    private var chartAreaGradient: LinearGradient {
-        LinearGradient(
-            colors: [
-                Color.accentColor.opacity(colorScheme == .dark ? 0.42 : 0.24),
-                Color.accentColor.opacity(colorScheme == .dark ? 0.18 : 0.1),
-                Color.accentColor.opacity(0.0)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-    }
-
-    private var selectionRule: Color {
-        colorScheme == .dark ? Color.accentColor.opacity(0.18) : .black.opacity(0.18)
     }
 }
 

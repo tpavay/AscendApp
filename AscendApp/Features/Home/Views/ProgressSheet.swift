@@ -137,8 +137,7 @@ struct ProgressSheet: View {
             // Monthly trends card
             WorkoutTrendsCard(
                 workouts: workouts,
-                selectedDate: selectedDate,
-                preferredMetric: preferredMetric
+                selectedDate: selectedDate
             )
             .padding(.horizontal, 24)
             .padding(.top, 24)
