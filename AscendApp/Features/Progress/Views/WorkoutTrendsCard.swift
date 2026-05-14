@@ -6,12 +6,10 @@
 //
 
 import SwiftUI
-import Charts
 
 struct WorkoutTrendsCard: View {
     let workouts: [Workout]
     let selectedDate: Date
-    let preferredMetric: WorkoutMetric
     
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
@@ -22,111 +20,431 @@ struct WorkoutTrendsCard: View {
     
     private var calendar: Calendar { Calendar.current }
     
-    private var monthFormatter: DateFormatter {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMMM"
-        return formatter
-    }
-    
     private var monthlyWorkouts: [Workout] {
         workouts.filter { calendar.isDate($0.date, equalTo: selectedDate, toGranularity: .month) }
     }
-    
-    private var totalPoints: [WorkoutTrendPoint] {
-        WorkoutTrendsBuilder.trendPoints(from: monthlyWorkouts, metric: .preferredTotal, preferredMetric: preferredMetric)
+
+    private var monthInterval: DateInterval? {
+        calendar.dateInterval(of: .month, for: selectedDate)
     }
-    
-    private var perMinutePoints: [WorkoutTrendPoint] {
-        WorkoutTrendsBuilder.trendPoints(from: monthlyWorkouts, metric: .preferredPerMinute, preferredMetric: preferredMetric)
+
+    private var isSelectedMonthCurrent: Bool {
+        calendar.isDate(selectedDate, equalTo: Date(), toGranularity: .month)
     }
-    
-    private var hasEnoughData: Bool {
-        min(totalPoints.count, perMinutePoints.count) >= 2
+
+    private var sortedMonthlyWorkouts: [Workout] {
+        monthlyWorkouts.sorted { $0.date < $1.date }
+    }
+
+    private var comparisonCurrentInterval: DateInterval? {
+        guard let monthInterval else { return nil }
+        guard isSelectedMonthCurrent else {
+            return monthInterval
+        }
+
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date())) ?? Date()
+        return DateInterval(start: monthInterval.start, end: min(tomorrow, monthInterval.end))
+    }
+
+    private var comparisonPreviousInterval: DateInterval? {
+        guard let comparisonCurrentInterval,
+              let previousMonth = calendar.date(byAdding: .month, value: -1, to: selectedDate),
+              let previousMonthInterval = calendar.dateInterval(of: .month, for: previousMonth)
+        else { return nil }
+
+        guard isSelectedMonthCurrent else {
+            return previousMonthInterval
+        }
+
+        let elapsedDays = calendar.dateComponents(
+            [.day],
+            from: comparisonCurrentInterval.start,
+            to: comparisonCurrentInterval.end
+        ).day ?? 0
+        let previousEnd = calendar.date(
+            byAdding: .day,
+            value: elapsedDays,
+            to: previousMonthInterval.start
+        ) ?? previousMonthInterval.end
+
+        return DateInterval(start: previousMonthInterval.start, end: min(previousEnd, previousMonthInterval.end))
+    }
+
+    private var previousComparisonWorkouts: [Workout] {
+        guard let comparisonPreviousInterval else { return [] }
+        return workouts.filter { comparisonPreviousInterval.contains($0.date) }
+    }
+
+    private var monthlyTotalMetric: Int {
+        monthlyWorkouts.reduce(0) { $0 + $1.steps }
+    }
+
+    private var currentComparisonTotalMetric: Int {
+        guard let comparisonCurrentInterval else { return monthlyTotalMetric }
+        return workouts
+            .filter { comparisonCurrentInterval.contains($0.date) }
+            .reduce(0) { $0 + $1.steps }
+    }
+
+    private var previousComparisonTotalMetric: Int {
+        previousComparisonWorkouts.reduce(0) { $0 + $1.steps }
+    }
+
+    private var volumeChange: Double? {
+        guard previousComparisonTotalMetric > 0 else { return nil }
+        return Double(currentComparisonTotalMetric - previousComparisonTotalMetric) / Double(previousComparisonTotalMetric) * 100
+    }
+
+    private var sparklinePoints: [WorkoutTrendPreviewPoint] {
+        guard !sortedMonthlyWorkouts.isEmpty else { return [] }
+        var cumulativeTotal = 0.0
+        let denominator = max(sortedMonthlyWorkouts.count, 1)
+
+        var points = [WorkoutTrendPreviewPoint(x: 0, y: 0)]
+        for (index, workout) in sortedMonthlyWorkouts.enumerated() {
+            cumulativeTotal += Double(workout.steps)
+            let xPosition = Double(index + 1) / Double(denominator)
+            points.append(WorkoutTrendPreviewPoint(x: xPosition, y: cumulativeTotal))
+        }
+
+        return points
     }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            header
-            
-            if hasEnoughData {
-                VStack(spacing: 12) {
-                    WorkoutTrendChartView(
-                        title: preferredMetric.displayName,
-                        unitLabel: preferredMetric.unit,
-                        points: totalPoints,
-                        metricType: .preferredTotal,
-                        preferredMetric: preferredMetric,
-                        colorScheme: effectiveColorScheme
+        NavigationLink {
+            WorkoutTrendsView(
+                workouts: workouts,
+                initialMonth: selectedDate
+            )
+        } label: {
+            ZStack(alignment: .bottom) {
+                cardBackground
+
+                if !monthlyWorkouts.isEmpty {
+                    WorkoutTrendPreviewSparkline(
+                        points: sparklinePoints,
+                        color: accentColor
                     )
-                    
-                    WorkoutTrendChartView(
-                        title: "\(preferredMetric.displayName) per Minute",
-                        unitLabel: "\(preferredMetric.unit)/min",
-                        points: perMinutePoints,
-                        metricType: .preferredPerMinute,
-                        preferredMetric: preferredMetric,
-                        colorScheme: effectiveColorScheme
-                    )
+                    .frame(height: 194)
+                    .padding(.bottom, 0)
                 }
-            } else {
-                emptyState
+
+                VStack(alignment: .leading, spacing: 0) {
+                    header
+                        .padding(.bottom, 26)
+
+                    if monthlyWorkouts.isEmpty {
+                        emptyState
+                    } else {
+                        monthlyPulse
+                    }
+
+                    Spacer(minLength: 144)
+                }
+                .padding(.horizontal, 34)
+                .padding(.top, 36)
+                .padding(.bottom, 26)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
+            .frame(maxWidth: .infinity, minHeight: 340, alignment: .topLeading)
+            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 30, style: .continuous)
+                    .stroke(cardStrokeColor, lineWidth: 1)
+            )
         }
-        .padding(20)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
-                )
-        )
+        .buttonStyle(.plain)
     }
     
     private var header: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Trends")
-                    .font(.montserratBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                Text("Workouts in \(monthFormatter.string(from: selectedDate))")
-                    .font(.montserratRegular(size: 13))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
+        Text("TRENDS")
+            .font(.montserratBold(size: 12))
+            .kerning(5)
+            .foregroundStyle(accentColor)
+    }
+
+    private var monthlyPulse: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(formattedNumber(monthlyTotalMetric))
+                    .font(.montserratBold(size: 54))
+                    .foregroundStyle(primaryTextColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                    .shadow(color: .black.opacity(0.28), radius: 3, x: 0, y: 2)
+
+                Text("steps this month")
+                    .font(.montserratSemiBold(size: 17))
+                    .foregroundStyle(secondaryTextColor)
             }
-            
-            Spacer()
-            
-            NavigationLink {
-                WorkoutTrendsView(
-                    workouts: workouts,
-                    initialMonth: selectedDate
-                )
-            } label: {
-                HStack(spacing: 4) {
-                    Text("View All")
-                        .font(.montserratMedium(size: 14))
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 14, weight: .medium))
-                }
-                .foregroundStyle(.accent)
-            }
-            .buttonStyle(PlainButtonStyle())
+
+            comparisonLine
         }
     }
     
     private var emptyState: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "chart.line.uptrend.xyaxis")
-                .font(.system(size: 28, weight: .light))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.4) : .gray.opacity(0.6))
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Log 2 or more workouts to see your trends.")
+        VStack(alignment: .leading, spacing: 7) {
+            Text("No trend yet")
+                .font(.montserratBold(size: 30))
+                .foregroundStyle(primaryTextColor)
+
+            Text("Log a workout this month")
+                .font(.montserratSemiBold(size: 14))
+                .foregroundStyle(secondaryTextColor)
+        }
+    }
+
+    private var comparisonLine: some View {
+        HStack(spacing: 6) {
+            if let volumeChange, abs(volumeChange) >= 1 {
+                Image(systemName: volumeChange >= 0 ? "arrow.up" : "arrow.down")
+                    .font(.system(size: 15, weight: .heavy))
+                    .foregroundStyle(comparisonColor(for: volumeChange))
+
+                Text(formattedPercent(abs(volumeChange)))
+                    .font(.montserratBold(size: 14))
+                    .foregroundStyle(comparisonColor(for: volumeChange))
+
+                Text("vs \(comparisonLabel)")
                     .font(.montserratSemiBold(size: 14))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                Text("Charts unlock as soon as you have two workouts in this month.")
-                    .font(.montserratRegular(size: 12))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
+                    .foregroundStyle(secondaryTextColor)
+            } else if previousComparisonWorkouts.isEmpty {
+                Text("New monthly baseline")
+                    .font(.montserratSemiBold(size: 14))
+                    .foregroundStyle(secondaryTextColor)
+            } else {
+                Text("Even vs \(comparisonLabel)")
+                    .font(.montserratSemiBold(size: 14))
+                    .foregroundStyle(secondaryTextColor)
+            }
+        }
+    }
+
+    private func formattedNumber(_ number: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return formatter.string(from: NSNumber(value: number)) ?? "\(number)"
+    }
+
+    private func comparisonColor(for change: Double) -> Color {
+        change >= 0 ? accentColor : .red
+    }
+
+    private func formattedPercent(_ value: Double) -> String {
+        if value >= 1000 {
+            return "999+%"
+        }
+
+        return "\(value.formatted(.number.precision(.fractionLength(0))))%"
+    }
+
+    private var cardBackground: some View {
+        RoundedRectangle(cornerRadius: 30, style: .continuous)
+            .fill(cardBaseColor)
+            .overlay(alignment: .bottomTrailing) {
+                LinearGradient(
+                    colors: [
+                        accentColor.opacity(effectiveColorScheme == .dark ? 0.24 : 0.18),
+                        .clear
+                    ],
+                    startPoint: .bottomTrailing,
+                    endPoint: .topLeading
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+            }
+            .overlay(alignment: .bottomLeading) {
+                RadialGradient(
+                    colors: [
+                        accentColor.opacity(effectiveColorScheme == .dark ? 0.16 : 0.12),
+                        .clear
+                    ],
+                    center: .bottomLeading,
+                    startRadius: 30,
+                    endRadius: 360
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+            }
+    }
+
+    private var cardBaseColor: Color {
+        effectiveColorScheme == .dark
+            ? Color(red: 0.035, green: 0.038, blue: 0.034)
+            : Color(red: 0.045, green: 0.049, blue: 0.042)
+    }
+
+    private var cardStrokeColor: Color {
+        effectiveColorScheme == .dark ? .white.opacity(0.13) : .white.opacity(0.10)
+    }
+
+    private var primaryTextColor: Color {
+        .white
+    }
+
+    private var secondaryTextColor: Color {
+        .white.opacity(0.58)
+    }
+
+    private var accentColor: Color {
+        .accentColor
+    }
+
+    private var comparisonLabel: String {
+        guard let comparisonPreviousInterval else {
+            return "last month"
+        }
+
+        guard isSelectedMonthCurrent,
+              let previousEnd = calendar.date(byAdding: .day, value: -1, to: comparisonPreviousInterval.end)
+        else {
+            return previousMonthName
+        }
+
+        return "\(shortMonthDay(comparisonPreviousInterval.start))-\(calendar.component(.day, from: previousEnd))"
+    }
+
+    private var previousMonthName: String {
+        guard let previousMonth = calendar.date(byAdding: .month, value: -1, to: selectedDate) else {
+            return "last month"
+        }
+
+        return previousMonth.formatted(.dateTime.month(.wide))
+    }
+
+    private func shortMonthDay(_ date: Date) -> String {
+        date.formatted(.dateTime.month(.abbreviated).day())
+    }
+}
+
+private struct WorkoutTrendPreviewPoint: Identifiable {
+    let id = UUID()
+    let x: Double
+    let y: Double
+}
+
+private struct WorkoutTrendPreviewSparkline: View {
+    let points: [WorkoutTrendPreviewPoint]
+    let color: Color
+
+    var body: some View {
+        GeometryReader { proxy in
+            let normalizedPoints = chartPoints(in: proxy.size)
+            ZStack {
+                if normalizedPoints.count >= 2 {
+                    fillPath(points: normalizedPoints)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    color.opacity(0.19),
+                                    color.opacity(0.045),
+                                    .clear
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .mask {
+                            fillFadeMask(points: normalizedPoints)
+                        }
+
+                    linePath(points: normalizedPoints)
+                        .stroke(color.opacity(0.20), style: StrokeStyle(lineWidth: 10, lineCap: .round, lineJoin: .round))
+                        .blur(radius: 7)
+
+                    linePath(points: normalizedPoints)
+                        .stroke(color.opacity(0.45), style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
+                        .blur(radius: 3)
+
+                    linePath(points: normalizedPoints)
+                        .stroke(color, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+
+                    if let lastPoint = normalizedPoints.last {
+                        Circle()
+                            .fill(color)
+                            .frame(width: 7, height: 7)
+                            .shadow(color: color.opacity(0.8), radius: 9)
+                            .position(lastPoint)
+                    }
+                }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func chartPoints(in size: CGSize) -> [CGPoint] {
+        guard !points.isEmpty else { return [] }
+        let maxY = max(points.map(\.y).max() ?? 0, 1)
+        let minY = min(points.map(\.y).min() ?? 0, 0)
+        let yRange = max(maxY - minY, 1)
+        let horizontalInset: CGFloat = 34
+        let verticalInset: CGFloat = 34
+        let drawableWidth = max(size.width - horizontalInset * 2, 1)
+        let drawableHeight = max(size.height - verticalInset * 2, 1)
+
+        return points.map { point in
+            CGPoint(
+                x: horizontalInset + CGFloat(point.x) * drawableWidth,
+                y: verticalInset + (1 - CGFloat((point.y - minY) / yRange)) * drawableHeight
+            )
+        }
+    }
+
+    private func linePath(points: [CGPoint]) -> Path {
+        Path { path in
+            guard let first = points.first else { return }
+            path.move(to: first)
+            for point in points.dropFirst() {
+                path.addLine(to: point)
+            }
+        }
+    }
+
+    private func fillPath(points: [CGPoint]) -> Path {
+        Path { path in
+            guard let first = points.first, let last = points.last else { return }
+
+            let baseline = points.map(\.y).max() ?? last.y
+            let verticalDrop = max(baseline - last.y, 0)
+            let horizontalRun = max(last.x - first.x, 0)
+            let cornerRadius = min(30, verticalDrop, horizontalRun)
+
+            path.move(to: first)
+            for point in points.dropFirst() {
+                path.addLine(to: point)
+            }
+
+            if cornerRadius > 0 {
+                path.addLine(to: CGPoint(x: last.x, y: baseline - cornerRadius))
+                path.addQuadCurve(
+                    to: CGPoint(x: last.x - cornerRadius, y: baseline),
+                    control: CGPoint(x: last.x, y: baseline)
+                )
+            } else {
+                path.addLine(to: CGPoint(x: last.x, y: baseline))
+            }
+
+            path.addLine(to: CGPoint(x: first.x, y: baseline))
+            path.addLine(to: first)
+            path.closeSubpath()
+        }
+    }
+
+    private func fillFadeMask(points: [CGPoint]) -> some View {
+        GeometryReader { proxy in
+            if let first = points.first, let last = points.last {
+                let fadeWidth = min(max(last.x - first.x, 1) * 0.22, 72)
+                let solidEnd = max(last.x - fadeWidth, first.x)
+
+                LinearGradient(
+                    stops: [
+                        .init(color: .white, location: 0),
+                        .init(color: .white, location: max(solidEnd / proxy.size.width, 0)),
+                        .init(color: .clear, location: min(last.x / proxy.size.width, 1))
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            } else {
+                Color.clear
             }
         }
     }
@@ -139,9 +457,7 @@ struct WorkoutTrendChartView: View {
     let metricType: WorkoutTrendMetricType
     let preferredMetric: WorkoutMetric
     let colorScheme: ColorScheme
-    
-    @State private var selectedPoint: WorkoutTrendPoint?
-    
+
     private var formatter: NumberFormatter {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
@@ -149,203 +465,36 @@ struct WorkoutTrendChartView: View {
         formatter.minimumFractionDigits = 0
         return formatter
     }
-    
-    private var dateFormatter: DateFormatter {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d, h:mm a"
-        return formatter
+
+    private var chartPoints: [ProgressLineChartPoint] {
+        points.map { point in
+            ProgressLineChartPoint(
+                id: point.id.uuidString,
+                date: point.date,
+                value: point.value,
+                valueText: "\(formattedValue(point.value)) \(unitLabel)",
+                dateText: point.date.formatted(.dateTime.month(.abbreviated).day().year())
+            )
+        }
     }
-    
-    private var yScaleDomain: ClosedRange<Double> {
-        let maxValue = points.map(\.value).max() ?? 0
-        let upper = max(1, maxValue * 1.15)
-        return 0...upper
-    }
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(title)
-                    .font(.montserratSemiBold(size: 15))
-                    .foregroundStyle(colorScheme == .dark ? .white : .black)
+            Text(title)
+                .font(.montserratSemiBold(size: 15))
+                .foregroundStyle(colorScheme == .dark ? .white : .black)
 
-                Spacer()
-            }
-
-            if let selectedPoint = selectedPoint {
-                tooltip(for: selectedPoint)
-            }
-            
-            Chart {
-                ForEach(points) { point in
-                    LineMark(
-                        x: .value("Date", point.date),
-                        y: .value(title, point.value)
-                    )
-                    .foregroundStyle(Color.accentColor)
-                    .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
-                    .interpolationMethod(.monotone)
-                    
-                    PointMark(
-                        x: .value("Date", point.date),
-                        y: .value(title, point.value)
-                    )
-                    .foregroundStyle(point.id == selectedPoint?.id ? Color.accentColor : (colorScheme == .dark ? .white : .black))
-                    .symbolSize(point.id == selectedPoint?.id ? 80 : 40)
-                }
-                
-                if let selected = selectedPoint {
-                    RuleMark(x: .value("Selected Date", selected.date))
-                        .foregroundStyle(Color.accentColor.opacity(0.4))
-                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [5]))
-                }
-            }
-            .chartXAxis {
-                AxisMarks(values: .automatic(desiredCount: 4)) { value in
-                    AxisGridLine()
-                        .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.08))
-                    AxisValueLabel(format: .dateTime.month(.abbreviated).day())
-                        .font(.montserratRegular(size: 10))
-                        .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .gray)
-                }
-            }
-            .chartYAxis {
-                AxisMarks(position: .leading, values: .automatic(desiredCount: 5)) { value in
-                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                        .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1))
-                    AxisValueLabel()
-                        .font(.montserratRegular(size: 11))
-                        .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .gray)
-                }
-            }
-            .chartYScale(domain: yScaleDomain)
-            .chartGesture { proxy in
-                SpatialTapGesture()
-                    .onEnded { event in
-                        selectNearestPoint(at: event.location, proxy: proxy)
-                    }
-            }
-            .frame(height: 130)
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03))
-        )
-    }
-
-    private func selectNearestPoint(at location: CGPoint, proxy: ChartProxy) {
-        var nearestPoint: WorkoutTrendPoint?
-        var nearestDistance: CGFloat = .infinity
-
-        for point in points {
-            guard let xPosition = proxy.position(forX: point.date),
-                  let yPosition = proxy.position(forY: point.value) else { continue }
-
-            let pointLocation = CGPoint(x: xPosition, y: yPosition)
-            let distance = hypot(location.x - pointLocation.x, location.y - pointLocation.y)
-
-            if distance < nearestDistance {
-                nearestDistance = distance
-                nearestPoint = point
-            }
-        }
-
-        if let point = nearestPoint, nearestDistance < 50 {
-            withAnimation(.easeOut(duration: 0.15)) {
-                if selectedPoint?.id == point.id {
-                    // Tap same point to deselect
-                    selectedPoint = nil
-                } else {
-                    selectedPoint = point
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                }
-            }
-        } else {
-            // Tapped far from any point - deselect
-            withAnimation(.easeOut(duration: 0.15)) {
-                selectedPoint = nil
-            }
+            ProgressLineChartView(
+                title: title,
+                points: chartPoints,
+                colorScheme: colorScheme,
+                height: 300,
+                xAxisStyle: .monthDay,
+                yAxisLabel: { formattedValue($0) }
+            )
         }
     }
-    
-    private func tooltip(for point: WorkoutTrendPoint) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(dateFormatter.string(from: point.date))
-                        .font(.montserratSemiBold(size: 13))
-                        .foregroundStyle(colorScheme == .dark ? .white : .black)
 
-                    Text(point.workout.name)
-                        .font(.montserratRegular(size: 12))
-                        .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
-                        .lineLimit(1)
-                }
-
-                Spacer()
-
-                Text("\(formattedValue(point.value)) \(unitLabel)")
-                    .font(.montserratBold(size: 16))
-                    .foregroundStyle(.accent)
-
-                Button {
-                    withAnimation(.easeOut(duration: 0.15)) {
-                        selectedPoint = nil
-                    }
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(colorScheme == .dark ? .white.opacity(0.4) : .gray.opacity(0.5))
-                }
-            }
-
-            // Show additional stats for total metric chart
-            if metricType == .preferredTotal {
-                Divider()
-                    .background(colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1))
-
-                HStack(spacing: 16) {
-                    // Pace
-                    if let pace = point.workout.pace(for: preferredMetric) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(preferredMetric.unit)/min")
-                                .font(.montserratRegular(size: 10))
-                                .foregroundStyle(colorScheme == .dark ? .white.opacity(0.5) : .gray)
-                            Text(pace, format: .number.precision(.fractionLength(1)))
-                                .font(.montserratSemiBold(size: 13))
-                                .foregroundStyle(colorScheme == .dark ? .white : .black)
-                        }
-                    }
-
-                    // Heart Rate
-                    if let avgHR = point.workout.avgHeartRate {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Avg HR")
-                                .font(.montserratRegular(size: 10))
-                                .foregroundStyle(colorScheme == .dark ? .white.opacity(0.5) : .gray)
-                            Text("\(avgHR) bpm")
-                                .font(.montserratSemiBold(size: 13))
-                                .foregroundStyle(colorScheme == .dark ? .white : .black)
-                        }
-                    }
-
-                    Spacer()
-                }
-            }
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.accentColor.opacity(0.25), lineWidth: 1)
-                )
-        )
-    }
-    
     private func formattedValue(_ value: Double) -> String {
         formatter.string(from: NSNumber(value: value)) ?? "\(Int(value))"
     }

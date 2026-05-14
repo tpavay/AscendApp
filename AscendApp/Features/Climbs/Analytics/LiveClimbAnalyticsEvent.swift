@@ -333,6 +333,7 @@ extension LiveClimbAnalyticsEvent {
         case homeDaily = "home_daily"
         case homeJustClimb = "home_just_climb"
         case homeExplore = "home_explore"
+        case workoutList = "workout_list"
         case browseSearch = "browse_search"
         case browseSection = "browse_section"
         case browseAll = "browse_all"

@@ -46,10 +46,6 @@ struct HomeWorkoutActionSheet: View {
         "Add Workout"
     }
 
-    private var sheetSubtitle: String {
-        "Choose live tracking, manual entry, routine, or import."
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             header
@@ -67,10 +63,6 @@ struct HomeWorkoutActionSheet: View {
             Text(sheetTitle)
                 .font(.montserratBold(size: 24))
                 .foregroundStyle(primaryTextColor)
-
-            Text(sheetSubtitle)
-                .font(.montserratRegular(size: 14))
-                .foregroundStyle(secondaryTextColor)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

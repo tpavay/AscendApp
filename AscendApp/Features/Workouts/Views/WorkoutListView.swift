@@ -30,6 +30,9 @@ struct WorkoutListView: View {
     @State private var isDeleting = false
     @State private var isCancelling = false
     @State private var deleteTask: Task<Void, Never>? = nil
+    @State private var showingJustClimbSession = false
+    @State private var showingJustClimbStartError = false
+    @State private var showingRoutinesView = false
 
     @State private var showingEntrySelection = false
 
@@ -98,6 +101,9 @@ struct WorkoutListView: View {
                 }
             }
             .navigationBarHidden(true)
+            .navigationDestination(isPresented: $showingRoutinesView) {
+                RoutinesView()
+            }
             .overlay(alignment: .bottomTrailing) {
                 if !isInDeleteMode {
                     // Floating Action Button
@@ -118,21 +124,11 @@ struct WorkoutListView: View {
                 }
             }
             .sheet(isPresented: $showingEntrySelection) {
-                WorkoutEntrySelectionView(
-                    onManualEntry: {
-                        showingEntrySelection = false
-                        Task {
-                            try await Task.sleep(for: .milliseconds(300))
-                            showingWorkoutForm = true
-                        }
-                    },
-                    onImportWorkouts: {
-                        showingEntrySelection = false
-                        Task {
-                            try await Task.sleep(for: .milliseconds(300))
-                            handleImportTapped()
-                        }
-                    },
+                HomeWorkoutActionSheet(
+                    onManualEntry: presentWorkoutForm,
+                    onJustClimb: presentJustClimb,
+                    onStartRoutine: presentRoutines,
+                    onImportWorkouts: presentImportSheet,
                     pendingImportCount: importCoordinator.attentionCount
                 )
                 .appSheetStyle(.fitted())
@@ -156,6 +152,12 @@ struct WorkoutListView: View {
                     }
                 )
                 .interactiveDismissDisabled()
+            }
+            .fullScreenCover(isPresented: $showingJustClimbSession) {
+                LiveClimbSessionView(
+                    mode: .justClimb,
+                    analyticsEntryPoint: .workoutList
+                )
             }
             .fullScreenCover(isPresented: $showingCompletedView) {
                 if let workout = completedWorkout {
@@ -202,6 +204,11 @@ struct WorkoutListView: View {
             .sheet(isPresented: $showingImportSheet) {
                 WorkoutImportSheet()
             }
+            .alert("Compatible Headphones Required", isPresented: $showingJustClimbStartError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Just Climb uses compatible headphone motion to track steps in real time.")
+            }
             .alert("Delete Failed", isPresented: $showingDeleteError) {
                 Button("OK") {
                     showingDeleteError = false
@@ -212,6 +219,66 @@ struct WorkoutListView: View {
             .task {
                 importCoordinator.configure(modelContext: modelContext)
             }
+        }
+    }
+
+    private func presentWorkoutForm() {
+        showingEntrySelection = false
+
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            showingWorkoutForm = true
+        }
+    }
+
+    private func presentJustClimb() {
+        let readinessService = HeadphoneMotionReadinessService.shared
+        readinessService.refresh()
+        let canStart = readinessService.readiness.canStartLiveClimb
+
+        TelemetryManager.shared.track(
+            LiveClimbAnalyticsEvent.justClimbStartTapped(
+                entryPoint: .workoutList,
+                canStart: canStart
+            )
+        )
+
+        showingEntrySelection = false
+
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+
+            guard canStart else {
+                TelemetryManager.shared.track(
+                    LiveClimbAnalyticsEvent.justClimbStartBlocked(
+                        entryPoint: .workoutList,
+                        reason: .headphonesUnavailable
+                    )
+                )
+                showingJustClimbStartError = true
+                return
+            }
+
+            showingJustClimbSession = true
+        }
+    }
+
+    private func presentRoutines() {
+        showingEntrySelection = false
+
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            showingRoutinesView = true
+        }
+    }
+
+    private func presentImportSheet() {
+        showingEntrySelection = false
+
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            await importCoordinator.refreshPendingImports(trigger: .manualReview)
+            showingImportSheet = true
         }
     }
 
