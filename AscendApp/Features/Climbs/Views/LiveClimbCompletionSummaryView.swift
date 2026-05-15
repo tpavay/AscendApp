@@ -8,7 +8,7 @@ struct LiveClimbCompletionSummaryView: View {
     let leaderboardTotal: Int?
     let onDone: () -> Void
 
-    @Query(sort: \Workout.date, order: .reverse) private var allWorkouts: [Workout]
+    @Query(sort: \BestEffortCacheEntry.sortKey) private var bestEffortCacheEntries: [BestEffortCacheEntry]
     @State private var showingShareSheet = false
     @State private var completionRank: LiveReplayCompletionRank?
     @State private var isLoadingCompletionRank = false
@@ -22,7 +22,11 @@ struct LiveClimbCompletionSummaryView: View {
     }
 
     private var primaryBestEffort: RankedBestEffort? {
-        BestEffortRankingBuilder.primaryEffort(for: workout, from: allWorkouts)
+        BestEffortCacheSnapshot(
+            entries: bestEffortCacheEntries,
+            workouts: [workout]
+        )
+        .primaryEffort(for: workout)
     }
 
     var body: some View {
@@ -687,4 +691,5 @@ private extension Int {
         leaderboardTotal: 2_460,
         onDone: {}
     )
+    .modelContainer(for: [Workout.self, BestEffortCacheEntry.self, BestEffortCacheMetadata.self], inMemory: true)
 }

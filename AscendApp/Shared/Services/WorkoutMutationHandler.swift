@@ -35,6 +35,7 @@ final class WorkoutMutationHandler {
             let didUpdateLeaderboard = try leaderboardService.applyMutationImpact(impact, for: userId)
 
             try modelContext.save()
+            rebuildBestEffortCacheAfterMutation(modelContext: modelContext)
 
             if !changedWorkouts.isEmpty {
                 Task { @MainActor in
@@ -65,6 +66,7 @@ final class WorkoutMutationHandler {
         }
 
         try modelContext.save()
+        rebuildBestEffortCacheAfterMutation(modelContext: modelContext)
     }
 
     func markChangedWorkoutsForRemoteSync(
@@ -74,6 +76,14 @@ final class WorkoutMutationHandler {
     ) {
         for workout in changedWorkouts {
             workout.markPendingRemoteUpsert(ownerUserId: userId, modifiedAt: modifiedAt)
+        }
+    }
+
+    private func rebuildBestEffortCacheAfterMutation(modelContext: ModelContext) {
+        do {
+            try BestEffortCacheStore.rebuild(modelContext: modelContext)
+        } catch {
+            print("Failed to rebuild Best Effort cache after workout mutation: \(error)")
         }
     }
 }

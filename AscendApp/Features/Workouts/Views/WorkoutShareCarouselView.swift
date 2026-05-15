@@ -15,7 +15,7 @@ import UIKit
 struct WorkoutShareCarouselView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
-    @Query(sort: \Workout.date, order: .reverse) private var allWorkouts: [Workout]
+    @Query(sort: \BestEffortCacheEntry.sortKey) private var bestEffortCacheEntries: [BestEffortCacheEntry]
     
     @State private var viewModel: WorkoutShareCarouselViewModel
     @State private var themeManager = ThemeManager.shared
@@ -33,7 +33,11 @@ struct WorkoutShareCarouselView: View {
     }
 
     private var primaryBestEffort: RankedBestEffort? {
-        BestEffortRankingBuilder.primaryEffort(for: viewModel.workout, from: allWorkouts)
+        BestEffortCacheSnapshot(
+            entries: bestEffortCacheEntries,
+            workouts: [viewModel.workout]
+        )
+        .primaryEffort(for: viewModel.workout)
     }
     
     // MARK: - Initializers
@@ -663,6 +667,7 @@ private extension Int {
         workoutCount: 535,
         onDismiss: {}
     )
+    .modelContainer(for: [Workout.self, BestEffortCacheEntry.self, BestEffortCacheMetadata.self], inMemory: true)
 }
 
 #Preview("Share Flow") {
@@ -676,6 +681,7 @@ private extension Int {
             caloriesBurned: 450
         )
     )
+    .modelContainer(for: [Workout.self, BestEffortCacheEntry.self, BestEffortCacheMetadata.self], inMemory: true)
 }
 
 #Preview("With Photo - Dark") {
@@ -691,4 +697,5 @@ private extension Int {
         onDismiss: {}
     )
     .preferredColorScheme(.dark)
+    .modelContainer(for: [Workout.self, BestEffortCacheEntry.self, BestEffortCacheMetadata.self], inMemory: true)
 }
