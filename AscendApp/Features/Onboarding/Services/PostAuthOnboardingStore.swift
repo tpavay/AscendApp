@@ -1,0 +1,98 @@
+import Foundation
+
+struct PostAuthOnboardingStore {
+    private let userDefaults: UserDefaults
+
+    init(userDefaults: UserDefaults = .standard) {
+        self.userDefaults = userDefaults
+    }
+
+    func snapshot(for userId: String) -> PostAuthOnboardingSnapshot {
+        let key = storageKey(for: userId)
+
+        guard let data = userDefaults.data(forKey: key) else {
+            return PostAuthOnboardingSnapshot()
+        }
+
+        do {
+            return try JSONDecoder().decode(PostAuthOnboardingSnapshot.self, from: data)
+        } catch {
+            if let legacySnapshot = legacySnapshot(from: data) {
+                save(legacySnapshot, for: userId)
+                return legacySnapshot
+            }
+
+            userDefaults.removeObject(forKey: key)
+            return PostAuthOnboardingSnapshot()
+        }
+    }
+
+    func save(_ snapshot: PostAuthOnboardingSnapshot, for userId: String) {
+        do {
+            let data = try JSONEncoder().encode(snapshot)
+            userDefaults.set(data, forKey: storageKey(for: userId))
+        } catch {
+            assertionFailure("Failed to persist post-auth onboarding snapshot: \(error)")
+        }
+    }
+
+    func reset(for userId: String) {
+        userDefaults.removeObject(forKey: storageKey(for: userId))
+    }
+
+    func markComplete(for userId: String) {
+        let now = Date()
+        let snapshot = PostAuthOnboardingSnapshot(
+            currentStage: .first,
+            completedStages: Set(PostAuthOnboardingStage.allCases),
+            isComplete: true,
+            startedAt: self.snapshot(for: userId).startedAt,
+            completedAt: now
+        )
+        save(snapshot, for: userId)
+    }
+
+    private func storageKey(for userId: String) -> String {
+        "postAuthOnboarding.v1.\(userId)"
+    }
+
+    private func legacySnapshot(from data: Data) -> PostAuthOnboardingSnapshot? {
+        guard let legacy = try? JSONDecoder().decode(LegacyPostAuthOnboardingSnapshot.self, from: data) else {
+            return nil
+        }
+
+        let hasCompletedDisplayName = legacy.completedStages.contains(PostAuthOnboardingStage.displayName.rawValue)
+        return PostAuthOnboardingSnapshot(
+            currentStage: .first,
+            completedStages: hasCompletedDisplayName ? [.displayName] : [],
+            isComplete: hasCompletedDisplayName,
+            startedAt: legacy.startedAt,
+            completedAt: hasCompletedDisplayName ? legacy.completedAt ?? Date() : nil
+        )
+    }
+}
+
+private struct LegacyPostAuthOnboardingSnapshot: Decodable {
+    var currentStage: String
+    var completedStages: Set<String>
+    var isComplete: Bool
+    var startedAt: Date
+    var completedAt: Date?
+
+    private enum CodingKeys: String, CodingKey {
+        case currentStage
+        case completedStages
+        case isComplete
+        case startedAt
+        case completedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        currentStage = try container.decodeIfPresent(String.self, forKey: .currentStage) ?? ""
+        completedStages = try container.decodeIfPresent(Set<String>.self, forKey: .completedStages) ?? []
+        isComplete = try container.decodeIfPresent(Bool.self, forKey: .isComplete) ?? false
+        startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt) ?? Date()
+        completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
+    }
+}

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import FirebaseAuth
 import Observation
 import SwiftData
 
@@ -22,6 +23,8 @@ class DebugToolsViewModel {
         static let clearSeededWorkouts = "Clear Seeded Workouts"
         static let queueAutoImportReview = "Queue Auto-Import Review"
         static let clearAutoImportSimulations = "Clear Auto-Import Simulations"
+        static let resetPostAuthOnboarding = "Reset Post-Auth Onboarding"
+        static let completePostAuthOnboarding = "Complete Post-Auth Onboarding"
     }
 
     var selectedWorkoutPreset: WorkoutSeedPreset = .appStoreScreenshots
@@ -33,10 +36,35 @@ class DebugToolsViewModel {
 
     var sections: [DebugSection] {
         [
+            onboardingSection,
             appleHealthImportSection,
             workoutsSection,
             leaderboardSection
         ]
+    }
+
+    // MARK: - Onboarding Section
+
+    private var onboardingSection: DebugSection {
+        DebugSection(
+            title: "Onboarding",
+            subtitle: "Reset the local post-auth onboarding state for the signed-in user",
+            actions: [
+                DebugAction(
+                    title: ActionTitle.resetPostAuthOnboarding,
+                    description: "Clears the saved post-auth onboarding snapshot so the current account starts at value screens again.",
+                    icon: "arrow.counterclockwise",
+                    iconColor: .orange,
+                    isDestructive: true
+                ),
+                DebugAction(
+                    title: ActionTitle.completePostAuthOnboarding,
+                    description: "Marks the current account as having completed the post-auth onboarding flow.",
+                    icon: "checkmark.seal.fill",
+                    iconColor: .green
+                )
+            ]
+        )
     }
 
     // MARK: - Apple Health Section
@@ -128,6 +156,19 @@ class DebugToolsViewModel {
                 let count = try await service.clearSimulatedAppleHealthAutoImports(modelContext: modelContext)
                 successMessage = "Cleared \(count) simulated auto-import workout\(count == 1 ? "" : "s")."
 
+            case ActionTitle.resetPostAuthOnboarding:
+                let userId = try currentUserId()
+                PostAuthOnboardingStore().reset(for: userId)
+                NotificationCenter.default.post(name: .postAuthOnboardingStateDidChange, object: nil)
+                successMessage = "Reset post-auth onboarding for this user."
+
+            case ActionTitle.completePostAuthOnboarding:
+                let userId = try currentUserId()
+                PostAuthOnboardingStore().markComplete(for: userId)
+                SettingsManager.shared.hasCompletedBaseLevelOnboarding = true
+                NotificationCenter.default.post(name: .postAuthOnboardingStateDidChange, object: nil)
+                successMessage = "Marked post-auth onboarding complete for this user."
+
             case ActionTitle.seedWorkouts:
                 let count = try await service.seedWorkoutData(
                     preset: selectedWorkoutPreset,
@@ -160,6 +201,22 @@ class DebugToolsViewModel {
     // ✅ Helper to check if a specific action is executing
     func isExecuting(_ action: DebugAction) -> Bool {
         return executingActionId == action.id
+    }
+
+    private func currentUserId() throws -> String {
+        guard let userId = Auth.auth().currentUser?.uid else {
+            throw DebugOnboardingError.missingAuthenticatedUser
+        }
+
+        return userId
+    }
+}
+
+private enum DebugOnboardingError: LocalizedError {
+    case missingAuthenticatedUser
+
+    var errorDescription: String? {
+        "Sign in before changing onboarding debug state."
     }
 }
 #endif

@@ -1,49 +1,117 @@
 import SwiftUI
 
 struct LandingScreen: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
-        VStack(spacing: 18) {
-                Image("AppIconInternal")
-                    .resizable()
-                    .renderingMode(.template)
-                    .foregroundStyle(.accent)
-                    .frame(width: 120, height: 120)
-                    .shadow(color: .accent.opacity(0.35), radius: 16, y: 6)
+        ZStack {
+            OnboardingWelcomeBackground()
 
-                Text("Ascend")
-                    .font(.montserratBold)
-                    .foregroundStyle(colorScheme == .dark ? .white : .black)
-                    .kerning(0.5)
-                    .shadow(color: colorScheme == .dark ? .black.opacity(0.6) : .clear, radius: 10, y: 4)
+            GeometryReader { geometry in
+                VStack(spacing: 0) {
+                    VStack(spacing: 0) {
+                        Image("AppIconInternal")
+                            .resizable()
+                            .renderingMode(.original)
+                            .scaledToFit()
+                            .frame(width: 210, height: 210)
+                            .accessibilityLabel("Ascend")
 
-                Text("Elevate Your Stair Climbing Game")
-                    .font(.montserratMedium)
-                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.72) : .gray)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
-                    .padding(.top, -4)
+                        VStack(spacing: 8) {
+                            Text("WELCOME TO ASCEND")
+                                .font(.montserratBold(size: 20))
+                                .foregroundStyle(.white)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.72)
+                                .kerning(0.6)
 
-                VStack(spacing: -12) {
-                    NavigationLink(destination: SignUpView()) {
-                        Text("Continue")
-                            .font(.montserratSemiBold)
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 55)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14)
-                                    .fill(.accent)
-                            )
-                            .padding()
+                            Text("Build endurance that changes what’s possible.")
+                                .font(.montserratRegular(size: 13.5))
+                                .foregroundStyle(.white.opacity(0.78))
+                                .multilineTextAlignment(.center)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.78)
+                                .frame(maxWidth: 330)
+                        }
                     }
-                }
+                    .padding(.horizontal, 24)
+                    .offset(y: -60)
 
-                Spacer(minLength: 24)
+                    Spacer(minLength: 0)
+
+                    VStack(spacing: 14) {
+                        NavigationLink(destination: PreAuthOnboardingValueCarouselScreen()) {
+                            Text("GET STARTED")
+                        }
+                        .buttonStyle(
+                            OnboardingPrimaryCTAButtonStyle(
+                                height: 62,
+                                tint: .accent,
+                                shadowOpacity: 0
+                            )
+                        )
+                        .padding(.horizontal, 28)
+
+                        NavigationLink(destination: SignUpView()) {
+                            HStack(spacing: 4) {
+                                Text("Already have an account?")
+                                    .foregroundStyle(.white.opacity(0.66))
+
+                                Text("Log in")
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                            .font(.montserratSemiBold(size: 13))
+                            .multilineTextAlignment(.center)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Already have an account? Log in")
+                    }
+                    .padding(.bottom, max(geometry.safeAreaInsets.bottom + 12, 36))
+                }
+                .padding(.top, geometry.size.height * 0.23)
+            }
         }
-        .padding(.top, 180)
-        .themedBackground()
+        .background(Color.black)
+        .toolbar(.hidden, for: .navigationBar)
+    }
+}
+
+private struct OnboardingWelcomeBackground: View {
+    var body: some View {
+        GeometryReader { geometry in
+            Image("OnboardingWelcomeBackground")
+                .resizable()
+                .scaledToFill()
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .clipped()
+                .overlay {
+                    LinearGradient(
+                        colors: [
+                            Color.black.opacity(0.78),
+                            Color.black.opacity(0.24),
+                            Color.black.opacity(0.08)
+                        ],
+                        startPoint: .top,
+                        endPoint: .center
+                    )
+                }
+                .overlay {
+                    LinearGradient(
+                        colors: [
+                            .clear,
+                            Color.black.opacity(0.2),
+                            Color.black.opacity(0.82)
+                        ],
+                        startPoint: .center,
+                        endPoint: .bottom
+                    )
+                }
+                .overlay {
+                    Color.black.opacity(0.12)
+                }
+        }
+        .ignoresSafeArea()
     }
 }
 

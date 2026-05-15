@@ -13,12 +13,16 @@ struct RootView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(MediaUploadManager.self) private var uploadManager
     @State private var importCoordinator = WorkoutImportCoordinator.shared
+    @State private var postAuthOnboardingCoordinator = PostAuthOnboardingCoordinator()
 
     var body: some View {
         Group {
             switch authVM.authenticationState {
-            case .authenticated, .restoringSession:
-                MainTabView()
+            case .authenticated:
+                authenticatedContent
+            case .restoringSession:
+                ProgressView("Restoring Session...")
+                    .themedBackground()
             case .authenticatingWithApple,
                  .authenticatingWithGoogle,
                  .authenticatingWithInternalQA:
@@ -32,6 +36,7 @@ struct RootView: View {
         .themeAware()
         .task {
             importCoordinator.configure(modelContext: modelContext)
+            postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
             // Resume any pending uploads from previous session
             await uploadManager.processPendingUploads(modelContext: modelContext)
             await bootstrapAuthenticatedLocalState()
@@ -46,8 +51,31 @@ struct RootView: View {
         }
         .onChange(of: authVM.user?.uid) { _, _ in
             Task {
+                postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
                 await bootstrapAuthenticatedLocalState()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .postAuthOnboardingStateDidChange)) { _ in
+            postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid, force: true)
+        }
+    }
+
+    @ViewBuilder
+    private var authenticatedContent: some View {
+        switch postAuthOnboardingCoordinator.phase {
+        case .signedOut, .resolving:
+            ProgressView("Setting Up...")
+                .themedBackground()
+
+        case .onboarding(let stage):
+            PostAuthOnboardingFlowView(
+                stage: stage,
+                onBack: postAuthOnboardingCoordinator.moveBack,
+                onContinue: postAuthOnboardingCoordinator.completeCurrentStage
+            )
+
+        case .complete:
+            MainTabView()
         }
     }
 

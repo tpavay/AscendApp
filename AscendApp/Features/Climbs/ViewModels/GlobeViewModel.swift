@@ -375,3 +375,29 @@ final class GlobeViewModel {
         distance: defaultOverviewCameraDistance
     )
 }
+
+#if DEBUG
+extension GlobeViewModel {
+    static func debugDailyRecommendedClimbId() -> String? {
+        let defaults = UserDefaults.standard
+        guard defaults.string(forKey: dailyRecommendationDayDefaultsKey) == dailyRecommendationDayKey else {
+            return nil
+        }
+        return defaults.string(forKey: dailyRecommendationClimbDefaultsKey)
+    }
+
+    static func debugSetDailyRecommendedClimbId(_ climbId: String) {
+        let defaults = UserDefaults.standard
+        defaults.set(dailyRecommendationDayKey, forKey: dailyRecommendationDayDefaultsKey)
+        defaults.set(climbId, forKey: dailyRecommendationClimbDefaultsKey)
+        NotificationCenter.default.post(name: .climbStateDidChange, object: nil)
+    }
+
+    static func debugClearDailyRecommendedClimbId() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: dailyRecommendationDayDefaultsKey)
+        defaults.removeObject(forKey: dailyRecommendationClimbDefaultsKey)
+        NotificationCenter.default.post(name: .climbStateDidChange, object: nil)
+    }
+}
+#endif

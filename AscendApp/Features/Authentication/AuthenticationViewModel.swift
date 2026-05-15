@@ -46,7 +46,7 @@ class AuthenticationViewModel {
     var customProfilePictureURL: URL?
 
     /// Indicates whether the profile data has been loaded from Firestore/cache after auth restore.
-    /// Used to avoid showing NameInputView before we know if the user has a name.
+    /// Used to avoid showing authenticated UI before profile state is known.
     private(set) var isProfileLoaded: Bool = false
 
     private var authenticationService = AuthenticationService()
@@ -81,8 +81,9 @@ class AuthenticationViewModel {
                                                self.authenticationState == .authenticatingWithInternalQA
 
                     // Load cached display name immediately
-                    let cachedDisplayName = UserDataRepository.shared.getCachedDisplayName() ?? user.displayName ?? ""
+                    let cachedDisplayName = UserDataRepository.shared.getCachedDisplayName() ?? ""
                     self.displayName = cachedDisplayName
+                    let shouldSaveInitialUserRecord = !isInteractiveSignIn || !cachedDisplayName.isEmpty
 
                     // If we have a cached name, we can show authenticated immediately
                     // Otherwise, show restoring session while we fetch from Firestore
@@ -100,8 +101,11 @@ class AuthenticationViewModel {
 
                     // Handle Firestore operations in background
                     Task {
-                        // Save/update user in Firestore first
-                        try? await self.saveUserToFirestore(user: user)
+                        // Avoid writing a provider-derived or empty display name during new sign-up.
+                        // The post-auth name step creates the profile document with the user's chosen name.
+                        if shouldSaveInitialUserRecord {
+                            try? await self.saveUserToFirestore(user: user)
+                        }
 
                         // Fetch the authoritative display name from Firestore
                         let firestoreDisplayName = await UserDataRepository.shared.getDisplayName(userId: user.uid)
@@ -241,9 +245,8 @@ extension AuthenticationViewModel {
 
     func setDisplayName(firstName: String, lastName: String) async {
         do {
-            try await authenticationService.updateUserDisplayName(firstName: firstName, lastName: lastName)
-            
             let fullDisplayName = "\(firstName) \(lastName)"
+            try await authenticationService.updateUserDisplayName(displayName: fullDisplayName)
             displayName = fullDisplayName
             
             // Cache display name for immediate UI updates
@@ -276,34 +279,14 @@ extension AuthenticationViewModel {
     }
     
     private func saveUserToFirestore(user: User) async throws {
-        // Get existing data from Firestore or use Firebase Auth data
-        var firstName: String?
-        var lastName: String?
-        var displayNameToSave = !self.displayName.isEmpty ? self.displayName : user.displayName
-        
-        do {
-            let userDisplayNameData = try await UserDataRepository.shared.getUserFromFirestore(userId: user.uid)
-            
-            // Assign existing names if we don't already have them
-            firstName = userDisplayNameData.firstName
-            lastName = userDisplayNameData.lastName
-
-            // Use existing display name if we don't have a better one
-            if displayNameToSave?.isEmpty == true {
-                displayNameToSave = userDisplayNameData.displayName ?? 
-                    (firstName != nil && lastName != nil ? "\(firstName!) \(lastName!)" : nil)
-            }
-
-        } catch {
-            // If we can't fetch existing data, proceed with what we have
-        }
+        let existingData = try? await UserDataRepository.shared.getUserFromFirestore(userId: user.uid)
         
         try await UserDataRepository.shared.saveUserToFirestore(
             userId: user.uid,
             email: user.email,
-            firstName: firstName,
-            lastName: lastName,
-            displayName: displayNameToSave
+            firstName: existingData?.firstName,
+            lastName: existingData?.lastName,
+            displayName: existingData?.displayName
         )
     }
     
@@ -393,28 +376,34 @@ extension AuthenticationViewModel {
         return customProfilePictureURL ?? photoURL
     }
     
-    func updateDisplayName(_ newDisplayName: String) async {
+    @discardableResult
+    func updateDisplayName(_ newDisplayName: String) async -> Bool {
         errorMessage = nil
         
         guard let user = user else {
             errorMessage = "User not authenticated"
-            return
+            return false
         }
         
         let trimmedName = newDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
         
         guard !trimmedName.isEmpty else {
             errorMessage = "Display name cannot be empty"
-            return
+            return false
         }
         
+        let previousDisplayName = displayName
+
         do {
             // Update local state immediately for responsive UI
             displayName = trimmedName
+
+            try await authenticationService.updateUserDisplayName(displayName: trimmedName)
             
             // Save to Firestore user document
             try await UserDataRepository.shared.updateDisplayName(
                 userId: user.uid,
+                email: user.email,
                 displayName: trimmedName
             )
             
@@ -428,9 +417,13 @@ extension AuthenticationViewModel {
                 // Don't fail the whole operation if leaderboard update fails
                 print("Warning: Failed to update leaderboard display name: \(error)")
             }
+
+            return true
             
         } catch {
+            displayName = previousDisplayName
             errorMessage = "Failed to update display name: \(error.localizedDescription)"
+            return false
         }
     }
 }

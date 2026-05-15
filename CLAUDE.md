@@ -51,6 +51,15 @@ web/public/                     # Firebase-hosted website (landing page, privacy
 functions/src/                  # Cloud Functions (TypeScript)
 ```
 
+### Tab Architecture
+- `MainTabView` should use SwiftUI's native `TabView(selection:)` as the tab content owner and keep Ascend's custom `MainTabBarView` as the visible bottom chrome via `safeAreaInset`.
+- `TabItem` is metadata only. Do not store eager `AnyView` tab roots in tab configuration, and do not reintroduce a manual `ZStack` that keeps every tab mounted with opacity.
+- Each tab root owns its own `NavigationStack`; keep tab-specific work scoped to the selected tab where possible so hidden tabs do not run expensive queries, refreshes, or animations.
+
+### Branding
+- Use the angular Ascend `A` mark for in-app and launch-screen branding. The internal logo assets are `AppIconInternal` and `AppIconInternalAccent`; do not reintroduce the legacy stair-stepper logo for app branding surfaces.
+- The unauthenticated landing screen uses the bundled `OnboardingWelcomeBackground` staircase artwork with readability overlays. Keep the image asset as the primary background rather than replacing it with a generated gradient.
+
 ### Environments
 Three Firebase environments. App selects at compile time via `#if DEBUG / #elseif STAGING`:
 
@@ -267,11 +276,12 @@ Workout, WorkoutSourceLink, WorkoutParticipation, LeaderboardStats, Routine, Rou
 - Persistent idle climb surfaces, such as the Home daily climb card, may use a lighter ambient `AnimatedClimbCardBorder` treatment with an unblurred moving highlight to reduce SwiftUI animation work while preserving visible rotating motion.
 
 ### Onboarding V2 (Issue #63)
-- Root routing uses onboarding completion before normal auth/home flow.
-- Onboarding sequence is: welcome, HealthKit permission, measurement system, base level, personal details (DOB + gender), body metrics (height + bodyweight), notifications permission, then mandatory auth.
-- Auth is the final onboarding step with Apple/Google only (no "sign in later").
-- Onboarding draft/progress persists locally across app restarts; uninstall/reinstall resets via app data removal.
-- Bodyweight is a single profile-level value (set in onboarding, editable in settings) and is intended to be the app-wide source for body mass usage.
+- Root routing starts with welcome, pre-auth value carousel, Apple/Google auth, then a post-auth onboarding resolver before normal home flow.
+- Post-auth onboarding currently collects only the user's preferred display name. Do not add sentiment, survey, paywall priming, or paywall onboarding screens without product-approved mocks.
+- The post-auth onboarding resolver distinguishes first-time, returning-complete, and interrupted-returning users from per-user onboarding state. During early testing this state is local per Firebase `uid`; do not add remote onboarding fields to `users/{uid}` without updating `firestore.rules`.
+- Post-auth onboarding draft/progress persists locally across app restarts; uninstall/reinstall resets via app data removal until remote onboarding state is introduced.
+- Bodyweight is a single profile-level value editable in settings and is intended to be the app-wide source for body mass usage.
+- Reusable onboarding value screens should use the shared `OnboardingValueScreen` / `OnboardingValueCarouselView` pattern: cinematic dark background, thin top progress indicator, large floating phone hero, unboxed bottom copy, and one bottom CTA. Do not add skip buttons or card shells to these value screens.
 
 ### Base Level + Intensity Architecture
 - User-facing workout personalization now centers on a `base level`, defined as the StairMaster level a user can comfortably sustain for about 10 minutes.
