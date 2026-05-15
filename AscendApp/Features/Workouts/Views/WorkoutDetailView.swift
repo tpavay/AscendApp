@@ -14,7 +14,7 @@ struct WorkoutDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(AuthenticationViewModel.self) private var authVM
-    @Query(sort: \Workout.date, order: .reverse) private var allWorkouts: [Workout]
+    @Query(sort: \BestEffortCacheEntry.sortKey) private var bestEffortCacheEntries: [BestEffortCacheEntry]
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
     @State private var showingEditWorkout = false
@@ -744,7 +744,11 @@ struct WorkoutDetailView: View {
     }
 
     private var workoutBestEfforts: [RankedBestEffort] {
-        BestEffortRankingBuilder.efforts(for: workout, from: allWorkouts)
+        BestEffortCacheSnapshot(
+            entries: bestEffortCacheEntries,
+            workouts: [workout]
+        )
+        .efforts(for: workout)
     }
 
     // MARK: - Formatting
@@ -1108,6 +1112,16 @@ struct SingleWorkoutDeleteConfirmationView: View {
     )
 
     WorkoutDetailView(workout: sampleWorkout)
+        .modelContainer(
+            for: [
+                Workout.self,
+                WorkoutSourceLink.self,
+                WorkoutParticipation.self,
+                BestEffortCacheEntry.self,
+                BestEffortCacheMetadata.self
+            ],
+            inMemory: true
+        )
 }
 
 #Preview("No Health Metrics") {
@@ -1127,4 +1141,14 @@ struct SingleWorkoutDeleteConfirmationView: View {
 
     WorkoutDetailView(workout: sampleWorkout)
         .preferredColorScheme(.dark)
+        .modelContainer(
+            for: [
+                Workout.self,
+                WorkoutSourceLink.self,
+                WorkoutParticipation.self,
+                BestEffortCacheEntry.self,
+                BestEffortCacheMetadata.self
+            ],
+            inMemory: true
+        )
 }

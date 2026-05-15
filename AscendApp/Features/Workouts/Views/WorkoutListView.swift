@@ -491,5 +491,14 @@ struct WorkoutListView: View {
     NavigationStack {
         WorkoutListView()
     }
-    .modelContainer(for: [Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self], inMemory: true)
+    .modelContainer(
+        for: [
+            Workout.self,
+            WorkoutSourceLink.self,
+            WorkoutParticipation.self,
+            BestEffortCacheEntry.self,
+            BestEffortCacheMetadata.self
+        ],
+        inMemory: true
+    )
 }

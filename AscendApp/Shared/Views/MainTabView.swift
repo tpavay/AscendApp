@@ -32,12 +32,15 @@ struct MainTabView: View {
     var body: some View {
         TabView(selection: $tabRouter.selectedTab) {
             ForEach(tabs) { tab in
-                tabContent(for: tab.identifier)
-                    .tag(tab.identifier)
-                    .tabItem {
-                        Text(tab.title)
-                    }
-                    .toolbar(.hidden, for: .tabBar)
+                if tab.identifier == tabRouter.selectedTab {
+                    // Keep hidden tabs unmounted so inactive tab roots do not run SwiftData queries or animations.
+                    tabContent(for: tab.identifier)
+                        .tag(tab.identifier)
+                        .tabItem {
+                            Text(tab.title)
+                        }
+                        .toolbar(.hidden, for: .tabBar)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -49,6 +52,9 @@ struct MainTabView: View {
         .onAppear {
             checkForRatingPromptOnLaunch()
             syncBaseLevelOnboardingPresentation()
+        }
+        .task {
+            rebuildBestEffortCacheIfNeeded()
         }
         .onChange(of: connectivityService.isConnected) { oldValue, newValue in
             handleConnectivityChange(from: oldValue, to: newValue)
@@ -152,6 +158,14 @@ struct MainTabView: View {
         showingBaseLevelOnboarding = settingsManager.shouldPresentBaseLevelOnboarding
     }
 
+    private func rebuildBestEffortCacheIfNeeded() {
+        do {
+            try BestEffortCacheStore.rebuildIfNeeded(modelContext: modelContext)
+        } catch {
+            print("Failed to rebuild Best Effort cache: \(error)")
+        }
+    }
+
     private func handleConnectivityChange(from oldValue: Bool, to newValue: Bool) {
         guard oldValue != newValue else { return }
 
@@ -183,6 +197,16 @@ struct MainTabView: View {
     MainTabView()
         .environment(AuthenticationViewModel())
         .environment(NetworkConnectivityService.shared)
+        .modelContainer(
+            for: [
+                Workout.self,
+                WorkoutSourceLink.self,
+                WorkoutParticipation.self,
+                BestEffortCacheEntry.self,
+                BestEffortCacheMetadata.self
+            ],
+            inMemory: true
+        )
 }
 
 #Preview("Offline Connectivity Banner") {

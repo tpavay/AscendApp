@@ -5,21 +5,26 @@
 //  Created by GPT-5.1 on 11/20/25.
 //
 
+import SwiftData
 import SwiftUI
 
 struct BestEffortsListView: View {
     let workouts: [Workout]
 
     @Environment(\.colorScheme) private var colorScheme
+    @Query(sort: \BestEffortCacheEntry.sortKey) private var bestEffortCacheEntries: [BestEffortCacheEntry]
     @State private var themeManager = ThemeManager.shared
 
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
 
+    private var cacheSnapshot: BestEffortCacheSnapshot {
+        BestEffortCacheSnapshot(entries: bestEffortCacheEntries, workouts: workouts)
+    }
+
     private var board: BestEffortBoard {
-        BestEffortRankingBuilder.board(
-            from: workouts,
+        cacheSnapshot.board(
             scope: .allTime,
             context: .all
         )
@@ -215,6 +220,7 @@ private struct BestEffortRecordDetailView: View {
     let workouts: [Workout]
 
     @Environment(\.colorScheme) private var colorScheme
+    @Query(sort: \BestEffortCacheEntry.sortKey) private var bestEffortCacheEntries: [BestEffortCacheEntry]
     @State private var themeManager = ThemeManager.shared
     @State private var selectedMode: BestEffortRecordDetailMode = .chart
 
@@ -222,19 +228,21 @@ private struct BestEffortRecordDetailView: View {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
 
+    private var cacheSnapshot: BestEffortCacheSnapshot {
+        BestEffortCacheSnapshot(entries: bestEffortCacheEntries, workouts: workouts)
+    }
+
     private var rankedEfforts: [RankedBestEffort] {
-        BestEffortRankingBuilder.rankedEfforts(
+        cacheSnapshot.rankedEfforts(
             for: metric,
-            from: workouts,
             scope: .allTime,
             context: .all
         )
     }
 
     private var progressionEfforts: [RankedBestEffort] {
-        BestEffortRankingBuilder.recordProgression(
+        cacheSnapshot.recordProgression(
             for: metric,
-            from: workouts,
             scope: .allTime,
             context: .all
         )
@@ -866,4 +874,5 @@ private extension BestEffortBoard {
     NavigationStack {
         BestEffortsListView(workouts: sampleWorkouts)
     }
+    .modelContainer(for: [Workout.self, BestEffortCacheEntry.self, BestEffortCacheMetadata.self], inMemory: true)
 }

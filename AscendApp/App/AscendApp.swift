@@ -68,10 +68,12 @@ struct AscendApp: App {
                 RoutineFolder.self,
                 ClimbAttempt.self,
                 PendingMediaUpload.self,
-                PendingWorkoutDeletion.self
+                PendingWorkoutDeletion.self,
+                BestEffortCacheEntry.self,
+                BestEffortCacheMetadata.self
             ]))
             return try ModelContainer(
-                for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, LeaderboardStats.self, Routine.self, RoutineFolder.self, ClimbAttempt.self, PendingMediaUpload.self, PendingWorkoutDeletion.self,
+                for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, LeaderboardStats.self, Routine.self, RoutineFolder.self, ClimbAttempt.self, PendingMediaUpload.self, PendingWorkoutDeletion.self, BestEffortCacheEntry.self, BestEffortCacheMetadata.self,
                 configurations: config
             )
         } catch {
@@ -100,10 +102,12 @@ struct AscendApp: App {
                     RoutineFolder.self,
                     ClimbAttempt.self,
                     PendingMediaUpload.self,
-                    PendingWorkoutDeletion.self
+                    PendingWorkoutDeletion.self,
+                    BestEffortCacheEntry.self,
+                    BestEffortCacheMetadata.self
                 ]))
                 return try ModelContainer(
-                    for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, LeaderboardStats.self, Routine.self, RoutineFolder.self, ClimbAttempt.self, PendingMediaUpload.self, PendingWorkoutDeletion.self,
+                    for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, LeaderboardStats.self, Routine.self, RoutineFolder.self, ClimbAttempt.self, PendingMediaUpload.self, PendingWorkoutDeletion.self, BestEffortCacheEntry.self, BestEffortCacheMetadata.self,
                     configurations: config
                 )
             } catch {

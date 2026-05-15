@@ -5,6 +5,7 @@
 //  Created by Codex on 3/14/24.
 //
 
+import SwiftData
 import SwiftUI
 
 struct WorkoutResultsListView: View {
@@ -14,9 +15,14 @@ struct WorkoutResultsListView: View {
     let effectiveColorScheme: ColorScheme
     let selectedWorkouts: Set<UUID>
     let toggleSelection: (UUID) -> Void
+    @Query(sort: \BestEffortCacheEntry.sortKey) private var bestEffortCacheEntries: [BestEffortCacheEntry]
 
     var body: some View {
-        let primaryBestEffortsByWorkoutID = BestEffortRankingBuilder.primaryEffortsByWorkoutID(from: allWorkouts)
+        let primaryBestEffortsByWorkoutID = BestEffortCacheSnapshot(
+            entries: bestEffortCacheEntries,
+            workouts: allWorkouts
+        )
+        .primaryEffortsByWorkoutID()
 
         ScrollView {
             LazyVStack(spacing: 12) {

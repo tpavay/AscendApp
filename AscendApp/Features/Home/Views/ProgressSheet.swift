@@ -5,12 +5,14 @@
 //  Created by Tyler Pavay on 8/28/25.
 //
 
+import SwiftData
 import SwiftUI
 
 struct ProgressSheet: View {
     let workouts: [Workout]
 
     @Environment(\.colorScheme) private var colorScheme
+    @Query(sort: \BestEffortCacheEntry.sortKey) private var bestEffortCacheEntries: [BestEffortCacheEntry]
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
     @State private var selectedDate = Date()
@@ -89,9 +91,12 @@ struct ProgressSheet: View {
     }
 
     // MARK: - Best Efforts
+    private var cacheSnapshot: BestEffortCacheSnapshot {
+        BestEffortCacheSnapshot(entries: bestEffortCacheEntries, workouts: workouts)
+    }
+
     private var bestEffortBoard: BestEffortBoard {
-        BestEffortRankingBuilder.board(
-            from: workouts,
+        cacheSnapshot.board(
             scope: .allTime,
             context: .all
         )
@@ -1026,8 +1031,9 @@ struct CalendarDay {
         Workout(name: "Two days ago", date: Calendar.current.date(byAdding: .day, value: -2, to: Date())!, duration: 2000, steps: 2000, floors: 125, stepsPerFloor: 16),
         Workout(name: "Week ago", date: Calendar.current.date(byAdding: .day, value: -7, to: Date())!, duration: 1500, steps: 1800, floors: 113, stepsPerFloor: 16)
     ]
-    
+
     ProgressSheet(workouts: sampleWorkouts)
+        .modelContainer(for: [Workout.self, BestEffortCacheEntry.self, BestEffortCacheMetadata.self], inMemory: true)
 }
 
 #Preview("Dark Mode") {
@@ -1036,7 +1042,8 @@ struct CalendarDay {
         Workout(name: "Yesterday", date: Calendar.current.date(byAdding: .day, value: -1, to: Date())!, duration: 1200, steps: 1500, floors: 94, stepsPerFloor: 16),
         Workout(name: "Two days ago", date: Calendar.current.date(byAdding: .day, value: -2, to: Date())!, duration: 2000, steps: 2000, floors: 125, stepsPerFloor: 16)
     ]
-    
+
     ProgressSheet(workouts: sampleWorkouts)
         .preferredColorScheme(.dark)
+        .modelContainer(for: [Workout.self, BestEffortCacheEntry.self, BestEffortCacheMetadata.self], inMemory: true)
 }

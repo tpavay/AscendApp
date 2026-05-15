@@ -54,6 +54,7 @@ functions/src/                  # Cloud Functions (TypeScript)
 ### Tab Architecture
 - `MainTabView` should use SwiftUI's native `TabView(selection:)` as the tab content owner and keep Ascend's custom `MainTabBarView` as the visible bottom chrome via `safeAreaInset`.
 - `TabItem` is metadata only. Do not store eager `AnyView` tab roots in tab configuration, and do not reintroduce a manual `ZStack` that keeps every tab mounted with opacity.
+- `MainTabView` should render only the selected tab root inside the `TabView` so hidden tabs stay unmounted and do not run SwiftData queries, refreshes, or animations. Per-tab navigation/scroll state loss is acceptable for now.
 - Each tab root owns its own `NavigationStack`; keep tab-specific work scoped to the selected tab where possible so hidden tabs do not run expensive queries, refreshes, or animations.
 
 ### Branding
@@ -92,6 +93,7 @@ Workout, WorkoutSourceLink, WorkoutParticipation, LeaderboardStats, Routine, Rou
 ### Best Efforts Architecture
 - Best Efforts are the only workout achievement layer. Do not reintroduce a parallel Personal Records system.
 - Workouts remain the source of truth. Best Efforts are derived from workout history for all-time and this-year scopes across all, bodyweight, weighted, and exact weight-loadout contexts.
+- Best Effort rankings are persisted as derived SwiftData cache rows. Views should read cheap cache snapshots/lookups and must not rebuild rankings from all workouts in `body`; rebuild the cache through `BestEffortCacheStore` after workout create/edit/delete/import mutations and during startup repair if the persisted signature is stale.
 - Weighted Best Efforts must distinguish exact loadouts using the full enabled equipment configuration, such as `20 lb Vest` versus `20 lb Vest + 5 lb each Ankle`.
 - Best Effort metrics are stepper-specific and step-first: most steps, longest climb, highest average SPM, sampled time windows, and sampled fastest step targets. Do not add floors-based Best Efforts unless product explicitly changes direction.
 - Timeline efforts require real sampled Live Climb progress data. Manual entries and total-only imports can contribute whole-workout efforts, but not rolling-window or fastest-segment efforts.
