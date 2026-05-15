@@ -166,11 +166,11 @@ extension MainTabBarView {
     @MainActor
     static var previewTabs: [TabItem] {
         [
-            TabItem(identifier: .home, title: "Home", icon: .tabHome, selectedIcon: .tabHomeSelected) { Color.clear },
-            TabItem(identifier: .workouts, title: "Workouts", icon: .tabWorkouts, selectedIcon: .tabWorkoutsSelected) { Color.clear },
-            TabItem(identifier: .progress, title: "Progress", icon: .tabProgress, selectedIcon: .tabProgressSelected) { Color.clear },
-            TabItem(identifier: .leaderboard, title: "Leaderboard", icon: .tabLeaderboard, selectedIcon: .tabLeaderboardSelected) { Color.clear },
-            TabItem(identifier: .settings, title: "Settings", icon: .tabSettings, selectedIcon: .tabSettingsSelected) { Color.clear }
+            TabItem(identifier: .home, title: "Home", icon: .tabHome, selectedIcon: .tabHomeSelected),
+            TabItem(identifier: .workouts, title: "Workouts", icon: .tabWorkouts, selectedIcon: .tabWorkoutsSelected),
+            TabItem(identifier: .progress, title: "Progress", icon: .tabProgress, selectedIcon: .tabProgressSelected),
+            TabItem(identifier: .leaderboard, title: "Leaderboard", icon: .tabLeaderboard, selectedIcon: .tabLeaderboardSelected),
+            TabItem(identifier: .settings, title: "Settings", icon: .tabSettings, selectedIcon: .tabSettingsSelected)
         ]
     }
 }

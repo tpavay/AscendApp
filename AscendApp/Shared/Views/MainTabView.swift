@@ -30,15 +30,17 @@ struct MainTabView: View {
     }
 
     var body: some View {
-        ZStack {
+        TabView(selection: $tabRouter.selectedTab) {
             ForEach(tabs) { tab in
-                tab.view
-                    .opacity(tabRouter.selectedTab == tab.identifier ? 1 : 0)
-                    .allowsHitTesting(tabRouter.selectedTab == tab.identifier)
+                tabContent(for: tab.identifier)
+                    .tag(tab.identifier)
+                    .tabItem {
+                        Text(tab.title)
+                    }
+                    .toolbar(.hidden, for: .tabBar)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.smooth(duration: 0.25), value: tabRouter.selectedTab)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             tabBar
         }
@@ -60,6 +62,37 @@ struct MainTabView: View {
         .themeAware()
         .animation(.smooth(duration: 0.2), value: connectivityService.isConnected)
         .animation(.smooth(duration: 0.2), value: showBackOnlineBanner)
+    }
+
+    @ViewBuilder
+    private func tabContent(for tab: AppTab) -> some View {
+        switch tab {
+        case .home:
+            NavigationStack {
+                HomeView()
+            }
+            .id("HomeNavigationStack")
+        case .workouts:
+            NavigationStack {
+                WorkoutListView()
+            }
+            .id("WorkoutsNavigationStack")
+        case .progress:
+            NavigationStack {
+                ProgressTabView()
+            }
+            .id("ProgressNavigationStack")
+        case .leaderboard:
+            NavigationStack {
+                LeaderboardHubView()
+            }
+            .id("LeaderboardNavigationStack")
+        case .settings:
+            NavigationStack {
+                AccountView()
+            }
+            .id("SettingsNavigationStack")
+        }
     }
 
     // MARK: - Custom Tab Bar

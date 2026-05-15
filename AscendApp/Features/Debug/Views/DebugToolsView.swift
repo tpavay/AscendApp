@@ -101,6 +101,18 @@ struct DebugToolsView: View {
                     )
                 }
                 .buttonStyle(.plain)
+
+                NavigationLink {
+                    LiveClimbScreenshotPickerView()
+                } label: {
+                    inspectionRow(
+                        title: "Live Climb Screenshots",
+                        description: "Choose the Home Live Climb card for screenshot setup",
+                        icon: "photo.on.rectangle.angled",
+                        iconColor: .accent
+                    )
+                }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 20)
         }

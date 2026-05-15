@@ -88,19 +88,29 @@ final class UserDataRepository: Sendable {
         let document = try await userRef.getDocument()
         let userExists = document.exists
         
-        var newData: [String: Any] = [
-            "email": email ?? "",
-            "firstName": firstName ?? "",
-            "lastName": lastName ?? "",
-            "displayName": displayName ?? ""
-        ]
-        
-        // Only include profilePictureURL if it's provided
-        if let profilePictureURL = profilePictureURL {
-            newData["profilePictureURL"] = profilePictureURL
-        }
-        
         if userExists {
+            var newData: [String: Any] = [:]
+
+            if let email {
+                newData["email"] = email
+            }
+
+            if let firstName {
+                newData["firstName"] = firstName
+            }
+
+            if let lastName {
+                newData["lastName"] = lastName
+            }
+
+            if let displayName {
+                newData["displayName"] = displayName
+            }
+
+            if let profilePictureURL {
+                newData["profilePictureURL"] = profilePictureURL
+            }
+
             // Compare with existing data and only update changed fields
             let existingData = document.data() ?? [:]
             var changedData: [String: Any] = [:]
@@ -121,7 +131,17 @@ final class UserDataRepository: Sendable {
             }
         } else {
             // New user - create with all data plus timestamps
-            var userData: [String: Any] = newData
+            var userData: [String: Any] = [
+                "email": email ?? "",
+                "firstName": firstName ?? "",
+                "lastName": lastName ?? "",
+                "displayName": displayName ?? ""
+            ]
+
+            if let profilePictureURL {
+                userData["profilePictureURL"] = profilePictureURL
+            }
+
             userData["createdAt"] = FieldValue.serverTimestamp()
             userData["lastUpdated"] = FieldValue.serverTimestamp()
             try await userRef.setData(userData, merge: true)
@@ -154,13 +174,24 @@ final class UserDataRepository: Sendable {
         return getCachedProfilePictureURL()
     }
     
-    func updateDisplayName(userId: String, displayName: String) async throws {
+    func updateDisplayName(userId: String, email: String? = nil, displayName: String) async throws {
         let userRef = db.collection("users").document(userId)
-        
-        try await userRef.setData([
-            "displayName": displayName,
-            "lastUpdated": FieldValue.serverTimestamp()
-        ], merge: true)
+
+        let document = try await userRef.getDocument()
+        if document.exists {
+            try await userRef.setData([
+                "displayName": displayName,
+                "lastUpdated": FieldValue.serverTimestamp()
+            ], merge: true)
+        } else {
+            try await saveUserToFirestore(
+                userId: userId,
+                email: email,
+                firstName: nil,
+                lastName: nil,
+                displayName: displayName
+            )
+        }
         
         cacheDisplayName(displayName)
     }

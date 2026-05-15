@@ -5,183 +5,348 @@ import SwiftUI
 struct SignUpView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        VStack(spacing: 24) {
-                // App icon for continuity
-                Image("AppIconInternal")
-                    .resizable()
-                    .renderingMode(.template)
-                    .foregroundStyle(.accent)
-                    .frame(width: 80, height: 80)
-                    .shadow(color: .accent.opacity(0.35), radius: 16, y: 6)
-                    .padding(.top, 120)
+        GeometryReader { geometry in
+            let layout = SignInLayout(size: geometry.size)
+
+            ZStack(alignment: .bottom) {
+                SignInBackground(layout: layout)
+
+                SignInHero(layout: layout)
 
                 VStack(spacing: 0) {
-                    Text("LOGIN TO")
-                        .font(.custom("Montserrat-Bold", size: 36, relativeTo: .largeTitle))
-                        .foregroundStyle(colorScheme == .dark ? .white : .black)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(nil)
-                        .kerning(0.5)
-                        .shadow(color: colorScheme == .dark ? .white.opacity(0.6) : .clear, radius: 2)
-                    Text("CONNECT")
-                        .font(.custom("Montserrat-Bold", size: 36, relativeTo: .largeTitle))
-                        .foregroundStyle(colorScheme == .dark ? .white : .black)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(nil)
-                        .kerning(0.5)
-                        .shadow(color: colorScheme == .dark ? .white.opacity(0.6) : .clear, radius: 2)
+                    HStack {
+                        SignInBackButton(action: { dismiss() })
+                        Spacer()
+                    }
+                    .padding(.leading, 18)
+
+                    Spacer(minLength: 0)
                 }
 
-                Text("Connect your account to track your stair climbing progress and sync across all your devices")
-                    .font(.montserratLight)
-                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.72) : .gray)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-                    .padding(.bottom, 16)
-
-                // Show error message if any
-                if let errorMessage = authVM.errorMessage {
-                    Text(errorMessage)
-                        .font(.montserratRegular)
-                        .foregroundStyle(.red)
-                        .padding(.horizontal, 32)
-                        .multilineTextAlignment(.center)
-                }
-
-                VStack(spacing: 16) {
-                    // Apple Sign In Button with accent styling
-                    Button(action: { Task {
-                        await authVM.signInWithApple()
-                        if authVM.authenticationState == .authenticated {
-                            dismiss()
-                        }
-                    } }) {
-                        HStack(spacing: 12) {
-                            if authVM.authenticationState == .authenticatingWithApple {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                    .scaleEffect(0.8)
-                            } else {
-                                Image(systemName: "apple.logo")
-                                    .font(.system(size: 24, weight: .medium))
-                            }
-
-                            Text(authVM.authenticationState == .authenticatingWithApple ? "Signing In..." : "Continue with Apple")
-                                .font(.montserratSemiBold)
-                        }
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 55)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14)
-                                .fill(.accent.darker(by: 0.15))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14)
-                                .stroke(.accent, lineWidth: 1)
-                        )
-                    }
-                    .disabled(authVM.authenticationState.isAuthenticating)
-
-                    // Google Sign In Button with secondary styling
-                    Button(action: { Task {
-                        await authVM.signInWithGoogle()
-                        if authVM.authenticationState == .authenticated
-                        {
-                            dismiss()
-                        }
-                    } }) {
-                        HStack(spacing: 12) {
-                            if authVM.authenticationState == .authenticatingWithGoogle {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                    .scaleEffect(0.8)
-                            } else {
-                                Image("GoogleIcon")
-                                    .frame(width: 18, height: 18)
-                                    .foregroundStyle(colorScheme == .dark ? .white : .black)
-                            }
-
-                            Text(authVM.authenticationState == .authenticatingWithGoogle ? "Signing In..." : "Continue with Google")
-                                .font(.montserratSemiBold)
-                        }
-                        .foregroundStyle(colorScheme == .dark ? .white : .black)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 55)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14)
-                                .fill(colorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14)
-                                .stroke(colorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.3), lineWidth: 1)
-                        )
-                    }
-                    .disabled(authVM.authenticationState.isAuthenticating)
-
-                    if canShowInternalQASignIn {
-                        NavigationLink(destination: InternalQASignInView()) {
-                            HStack(spacing: 12) {
-                                Image(systemName: "person.badge.key")
-                                    .font(.system(size: 18, weight: .semibold))
-
-                                Text("Internal QA Sign In")
-                                    .font(.montserratSemiBold)
-
-                                Spacer()
-
-                                Text("Dev/Staging")
-                                    .font(.montserratSemiBold(size: 12))
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(
-                                        Capsule()
-                                            .fill(Color.orange.opacity(colorScheme == .dark ? 0.22 : 0.14))
-                                    )
-                            }
-                            .foregroundStyle(colorScheme == .dark ? .white : .black)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 55)
-                            .padding(.horizontal, 14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14)
-                                    .fill(colorScheme == .dark ? Color.orange.opacity(0.12) : Color.orange.opacity(0.08))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14)
-                                    .stroke(Color.orange.opacity(colorScheme == .dark ? 0.45 : 0.35), lineWidth: 1)
-                            )
-                        }
-                        .disabled(authVM.authenticationState.isAuthenticating)
-
-                        Text("Internal QA sign-in uses a real Firebase account and is only available in dev and staging builds.")
-                            .font(.montserratRegular(size: 12))
-                            .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .gray.opacity(0.85))
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 8)
-                    }
-                }
-                .padding(.horizontal, 24)
-
-                Spacer()
-
-                // Terms and privacy text
-                Text("By continuing, you agree to our Terms of Service and Privacy Policy")
-                    .font(.montserratLight)
-                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.5) : .gray.opacity(0.7))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
-                    .padding(.bottom, 40)
+                SignInAuthCard(
+                    layout: layout,
+                    errorMessage: authVM.errorMessage,
+                    appleIsLoading: authVM.authenticationState == .authenticatingWithApple,
+                    googleIsLoading: authVM.authenticationState == .authenticatingWithGoogle,
+                    isDisabled: authVM.authenticationState.isAuthenticating,
+                    onApple: signInWithApple,
+                    onGoogle: signInWithGoogle
+                )
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
         }
-        .themedBackground()
+        .ignoresSafeArea(edges: .bottom)
+        .background(Color.black)
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
+        .onChange(of: authVM.user?.uid) { _, userId in
+            if userId != nil {
+                dismiss()
+            }
+        }
     }
 
-    private var canShowInternalQASignIn: Bool {
-        InternalQASignInAvailability.isEnabled(
-            projectID: FirebaseApp.app()?.options.projectID
+    private func signInWithApple() {
+        Task {
+            await authVM.signInWithApple()
+            dismissIfAuthenticated()
+        }
+    }
+
+    private func signInWithGoogle() {
+        Task {
+            await authVM.signInWithGoogle()
+            dismissIfAuthenticated()
+        }
+    }
+
+    private func dismissIfAuthenticated() {
+        if authVM.user != nil {
+            dismiss()
+        }
+    }
+}
+
+private struct SignInLayout {
+    let size: CGSize
+
+    var heroWidth: CGFloat {
+        size.width
+    }
+
+    var phoneCenterY: CGFloat {
+        size.height * 0.36
+    }
+
+    var phoneCenterX: CGFloat {
+        size.width / 2
+    }
+
+    var cardHeight: CGFloat {
+        max(size.height * 0.46, 380)
+    }
+
+    var cardCornerRadius: CGFloat {
+        min(52, size.width * 0.13)
+    }
+
+    var cardHorizontalPadding: CGFloat { 32 }
+
+    var headlineSize: CGFloat { 32 }
+
+    var subcopySize: CGFloat { 18 }
+
+    var buttonHeight: CGFloat { 66 }
+
+    var buttonCornerRadius: CGFloat { 20 }
+
+    var buttonFontSize: CGFloat { 20 }
+
+    var topGap: CGFloat { 18 }
+
+    var contentSpacing: CGFloat { 18 }
+
+    var textBlockSpacing: CGFloat { 10 }
+
+    var buttonStackSpacing: CGFloat { 14 }
+
+    var buttonStackTopPadding: CGFloat { 10 }
+}
+
+private struct SignInBackground: View {
+    let layout: SignInLayout
+
+    private var glowCenter: UnitPoint {
+        UnitPoint(
+            x: layout.phoneCenterX / layout.size.width,
+            y: layout.phoneCenterY / layout.size.height
+        )
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black
+
+            RadialGradient(
+                colors: [
+                    .clear,
+                    Color.black.opacity(0.5),
+                    Color.black.opacity(0.95)
+                ],
+                center: glowCenter,
+                startRadius: 240,
+                endRadius: 640
+            )
+            .allowsHitTesting(false)
+        }
+        .ignoresSafeArea()
+    }
+}
+
+private struct SignInHero: View {
+    let layout: SignInLayout
+
+    var body: some View {
+        Image("OnboardingHomePreview")
+            .resizable()
+            .scaledToFit()
+            .frame(width: layout.heroWidth)
+            .position(x: layout.phoneCenterX, y: layout.phoneCenterY)
+            .allowsHitTesting(false)
+    }
+}
+
+private struct SignInBackButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "chevron.left")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.92))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Back")
+    }
+}
+
+private struct SignInAuthCard: View {
+    let layout: SignInLayout
+    let errorMessage: String?
+    let appleIsLoading: Bool
+    let googleIsLoading: Bool
+    let isDisabled: Bool
+    let onApple: () -> Void
+    let onGoogle: () -> Void
+
+    var body: some View {
+        VStack(spacing: layout.contentSpacing) {
+            Spacer().frame(height: layout.topGap)
+
+            VStack(spacing: layout.textBlockSpacing) {
+                Text("Sign in to unlock\nthe full Ascend experience.")
+                    .font(.montserratBold(size: layout.headlineSize))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(3)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.62)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("Track climbs. Save progress and\ncompete on leaderboards.")
+                    .font(.montserratMedium(size: layout.subcopySize))
+                    .foregroundStyle(Color(red: 168 / 255, green: 168 / 255, blue: 168 / 255))
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(2)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.78)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 16)
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.montserratRegular(size: 13))
+                    .foregroundStyle(.red.opacity(0.95))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, layout.cardHorizontalPadding)
+            }
+
+            VStack(spacing: layout.buttonStackSpacing) {
+                AuthProviderButton(
+                    title: appleIsLoading ? "Signing In..." : "Continue with Apple",
+                    isLoading: appleIsLoading,
+                    isDisabled: isDisabled,
+                    height: layout.buttonHeight,
+                    cornerRadius: layout.buttonCornerRadius,
+                    fontSize: layout.buttonFontSize,
+                    icon: {
+                        Image(systemName: "apple.logo")
+                            .font(.system(size: 22, weight: .medium))
+                    },
+                    action: onApple
+                )
+
+                AuthProviderButton(
+                    title: googleIsLoading ? "Signing In..." : "Continue with Google",
+                    isLoading: googleIsLoading,
+                    isDisabled: isDisabled,
+                    height: layout.buttonHeight,
+                    cornerRadius: layout.buttonCornerRadius,
+                    fontSize: layout.buttonFontSize,
+                    icon: {
+                        Image("GoogleIcon")
+                            .resizable()
+                            .renderingMode(.original)
+                            .frame(width: 22, height: 22)
+                    },
+                    action: onGoogle
+                )
+            }
+            .padding(.horizontal, layout.cardHorizontalPadding)
+            .padding(.top, layout.buttonStackTopPadding)
+
+            Spacer(minLength: 0)
+        }
+        .frame(width: layout.size.width, height: layout.cardHeight, alignment: .top)
+        .background(cardBackground)
+    }
+
+    private var cardShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: layout.cardCornerRadius,
+            bottomLeadingRadius: 0,
+            bottomTrailingRadius: 0,
+            topTrailingRadius: layout.cardCornerRadius,
+            style: .continuous
+        )
+    }
+
+    private var cardBackground: some View {
+        cardShape
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color(red: 11 / 255, green: 11 / 255, blue: 11 / 255),
+                        Color(red: 23 / 255, green: 23 / 255, blue: 23 / 255)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .overlay(
+                cardShape
+                    .stroke(
+                        LinearGradient(
+                            colors: [
+                                Color.accentColor.opacity(0.38),
+                                Color.accentColor.opacity(0.08),
+                                Color.clear
+                            ],
+                            startPoint: .top,
+                            endPoint: .center
+                        ),
+                        lineWidth: 1
+                    )
+            )
+            .shadow(color: .black.opacity(0.75), radius: 28, x: 0, y: -18)
+    }
+}
+
+private struct AuthProviderButton<Icon: View>: View {
+    let title: String
+    let isLoading: Bool
+    let isDisabled: Bool
+    let height: CGFloat
+    let cornerRadius: CGFloat
+    let fontSize: CGFloat
+    @ViewBuilder let icon: () -> Icon
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                if isLoading {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        .scaleEffect(0.95)
+                } else {
+                    icon()
+                }
+
+                Text(title)
+                    .font(.montserratSemiBold(size: fontSize))
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .background(buttonShape.fill(buttonGradient))
+            .overlay(buttonShape.stroke(Color.white.opacity(0.14), lineWidth: 1))
+            .clipShape(buttonShape)
+            .contentShape(buttonShape)
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.72 : 1)
+        .accessibilityLabel(title)
+    }
+
+    private var buttonShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+    }
+
+    private var buttonGradient: LinearGradient {
+        LinearGradient(
+            colors: [
+                Color(red: 27 / 255, green: 27 / 255, blue: 29 / 255),
+                Color(red: 38 / 255, green: 38 / 255, blue: 40 / 255)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
         )
     }
 }

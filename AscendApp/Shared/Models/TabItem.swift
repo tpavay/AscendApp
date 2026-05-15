@@ -26,16 +26,14 @@ struct TabItem: Identifiable, Hashable {
     let title: String
     let icon: AppIconToken
     let selectedIcon: AppIconToken?
-    let view: AnyView
     
     var id: AppTab { identifier }
     
-    init<V: View>(identifier: AppTab, title: String, icon: AppIconToken, selectedIcon: AppIconToken? = nil, @ViewBuilder view: () -> V) {
+    init(identifier: AppTab, title: String, icon: AppIconToken, selectedIcon: AppIconToken? = nil) {
         self.identifier = identifier
         self.title = title
         self.icon = icon
         self.selectedIcon = selectedIcon
-        self.view = AnyView(view())
     }
     
     // Hashable conformance
@@ -58,72 +56,48 @@ extension TabItem {
                 title: "Home",
                 icon: .tabHome,
                 selectedIcon: .tabHomeSelected
-            ) {
-                NavigationStack {
-                    HomeView()
-                }
-                .id("HomeNavigationStack")
-            },
+            ),
 
             TabItem(
                 identifier: .workouts,
                 title: "Workouts",
                 icon: .tabWorkouts,
                 selectedIcon: .tabWorkoutsSelected
-            ) {
-                NavigationStack {
-                    WorkoutListView()
-                }
-                .id("WorkoutsNavigationStack")
-            },
+            ),
 
             TabItem(
                 identifier: .progress,
                 title: "Progress",
                 icon: .tabProgress,
                 selectedIcon: .tabProgressSelected
-            ) {
-                NavigationStack {
-                    ProgressTabView()
-                }
-                .id("ProgressNavigationStack")
-            },
+            ),
 
             TabItem(
                 identifier: .leaderboard,
                 title: "Leaderboard",
                 icon: .tabLeaderboard,
                 selectedIcon: .tabLeaderboardSelected
-            ) {
-                NavigationStack {
-                    LeaderboardHubView()
-                }
-                .id("LeaderboardNavigationStack")
-            },
+            ),
 
             TabItem(
                 identifier: .settings,
                 title: "Settings",
                 icon: .tabSettings,
                 selectedIcon: .tabSettingsSelected
-            ) {
-                NavigationStack {
-                    AccountView()
-                }
-                .id("SettingsNavigationStack")
-            }
+            )
         ]
     }
 
     // Currently active tabs - easily configurable
     @MainActor
     static var activeTabs: [TabItem] {
-        [
-            availableTabs[0], // Home
-            availableTabs[1], // Workouts
-            availableTabs[2], // Progress
-            availableTabs[3], // Leaderboard
-            availableTabs[4]  // Settings
+        let tabs = availableTabs
+        return [
+            tabs[0], // Home
+            tabs[1], // Workouts
+            tabs[2], // Progress
+            tabs[3], // Leaderboard
+            tabs[4]  // Settings
         ]
     }
 }
