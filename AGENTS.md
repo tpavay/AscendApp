@@ -19,7 +19,7 @@ Ascend is a comprehensive stairstepper workout tracker for iOS. It serves the fu
 - **Data**: Local-first with cloud sync — SwiftData on device, Firebase Firestore for backup/sync/sharing
 - **Backend**: Firebase (Auth, Firestore, Storage, Cloud Functions, Hosting)
 - **Integrations**: Apple HealthKit, Strava, Hevy
-- **Cloud Functions** (TypeScript): Strava OAuth + sync, waitlist signup endpoint with dedupe, transactional email job queue
+- **Cloud Functions** (TypeScript): Strava OAuth + sync, Beehiiv-backed waitlist signup endpoint with dedupe, transactional email for server-owned notifications
 
 ---
 
@@ -507,10 +507,11 @@ Workout, WorkoutSourceLink, WorkoutParticipation, LeaderboardStats, Routine, Rou
 ### Firebase Hosting
 Website source lives in `web/` and is built to `web/dist/` before deploy.
 - Waitlist form submissions must use `POST /api/join-waitlist` (Hosting rewrite to `joinWaitlist` Cloud Function), not direct Firestore client writes.
-- Transactional emails for waitlist and future product triggers must be sent server-side from Cloud Functions, never directly from the website or iOS client.
+- Waitlist submissions are subscribed server-side to Beehiiv. The Beehiiv API key and publication ID live in the `BEEHIIV_CONFIG` Secret Manager JSON secret; never expose them in website or iOS client code.
+- `joinWaitlist` rate limits public submissions using hashed requester IPs stored in `email_rate_limits`, calls Beehiiv, and mirrors normalized email hash + Beehiiv subscription metadata in the `waitlist` collection for dedupe/debugging.
+- Transactional emails for feedback and future non-Beehiiv product triggers must be sent server-side from Cloud Functions, never directly from the website or iOS client.
 - Cloud Functions email provider config lives in the `TRANSACTIONAL_EMAIL_CONFIG` Secret Manager JSON secret, with `functions/.secret.local` used only for local emulator overrides.
-- `joinWaitlist` is idempotent by normalized email hash, enqueues the `waitlist_welcome` job into `email_jobs`, and rate limits public submissions using hashed requester IPs stored in `email_rate_limits`.
-- Transactional emails are delivered in the background by the scheduled `processEmailJobs` worker; retries and failure state live on `email_jobs`, not on `waitlist`.
+- Legacy queued transactional emails are delivered in the background by the scheduled `processEmailJobs` worker. Do not reintroduce waitlist welcome emails through `email_jobs` unless product explicitly moves off Beehiiv.
 - In-app feedback submissions (`feedback` collection) trigger `onFeedbackCreated`, which sends an admin notification email directly via Resend (not queued). The recipient is `feedbackNotificationEmail` from the secret config (falls back to `replyTo` → `fromEmail`). Reply-to is set to the submitting user's email. Notification delivery metadata is written back onto the feedback document.
 
 ### Key Config Files

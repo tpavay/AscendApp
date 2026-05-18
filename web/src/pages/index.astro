@@ -6,13 +6,12 @@ import BaseLayout from '../layouts/BaseLayout.astro';
   <style>
     .hero {
       position: relative;
-      min-height: 84vh;
+      min-height: 72vh;
       display: flex;
       align-items: center;
       overflow: hidden;
-      padding: 148px 40px 104px;
+      padding: 124px 40px 84px;
       isolation: isolate;
-      border-bottom: 1px solid var(--border);
       background: #090d12;
     }
 
@@ -22,228 +21,6 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 
     .hero::after {
       content: none;
-    }
-
-    .hero-artifacts {
-      position: absolute;
-      inset: 86px 32px 38px;
-      z-index: 1;
-      width: min(calc(100% - 64px), 1500px);
-      margin: 0 auto;
-      pointer-events: none;
-    }
-
-    .hero-artifact {
-      position: absolute;
-      left: var(--left);
-      top: var(--top);
-      width: max-content;
-      height: max-content;
-      opacity: 0;
-      transform: translate(-50%, -50%) scale(0.78);
-      animation: artifactEnter 0.72s cubic-bezier(0.19, 1, 0.22, 1) forwards;
-      animation-delay: var(--delay);
-      will-change: opacity, transform;
-    }
-
-    .artifact-inner {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #f4f6f8;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      background: rgba(13, 18, 24, 0.82);
-      box-shadow:
-        0 18px 54px rgba(0, 0, 0, 0.34),
-        inset 0 1px 0 rgba(255, 255, 255, 0.08);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      animation: artifactFloat var(--duration, 7s) ease-in-out infinite alternate;
-      animation-delay: calc(var(--delay) + 0.7s);
-      will-change: transform;
-    }
-
-    .hero-climb-card .artifact-inner {
-      position: relative;
-      width: var(--width, 166px);
-      height: var(--height, 202px);
-      display: block;
-      padding: 0;
-      border-radius: 18px;
-      overflow: hidden;
-      border-color: color-mix(in srgb, var(--tone, var(--accent)) 42%, rgba(255, 255, 255, 0.12));
-      background: #0b0f14;
-      box-shadow:
-        0 22px 64px rgba(0, 0, 0, 0.44),
-        0 0 0 1px color-mix(in srgb, var(--tone, var(--accent)) 18%, transparent),
-        inset 0 1px 0 rgba(255, 255, 255, 0.1);
-    }
-
-    .hero-climb-card img {
-      display: block;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      transform: scale(1.02);
-    }
-
-    .hero-climb-card-copy {
-      position: absolute;
-      inset: auto 0 0;
-      display: grid;
-      gap: 3px;
-      padding: 46px 13px 13px;
-      background: linear-gradient(180deg, rgba(5, 7, 10, 0) 0%, rgba(5, 7, 10, 0.78) 46%, rgba(5, 7, 10, 0.94) 100%);
-    }
-
-    .hero-climb-card-copy strong,
-    .hero-climb-card-copy span {
-      position: relative;
-      z-index: 1;
-      text-shadow: 0 2px 14px rgba(0, 0, 0, 0.62);
-    }
-
-    .hero-climb-card-copy strong {
-      color: #f6f8fb;
-      font-size: 15px;
-      font-weight: 850;
-      line-height: 1.05;
-    }
-
-    .hero-climb-card-copy span {
-      color: #c7d0dc;
-      font-size: 11px;
-      font-weight: 760;
-      letter-spacing: 0.04em;
-      line-height: 1;
-      text-transform: uppercase;
-    }
-
-    .stat-chip .artifact-inner,
-    .rank-chip .artifact-inner {
-      min-width: var(--width, 132px);
-      min-height: 54px;
-      gap: 10px;
-      padding: 10px 14px;
-      border-radius: 999px;
-    }
-
-    .stat-icon,
-    .rank-icon {
-      width: 32px;
-      height: 32px;
-      display: grid;
-      place-items: center;
-      flex: 0 0 auto;
-      border-radius: 999px;
-      background: rgba(180, 204, 0, 0.16);
-      color: var(--accent);
-      font-size: 14px;
-      font-weight: 900;
-    }
-
-    .stat-copy,
-    .rank-copy {
-      display: grid;
-      gap: 1px;
-      text-align: left;
-    }
-
-    .stat-copy strong,
-    .rank-copy strong {
-      color: #f6f8fb;
-      font-size: 15px;
-      font-weight: 850;
-      line-height: 1;
-      white-space: nowrap;
-    }
-
-    .stat-copy span,
-    .rank-copy span {
-      color: #a5afbd;
-      font-size: 11px;
-      font-weight: 750;
-      letter-spacing: 0.04em;
-      line-height: 1;
-      text-transform: uppercase;
-      white-space: nowrap;
-    }
-
-    .routine-chip .artifact-inner {
-      width: var(--width, 158px);
-      min-height: 90px;
-      flex-direction: column;
-      align-items: stretch;
-      gap: 10px;
-      padding: 14px;
-      border-radius: 12px;
-      border-left: 3px solid var(--tone, var(--accent));
-    }
-
-    .routine-chip strong {
-      color: #f6f8fb;
-      font-size: 15px;
-      font-weight: 850;
-      line-height: 1;
-    }
-
-    .routine-chip span {
-      color: #a5afbd;
-      font-size: 11px;
-      font-weight: 700;
-      line-height: 1;
-    }
-
-    .routine-bars {
-      display: grid;
-      grid-template-columns: repeat(8, 1fr);
-      align-items: end;
-      gap: 4px;
-      height: 28px;
-    }
-
-    .routine-bars i {
-      display: block;
-      height: var(--h);
-      border-radius: 3px 3px 1px 1px;
-      background: var(--tone, var(--accent));
-    }
-
-    .best-effort-chip .artifact-inner {
-      width: var(--size, 108px);
-      height: var(--size, 108px);
-      flex-direction: column;
-      gap: 4px;
-      padding: 14px;
-      border-radius: 16px;
-      border-color: rgba(255, 207, 70, 0.28);
-    }
-
-    .best-effort-chip .laurel {
-      width: 34px;
-      height: 34px;
-      display: grid;
-      place-items: center;
-      margin-bottom: 3px;
-      border-radius: 999px;
-      background: rgba(255, 207, 70, 0.14);
-      color: #ffd45b;
-      font-size: 18px;
-      font-weight: 900;
-    }
-
-    .best-effort-chip strong {
-      color: #f6f8fb;
-      font-size: 14px;
-      font-weight: 850;
-      line-height: 1.08;
-      text-align: center;
-    }
-
-    .best-effort-chip span {
-      color: #a5afbd;
-      font-size: 11px;
-      font-weight: 700;
     }
 
     .hero-inner {
@@ -333,8 +110,8 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       min-height: 50px;
       padding: 14px 24px;
       border-radius: 8px;
-      border: 1px solid rgba(255, 255, 255, 0.9);
-      background: #f2f4f7;
+      border: 1px solid var(--accent);
+      background: var(--accent);
       color: #080c10;
       font-size: 16px;
       font-weight: 800;
@@ -346,8 +123,8 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 
     .waitlist-form button:hover,
     .btn:hover {
-      border-color: var(--accent);
-      background: #ffffff;
+      border-color: var(--accent-hover);
+      background: var(--accent-hover);
     }
 
     .waitlist-form button:active,
@@ -544,49 +321,12 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       object-fit: cover;
     }
 
-    .hero-proof {
-      width: min(100%, var(--max-width));
-      margin: 0 auto;
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 1px;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      background: rgba(255, 255, 255, 0.08);
-    }
-
-    .proof-item {
-      min-height: 110px;
-      padding: 22px;
-      background: rgba(12, 17, 23, 0.8);
-    }
-
-    .proof-item strong {
-      display: block;
-      margin-bottom: 6px;
-      color: var(--text);
-      font-size: clamp(24px, 3vw, 34px);
-      line-height: 1;
-    }
-
-    .proof-item span {
-      display: block;
-      color: #97a2af;
-      font-size: 13px;
-      line-height: 1.45;
-    }
-
     .section {
       padding: 104px 40px;
     }
 
-    .proof-section {
-      padding-top: 28px;
-      padding-bottom: 76px;
-    }
-
-    .screens-section {
+    #features {
       padding-top: 72px;
-      padding-bottom: 84px;
     }
 
     .section-inner {
@@ -640,6 +380,11 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       align-items: center;
       padding: 70px 0;
       border-top: 1px solid var(--border);
+    }
+
+    .feature-row:first-child {
+      padding-top: 0;
+      border-top: 0;
     }
 
     .feature-row:last-child {
@@ -698,6 +443,108 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       background: var(--accent);
     }
 
+    .live-climbs-showcase {
+      min-height: calc(100vh - 82px);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 26px 0 40px;
+      scroll-margin-top: 82px;
+      scroll-snap-align: start;
+    }
+
+    .live-showcase-heading {
+      max-width: 760px;
+      margin: 0 auto 42px;
+      text-align: center;
+    }
+
+    .live-showcase-heading h2 {
+      margin-bottom: 14px;
+      color: var(--text);
+      font-size: clamp(32px, 4vw, 50px);
+      font-weight: 850;
+      line-height: 1.04;
+      letter-spacing: 0;
+    }
+
+    .live-showcase-heading h2 span {
+      color: var(--accent-hover);
+    }
+
+    .live-walkthrough {
+      display: flex;
+      justify-content: center;
+      gap: 28px;
+      overflow-x: auto;
+      padding: 4px 0 20px;
+      scroll-padding-inline: 10px;
+      scroll-snap-type: x proximity;
+    }
+
+    .live-walkthrough::-webkit-scrollbar {
+      height: 8px;
+    }
+
+    .live-walkthrough::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 999px;
+    }
+
+    .live-walkthrough::-webkit-scrollbar-thumb {
+      background: var(--accent);
+      border-radius: 999px;
+    }
+
+    .live-step {
+      flex: 0 0 190px;
+      scroll-snap-align: start;
+    }
+
+    .live-step-phone {
+      width: 100%;
+      aspect-ratio: 853 / 1844;
+      overflow: hidden;
+      border-radius: 26px;
+      background: #050608;
+      box-shadow:
+        0 22px 64px rgba(0, 0, 0, 0.42),
+        0 0 0 1px rgba(255, 255, 255, 0.1);
+    }
+
+    .live-step-phone img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .live-step-copy {
+      margin-top: 16px;
+      padding-top: 14px;
+      border-top: 1px dashed rgba(180, 204, 0, 0.42);
+    }
+
+    .live-step-copy span {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--accent);
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .live-step-copy h3 {
+      display: none;
+    }
+
+    .live-step-copy p {
+      color: #9ca6b4;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
     .feature-visual {
       display: flex;
       justify-content: center;
@@ -705,7 +552,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 
     .feature-phone-stack {
       position: relative;
-      width: min(100%, 560px);
+      width: min(100%, 660px);
       min-height: 620px;
     }
 
@@ -718,16 +565,25 @@ import BaseLayout from '../layouts/BaseLayout.astro';
     .feature-phone-stack .phone-stack-back {
       left: 0;
       top: 36px;
-      width: 270px;
+      width: 244px;
       transform: rotate(-5deg);
       opacity: 0.88;
     }
 
     .feature-phone-stack .phone-stack-front {
-      right: 18px;
+      left: 218px;
       top: 0;
-      width: 292px;
+      width: 264px;
       z-index: 2;
+    }
+
+    .feature-phone-stack .phone-stack-right {
+      right: 0;
+      top: 34px;
+      width: 244px;
+      transform: rotate(5deg);
+      z-index: 1;
+      opacity: 0.96;
     }
 
     .routine-preview-phone {
@@ -736,9 +592,10 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       aspect-ratio: 736 / 1600;
     }
 
-    .wide-phone {
+    .best-effort-preview-phone {
       width: 300px;
-      height: 652px;
+      height: auto;
+      aspect-ratio: 1206 / 2622;
     }
 
     .climb-visual {
@@ -951,85 +808,6 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       white-space: nowrap;
     }
 
-    .capability-grid {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 16px;
-    }
-
-    .capability-card {
-      min-height: 240px;
-      padding: 24px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: rgba(255, 255, 255, 0.045);
-    }
-
-    .capability-icon {
-      width: 42px;
-      height: 42px;
-      display: grid;
-      place-items: center;
-      margin-bottom: 22px;
-      border-radius: 8px;
-      background: rgba(180, 204, 0, 0.12);
-      color: var(--accent);
-      font-size: 20px;
-      font-weight: 900;
-    }
-
-    .capability-card h3 {
-      margin-bottom: 12px;
-      color: var(--text);
-      font-size: 21px;
-      line-height: 1.18;
-    }
-
-    .capability-card p {
-      color: #a6b0bd;
-      font-size: 15px;
-      line-height: 1.65;
-    }
-
-    .screens-section {
-      background: #0a0e13;
-      border-top: 1px solid var(--border);
-      border-bottom: 1px solid var(--border);
-    }
-
-    .screen-grid {
-      display: grid;
-      grid-template-columns: repeat(7, minmax(190px, 1fr));
-      gap: 22px;
-      align-items: start;
-      overflow-x: auto;
-      padding-bottom: 10px;
-      scroll-snap-type: x proximity;
-    }
-
-    .screen-shot {
-      padding: 10px;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 8px;
-      background: rgba(255, 255, 255, 0.05);
-      scroll-snap-align: start;
-    }
-
-    .screen-shot img {
-      display: block;
-      width: 100%;
-      aspect-ratio: 736 / 1600;
-      object-fit: cover;
-      border-radius: 6px;
-    }
-
-    .screen-shot figcaption {
-      padding: 14px 4px 2px;
-      color: #c9d1da;
-      font-size: 14px;
-      font-weight: 700;
-    }
-
     .faq {
       max-width: 860px;
       margin: 0 auto;
@@ -1181,61 +959,16 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       }
     }
 
-    @keyframes artifactEnter {
-      0% {
-        opacity: 0;
-        transform: translate(-50%, -50%) scale(0.72);
-      }
-      100% {
-        opacity: 1;
-        transform: translate(-50%, -50%) scale(var(--scale, 1));
-      }
-    }
-
-    @keyframes artifactFloat {
-      0% {
-        transform: translate3d(0, 0, 0) rotate(var(--rotate-start, -1deg));
-      }
-      100% {
-        transform: translate3d(0, var(--drift, -10px), 0) rotate(var(--rotate-end, 1deg));
-      }
-    }
-
     @media (prefers-reduced-motion: reduce) {
       .waitlist-success.show,
       .waitlist-success.is-subscribed::before,
       .waitlist-success::after,
-      .waitlist-burst span,
-      .hero-artifact,
-      .artifact-inner {
+      .waitlist-burst span {
         animation: none !important;
-      }
-
-      .hero-artifact {
-        opacity: 1;
-        transform: translate(-50%, -50%) scale(var(--scale, 1));
-      }
-    }
-
-    @media (max-width: 1280px) {
-      .hero-artifacts {
-        opacity: 0.78;
-      }
-
-      .hero-artifact.optional,
-      .hero-climb-card,
-      .rank-chip {
-        display: none;
       }
     }
 
     @media (max-width: 1080px) {
-      .hero-artifacts {
-        inset: 82px 20px 34px;
-        width: calc(100% - 40px);
-        opacity: 0.72;
-      }
-
       .feature-row,
       .feature-row.reversed {
         grid-template-columns: 1fr;
@@ -1247,25 +980,30 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         order: unset;
       }
 
-      .capability-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+      .live-walkthrough {
+        justify-content: flex-start;
       }
 
-      .screen-grid {
-        grid-template-columns: repeat(7, minmax(190px, 1fr));
+      .live-step {
+        flex-basis: 178px;
       }
 
       .feature-phone-stack {
         min-height: 560px;
-        max-width: 500px;
+        max-width: 620px;
       }
 
       .feature-phone-stack .phone-stack-back {
-        width: 238px;
+        width: 216px;
       }
 
       .feature-phone-stack .phone-stack-front {
-        width: 258px;
+        left: 194px;
+        width: 236px;
+      }
+
+      .feature-phone-stack .phone-stack-right {
+        width: 216px;
       }
     }
 
@@ -1283,10 +1021,6 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         padding-bottom: 72px;
       }
 
-      .hero-artifacts {
-        display: none;
-      }
-
       .hero::after {
         content: none;
       }
@@ -1299,6 +1033,24 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       .section-heading p,
       .cta-section p {
         font-size: 16px;
+      }
+
+      .live-climbs-showcase {
+        min-height: auto;
+        padding-bottom: 72px;
+      }
+
+      .live-showcase-heading {
+        margin-bottom: 46px;
+        text-align: left;
+      }
+
+      .live-showcase-heading h2 {
+        font-size: clamp(36px, 11vw, 56px);
+      }
+
+      .live-step {
+        flex-basis: 204px;
       }
 
       .waitlist-form {
@@ -1322,10 +1074,6 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         border-radius: 25px;
       }
 
-      .hero-proof {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
       .section {
         padding-top: 76px;
         padding-bottom: 76px;
@@ -1335,15 +1083,16 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         padding: 54px 0;
       }
 
-      .wide-phone {
-        width: 232px;
-        height: 504px;
-      }
-
       .routine-preview-phone {
         width: 232px;
         height: auto;
         aspect-ratio: 736 / 1600;
+      }
+
+      .best-effort-preview-phone {
+        width: 232px;
+        height: auto;
+        aspect-ratio: 1206 / 2622;
       }
 
       .feature-phone-stack {
@@ -1359,9 +1108,6 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         grid-template-columns: 1fr;
       }
 
-      .capability-grid {
-        grid-template-columns: 1fr;
-      }
     }
 
     @media (max-width: 460px) {
@@ -1370,109 +1116,10 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         height: 412px;
       }
 
-      .proof-item {
-        padding: 18px;
-      }
-
-      .screen-grid {
-        grid-template-columns: repeat(7, minmax(170px, 1fr));
-      }
     }
   </style>
 
   <section class="hero">
-    <div class="hero-artifacts" aria-hidden="true">
-      <div class="hero-artifact hero-climb-card mobile" style="--left: 10%; --top: 28%; --m-left: 18%; --m-top: 10%; --width: 168px; --height: 206px; --delay: 90ms; --duration: 7.8s; --drift: -9px; --tone: #e8edf6;">
-        <div class="artifact-inner">
-          <img src="/images/hero-climb-everest.jpg" alt="" loading="eager" decoding="async" />
-          <div class="hero-climb-card-copy">
-            <span>48,664 steps</span>
-            <strong>Mount Everest</strong>
-          </div>
-        </div>
-      </div>
-
-      <div class="hero-artifact stat-chip optional" style="--left: 18%; --top: 63%; --width: 142px; --delay: 180ms; --duration: 8.4s; --drift: 10px;">
-        <div class="artifact-inner">
-          <div class="stat-icon">↟</div>
-          <div class="stat-copy">
-            <strong>10,432</strong>
-            <span>steps</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="hero-artifact routine-chip mobile" style="--left: 19%; --top: 85%; --m-left: 24%; --m-top: 38%; --width: 166px; --delay: 260ms; --duration: 7.2s; --drift: -8px; --tone: #ff9f1c;">
-        <div class="artifact-inner">
-          <strong>Pyramid Climb</strong>
-          <div class="routine-bars">
-            <i style="--h: 42%;"></i><i style="--h: 58%;"></i><i style="--h: 58%;"></i><i style="--h: 78%;"></i>
-            <i style="--h: 78%;"></i><i style="--h: 58%;"></i><i style="--h: 58%;"></i><i style="--h: 42%;"></i>
-          </div>
-          <span>20 min · 9 intervals</span>
-        </div>
-      </div>
-
-      <div class="hero-artifact hero-climb-card optional" style="--left: 50%; --top: 11%; --width: 150px; --height: 176px; --scale: 0.9; --delay: 340ms; --duration: 9s; --drift: 12px; --tone: #9b5cff;">
-        <div class="artifact-inner">
-          <img src="/images/hero-climb-space-needle.jpg" alt="" loading="eager" decoding="async" />
-          <div class="hero-climb-card-copy">
-            <span>1,012 steps</span>
-            <strong>Space Needle</strong>
-          </div>
-        </div>
-      </div>
-
-      <div class="hero-artifact best-effort-chip optional" style="--left: 35%; --top: 21%; --size: 106px; --delay: 430ms; --duration: 8.6s; --drift: -11px; --rotate-start: 1deg; --rotate-end: -1deg;">
-        <div class="artifact-inner">
-          <div class="laurel">1</div>
-          <strong>Best effort</strong>
-          <span>new record</span>
-        </div>
-      </div>
-
-      <div class="hero-artifact hero-climb-card mobile" style="--left: 90%; --top: 28%; --m-left: 84%; --m-top: 33%; --width: 168px; --height: 206px; --delay: 580ms; --duration: 8s; --drift: -9px; --tone: #b4cc00;">
-        <div class="artifact-inner">
-          <img src="/images/hero-climb-taipei-101.jpg" alt="" loading="eager" decoding="async" />
-          <div class="hero-climb-card-copy">
-            <span>2,794 steps</span>
-            <strong>Taipei 101</strong>
-          </div>
-        </div>
-      </div>
-
-      <div class="hero-artifact rank-chip mobile" style="--left: 82%; --top: 63%; --m-left: 20%; --m-top: 32%; --width: 154px; --delay: 660ms; --duration: 9.2s; --drift: 11px;">
-        <div class="artifact-inner">
-          <div class="rank-icon">#1</div>
-          <div class="rank-copy">
-            <strong>12:18</strong>
-            <span>leaderboard</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="hero-artifact routine-chip mobile" style="--left: 82%; --top: 85%; --m-left: 76%; --m-top: 38%; --width: 160px; --delay: 740ms; --duration: 7.4s; --drift: -10px; --tone: #ff6b00;">
-        <div class="artifact-inner">
-          <strong>HIIT Sprint</strong>
-          <div class="routine-bars">
-            <i style="--h: 38%;"></i><i style="--h: 78%;"></i><i style="--h: 42%;"></i><i style="--h: 78%;"></i>
-            <i style="--h: 42%;"></i><i style="--h: 78%;"></i><i style="--h: 42%;"></i><i style="--h: 38%;"></i>
-          </div>
-          <span>7 min · 12 intervals</span>
-        </div>
-      </div>
-
-      <div class="hero-artifact stat-chip optional" style="--left: 50%; --top: 90%; --width: 134px; --scale: 0.94; --delay: 980ms; --duration: 8.2s; --drift: 7px;">
-        <div class="artifact-inner">
-          <div class="stat-icon">T</div>
-          <div class="stat-copy">
-            <strong>~21 min</strong>
-            <span>est. time</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <div class="hero-inner">
       <div class="hero-content">
         <h1>
@@ -1495,105 +1142,90 @@ import BaseLayout from '../layouts/BaseLayout.astro';
     </div>
   </section>
 
-  <section class="section screens-section">
-    <div class="section-inner">
-      <div class="section-heading centered">
-        <div class="section-kicker">The App</div>
-        <h2>Built around the stair stepper from the first screen.</h2>
-        <p>
-          Daily Live Climbs, globe browsing, climb details, leaderboards, routines, and workout history all sit in one stair-first training surface.
-        </p>
-      </div>
-
-      <div class="screen-grid">
-        <figure class="screen-shot">
-          <img src="/images/ascend-home-live-climb.jpg" alt="Ascend Home screen with daily Live Climb and routines" loading="lazy" decoding="async" />
-          <figcaption>Home and daily climb</figcaption>
-        </figure>
-        <figure class="screen-shot">
-          <img src="/images/ascend-globe-overview.jpg" alt="Ascend globe overview with climb pins" loading="lazy" decoding="async" />
-          <figcaption>Globe overview</figcaption>
-        </figure>
-        <figure class="screen-shot">
-          <img src="/images/ascend-globe-browse.jpg" alt="Ascend globe browse drawer with climb cards" loading="lazy" decoding="async" />
-          <figcaption>Browse drawer</figcaption>
-        </figure>
-        <figure class="screen-shot">
-          <img src="/images/ascend-globe-browse-expanded.jpg" alt="Ascend expanded browse drawer with popular, easiest, and hardest climbs" loading="lazy" decoding="async" />
-          <figcaption>Browse catalog</figcaption>
-        </figure>
-        <figure class="screen-shot">
-          <img src="/images/ascend-climb-detail.jpg" alt="Ascend Live Climb detail screen" loading="lazy" decoding="async" />
-          <figcaption>Climb detail</figcaption>
-        </figure>
-        <figure class="screen-shot">
-          <img src="/images/ascend-climb-leaderboard.jpg" alt="Ascend Live Climb leaderboard screen" loading="lazy" decoding="async" />
-          <figcaption>Climb leaderboard</figcaption>
-        </figure>
-        <figure class="screen-shot">
-          <img src="/images/ascend-routine-pyramid.jpg" alt="Ascend Pyramid Climb routine detail screen" loading="lazy" decoding="async" />
-          <figcaption>Routine detail</figcaption>
-        </figure>
-      </div>
-    </div>
-  </section>
-
-  <section class="section proof-section" aria-label="Ascend highlights">
-    <div class="hero-proof">
-      <div class="proof-item">
-        <strong>100</strong>
-        <span>landmark Live Climbs in the hosted launch catalog</span>
-      </div>
-      <div class="proof-item">
-        <strong>3</strong>
-        <span>training paths: log workouts, follow routines, or race climbs</span>
-      </div>
-      <div class="proof-item">
-        <strong>All</strong>
-        <span>records roll into Best Efforts instead of a second PR system</span>
-      </div>
-      <div class="proof-item">
-        <strong>Local</strong>
-        <span>first workout history with private cloud backup for signed-in users</span>
-      </div>
-    </div>
-  </section>
-
   <section class="section" id="features">
     <div class="section-inner">
-      <div class="section-heading">
-        <div class="section-kicker">What Ascend Tracks</div>
-        <h2>More than a generic workout log.</h2>
-        <p>
-          The app is built around the details stair-stepper athletes actually care about: steps, floors, pace, vertical gain, loadout, source, history, and competitive context.
-        </p>
-      </div>
-
       <div class="feature-rows">
-        <section class="feature-row" id="live-climbs">
+        <section class="live-climbs-showcase" id="live-climbs">
+          <div class="live-showcase-heading">
+            <h2>Take on iconic climbs across the globe and <span>see where you rank.</span></h2>
+          </div>
+
+          <div class="live-walkthrough" aria-label="Live Climbs walkthrough">
+            <article class="live-step">
+              <div class="live-step-phone">
+                <img src="/images/ascend-globe-browse.jpg" alt="Ascend globe browse screen with climb search and landmark cards" loading="lazy" decoding="async" />
+              </div>
+              <div class="live-step-copy">
+                <span>01 / Discover</span>
+                <p>Browse famous landmarks across the globe.</p>
+              </div>
+            </article>
+
+            <article class="live-step">
+              <div class="live-step-phone">
+                <img src="/images/ascend-climb-detail.jpg" alt="Ascend climb detail screen for Empire State Building" loading="lazy" decoding="async" />
+              </div>
+              <div class="live-step-copy">
+                <span>02 / Preview</span>
+                <p>Check the steps, floors, time, and completions.</p>
+              </div>
+            </article>
+
+            <article class="live-step">
+              <div class="live-step-phone">
+                <img src="/images/ascend-live-climb-leaderboard-preview.png" alt="Ascend Live Climb leaderboard with current user highlighted" loading="lazy" decoding="async" />
+              </div>
+              <div class="live-step-copy">
+                <span>03 / Climb</span>
+                <p>Watch your rank update while you climb.</p>
+              </div>
+            </article>
+
+            <article class="live-step">
+              <div class="live-step-phone">
+                <img src="/images/ascend-live-climb-results.png" alt="Ascend Live Climb result screen with rank, stats, best effort, and splits" loading="lazy" decoding="async" />
+              </div>
+              <div class="live-step-copy">
+                <span>04 / Review</span>
+                <p>Review your rank, best effort, stats, and splits.</p>
+              </div>
+            </article>
+
+            <article class="live-step">
+              <div class="live-step-phone">
+                <img src="/images/ascend-live-climb-share.png" alt="Ascend share screen with an Empire State Building Live Climb result card" loading="lazy" decoding="async" />
+              </div>
+              <div class="live-step-copy">
+                <span>05 / Share</span>
+                <p>Save a share card with your climb and result.</p>
+              </div>
+            </article>
+
+            <article class="live-step">
+              <div class="live-step-phone">
+                <img src="/images/ascend-climb-leaderboard.jpg" alt="Ascend Live Climb leaderboard screen for a climb" loading="lazy" decoding="async" />
+              </div>
+              <div class="live-step-copy">
+                <span>06 / Leaderboard</span>
+                <p>Compare completed attempts on the climb leaderboard.</p>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="feature-row best-efforts-row">
           <div class="feature-copy">
-            <h3>Live Climbs turn cardio into a real-time landmark attempt.</h3>
+            <div class="section-kicker">Best Efforts</div>
+            <h3>Beat the version of you that showed up last time.</h3>
             <p>
-              Browse a globe of famous towers, mountains, monuments, and stair routes, then climb one with compatible headphone motion tracking. During the session, Ascend updates time, steps, progress, pace, and replay leaderboard context locally every second.
+              Ascend turns your hardest stair-stepper sessions into records you can chase: most steps, longest climbs, fastest pace, rolling windows, and progress charts tied back to the workouts that set them.
             </p>
-            <ul class="feature-points">
-              <li>Daily recommended climb on Home</li>
-              <li>Searchable globe with climb details and tiered goals</li>
-              <li>Post-save summary, splits, rank, and Live Climb share card</li>
-            </ul>
           </div>
 
           <div class="feature-visual">
-            <div class="feature-phone-stack" aria-label="Live Climbs app screens">
-              <div class="phone-frame app-screenshot phone-stack-back">
-                <div class="screen">
-                  <img src="/images/ascend-globe-browse-expanded.jpg" alt="Ascend globe browse screen showing climb cards" loading="lazy" decoding="async" />
-                </div>
-              </div>
-              <div class="phone-frame app-screenshot phone-stack-front">
-                <div class="screen">
-                  <img src="/images/ascend-climb-detail.jpg" alt="Ascend Empire State Building Live Climb detail screen" loading="lazy" decoding="async" />
-                </div>
+            <div class="phone-frame app-screenshot best-effort-preview-phone">
+              <div class="screen">
+                <img src="/images/ascend-best-effort-detail.png" alt="Ascend Best Efforts detail screen showing a Most Steps record, progress chart, and history tab" loading="lazy" decoding="async" />
               </div>
             </div>
           </div>
@@ -1601,15 +1233,11 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 
         <section class="feature-row reversed">
           <div class="feature-copy">
-            <h3>Routines give your stair sessions a real plan.</h3>
+            <div class="section-kicker">Routines to Run</div>
+            <h3>Pick the stair session your body needs today.</h3>
             <p>
-              Built-in and custom routines turn the stair stepper into structured training. Follow intervals, save routines you like, and bring completed sessions back into the same workout history as manual logs, imports, and Live Climbs.
+              Ascend gives you pre-built stair-stepper routines for endurance, max output, and heart-rate-zone work, then guides each interval while you climb. Finished routines log with the rest of your workout history, and you can save favorites, repeat what works, or build your own interval structure from scratch.
             </p>
-            <ul class="feature-points">
-              <li>Interval-based workouts with duration, intensity, and pace targets</li>
-              <li>Built-in templates for sessions like Pyramid Climb and HIIT Sprint</li>
-              <li>Saved routine context stays attached to completed workouts</li>
-            </ul>
           </div>
 
           <div class="feature-visual">
@@ -1620,75 +1248,6 @@ import BaseLayout from '../layouts/BaseLayout.astro';
             </div>
           </div>
         </section>
-
-        <section class="feature-row">
-          <div class="feature-copy">
-            <h3>Completed climbs have history, rankings, and replay context.</h3>
-            <p>
-              Live Climb results stay competitive without taking over the workout log. Completed attempts can show fastest times, public leaderboard rows, pace context, and share-ready climb stats while manual logs and imports stay separate from climb completion rules.
-            </p>
-            <ul class="feature-points">
-              <li>Fastest completion leaderboards for eligible Live Climb attempts</li>
-              <li>Completion counts and community avatars on climb detail</li>
-              <li>Post-save summaries and climb-specific share cards</li>
-            </ul>
-          </div>
-
-          <div class="feature-visual">
-            <div class="phone-frame app-screenshot wide-phone">
-              <div class="screen">
-                <img src="/images/ascend-climb-leaderboard.jpg" alt="Ascend Live Climb leaderboard screen" loading="lazy" decoding="async" />
-              </div>
-            </div>
-          </div>
-        </section>
-      </div>
-    </div>
-  </section>
-
-  <section class="section" id="training">
-    <div class="section-inner">
-      <div class="section-heading">
-        <div class="section-kicker">Feature Depth</div>
-        <h2>The details that make stair-stepper training easier to stick with.</h2>
-      </div>
-
-      <div class="capability-grid">
-        <article class="capability-card">
-          <div class="capability-icon">R</div>
-          <h3>Routines and progressive overload</h3>
-          <p>Create stair-stepper routines, organize folders, copy built-in templates, and track sessions with the same workout model as every other activity.</p>
-        </article>
-
-        <article class="capability-card">
-          <div class="capability-icon">W</div>
-          <h3>Weighted training context</h3>
-          <p>Record the full enabled equipment setup so a 20 lb vest stays distinct from a vest plus ankle weights in workout history and Best Efforts.</p>
-        </article>
-
-        <article class="capability-card">
-          <div class="capability-icon">I</div>
-          <h3>Imports that respect review</h3>
-          <p>Bring in compatible workouts from Apple Health and Hevy, review the latest auto-import, and keep duplicates under control through source links.</p>
-        </article>
-
-        <article class="capability-card">
-          <div class="capability-icon">S</div>
-          <h3>Share-ready milestones</h3>
-          <p>Turn workouts and completed Live Climbs into square cards with climb-specific layouts, ranked stats, and poster backgrounds that render offline.</p>
-        </article>
-
-        <article class="capability-card">
-          <div class="capability-icon">L</div>
-          <h3>Leaderboards with intent</h3>
-          <p>Compete on eligible built-in routines and completed Live Climbs while manual entries and imports stay out of climb completion rules.</p>
-        </article>
-
-        <article class="capability-card">
-          <div class="capability-icon">B</div>
-          <h3>Private backup by default</h3>
-          <p>Workouts stay local-first, with signed-in private cloud backups for metadata and durable heart-rate sidecars when full series data exists.</p>
-        </article>
       </div>
     </div>
   </section>

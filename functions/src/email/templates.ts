@@ -53,7 +53,7 @@ export function renderWaitlistWelcomeEmail(
 
   const betaInviteUrl = getBetaInviteUrl();
   const websiteUrl = getMarketingWebsiteUrl();
-  const iconUrl = `${websiteUrl}/images/StairmasterIconAccent.png`;
+  const iconUrl = `${websiteUrl}/images/ascend-a-icon.png`;
   const privacyPolicyUrl = `${websiteUrl}/privacy`;
   const primaryCtaUrl = betaInviteUrl ?? websiteUrl;
   const primaryCtaLabel = betaInviteUrl ?

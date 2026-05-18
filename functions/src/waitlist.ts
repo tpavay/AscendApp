@@ -1,10 +1,10 @@
 import {onRequest} from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import {
-  buildEmailJobId,
-  buildWaitlistWelcomeDedupeKey,
-  createQueuedEmailJob,
-} from "./email/queue";
+  beehiivConfig,
+  BeehiivSubscriptionError,
+  subscribeToBeehiiv,
+} from "./beehiiv";
 import {
   extractRequesterIp,
   evaluateWaitlistRateLimit,
@@ -17,6 +17,12 @@ import {normalizeEmail, sha256Hex} from "./email/crypto";
 import type {EmailRateLimitDocument} from "./email/types";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+interface WaitlistDocument {
+  beehiivSubscriptionId?: string;
+  beehiivStatus?: string;
+  provider?: string;
+}
 
 /**
  * Signals that the public waitlist endpoint hit an abuse limit.
@@ -93,9 +99,12 @@ function parseSource(value: unknown): string {
 }
 
 /**
- * Handles public waitlist signups and enqueues the welcome email job.
+ * Handles public waitlist signups and subscribes the user in Beehiiv.
  */
-export const joinWaitlist = onRequest(async (req, res) => {
+export const joinWaitlist = onRequest({secrets: [beehiivConfig]}, async (
+  req,
+  res
+) => {
   if (req.method !== "POST") {
     res.status(405).json({error: "method_not_allowed"});
     return;
@@ -114,8 +123,6 @@ export const joinWaitlist = onRequest(async (req, res) => {
 
   const source = parseSource(body?.source);
   const emailHash = sha256Hex(email);
-  const dedupeKey = buildWaitlistWelcomeDedupeKey(emailHash);
-  const emailJobId = buildEmailJobId(dedupeKey);
   const requesterIp = extractRequesterIp(
     req.get("x-forwarded-for") ?? undefined,
     req.ip ?? req.socket.remoteAddress ?? undefined
@@ -124,19 +131,15 @@ export const joinWaitlist = onRequest(async (req, res) => {
   const now = new Date();
   const nowTimestamp = admin.firestore.Timestamp.fromDate(now);
   const waitlistRef = admin.firestore().collection("waitlist").doc(emailHash);
-  const emailJobRef = admin.firestore()
-    .collection("email_jobs")
-    .doc(emailJobId);
   const rateLimitRef = admin.firestore()
     .collection("email_rate_limits")
     .doc(ipHash);
 
   try {
-    const responseStatus = await admin.firestore().runTransaction(
+    const waitlistDocument = await admin.firestore().runTransaction(
       async (transaction) => {
         const rateLimitSnapshot = await transaction.get(rateLimitRef);
         const waitlistSnapshot = await transaction.get(waitlistRef);
-        const emailJobSnapshot = await transaction.get(emailJobRef);
         const rateLimitDocument = rateLimitSnapshot.exists ?
           rateLimitSnapshot.data() as EmailRateLimitDocument :
           null;
@@ -161,38 +164,46 @@ export const joinWaitlist = onRequest(async (req, res) => {
           )
         );
 
-        if (waitlistSnapshot.exists) {
-          return "already_subscribed";
-        }
-
-        transaction.create(waitlistRef, {
-          createdAt: nowTimestamp,
-          email,
-          emailHash,
-          source,
-          welcomeEmailJobId: emailJobId,
-        });
-
-        if (!emailJobSnapshot.exists) {
-          transaction.create(
-            emailJobRef,
-            createQueuedEmailJob(
-              "waitlist_welcome",
-              email,
-              emailHash,
-              dedupeKey,
-              {source},
-              nowTimestamp,
-              `waitlist/${emailHash}`
-            )
-          );
-        }
-
-        return "subscribed";
+        return waitlistSnapshot.exists ?
+          waitlistSnapshot.data() as WaitlistDocument :
+          null;
       }
     );
 
-    res.status(200).json({status: responseStatus});
+    if (
+      waitlistDocument?.provider === "beehiiv" &&
+      (
+        waitlistDocument.beehiivSubscriptionId ||
+        waitlistDocument.beehiivStatus === "subscribed" ||
+        waitlistDocument.beehiivStatus === "already_subscribed"
+      )
+    ) {
+      res.status(200).json({status: "already_subscribed"});
+      return;
+    }
+
+    const beehiivResult = await subscribeToBeehiiv(email, source);
+    const waitlistUpdate: Record<string, unknown> = {
+      beehiivRawStatus: beehiivResult.rawStatus,
+      beehiivStatus: beehiivResult.status,
+      email,
+      emailHash,
+      provider: "beehiiv",
+      source,
+      updatedAt: nowTimestamp,
+    };
+
+    if (!waitlistDocument) {
+      waitlistUpdate.createdAt = nowTimestamp;
+    }
+
+    if (beehiivResult.subscriptionId) {
+      waitlistUpdate.beehiivSubscriptionId = beehiivResult.subscriptionId;
+    }
+
+    await waitlistRef.set(waitlistUpdate, {merge: true});
+
+    res.status(200).json({status: beehiivResult.status});
   } catch (error) {
     if (error instanceof RateLimitExceededError) {
       res.status(429).json({error: "rate_limited"});
@@ -201,6 +212,17 @@ export const joinWaitlist = onRequest(async (req, res) => {
 
     if (isAlreadyExistsError(error)) {
       res.status(200).json({status: "already_subscribed"});
+      return;
+    }
+
+    if (error instanceof BeehiivSubscriptionError) {
+      console.error("joinWaitlist Beehiiv request failed", {
+        errorCode: error.code,
+        httpStatus: error.httpStatus,
+        message: error.message,
+        retryable: error.retryable,
+      });
+      res.status(500).json({error: "beehiiv_subscription_failed"});
       return;
     }
 
