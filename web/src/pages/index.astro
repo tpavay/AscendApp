@@ -1133,7 +1133,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         <div class="hero-actions" id="heroWaitlist">
           <form class="waitlist-form" id="heroForm">
             <input type="email" placeholder="Enter your email" required id="heroEmail" autocomplete="email" inputmode="email" />
-            <button type="submit">Get Early Access</button>
+            <button type="submit">Join Waitlist</button>
           </form>
           <div class="waitlist-success" id="heroSuccess" role="status" aria-live="polite">You're on the list! We'll be in touch.</div>
           <div class="waitlist-error" id="heroError"></div>
@@ -1311,7 +1311,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         </button>
         <div class="faq-answer">
           <div class="faq-answer-inner">
-            Ascend is still in development. Join the waitlist to get launch updates and early access notes when the App Store release is ready.
+            Ascend is still in development. Join the waitlist to get launch updates and a note when the App Store release is ready.
           </div>
         </div>
       </div>
@@ -1320,11 +1320,11 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 
   <section class="cta-section" id="ctaWaitlist">
     <h2>Track the stair stepper like the workout it is.</h2>
-    <p>Get launch updates, early access notes, and the first public release of Ascend.</p>
+    <p>Get launch updates and a note when Ascend is live on the App Store.</p>
 
     <form class="waitlist-form" id="ctaForm">
       <input type="email" placeholder="Enter your email" required id="ctaEmail" autocomplete="email" inputmode="email" />
-      <button type="submit">Get Early Access</button>
+      <button type="submit">Join Waitlist</button>
     </form>
     <div class="waitlist-success" id="ctaSuccess" role="status" aria-live="polite">You're on the list! We'll be in touch.</div>
     <div class="waitlist-error" id="ctaError"></div>
@@ -1438,13 +1438,13 @@ import BaseLayout from '../layouts/BaseLayout.astro';
           if (payload?.error === 'invalid_email') {
             showError('Please enter a valid email address.', true);
             button.disabled = false;
-            button.textContent = 'Get Early Access';
+            button.textContent = 'Join Waitlist';
             return;
           }
           if (payload?.error === 'rate_limited') {
             showError("You've reached the signup limit for now. Please try again later.");
             button.disabled = false;
-            button.textContent = 'Get Early Access';
+            button.textContent = 'Join Waitlist';
             return;
           }
           throw new Error(typeof payload?.error === 'string' ? payload.error : 'waitlist_request_failed');
@@ -1458,7 +1458,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         console.error('Waitlist error:', err);
         showError('Something went wrong. Please try again or email pavayt@gmail.com.');
         button.disabled = false;
-        button.textContent = 'Get Early Access';
+        button.textContent = 'Join Waitlist';
       }
     }
 
