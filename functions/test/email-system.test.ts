@@ -87,7 +87,7 @@ test("waitlist template renders escaped html and text output", () => {
   assert.match(rendered.html, /Visit ascendstepper\.com/);
   assert.match(
     rendered.html,
-    /https:\/\/ascendstepper\.com\/images\/StairmasterIconAccent\.png/
+    /https:\/\/ascendstepper\.com\/images\/ascend-a-icon\.png/
   );
   assert.match(rendered.html, /https:\/\/ascendstepper\.com\/privacy/);
   assert.match(
@@ -130,7 +130,7 @@ test("waitlist template includes beta invite CTA when configured", () => {
     );
     assert.match(
       rendered.html,
-      /https:\/\/ascendstepper\.com\/images\/StairmasterIconAccent\.png/
+      /https:\/\/ascendstepper\.com\/images\/ascend-a-icon\.png/
     );
     assert.match(
       rendered.html,
