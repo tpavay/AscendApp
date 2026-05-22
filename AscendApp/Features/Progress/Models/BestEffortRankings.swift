@@ -341,7 +341,7 @@ struct RankedBestEffort: Identifiable {
         case .mostSteps, .mostStepsInTime, .highestAverageSPM:
             return BestEffortFormatting.integer(Int(performance.value.rounded()))
         case .longestClimb:
-            return BestEffortFormatting.duration(performance.value)
+            return BestEffortFormatting.clockTime(performance.value)
         case .fastestStepTarget:
             return BestEffortFormatting.clockTime(performance.value)
         }

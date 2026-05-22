@@ -13,6 +13,7 @@ struct HomeView: View {
     @Environment(TabRouter.self) private var tabRouter
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
     @State private var importCoordinator = WorkoutImportCoordinator.shared
     @State private var homeDashboard = HomeDashboardViewModel()
     @State private var showingImportSheet = false
@@ -112,16 +113,18 @@ struct HomeView: View {
                     if !homeDashboard.recentPersonalRecords.isEmpty {
                         HomeRecentPRsSection(
                             records: homeDashboard.recentPersonalRecords,
-                            onViewAllTapped: { tabRouter.selectedTab = .progress }
+                            workouts: workouts
                         )
                     }
                 }
                 .padding(.horizontal, 20)
-                .padding(.bottom, 20)
+                .padding(.bottom, 124)
             }
             .scrollIndicators(.hidden)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .safeAreaPadding(.top, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .themedBackground()
         .navigationDestination(item: $selectedHomeClimb) { climb in
             ClimbDetailView(climb: climb, analyticsEntryPoint: .homeDaily)
@@ -597,7 +600,7 @@ private struct HomeMyGlobeCard: View {
 
 private struct HomeRecentPRsSection: View {
     let records: [HomeRecentPRRecord]
-    let onViewAllTapped: () -> Void
+    let workouts: [Workout]
 
     var body: some View {
         VStack(spacing: 12) {
@@ -611,7 +614,9 @@ private struct HomeRecentPRsSection: View {
 
                 Spacer()
 
-                Button(action: onViewAllTapped) {
+                NavigationLink {
+                    BestEffortsListView(workouts: workouts)
+                } label: {
                     HStack(spacing: 4) {
                         Text("VIEW ALL")
                             .font(.montserratSemiBold(size: 11))
@@ -627,7 +632,16 @@ private struct HomeRecentPRsSection: View {
 
             HStack(spacing: 12) {
                 ForEach(records) { record in
-                    HomePRCard(record: record)
+                    NavigationLink {
+                        BestEffortRecordDetailView(
+                            metric: record.metric,
+                            workouts: workouts
+                        )
+                    } label: {
+                        HomePRCard(record: record)
+                    }
+                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity)
                 }
             }
         }
@@ -638,25 +652,7 @@ private struct HomePRCard: View {
     let record: HomeRecentPRRecord
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top) {
-                Image(systemName: record.iconName)
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(.white.opacity(0.65))
-
-                Spacer()
-
-                if record.isNew {
-                    Text("NEW PR")
-                        .font(.montserratSemiBold(size: 9))
-                        .tracking(0.8)
-                        .foregroundStyle(.black)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(Color.accent))
-                }
-            }
-
+        VStack(alignment: .leading, spacing: 9) {
             Text(record.label)
                 .font(.montserratSemiBold(size: 9))
                 .tracking(0.8)
@@ -670,7 +666,7 @@ private struct HomePRCard: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 86, maxHeight: 86, alignment: .leading)
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -697,7 +693,9 @@ private struct HomePRCard: View {
             WorkoutSourceLink.self,
             Routine.self,
             RoutineFolder.self,
-            ClimbAttempt.self
+            ClimbAttempt.self,
+            BestEffortCacheEntry.self,
+            BestEffortCacheMetadata.self
         ],
         inMemory: true
     )

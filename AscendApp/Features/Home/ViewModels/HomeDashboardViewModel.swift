@@ -4,7 +4,7 @@ import SwiftData
 
 struct HomeRecentPRRecord: Identifiable, Equatable {
     let id: String
-    let iconName: String
+    let metric: BestEffortMetric
     let label: String
     let value: String
     let isNew: Bool
@@ -199,26 +199,11 @@ final class HomeDashboardViewModel {
             guard let top = snapshot.rankedEfforts(for: metric).first else { return nil }
             return HomeRecentPRRecord(
                 id: metric.id,
-                iconName: Self.iconName(for: metric),
+                metric: metric,
                 label: Self.shortLabel(for: metric),
-                value: top.compactValueText,
+                value: Self.compactValue(for: top),
                 isNew: top.workout.date >= sevenDaysAgo
             )
-        }
-    }
-
-    private static func iconName(for metric: BestEffortMetric) -> String {
-        switch metric {
-        case .mostSteps:
-            return "shoeprints.fill"
-        case .longestClimb:
-            return "stopwatch.fill"
-        case .highestAverageSPM:
-            return "speedometer"
-        case .mostStepsInTime:
-            return "timer"
-        case .fastestStepTarget:
-            return "bolt.fill"
         }
     }
 
@@ -235,6 +220,15 @@ final class HomeDashboardViewModel {
         case .fastestStepTarget(let steps):
             let formatted = steps >= 1000 ? "\(steps / 1000)K" : "\(steps)"
             return "FASTEST \(formatted)"
+        }
+    }
+
+    private static func compactValue(for effort: RankedBestEffort) -> String {
+        switch effort.metric {
+        case .longestClimb, .fastestStepTarget:
+            return BestEffortFormatting.clockTime(effort.performance.value)
+        case .mostSteps, .mostStepsInTime, .highestAverageSPM:
+            return effort.compactValueText
         }
     }
 
