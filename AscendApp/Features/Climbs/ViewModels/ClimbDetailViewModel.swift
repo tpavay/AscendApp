@@ -160,6 +160,7 @@ final class ClimbDetailViewModel {
                 totalClimbers: max(leaderboardSummary.totalClimbers, leaderboard.completedCount),
                 completedCount: max(leaderboardSummary.completedCount, leaderboard.completedCount),
                 personalBestDurationSeconds: leaderboardSummary.personalBestDurationSeconds,
+                firstAscent: leaderboardSummary.firstAscent,
                 updatedAt: leaderboardSummary.updatedAt ?? leaderboard.updatedAt
             )
         } catch {

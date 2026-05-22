@@ -57,6 +57,48 @@ test("rejects target-reached rows without eligible climb participation", () => {
   assert.equal(payload, null);
 });
 
+test("detects permanent First Ascent claims on replay summaries", () => {
+  assert.equal(
+    liveReplayLeaderboardTestHooks.leaderboardHasFirstAscent(undefined),
+    false
+  );
+  assert.equal(
+    liveReplayLeaderboardTestHooks.leaderboardHasFirstAscent({
+      firstAscentCompletedAt: "timestamp",
+    }),
+    true
+  );
+  assert.equal(
+    liveReplayLeaderboardTestHooks.leaderboardHasFirstAscent({
+      firstAscentUserId: "user-a",
+    }),
+    true
+  );
+});
+
+test("builds First Ascent replay summary fields", () => {
+  const claimedAt = "server-timestamp";
+  const write = liveReplayLeaderboardTestHooks.firstAscentWrite({
+    userId: "user-a",
+    entryId: "workout-a",
+    publicUser: {
+      avatarToken: "MC",
+      displayName: "Maya C.",
+      photoURL: null,
+    },
+    claimedAt,
+  });
+
+  assert.deepEqual(write, {
+    firstAscentAvatarToken: "MC",
+    firstAscentCompletedAt: claimedAt,
+    firstAscentDisplayName: "Maya C.",
+    firstAscentPhotoURL: "",
+    firstAscentUserId: "user-a",
+    firstAscentWorkoutId: "workout-a",
+  });
+});
+
 /**
  * Builds a private workout backup document.
  * @param {Record<string, unknown>} overrides Document overrides.

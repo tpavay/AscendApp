@@ -515,6 +515,10 @@ struct ClimbDetailView: View {
                 }
             }
 
+            if let firstAscent = viewModel.leaderboardSummary.firstAscent {
+                firstAscentSummary(firstAscent)
+            }
+
             if viewModel.isLeaderboardLoading && !viewModel.hasCompletionLeaderboardRows {
                 leaderboardLoadingState
             } else if viewModel.hasCompletionLeaderboardRows {
@@ -522,7 +526,7 @@ struct ClimbDetailView: View {
                     personalLeaderboardRankSummary
                 }
 
-                VStack(spacing: 0) {
+                VStack(spacing: 8) {
                     ForEach(viewModel.completionLeaderboardRows) { row in
                         leaderboardRow(for: row)
                     }
@@ -541,6 +545,22 @@ struct ClimbDetailView: View {
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private func firstAscentSummary(_ firstAscent: LiveReplayFirstAscent) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            Image(systemName: "flag.fill")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(leaderboardGold)
+
+            Text("First Ascent: \(firstAscent.displayName) · \(firstAscentDateText(for: firstAscent.completedAt))")
+                .font(.montserratSemiBold(size: 12))
+                .foregroundStyle(leaderboardGold)
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+        }
+        .padding(.top, -8)
+        .accessibilityElement(children: .combine)
     }
 
     private var leaderboardLoadingState: some View {
@@ -610,20 +630,25 @@ struct ClimbDetailView: View {
     }
 
     private func leaderboardRow(for row: LiveReplayLeaderboardRow) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            Text("#\(row.rank?.formatted() ?? "--")")
-                .font(.montserratBold(size: 15))
-                .foregroundStyle(row.isCurrentUser ? .accent : Color.customGray)
-                .frame(width: 46, alignment: .leading)
-                .monospacedDigit()
+        let rank = row.rank
+        let isPodium = isPodiumRank(rank)
+        let isFirst = rank == 1
+        let rowAccent = leaderboardAccentColor(for: rank)
 
-            leaderboardAvatar(for: row)
+        return HStack(alignment: .center, spacing: isFirst ? 14 : 12) {
+            leaderboardRankView(for: rank)
+
+            leaderboardAvatar(
+                for: row,
+                size: isFirst ? 50 : 42,
+                borderColor: isPodium ? rowAccent : nil
+            )
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 7) {
                     Text(row.isCurrentUser ? "You" : row.displayName)
                         .font(.montserratBold(size: 15))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                        .foregroundStyle(leaderboardPrimaryTextColor)
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
 
@@ -641,8 +666,8 @@ struct ClimbDetailView: View {
                 }
 
                 Text("\(row.finalSteps.formatted()) steps")
-                    .font(.montserratMedium(size: 12))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.54) : .black.opacity(0.48))
+                    .font(.montserratMedium(size: isFirst ? 12 : 11))
+                    .foregroundStyle(leaderboardSecondaryTextColor)
                     .monospacedDigit()
             }
 
@@ -650,34 +675,86 @@ struct ClimbDetailView: View {
 
             VStack(alignment: .trailing, spacing: 4) {
                 Text(leaderboardDurationText(for: row))
-                    .font(.montserratBold(size: 17))
-                    .foregroundStyle(row.isCurrentUser ? .accent : (effectiveColorScheme == .dark ? .white : .black))
+                    .font(.montserratBold(size: isFirst ? 18 : 16))
+                    .foregroundStyle(isPodium ? rowAccent : (row.isCurrentUser ? .accent : leaderboardPrimaryTextColor))
                     .monospacedDigit()
 
                 if let averageStepsPerMinute = row.averageStepsPerMinute {
                     Text("\(Int(averageStepsPerMinute.rounded()).formatted()) avg SPM")
                         .font(.montserratSemiBold(size: 11))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.50) : .black.opacity(0.46))
+                        .foregroundStyle(leaderboardSecondaryTextColor)
                         .monospacedDigit()
                 }
             }
         }
-        .padding(.vertical, 13)
-        .padding(.horizontal, row.isCurrentUser ? 12 : 0)
-        .background {
-            if row.isCurrentUser {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.accent.opacity(effectiveColorScheme == .dark ? 0.12 : 0.10))
-            }
-        }
+        .padding(.vertical, isFirst ? 16 : 13)
+        .padding(.horizontal, isPodium || row.isCurrentUser ? 12 : 0)
+        .background { leaderboardRowBackground(for: row) }
         .overlay(alignment: .bottom) {
-            if !row.isCurrentUser {
+            if !isPodium && !row.isCurrentUser {
                 Rectangle()
                     .fill(.white.opacity(0.08))
                     .frame(height: 1)
             }
         }
+        .shadow(
+            color: isFirst ? rowAccent.opacity(effectiveColorScheme == .dark ? 0.22 : 0.12) : .clear,
+            radius: isFirst ? 12 : 0,
+            x: 0,
+            y: isFirst ? 4 : 0
+        )
         .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private func leaderboardRankView(for rank: Int?) -> some View {
+        if rank == 1 {
+            Image(systemName: "crown.fill")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(leaderboardGold)
+                .frame(width: 34, alignment: .leading)
+                .accessibilityLabel("Rank 1")
+        } else {
+            Text("#\(rank?.formatted() ?? "--")")
+                .font(.montserratBold(size: 15))
+                .foregroundStyle(leaderboardAccentColor(for: rank))
+                .frame(width: 34, alignment: .leading)
+                .monospacedDigit()
+        }
+    }
+
+    @ViewBuilder
+    private func leaderboardRowBackground(for row: LiveReplayLeaderboardRow) -> some View {
+        let rank = row.rank
+        let rowAccent = leaderboardAccentColor(for: rank)
+
+        if rank == 1 {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            rowAccent.opacity(effectiveColorScheme == .dark ? 0.18 : 0.12),
+                            rowAccent.opacity(effectiveColorScheme == .dark ? 0.07 : 0.05)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(rowAccent.opacity(0.72), lineWidth: 1.4)
+                )
+        } else if isPodiumRank(rank) {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(rowAccent.opacity(effectiveColorScheme == .dark ? 0.10 : 0.06))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(rowAccent.opacity(0.28), lineWidth: 1)
+                )
+        } else if row.isCurrentUser {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.accent.opacity(effectiveColorScheme == .dark ? 0.12 : 0.10))
+        }
     }
 
     private func leaderboardDurationText(for row: LiveReplayLeaderboardRow) -> String {
@@ -689,7 +766,13 @@ struct ClimbDetailView: View {
     }
 
     @ViewBuilder
-    private func leaderboardAvatar(for row: LiveReplayLeaderboardRow) -> some View {
+    private func leaderboardAvatar(
+        for row: LiveReplayLeaderboardRow,
+        size: CGFloat = 42,
+        borderColor: Color? = nil
+    ) -> some View {
+        let resolvedBorderColor = borderColor ?? (row.isCurrentUser ? Color.accent : .white.opacity(0.14))
+
         if let photoURL = row.isCurrentUser ? (row.photoURL ?? currentUserPhotoURL) : row.photoURL {
             AsyncImage(
                 url: photoURL,
@@ -701,38 +784,76 @@ struct ClimbDetailView: View {
                         .resizable()
                         .scaledToFill()
                 case .empty, .failure:
-                    leaderboardAvatarToken(for: row)
+                    leaderboardAvatarToken(for: row, size: size, borderColor: resolvedBorderColor)
                 @unknown default:
-                    leaderboardAvatarToken(for: row)
+                    leaderboardAvatarToken(for: row, size: size, borderColor: resolvedBorderColor)
                 }
             }
-            .frame(width: 42, height: 42)
+            .frame(width: size, height: size)
             .clipShape(Circle())
             .overlay(
                 Circle()
-                    .stroke(row.isCurrentUser ? Color.accent : .white.opacity(0.14), lineWidth: row.isCurrentUser ? 2 : 1)
+                    .stroke(resolvedBorderColor, lineWidth: row.isCurrentUser || borderColor != nil ? 2 : 1)
             )
             .id(photoURL)
         } else {
-            leaderboardAvatarToken(for: row)
+            leaderboardAvatarToken(for: row, size: size, borderColor: resolvedBorderColor)
         }
     }
 
-    private func leaderboardAvatarToken(for row: LiveReplayLeaderboardRow) -> some View {
+    private func leaderboardAvatarToken(
+        for row: LiveReplayLeaderboardRow,
+        size: CGFloat = 42,
+        borderColor: Color? = nil
+    ) -> some View {
         Text(row.isCurrentUser ? currentUserAvatar.token : row.avatarToken)
             .font(.montserratBold(size: 13))
             .foregroundStyle(.white)
             .lineLimit(1)
             .minimumScaleFactor(0.72)
-            .frame(width: 42, height: 42)
+            .frame(width: size, height: size)
             .background(
                 Circle()
                     .fill(row.isCurrentUser ? Color.accent : communityAvatarColor(for: row.id))
             )
             .overlay(
                 Circle()
-                    .stroke(row.isCurrentUser ? Color.accent.opacity(0.7) : .white.opacity(0.14), lineWidth: 1)
+                    .stroke(borderColor ?? (row.isCurrentUser ? Color.accent.opacity(0.7) : .white.opacity(0.14)), lineWidth: borderColor == nil ? 1 : 2)
             )
+    }
+
+    private func isPodiumRank(_ rank: Int?) -> Bool {
+        guard let rank else { return false }
+        return (1...3).contains(rank)
+    }
+
+    private func leaderboardAccentColor(for rank: Int?) -> Color {
+        switch rank {
+        case 1:
+            return leaderboardGold
+        case 2:
+            return Color(hex: "BFC4CC")
+        case 3:
+            return Color(hex: "C8793D")
+        default:
+            return Color.customGray
+        }
+    }
+
+    private var leaderboardGold: Color {
+        Color(hex: "F3D76B")
+    }
+
+    private var leaderboardPrimaryTextColor: Color {
+        effectiveColorScheme == .dark ? .white : .black
+    }
+
+    private var leaderboardSecondaryTextColor: Color {
+        effectiveColorScheme == .dark ? .white.opacity(0.52) : .black.opacity(0.48)
+    }
+
+    private func firstAscentDateText(for date: Date) -> String {
+        date.formatted(.dateTime.month(.abbreviated).day().year())
     }
 
     private var metricDivider: some View {

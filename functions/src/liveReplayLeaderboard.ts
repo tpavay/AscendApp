@@ -30,6 +30,13 @@ interface PublicUserSnapshot {
   photoURL: string | null;
 }
 
+interface FirstAscentWriteInput {
+  userId: string;
+  entryId: string;
+  publicUser: PublicUserSnapshot;
+  claimedAt: unknown;
+}
+
 /**
  * Publishes saved live-attempt split checkpoints into read-only replay windows.
  */
@@ -331,14 +338,29 @@ async function publishReplayEntries(
     .doc(payload.contextKey);
 
   await db.runTransaction(async (transaction) => {
-    transaction.set(leaderboardRef, {
+    const leaderboardSnapshot = await transaction.get(leaderboardRef);
+    const summaryWrite: Record<string, unknown> = {
       bucketIntervalSeconds: payload.splitIntervalSeconds,
       contextId: payload.contextId,
       contextType: payload.contextType,
       schemaVersion: 1,
       targetStepCount: payload.targetStepCount,
       updatedAt: now,
-    }, {merge: true});
+    };
+
+    if (!leaderboardHasFirstAscent(leaderboardSnapshot.data())) {
+      Object.assign(
+        summaryWrite,
+        firstAscentWrite({
+          userId,
+          entryId,
+          publicUser,
+          claimedAt: now,
+        })
+      );
+    }
+
+    transaction.set(leaderboardRef, summaryWrite, {merge: true});
 
     for (let index = 0; index < payload.splitSteps.length; index += 1) {
       transaction.set(entryReference(payload, index, entryId), {
@@ -356,6 +378,40 @@ async function publishReplayEntries(
       });
     }
   });
+}
+
+/**
+ * Returns whether a replay summary already has a permanent First Ascent holder.
+ * @param {Record<string, unknown> | undefined} data Replay summary data.
+ * @return {boolean} True when the First Ascent slot is already claimed.
+ */
+function leaderboardHasFirstAscent(
+  data: Record<string, unknown> | undefined
+): boolean {
+  if (!data) {
+    return false;
+  }
+
+  return data.firstAscentCompletedAt !== undefined ||
+    stringValue(data.firstAscentUserId) !== null;
+}
+
+/**
+ * Builds the server-owned First Ascent payload for a replay summary.
+ * @param {FirstAscentWriteInput} input First Ascent write input.
+ * @return {Record<string, unknown>} Firestore fields to merge.
+ */
+function firstAscentWrite(
+  input: FirstAscentWriteInput
+): Record<string, unknown> {
+  return {
+    firstAscentAvatarToken: input.publicUser.avatarToken,
+    firstAscentCompletedAt: input.claimedAt,
+    firstAscentDisplayName: input.publicUser.displayName,
+    firstAscentPhotoURL: input.publicUser.photoURL ?? "",
+    firstAscentUserId: input.userId,
+    firstAscentWorkoutId: input.entryId,
+  };
 }
 
 /**
@@ -641,5 +697,7 @@ function integerArrayValue(value: unknown): number[] | null {
 }
 
 export const liveReplayLeaderboardTestHooks = {
+  firstAscentWrite,
+  leaderboardHasFirstAscent,
   parseLiveClimbReplayPayload,
 };

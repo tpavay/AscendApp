@@ -21,6 +21,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             totalClimbers: intValue(for: "totalClimbers", in: data) ?? 0,
             completedCount: intValue(for: "completedCount", in: data) ?? 0,
             personalBestDurationSeconds: doubleValue(for: "personalBestDurationSeconds", in: data),
+            firstAscent: firstAscentValue(in: data),
             updatedAt: timestampValue(for: "updatedAt", in: data)
         )
     }
@@ -440,6 +441,30 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         }
 
         return url
+    }
+
+    private func firstAscentValue(in data: [String: Any]) -> LiveReplayFirstAscent? {
+        guard let completedAt = timestampValue(for: "firstAscentCompletedAt", in: data) else {
+            return nil
+        }
+
+        let displayName = stringValue(for: "firstAscentDisplayName", in: data) ?? "Climber"
+        let avatarToken = stringValue(for: "firstAscentAvatarToken", in: data) ??
+            Self.avatarToken(for: displayName)
+
+        return LiveReplayFirstAscent(
+            userId: stringValue(for: "firstAscentUserId", in: data),
+            displayName: displayName,
+            avatarToken: avatarToken,
+            photoURL: photoURLValue(for: "firstAscentPhotoURL", in: data),
+            completedAt: completedAt
+        )
+    }
+
+    private func stringValue(for key: String, in data: [String: Any]) -> String? {
+        (data[key] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
     }
 
     private static func avatarToken(for displayName: String) -> String {

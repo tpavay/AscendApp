@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {normalizeReplaySplitSteps} from "../src/liveReplaySplitNormalization.js";
+import {
+  normalizeReplaySplitSteps,
+} from "../src/liveReplaySplitNormalization.js";
 
 test("normalizes a final-jump Giza replay curve", () => {
   const steps = normalizeReplaySplitSteps({

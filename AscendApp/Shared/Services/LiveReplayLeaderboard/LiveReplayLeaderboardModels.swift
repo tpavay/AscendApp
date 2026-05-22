@@ -4,17 +4,20 @@ struct LiveReplayLeaderboardSummary: Equatable, Sendable {
     let totalClimbers: Int
     let completedCount: Int
     let personalBestDurationSeconds: TimeInterval?
+    let firstAscent: LiveReplayFirstAscent?
     let updatedAt: Date?
 
     init(
         totalClimbers: Int,
         completedCount: Int = 0,
         personalBestDurationSeconds: TimeInterval?,
+        firstAscent: LiveReplayFirstAscent? = nil,
         updatedAt: Date?
     ) {
         self.totalClimbers = max(totalClimbers, 0)
         self.completedCount = max(completedCount, 0)
         self.personalBestDurationSeconds = personalBestDurationSeconds
+        self.firstAscent = firstAscent
         self.updatedAt = updatedAt
     }
 
@@ -22,8 +25,31 @@ struct LiveReplayLeaderboardSummary: Equatable, Sendable {
         totalClimbers: 0,
         completedCount: 0,
         personalBestDurationSeconds: nil,
+        firstAscent: nil,
         updatedAt: nil
     )
+}
+
+struct LiveReplayFirstAscent: Equatable, Sendable {
+    let userId: String?
+    let displayName: String
+    let avatarToken: String
+    let photoURL: URL?
+    let completedAt: Date
+
+    init(
+        userId: String?,
+        displayName: String,
+        avatarToken: String,
+        photoURL: URL?,
+        completedAt: Date
+    ) {
+        self.userId = userId
+        self.displayName = displayName
+        self.avatarToken = avatarToken
+        self.photoURL = photoURL
+        self.completedAt = completedAt
+    }
 }
 
 struct LiveReplayCompletionRank: Equatable, Sendable {
