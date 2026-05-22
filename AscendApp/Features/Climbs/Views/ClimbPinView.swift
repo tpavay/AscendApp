@@ -3,7 +3,6 @@ import SwiftUI
 struct ClimbPinView: View {
     let climb: Climb
     let isCompleted: Bool
-    let isActive: Bool
     let isHighlighted: Bool
 
     private let pinSize: CGFloat = 18
@@ -12,10 +11,6 @@ struct ClimbPinView: View {
 
     private var tierColor: Color {
         climb.tier.color
-    }
-
-    private var activeColor: Color {
-        Color(hex: "62D9FF")
     }
 
     var body: some View {
@@ -27,10 +22,7 @@ struct ClimbPinView: View {
 
                 completedBadge
             } else {
-                if isActive {
-                    activeOuterGlow
-                    activeInnerGlow
-                } else if isHighlighted {
+                if isHighlighted {
                     availableSelectionGlow
                 }
 
@@ -40,8 +32,8 @@ struct ClimbPinView: View {
         .frame(width: 34, height: 38, alignment: .bottom)
         .scaleEffect(isHighlighted ? 1.06 : 1)
         .shadow(
-            color: shadowColor.opacity(isHighlighted ? 0.28 : (isActive ? 0.24 : 0.14)),
-            radius: isHighlighted ? 9 : (isActive ? 8 : 4),
+            color: shadowColor.opacity(isHighlighted ? 0.28 : 0.14),
+            radius: isHighlighted ? 9 : 4,
             x: 0,
             y: 3
         )
@@ -49,17 +41,13 @@ struct ClimbPinView: View {
 
     private var pinIcon: some View {
         AppIcon(
-            token: isCompleted || isActive ? .mapPinFill : .mapPin,
+            token: isCompleted ? .mapPinFill : .mapPin,
             pointSize: pinSize
         )
         .foregroundStyle(pinColor)
     }
 
     private var pinColor: Color {
-        if isActive {
-            return activeColor
-        }
-
         return tierColor
     }
 
@@ -68,7 +56,7 @@ struct ClimbPinView: View {
             return tierColor
         }
 
-        return isActive ? activeColor : tierColor
+        return tierColor
     }
 
     private var completedBadge: some View {
@@ -102,35 +90,20 @@ struct ClimbPinView: View {
             .offset(y: -7)
     }
 
-    private var activeInnerGlow: some View {
-        AppIcon(token: .mapPinFill, pointSize: pinSize + 4)
-            .foregroundStyle(activeColor.opacity(0.24))
-            .blur(radius: 0.3)
-    }
-
-    private var activeOuterGlow: some View {
-        AppIcon(token: .mapPinFill, pointSize: pinSize + 8)
-            .foregroundStyle(activeColor.opacity(0.12))
-            .blur(radius: 0.6)
-    }
 }
 
 #Preview("Pin States") {
     HStack(spacing: 26) {
         VStack(spacing: 8) {
-            ClimbPinView(climb: .preview, isCompleted: false, isActive: false, isHighlighted: false)
+            ClimbPinView(climb: .preview, isCompleted: false, isHighlighted: false)
             Text("Available").font(.caption2)
         }
         VStack(spacing: 8) {
-            ClimbPinView(climb: .preview, isCompleted: false, isActive: true, isHighlighted: false)
-            Text("Active").font(.caption2)
-        }
-        VStack(spacing: 8) {
-            ClimbPinView(climb: .preview, isCompleted: true, isActive: false, isHighlighted: false)
+            ClimbPinView(climb: .preview, isCompleted: true, isHighlighted: false)
             Text("Completed").font(.caption2)
         }
         VStack(spacing: 8) {
-            ClimbPinView(climb: .preview, isCompleted: false, isActive: false, isHighlighted: true)
+            ClimbPinView(climb: .preview, isCompleted: false, isHighlighted: true)
             Text("Selected").font(.caption2)
         }
     }

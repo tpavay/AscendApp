@@ -43,14 +43,6 @@ final class WorkoutShareCarouselViewModel {
     var currentCardIndex: Int = 0
     var copyConfirmationText: String?
     var shareErrorMessage: String?
-    var stravaSyncState: StravaSyncState = .idle
-
-    enum StravaSyncState {
-        case idle
-        case syncing
-        case synced
-        case error(String)
-    }
 
     let workout: Workout
     let workoutCount: Int?
@@ -248,47 +240,6 @@ final class WorkoutShareCarouselViewModel {
             try await Task.sleep(for: .milliseconds(1600))
             withAnimation(.easeOut(duration: 0.3)) {
                 copyConfirmationText = nil
-            }
-        }
-    }
-
-    /// Whether to show the manual Strava sync button.
-    /// Shows only when: feature enabled, connected, auto-sync disabled, and workout not already synced.
-    var shouldShowStravaSyncButton: Bool {
-        guard FeatureFlags.isStravaEnabled else { return false }
-        let stravaManager = StravaManager.shared
-        return stravaManager.isConnected &&
-            !stravaManager.autoSyncEnabled &&
-            !workout.isSyncedToStrava
-    }
-
-    func syncToStrava(preferredMetric: WorkoutMetric) {
-        guard case .idle = stravaSyncState else { return }
-
-        stravaSyncState = .syncing
-        HapticsManager.shared.trigger(.lightImpact)
-
-        Task {
-            do {
-                let activityId = try await StravaManager.shared.syncWorkout(workout, primaryMetric: preferredMetric)
-                workout.setStravaSyncMetadata(StravaSyncMetadata(stravaActivityId: activityId, syncedAt: Date()))
-
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    stravaSyncState = .synced
-                }
-                HapticsManager.shared.trigger(.success)
-            } catch {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    stravaSyncState = .error(error.localizedDescription)
-                }
-                HapticsManager.shared.trigger(.error)
-
-                try? await Task.sleep(for: .seconds(2))
-                if case .error = stravaSyncState {
-                    withAnimation {
-                        stravaSyncState = .idle
-                    }
-                }
             }
         }
     }

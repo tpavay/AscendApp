@@ -36,6 +36,7 @@ final class WorkoutMutationHandler {
 
             try modelContext.save()
             rebuildBestEffortCacheAfterMutation(modelContext: modelContext)
+            NotificationCenter.default.post(name: .workoutsDidChange, object: nil)
 
             if !changedWorkouts.isEmpty {
                 Task { @MainActor in
@@ -67,6 +68,7 @@ final class WorkoutMutationHandler {
 
         try modelContext.save()
         rebuildBestEffortCacheAfterMutation(modelContext: modelContext)
+        NotificationCenter.default.post(name: .workoutsDidChange, object: nil)
     }
 
     func markChangedWorkoutsForRemoteSync(

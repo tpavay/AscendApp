@@ -134,10 +134,6 @@ private extension DebugTelemetryConsoleEntry {
             return "Authentication"
         }
 
-        if rawName.hasPrefix("strava:") {
-            return "Strava"
-        }
-
         if rawName.hasPrefix("celebration:") {
             return "Celebration"
         }
@@ -152,7 +148,6 @@ private extension DebugTelemetryConsoleEntry {
     static func humanizedTitle(_ rawName: String) -> String {
         let trimmedName = rawName
             .replacingOccurrences(of: "auth:", with: "")
-            .replacingOccurrences(of: "strava:", with: "")
             .replacingOccurrences(of: "celebration:", with: "")
             .replacingOccurrences(of: "workout_", with: "workout ")
             .replacingOccurrences(of: "_", with: " ")
@@ -356,48 +351,6 @@ private extension DebugTelemetryConsoleEntry {
             summary: "The current user signed out.",
             whenItFires: "This fires when the current user signs out of Ascend.",
             whyTracked: "It helps distinguish intentional sign-out behavior from session loss or auth bugs."
-        ),
-        "strava:connect_started": Metadata(
-            title: "Strava Connect Started",
-            feature: "Strava",
-            summary: "The app started a Strava account connection flow.",
-            whenItFires: "This fires when the user begins connecting a Strava account.",
-            whyTracked: "It marks the top of the Strava connection funnel."
-        ),
-        "strava:connect_success": Metadata(
-            title: "Strava Connected",
-            feature: "Strava",
-            summary: "The user's Strava account connected successfully.",
-            whenItFires: "This fires after Strava OAuth succeeds and Ascend stores the connected account.",
-            whyTracked: "It measures successful Strava activation."
-        ),
-        "strava:connect_failed": Metadata(
-            title: "Strava Connect Failed",
-            feature: "Strava",
-            summary: "The Strava account connection flow failed.",
-            whenItFires: "This fires when the Strava connection flow fails or is rejected.",
-            whyTracked: "It helps debug where users are getting blocked while connecting Strava."
-        ),
-        "strava:sync_started": Metadata(
-            title: "Strava Sync Started",
-            feature: "Strava",
-            summary: "The app started syncing workouts from Strava.",
-            whenItFires: "This fires when the app begins a Strava sync attempt.",
-            whyTracked: "It marks the start of a sync job so failures and completions can be interpreted."
-        ),
-        "strava:sync_completed": Metadata(
-            title: "Strava Sync Completed",
-            feature: "Strava",
-            summary: "The app finished syncing workouts from Strava.",
-            whenItFires: "This fires when a Strava sync attempt completes.",
-            whyTracked: "It helps measure sync reliability and successful usage of the Strava integration."
-        ),
-        "strava:sync_failed": Metadata(
-            title: "Strava Sync Failed",
-            feature: "Strava",
-            summary: "The Strava sync attempt failed.",
-            whenItFires: "This fires when a Strava sync attempt fails.",
-            whyTracked: "It helps isolate sync errors and quantify integration reliability issues."
         ),
         "workout_import_started": Metadata(
             title: "Workout Import Started",

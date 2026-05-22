@@ -64,23 +64,34 @@ struct EditProfileView: View {
                 .font(.montserratSemiBold(size: 15))
                 .buttonStyle(.plain)
             }
-            ToolbarItemGroup(placement: .keyboard) {
-                if isEditingDisplayName {
-                    Button("Cancel") {
-                        cancelEditing()
-                    }
+        }
+        .keyboardAccessoryToolbar {
+            if isEditingDisplayName {
+                Button("Cancel") {
+                    cancelEditing()
+                    KeyboardAccessoryDismissAction.dismissKeyboard()
+                }
+                .font(.montserratSemiBold(size: 16))
+                .foregroundStyle(.white.opacity(0.82))
+                .buttonStyle(.plain)
 
-                    Spacer()
+                Spacer(minLength: 0)
 
-                    if isSavingDisplayName {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                    } else {
-                        Button("Done") {
-                            saveDisplayName()
-                        }
-                        .disabled(editedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if isSavingDisplayName {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .accent))
+                        .scaleEffect(0.8)
+                        .frame(minWidth: 64, minHeight: 44, alignment: .trailing)
+                } else {
+                    Button {
+                        saveDisplayName()
+                    } label: {
+                        KeyboardDoneAccessoryLabel()
                     }
+                    .buttonStyle(.plain)
+                    .disabled(editedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .opacity(editedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
+                    .accessibilityLabel("Done")
                 }
             }
         }

@@ -61,11 +61,8 @@ struct ContactFormView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 sendButton
             }
-
-            ToolbarItem(placement: .keyboard) {
-                KeyboardDismissButton()
-            }
         }
+        .keyboardDoneToolbar()
         .alert("Feedback Sent!", isPresented: $showSuccessAlert) {
             Button("OK") {
                 dismiss()

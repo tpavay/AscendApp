@@ -15,24 +15,10 @@ struct LiveClimbSessionView: View {
 
     init(
         climb: Climb,
-        replacingActiveClimb: Bool = false,
         analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown
     ) {
         _viewModel = State(initialValue: LiveClimbSessionViewModel(
             climb: climb,
-            replacingActiveClimb: replacingActiveClimb,
-            analyticsEntryPoint: analyticsEntryPoint
-        ))
-    }
-
-    init(
-        mode: LiveClimbSessionMode,
-        replacingActiveClimb: Bool = false,
-        analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown
-    ) {
-        _viewModel = State(initialValue: LiveClimbSessionViewModel(
-            mode: mode,
-            replacingActiveClimb: replacingActiveClimb,
             analyticsEntryPoint: analyticsEntryPoint
         ))
     }
@@ -182,18 +168,8 @@ struct LiveClimbSessionView: View {
 
     @ViewBuilder
     private var sessionArtwork: some View {
-        if let climb = viewModel.mode.climb {
-            ClimbArtworkView(climb: climb, variant: .thumb)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        } else {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.accent)
-                .overlay {
-                    Image(systemName: "figure.walk")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(.black)
-                }
-        }
+        ClimbArtworkView(climb: viewModel.mode.climb, variant: .thumb)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private var liveLeaderboardSection: some View {
@@ -201,9 +177,7 @@ struct LiveClimbSessionView: View {
             rows: viewModel.leaderboardRows,
             progressScaleSteps: viewModel.leaderboardProgressScale,
             targetStepGoal: viewModel.mode.targetStepCount,
-            progress: viewModel.mode.isJustClimb
-                ? viewModel.leaderboardCurrentProgressFraction
-                : viewModel.totalProgressFraction,
+            progress: viewModel.totalProgressFraction,
             currentUserPhotoURL: currentUserPhotoURL,
             fetchFailed: viewModel.leaderboardFetchFailed,
             tint: .accent,
@@ -242,29 +216,12 @@ struct LiveClimbSessionView: View {
                     .frame(height: 1)
 
             case .recording:
-                HStack(spacing: 12) {
-                    Button {
-                        viewModel.togglePause()
-                    } label: {
-                        Image(systemName: viewModel.isPaused ? "play.fill" : "pause.fill")
-                            .font(.system(size: 17, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.88))
-                            .frame(width: 42, height: 42)
-                            .background(
-                                Circle()
-                                    .fill(.white.opacity(0.10))
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(viewModel.isPaused ? "Resume live climb" : "Pause live climb")
-
-                    liveSessionButton(title: "End attempt") {
-                        Task {
-                            await viewModel.finishAndSave(
-                                modelContext: modelContext,
-                                reason: .userStopped
-                            )
-                        }
+                liveSessionButton(title: "End attempt") {
+                    Task {
+                        await viewModel.finishAndSave(
+                            modelContext: modelContext,
+                            reason: .userStopped
+                        )
                     }
                 }
 
@@ -359,9 +316,6 @@ struct LiveClimbSessionView: View {
 
     private func handleLiveActivityCommand(_ command: LiveClimbActivityCommand) async {
         switch command {
-        case .togglePause:
-            viewModel.togglePause()
-            await viewModel.updateLiveActivity(force: true)
         case .stop:
             await viewModel.finishAndSave(
                 modelContext: modelContext,
@@ -371,10 +325,6 @@ struct LiveClimbSessionView: View {
     }
 
     private func savedTitle(for status: ClimbAttemptStatus) -> String {
-        if viewModel.mode.isJustClimb {
-            return "Climb Saved"
-        }
-
         switch status {
         case .completed:
             return "Climb Complete"

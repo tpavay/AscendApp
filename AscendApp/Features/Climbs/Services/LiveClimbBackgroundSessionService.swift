@@ -19,20 +19,6 @@ final class LiveClimbBackgroundSessionService {
         startWorkoutSessionIfAvailable(at: startedAt)
     }
 
-    func pause() {
-        if #available(iOS 26.0, *), let workoutSession {
-            workoutSession.pause()
-        }
-    }
-
-    func resume() {
-        beginBackgroundTask()
-
-        if #available(iOS 26.0, *), let workoutSession {
-            workoutSession.resume()
-        }
-    }
-
     func stop(at endedAt: Date = Date()) {
         if #available(iOS 26.0, *), let workoutSession {
             workoutSession.stopActivity(with: endedAt)

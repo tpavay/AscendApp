@@ -12,7 +12,6 @@ enum WorkoutSource: String, CaseIterable, Codable {
     case manual = "manual"           // User entered manually
     case appleHealth = "apple_health" // Imported from Apple Health
     case garmin = "garmin"           // Future: Garmin Connect
-    case strava = "strava"           // Future: Strava
     case fitbit = "fitbit"           // Future: Fitbit
     case hevy = "hevy"               // Imported from Hevy app
     case headphoneMotion = "headphone_motion" // Live tracking from compatible headphones
@@ -25,8 +24,6 @@ enum WorkoutSource: String, CaseIterable, Codable {
             return "Apple Health"
         case .garmin:
             return "Garmin"
-        case .strava:
-            return "Strava"
         case .fitbit:
             return "Fitbit"
         case .hevy:
@@ -40,7 +37,7 @@ enum WorkoutSource: String, CaseIterable, Codable {
         switch self {
         case .manual:
             return false
-        case .appleHealth, .garmin, .strava, .fitbit, .hevy, .headphoneMotion:
+        case .appleHealth, .garmin, .fitbit, .hevy, .headphoneMotion:
             return true
         }
     }
@@ -49,7 +46,6 @@ enum WorkoutSource: String, CaseIterable, Codable {
 enum WorkoutProvider: String, CaseIterable, Codable, Sendable {
     case appleHealth = "apple_health"
     case garmin = "garmin"
-    case strava = "strava"
     case fitbit = "fitbit"
     case hevy = "hevy"
 
@@ -59,8 +55,6 @@ enum WorkoutProvider: String, CaseIterable, Codable, Sendable {
             return "Apple Health"
         case .garmin:
             return "Garmin"
-        case .strava:
-            return "Strava"
         case .fitbit:
             return "Fitbit"
         case .hevy:
@@ -74,8 +68,6 @@ enum WorkoutProvider: String, CaseIterable, Codable, Sendable {
             return .appleHealth
         case .garmin:
             return .garmin
-        case .strava:
-            return .strava
         case .fitbit:
             return .fitbit
         case .hevy:
@@ -91,8 +83,6 @@ enum WorkoutProvider: String, CaseIterable, Codable, Sendable {
             self = .appleHealth
         case .garmin:
             self = .garmin
-        case .strava:
-            self = .strava
         case .fitbit:
             self = .fitbit
         case .hevy:
@@ -158,9 +148,6 @@ class Workout {
     @Relationship(deleteRule: .cascade, inverse: \WorkoutParticipation.workout)
     var participations: [WorkoutParticipation]
 
-    // Strava sync tracking - stored as JSON for Codable compatibility
-    var stravaSyncData: String?
-
     // Weight equipment tracking - stored as JSON
     var weightConfigurationData: Data?
 
@@ -223,32 +210,6 @@ class Workout {
     /// Total weight used in this workout (for display)
     var totalWeightUsed: Double {
         weightConfiguration?.totalWeight ?? 0
-    }
-
-    // MARK: - Strava Sync
-
-    /// Parsed Strava sync metadata
-    var stravaSyncMetadata: StravaSyncMetadata? {
-        guard let json = stravaSyncData,
-              let data = json.data(using: .utf8) else { return nil }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try? decoder.decode(StravaSyncMetadata.self, from: data)
-    }
-
-    /// Whether this workout has been synced to Strava
-    var isSyncedToStrava: Bool {
-        stravaSyncMetadata != nil
-    }
-
-    /// Set Strava sync metadata after successful sync
-    func setStravaSyncMetadata(_ metadata: StravaSyncMetadata) {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        if let data = try? encoder.encode(metadata),
-           let json = String(data: data, encoding: .utf8) {
-            stravaSyncData = json
-        }
     }
 
     init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int, floors: Int, stepsPerFloor: Int = 16, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil, hevyWorkoutId: String? = nil, photos: [Photo] = [], highlightedPhotoId: UUID? = nil, weightConfiguration: WeightConfiguration? = nil) {

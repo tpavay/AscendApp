@@ -55,12 +55,8 @@ struct RoutinesView: View {
         .background(effectiveColorScheme == .dark ? Color.jet : Color.white)
         .toolbar(.hidden, for: .navigationBar)
         .animation(.easeInOut(duration: 0.2), value: isShowingSearch)
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                KeyboardDismissButton {
-                    isSearchFocused = false
-                }
-            }
+        .keyboardDoneToolbar {
+            isSearchFocused = false
         }
         .sheet(item: $selectedRoutine, onDismiss: {
             viewModel.loadRoutines()

@@ -4,18 +4,6 @@ import Testing
 
 struct LiveReplayLeaderboardServiceTests {
     @Test
-    func justClimbGlobalContextUsesStableKey() {
-        let context = LiveReplayLeaderboardContext.justClimbGlobal(
-            targetSteps: 1_250
-        )
-
-        #expect(context.type == .justClimb)
-        #expect(context.id == "global")
-        #expect(context.targetSteps == 1_250)
-        #expect(context.contextKey == "just_climb__global")
-    }
-
-    @Test
     func refreshesOnBucketChangeButRateLimitsSameBucket() async throws {
         let repository = MockLiveReplayLeaderboardRepository()
         let fixedDate = Date(timeIntervalSince1970: 1_777_777_777)

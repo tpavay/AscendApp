@@ -27,16 +27,14 @@ struct GlobeViewModelTests {
             category: "fortress",
             heightMeters: 2_430,
             steps: 13_365,
-            floors: 675,
-            multiSession: true
+            floors: 675
         )
         let matterhorn = makeClimb(
             id: "matterhorn",
             category: "mountain",
             heightMeters: 4_478,
             steps: 24_629,
-            floors: 1_244,
-            multiSession: true
+            floors: 1_244
         )
 
         #expect(gatewayArch.browsePreviewCameraDistance < machuPicchu.browsePreviewCameraDistance)
@@ -120,6 +118,51 @@ struct GlobeViewModelTests {
         #expect(camera.centerCoordinate.longitude == 56.78)
     }
 
+    @Test
+    func liveClimbCommunityLoadsGlobalCompletedUserSummary() async throws {
+        let climb = makeClimb(
+            id: "pyramid-giza",
+            category: "monument",
+            heightMeters: 138,
+            steps: 809,
+            floors: 41
+        )
+        let communityStatsService = StaticLiveClimbCommunityStatsService(
+            summary: LiveClimbCommunitySummary(
+                uniqueCompletedUserCount: 247,
+                updatedAt: Date(timeIntervalSince1970: 1_777_777_700)
+            )
+        )
+        let viewModel = GlobeViewModel(
+            climbService: makeClimbService(with: [climb]),
+            communityStatsService: communityStatsService
+        )
+        let modelContext = try makeModelContext()
+
+        viewModel.loadIfNeeded(modelContext: modelContext)
+        await viewModel.refreshLiveClimbCommunityStats()
+
+        #expect(viewModel.liveClimbCommunityCompletedUserCount == 247)
+        #expect(await communityStatsService.fetchCount == 1)
+    }
+
+    @Test
+    func liveClimbCommunityFallsBackToLocalCompletedUser() {
+        let climb = makeClimb(
+            id: "gateway-arch",
+            category: "monument",
+            heightMeters: 192,
+            steps: 1_056,
+            floors: 53
+        )
+        let viewModel = GlobeViewModel(climbService: makeClimbService(with: [climb]))
+
+        viewModel.visibleClimbs = [climb]
+        viewModel.completedClimbIds = [climb.id]
+
+        #expect(viewModel.liveClimbCommunityCompletedUserCount == 1)
+    }
+
     private func makeModelContext() throws -> ModelContext {
         let container = try ModelContainer(
             for: ClimbAttempt.self,
@@ -139,8 +182,7 @@ struct GlobeViewModelTests {
         category: String,
         heightMeters: Double,
         steps: Int,
-        floors: Int,
-        multiSession: Bool = false
+        floors: Int
     ) -> Climb {
         Climb(
             id: id,
@@ -160,12 +202,25 @@ struct GlobeViewModelTests {
             category: category,
             tier: .gold,
             tags: [],
-            multiSession: multiSession,
             funFact: "Fact",
             sourceURL: "https://example.com",
             imageSetVersion: 1,
             isPublished: true
         )
+    }
+}
+
+private actor StaticLiveClimbCommunityStatsService: LiveClimbCommunityStatsServicing {
+    private let summary: LiveClimbCommunitySummary
+    private(set) var fetchCount = 0
+
+    init(summary: LiveClimbCommunitySummary) {
+        self.summary = summary
+    }
+
+    func fetchSummary() async throws -> LiveClimbCommunitySummary {
+        fetchCount += 1
+        return summary
     }
 }
 

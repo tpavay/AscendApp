@@ -14,11 +14,8 @@ struct ClimbDetailView: View {
     @State private var viewModel: ClimbDetailViewModel
     @State private var selectedPage = 0
     @State private var detailPageHeights: [Int: CGFloat] = [:]
-    @State private var showingReplaceConfirmation = false
-    @State private var showingEndClimbConfirmation = false
     @State private var showingBrowseClimbs = false
     @State private var showingLiveClimbSession = false
-    @State private var liveSessionReplacesActiveClimb = false
     @State private var showingHeadphoneHelp = false
     @State private var isHeroCardFlipped = false
     @State private var didTrackDetailViewed = false
@@ -90,44 +87,12 @@ struct ClimbDetailView: View {
         .navigationDestination(isPresented: $showingLiveClimbSession) {
             LiveClimbSessionView(
                 climb: viewModel.climb,
-                replacingActiveClimb: liveSessionReplacesActiveClimb,
                 analyticsEntryPoint: analyticsEntryPoint
             )
         }
         .sheet(isPresented: $showingHeadphoneHelp) {
             liveClimbHeadphoneHelpSheet
                 .appSheetStyle(.fitted())
-        }
-        .confirmationDialog(
-            "Replace Active Climb?",
-            isPresented: $showingReplaceConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Replace Current Climb", role: .destructive) {
-                liveSessionReplacesActiveClimb = true
-                showingLiveClimbSession = true
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            if let conflictingActiveSummary = viewModel.conflictingActiveSummary {
-                Text("Starting \(viewModel.climb.name) will abandon your current progress on \(conflictingActiveSummary.climb.name).")
-            }
-        }
-        .confirmationDialog(
-            "End Active Climb?",
-            isPresented: $showingEndClimbConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("End Climb", role: .destructive) {
-                do {
-                    try viewModel.abandonActiveClimb(modelContext: modelContext)
-                } catch {
-                    actionErrorMessage = error.localizedDescription
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This will stop tracking progress for \(viewModel.climb.name). You can start it again later, but this attempt will be abandoned.")
         }
         .alert("Climb Action Error", isPresented: Binding(
             get: { actionErrorMessage != nil },
@@ -494,52 +459,7 @@ struct ClimbDetailView: View {
                 communityStatsRow
             }
 
-            if let progressSummary = viewModel.progressSummary {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("Current Progress")
-                            .font(.montserratSemiBold(size: 16))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                        Spacer()
-
-                        Text("\(progressSummary.progressPercent)%")
-                            .font(.montserratBold(size: 16))
-                            .foregroundStyle(.accent)
-                    }
-
-                    GeometryReader { geometry in
-                        Capsule(style: .continuous)
-                            .fill(.white.opacity(0.08))
-                            .overlay(alignment: .leading) {
-                                Capsule(style: .continuous)
-                                    .fill(.accent)
-                                    .frame(width: geometry.size.width * progressSummary.progressFraction)
-                            }
-                    }
-                    .frame(height: 10)
-
-                    Text(progressSummary.progressText)
-                        .font(.montserratMedium(size: 14))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.72) : .black.opacity(0.64))
-                }
-            }
-
             primaryActionRow
-
-            if viewModel.showsPersistentProgressControls {
-                HStack(spacing: 12) {
-                    if !showsBrowseBackButton {
-                        secondaryActionButton(title: "Browse Other Climbs") {
-                            presentBrowseFromDetail()
-                        }
-                    }
-
-                    secondaryActionButton(title: "End Climb", role: .destructive) {
-                        showingEndClimbConfirmation = true
-                    }
-                }
-            }
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
@@ -581,15 +501,9 @@ struct ClimbDetailView: View {
     private var leaderboardPage: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Leaderboard")
-                        .font(.montserratBold(size: 22))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                    Text("Fastest completion times")
-                        .font(.montserratRegular(size: 14))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.62) : .black.opacity(0.58))
-                }
+                Text("Leaderboard")
+                    .font(.montserratBold(size: 22))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
 
                 Spacer(minLength: 0)
 
@@ -601,6 +515,10 @@ struct ClimbDetailView: View {
                 }
             }
 
+            if let firstAscent = viewModel.leaderboardSummary.firstAscent {
+                firstAscentSummary(firstAscent)
+            }
+
             if viewModel.isLeaderboardLoading && !viewModel.hasCompletionLeaderboardRows {
                 leaderboardLoadingState
             } else if viewModel.hasCompletionLeaderboardRows {
@@ -608,7 +526,7 @@ struct ClimbDetailView: View {
                     personalLeaderboardRankSummary
                 }
 
-                VStack(spacing: 0) {
+                VStack(spacing: 8) {
                     ForEach(viewModel.completionLeaderboardRows) { row in
                         leaderboardRow(for: row)
                     }
@@ -627,6 +545,22 @@ struct ClimbDetailView: View {
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private func firstAscentSummary(_ firstAscent: LiveReplayFirstAscent) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            Image(systemName: "flag.fill")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(leaderboardGold)
+
+            Text("First Ascent: \(firstAscent.displayName) · \(firstAscentDateText(for: firstAscent.completedAt))")
+                .font(.montserratSemiBold(size: 12))
+                .foregroundStyle(leaderboardGold)
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+        }
+        .padding(.top, -8)
+        .accessibilityElement(children: .combine)
     }
 
     private var leaderboardLoadingState: some View {
@@ -696,20 +630,25 @@ struct ClimbDetailView: View {
     }
 
     private func leaderboardRow(for row: LiveReplayLeaderboardRow) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            Text("#\(row.rank?.formatted() ?? "--")")
-                .font(.montserratBold(size: 15))
-                .foregroundStyle(row.isCurrentUser ? .accent : Color.customGray)
-                .frame(width: 46, alignment: .leading)
-                .monospacedDigit()
+        let rank = row.rank
+        let isPodium = isPodiumRank(rank)
+        let isFirst = rank == 1
+        let rowAccent = leaderboardAccentColor(for: rank)
 
-            leaderboardAvatar(for: row)
+        return HStack(alignment: .center, spacing: isFirst ? 14 : 12) {
+            leaderboardRankView(for: rank)
+
+            leaderboardAvatar(
+                for: row,
+                size: isFirst ? 50 : 42,
+                borderColor: isPodium ? rowAccent : nil
+            )
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 7) {
                     Text(row.isCurrentUser ? "You" : row.displayName)
                         .font(.montserratBold(size: 15))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                        .foregroundStyle(leaderboardPrimaryTextColor)
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
 
@@ -727,8 +666,8 @@ struct ClimbDetailView: View {
                 }
 
                 Text("\(row.finalSteps.formatted()) steps")
-                    .font(.montserratMedium(size: 12))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.54) : .black.opacity(0.48))
+                    .font(.montserratMedium(size: isFirst ? 12 : 11))
+                    .foregroundStyle(leaderboardSecondaryTextColor)
                     .monospacedDigit()
             }
 
@@ -736,34 +675,86 @@ struct ClimbDetailView: View {
 
             VStack(alignment: .trailing, spacing: 4) {
                 Text(leaderboardDurationText(for: row))
-                    .font(.montserratBold(size: 17))
-                    .foregroundStyle(row.isCurrentUser ? .accent : (effectiveColorScheme == .dark ? .white : .black))
+                    .font(.montserratBold(size: isFirst ? 18 : 16))
+                    .foregroundStyle(isPodium ? rowAccent : (row.isCurrentUser ? .accent : leaderboardPrimaryTextColor))
                     .monospacedDigit()
 
                 if let averageStepsPerMinute = row.averageStepsPerMinute {
                     Text("\(Int(averageStepsPerMinute.rounded()).formatted()) avg SPM")
                         .font(.montserratSemiBold(size: 11))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.50) : .black.opacity(0.46))
+                        .foregroundStyle(leaderboardSecondaryTextColor)
                         .monospacedDigit()
                 }
             }
         }
-        .padding(.vertical, 13)
-        .padding(.horizontal, row.isCurrentUser ? 12 : 0)
-        .background {
-            if row.isCurrentUser {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.accent.opacity(effectiveColorScheme == .dark ? 0.12 : 0.10))
-            }
-        }
+        .padding(.vertical, isFirst ? 16 : 13)
+        .padding(.horizontal, isPodium || row.isCurrentUser ? 12 : 0)
+        .background { leaderboardRowBackground(for: row) }
         .overlay(alignment: .bottom) {
-            if !row.isCurrentUser {
+            if !isPodium && !row.isCurrentUser {
                 Rectangle()
                     .fill(.white.opacity(0.08))
                     .frame(height: 1)
             }
         }
+        .shadow(
+            color: isFirst ? rowAccent.opacity(effectiveColorScheme == .dark ? 0.22 : 0.12) : .clear,
+            radius: isFirst ? 12 : 0,
+            x: 0,
+            y: isFirst ? 4 : 0
+        )
         .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private func leaderboardRankView(for rank: Int?) -> some View {
+        if rank == 1 {
+            Image(systemName: "crown.fill")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(leaderboardGold)
+                .frame(width: 34, alignment: .leading)
+                .accessibilityLabel("Rank 1")
+        } else {
+            Text("#\(rank?.formatted() ?? "--")")
+                .font(.montserratBold(size: 15))
+                .foregroundStyle(leaderboardAccentColor(for: rank))
+                .frame(width: 34, alignment: .leading)
+                .monospacedDigit()
+        }
+    }
+
+    @ViewBuilder
+    private func leaderboardRowBackground(for row: LiveReplayLeaderboardRow) -> some View {
+        let rank = row.rank
+        let rowAccent = leaderboardAccentColor(for: rank)
+
+        if rank == 1 {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            rowAccent.opacity(effectiveColorScheme == .dark ? 0.18 : 0.12),
+                            rowAccent.opacity(effectiveColorScheme == .dark ? 0.07 : 0.05)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(rowAccent.opacity(0.72), lineWidth: 1.4)
+                )
+        } else if isPodiumRank(rank) {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(rowAccent.opacity(effectiveColorScheme == .dark ? 0.10 : 0.06))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(rowAccent.opacity(0.28), lineWidth: 1)
+                )
+        } else if row.isCurrentUser {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.accent.opacity(effectiveColorScheme == .dark ? 0.12 : 0.10))
+        }
     }
 
     private func leaderboardDurationText(for row: LiveReplayLeaderboardRow) -> String {
@@ -775,7 +766,13 @@ struct ClimbDetailView: View {
     }
 
     @ViewBuilder
-    private func leaderboardAvatar(for row: LiveReplayLeaderboardRow) -> some View {
+    private func leaderboardAvatar(
+        for row: LiveReplayLeaderboardRow,
+        size: CGFloat = 42,
+        borderColor: Color? = nil
+    ) -> some View {
+        let resolvedBorderColor = borderColor ?? (row.isCurrentUser ? Color.accent : .white.opacity(0.14))
+
         if let photoURL = row.isCurrentUser ? (row.photoURL ?? currentUserPhotoURL) : row.photoURL {
             AsyncImage(
                 url: photoURL,
@@ -787,38 +784,76 @@ struct ClimbDetailView: View {
                         .resizable()
                         .scaledToFill()
                 case .empty, .failure:
-                    leaderboardAvatarToken(for: row)
+                    leaderboardAvatarToken(for: row, size: size, borderColor: resolvedBorderColor)
                 @unknown default:
-                    leaderboardAvatarToken(for: row)
+                    leaderboardAvatarToken(for: row, size: size, borderColor: resolvedBorderColor)
                 }
             }
-            .frame(width: 42, height: 42)
+            .frame(width: size, height: size)
             .clipShape(Circle())
             .overlay(
                 Circle()
-                    .stroke(row.isCurrentUser ? Color.accent : .white.opacity(0.14), lineWidth: row.isCurrentUser ? 2 : 1)
+                    .stroke(resolvedBorderColor, lineWidth: row.isCurrentUser || borderColor != nil ? 2 : 1)
             )
             .id(photoURL)
         } else {
-            leaderboardAvatarToken(for: row)
+            leaderboardAvatarToken(for: row, size: size, borderColor: resolvedBorderColor)
         }
     }
 
-    private func leaderboardAvatarToken(for row: LiveReplayLeaderboardRow) -> some View {
+    private func leaderboardAvatarToken(
+        for row: LiveReplayLeaderboardRow,
+        size: CGFloat = 42,
+        borderColor: Color? = nil
+    ) -> some View {
         Text(row.isCurrentUser ? currentUserAvatar.token : row.avatarToken)
             .font(.montserratBold(size: 13))
             .foregroundStyle(.white)
             .lineLimit(1)
             .minimumScaleFactor(0.72)
-            .frame(width: 42, height: 42)
+            .frame(width: size, height: size)
             .background(
                 Circle()
                     .fill(row.isCurrentUser ? Color.accent : communityAvatarColor(for: row.id))
             )
             .overlay(
                 Circle()
-                    .stroke(row.isCurrentUser ? Color.accent.opacity(0.7) : .white.opacity(0.14), lineWidth: 1)
+                    .stroke(borderColor ?? (row.isCurrentUser ? Color.accent.opacity(0.7) : .white.opacity(0.14)), lineWidth: borderColor == nil ? 1 : 2)
             )
+    }
+
+    private func isPodiumRank(_ rank: Int?) -> Bool {
+        guard let rank else { return false }
+        return (1...3).contains(rank)
+    }
+
+    private func leaderboardAccentColor(for rank: Int?) -> Color {
+        switch rank {
+        case 1:
+            return leaderboardGold
+        case 2:
+            return Color(hex: "BFC4CC")
+        case 3:
+            return Color(hex: "C8793D")
+        default:
+            return Color.customGray
+        }
+    }
+
+    private var leaderboardGold: Color {
+        Color(hex: "F3D76B")
+    }
+
+    private var leaderboardPrimaryTextColor: Color {
+        effectiveColorScheme == .dark ? .white : .black
+    }
+
+    private var leaderboardSecondaryTextColor: Color {
+        effectiveColorScheme == .dark ? .white.opacity(0.52) : .black.opacity(0.48)
+    }
+
+    private func firstAscentDateText(for date: Date) -> String {
+        date.formatted(.dateTime.month(.abbreviated).day().year())
     }
 
     private var metricDivider: some View {
@@ -876,9 +911,12 @@ struct ClimbDetailView: View {
     private var communityCaption: some View {
         Group {
             if viewModel.communityCompletedCount == 0 {
-                Text("Be the first to complete this climb")
-                    .font(.montserratRegular(size: 17))
+                Text("Nobody's finished this climb yet. Be the first.")
+                    .font(.montserratRegular(size: 15))
                     .foregroundStyle(communitySecondaryColor)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
             } else {
                 HStack(alignment: .firstTextBaseline, spacing: 0) {
                     Text(viewModel.communityCompletedCount.formatted())
@@ -890,33 +928,39 @@ struct ClimbDetailView: View {
                         .font(.montserratRegular(size: 17))
                         .foregroundStyle(communitySecondaryColor)
                 }
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
             }
         }
-        .lineLimit(1)
-        .minimumScaleFactor(0.78)
     }
 
     private var communityAccessibilityLabel: String {
         if viewModel.communityCompletedCount == 0 {
-            return "Be the first to complete this climb"
+            return "Nobody has finished this climb yet. Be the first."
         }
         return "\(viewModel.communityCompletedCount) completed"
     }
 
     private var visibleCommunityAvatars: [ClimbCommunityAvatar] {
+        guard viewModel.communityCompletedCount > 0 else { return [] }
+
         let currentState = currentUserCommunityState
         let remoteLimit = currentState == nil ? 3 : 2
         let currentToken = currentUserAvatar.token
         let currentDisplayName = currentUserDisplayName
+        let currentUserId = Auth.auth().currentUser?.uid
         var avatars: [ClimbCommunityAvatar] = []
 
         if let currentState {
             avatars.append(currentUserAvatar(style: currentState))
         }
 
-        let remoteAvatars = viewModel.leaderboardPreviewRows
+        let remoteAvatars = completedCommunityRows
             .filter { row in
                 guard currentState != nil else { return true }
+                if let currentUserId, row.userId == currentUserId {
+                    return false
+                }
                 let displayNamesMatch = !currentDisplayName.isEmpty &&
                     row.displayName.compare(currentDisplayName, options: .caseInsensitive) == .orderedSame
                 return row.avatarToken != currentToken && !displayNamesMatch
@@ -933,11 +977,40 @@ struct ClimbDetailView: View {
             return .currentCompleted
         }
 
-        if viewModel.hasIncompleteAttemptHistory {
-            return .currentAttempted
+        return nil
+    }
+
+    private var completedCommunityRows: [LiveReplayLeaderboardRow] {
+        let rows = viewModel.completionLeaderboardRows.isEmpty
+            ? viewModel.leaderboardPreviewRows
+            : viewModel.completionLeaderboardRows
+        var seenKeys: Set<String> = []
+        var uniqueRows: [LiveReplayLeaderboardRow] = []
+
+        for row in rows {
+            let key = communityIdentityKey(for: row)
+            guard seenKeys.insert(key).inserted else { continue }
+            uniqueRows.append(row)
         }
 
-        return nil
+        return uniqueRows
+    }
+
+    private func communityIdentityKey(for row: LiveReplayLeaderboardRow) -> String {
+        if let userId = row.userId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !userId.isEmpty {
+            return "user:\(userId)"
+        }
+
+        if let photoURL = row.photoURL?.absoluteString,
+           !photoURL.isEmpty {
+            return "photo:\(photoURL)"
+        }
+
+        return [
+            row.displayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+            row.avatarToken.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        ].joined(separator: "|")
     }
 
     private var currentUserAvatar: ClimbCommunityAvatar {
@@ -1265,31 +1338,13 @@ struct ClimbDetailView: View {
             return
         }
 
-        if viewModel.isCurrentActiveClimb {
-            liveSessionReplacesActiveClimb = false
-            showingLiveClimbSession = true
-            return
-        }
-
         guard viewModel.isActionEnabled else { return }
 
-        if viewModel.conflictingActiveSummary != nil {
-            showingReplaceConfirmation = true
-            return
-        }
-
-        liveSessionReplacesActiveClimb = false
         showingLiveClimbSession = true
     }
 
     private var startActionState: LiveClimbAnalyticsEvent.StartActionState {
         guard viewModel.isActionEnabled else { return .disabled }
-        if viewModel.isCurrentActiveClimb {
-            return .resumeActive
-        }
-        if viewModel.conflictingActiveSummary != nil {
-            return .replaceActive
-        }
         return .newAttempt
     }
 
@@ -1318,7 +1373,6 @@ private struct ClimbCommunityAvatar: Identifiable {
     enum Style {
         case regular
         case currentCompleted
-        case currentAttempted
     }
 
     let id: String
@@ -1346,8 +1400,6 @@ private struct ClimbCommunityAvatarView: View {
     let avatar: ClimbCommunityAvatar
     let effectiveColorScheme: ColorScheme
 
-    @State private var isPulsing = false
-
     var body: some View {
         avatarContent
             .frame(width: 44, height: 44)
@@ -1361,13 +1413,6 @@ private struct ClimbCommunityAvatarView: View {
                 x: 0,
                 y: 0
             )
-            .scaleEffect(avatar.style == .currentAttempted && isPulsing ? 1.035 : 1)
-            .onAppear {
-                guard avatar.style == .currentAttempted else { return }
-                withAnimation(.easeInOut(duration: 1.45).repeatForever(autoreverses: true)) {
-                    isPulsing = true
-                }
-            }
     }
 
     @ViewBuilder
@@ -1413,13 +1458,6 @@ private struct ClimbCommunityAvatarView: View {
             Circle()
                 .stroke(Color.accent, lineWidth: 2.5)
                 .padding(1.5)
-        case .currentAttempted:
-            Circle()
-                .stroke(
-                    Color.accent,
-                    style: StrokeStyle(lineWidth: 2.4, lineCap: .round, dash: [5, 3])
-                )
-                .padding(1.4)
         }
     }
 
@@ -1427,8 +1465,6 @@ private struct ClimbCommunityAvatarView: View {
         switch avatar.style {
         case .currentCompleted:
             return Color.accent.opacity(0.48)
-        case .currentAttempted:
-            return Color.accent.opacity(isPulsing ? 0.46 : 0.18)
         case .regular:
             return .clear
         }
@@ -1438,8 +1474,6 @@ private struct ClimbCommunityAvatarView: View {
         switch avatar.style {
         case .currentCompleted:
             return 6
-        case .currentAttempted:
-            return isPulsing ? 7 : 3
         case .regular:
             return 0
         }

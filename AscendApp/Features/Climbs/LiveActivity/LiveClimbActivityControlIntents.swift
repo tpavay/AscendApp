@@ -2,7 +2,6 @@ import AppIntents
 import Foundation
 
 enum LiveClimbActivityCommand: String, Sendable {
-    case togglePause
     case stop
 }
 
@@ -24,18 +23,6 @@ final class LiveClimbActivityCommandCenter {
 
     func perform(_ command: LiveClimbActivityCommand) async {
         await handler?(command)
-    }
-}
-
-struct ToggleLiveClimbPauseIntent: LiveActivityIntent {
-    static let title: LocalizedStringResource = "Pause or Resume Live Climb"
-    static let openAppWhenRun = false
-
-    init() {}
-
-    func perform() async throws -> some IntentResult {
-        await LiveClimbActivityCommandCenter.shared.perform(.togglePause)
-        return .result()
     }
 }
 

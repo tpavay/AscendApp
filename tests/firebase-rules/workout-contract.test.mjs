@@ -48,6 +48,41 @@ after(async () => {
   await testEnv.cleanup();
 });
 
+test('owner can write profile demographics on their private user document', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const userRef = doc(context.firestore(), `users/${userId}`);
+
+  await assertSucceeds(setDoc(userRef, makeUserDocument({
+    age: 34,
+    gender: 'non_binary',
+  })));
+});
+
+test('profile demographic values are bounded', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const userRef = doc(context.firestore(), `users/${userId}`);
+
+  await assertFails(setDoc(userRef, makeUserDocument({
+    age: 12,
+    gender: 'non_binary',
+  })));
+
+  await assertFails(setDoc(userRef, makeUserDocument({
+    age: 34,
+    gender: 'unknown',
+  })));
+});
+
+test('users cannot write demographics into another users profile', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const userRef = doc(context.firestore(), `users/${otherUserId}`);
+
+  await assertFails(setDoc(userRef, makeUserDocument({
+    age: 34,
+    gender: 'woman',
+  })));
+});
+
 test('owner can write a valid workout backup document', async () => {
   const context = testEnv.authenticatedContext(userId);
   const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
@@ -272,6 +307,18 @@ function makeWorkoutDocument(overrides = {}) {
     integrityLevel: 'verified',
     createdAt: new Date('2026-04-10T06:00:00.000Z'),
     updatedAt: new Date('2026-04-10T07:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+function makeUserDocument(overrides = {}) {
+  return {
+    email: 'tyler@example.com',
+    firstName: '',
+    lastName: '',
+    displayName: 'Tyler',
+    createdAt: new Date('2026-05-18T12:00:00.000Z'),
+    lastUpdated: new Date('2026-05-18T12:00:00.000Z'),
     ...overrides,
   };
 }

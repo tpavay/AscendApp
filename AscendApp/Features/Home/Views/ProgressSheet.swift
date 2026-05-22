@@ -154,7 +154,7 @@ struct ProgressSheet: View {
 
             Spacer(minLength: 0)
         }
-        .padding(.bottom, 40)
+        .padding(.bottom, 128)
         }
         .scrollIndicators(.hidden)
         .themedBackground()

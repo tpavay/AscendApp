@@ -7,34 +7,18 @@ struct LandingScreen: View {
 
             GeometryReader { geometry in
                 VStack(spacing: 0) {
-                    VStack(spacing: 0) {
-                        Image("AppIconInternal")
-                            .resizable()
-                            .renderingMode(.original)
-                            .scaledToFit()
-                            .frame(width: 210, height: 210)
-                            .accessibilityLabel("Ascend")
+                    VStack(spacing: 24) {
+                        AscendWordmark(size: 11, letterColor: .white.opacity(0.85))
 
-                        VStack(spacing: 8) {
-                            Text("WELCOME TO ASCEND")
-                                .font(.montserratBold(size: 20))
-                                .foregroundStyle(.white)
-                                .multilineTextAlignment(.center)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.72)
-                                .kerning(0.6)
-
-                            Text("Build endurance that changes what’s possible.")
-                                .font(.montserratRegular(size: 13.5))
-                                .foregroundStyle(.white.opacity(0.78))
-                                .multilineTextAlignment(.center)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.78)
-                                .frame(maxWidth: 330)
-                        }
+                        (Text("Race the world up ").foregroundStyle(.white)
+                         + Text("real landmarks").foregroundStyle(Color.accentColor)
+                         + Text(".").foregroundStyle(.white))
+                            .font(.montserratBold(size: 34))
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(2)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(.horizontal, 24)
-                    .offset(y: -60)
 
                     Spacer(minLength: 0)
 
@@ -69,7 +53,7 @@ struct LandingScreen: View {
                     }
                     .padding(.bottom, max(geometry.safeAreaInsets.bottom + 12, 36))
                 }
-                .padding(.top, geometry.size.height * 0.23)
+                .padding(.top, geometry.size.height * 0.08)
             }
         }
         .background(Color.black)

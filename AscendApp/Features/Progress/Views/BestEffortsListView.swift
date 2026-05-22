@@ -66,7 +66,7 @@ struct BestEffortsListView: View {
             }
             .padding(.horizontal, 22)
             .padding(.top, 12)
-            .padding(.bottom, 32)
+            .padding(.bottom, 124)
         }
         .scrollIndicators(.hidden)
         .themedBackground()
@@ -215,7 +215,7 @@ private struct BestEffortOverviewRow: View {
 
 }
 
-private struct BestEffortRecordDetailView: View {
+struct BestEffortRecordDetailView: View {
     let metric: BestEffortMetric
     let workouts: [Workout]
 
@@ -278,7 +278,7 @@ private struct BestEffortRecordDetailView: View {
             }
             .padding(.horizontal, 22)
             .padding(.top, 12)
-            .padding(.bottom, 32)
+            .padding(.bottom, 124)
         }
         .scrollIndicators(.hidden)
         .themedBackground()

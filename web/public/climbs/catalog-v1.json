@@ -21,7 +21,6 @@
       "icon",
       "torch"
     ],
-    "multiSession": false,
     "funFact": "France gifted the Statue of Liberty to the United States in 1886.",
     "sourceURL": "https://en.wikipedia.org/wiki/Statue_of_Liberty"
   },
@@ -47,7 +46,6 @@
       "national mall",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "The Washington Monument is the tallest masonry obelisk in the world.",
     "sourceURL": "https://en.wikipedia.org/wiki/Washington_Monument"
   },
@@ -73,7 +71,6 @@
       "riverfront",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "The Gateway Arch is the tallest arch monument on Earth.",
     "sourceURL": "https://en.wikipedia.org/wiki/Gateway_Arch"
   },
@@ -99,7 +96,6 @@
       "seattle",
       "worlds fair"
     ],
-    "multiSession": false,
     "funFact": "The Space Needle was built for the 1962 World's Fair.",
     "sourceURL": "https://en.wikipedia.org/wiki/Space_Needle"
   },
@@ -125,7 +121,6 @@
       "financial district",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "The Transamerica Pyramid remained San Francisco's tallest building for decades.",
     "sourceURL": "https://en.wikipedia.org/wiki/Transamerica_Pyramid"
   },
@@ -151,7 +146,6 @@
       "observation deck",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "The Empire State Building opened in 1931 during the Great Depression.",
     "sourceURL": "https://en.wikipedia.org/wiki/Empire_State_Building"
   },
@@ -177,7 +171,6 @@
       "skyline",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "The Chrysler Building briefly held the world's tallest-building title in 1930.",
     "sourceURL": "https://en.wikipedia.org/wiki/Chrysler_Building"
   },
@@ -203,7 +196,6 @@
       "lower manhattan",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "One World Trade Center rises to a symbolic 1,776 feet.",
     "sourceURL": "https://en.wikipedia.org/wiki/One_World_Trade_Center"
   },
@@ -229,7 +221,6 @@
       "chicago",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "Willis Tower was known as Sears Tower when it became the world's tallest building in 1974.",
     "sourceURL": "https://en.wikipedia.org/wiki/Willis_Tower"
   },
@@ -255,7 +246,6 @@
       "toronto",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "The CN Tower was the tallest free-standing structure in the world for more than 30 years.",
     "sourceURL": "https://en.wikipedia.org/wiki/CN_Tower"
   },
@@ -281,7 +271,6 @@
       "mexico city",
       "landmark"
     ],
-    "multiSession": false,
     "funFact": "Torre Latinoamericana is famous for surviving multiple major earthquakes.",
     "sourceURL": "https://en.wikipedia.org/wiki/Torre_Latinoamericana"
   },
@@ -307,7 +296,6 @@
       "history",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "This monument was built around the abandoned shell of a planned legislative palace.",
     "sourceURL": "https://en.wikipedia.org/wiki/Monument_to_the_Revolution"
   },
@@ -333,7 +321,6 @@
       "engineering",
       "desert"
     ],
-    "multiSession": false,
     "funFact": "Hoover Dam was the tallest dam in the world when it opened in 1936.",
     "sourceURL": "https://en.wikipedia.org/wiki/Hoover_Dam"
   },
@@ -359,7 +346,6 @@
       "bay",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "The Golden Gate Bridge's color is officially called International Orange.",
     "sourceURL": "https://en.wikipedia.org/wiki/Golden_Gate_Bridge"
   },
@@ -385,7 +371,6 @@
       "national park",
       "hike"
     ],
-    "multiSession": true,
     "funFact": "Half Dome's cable route is one of the most famous day hikes in the United States.",
     "sourceURL": "https://en.wikipedia.org/wiki/Half_Dome"
   },
@@ -411,7 +396,6 @@
       "peak",
       "expedition"
     ],
-    "multiSession": true,
     "funFact": "Denali is the highest mountain peak in North America.",
     "sourceURL": "https://en.wikipedia.org/wiki/Denali"
   },
@@ -437,7 +421,6 @@
       "peak",
       "hike"
     ],
-    "multiSession": true,
     "funFact": "Mount Whitney is the highest summit in the contiguous United States.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Whitney"
   },
@@ -463,7 +446,6 @@
       "peak",
       "scenic"
     ],
-    "multiSession": true,
     "funFact": "Katharine Lee Bates was inspired to write America the Beautiful after visiting Pikes Peak.",
     "sourceURL": "https://en.wikipedia.org/wiki/Pikes_Peak"
   },
@@ -489,7 +471,6 @@
       "skyline",
       "river"
     ],
-    "multiSession": false,
     "funFact": "The Brooklyn Bridge was the longest suspension bridge in the world when it opened in 1883.",
     "sourceURL": "https://en.wikipedia.org/wiki/Brooklyn_Bridge"
   },
@@ -515,7 +496,6 @@
       "dallas",
       "skyline"
     ],
-    "multiSession": false,
     "funFact": "Reunion Tower's glowing geodesic sphere makes it one of Dallas's most recognizable landmarks.",
     "sourceURL": "https://en.wikipedia.org/wiki/Reunion_Tower"
   },
@@ -541,7 +521,6 @@
       "icon",
       "viewpoint"
     ],
-    "multiSession": false,
     "funFact": "Christ the Redeemer stands atop Corcovado Mountain overlooking Rio de Janeiro.",
     "sourceURL": "https://en.wikipedia.org/wiki/Christ_the_Redeemer_(statue)"
   },
@@ -567,7 +546,6 @@
       "ruins",
       "mountain"
     ],
-    "multiSession": true,
     "funFact": "Machu Picchu was built in the 15th century and hidden from the outside world for centuries.",
     "sourceURL": "https://en.wikipedia.org/wiki/Machu_Picchu"
   },
@@ -593,7 +571,6 @@
       "bay",
       "viewpoint"
     ],
-    "multiSession": false,
     "funFact": "Sugarloaf Mountain gets its English name from the cone-shaped molds once used for sugar.",
     "sourceURL": "https://en.wikipedia.org/wiki/Sugarloaf_Mountain"
   },
@@ -619,7 +596,6 @@
       "tepui",
       "jungle"
     ],
-    "multiSession": false,
     "funFact": "Angel Falls is the world's tallest uninterrupted waterfall.",
     "sourceURL": "https://en.wikipedia.org/wiki/Angel_Falls"
   },
@@ -645,7 +621,6 @@
       "observation",
       "andes"
     ],
-    "multiSession": false,
     "funFact": "Gran Torre Santiago is the tallest building in South America.",
     "sourceURL": "https://en.wikipedia.org/wiki/Gran_Torre_Santiago"
   },
@@ -671,7 +646,6 @@
       "peak",
       "expedition"
     ],
-    "multiSession": true,
     "funFact": "Aconcagua is the highest mountain outside Asia.",
     "sourceURL": "https://en.wikipedia.org/wiki/Aconcagua"
   },
@@ -697,7 +671,6 @@
       "viewpoint",
       "city icon"
     ],
-    "multiSession": true,
     "funFact": "Monserrate rises above Bogota with a church at its summit.",
     "sourceURL": "https://en.wikipedia.org/wiki/Monserrate"
   },
@@ -723,7 +696,6 @@
       "city icon",
       "plaza"
     ],
-    "multiSession": false,
     "funFact": "The Obelisco marks the place where Buenos Aires first flew the national flag.",
     "sourceURL": "https://en.wikipedia.org/wiki/Obelisco_de_Buenos_Aires"
   },
@@ -749,7 +721,6 @@
       "spires",
       "national park"
     ],
-    "multiSession": true,
     "funFact": "The granite towers of Torres del Paine are among Patagonia's most famous sights.",
     "sourceURL": "https://en.wikipedia.org/wiki/Torres_del_Paine"
   },
@@ -775,7 +746,6 @@
       "granite",
       "viewpoint"
     ],
-    "multiSession": false,
     "funFact": "A famous zigzag staircase is carved into the side of this giant granite monolith.",
     "sourceURL": "https://en.wikipedia.org/wiki/El_Penon_de_Guatape"
   },
@@ -801,7 +771,6 @@
       "art deco",
       "plaza"
     ],
-    "multiSession": false,
     "funFact": "Palacio Salvo dominated Montevideo's skyline when it opened in 1928.",
     "sourceURL": "https://en.wikipedia.org/wiki/Palacio_Salvo"
   },
@@ -827,7 +796,6 @@
       "plateau",
       "expedition"
     ],
-    "multiSession": true,
     "funFact": "Mount Roraima's tabletop summit inspired lost world adventure stories.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Roraima"
   },
@@ -853,7 +821,6 @@
       "capital",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "Oscar Niemeyer designed the Cathedral of Brasilia with a crown-like concrete structure.",
     "sourceURL": "https://en.wikipedia.org/wiki/Cathedral_of_Brasilia"
   },
@@ -879,7 +846,6 @@
       "observation",
       "city center"
     ],
-    "multiSession": false,
     "funFact": "This former bank tower is now an arts and observation space in downtown Sao Paulo.",
     "sourceURL": "https://en.wikipedia.org/wiki/Farol_Santander"
   },
@@ -905,7 +871,6 @@
       "volcano",
       "expedition"
     ],
-    "multiSession": true,
     "funFact": "Llaima is one of Chile's largest and most active volcanoes.",
     "sourceURL": "https://en.wikipedia.org/wiki/Llaima"
   },
@@ -931,7 +896,6 @@
       "iron",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "The Eiffel Tower was built as the entrance arch for the 1889 World's Fair.",
     "sourceURL": "https://en.wikipedia.org/wiki/Eiffel_Tower"
   },
@@ -957,7 +921,6 @@
       "london",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "Big Ben is the nickname of the tower's Great Bell, not the tower itself.",
     "sourceURL": "https://en.wikipedia.org/wiki/Elizabeth_Tower"
   },
@@ -983,7 +946,6 @@
       "observation",
       "skyline"
     ],
-    "multiSession": false,
     "funFact": "The Shard was designed by Renzo Piano to look like a shard of glass.",
     "sourceURL": "https://en.wikipedia.org/wiki/The_Shard"
   },
@@ -1009,7 +971,6 @@
       "berlin",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "The sphere of the Berlin TV Tower often reflects sunlight in a cross shape nicknamed the Pope's Revenge.",
     "sourceURL": "https://en.wikipedia.org/wiki/Fernsehturm_Berlin"
   },
@@ -1035,7 +996,6 @@
       "italy",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "The Leaning Tower of Pisa began tilting during construction in the 12th century.",
     "sourceURL": "https://en.wikipedia.org/wiki/Leaning_Tower_of_Pisa"
   },
@@ -1061,7 +1021,6 @@
       "amphitheater",
       "history"
     ],
-    "multiSession": false,
     "funFact": "The Colosseum could hold tens of thousands of spectators for ancient Roman spectacles.",
     "sourceURL": "https://en.wikipedia.org/wiki/Colosseum"
   },
@@ -1087,7 +1046,6 @@
       "barcelona",
       "basilica"
     ],
-    "multiSession": false,
     "funFact": "Construction on the Sagrada Familia began in 1882 and is still ongoing.",
     "sourceURL": "https://en.wikipedia.org/wiki/Sagrada_Familia"
   },
@@ -1113,7 +1071,6 @@
       "arch",
       "avenue"
     ],
-    "multiSession": false,
     "funFact": "The Arc de Triomphe honors those who fought and died for France in the French Revolutionary and Napoleonic Wars.",
     "sourceURL": "https://en.wikipedia.org/wiki/Arc_de_Triomphe"
   },
@@ -1139,7 +1096,6 @@
       "brussels",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "The Atomium represents an iron crystal magnified 165 billion times.",
     "sourceURL": "https://en.wikipedia.org/wiki/Atomium"
   },
@@ -1165,7 +1121,6 @@
       "peak",
       "icon"
     ],
-    "multiSession": true,
     "funFact": "The Matterhorn's near-symmetrical pyramid shape makes it one of the world's most recognizable mountains.",
     "sourceURL": "https://en.wikipedia.org/wiki/Matterhorn"
   },
@@ -1191,7 +1146,6 @@
       "peak",
       "expedition"
     ],
-    "multiSession": true,
     "funFact": "Mont Blanc is the highest mountain in the Alps and Western Europe.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mont_Blanc"
   },
@@ -1217,7 +1171,6 @@
       "volcano",
       "expedition"
     ],
-    "multiSession": true,
     "funFact": "Mount Etna is one of the world's most active stratovolcanoes.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Etna"
   },
@@ -1243,7 +1196,6 @@
       "greece",
       "hilltop"
     ],
-    "multiSession": false,
     "funFact": "The Acropolis has overlooked Athens since classical antiquity.",
     "sourceURL": "https://en.wikipedia.org/wiki/Acropolis_of_Athens"
   },
@@ -1269,7 +1221,6 @@
       "dome",
       "basilica"
     ],
-    "multiSession": false,
     "funFact": "St. Peter's Basilica stands over the traditional burial site of Saint Peter.",
     "sourceURL": "https://en.wikipedia.org/wiki/St._Peter%27s_Basilica"
   },
@@ -1295,7 +1246,6 @@
       "fairytale",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "Neuschwanstein Castle inspired the look of several fairy-tale castles in popular culture.",
     "sourceURL": "https://en.wikipedia.org/wiki/Neuschwanstein_Castle"
   },
@@ -1321,7 +1271,6 @@
       "skyline",
       "university"
     ],
-    "multiSession": false,
     "funFact": "The main building is one of Moscow's famed Seven Sisters skyscrapers.",
     "sourceURL": "https://en.wikipedia.org/wiki/Moscow_State_University"
   },
@@ -1347,7 +1296,6 @@
       "hilltop",
       "paris"
     ],
-    "multiSession": false,
     "funFact": "Sacre-Coeur sits at the summit of Montmartre, the highest natural point in Paris.",
     "sourceURL": "https://en.wikipedia.org/wiki/Sacre-Coeur,_Paris"
   },
@@ -1373,7 +1321,6 @@
       "palace",
       "andalusia"
     ],
-    "multiSession": false,
     "funFact": "The Alhambra was the royal court of the Nasrid dynasty in Granada.",
     "sourceURL": "https://en.wikipedia.org/wiki/Alhambra"
   },
@@ -1399,7 +1346,6 @@
       "fortress",
       "lisbon"
     ],
-    "multiSession": false,
     "funFact": "Belem Tower once guarded the entrance to Lisbon's harbor.",
     "sourceURL": "https://en.wikipedia.org/wiki/Belem_Tower"
   },
@@ -1425,7 +1371,6 @@
       "reykjavik",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "Hallgrimskirkja's design was inspired by Icelandic basalt columns.",
     "sourceURL": "https://en.wikipedia.org/wiki/Hallgrimskirkja"
   },
@@ -1451,7 +1396,6 @@
       "dubai",
       "observation"
     ],
-    "multiSession": false,
     "funFact": "Burj Khalifa has held the tallest-building title since 2010.",
     "sourceURL": "https://en.wikipedia.org/wiki/Burj_Khalifa"
   },
@@ -1477,7 +1421,6 @@
       "skybridge",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "The Petronas Towers were the world's tallest buildings from 1998 to 2004.",
     "sourceURL": "https://en.wikipedia.org/wiki/Petronas_Towers"
   },
@@ -1503,7 +1446,6 @@
       "damper",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "Taipei 101 uses a massive tuned-mass damper to steady the tower during typhoons and earthquakes.",
     "sourceURL": "https://en.wikipedia.org/wiki/Taipei_101"
   },
@@ -1529,7 +1471,6 @@
       "observation",
       "tokyo"
     ],
-    "multiSession": false,
     "funFact": "Tokyo Skytree is the tallest structure in Japan.",
     "sourceURL": "https://en.wikipedia.org/wiki/Tokyo_Skytree"
   },
@@ -1555,7 +1496,6 @@
       "observation",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "Tokyo Tower's color scheme follows international air safety rules for tall structures.",
     "sourceURL": "https://en.wikipedia.org/wiki/Tokyo_Tower"
   },
@@ -1581,7 +1521,6 @@
       "spiral",
       "skyline"
     ],
-    "multiSession": false,
     "funFact": "Shanghai Tower has one of the world's fastest elevators.",
     "sourceURL": "https://en.wikipedia.org/wiki/Shanghai_Tower"
   },
@@ -1607,7 +1546,6 @@
       "guangzhou",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "Canton Tower's twisted form is sometimes called the Supermodel Tower.",
     "sourceURL": "https://en.wikipedia.org/wiki/Canton_Tower"
   },
@@ -1633,7 +1571,6 @@
       "spheres",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "The Oriental Pearl Tower became a symbol of modern Shanghai soon after opening in 1994.",
     "sourceURL": "https://en.wikipedia.org/wiki/Oriental_Pearl_Tower"
   },
@@ -1659,7 +1596,6 @@
       "seoul",
       "skyline"
     ],
-    "multiSession": false,
     "funFact": "Lotte World Tower is the tallest building on the Korean Peninsula.",
     "sourceURL": "https://en.wikipedia.org/wiki/Lotte_World_Tower"
   },
@@ -1685,7 +1621,6 @@
       "observation",
       "seoul"
     ],
-    "multiSession": false,
     "funFact": "N Seoul Tower stands atop Namsan and overlooks the South Korean capital.",
     "sourceURL": "https://en.wikipedia.org/wiki/N_Seoul_Tower"
   },
@@ -1711,7 +1646,6 @@
       "unesco",
       "delhi"
     ],
-    "multiSession": false,
     "funFact": "Qutub Minar is the tallest brick minaret in the world.",
     "sourceURL": "https://en.wikipedia.org/wiki/Qutb_Minar"
   },
@@ -1737,7 +1671,6 @@
       "spire",
       "skyline"
     ],
-    "multiSession": false,
     "funFact": "Merdeka 118 became one of the tallest buildings in the world after topping out in 2021.",
     "sourceURL": "https://en.wikipedia.org/wiki/Merdeka_118"
   },
@@ -1763,7 +1696,6 @@
       "singapore",
       "resort"
     ],
-    "multiSession": false,
     "funFact": "The three towers of Marina Bay Sands are linked by a huge rooftop SkyPark.",
     "sourceURL": "https://en.wikipedia.org/wiki/Marina_Bay_Sands"
   },
@@ -1789,7 +1721,6 @@
       "mumbai",
       "harbor"
     ],
-    "multiSession": false,
     "funFact": "The Gateway of India commemorated the 1911 visit of King George V and Queen Mary to India.",
     "sourceURL": "https://en.wikipedia.org/wiki/Gateway_of_India"
   },
@@ -1815,7 +1746,6 @@
       "japan",
       "icon"
     ],
-    "multiSession": true,
     "funFact": "Mount Fuji is Japan's highest peak and a longstanding cultural icon.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Fuji"
   },
@@ -1841,7 +1771,6 @@
       "peak",
       "expedition"
     ],
-    "multiSession": true,
     "funFact": "Mount Kinabalu is the highest mountain in Malaysia.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Kinabalu"
   },
@@ -1867,7 +1796,6 @@
       "peak",
       "expedition"
     ],
-    "multiSession": true,
     "funFact": "Mount Everest is Earth's highest mountain above sea level.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Everest"
   },
@@ -1893,7 +1821,6 @@
       "flower",
       "modern"
     ],
-    "multiSession": false,
     "funFact": "The Lotus Temple welcomes worshippers of every faith and is shaped like a lotus blossom.",
     "sourceURL": "https://en.wikipedia.org/wiki/Lotus_Temple"
   },
@@ -1919,7 +1846,6 @@
       "hyderabad",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "The Charminar has four grand arches and four minarets at a historic crossroads in Hyderabad.",
     "sourceURL": "https://en.wikipedia.org/wiki/Charminar"
   },
@@ -1945,7 +1871,6 @@
       "fortress",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "Toyotomi Hideyoshi built Osaka Castle in the late 16th century.",
     "sourceURL": "https://en.wikipedia.org/wiki/Osaka_Castle"
   },
@@ -1971,7 +1896,6 @@
       "egypt",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "The Great Pyramid is the oldest of the Seven Wonders of the Ancient World and the only one still largely intact.",
     "sourceURL": "https://en.wikipedia.org/wiki/Great_Pyramid_of_Giza"
   },
@@ -1997,7 +1921,6 @@
       "peak",
       "expedition"
     ],
-    "multiSession": true,
     "funFact": "Kilimanjaro is Africa's highest mountain and a freestanding volcanic massif.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Kilimanjaro"
   },
@@ -2023,7 +1946,6 @@
       "cape town",
       "icon"
     ],
-    "multiSession": true,
     "funFact": "Table Mountain's flat summit dominates the skyline of Cape Town.",
     "sourceURL": "https://en.wikipedia.org/wiki/Table_Mountain"
   },
@@ -2049,7 +1971,6 @@
       "cairo",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "The lattice exterior of Cairo Tower was designed to echo a lotus plant.",
     "sourceURL": "https://en.wikipedia.org/wiki/Cairo_Tower"
   },
@@ -2075,7 +1996,6 @@
       "peak",
       "expedition"
     ],
-    "multiSession": true,
     "funFact": "Mount Kenya is the second-highest mountain in Africa.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Kenya"
   },
@@ -2101,7 +2021,6 @@
       "mosque",
       "coast"
     ],
-    "multiSession": false,
     "funFact": "The Hassan II Mosque has one of the tallest minarets in the world.",
     "sourceURL": "https://en.wikipedia.org/wiki/Hassan_II_Mosque"
   },
@@ -2127,7 +2046,6 @@
       "pretoria",
       "granite"
     ],
-    "multiSession": false,
     "funFact": "The Voortrekker Monument commemorates the 19th-century migration known as the Great Trek.",
     "sourceURL": "https://en.wikipedia.org/wiki/Voortrekker_Monument"
   },
@@ -2153,7 +2071,6 @@
       "history",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "The Martyrs Memorial honors Algerians who died during the struggle for independence.",
     "sourceURL": "https://en.wikipedia.org/wiki/Martyrs%27_Memorial"
   },
@@ -2179,7 +2096,6 @@
       "world cup",
       "johannesburg"
     ],
-    "multiSession": false,
     "funFact": "FNB Stadium hosted the 2010 FIFA World Cup final.",
     "sourceURL": "https://en.wikipedia.org/wiki/FNB_Stadium"
   },
@@ -2205,7 +2121,6 @@
       "africa",
       "expedition"
     ],
-    "multiSession": true,
     "funFact": "Mount Cameroon is one of Africa's most active volcanoes.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Cameroon"
   },
@@ -2231,7 +2146,6 @@
       "church",
       "ethiopia"
     ],
-    "multiSession": false,
     "funFact": "Abuna Yemata Guh is famed for its cliffside approach and painted cave church interior.",
     "sourceURL": "https://en.wikipedia.org/wiki/Abuna_Yemata_Guh"
   },
@@ -2257,7 +2171,6 @@
       "harbor",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "Sydney Harbour Bridge is nicknamed the Coathanger because of its steel arch.",
     "sourceURL": "https://en.wikipedia.org/wiki/Sydney_Harbour_Bridge"
   },
@@ -2283,7 +2196,6 @@
       "sails",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "The Sydney Opera House is one of the most recognizable performing arts venues in the world.",
     "sourceURL": "https://en.wikipedia.org/wiki/Sydney_Opera_House"
   },
@@ -2309,7 +2221,6 @@
       "auckland",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "Sky Tower is the tallest freestanding structure in the Southern Hemisphere.",
     "sourceURL": "https://en.wikipedia.org/wiki/Sky_Tower_(Auckland)"
   },
@@ -2335,7 +2246,6 @@
       "melbourne",
       "observation"
     ],
-    "multiSession": false,
     "funFact": "Eureka Tower's top floors are wrapped in gold-plated glass.",
     "sourceURL": "https://en.wikipedia.org/wiki/Eureka_Tower"
   },
@@ -2361,7 +2271,6 @@
       "gold coast",
       "skyline"
     ],
-    "multiSession": false,
     "funFact": "Q1 Tower's spire was inspired by the Sydney Olympic torch.",
     "sourceURL": "https://en.wikipedia.org/wiki/Q1_(building)"
   },
@@ -2387,7 +2296,6 @@
       "sandstone",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "Uluru changes color dramatically through the day as the sun moves across the desert sky.",
     "sourceURL": "https://en.wikipedia.org/wiki/Uluru"
   },
@@ -2413,7 +2321,6 @@
       "peak",
       "alps"
     ],
-    "multiSession": true,
     "funFact": "Mount Kosciuszko is the highest mountain on mainland Australia.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Kosciuszko"
   },
@@ -2439,7 +2346,6 @@
       "brisbane",
       "bridge climb"
     ],
-    "multiSession": false,
     "funFact": "Story Bridge is one of the few major bridges in the world that supports a public bridge climb.",
     "sourceURL": "https://en.wikipedia.org/wiki/Story_Bridge"
   },
@@ -2465,7 +2371,6 @@
       "melbourne",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "The Arts Centre spire is lit every night and has become a Melbourne skyline signature.",
     "sourceURL": "https://en.wikipedia.org/wiki/Arts_Centre_Melbourne"
   },
@@ -2491,7 +2396,6 @@
       "auckland",
       "icon"
     ],
-    "multiSession": false,
     "funFact": "Auckland Harbour Bridge gained extra clip-on lanes in the late 1960s to handle more traffic.",
     "sourceURL": "https://en.wikipedia.org/wiki/Auckland_Harbour_Bridge"
   },
@@ -2517,7 +2421,6 @@
       "peak",
       "viewpoint"
     ],
-    "multiSession": true,
     "funFact": "kunanyi towers above Hobart and can be dusted with snow in winter.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Wellington_(Tasmania)"
   },
@@ -2543,7 +2446,6 @@
       "peak",
       "icon"
     ],
-    "multiSession": true,
     "funFact": "Aoraki / Mount Cook is the highest mountain in New Zealand.",
     "sourceURL": "https://en.wikipedia.org/wiki/Aoraki_/_Mount_Cook"
   },
@@ -2569,7 +2471,6 @@
       "new zealand",
       "icon"
     ],
-    "multiSession": true,
     "funFact": "Mount Taranaki's near-perfect cone makes it one of New Zealand's most distinctive mountains.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Taranaki"
   },
@@ -2595,7 +2496,6 @@
       "sydney",
       "skyline"
     ],
-    "multiSession": false,
     "funFact": "Sydney Tower is the tallest structure in the city's central business district.",
     "sourceURL": "https://en.wikipedia.org/wiki/Sydney_Tower"
   }

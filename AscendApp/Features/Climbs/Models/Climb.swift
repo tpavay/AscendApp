@@ -19,7 +19,6 @@ struct Climb: Codable, Identifiable, Hashable {
     let category: String
     let tier: ClimbTier
     let tags: [String]
-    let multiSession: Bool
     let funFact: String
     let sourceURL: String
     let imageSetVersion: Int
@@ -43,10 +42,6 @@ struct Climb: Codable, Identifiable, Hashable {
 
     var referenceStepCount: Int {
         realStairCount ?? totalSteps
-    }
-
-    var isSingleSession: Bool {
-        !multiSession
     }
 
     var browsePreviewCameraDistance: CLLocationDistance {
@@ -84,7 +79,6 @@ struct Climb: Codable, Identifiable, Hashable {
         category: "skyscraper",
         tier: .gold,
         tags: ["city icon", "art deco", "observation deck"],
-        multiSession: false,
         funFact: "The Empire State Building opened in 1931 and held the tallest-building title for nearly 40 years.",
         sourceURL: "https://en.wikipedia.org/wiki/Empire_State_Building",
         imageSetVersion: 1,
@@ -109,7 +103,6 @@ struct Climb: Codable, Identifiable, Hashable {
         case category
         case tier
         case tags
-        case multiSession
         case funFact
         case sourceURL
         case imageSetVersion
@@ -134,7 +127,6 @@ struct Climb: Codable, Identifiable, Hashable {
         category: String,
         tier: ClimbTier,
         tags: [String],
-        multiSession: Bool,
         funFact: String,
         sourceURL: String,
         imageSetVersion: Int = 1,
@@ -157,7 +149,6 @@ struct Climb: Codable, Identifiable, Hashable {
         self.category = category
         self.tier = tier
         self.tags = tags
-        self.multiSession = multiSession
         self.funFact = funFact
         self.sourceURL = sourceURL
         self.imageSetVersion = imageSetVersion
@@ -183,7 +174,6 @@ struct Climb: Codable, Identifiable, Hashable {
         category = try container.decode(String.self, forKey: .category)
         tier = try container.decode(ClimbTier.self, forKey: .tier)
         tags = try container.decode([String].self, forKey: .tags)
-        multiSession = try container.decode(Bool.self, forKey: .multiSession)
         funFact = try container.decode(String.self, forKey: .funFact)
         sourceURL = try container.decode(String.self, forKey: .sourceURL)
         imageSetVersion = try container.decodeIfPresent(Int.self, forKey: .imageSetVersion) ?? 1
@@ -209,7 +199,6 @@ struct Climb: Codable, Identifiable, Hashable {
         try container.encode(category, forKey: .category)
         try container.encode(tier, forKey: .tier)
         try container.encode(tags, forKey: .tags)
-        try container.encode(multiSession, forKey: .multiSession)
         try container.encode(funFact, forKey: .funFact)
         try container.encode(sourceURL, forKey: .sourceURL)
         try container.encode(imageSetVersion, forKey: .imageSetVersion)

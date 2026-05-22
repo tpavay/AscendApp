@@ -8,7 +8,6 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
         var rankTotal: Int
         var durationSeconds: Int
         var progress: Double
-        var isPaused: Bool
         var status: LiveClimbActivityStatus
         var climbPhotoURLString: String?
         var updatedAt: Date
@@ -80,7 +79,6 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
 
 enum LiveClimbActivityStatus: String, Codable, Hashable, Sendable {
     case recording
-    case paused
     case saving
     case finished
     case failed

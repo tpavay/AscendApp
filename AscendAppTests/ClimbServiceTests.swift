@@ -49,8 +49,8 @@ struct ClimbServiceTests {
     }
 
     @Test
-    func singleSessionClimbFailsIfFirstEligibleWorkoutFallsShort() throws {
-        let climb = makeClimb(id: "single-session-climb", multiSession: false, requiredSteps: 1_000)
+    func liveClimbFailsIfEligibleWorkoutFallsShort() throws {
+        let climb = makeClimb(id: "live-climb", requiredSteps: 1_000)
         let service = ClimbService(catalogRepository: TestClimbCatalogRepository(climbs: [climb]))
         let modelContext = try makeModelContext()
         let climbStartedAt = Date(timeIntervalSince1970: 1_775_217_600)
@@ -80,7 +80,7 @@ struct ClimbServiceTests {
         #expect(attempt.sessionsCount == 1)
         #expect(attempt.completedAt == nil)
         #expect(attempt.endedAt == workout.date.addingTimeInterval(workout.duration))
-        #expect(try service.activeAttempt(modelContext: modelContext) == nil)
+        #expect(attempts.contains(where: { $0.status == .active }) == false)
 
         let historySummary = service.historySummary(for: climb, modelContext: modelContext)
         #expect(historySummary.completionsCount == 0)
@@ -92,8 +92,8 @@ struct ClimbServiceTests {
     }
 
     @Test
-    func multiSessionClimbRemainsActiveIfWorkoutFallsShort() throws {
-        let climb = makeClimb(id: "multi-session-climb", multiSession: true, requiredSteps: 1_000)
+    func liveClimbCompletionIsLeaderboardEligible() throws {
+        let climb = makeClimb(id: "live-climb-complete", requiredSteps: 1_000)
         let service = ClimbService(catalogRepository: TestClimbCatalogRepository(climbs: [climb]))
         let modelContext = try makeModelContext()
         let climbStartedAt = Date(timeIntervalSince1970: 1_775_217_600)
@@ -102,11 +102,56 @@ struct ClimbServiceTests {
         try modelContext.save()
 
         let workout = Workout(
-            name: "Short Workout",
+            name: "Complete Climb",
             date: climbStartedAt.addingTimeInterval(60),
             duration: 900,
-            steps: 800,
-            floors: 50,
+            steps: 1_000,
+            floors: 63,
+            stepsPerFloor: 16,
+            source: .headphoneMotion
+        )
+        modelContext.insert(workout)
+        try modelContext.save()
+
+        try service.apply(workouts: [workout], modelContext: modelContext)
+
+        let attempt = try #require(try modelContext.fetch(FetchDescriptor<ClimbAttempt>()).first)
+        #expect(attempt.status == .completed)
+        #expect(attempt.sessionsCount == 1)
+        #expect(workout.participations.first?.leaderboardEligible == true)
+    }
+
+    @Test
+    func laterWorkoutDoesNotAccumulateTowardPriorAttempt() throws {
+        let climb = makeClimb(id: "restart-required-climb", requiredSteps: 1_000)
+        let service = ClimbService(catalogRepository: TestClimbCatalogRepository(climbs: [climb]))
+        let modelContext = try makeModelContext()
+        let climbStartedAt = Date(timeIntervalSince1970: 1_775_217_600)
+
+        let legacyActiveAttempt = ClimbAttempt(
+            climbId: climb.id,
+            startedAt: climbStartedAt,
+            accumulatedSteps: 800,
+            accumulatedDurationSeconds: 900,
+            sessionsCount: 1,
+            appliedWorkoutIds: ["legacy-workout"]
+        )
+        modelContext.insert(legacyActiveAttempt)
+        try modelContext.save()
+
+        let restartedAt = climbStartedAt.addingTimeInterval(1_800)
+        let freshAttempt = try service.prepareLiveClimbAttempt(
+            for: climb,
+            startedAt: restartedAt,
+            modelContext: modelContext
+        )
+
+        let workout = Workout(
+            name: "Still Short",
+            date: restartedAt.addingTimeInterval(60),
+            duration: 300,
+            steps: 200,
+            floors: 13,
             stepsPerFloor: 16,
             source: .headphoneMotion
         )
@@ -116,19 +161,64 @@ struct ClimbServiceTests {
         try service.apply(workouts: [workout], modelContext: modelContext)
 
         let attempts = try modelContext.fetch(FetchDescriptor<ClimbAttempt>())
-        let attempt = try #require(attempts.first)
+        let retiredAttempt = try #require(attempts.first { $0.id == legacyActiveAttempt.id })
+        let savedAttempt = try #require(attempts.first { $0.id == freshAttempt.id })
 
-        #expect(attempt.status == .active)
-        #expect(attempt.accumulatedSteps == 800)
-        #expect(attempt.sessionsCount == 1)
-        #expect(try service.activeAttempt(modelContext: modelContext)?.climbId == climb.id)
+        #expect(retiredAttempt.status == .failed)
+        #expect(retiredAttempt.accumulatedSteps == 800)
+        #expect(savedAttempt.status == .failed)
+        #expect(savedAttempt.accumulatedSteps == 200)
+        #expect(savedAttempt.sessionsCount == 1)
         #expect(workout.participations.first?.contextType == .climbAttempt)
         #expect(workout.participations.first?.leaderboardEligible == false)
     }
 
     @Test
+    func partialWorkoutCannotCompleteWithAnotherWorkoutInSameAttempt() throws {
+        let climb = makeClimb(id: "single-attempt-only", requiredSteps: 1_000)
+        let service = ClimbService(catalogRepository: TestClimbCatalogRepository(climbs: [climb]))
+        let modelContext = try makeModelContext()
+        let climbStartedAt = Date(timeIntervalSince1970: 1_775_217_600)
+
+        modelContext.insert(ClimbAttempt(climbId: climb.id, startedAt: climbStartedAt))
+        try modelContext.save()
+
+        let firstWorkout = Workout(
+            name: "First Partial",
+            date: climbStartedAt.addingTimeInterval(60),
+            duration: 900,
+            steps: 800,
+            floors: 50,
+            stepsPerFloor: 16,
+            source: .headphoneMotion
+        )
+        let secondWorkout = Workout(
+            name: "Final Partial",
+            date: climbStartedAt.addingTimeInterval(1_200),
+            duration: 300,
+            steps: 200,
+            floors: 13,
+            stepsPerFloor: 16,
+            source: .headphoneMotion
+        )
+        modelContext.insert(firstWorkout)
+        modelContext.insert(secondWorkout)
+        try modelContext.save()
+
+        try service.apply(workouts: [firstWorkout], modelContext: modelContext)
+        try service.apply(workouts: [secondWorkout], modelContext: modelContext)
+
+        let attempt = try #require(try modelContext.fetch(FetchDescriptor<ClimbAttempt>()).first)
+        #expect(attempt.status == .failed)
+        #expect(attempt.accumulatedSteps == 800)
+        #expect(attempt.sessionsCount == 1)
+        #expect(firstWorkout.participations.first?.leaderboardEligible == false)
+        #expect(secondWorkout.participations.isEmpty)
+    }
+
+    @Test
     func manualWorkoutDoesNotAdvanceActiveLiveClimb() throws {
-        let climb = makeClimb(id: "headphone-only-climb", multiSession: true, requiredSteps: 1_000)
+        let climb = makeClimb(id: "headphone-only-climb", requiredSteps: 1_000)
         let service = ClimbService(catalogRepository: TestClimbCatalogRepository(climbs: [climb]))
         let modelContext = try makeModelContext()
         let climbStartedAt = Date(timeIntervalSince1970: 1_775_217_600)
@@ -149,9 +239,10 @@ struct ClimbServiceTests {
 
         try service.apply(workouts: [workout], modelContext: modelContext)
 
-        let attempt = try #require(try service.activeAttempt(modelContext: modelContext))
+        let attempt = try #require(try modelContext.fetch(FetchDescriptor<ClimbAttempt>()).first)
         #expect(attempt.accumulatedSteps == 0)
         #expect(attempt.sessionsCount == 0)
+        #expect(attempt.status == .active)
         #expect(workout.participations.isEmpty)
     }
 
@@ -166,7 +257,7 @@ struct ClimbServiceTests {
         return ModelContext(container)
     }
 
-    private func makeClimb(id: String, multiSession: Bool, requiredSteps: Int) -> Climb {
+    private func makeClimb(id: String, requiredSteps: Int) -> Climb {
         Climb(
             id: id,
             name: id,
@@ -185,7 +276,6 @@ struct ClimbServiceTests {
             category: "tower",
             tier: .gold,
             tags: [],
-            multiSession: multiSession,
             funFact: "Fact",
             sourceURL: "https://example.com",
             imageSetVersion: 1,

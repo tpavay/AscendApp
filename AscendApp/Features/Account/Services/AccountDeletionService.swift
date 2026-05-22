@@ -20,7 +20,6 @@ final class AccountDeletionService {
         case notAuthenticated
         case firestoreDeletionFailed(String)
         case storageDeletionFailed(String)
-        case integrationDeletionFailed(String)
         case authDeletionFailed(String)
         case localDataDeletionFailed(String)
         case reauthenticationFailed(String)
@@ -34,8 +33,6 @@ final class AccountDeletionService {
                 return "Failed to delete cloud data: \(message)"
             case .storageDeletionFailed(let message):
                 return "Failed to delete stored files: \(message)"
-            case .integrationDeletionFailed(let message):
-                return "Failed to disconnect integrations: \(message)"
             case .authDeletionFailed(let message):
                 return "Failed to delete account: \(message)"
             case .localDataDeletionFailed(let message):
@@ -77,7 +74,7 @@ final class AccountDeletionService {
         }
 
         let userId = user.uid
-        let totalSteps = 11
+        let totalSteps = 10
         var completedSteps = 0
         var hasStagedLocalDeletion = false
         var hasCommittedLocalDeletion = false
@@ -109,62 +106,56 @@ final class AccountDeletionService {
 
         // ── From this point on, every step is non-interactive. ──
 
-        // Step 2: Disconnect cloud integrations
-        updateProgress("Disconnecting integrations...")
-        try await disconnectCloudIntegrations()
-        completedSteps += 1
-        try Task.checkCancellation()
-
-        // Step 3: Delete all user-scoped Storage data (storage-level sweep)
+        // Step 2: Delete all user-scoped Storage data (storage-level sweep)
         updateProgress("Deleting stored files...")
         try await deleteAllUserStorage(userId: userId)
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 4: Delete any legacy flat-path files referenced by local records
+        // Step 3: Delete any legacy flat-path files referenced by local records
         updateProgress("Cleaning up legacy media...")
         try await deleteLegacyFlatPathMedia(modelContext: modelContext)
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 5: Delete Firestore leaderboard stats
+        // Step 4: Delete Firestore leaderboard stats
         updateProgress("Deleting leaderboard data...")
         try await deleteLeaderboardStats(userId: userId)
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 6: Delete Firestore rate-limit metadata
+        // Step 5: Delete Firestore rate-limit metadata
         updateProgress("Deleting feedback metadata...")
         try await deleteFeedbackRateLimitDocument(userId: userId)
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 7: Delete Firestore workout backup documents
+        // Step 6: Delete Firestore workout backup documents
         updateProgress("Deleting workout backups...")
         try await deleteWorkoutBackups(userId: userId)
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 8: Delete Firestore user document
+        // Step 7: Delete Firestore user document
         updateProgress("Deleting user profile...")
         try await deleteUserDocument(userId: userId)
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 9: Stage local deletion (rollback if auth deletion fails)
+        // Step 8: Stage local deletion (rollback if auth deletion fails)
         updateProgress("Preparing local data cleanup...")
         try stageLocalDataDeletion(modelContext: modelContext)
         hasStagedLocalDeletion = true
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 10: Delete Firebase Auth account (credentials already fresh from Step 1)
+        // Step 9: Delete Firebase Auth account (credentials already fresh from Step 1)
         updateProgress("Deleting account...")
         try await deleteAuthAccount()
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 11: Commit local deletion and clear caches
+        // Step 10: Commit local deletion and clear caches
         updateProgress("Finalizing local cleanup...")
         try commitStagedLocalDeletion(modelContext: modelContext)
         hasCommittedLocalDeletion = true
@@ -371,17 +362,6 @@ final class AccountDeletionService {
         }
     }
 
-    /// Disconnects cloud integrations before auth account deletion
-    private func disconnectCloudIntegrations() async throws {
-        do {
-            try await StravaManager.shared.disconnect()
-        } catch StravaError.notConnected {
-            // Already disconnected
-        } catch {
-            throw DeletionError.integrationDeletionFailed(error.localizedDescription)
-        }
-    }
-
     /// Deletes the user document from Firestore
     private func deleteUserDocument(userId: String) async throws {
         do {
@@ -465,6 +445,5 @@ final class AccountDeletionService {
     /// Clears local integration state (Keychain/UserDefaults cache)
     private func clearLocalIntegrationState() {
         HevyManager.shared.disconnect()
-        StravaManager.shared.clearLocalState()
     }
 }

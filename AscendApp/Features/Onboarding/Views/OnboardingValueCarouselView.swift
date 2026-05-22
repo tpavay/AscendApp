@@ -2,6 +2,7 @@ import SwiftUI
 
 struct OnboardingValueCarouselView: View {
     @Binding var selectedIndex: Int
+    @State private var scrollPositionID: String?
 
     let pages: [OnboardingValuePage]
     let onFinish: () -> Void
@@ -12,53 +13,61 @@ struct OnboardingValueCarouselView: View {
                 Color.black
                     .ignoresSafeArea()
             } else {
-                TabView(selection: $selectedIndex) {
-                    ForEach(Array(pages.enumerated()), id: \.element.id) { index, page in
-                        GeometryReader { pageGeometry in
-                            let pageOffset = pageGeometry.frame(in: .global).minX
-
-                            OnboardingValueScreen(
-                                activePageIndex: index,
-                                pageCount: pages.count,
-                                headline: page.headline,
-                                subtitle: page.subtitle,
-                                buttonTitle: buttonTitle(for: index),
-                                parallaxOffset: pageOffset * -0.06,
-                                onContinue: continueFromCurrentPage,
-                                background: {
-                                    pageBackground(page)
-                                },
-                                hero: {
-                                    OnboardingValuePhoneMockup(
-                                        imageName: page.heroImageName,
-                                        scale: page.heroScale,
-                                        xOffset: page.heroXOffset,
-                                        yOffset: page.heroYOffset,
-                                        rotation: page.heroRotation
+                GeometryReader { geometry in
+                    ZStack {
+                        ScrollView(.horizontal) {
+                            LazyHStack(spacing: 0) {
+                                ForEach(pages) { page in
+                                    OnboardingValueShowcasePageContent(
+                                        headline: page.headline,
+                                        subtitle: page.subtitle,
+                                        backgroundImageName: backgroundImageName(for: page),
+                                        screenshotImageName: page.heroImageName
                                     )
+                                    .frame(width: geometry.size.width, height: geometry.size.height)
+                                    .id(page.id)
                                 }
-                            )
+                            }
+                            .scrollTargetLayout()
                         }
-                        .tag(index)
+                        .scrollIndicators(.hidden)
+                        .scrollPosition(id: $scrollPositionID)
+                        .scrollTargetBehavior(.paging)
+
+                        OnboardingValueShowcaseChrome(
+                            activePageIndex: selectedIndex,
+                            pageCount: pages.count,
+                            buttonTitle: buttonTitle(for: selectedIndex),
+                            onContinue: continueFromCurrentPage
+                        )
                     }
+                    .frame(width: geometry.size.width, height: geometry.size.height)
                 }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                .onAppear(perform: clampSelectedIndex)
+                .onAppear {
+                    clampSelectedIndex()
+                    syncScrollPositionToSelectedIndex()
+                }
                 .onChange(of: pages.count) { _, _ in
                     clampSelectedIndex()
+                    syncScrollPositionToSelectedIndex()
+                }
+                .onChange(of: selectedIndex) { _, _ in
+                    syncScrollPositionToSelectedIndex()
+                }
+                .onChange(of: scrollPositionID) { _, newID in
+                    updateSelectedIndex(for: newID)
                 }
             }
         }
-        .animation(.easeInOut(duration: 0.28), value: selectedIndex)
+        .background(Color.black)
     }
 
-    @ViewBuilder
-    private func pageBackground(_ page: OnboardingValuePage) -> some View {
+    private func backgroundImageName(for page: OnboardingValuePage) -> String {
         switch page.background {
-        case .image(let imageName):
-            OnboardingValueImageBackground(imageName: imageName)
-        case .ambient(let style):
-            OnboardingValueAmbientBackground(style: style)
+        case .image(let imageName, _, _):
+            imageName
+        case .ambient:
+            "OnboardingGlobalClimbsBackground"
         }
     }
 
@@ -67,13 +76,7 @@ struct OnboardingValueCarouselView: View {
     }
 
     private func continueFromCurrentPage() {
-        if selectedIndex < pages.count - 1 {
-            withAnimation(.easeInOut(duration: 0.32)) {
-                selectedIndex += 1
-            }
-        } else {
-            onFinish()
-        }
+        onFinish()
     }
 
     private func clampSelectedIndex() {
@@ -84,10 +87,36 @@ struct OnboardingValueCarouselView: View {
 
         selectedIndex = min(max(selectedIndex, 0), pages.count - 1)
     }
+
+    private func syncScrollPositionToSelectedIndex() {
+        guard pages.indices.contains(selectedIndex) else {
+            scrollPositionID = nil
+            return
+        }
+
+        let selectedPageID = pages[selectedIndex].id
+        if scrollPositionID != selectedPageID {
+            scrollPositionID = selectedPageID
+        }
+    }
+
+    private func updateSelectedIndex(for pageID: String?) {
+        guard let pageID,
+              let index = pages.firstIndex(where: { $0.id == pageID }),
+              selectedIndex != index else {
+            return
+        }
+
+        selectedIndex = index
+    }
 }
 
 #Preview("Onboarding Value Carousel") {
     OnboardingValueCarouselPreviewHost()
+}
+
+#Preview("Onboarding Tracking Page") {
+    OnboardingValueTrackingPagePreviewHost()
 }
 
 private struct OnboardingValueCarouselPreviewHost: View {
@@ -99,6 +128,18 @@ private struct OnboardingValueCarouselPreviewHost: View {
         OnboardingValueCarouselView(
             selectedIndex: $selectedIndex,
             pages: pages,
+            onFinish: {}
+        )
+    }
+}
+
+private struct OnboardingValueTrackingPagePreviewHost: View {
+    @State private var selectedIndex = 2
+
+    var body: some View {
+        OnboardingValueCarouselView(
+            selectedIndex: $selectedIndex,
+            pages: OnboardingValuePages.all,
             onFinish: {}
         )
     }

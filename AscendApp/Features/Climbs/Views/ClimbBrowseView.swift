@@ -983,7 +983,7 @@ private enum BrowseSheetDetent: Int, CaseIterable {
         ClimbBrowseView(viewModel: {
             let vm = GlobeViewModel()
             vm.visibleClimbs = [.preview]
-            vm.previewSummary = ClimbPreviewSummary(climb: .preview, isCompleted: false, isActive: false)
+            vm.previewSummary = ClimbPreviewSummary(climb: .preview, isCompleted: false)
             return vm
         }())
     }

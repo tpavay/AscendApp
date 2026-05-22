@@ -30,9 +30,7 @@ struct AscendApp: App {
 
     var body: some Scene {
         WindowGroup {
-            NavigationStack {
-                RootView()
-            }
+            RootNavigationHost(authVM: authVM)
             .onOpenURL { url in
                 handleDeepLink(url: url)
             }
@@ -47,13 +45,6 @@ struct AscendApp: App {
         // Let Google Sign-In handle its redirect URL
         if GIDSignIn.sharedInstance.handle(url) {
             return
-        }
-
-        // Handle Strava OAuth callback
-        if url.scheme == "ascendapp" && url.host == "strava-callback" {
-            Task { @MainActor in
-                StravaManager.shared.handleOAuthCallback(url: url)
-            }
         }
     }
     
@@ -113,6 +104,21 @@ struct AscendApp: App {
             } catch {
                 fatalError("Could not create model container after cleanup: \(error)")
             }
+        }
+    }
+}
+
+private struct RootNavigationHost: View {
+    let authVM: AuthenticationViewModel
+    @State private var navigationPath = NavigationPath()
+
+    var body: some View {
+        NavigationStack(path: $navigationPath) {
+            RootView()
+        }
+        .id(authVM.user?.uid ?? "signedOut")
+        .onChange(of: authVM.user?.uid) { _, _ in
+            navigationPath = NavigationPath()
         }
     }
 }

@@ -71,7 +71,7 @@ private struct LiveClimbLockScreenView: View {
 
             Spacer(minLength: 0)
 
-            LiveClimbControlButtons(isPaused: context.state.isPaused)
+            LiveClimbControlButtons()
         }
         .padding(16)
         .foregroundStyle(.white)
@@ -126,7 +126,7 @@ private struct LiveClimbExpandedBottomView: View {
 
                 Spacer(minLength: 0)
 
-                LiveClimbControlButtons(isPaused: context.state.isPaused)
+                LiveClimbControlButtons()
             }
         }
         .foregroundStyle(.white)
@@ -200,18 +200,8 @@ private struct LiveClimbMetricColumn: View {
 }
 
 private struct LiveClimbControlButtons: View {
-    let isPaused: Bool
-
     var body: some View {
         HStack(spacing: 9) {
-            Button(intent: ToggleLiveClimbPauseIntent()) {
-                Image(systemName: isPaused ? "play.fill" : "pause.fill")
-                    .font(.system(size: 12, weight: .bold))
-                    .frame(width: 34, height: 34)
-                    .background(Circle().fill(.white.opacity(0.14)))
-            }
-            .buttonStyle(.plain)
-
             Button(intent: StopLiveClimbIntent()) {
                 Image(systemName: "stop.fill")
                     .font(.system(size: 11, weight: .bold))

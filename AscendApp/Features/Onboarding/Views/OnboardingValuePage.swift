@@ -2,7 +2,11 @@ import SwiftUI
 
 struct OnboardingValuePage: Identifiable {
     enum Background {
-        case image(String)
+        case image(
+            String,
+            dimmingOpacity: Double = 0.24,
+            topReadabilityOpacity: Double = 0.55
+        )
         case ambient(OnboardingValueAmbientBackground.Style)
     }
 

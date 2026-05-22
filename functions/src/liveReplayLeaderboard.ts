@@ -1,16 +1,17 @@
 import {onDocumentWritten} from "firebase-functions/v2/firestore";
 import * as admin from "firebase-admin";
 import {
-  extendReplaySplitStepsToMaxBuckets,
   MAX_REPLAY_SPLIT_CHECKPOINTS,
   normalizeReplaySplitSteps,
 } from "./liveReplaySplitNormalization.js";
 
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
+const LIVE_CLIMB_COMMUNITY_STATS_COLLECTION = "live_climb_community_stats";
+const LIVE_CLIMB_COMMUNITY_GLOBAL_ID = "global";
+const LIVE_CLIMB_COMPLETED_USERS_COLLECTION = "completedUsers";
 const LIVE_CLIMB_CONTEXT_TYPE = "live_climb";
-const JUST_CLIMB_CONTEXT_TYPE = "just_climb";
-const JUST_CLIMB_GLOBAL_CONTEXT_ID = "global";
-const JUST_CLIMB_TRACKING_MODE = "just_climb";
+const LIVE_CLIMB_TRACKING_MODE = "live_climb";
+const TARGET_REACHED_STOP_REASON = "target_reached";
 
 interface LiveReplayIndexPayload {
   contextKey: string;
@@ -29,10 +30,11 @@ interface PublicUserSnapshot {
   photoURL: string | null;
 }
 
-interface PublishedReplayBest {
-  workoutId: string;
-  completionDurationSeconds: number;
-  bucketCount: number;
+interface FirstAscentWriteInput {
+  userId: string;
+  entryId: string;
+  publicUser: PublicUserSnapshot;
+  claimedAt: unknown;
 }
 
 /**
@@ -53,60 +55,43 @@ export const onWorkoutReplaySplitsWritten = onDocumentWritten(
     const afterClimbPayload = parseLiveClimbReplayPayload(afterData, {
       requireEligibleParticipation: true,
     });
-    const beforeGlobalPayload = parseGlobalReplayPayload(beforeData);
-    const afterGlobalPayload = parseGlobalReplayPayload(afterData);
 
     if (
       !beforeClimbPayload &&
-      !afterClimbPayload &&
-      !beforeGlobalPayload &&
-      !afterGlobalPayload
+      !afterClimbPayload
     ) {
       return;
     }
 
-    const publicUser = afterClimbPayload || afterGlobalPayload ?
+    const publicUser = afterClimbPayload ?
       await publicUserSnapshot(userId) :
       null;
 
-    if (
-      beforeClimbPayload &&
-      (
-        !afterClimbPayload ||
-        beforeClimbPayload.contextKey !== afterClimbPayload.contextKey
-      )
-    ) {
-      await removeBestReplayEntries(beforeClimbPayload, userId, workoutId);
+    if (beforeClimbPayload) {
+      await deleteReplayEntriesForId(beforeClimbPayload, workoutId);
     }
 
     if (afterClimbPayload && publicUser) {
-      await publishBestReplayEntries(
+      await publishReplayEntries(
         afterClimbPayload,
-        userId,
         workoutId,
+        userId,
         publicUser
       );
     }
 
     if (beforeClimbPayload) {
-      await deleteLegacyWorkoutReplayEntries(beforeClimbPayload, workoutId);
+      await deleteReplayEntriesForId(beforeClimbPayload, userId);
+      await deleteUserBestAttempt(beforeClimbPayload, userId);
     }
 
     if (afterClimbPayload) {
-      await deleteLegacyWorkoutReplayEntries(afterClimbPayload, workoutId);
+      await deleteReplayEntriesForId(afterClimbPayload, userId);
+      await deleteUserBestAttempt(afterClimbPayload, userId);
     }
 
-    if (beforeGlobalPayload) {
-      await deleteReplayEntriesForId(beforeGlobalPayload, workoutId);
-    }
-
-    if (afterGlobalPayload && publicUser) {
-      await publishReplayEntries(
-        afterGlobalPayload,
-        workoutId,
-        userId,
-        publicUser
-      );
+    if (beforeClimbPayload || afterClimbPayload) {
+      await updateLiveClimbCommunityStats(userId);
     }
   }
 );
@@ -128,7 +113,7 @@ function parseLiveClimbReplayPayload(
 
   if (
     options.requireEligibleParticipation &&
-    !parsed.hasEligibleClimbAttempt
+    !hasCompletedLiveClimbAttempt(parsed)
   ) {
     return null;
   }
@@ -142,33 +127,6 @@ function parseLiveClimbReplayPayload(
     parsed,
     LIVE_CLIMB_CONTEXT_TYPE,
     climbId
-  );
-}
-
-/**
- * Converts any completed live-tracked climb into the global Just Climb payload.
- * @param {Record<string, unknown> | undefined} data Raw workout data.
- * @return {LiveReplayIndexPayload | null} Parsed replay payload, if valid.
- */
-function parseGlobalReplayPayload(
-  data: Record<string, unknown> | undefined
-): LiveReplayIndexPayload | null {
-  const parsed = parseReplayPayloadParts(data);
-  if (!parsed) {
-    return null;
-  }
-
-  const trackingMode = stringValue(parsed.metadata.trackingMode);
-  const isJustClimb = trackingMode === JUST_CLIMB_TRACKING_MODE;
-  if (!parsed.hasEligibleClimbAttempt && !isJustClimb) {
-    return null;
-  }
-
-  return replayPayload(
-    parsed,
-    JUST_CLIMB_CONTEXT_TYPE,
-    JUST_CLIMB_GLOBAL_CONTEXT_ID,
-    {extendThroughMaxBucket: true}
   );
 }
 
@@ -213,7 +171,9 @@ function parseReplayPayloadParts(
     ?.slice(0, MAX_REPLAY_SPLIT_CHECKPOINTS);
   const finalDurationSeconds = nonNegativeNumberValue(data.durationSeconds);
   const finalSteps = nonNegativeIntegerValue(data.steps);
-  const targetStepCount = positiveIntegerValue(metadata.targetStepCount);
+  const targetStepCount = positiveIntegerValue(
+    metadata.climbTargetStepCount
+  ) ?? positiveIntegerValue(metadata.targetStepCount);
 
   if (
     !splitIntervalSeconds ||
@@ -239,6 +199,31 @@ function parseReplayPayloadParts(
 }
 
 /**
+ * Returns whether a live climb workout represents a full completed climb.
+ * @param {ParsedReplayPayloadParts} parsed Parsed replay payload parts.
+ * @return {boolean} True when the row may be published publicly.
+ */
+function hasCompletedLiveClimbAttempt(
+  parsed: ParsedReplayPayloadParts
+): boolean {
+  if (!parsed.hasEligibleClimbAttempt) {
+    return false;
+  }
+
+  const trackingMode = stringValue(parsed.metadata.trackingMode);
+  const stopReason = stringValue(parsed.metadata.stopReason);
+  const baselineSteps = nonNegativeIntegerValue(
+    parsed.metadata.attemptBaselineSteps
+  );
+
+  return trackingMode === LIVE_CLIMB_TRACKING_MODE &&
+    stopReason === TARGET_REACHED_STOP_REASON &&
+    parsed.targetStepCount !== null &&
+    parsed.finalSteps >= parsed.targetStepCount &&
+    (baselineSteps === null || baselineSteps === 0);
+}
+
+/**
  * Creates a context-specific replay payload from parsed common fields.
  * @param {ParsedReplayPayloadParts} parsed Common replay fields.
  * @param {string} contextType Replay context type.
@@ -249,21 +234,14 @@ function parseReplayPayloadParts(
 function replayPayload(
   parsed: ParsedReplayPayloadParts,
   contextType: string,
-  contextId: string,
-  options: {extendThroughMaxBucket?: boolean} = {}
+  contextId: string
 ): LiveReplayIndexPayload {
-  const normalizedSplitSteps = normalizeReplaySplitSteps({
+  const splitSteps = normalizeReplaySplitSteps({
     splitIntervalSeconds: parsed.splitIntervalSeconds,
     splitSteps: parsed.splitSteps,
     finalDurationSeconds: parsed.finalDurationSeconds,
     finalSteps: parsed.finalSteps,
   });
-  const splitSteps = options.extendThroughMaxBucket === true ?
-    extendReplaySplitStepsToMaxBuckets(
-      normalizedSplitSteps,
-      parsed.finalSteps
-    ) :
-    normalizedSplitSteps;
 
   return {
     contextKey: contextKey(contextType, contextId),
@@ -315,18 +293,6 @@ function deleteReplayEntries(
 }
 
 /**
- * Deletes legacy workout-id keyed replay entries left by older publishers.
- * @param {LiveReplayIndexPayload} payload Replay payload.
- * @param {string} workoutId Workout document ID.
- */
-async function deleteLegacyWorkoutReplayEntries(
-  payload: LiveReplayIndexPayload,
-  workoutId: string
-): Promise<void> {
-  await deleteReplayEntriesForId(payload, workoutId);
-}
-
-/**
  * Deletes replay entries with the given public row document ID.
  * @param {LiveReplayIndexPayload} payload Replay payload.
  * @param {string} entryId Public row document ID.
@@ -338,6 +304,18 @@ async function deleteReplayEntriesForId(
   const writer = admin.firestore().bulkWriter();
   deleteReplayEntries(writer, payload, entryId);
   await writer.close();
+}
+
+/**
+ * Deletes the legacy per-user best guard document.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @param {string} userId Owner user ID.
+ */
+async function deleteUserBestAttempt(
+  payload: LiveReplayIndexPayload,
+  userId: string
+): Promise<void> {
+  await userBestAttemptReference(payload, userId).delete();
 }
 
 /**
@@ -360,14 +338,29 @@ async function publishReplayEntries(
     .doc(payload.contextKey);
 
   await db.runTransaction(async (transaction) => {
-    transaction.set(leaderboardRef, {
+    const leaderboardSnapshot = await transaction.get(leaderboardRef);
+    const summaryWrite: Record<string, unknown> = {
       bucketIntervalSeconds: payload.splitIntervalSeconds,
       contextId: payload.contextId,
       contextType: payload.contextType,
       schemaVersion: 1,
       targetStepCount: payload.targetStepCount,
       updatedAt: now,
-    }, {merge: true});
+    };
+
+    if (!leaderboardHasFirstAscent(leaderboardSnapshot.data())) {
+      Object.assign(
+        summaryWrite,
+        firstAscentWrite({
+          userId,
+          entryId,
+          publicUser,
+          claimedAt: now,
+        })
+      );
+    }
+
+    transaction.set(leaderboardRef, summaryWrite, {merge: true});
 
     for (let index = 0; index < payload.splitSteps.length; index += 1) {
       transaction.set(entryReference(payload, index, entryId), {
@@ -388,138 +381,114 @@ async function publishReplayEntries(
 }
 
 /**
- * Publishes a saved attempt only if it is the user's best public replay row.
- * @param {LiveReplayIndexPayload} payload Replay payload.
- * @param {string} userId Owner user ID.
- * @param {string} workoutId Workout document ID.
- * @param {PublicUserSnapshot} publicUser Public display snapshot.
+ * Returns whether a replay summary already has a permanent First Ascent holder.
+ * @param {Record<string, unknown> | undefined} data Replay summary data.
+ * @return {boolean} True when the First Ascent slot is already claimed.
  */
-async function publishBestReplayEntries(
-  payload: LiveReplayIndexPayload,
-  userId: string,
-  workoutId: string,
-  publicUser: PublicUserSnapshot
-): Promise<void> {
-  const db = admin.firestore();
-  const now = admin.firestore.FieldValue.serverTimestamp();
-  const leaderboardRef = db
-    .collection(LIVE_REPLAY_COLLECTION)
-    .doc(payload.contextKey);
-  const bestRef = userBestAttemptReference(payload, userId);
-
-  await db.runTransaction(async (transaction) => {
-    const currentBest = publishedReplayBest(
-      (await transaction.get(bestRef)).data()
-    );
-    if (
-      currentBest &&
-      currentBest.workoutId !== workoutId &&
-      currentBest.completionDurationSeconds <= payload.finalDurationSeconds
-    ) {
-      return;
-    }
-
-    transaction.set(leaderboardRef, {
-      bucketIntervalSeconds: payload.splitIntervalSeconds,
-      contextId: payload.contextId,
-      contextType: payload.contextType,
-      schemaVersion: 1,
-      targetStepCount: payload.targetStepCount,
-      updatedAt: now,
-    }, {merge: true});
-
-    transaction.set(bestRef, {
-      bucketCount: payload.splitSteps.length,
-      completionDurationSeconds: payload.finalDurationSeconds,
-      contextId: payload.contextId,
-      contextType: payload.contextType,
-      finalSteps: payload.finalSteps,
-      schemaVersion: 1,
-      userId,
-      workoutId,
-      updatedAt: now,
-    }, {merge: true});
-
-    for (let index = 0; index < payload.splitSteps.length; index += 1) {
-      transaction.set(entryReference(payload, index, userId), {
-        avatarToken: publicUser.avatarToken,
-        completionDurationSeconds: payload.finalDurationSeconds,
-        displayName: publicUser.displayName,
-        finalSteps: payload.finalSteps,
-        photoURL: publicUser.photoURL ?? "",
-        schemaVersion: 1,
-        splitIntervalSeconds: payload.splitIntervalSeconds,
-        stepsAtBucket: payload.splitSteps[index],
-        updatedAt: now,
-        userId,
-        workoutId,
-      });
-    }
-
-    const previousBucketCount = currentBest?.bucketCount ?? 0;
-    for (
-      let index = payload.splitSteps.length;
-      index < previousBucketCount;
-      index += 1
-    ) {
-      transaction.delete(entryReference(payload, index, userId));
-    }
-  });
-}
-
-/**
- * Removes replay entries when the user's published best attempt is removed.
- * @param {LiveReplayIndexPayload} payload Previous replay payload.
- * @param {string} userId Owner user ID.
- * @param {string} workoutId Workout document ID.
- */
-async function removeBestReplayEntries(
-  payload: LiveReplayIndexPayload,
-  userId: string,
-  workoutId: string
-): Promise<void> {
-  const db = admin.firestore();
-  const bestRef = userBestAttemptReference(payload, userId);
-
-  await db.runTransaction(async (transaction) => {
-    const currentBest = publishedReplayBest(
-      (await transaction.get(bestRef)).data()
-    );
-    if (!currentBest || currentBest.workoutId !== workoutId) {
-      return;
-    }
-
-    for (let index = 0; index < currentBest.bucketCount; index += 1) {
-      transaction.delete(entryReference(payload, index, userId));
-    }
-
-    transaction.delete(bestRef);
-  });
-}
-
-/**
- * Parses the per-user published-best guard document.
- * @param {FirebaseFirestore.DocumentData | undefined} data Firestore data.
- * @return {PublishedReplayBest | null} Published best snapshot, if valid.
- */
-function publishedReplayBest(
-  data: FirebaseFirestore.DocumentData | undefined
-): PublishedReplayBest | null {
-  const workoutId = stringValue(data?.workoutId);
-  const completionDurationSeconds = nonNegativeNumberValue(
-    data?.completionDurationSeconds
-  );
-  const bucketCount = positiveIntegerValue(data?.bucketCount);
-
-  if (!workoutId || completionDurationSeconds === null || !bucketCount) {
-    return null;
+function leaderboardHasFirstAscent(
+  data: Record<string, unknown> | undefined
+): boolean {
+  if (!data) {
+    return false;
   }
 
+  return data.firstAscentCompletedAt !== undefined ||
+    stringValue(data.firstAscentUserId) !== null;
+}
+
+/**
+ * Builds the server-owned First Ascent payload for a replay summary.
+ * @param {FirstAscentWriteInput} input First Ascent write input.
+ * @return {Record<string, unknown>} Firestore fields to merge.
+ */
+function firstAscentWrite(
+  input: FirstAscentWriteInput
+): Record<string, unknown> {
   return {
-    workoutId,
-    completionDurationSeconds,
-    bucketCount,
+    firstAscentAvatarToken: input.publicUser.avatarToken,
+    firstAscentCompletedAt: input.claimedAt,
+    firstAscentDisplayName: input.publicUser.displayName,
+    firstAscentPhotoURL: input.publicUser.photoURL ?? "",
+    firstAscentUserId: input.userId,
+    firstAscentWorkoutId: input.entryId,
   };
+}
+
+/**
+ * Maintains the global unique user count for catalog Live Climb completions.
+ * @param {string} userId Owner user ID.
+ */
+async function updateLiveClimbCommunityStats(userId: string): Promise<void> {
+  const hasCompletedClimb = await userHasCompletedAnyLiveClimb(userId);
+  const db = admin.firestore();
+  const statsRef = liveClimbCommunityStatsReference();
+  const completedUserRef = statsRef
+    .collection(LIVE_CLIMB_COMPLETED_USERS_COLLECTION)
+    .doc(userId);
+
+  await db.runTransaction(async (transaction) => {
+    const completedUserSnapshot = await transaction.get(completedUserRef);
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    if (hasCompletedClimb && !completedUserSnapshot.exists) {
+      transaction.set(completedUserRef, {
+        firstCompletedAt: now,
+        schemaVersion: 1,
+        updatedAt: now,
+        userId,
+      });
+      transaction.set(statsRef, {
+        schemaVersion: 1,
+        uniqueCompletedUserCount: admin.firestore.FieldValue.increment(1),
+        updatedAt: now,
+      }, {merge: true});
+      return;
+    }
+
+    if (hasCompletedClimb) {
+      transaction.set(completedUserRef, {
+        schemaVersion: 1,
+        updatedAt: now,
+        userId,
+      }, {merge: true});
+      transaction.set(statsRef, {
+        schemaVersion: 1,
+        updatedAt: now,
+      }, {merge: true});
+      return;
+    }
+
+    if (completedUserSnapshot.exists) {
+      transaction.delete(completedUserRef);
+      transaction.set(statsRef, {
+        schemaVersion: 1,
+        uniqueCompletedUserCount: admin.firestore.FieldValue.increment(-1),
+        updatedAt: now,
+      }, {merge: true});
+    }
+  });
+}
+
+/**
+ * Returns whether a user has at least one completed catalog Live Climb.
+ * @param {string} userId Owner user ID.
+ * @return {Promise<boolean>} True when the user has any eligible completion.
+ */
+async function userHasCompletedAnyLiveClimb(userId: string): Promise<boolean> {
+  const snapshot = await admin.firestore()
+    .collection("users")
+    .doc(userId)
+    .collection("workouts")
+    .where("source", "==", "headphone_motion")
+    .get();
+
+  return snapshot.docs.some((document) => {
+    const payload = parseLiveClimbReplayPayload(
+      document.data() as Record<string, unknown>,
+      {requireEligibleParticipation: true}
+    );
+    return payload !== null;
+  });
 }
 
 /**
@@ -537,6 +506,17 @@ function userBestAttemptReference(
     .doc(payload.contextKey)
     .collection("userBestAttempts")
     .doc(userId);
+}
+
+/**
+ * Global community stats document for catalog Live Climb completion counts.
+ * @return {FirebaseFirestore.DocumentReference} Stats document reference.
+ */
+function liveClimbCommunityStatsReference():
+  FirebaseFirestore.DocumentReference {
+  return admin.firestore()
+    .collection(LIVE_CLIMB_COMMUNITY_STATS_COLLECTION)
+    .doc(LIVE_CLIMB_COMMUNITY_GLOBAL_ID);
 }
 
 /**
@@ -715,3 +695,9 @@ function integerArrayValue(value: unknown): number[] | null {
 
   return values;
 }
+
+export const liveReplayLeaderboardTestHooks = {
+  firstAscentWrite,
+  leaderboardHasFirstAscent,
+  parseLiveClimbReplayPayload,
+};

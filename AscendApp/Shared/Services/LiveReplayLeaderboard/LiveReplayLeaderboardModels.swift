@@ -4,17 +4,20 @@ struct LiveReplayLeaderboardSummary: Equatable, Sendable {
     let totalClimbers: Int
     let completedCount: Int
     let personalBestDurationSeconds: TimeInterval?
+    let firstAscent: LiveReplayFirstAscent?
     let updatedAt: Date?
 
     init(
         totalClimbers: Int,
         completedCount: Int = 0,
         personalBestDurationSeconds: TimeInterval?,
+        firstAscent: LiveReplayFirstAscent? = nil,
         updatedAt: Date?
     ) {
         self.totalClimbers = max(totalClimbers, 0)
         self.completedCount = max(completedCount, 0)
         self.personalBestDurationSeconds = personalBestDurationSeconds
+        self.firstAscent = firstAscent
         self.updatedAt = updatedAt
     }
 
@@ -22,8 +25,31 @@ struct LiveReplayLeaderboardSummary: Equatable, Sendable {
         totalClimbers: 0,
         completedCount: 0,
         personalBestDurationSeconds: nil,
+        firstAscent: nil,
         updatedAt: nil
     )
+}
+
+struct LiveReplayFirstAscent: Equatable, Sendable {
+    let userId: String?
+    let displayName: String
+    let avatarToken: String
+    let photoURL: URL?
+    let completedAt: Date
+
+    init(
+        userId: String?,
+        displayName: String,
+        avatarToken: String,
+        photoURL: URL?,
+        completedAt: Date
+    ) {
+        self.userId = userId
+        self.displayName = displayName
+        self.avatarToken = avatarToken
+        self.photoURL = photoURL
+        self.completedAt = completedAt
+    }
 }
 
 struct LiveReplayCompletionRank: Equatable, Sendable {
@@ -72,6 +98,35 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
     let isCurrentUser: Bool
     let isPersonalBest: Bool
     let completionDurationSeconds: TimeInterval?
+    let userId: String?
+
+    init(
+        id: String,
+        rank: Int?,
+        displayName: String,
+        avatarToken: String,
+        photoURL: URL?,
+        stepsAtBucket: Int,
+        finalSteps: Int,
+        deltaFromUser: Int,
+        isCurrentUser: Bool,
+        isPersonalBest: Bool,
+        completionDurationSeconds: TimeInterval?,
+        userId: String? = nil
+    ) {
+        self.id = id
+        self.rank = rank
+        self.displayName = displayName
+        self.avatarToken = avatarToken
+        self.photoURL = photoURL
+        self.stepsAtBucket = stepsAtBucket
+        self.finalSteps = finalSteps
+        self.deltaFromUser = deltaFromUser
+        self.isCurrentUser = isCurrentUser
+        self.isPersonalBest = isPersonalBest
+        self.completionDurationSeconds = completionDurationSeconds
+        self.userId = userId
+    }
 
     var averageStepsPerMinute: Double? {
         guard let completionDurationSeconds,
@@ -102,7 +157,8 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
             deltaFromUser: 0,
             isCurrentUser: true,
             isPersonalBest: isPersonalBest,
-            completionDurationSeconds: nil
+            completionDurationSeconds: nil,
+            userId: nil
         )
     }
 
@@ -153,7 +209,8 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
             deltaFromUser: deltaFromUser ?? self.deltaFromUser,
             isCurrentUser: isCurrentUser,
             isPersonalBest: isPersonalBest,
-            completionDurationSeconds: completionDurationSeconds
+            completionDurationSeconds: completionDurationSeconds,
+            userId: userId
         )
     }
 

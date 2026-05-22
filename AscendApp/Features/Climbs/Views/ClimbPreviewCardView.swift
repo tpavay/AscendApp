@@ -52,7 +52,7 @@ struct ClimbPreviewCardView: View {
                                     .foregroundStyle(.white.opacity(0.88))
                             }
 
-                            Text(sessionRequirementText)
+                            Text("Finish in one live attempt")
                                 .font(.montserratMedium(size: 10))
                                 .italic()
                                 .foregroundStyle(.white.opacity(0.32))
@@ -93,29 +93,11 @@ struct ClimbPreviewCardView: View {
         )
     }
 
-    private var sessionRequirementText: String {
-        if summary.climb.multiSession {
-            return "Can be completed over multiple sessions"
-        }
-
-        return "Must be completed in a single session"
-    }
 }
 
 #Preview("New Climb") {
     ClimbPreviewCardView(
-        summary: ClimbPreviewSummary(climb: .preview, isCompleted: false, isActive: false),
-        onSelect: {},
-        onClose: {}
-    )
-    .padding(16)
-    .background(.black)
-    .preferredColorScheme(.dark)
-}
-
-#Preview("Active Climb") {
-    ClimbPreviewCardView(
-        summary: ClimbPreviewSummary(climb: .preview, isCompleted: false, isActive: true),
+        summary: ClimbPreviewSummary(climb: .preview, isCompleted: false),
         onSelect: {},
         onClose: {}
     )
@@ -126,7 +108,7 @@ struct ClimbPreviewCardView: View {
 
 #Preview("Completed Climb") {
     ClimbPreviewCardView(
-        summary: ClimbPreviewSummary(climb: .preview, isCompleted: true, isActive: false),
+        summary: ClimbPreviewSummary(climb: .preview, isCompleted: true),
         onSelect: {},
         onClose: {}
     )

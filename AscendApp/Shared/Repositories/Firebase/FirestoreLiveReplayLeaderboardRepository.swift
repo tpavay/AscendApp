@@ -21,6 +21,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             totalClimbers: intValue(for: "totalClimbers", in: data) ?? 0,
             completedCount: intValue(for: "completedCount", in: data) ?? 0,
             personalBestDurationSeconds: doubleValue(for: "personalBestDurationSeconds", in: data),
+            firstAscent: firstAscentValue(in: data),
             updatedAt: timestampValue(for: "updatedAt", in: data)
         )
     }
@@ -237,9 +238,10 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         }
 
         let snapshot = try await entriesCollection(context: context, bucketIndex: 0)
-            .document(uid)
-            .getDocument(source: .server)
-        return snapshot.exists
+            .whereField("userId", isEqualTo: uid)
+            .limit(to: 1)
+            .getDocuments(source: .server)
+        return snapshot.documents.isEmpty == false
     }
 
     private func optionalCountRowsAhead(
@@ -284,6 +286,9 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         let displayName = (data["displayName"] as? String)
             .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }
             ?? "Climber"
+        let userId = (data["userId"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
 
         return LiveReplayLeaderboardRow(
             id: id,
@@ -296,7 +301,8 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             deltaFromUser: stepsAtBucket - currentSteps,
             isCurrentUser: false,
             isPersonalBest: (data["isPersonalBest"] as? Bool) ?? false,
-            completionDurationSeconds: doubleValue(for: "completionDurationSeconds", in: data)
+            completionDurationSeconds: doubleValue(for: "completionDurationSeconds", in: data),
+            userId: userId
         )
     }
 
@@ -316,6 +322,9 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         let displayName = (data["displayName"] as? String)
             .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }
             ?? "Climber"
+        let userId = (data["userId"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
         let stepsAtBucket = intValue(for: "stepsAtBucket", in: data) ?? 0
 
         return LiveReplayLeaderboardRow(
@@ -327,9 +336,10 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             stepsAtBucket: stepsAtBucket,
             finalSteps: intValue(for: "finalSteps", in: data) ?? stepsAtBucket,
             deltaFromUser: 0,
-            isCurrentUser: id == currentUserId,
-            isPersonalBest: id == currentUserId,
-            completionDurationSeconds: completionDurationSeconds
+            isCurrentUser: userId == currentUserId,
+            isPersonalBest: userId == currentUserId,
+            completionDurationSeconds: completionDurationSeconds,
+            userId: userId
         )
     }
 
@@ -372,7 +382,8 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             deltaFromUser: row.deltaFromUser,
             isCurrentUser: row.isCurrentUser,
             isPersonalBest: row.isPersonalBest,
-            completionDurationSeconds: row.completionDurationSeconds
+            completionDurationSeconds: row.completionDurationSeconds,
+            userId: row.userId
         )
     }
 
@@ -430,6 +441,30 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         }
 
         return url
+    }
+
+    private func firstAscentValue(in data: [String: Any]) -> LiveReplayFirstAscent? {
+        guard let completedAt = timestampValue(for: "firstAscentCompletedAt", in: data) else {
+            return nil
+        }
+
+        let displayName = stringValue(for: "firstAscentDisplayName", in: data) ?? "Climber"
+        let avatarToken = stringValue(for: "firstAscentAvatarToken", in: data) ??
+            Self.avatarToken(for: displayName)
+
+        return LiveReplayFirstAscent(
+            userId: stringValue(for: "firstAscentUserId", in: data),
+            displayName: displayName,
+            avatarToken: avatarToken,
+            photoURL: photoURLValue(for: "firstAscentPhotoURL", in: data),
+            completedAt: completedAt
+        )
+    }
+
+    private func stringValue(for key: String, in data: [String: Any]) -> String? {
+        (data[key] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
     }
 
     private static func avatarToken(for displayName: String) -> String {

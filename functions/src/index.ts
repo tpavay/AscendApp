@@ -1,7 +1,6 @@
 /**
  * Cloud Functions for AscendApp
  *
- * - Strava: OAuth and activity sync integration
  * - Email: Background transactional waitlist email processing
  */
 
@@ -14,12 +13,5 @@ export {processEmailJobs} from "./email/processor";
 export {onFeedbackCreated} from "./feedback";
 export {onWorkoutReplaySplitsWritten} from "./liveReplayLeaderboard";
 export {joinWaitlist} from "./waitlist";
-
-export {
-  stravaCallback,
-  stravaCreateOAuthState,
-  stravaCreateActivity,
-  stravaDisconnect,
-} from "./strava";
 
 setGlobalOptions({maxInstances: 10});

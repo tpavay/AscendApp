@@ -123,7 +123,7 @@ extension WorkoutParticipationVerificationTier {
             return .unverified
         case .headphoneMotion:
             return .sensorVerified
-        case .appleHealth, .garmin, .strava, .fitbit, .hevy:
+        case .appleHealth, .garmin, .fitbit, .hevy:
             return .providerVerified
         }
     }
