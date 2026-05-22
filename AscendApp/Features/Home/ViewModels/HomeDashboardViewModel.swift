@@ -141,10 +141,14 @@ final class HomeDashboardViewModel {
     }
 
     private func fetchWeeklyStats(modelContext: ModelContext, referenceDate: Date) -> HomeWeeklyStats {
-        let startDate = Calendar.current.date(byAdding: .day, value: -7, to: referenceDate) ?? referenceDate
+        let calendar = WeekConfiguration.calendar()
+        let weekInterval = calendar.dateInterval(of: .weekOfYear, for: referenceDate) ??
+            DateInterval(start: referenceDate, duration: 7 * 24 * 60 * 60)
+        let startDate = weekInterval.start
+        let endDate = min(referenceDate, weekInterval.end)
         let descriptor = FetchDescriptor<Workout>(
             predicate: #Predicate<Workout> { workout in
-                workout.date >= startDate && workout.date <= referenceDate
+                workout.date >= startDate && workout.date <= endDate
             }
         )
 

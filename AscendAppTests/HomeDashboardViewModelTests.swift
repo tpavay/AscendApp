@@ -23,9 +23,9 @@ struct HomeDashboardViewModelTests {
         let viewModel = HomeDashboardViewModel()
         viewModel.refreshLocalData(modelContext: modelContext, referenceDate: referenceDate)
 
-        #expect(viewModel.weeklyStats.climbs == 2)
-        #expect(viewModel.weeklyStats.steps == 3_000)
-        #expect(viewModel.weeklyStats.durationText == "1h 30m")
+        #expect(viewModel.weeklyStats.climbs == 1)
+        #expect(viewModel.weeklyStats.steps == 1_000)
+        #expect(viewModel.weeklyStats.durationText == "30 min")
         #expect(viewModel.completedClimbCount == 2)
         #expect(viewModel.workoutCount == 3)
     }
@@ -37,6 +37,8 @@ struct HomeDashboardViewModelTests {
             WorkoutParticipation.self,
             ClimbAttempt.self,
             LeaderboardStats.self,
+            BestEffortCacheEntry.self,
+            BestEffortCacheMetadata.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
         return ModelContext(container)

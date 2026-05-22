@@ -652,7 +652,7 @@ private struct HomePRCard: View {
     let record: HomeRecentPRRecord
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(record.label)
                 .font(.montserratSemiBold(size: 9))
                 .tracking(0.8)
@@ -666,8 +666,9 @@ private struct HomePRCard: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }
-        .frame(maxWidth: .infinity, minHeight: 86, maxHeight: 86, alignment: .leading)
-        .padding(12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, minHeight: 74, maxHeight: 74, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color(hex: "111111"))
