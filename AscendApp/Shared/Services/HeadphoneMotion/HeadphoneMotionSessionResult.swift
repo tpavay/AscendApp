@@ -8,7 +8,7 @@ enum HeadphoneMotionSessionStopReason: String, Codable, Sendable {
 
 enum HeadphoneMotionWorkoutTrackingMode: String, Codable, Sendable {
     case liveClimb = "live_climb"
-    case justClimb = "just_climb"
+    case legacyOpenTracking = "just_climb"
 }
 
 struct HeadphoneMotionSessionResult: Equatable, Sendable {
@@ -32,6 +32,7 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
     let trackingMode: HeadphoneMotionWorkoutTrackingMode?
     let climbId: String?
     let targetStepCount: Int?
+    let climbTargetStepCount: Int?
     let stopReason: HeadphoneMotionSessionStopReason
     let splitIntervalSeconds: Int?
     let splitSteps: [Int]?
@@ -41,6 +42,7 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
         trackingMode: HeadphoneMotionWorkoutTrackingMode = .liveClimb,
         climbId: String?,
         targetStepCount: Int?,
+        climbTargetStepCount: Int? = nil,
         stopReason: HeadphoneMotionSessionStopReason,
         splitCurve: LiveReplaySplitCurve? = nil
     ) {
@@ -51,6 +53,7 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
         self.trackingMode = trackingMode
         self.climbId = climbId
         self.targetStepCount = targetStepCount
+        self.climbTargetStepCount = climbTargetStepCount
         self.stopReason = stopReason
         self.splitIntervalSeconds = splitCurve?.intervalSeconds
         self.splitSteps = splitCurve?.steps

@@ -237,9 +237,10 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         }
 
         let snapshot = try await entriesCollection(context: context, bucketIndex: 0)
-            .document(uid)
-            .getDocument(source: .server)
-        return snapshot.exists
+            .whereField("userId", isEqualTo: uid)
+            .limit(to: 1)
+            .getDocuments(source: .server)
+        return snapshot.documents.isEmpty == false
     }
 
     private func optionalCountRowsAhead(
@@ -284,6 +285,9 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         let displayName = (data["displayName"] as? String)
             .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }
             ?? "Climber"
+        let userId = (data["userId"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
 
         return LiveReplayLeaderboardRow(
             id: id,
@@ -296,7 +300,8 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             deltaFromUser: stepsAtBucket - currentSteps,
             isCurrentUser: false,
             isPersonalBest: (data["isPersonalBest"] as? Bool) ?? false,
-            completionDurationSeconds: doubleValue(for: "completionDurationSeconds", in: data)
+            completionDurationSeconds: doubleValue(for: "completionDurationSeconds", in: data),
+            userId: userId
         )
     }
 
@@ -316,6 +321,9 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         let displayName = (data["displayName"] as? String)
             .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }
             ?? "Climber"
+        let userId = (data["userId"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
         let stepsAtBucket = intValue(for: "stepsAtBucket", in: data) ?? 0
 
         return LiveReplayLeaderboardRow(
@@ -327,9 +335,10 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             stepsAtBucket: stepsAtBucket,
             finalSteps: intValue(for: "finalSteps", in: data) ?? stepsAtBucket,
             deltaFromUser: 0,
-            isCurrentUser: id == currentUserId,
-            isPersonalBest: id == currentUserId,
-            completionDurationSeconds: completionDurationSeconds
+            isCurrentUser: userId == currentUserId,
+            isPersonalBest: userId == currentUserId,
+            completionDurationSeconds: completionDurationSeconds,
+            userId: userId
         )
     }
 
@@ -372,7 +381,8 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             deltaFromUser: row.deltaFromUser,
             isCurrentUser: row.isCurrentUser,
             isPersonalBest: row.isPersonalBest,
-            completionDurationSeconds: row.completionDurationSeconds
+            completionDurationSeconds: row.completionDurationSeconds,
+            userId: row.userId
         )
     }
 

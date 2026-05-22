@@ -59,6 +59,12 @@ class AuthenticationViewModel {
         if let cachedURLString = UserDataRepository.shared.getCachedProfilePictureURL() {
             customProfilePictureURL = URL(string: cachedURLString)
         }
+
+        if let currentUser = Auth.auth().currentUser {
+            user = currentUser
+            photoURL = currentUser.photoURL
+            authenticationState = .restoringSession
+        }
         
         registerAuthStateHandler()
     }
@@ -286,7 +292,9 @@ extension AuthenticationViewModel {
             email: user.email,
             firstName: existingData?.firstName,
             lastName: existingData?.lastName,
-            displayName: existingData?.displayName
+            displayName: existingData?.displayName,
+            age: existingData?.age,
+            gender: existingData?.gender
         )
     }
     
@@ -423,6 +431,59 @@ extension AuthenticationViewModel {
         } catch {
             displayName = previousDisplayName
             errorMessage = "Failed to update display name: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    func updateOnboardingProfile(displayName newDisplayName: String, age: Int, gender: ProfileGender) async -> Bool {
+        errorMessage = nil
+
+        guard let user else {
+            errorMessage = "User not authenticated"
+            return false
+        }
+
+        let trimmedName = newDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedName.isEmpty else {
+            errorMessage = "Display name cannot be empty"
+            return false
+        }
+
+        guard (13...120).contains(age) else {
+            errorMessage = "Enter an age from 13 to 120"
+            return false
+        }
+
+        let previousDisplayName = displayName
+
+        do {
+            displayName = trimmedName
+
+            try await authenticationService.updateUserDisplayName(displayName: trimmedName)
+
+            try await UserDataRepository.shared.updateOnboardingProfile(
+                userId: user.uid,
+                email: user.email,
+                displayName: trimmedName,
+                age: age,
+                gender: gender
+            )
+
+            do {
+                try await LeaderboardService.shared.updateDisplayName(
+                    userId: user.uid,
+                    displayName: trimmedName
+                )
+            } catch {
+                print("Warning: Failed to update leaderboard display name: \(error)")
+            }
+
+            return true
+        } catch {
+            displayName = previousDisplayName
+            errorMessage = "Failed to update profile: \(error.localizedDescription)"
             return false
         }
     }

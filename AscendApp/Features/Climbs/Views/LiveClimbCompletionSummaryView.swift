@@ -343,7 +343,7 @@ struct LiveClimbCompletionSummaryView: View {
             return primaryBestEffort.sentence
         }
 
-        return "\(climb?.name ?? "Just Climb") saved to history"
+        return "\(climb?.name ?? "Live Climb") saved to history"
     }
 
     private var displayedRank: Int? {

@@ -6,7 +6,6 @@ import SwiftData
 @Observable
 final class ClimbDetailViewModel {
     var climb: Climb
-    var activeSummary: ActiveClimbSummary?
     var historySummary: ClimbHistorySummary
     var leaderboardSummary: LiveReplayLeaderboardSummary = .empty
     var leaderboardPreviewRows: [LiveReplayLeaderboardRow] = []
@@ -15,7 +14,6 @@ final class ClimbDetailViewModel {
     var isLeaderboardLoading = false
     var leaderboardErrorMessage: String?
     var collectionOrder: Int?
-    var projectedCollectionOrder: Int?
     var loadErrorMessage: String?
 
     private let climbService: ClimbService
@@ -40,15 +38,6 @@ final class ClimbDetailViewModel {
         climb.displayLocation
     }
 
-    var isCurrentActiveClimb: Bool {
-        activeSummary?.climb.id == climb.id
-    }
-
-    var conflictingActiveSummary: ActiveClimbSummary? {
-        guard let activeSummary, activeSummary.climb.id != climb.id else { return nil }
-        return activeSummary
-    }
-
     var hasCompletionHistory: Bool {
         historySummary.completionsCount > 0
     }
@@ -57,35 +46,12 @@ final class ClimbDetailViewModel {
         historySummary.attemptsCount > 0
     }
 
-    var hasIncompleteAttemptHistory: Bool {
-        historySummary.failedAttemptsCount > 0 || (isCurrentActiveClimb && !hasCompletionHistory)
-    }
-
     var actionTitle: String {
-        if isCurrentActiveClimb {
-            guard let activeSummary,
-                  activeSummary.climb.multiSession,
-                  activeSummary.sessionsCount > 0 else {
-                return "Start Live Climb"
-            }
-
-            return "Continue Live Climb"
-        }
-
-        return "Start Live Climb"
+        "Start Live Climb"
     }
 
     var isActionEnabled: Bool {
         true
-    }
-
-    var progressSummary: ActiveClimbSummary? {
-        guard showsPersistentProgressControls else { return nil }
-        return activeSummary
-    }
-
-    var showsPersistentProgressControls: Bool {
-        isCurrentActiveClimb && climb.multiSession
     }
 
     var estimatedTimeText: String {
@@ -106,8 +72,7 @@ final class ClimbDetailViewModel {
     var communityTotalClimbers: Int {
         max(
             leaderboardSummary.totalClimbers,
-            communityCompletedCount,
-            hasAttemptHistory || isCurrentActiveClimb ? 1 : 0
+            communityCompletedCount
         )
     }
 
@@ -144,16 +109,12 @@ final class ClimbDetailViewModel {
             if let refreshedClimb = try climbService.climb(for: climb.id) {
                 climb = refreshedClimb
             }
-            activeSummary = try climbService.activeSummary(modelContext: modelContext)
             historySummary = climbService.historySummary(for: climb, modelContext: modelContext)
             collectionOrder = climbService.collectionOrder(for: climb, modelContext: modelContext)
-            projectedCollectionOrder = climbService.projectedCollectionOrder(for: climb, modelContext: modelContext)
             loadErrorMessage = nil
         } catch {
-            activeSummary = nil
             historySummary = .empty(for: climb)
             collectionOrder = nil
-            projectedCollectionOrder = nil
             loadErrorMessage = error.localizedDescription
         }
     }
@@ -228,18 +189,4 @@ final class ClimbDetailViewModel {
         )
     }
 
-    func startClimb(modelContext: ModelContext) throws {
-        _ = try climbService.startClimb(climb, modelContext: modelContext)
-        refresh(modelContext: modelContext)
-    }
-
-    func replaceActiveClimb(modelContext: ModelContext) throws {
-        _ = try climbService.replaceActiveClimb(with: climb, modelContext: modelContext)
-        refresh(modelContext: modelContext)
-    }
-
-    func abandonActiveClimb(modelContext: ModelContext) throws {
-        _ = try climbService.abandonActiveClimb(modelContext: modelContext)
-        refresh(modelContext: modelContext)
-    }
 }

@@ -189,12 +189,6 @@ class WorkoutFormViewModel {
                 )
             }
 
-            // Fire-and-forget Strava auto-sync (doesn't block save)
-            let stravaManager = StravaManager.shared
-            if FeatureFlags.isStravaEnabled && stravaManager.isConnected && stravaManager.autoSyncEnabled {
-                syncWorkoutToStravaInBackground(workout, modelContext: modelContext)
-            }
-
             // Don't clean up video files here - MediaUploadManager needs them
             // They'll be cleaned up after successful upload
 
@@ -239,30 +233,6 @@ class WorkoutFormViewModel {
         }
     }
 
-    private func syncWorkoutToStravaInBackground(_ workout: Workout, modelContext: ModelContext) {
-        let primaryMetric = settingsManager.preferredWorkoutMetric
-
-        Task { @MainActor in
-            do {
-                guard !workout.isSyncedToStrava else { return }
-
-                let activityId = try await StravaManager.shared.syncWorkout(
-                    workout,
-                    primaryMetric: primaryMetric
-                )
-                workout.setStravaSyncMetadata(StravaSyncMetadata(stravaActivityId: activityId))
-                try modelContext.save()
-            } catch {
-                TelemetryManager.shared.recordError(
-                    error,
-                    context: .strava,
-                    code: "auto_sync_failed"
-                )
-                print("Strava auto-sync failed: \(error)")
-            }
-        }
-    }
-    
     // MARK: - Form Processing Methods
     func formatDurationInput(_ newValue: String, oldValue: String) {
         let previousDigits = oldValue.filter { $0.isNumber }

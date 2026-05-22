@@ -72,11 +72,7 @@ struct WorkoutFormView: View {
             }
             .themedBackground()
             .navigationBarHidden(true)
-            .toolbar {
-                ToolbarItem(placement: .keyboard) {
-                    KeyboardDismissButton()
-                }
-            }
+            .keyboardDoneToolbar()
         }
         .sheet(isPresented: $showingMetricTooltip) {
             MetricTooltipView()

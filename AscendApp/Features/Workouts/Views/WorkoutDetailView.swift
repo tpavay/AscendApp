@@ -22,11 +22,6 @@ struct WorkoutDetailView: View {
     @State private var showingDeleteConfirmation = false
     @State private var showingDeleteError = false
     @State private var deleteErrorMessage = ""
-    @State private var stravaManager = StravaManager.shared
-    @State private var isSyncingToStrava = false
-    @State private var syncingIconOpacity: Double = 1.0
-    @State private var showingStravaSyncSuccess = false
-    @State private var stravaSyncError: String? = nil
     @State private var isDeleting = false
     @State private var isCancelling = false
     @State private var deleteTask: Task<Void, Never>? = nil
@@ -34,7 +29,7 @@ struct WorkoutDetailView: View {
     @State private var liveClimbCompletionRank: LiveReplayCompletionRank?
     @State private var isLoadingLiveClimbRank = false
 
-    // Strava-style layout state
+    // Media layout state
     @State private var sheetPosition: SheetPosition = .middle
     @State private var currentPhotoIndex: Int = 0
     @State private var selectedPhoto: Photo? = nil
@@ -63,7 +58,7 @@ struct WorkoutDetailView: View {
                     .ignoresSafeArea()
 
                 if hasMedia {
-                    stravaStyleLayout
+                    workoutMediaLayout
                 } else {
                     traditionalLayout
                 }
@@ -149,10 +144,10 @@ struct WorkoutDetailView: View {
         }
     }
 
-    // MARK: - Strava-Style Layout (unchanged structure, new content)
+    // MARK: - Media Layout
 
     @ViewBuilder
-    private var stravaStyleLayout: some View {
+    private var workoutMediaLayout: some View {
         GeometryReader { geometry in
             ZStack(alignment: .top) {
                 let heroHeight = sheetOffset > 0 ? sheetOffset : sheetPosition.photoHeight(in: geometry)
@@ -218,11 +213,6 @@ struct WorkoutDetailView: View {
                 )
                 .padding(.top, 80) // Account for header overlay
 
-                // Strava sync indicator
-                if FeatureFlags.isStravaEnabled && (isSyncingToStrava || workout.isSyncedToStrava) {
-                    stravaSyncBadge
-                }
-
                 // Media upload status banner
                 MediaUploadBanner(workoutId: workout.id) {
                     Task {
@@ -279,9 +269,6 @@ struct WorkoutDetailView: View {
                     effectiveColorScheme: effectiveColorScheme
                 )
 
-                if FeatureFlags.isStravaEnabled && (isSyncingToStrava || workout.isSyncedToStrava) {
-                    stravaSyncBadge
-                }
             }
 
             workoutContentSectionsWithoutTitle
@@ -491,28 +478,6 @@ struct WorkoutDetailView: View {
             }
         }
 
-        if FeatureFlags.isStravaEnabled && stravaManager.isConnected {
-            if workout.isSyncedToStrava {
-                Label("Synced to Strava", systemImage: "checkmark.circle.fill")
-            } else {
-                Button(action: shareToStrava) {
-                    if isSyncingToStrava {
-                        Label("Syncing...", systemImage: "arrow.triangle.2.circlepath")
-                    } else {
-                        HStack {
-                            Image("strava-icon")
-                                .renderingMode(.template)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 13, height: 13)
-                            Text("Sync to Strava")
-                        }
-                    }
-                }
-                .disabled(isSyncingToStrava)
-            }
-        }
-
         if workout.isLiveClimbAttemptWorkout {
             Label("Live climb result locked", systemImage: "lock.fill")
         } else {
@@ -541,39 +506,6 @@ struct WorkoutDetailView: View {
 
     private var liveClimbSummaryMetadata: HeadphoneMotionWorkoutMetadata? {
         LiveClimbWorkoutSummaryData.metadata(for: workout)
-    }
-
-    // MARK: - Strava Sync Badge
-
-    private var stravaSyncBadge: some View {
-        HStack(spacing: 6) {
-            Image("strava-icon")
-                .renderingMode(.template)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 12, height: 12)
-                .opacity(isSyncingToStrava ? syncingIconOpacity : 1.0)
-            Text(isSyncingToStrava ? "Syncing..." : "Synced to Strava")
-                .font(.montserratRegular(size: 12))
-        }
-        .foregroundStyle(Color(red: 252/255, green: 76/255, blue: 2/255))
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(
-            Capsule()
-                .fill(Color(red: 252/255, green: 76/255, blue: 2/255).opacity(0.15))
-        )
-        .onChange(of: isSyncingToStrava) { _, syncing in
-            if syncing {
-                withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
-                    syncingIconOpacity = 0.3
-                }
-            } else {
-                withAnimation(.default) {
-                    syncingIconOpacity = 1.0
-                }
-            }
-        }
     }
 
     // MARK: - Weights Section (unchanged)
@@ -775,37 +707,6 @@ struct WorkoutDetailView: View {
 
     // MARK: - Actions
 
-    private func shareToStrava() {
-        guard !workout.isSyncedToStrava else { return }
-
-        Task {
-            isSyncingToStrava = true
-            stravaSyncError = nil
-
-            do {
-                let activityId = try await stravaManager.syncWorkout(
-                    workout,
-                    primaryMetric: settingsManager.preferredWorkoutMetric
-                )
-
-                let metadata = StravaSyncMetadata(stravaActivityId: activityId)
-                workout.setStravaSyncMetadata(metadata)
-                try? modelContext.save()
-
-                HapticsManager.shared.trigger(.success)
-                showingStravaSyncSuccess = true
-
-                try? await Task.sleep(for: .seconds(2))
-                showingStravaSyncSuccess = false
-            } catch {
-                stravaSyncError = error.localizedDescription
-                HapticsManager.shared.trigger(.error)
-            }
-
-            isSyncingToStrava = false
-        }
-    }
-
     @MainActor
     private func loadLiveClimbCompletionRankIfNeeded() async {
         guard liveClimbCompletionRank == nil,
@@ -968,7 +869,7 @@ private struct LiveClimbSummaryLinkRow: View {
                 leadingArtwork
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(climb?.name ?? "Just Climb Summary")
+                    Text(climb?.name ?? "Live Climb Summary")
                         .font(.montserratSemiBold(size: 15))
                         .foregroundStyle(primaryTextColor)
                         .lineLimit(1)

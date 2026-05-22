@@ -22,7 +22,7 @@ struct PostAuthOnboardingFlowView: View {
 
 private struct PostAuthOnboardingDisplayNameScreen: View {
     @Environment(AuthenticationViewModel.self) private var authVM
-    @FocusState private var isNameFieldFocused: Bool
+    @FocusState private var isNameFocused: Bool
 
     let stage: PostAuthOnboardingStage
     let onContinue: () -> Void
@@ -31,39 +31,25 @@ private struct PostAuthOnboardingDisplayNameScreen: View {
     @State private var isSaving = false
     @State private var validationMessage: String?
 
+    private let plannedQuestionCount = 5
+
     var body: some View {
-        PostAuthOnboardingScaffold(
-            stage: stage,
+        OnboardingQuestionScaffold(
+            progressIndex: stage.progressIndex,
+            progressCount: plannedQuestionCount,
+            backgroundImageName: "OnboardingQuestionsBackground",
             eyebrow: "FIRST THINGS FIRST",
-            headline: "What should\nwe call you?",
+            headline: "What Should\nWe Call You?",
             subtitle: nil,
             primaryTitle: isSaving ? "Saving..." : "Continue",
             isPrimaryDisabled: isContinueDisabled,
             isPrimaryLoading: isSaving,
-            allowsBackFromFirst: true,
+            isBackEnabled: true,
             onBack: handleBack,
             onContinue: saveDisplayName
         ) {
-            VStack(alignment: .leading, spacing: 10) {
-                TextField("Mauricio", text: $displayName)
-                    .font(.montserratRegular(size: 16))
-                    .foregroundStyle(.white)
-                    .tint(OnboardingValuePalette.lime)
-                    .textInputAutocapitalization(.words)
-                    .autocorrectionDisabled()
-                    .submitLabel(.continue)
-                    .focused($isNameFieldFocused)
-                    .onSubmit(saveDisplayName)
-                    .padding(.horizontal, 18)
-                    .frame(height: 62)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color.black.opacity(0.2))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(fieldBorderColor, lineWidth: 1)
-                    )
+            VStack(alignment: .leading, spacing: 12) {
+                nameField
 
                 if let message = displayMessage {
                     Text(message)
@@ -76,13 +62,53 @@ private struct PostAuthOnboardingDisplayNameScreen: View {
                 if displayName.isEmpty {
                     displayName = authVM.displayName
                 }
-                isNameFieldFocused = true
+                isNameFocused = true
             }
             .onChange(of: displayName) { _, newValue in
                 validationMessage = nil
                 normalizeDisplayName(newValue)
             }
         }
+        .keyboardDoneToolbar {
+            isNameFocused = false
+        }
+    }
+
+    private var nameField: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "person")
+                .font(.system(size: 22, weight: .regular))
+                .foregroundStyle(.white.opacity(0.56))
+                .frame(width: 26)
+
+            TextField(
+                "",
+                text: $displayName,
+                prompt: Text("Enter Your Name")
+                    .foregroundStyle(.white.opacity(0.54))
+            )
+            .font(.montserratRegular(size: 16))
+            .foregroundStyle(.white)
+            .tint(OnboardingValuePalette.lime)
+            .textInputAutocapitalization(.words)
+            .autocorrectionDisabled()
+            .submitLabel(.continue)
+            .focused($isNameFocused)
+            .onSubmit {
+                saveDisplayName()
+            }
+        }
+        .padding(.horizontal, 18)
+        .frame(height: 58)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.black.opacity(0.28))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(fieldBorderColor, lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
     }
 
     private var trimmedDisplayName: String {
@@ -94,7 +120,7 @@ private struct PostAuthOnboardingDisplayNameScreen: View {
     }
 
     private var fieldBorderColor: Color {
-        displayMessage == nil ? OnboardingValuePalette.lime.opacity(0.72) : .red.opacity(0.72)
+        displayMessage == nil ? .white.opacity(0.28) : .red.opacity(0.72)
     }
 
     private var displayMessage: String? {
@@ -134,117 +160,6 @@ private struct PostAuthOnboardingDisplayNameScreen: View {
 
     private func handleBack() {
         authVM.signOut()
-    }
-}
-
-private struct PostAuthOnboardingScaffold<Content: View>: View {
-    let stage: PostAuthOnboardingStage
-    var eyebrow: String? = nil
-    let headline: String
-    let subtitle: String?
-    let primaryTitle: String
-    var isPrimaryDisabled = false
-    var isPrimaryLoading = false
-    var allowsBackFromFirst = false
-    let onBack: () -> Void
-    let onContinue: () -> Void
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                OnboardingValueAmbientBackground(style: .tracking)
-
-                VStack(alignment: .leading, spacing: 0) {
-                    topBar(topInset: geometry.safeAreaInsets.top)
-
-                    Spacer(minLength: 34)
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        if let eyebrow {
-                            Text(eyebrow)
-                                .font(.montserratBold(size: 12))
-                                .foregroundStyle(OnboardingValuePalette.lime)
-                                .kerning(0.6)
-                        }
-
-                        Text(headline)
-                            .font(.montserratBold(size: geometry.size.width < 370 ? 33 : 37))
-                            .foregroundStyle(.white)
-                            .lineSpacing(1)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        if let subtitle {
-                            Text(subtitle)
-                                .font(.montserratMedium(size: 16))
-                                .foregroundStyle(Color(red: 168 / 255, green: 168 / 255, blue: 168 / 255))
-                                .lineSpacing(3)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-
-                    content()
-                        .padding(.top, 34)
-
-                    Spacer(minLength: 28)
-
-                    Button(action: onContinue) {
-                        HStack(spacing: 10) {
-                            if isPrimaryLoading {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .black.opacity(0.82)))
-                                    .scaleEffect(0.85)
-                            }
-
-                            Text(primaryTitle)
-                        }
-                    }
-                    .buttonStyle(
-                        OnboardingPrimaryCTAButtonStyle(
-                            height: geometry.size.height < 700 ? 56 : 58,
-                            tint: .accent,
-                            shadowOpacity: 0.24
-                        )
-                    )
-                    .disabled(isPrimaryDisabled)
-                    .padding(.bottom, geometry.safeAreaInsets.bottom + 18)
-                }
-                .padding(.horizontal, min(max(geometry.size.width * 0.075, 26), 34))
-            }
-        }
-        .background(Color.black)
-    }
-
-    private func topBar(topInset: CGFloat) -> some View {
-        HStack {
-            Button(action: onBack) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(canGoBack ? .white.opacity(0.9) : .clear)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!canGoBack)
-            .accessibilityLabel("Back")
-
-            Spacer()
-
-            OnboardingValueProgressIndicator(
-                activeIndex: stage.progressIndex,
-                totalCount: PostAuthOnboardingStage.allCases.count
-            )
-
-            Spacer()
-
-            Color.clear
-                .frame(width: 44, height: 44)
-        }
-        .padding(.top, topInset + 8)
-    }
-
-    private var canGoBack: Bool {
-        allowsBackFromFirst || stage != .first
     }
 }
 

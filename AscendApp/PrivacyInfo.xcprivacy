@@ -86,7 +86,21 @@
             </array>
         </dict>
 
-        <!-- Health & Fitness — HealthKit reads, workout metrics -->
+        <!-- Other Data Types — declared profile demographics: age and gender -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeOtherDataTypes</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+
+        <!-- Health & Fitness — HealthKit reads, workout metrics, Live Climb completion state -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeHealth</string>
@@ -126,7 +140,7 @@
             </array>
         </dict>
 
-        <!-- User ID — Firebase Auth UID -->
+        <!-- User ID — Firebase Auth UID, server-side Live Climb community dedupe markers -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeUserID</string>
@@ -221,7 +235,7 @@
     <array>
         <!--
           UserDefaults — pervasive use across SettingsManager, UserDataRepository,
-          StravaManager, FeedbackService for first-party preferences and caches.
+          FeedbackService for first-party preferences and caches.
           Reason CA92.1: access info from same app, same group, or same App Clip.
         -->
         <dict>

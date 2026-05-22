@@ -13,12 +13,22 @@ struct UserDisplayNameData: Sendable {
     let lastName: String?
     let displayName: String?
     let profilePictureURL: String?
+    let age: Int?
+    let gender: String?
 
     init(_ data: [String: Any]?) {
         self.firstName = data?["firstName"] as? String
         self.lastName = data?["lastName"] as? String
         self.displayName = data?["displayName"] as? String
         self.profilePictureURL = data?["profilePictureURL"] as? String
+        if let age = data?["age"] as? Int {
+            self.age = age
+        } else if let age = data?["age"] as? NSNumber {
+            self.age = age.intValue
+        } else {
+            self.age = nil
+        }
+        self.gender = data?["gender"] as? String
     }
 }
 
@@ -81,7 +91,16 @@ final class UserDataRepository: Sendable {
         return !displayName.isEmpty
     }
     
-    func saveUserToFirestore(userId: String, email: String?, firstName: String?, lastName: String?, displayName: String?, profilePictureURL: String? = nil) async throws {
+    func saveUserToFirestore(
+        userId: String,
+        email: String?,
+        firstName: String?,
+        lastName: String?,
+        displayName: String?,
+        profilePictureURL: String? = nil,
+        age: Int? = nil,
+        gender: String? = nil
+    ) async throws {
         let userRef = db.collection("users").document(userId)
         
         // Check if user already exists
@@ -111,6 +130,14 @@ final class UserDataRepository: Sendable {
                 newData["profilePictureURL"] = profilePictureURL
             }
 
+            if let age {
+                newData["age"] = age
+            }
+
+            if let gender {
+                newData["gender"] = gender
+            }
+
             // Compare with existing data and only update changed fields
             let existingData = document.data() ?? [:]
             var changedData: [String: Any] = [:]
@@ -119,6 +146,11 @@ final class UserDataRepository: Sendable {
                 if let newStringValue = newValue as? String {
                     let existingValue = existingData[key] as? String ?? ""
                     if newStringValue != existingValue {
+                        changedData[key] = newValue
+                    }
+                } else if let newIntValue = newValue as? Int {
+                    let existingValue = (existingData[key] as? Int) ?? (existingData[key] as? NSNumber)?.intValue
+                    if existingValue != newIntValue {
                         changedData[key] = newValue
                     }
                 }
@@ -140,6 +172,14 @@ final class UserDataRepository: Sendable {
 
             if let profilePictureURL {
                 userData["profilePictureURL"] = profilePictureURL
+            }
+
+            if let age {
+                userData["age"] = age
+            }
+
+            if let gender {
+                userData["gender"] = gender
             }
 
             userData["createdAt"] = FieldValue.serverTimestamp()
@@ -193,6 +233,38 @@ final class UserDataRepository: Sendable {
             )
         }
         
+        cacheDisplayName(displayName)
+    }
+
+    func updateOnboardingProfile(
+        userId: String,
+        email: String? = nil,
+        displayName: String,
+        age: Int,
+        gender: ProfileGender
+    ) async throws {
+        let userRef = db.collection("users").document(userId)
+
+        let document = try await userRef.getDocument()
+        if document.exists {
+            try await userRef.setData([
+                "displayName": displayName,
+                "age": age,
+                "gender": gender.rawValue,
+                "lastUpdated": FieldValue.serverTimestamp()
+            ], merge: true)
+        } else {
+            try await saveUserToFirestore(
+                userId: userId,
+                email: email,
+                firstName: nil,
+                lastName: nil,
+                displayName: displayName,
+                age: age,
+                gender: gender.rawValue
+            )
+        }
+
         cacheDisplayName(displayName)
     }
 

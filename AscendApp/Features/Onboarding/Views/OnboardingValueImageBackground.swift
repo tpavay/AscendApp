@@ -3,6 +3,7 @@ import SwiftUI
 struct OnboardingValueImageBackground: View {
     let imageName: String
     var dimmingOpacity: Double = 0.24
+    var topReadabilityOpacity: Double = 0.55
 
     var body: some View {
         GeometryReader { geometry in
@@ -47,7 +48,7 @@ struct OnboardingValueImageBackground: View {
     private var readabilityGradient: some View {
         LinearGradient(
             stops: [
-                .init(color: Color.black.opacity(0.55), location: 0),
+                .init(color: Color.black.opacity(topReadabilityOpacity), location: 0),
                 .init(color: .clear, location: 0.24),
                 .init(color: Color.black.opacity(0.34), location: 0.58),
                 .init(color: Color.black.opacity(0.92), location: 1)

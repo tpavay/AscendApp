@@ -44,7 +44,6 @@ struct GlobeView: View {
             ClimbPinView(
                 climb: climb,
                 isCompleted: viewModel.isCompleted(climb),
-                isActive: viewModel.isActive(climb),
                 isHighlighted: viewModel.previewSummary?.climb.id == climb.id
             )
         }

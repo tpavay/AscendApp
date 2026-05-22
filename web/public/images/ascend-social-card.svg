@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Ascend social preview card</title>
+  <desc id="desc">The Ascend angular A logo next to the Ascend wordmark on a dark background.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#070B10" />
+      <stop offset="0.62" stop-color="#0B1118" />
+      <stop offset="1" stop-color="#070B10" />
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#background)" />
+  <image href="ascend-a-icon.png" x="300" y="220" width="190" height="190" preserveAspectRatio="xMidYMid meet" />
+  <text
+    x="522"
+    y="355"
+    fill="#F7FAF4"
+    font-family="Avenir Next, Helvetica Neue, Arial, sans-serif"
+    font-size="116"
+    font-weight="800"
+    letter-spacing="8">ASCEND</text>
+</svg>

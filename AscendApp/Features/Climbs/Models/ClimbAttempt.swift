@@ -14,7 +14,6 @@ final class ClimbAttempt {
     var sessionsCount: Int = 0
     var appliedWorkoutIdsData: Data? = nil
     var bestCompletionDurationSeconds: Int? = nil
-    var completedInSingleSessionMulti: Bool = false
 
     var status: ClimbAttemptStatus {
         get { ClimbAttemptStatus(rawValue: statusRawValue) ?? .active }
@@ -41,8 +40,7 @@ final class ClimbAttempt {
         accumulatedDurationSeconds: Int = 0,
         sessionsCount: Int = 0,
         appliedWorkoutIds: [String] = [],
-        bestCompletionDurationSeconds: Int? = nil,
-        completedInSingleSessionMulti: Bool = false
+        bestCompletionDurationSeconds: Int? = nil
     ) {
         self.id = UUID()
         self.climbId = climbId
@@ -55,6 +53,5 @@ final class ClimbAttempt {
         self.sessionsCount = sessionsCount
         self.appliedWorkoutIds = appliedWorkoutIds
         self.bestCompletionDurationSeconds = bestCompletionDurationSeconds
-        self.completedInSingleSessionMulti = completedInSingleSessionMulti
     }
 }

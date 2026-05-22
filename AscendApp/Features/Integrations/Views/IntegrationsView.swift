@@ -24,11 +24,6 @@ struct IntegrationsView: View {
                 // Apple Health Integration
                 AppleHealthIntegrationCard()
 
-                // Strava Integration
-                if FeatureFlags.isStravaEnabled {
-                    StravaIntegrationCard()
-                }
-
                 // Hevy Integration
                 HevyIntegrationCard()
 

@@ -137,12 +137,8 @@ struct RoutineEditorView: View {
         .scrollIndicators(.hidden)
         .background((effectiveColorScheme == .dark ? Color.jet : Color.white).ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                KeyboardDismissButton {
-                    focusedField = nil
-                }
-            }
+        .keyboardDoneToolbar {
+            focusedField = nil
         }
         .alert("Error", isPresented: $showSaveError) {
             Button("OK", role: .cancel) {}

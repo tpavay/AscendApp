@@ -5,65 +5,83 @@ struct ClimbCardView: View {
     let onOpenClimb: (Climb) -> Void
 
     var body: some View {
-        dailyRecommendationEntry()
-    }
+        let climb = recommendedHomeClimb
 
-    private func dailyRecommendationEntry() -> some View {
-        Button(action: { onOpenClimb(recommendedHomeClimb) }) {
-            dailyRecommendationCard(climb: recommendedHomeClimb)
+        Button(action: { onOpenClimb(climb) }) {
+            dailyRecommendationCard(climb: climb)
         }
         .buttonStyle(.plain)
         .accessibilityHint("Open today's recommended live climb")
     }
 
     private func dailyRecommendationCard(climb: Climb) -> some View {
-        ClimbSplitCardSurface(
-            leadingWidth: 118,
-            minimumHeight: 132,
-            glowColor: climb.tier.glowColor,
-            borderColors: climb.tier.borderColors,
-            shadowColor: climb.tier.shadowColor,
-            isEmphasizedBorderStyle: climb.tier.usesEmphasizedBorderStyle,
-            borderAnimationStyle: .ambient,
-            leading: {
-                ClimbLeadingArtworkPanel(climb: climb)
-            },
-            content: {
+        ZStack(alignment: .bottomLeading) {
+            ClimbArtworkView(climb: climb, variant: .hero)
+
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.7)],
+                startPoint: UnitPoint(x: 0.5, y: 0.42),
+                endPoint: .bottom
+            )
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("TODAY'S CLIMB")
+                    .font(.montserratSemiBold(size: 11))
+                    .tracking(1.6)
+                    .foregroundStyle(.white)
+
+                Text(climb.name)
+                    .font(.montserratBold(size: 28))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.84)
+                    .padding(.top, 2)
+
+                Text(climb.displayLocation)
+                    .font(.montserratRegular(size: 14))
+                    .foregroundStyle(.white.opacity(0.78))
+                    .lineLimit(1)
+                    .padding(.bottom, 10)
+
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("TODAY'S LIVE CLIMB")
-                        .font(.montserratSemiBold(size: 10))
-                        .tracking(1.3)
-                        .foregroundStyle(climb.tier.color)
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.2.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color.accent)
+                            .frame(width: 16, alignment: .leading)
 
-                    Text(climb.name)
-                        .font(.montserratBold(size: 17))
-                        .foregroundStyle(.white)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.86)
-
-                    Text(climb.displayLocation)
-                        .font(.montserratRegular(size: 12))
-                        .foregroundStyle(.white.opacity(0.62))
-                        .lineLimit(1)
+                        Text("4,718 climbers have summited")
+                            .font(.montserratMedium(size: 13))
+                            .foregroundStyle(.white.opacity(0.84))
+                            .lineLimit(1)
+                    }
 
                     HStack(spacing: 8) {
-                        Text("\(climb.referenceStepCount.formatted()) steps")
-                            .font(.montserratSemiBold(size: 12))
-                            .foregroundStyle(.white.opacity(0.9))
+                        Image(systemName: "shoeprints.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color.accent)
+                            .frame(width: 16, alignment: .leading)
 
-                        Text("|")
-                            .font(.montserratMedium(size: 11))
-                            .foregroundStyle(.white.opacity(0.26))
-
-                        Text(estimatedTimeText(for: climb))
-                            .font(.montserratSemiBold(size: 12))
-                            .foregroundStyle(.white.opacity(0.82))
+                        Text("187M community steps logged")
+                            .font(.montserratMedium(size: 13))
+                            .foregroundStyle(.white.opacity(0.84))
+                            .lineLimit(1)
                     }
-                    .lineLimit(1)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
             }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 22)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 360)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .animatedClimbCardBorder(
+            colors: climb.tier.borderColors,
+            shadowColor: climb.tier.shadowColor,
+            cornerRadius: 24,
+            lineWidth: 1.5,
+            isEmphasized: climb.tier.usesEmphasizedBorderStyle,
+            animationStyle: .ambient
         )
     }
 
@@ -114,72 +132,6 @@ struct ClimbCardView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-            }
-        )
-    }
-
-    private func activeCard(summary: ActiveClimbSummary) -> some View {
-        ClimbSplitCardSurface(
-            leadingWidth: 118,
-            minimumHeight: 132,
-            glowColor: summary.climb.tier.glowColor,
-            borderColors: summary.climb.tier.borderColors,
-            shadowColor: summary.climb.tier.shadowColor,
-            isEmphasizedBorderStyle: summary.climb.tier.usesEmphasizedBorderStyle,
-            leading: {
-                ClimbLeadingArtworkPanel(climb: summary.climb)
-            },
-            content: {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("LIVE CLIMB")
-                        .font(.montserratSemiBold(size: 11))
-                        .tracking(1.6)
-                        .foregroundStyle(summary.climb.tier.color)
-
-                        Text(summary.climb.name)
-                            .font(.montserratBold(size: 17))
-                            .foregroundStyle(.white)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.9)
-
-                    Text("\(summary.climb.city) · \(summary.climb.calculatedFloors.formatted()) floors")
-                        .font(.montserratRegular(size: 13))
-                        .foregroundStyle(.white.opacity(0.64))
-                        .lineLimit(1)
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 12) {
-                            Text("Progress")
-                                .font(.montserratMedium(size: 13))
-                                .foregroundStyle(.white.opacity(0.56))
-
-                            Spacer()
-
-                            Text("\(summary.progressPercent)%")
-                                .font(.montserratBold(size: 15))
-                                .foregroundStyle(.accent)
-                        }
-
-                        GeometryReader { geometry in
-                            Capsule(style: .continuous)
-                                .fill(.white.opacity(0.08))
-                                .overlay(alignment: .leading) {
-                                    Capsule(style: .continuous)
-                                        .fill(
-                                            LinearGradient(
-                                                colors: [Color(hex: "829624"), .accent],
-                                                startPoint: .leading,
-                                                endPoint: .trailing
-                                            )
-                                        )
-                                        .frame(width: geometry.size.width * summary.progressFraction)
-                                }
-                        }
-                        .frame(height: 7)
-                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)

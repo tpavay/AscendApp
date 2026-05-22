@@ -5,7 +5,6 @@ struct HomeWorkoutActionSheet: View {
     @State private var themeManager = ThemeManager.shared
 
     let onManualEntry: () -> Void
-    let onJustClimb: () -> Void
     let onStartRoutine: () -> Void
     let onImportWorkouts: () -> Void
     let pendingImportCount: Int
@@ -74,8 +73,6 @@ struct HomeWorkoutActionSheet: View {
                 .tracking(1.0)
                 .foregroundStyle(secondaryTextColor)
 
-            primaryActionButton(action: onJustClimb)
-
             HStack(spacing: 10) {
                 secondaryActionTile(
                     action: onManualEntry,
@@ -100,49 +97,6 @@ struct HomeWorkoutActionSheet: View {
                 badgeCount: pendingImportCount
             )
         }
-    }
-
-    private func primaryActionButton(action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                Image(systemName: "figure.walk")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .frame(width: 42, height: 42)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(.black.opacity(0.1))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(.black.opacity(0.12), lineWidth: 1)
-                            )
-                    )
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Just Climb")
-                        .font(.montserratBold(size: 17))
-                        .foregroundStyle(.black)
-
-                    Text("Track live and end anytime")
-                        .font(.montserratRegular(size: 12))
-                        .foregroundStyle(.black.opacity(0.62))
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.black.opacity(0.72))
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(.accent)
-            )
-        }
-        .buttonStyle(.plain)
     }
 
     private func secondaryActionTile(

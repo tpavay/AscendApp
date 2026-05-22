@@ -35,6 +35,8 @@ service cloud.firestore {
           "lastName",
           "displayName",
           "profilePictureURL",
+          "age",
+          "gender",
           "createdAt",
           "lastUpdated"
         ]) &&
@@ -57,6 +59,18 @@ service cloud.firestore {
         (!request.resource.data.keys().hasAny(["profilePictureURL"]) ||
           (request.resource.data.profilePictureURL is string &&
             request.resource.data.profilePictureURL.size() <= 2048)) &&
+        (!request.resource.data.keys().hasAny(["age"]) ||
+          (request.resource.data.age is int &&
+            request.resource.data.age >= 13 &&
+            request.resource.data.age <= 120)) &&
+        (!request.resource.data.keys().hasAny(["gender"]) ||
+          (request.resource.data.gender is string &&
+            request.resource.data.gender in [
+              "woman",
+              "man",
+              "non_binary",
+              "prefer_not_to_say"
+            ])) &&
         request.resource.data.createdAt is timestamp &&
         request.resource.data.lastUpdated is timestamp;
     }
@@ -623,7 +637,7 @@ service cloud.firestore {
         request.resource.data.createdAt == resource.data.createdAt;
       allow delete: if isOwner(userId);
 
-      // Strava and future integrations are written server-side; clients can only read their own.
+      // External integrations are written server-side; clients can only read their own.
       match /integrations/{integrationId} {
         allow read: if isOwner(userId);
         allow write: if false;
@@ -669,6 +683,17 @@ service cloud.firestore {
       }
     }
 
+    // Global Live Climb community stats are server-owned aggregates.
+    match /live_climb_community_stats/{docId} {
+      allow read: if isSignedIn() && docId == "global";
+      allow write: if false;
+
+      // Per-user dedupe markers are server-only and are not client-readable.
+      match /completedUsers/{userId} {
+        allow read, write: if false;
+      }
+    }
+
     match /feedback/{feedbackId} {
       allow create: if isSignedIn() &&
         isValidFeedbackDocument() &&
@@ -701,8 +726,5 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    match /oauthStates/{docId} {
-      allow read, write: if false;
-    }
   }
 }

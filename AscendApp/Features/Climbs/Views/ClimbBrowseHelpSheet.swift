@@ -41,8 +41,8 @@ struct ClimbBrowseHelpSheet: View {
     private var progressRules: [String] {
         [
             "Manual entries, imports, and routines do not complete Live Climbs.",
-            "Single-session climbs must be finished in one live attempt.",
-            "Multi-session climbs keep live progress across eligible live sessions.",
+            "Catalog climbs must be finished in one live attempt.",
+            "Ending early saves a DNF attempt in your history, not a leaderboard time.",
             "Completed Live Climbs stay visible so you can revisit the detail screen and history later."
         ]
     }
@@ -80,21 +80,14 @@ struct ClimbBrowseHelpSheet: View {
                                 title: "Available",
                                 description: "A climb you can preview and start.",
                                 isCompleted: false,
-                                isActive: false
-                            )
-
-                            legendRow(
-                                title: "Active",
-                                description: "Your current climb. Eligible new workouts push this one forward.",
-                                isCompleted: false,
-                                isActive: true
+                                isHighlighted: false
                             )
 
                             legendRow(
                                 title: "Completed",
                                 description: "A climb you have already finished at least once.",
                                 isCompleted: true,
-                                isActive: false
+                                isHighlighted: false
                             )
                         }
                     }
@@ -112,7 +105,7 @@ struct ClimbBrowseHelpSheet: View {
 
                     sectionCard(
                         title: "Progress Rules",
-                        subtitle: "A few details that matter once a climb is active."
+                        subtitle: "A few details that matter once you start."
                     ) {
                         VStack(alignment: .leading, spacing: 10) {
                             ForEach(progressRules, id: \.self) { rule in
@@ -183,14 +176,13 @@ struct ClimbBrowseHelpSheet: View {
         title: String,
         description: String,
         isCompleted: Bool,
-        isActive: Bool
+        isHighlighted: Bool
     ) -> some View {
         HStack(alignment: .top, spacing: 14) {
             ClimbPinView(
                 climb: .preview,
                 isCompleted: isCompleted,
-                isActive: isActive,
-                isHighlighted: false
+                isHighlighted: isHighlighted
             )
             .accessibilityHidden(true)
 

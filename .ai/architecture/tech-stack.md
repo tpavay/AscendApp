@@ -75,13 +75,6 @@
 
 **Permission:** User opt-in required
 
-### Strava API
-**Purpose:** Optional sync workouts to Strava
-
-**Pattern:** OAuth authentication, one-way sync (push to Strava)
-
----
-
 ## Managers & Services
 
 ### ThemeManager

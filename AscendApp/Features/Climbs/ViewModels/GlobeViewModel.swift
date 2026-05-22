@@ -8,9 +8,9 @@ import SwiftUI
 final class GlobeViewModel {
     var cameraPosition: MapCameraPosition = .camera(GlobeViewModel.defaultCamera)
     var visibleClimbs: [Climb] = []
-    var activeSummary: ActiveClimbSummary?
     var lastCompletedSummary: CompletedClimbSummary?
     var homeCardState: ClimbHomeCardState = .neverClimbed(totalClimbs: 0)
+    var dailyRecommendedClimb: Climb?
     var previewSummary: ClimbPreviewSummary?
     var completedClimbIds: Set<String> = []
     var searchQuery: String = ""
@@ -18,8 +18,10 @@ final class GlobeViewModel {
     var featuredClimbId: String?
     var catalogSource: ClimbCatalogSource = .bootstrap
     var isRefreshingCatalog = false
+    var liveClimbCommunitySummary: LiveClimbCommunitySummary = .empty
 
     private let climbService: ClimbService
+    private let communityStatsService: LiveClimbCommunityStatsServicing
     private let autoSpinResumeDelay: TimeInterval = 6
     private let overviewCameraDistance: CLLocationDistance = GlobeViewModel.defaultOverviewCameraDistance
     private var hasLoaded = false
@@ -28,30 +30,20 @@ final class GlobeViewModel {
     private var suppressCameraInteraction = false
     private var lastUserInteractionAt = Date.distantPast
 
-    init(climbService: ClimbService = .shared) {
+    init(
+        climbService: ClimbService = .shared,
+        communityStatsService: LiveClimbCommunityStatsServicing = FirestoreLiveClimbCommunityStatsService.shared
+    ) {
         self.climbService = climbService
+        self.communityStatsService = communityStatsService
     }
 
     var climbCount: Int {
         visibleClimbs.count
     }
 
-    var dailyRecommendedClimb: Climb? {
-        guard !visibleClimbs.isEmpty else { return nil }
-
-        let defaults = UserDefaults.standard
-        let todayKey = Self.dailyRecommendationDayKey
-
-        if defaults.string(forKey: Self.dailyRecommendationDayDefaultsKey) == todayKey,
-           let storedClimbId = defaults.string(forKey: Self.dailyRecommendationClimbDefaultsKey),
-           let storedClimb = visibleClimbs.first(where: { $0.id == storedClimbId }) {
-            return storedClimb
-        }
-
-        let climb = nextDailyRecommendedClimb()
-        defaults.set(todayKey, forKey: Self.dailyRecommendationDayDefaultsKey)
-        defaults.set(climb?.id, forKey: Self.dailyRecommendationClimbDefaultsKey)
-        return climb
+    var liveClimbCommunityCompletedUserCount: Int {
+        max(liveClimbCommunitySummary.uniqueCompletedUserCount, completedClimbIds.isEmpty ? 0 : 1)
     }
 
     var firstFeaturedClimb: Climb? {
@@ -105,6 +97,7 @@ final class GlobeViewModel {
             refreshCatalogInBackground()
         } catch {
             visibleClimbs = []
+            dailyRecommendedClimb = nil
             loadErrorMessage = error.localizedDescription
         }
     }
@@ -118,19 +111,28 @@ final class GlobeViewModel {
             loadErrorMessage = nil
         } catch {
             visibleClimbs = []
+            dailyRecommendedClimb = nil
             loadErrorMessage = error.localizedDescription
         }
     }
 
     func refresh(modelContext: ModelContext) {
         completedClimbIds = climbService.completedClimbIds(modelContext: modelContext)
-        activeSummary = try? climbService.activeSummary(modelContext: modelContext)
         lastCompletedSummary = try? climbService.lastCompletedSummary(modelContext: modelContext)
         homeCardState = (try? climbService.homeCardState(modelContext: modelContext)) ?? .neverClimbed(totalClimbs: visibleClimbs.count)
+        refreshDailyRecommendedClimb()
 
         if let previewSummary {
             let previewClimb = (try? climbService.climb(for: previewSummary.climb.id)) ?? previewSummary.climb
             self.previewSummary = climbService.previewSummary(for: previewClimb, modelContext: modelContext)
+        }
+    }
+
+    func refreshLiveClimbCommunityStats() async {
+        do {
+            liveClimbCommunitySummary = try await communityStatsService.fetchSummary()
+        } catch {
+            liveClimbCommunitySummary = .empty
         }
     }
 
@@ -142,10 +144,6 @@ final class GlobeViewModel {
 
     func isCompleted(_ climb: Climb) -> Bool {
         completedClimbIds.contains(climb.id)
-    }
-
-    func isActive(_ climb: Climb) -> Bool {
-        activeSummary?.climb.id == climb.id
     }
 
     func dismissPreview() {
@@ -318,24 +316,38 @@ final class GlobeViewModel {
     }
 
     private func nextDailyRecommendedClimb() -> Climb? {
-        let uncompletedSingleSessionClimbs = sortedDailyClimbs(
-            visibleClimbs.filter { !$0.multiSession && !completedClimbIds.contains($0.id) }
-        )
-        if let climb = dailyClimb(from: uncompletedSingleSessionClimbs) {
-            return climb
-        }
-
-        let singleSessionClimbs = sortedDailyClimbs(visibleClimbs.filter { !$0.multiSession })
-        if let climb = dailyClimb(from: singleSessionClimbs) {
-            return climb
-        }
-
         let uncompletedClimbs = sortedDailyClimbs(visibleClimbs.filter { !completedClimbIds.contains($0.id) })
         if let climb = dailyClimb(from: uncompletedClimbs) {
             return climb
         }
 
         return dailyClimb(from: sortedDailyClimbs(visibleClimbs))
+    }
+
+    private func refreshDailyRecommendedClimb() {
+        guard !visibleClimbs.isEmpty else {
+            dailyRecommendedClimb = nil
+            return
+        }
+
+        let defaults = UserDefaults.standard
+        let todayKey = Self.dailyRecommendationDayKey
+
+        if defaults.string(forKey: Self.dailyRecommendationDayDefaultsKey) == todayKey,
+           let storedClimbId = defaults.string(forKey: Self.dailyRecommendationClimbDefaultsKey),
+           let storedClimb = visibleClimbs.first(where: { $0.id == storedClimbId }) {
+            dailyRecommendedClimb = storedClimb
+            return
+        }
+
+        let climb = nextDailyRecommendedClimb()
+        defaults.set(todayKey, forKey: Self.dailyRecommendationDayDefaultsKey)
+        if let climb {
+            defaults.set(climb.id, forKey: Self.dailyRecommendationClimbDefaultsKey)
+        } else {
+            defaults.removeObject(forKey: Self.dailyRecommendationClimbDefaultsKey)
+        }
+        dailyRecommendedClimb = climb
     }
 
     private func dailyClimb(from climbs: [Climb]) -> Climb? {

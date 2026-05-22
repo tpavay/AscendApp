@@ -74,6 +74,7 @@ enum WorkoutParticipationService {
     static func setLeaderboardEligibility(
         _ leaderboardEligible: Bool,
         forClimbAttemptId attemptId: UUID,
+        workoutId: UUID? = nil,
         modelContext: ModelContext
     ) throws {
         let contextId = attemptId.uuidString
@@ -86,6 +87,10 @@ enum WorkoutParticipationService {
         )
 
         for participation in try modelContext.fetch(descriptor) {
+            if let workoutId, participation.workoutId != workoutId {
+                continue
+            }
+
             participation.leaderboardEligible = leaderboardEligible
             markWorkoutPendingRemoteSyncIfPossible(participation.workout, fallbackUserId: participation.userId)
         }

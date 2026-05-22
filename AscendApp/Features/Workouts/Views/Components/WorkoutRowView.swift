@@ -63,7 +63,7 @@ struct WorkoutRowView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Header: Title (left) + Date/Time/Strava (right)
+            // Header: Title (left) + Date/time (right)
             HStack(alignment: .top, spacing: 8) {
                 Text(workout.name)
                     .font(.montserratSemiBold(size: 14))
@@ -72,21 +72,10 @@ struct WorkoutRowView: View {
 
                 Spacer()
 
-                HStack(spacing: 6) {
-                    Text(formattedDateTime)
-                        .font(.montserratRegular(size: 11))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
-
-                    if FeatureFlags.isStravaEnabled && workout.isSyncedToStrava {
-                        Image("strava-icon")
-                            .renderingMode(.template)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 14, height: 14)
-                            .foregroundStyle(Color(red: 252/255, green: 76/255, blue: 2/255))
-                    }
-                }
-                .fixedSize(horizontal: true, vertical: false)
+                Text(formattedDateTime)
+                    .font(.montserratRegular(size: 11))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
+                    .fixedSize(horizontal: true, vertical: false)
             }
 
             // Separator line

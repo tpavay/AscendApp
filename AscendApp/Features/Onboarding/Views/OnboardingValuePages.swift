@@ -6,16 +6,16 @@ enum OnboardingValuePages {
             id: "global-climbs",
             headline: "Join The\nGlobal Climb",
             subtitle: "Discover climbs around the world and take them on from your own stair machine.",
-            heroImageName: "OnboardingGlobalClimbsPhone",
+            heroImageName: "OnboardingGlobalClimbsScreenshot",
             background: .image("OnboardingGlobalClimbsBackground"),
-            heroScale: 1.05,
-            heroYOffset: -4
+            heroScale: 1.34,
+            heroYOffset: 48
         ),
         OnboardingValuePage(
             id: "leaderboards",
             headline: "See Where\nYou Stand",
             subtitle: "Push alongside past finishers, with ranks that update as you climb.",
-            heroImageName: "OnboardingLeaderboardsPhone",
+            heroImageName: "OnboardingEmpireLeaderboardScreenshot",
             background: .image("OnboardingLeaderboardsBackground"),
             heroScale: 1.14,
             heroXOffset: -4,
@@ -24,21 +24,25 @@ enum OnboardingValuePages {
         ),
         OnboardingValuePage(
             id: "tracking",
-            headline: "Track Without\nBreaking Stride",
-            subtitle: "Log focused climbs with a dark, minimal flow that keeps effort front and center.",
-            heroImageName: "OnboardingGlobalClimbsPhone",
-            background: .ambient(.tracking),
-            heroScale: 1.02,
-            heroYOffset: -8
+            headline: "Track Every\nClimb",
+            subtitle: "Save Live Climbs, import completed sessions from Apple Health, or log stair sessions manually in one place.",
+            heroImageName: "OnboardingWorkoutsScreenshot",
+            background: .image(
+                "OnboardingWorkoutsBackground",
+                dimmingOpacity: 0.12,
+                topReadabilityOpacity: 0.08
+            ),
+            heroScale: 1.34,
+            heroYOffset: 48
         ),
         OnboardingValuePage(
             id: "progress",
-            headline: "See Your\nProgress Rise",
-            subtitle: "Turn every climb into records, trends, and stronger training decisions.",
-            heroImageName: "OnboardingGlobalClimbsPhone",
-            background: .ambient(.progress),
-            heroScale: 1.02,
-            heroYOffset: -8
+            headline: "Analyze Your\nProgress",
+            subtitle: "See how your climbs are adding up, from new records to training trends and streaks.",
+            heroImageName: "OnboardingProgressScreenshot",
+            background: .image("OnboardingProgressBackground"),
+            heroScale: 1.05,
+            heroYOffset: -4
         )
     ]
 }

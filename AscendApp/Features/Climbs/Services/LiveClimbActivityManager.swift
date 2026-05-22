@@ -19,8 +19,7 @@ final class LiveClimbActivityManager {
         rank: Int?,
         rankTotal: Int,
         duration: TimeInterval,
-        progress: Double,
-        isPaused: Bool
+        progress: Double
     ) async {
         await start(
             climb: climb,
@@ -31,13 +30,12 @@ final class LiveClimbActivityManager {
             rank: rank,
             rankTotal: rankTotal,
             duration: duration,
-            progress: progress,
-            isPaused: isPaused
+            progress: progress
         )
     }
 
     func start(
-        climb: Climb?,
+        climb: Climb,
         sessionTitle: String,
         sessionSubtitle: String,
         targetSteps: Int,
@@ -45,8 +43,7 @@ final class LiveClimbActivityManager {
         rank: Int?,
         rankTotal: Int,
         duration: TimeInterval,
-        progress: Double,
-        isPaused: Bool
+        progress: Double
     ) async {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
             return
@@ -56,7 +53,7 @@ final class LiveClimbActivityManager {
 
         let attributes = LiveClimbActivityAttributes(
             sessionID: UUID().uuidString,
-            climbID: climb?.id ?? "just-climb",
+            climbID: climb.id,
             climbName: sessionTitle,
             climbLocation: sessionSubtitle,
             targetSteps: max(targetSteps, 0)
@@ -67,8 +64,7 @@ final class LiveClimbActivityManager {
             rankTotal: rankTotal,
             duration: duration,
             progress: progress,
-            isPaused: isPaused,
-            status: isPaused ? .paused : .recording,
+            status: .recording,
             photoURLString: nil
         )
 
@@ -89,8 +85,6 @@ final class LiveClimbActivityManager {
             return
         }
 
-        guard let climb else { return }
-
         let photoRequest = LiveClimbActivityPhotoRequest(
             climbID: climb.id,
             imageSetVersion: climb.imageSetVersion
@@ -107,20 +101,18 @@ final class LiveClimbActivityManager {
         rankTotal: Int,
         duration: TimeInterval,
         progress: Double,
-        isPaused: Bool,
         status: LiveClimbActivityStatus? = nil,
         force: Bool = false
     ) async {
         guard let activity else { return }
 
-        let resolvedStatus = status ?? (isPaused ? .paused : .recording)
+        let resolvedStatus = status ?? .recording
         let state = makeState(
             steps: steps,
             rank: rank,
             rankTotal: rankTotal,
             duration: duration,
             progress: progress,
-            isPaused: isPaused,
             status: resolvedStatus,
             photoURLString: lastState?.climbPhotoURLString
         )
@@ -140,7 +132,6 @@ final class LiveClimbActivityManager {
                 rankTotal: $0.rankTotal,
                 durationSeconds: $0.durationSeconds,
                 progress: $0.progress,
-                isPaused: false,
                 status: status,
                 climbPhotoURLString: $0.climbPhotoURLString,
                 updatedAt: Date()
@@ -175,7 +166,6 @@ final class LiveClimbActivityManager {
             rankTotal: lastState.rankTotal,
             durationSeconds: lastState.durationSeconds,
             progress: lastState.progress,
-            isPaused: lastState.isPaused,
             status: lastState.status,
             climbPhotoURLString: photoURLString,
             updatedAt: Date()
@@ -192,7 +182,6 @@ final class LiveClimbActivityManager {
         if state.steps != lastState.steps ||
             state.rank != lastState.rank ||
             state.rankTotal != lastState.rankTotal ||
-            state.isPaused != lastState.isPaused ||
             state.status != lastState.status ||
             state.climbPhotoURLString != lastState.climbPhotoURLString {
             return true
@@ -212,7 +201,6 @@ final class LiveClimbActivityManager {
         rankTotal: Int,
         duration: TimeInterval,
         progress: Double,
-        isPaused: Bool,
         status: LiveClimbActivityStatus,
         photoURLString: String?
     ) -> LiveClimbActivityAttributes.ContentState {
@@ -222,7 +210,6 @@ final class LiveClimbActivityManager {
             rankTotal: max(rankTotal, 0),
             durationSeconds: max(Int(duration.rounded(.down)), 0),
             progress: min(max(progress, 0), 1),
-            isPaused: isPaused,
             status: status,
             climbPhotoURLString: photoURLString,
             updatedAt: Date()

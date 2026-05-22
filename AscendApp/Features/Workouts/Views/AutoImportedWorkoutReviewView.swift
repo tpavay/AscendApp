@@ -172,12 +172,9 @@ struct AutoImportedWorkoutReviewView: View {
                     .foregroundStyle(isFormValid ? .accent : .gray)
                     .disabled(!isFormValid || isDeleting)
                 }
-
-                ToolbarItem(placement: .keyboard) {
-                    KeyboardDismissButton {
-                        focusedField = nil
-                    }
-                }
+            }
+            .keyboardDoneToolbar {
+                focusedField = nil
             }
         }
         .interactiveDismissDisabled()

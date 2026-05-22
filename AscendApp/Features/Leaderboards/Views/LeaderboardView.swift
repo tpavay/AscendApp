@@ -155,16 +155,8 @@ struct LeaderboardView: View {
         .onChange(of: authVM.displayPhotoURL) { _, _ in
             syncCurrentUserEntry()
         }
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button {
-                    isSearchFocused = false
-                } label: {
-                    Text("Done")
-                        .font(.montserratSemiBold(size: 16))
-                }
-            }
+        .keyboardDoneToolbar {
+            isSearchFocused = false
         }
     }
 

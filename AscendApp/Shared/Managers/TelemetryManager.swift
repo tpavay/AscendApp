@@ -159,7 +159,6 @@ final class TelemetryManager: @unchecked Sendable {
 
     enum Key: String {
         case isPremium = "is_premium"
-        case stravaConnected = "strava_connected"
         case buildConfig = "build_config"
         case appVersion = "app_version"
         case buildNumber = "build_number"
@@ -202,12 +201,6 @@ final class TelemetryManager: @unchecked Sendable {
         case authSignInFailed = "auth:sign_in_failed"
         case authSignOut = "auth:sign_out"
         case authProfileLoaded = "auth:profile_loaded"
-        case stravaConnectStarted = "strava:connect_started"
-        case stravaConnectSuccess = "strava:connect_success"
-        case stravaConnectFailed = "strava:connect_failed"
-        case stravaSyncStarted = "strava:sync_started"
-        case stravaSyncCompleted = "strava:sync_completed"
-        case stravaSyncFailed = "strava:sync_failed"
         case workoutImportStarted = "workout:import_started"
         case workoutImportCompleted = "workout:import_completed"
         case workoutImportFailed = "workout:import_failed"
@@ -232,7 +225,6 @@ final class TelemetryManager: @unchecked Sendable {
 
     enum ErrorContext: String {
         case auth
-        case strava
         case firestore
         case storage
         case healthKit

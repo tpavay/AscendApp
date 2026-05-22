@@ -1068,7 +1068,7 @@ final class WorkoutImportCoordinator {
                     appleHealthWorkoutsByID[sourceLink.externalRecordID] = workout
                 case .hevy:
                     hevyWorkoutsByID[sourceLink.externalRecordID] = workout
-                case .garmin, .strava, .fitbit:
+                case .garmin, .fitbit:
                     break
                 }
             }

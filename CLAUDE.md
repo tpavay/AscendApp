@@ -1,25 +1,53 @@
 # Ascend — Project Guide
 
 ## What Is Ascend
-Ascend is a comprehensive stairstepper workout tracker for iOS. It serves the full spectrum of users — from someone who's never used a stairstepper to advanced athletes doing progressive overload with weighted vests. Users log workouts, track progress, earn Best Efforts, create routines, and compete on leaderboards.
+Ascend is a competitive stair stepper companion for iOS. It's built for people who already use the stair stepper (or are about to start) and want their work to count. Users race the world up real landmarks, top per-climb leaderboards, log every session, and watch their progress compound over time. The leaderboard is the conversation.
 
-**Solo dev + AI assisted** (Tyler Pavay). Monetization plan: freemium with subscription (free core features at launch, premium tier for future advanced features). Near-term focus: polish, widgets, landing page, custom illustrations/animations, then App Store launch.
+**Solo dev + AI assisted** (Tyler Pavay). Planned monetization (not yet built): hard paywall, no freemium tier. Two subscription paths — a yearly plan (discounted, includes a free trial that extends as the user completes climbs) and a shorter recurring plan (monthly or weekly — TBD) for users who want to pay as they go.
 
 ---
 
-## Instruction File Sync Rule (All AI Providers)
-- `AGENTS.md` and `CLAUDE.md` must stay synchronized for shared project context.
-- When introducing or changing features, shared patterns, architecture decisions, or design conventions, update both files in the same change.
-- This rule applies to all AI providers used on this repo (Codex, Claude, Cursor, Copilot, etc.).
+## What Ascend Is NOT
+
+Defining the niche by exclusion. Use this as a check when adding features, screens, or copy:
+
+- **Not for users who don't care about the stair stepper.** If a feature serves "any fitness user," it probably doesn't belong here.
+- **Not a social fitness network.** No social feed, no follower model, no kudos. Interaction with other users happens *on the climb* (leaderboards, racing against past attempts), not on a social timeline.
+- **Not a generic fitness tracker.** Don't drift toward "every workout, any activity." Activity scope is stair stepper sessions.
+- **Not weight-lifting / strength-training focused.** Weighted-vest tracking exists to honor stair-stepper users who add load, not to become a strength app.
+- **Not a passive tracker.** Every session is competitive context — pushing for PRs, climbing leaderboards, chasing First Ascents.
+
+---
+
+## Brand Voice
+
+Voice is niche-aggressive and declarative — confident about who Ascend is for, willing to lose readers who aren't the target. The user already chose to be here; the copy doesn't beg.
+
+Principles:
+- **Active verbs at the front.** *Climb. Race. Rank. Push. Track.* Avoid "explore" / "discover" / "learn" as openers — too passive.
+- **Imperative over invitational.** *Be the first* beats *You could be the first*. *Climb past them* beats *You may want to try*.
+- **No hedging.** Cut "maybe," "perhaps," "if you'd like," "feel free to."
+- **Specific over abstract.** Name landmarks, name verbs, name numbers when they're earned. Concrete words land harder than generic ones.
+- **Assume the user is serious.** Don't explain stair stepping. Don't soften "race." Don't add tutorial scaffolding to copy that should land in one read.
+- **The dare beats the invite.** Empty states, first-action prompts, and first-time experiences should *dare* the user, not coax them.
+
+**Empty-state copy pattern: state-then-action.** State the current condition, then issue an imperative call to action. Two short sentences. The state contextualizes the action; the action drives behavior. Don't ship empty states that are descriptive-only — every empty state is an activation moment. When designing or writing an empty state, consult the `product-design-playbook` skill's Empty States play for the underlying framework.
+
+---
+
+## Project Context File (All AI Providers)
+- `CLAUDE.md` is the canonical project context file. `AGENTS.md` is a symlink to `CLAUDE.md` — editing one edits both. There is exactly one source of truth.
+- All AI providers used on this repo (Codex, Claude, Cursor, Copilot, etc.) should read from this file. Do not break the symlink by replacing `AGENTS.md` with a separate file or duplicating content between them.
 
 ---
 
 ## Tech Stack
 - **iOS 17.0+**, Swift 6, SwiftUI (when a newer iOS API would meaningfully improve a feature being discussed, mention it so the developer can decide whether to use an `@available` check — don't silently use only the older API)
 - **Data**: Local-first with cloud sync — SwiftData on device, Firebase Firestore for backup/sync/sharing
-- **Backend**: Firebase (Auth, Firestore, Storage, Cloud Functions, Hosting)
-- **Integrations**: Apple HealthKit, Strava, Hevy
-- **Cloud Functions** (TypeScript): Strava OAuth + sync, Beehiiv-backed waitlist signup endpoint with dedupe, transactional email for server-owned notifications
+- **Backend**: Firebase (Auth, Firestore, Storage, Cloud Functions, Hosting, Analytics, Crashlytics)
+- **Subscriptions / Paywall**: RevenueCat for subscription management and entitlements; SuperWall for paywall presentation and onboarding/conversion analytics
+- **Integrations**: Apple HealthKit, Hevy
+- **Cloud Functions** (TypeScript): Beehiiv-backed waitlist signup endpoint with dedupe, transactional email for server-owned notifications
 
 ---
 
@@ -46,29 +74,29 @@ AscendApp/
 │   ├── Views/                  # MainTabView, shared UI
 │   ├── Components/             # Reusable: FormTextField, FormButton, FormSection
 │   ├── Services/               # WorkoutImportCoordinator, WorkoutService, WorkoutMutationHandler
-│   └── Managers/               # StravaManager, ThemeManager, SettingsManager
+│   └── Managers/               # ThemeManager, SettingsManager
 web/public/                     # Firebase-hosted website (landing page, privacy policy)
 functions/src/                  # Cloud Functions (TypeScript)
 ```
 
 ### Tab Architecture
-- `MainTabView` should use SwiftUI's native `TabView(selection:)` as the tab content owner and keep Ascend's custom `MainTabBarView` as the visible bottom chrome via `safeAreaInset`.
-- `TabItem` is metadata only. Do not store eager `AnyView` tab roots in tab configuration, and do not reintroduce a manual `ZStack` that keeps every tab mounted with opacity.
-- `MainTabView` should render only the selected tab root inside the `TabView` so hidden tabs stay unmounted and do not run SwiftData queries, refreshes, or animations. Per-tab navigation/scroll state loss is acceptable for now.
-- Each tab root owns its own `NavigationStack`; keep tab-specific work scoped to the selected tab where possible so hidden tabs do not run expensive queries, refreshes, or animations.
+- Only the active tab should be mounted and running expensive work (SwiftData queries, refreshes, animations). Hidden tabs are deliberately inert. Switching tabs is allowed to lose per-tab navigation/scroll state — the lifecycle benefit outweighs that polish loss for now.
 
 ### Branding
 - Use the angular Ascend `A` mark for in-app and launch-screen branding. The internal logo assets are `AppIconInternal` and `AppIconInternalAccent`; do not reintroduce the legacy stair-stepper logo for app branding surfaces.
-- The unauthenticated landing screen uses the bundled `OnboardingWelcomeBackground` staircase artwork with readability overlays. Keep the image asset as the primary background rather than replacing it with a generated gradient.
+- When displaying the word "Ascend" as part of app UI branding (top chrome, splash, onboarding, auth), use the integrated wordmark where the angular A mark serves as the letter A — not the A icon placed next to a separate "ASCEND" text label. The shared `AscendWordmark` component is the canonical implementation; reuse it rather than reinstating logo + text combos.
+- The unauthenticated landing screen uses the bundled `OnboardingWelcomeBackground` asset with readability overlays. Keep a bundled image as the primary background — do not replace it with a generated gradient.
+- Shared onboarding screens should use `OnboardingScaffold` for consistent top-left chevron-only back-button placement and bottom action layout.
+- The unauthenticated auth screen should stay background-first, using `AuthStaircaseBackground`, the angular Ascend `A` mark, Apple/Google provider buttons, and inline links to `https://ascendstepper.com/terms` and `https://ascendstepper.com/privacy`.
 
 ### Environments
 Three Firebase environments. App selects at compile time via `#if DEBUG / #elseif STAGING`:
 
-| Environment | Firebase Project | Build Config | Scheme |
-|---|---|---|---|
-| Dev | `ascend-f2e4f` | Debug | `AscendApp` |
-| Staging | `ascend-staging-fa7d5` | Staging | `AscendApp-Staging` |
-| Production | `ascend-prod-9c8f2` | Release | `AscendApp` |
+| Environment | Firebase Project       | Build Config | Scheme              |
+|-------------|------------------------|--------------|---------------------|
+| Dev         | `ascend-f2e4f`         | Debug        | `AscendApp`         |
+| Staging     | `ascend-staging-fa7d5` | Staging      | `AscendApp-Staging` |
+| Production  | `ascend-prod-9c8f2`    | Release      | `AscendApp`         |
 
 Environment plists live in `AscendApp/App/Firebase`, but the build must copy the selected one into the built app bundle as `GoogleService-Info.plist`. App startup should use `FirebaseApp.configure()` with the bundled default plist, not runtime `FirebaseOptions(contentsOfFile:)`, so Firebase Analytics resolves the correct app ID reliably.
 
@@ -87,23 +115,21 @@ let functionsURL = "https://\(region)-\(projectId).cloudfunctions.net"
 - Do not persist Internal QA credentials in repo-local `.xcodebuildmcp/config.yaml`; keep them in user-local scheme settings or pass them into the MCP session at runtime.
 - Never commit QA credentials, never bundle them into production builds, and never use the internal QA path to bypass Firestore/Storage/Auth server enforcement.
 
-### Data Models (SwiftData)
-Workout, WorkoutSourceLink, WorkoutParticipation, LeaderboardStats, Routine, RoutineFolder, ClimbAttempt, PendingMediaUpload, PendingWorkoutDeletion
-
 ### Best Efforts Architecture
-- Best Efforts are the only workout achievement layer. Do not reintroduce a parallel Personal Records system.
-- Workouts remain the source of truth. Best Efforts are derived from workout history for all-time and this-year scopes across all, bodyweight, weighted, and exact weight-loadout contexts.
-- Best Effort rankings are persisted as derived SwiftData cache rows. Views should read cheap cache snapshots/lookups and must not rebuild rankings from all workouts in `body`; rebuild the cache through `BestEffortCacheStore` after workout create/edit/delete/import mutations and during startup repair if the persisted signature is stale.
-- Weighted Best Efforts must distinguish exact loadouts using the full enabled equipment configuration, such as `20 lb Vest` versus `20 lb Vest + 5 lb each Ankle`.
-- Best Effort metrics are stepper-specific and step-first: most steps, longest climb, highest average SPM, sampled time windows, and sampled fastest step targets. Do not add floors-based Best Efforts unless product explicitly changes direction.
-- Timeline efforts require real sampled Live Climb progress data. Manual entries and total-only imports can contribute whole-workout efforts, but not rolling-window or fastest-segment efforts.
-- Progress Best Efforts should default to a record-book overview, not a filter-heavy dashboard: show each available metric once with its current all-time best value and date, then open a dedicated metric detail screen on tap.
-- Best Efforts overview rows should stay table-like and low-noise: no per-row trophy icons or chevrons, metric title/date on the left, compact unitless value on the right when the unit is already implied by the title.
-- Metric detail screens should show the rank-1 laurel/wreath hero, a polished record progression chart, and record-setting history. The detail segmented control should only expose `Chart` and `History`; do not add a separate `Workout` tab. The chart card may use `Record Progression` plus a short metric-specific subtitle, but should avoid redundant generic titles like `Progression`; style it as a premium dark neon chart with a subtle accent area gradient, clean grid, no clutter from every point marker, a filled accent selected point, and a compact date/value callout on tap or drag. The history list should omit the current rank-1 record because it is already the hero, start at rank 2, use rank numbers without circular badges or trophy icons, avoid SPM subtitles, and navigate to the associated workout when a row is tapped. The detail hero should rely on the navigation title for metric context: keep the wreath area focused on the record value, centered inside the wreath, with comparison/date below, and do not repeat SPM or the metric title inside the wreath. Treat the detail hero as an integrated page header on the normal page background, without a heavy rounded card shell or gold gradient block. The segmented control and content cards should retain comfortable horizontal insets instead of spanning edge to edge.
-- Progress surfaces that preview Best Efforts should use a single premium featured-record card, not a mini list. Feature the newest current Best Effort, keep the whole card tappable, put the record value directly under the `Best Efforts` title, and keep preview metadata sparse: record name plus date only. Do not add `View All`, chevrons, trophy buttons, or count-chip clutter unless product explicitly asks for them.
-- Trends should answer whether training volume, pace, consistency, and time are changing compared with the previous matching period. Keep the surface insight-first: show a period pulse/summary and one selectable chart at a time, not a stack of every possible metric chart. Heart rate is contextual when available, not required for the core trend value.
-- Reserve full achievement sentences, such as `2nd fastest 3,000 steps all-time`, for workout list, workout summary/detail, Live Climb completion, and share surfaces where the effort appears out of record-category context.
-- Workout detail, Live Climb completion, share cards, and progress surfaces should display Best Efforts only.
+
+**Achievement model**
+- Workouts are the source of truth. Best Efforts are *derived* data — recomputed from workout history, never authored directly.
+- Best Effort metrics are stepper-specific and step-first: most steps, longest climb, highest average SPM, sampled time windows, fastest step targets. Don't add floors-based Best Efforts unless product explicitly changes direction.
+- Weighted Best Efforts split by exact loadout (e.g. `20 lb Vest` is a different record than `20 lb Vest + 5 lb each Ankle`). Different load configurations = different records.
+- Timeline-segment efforts (rolling-window, fastest-segment) require real sampled progress data from Live Climbs. Manual entries and total-only imports contribute *whole-workout* efforts but never segment efforts.
+
+**Caching**
+- Best Effort rankings are persisted as a derived cache. Views read cheap cache lookups; they don't recompute rankings from raw workouts inside `body`. The cache is rebuilt after workout mutations (create / edit / delete / import) and during startup if the persisted signature is stale.
+
+**Display direction**
+- Progress surfaces show Best Efforts as a **record book**, not a dashboard. Each metric appears once with its current best; depth (progression chart, history) lives on the per-metric detail screen. Don't ship filter-heavy comparison surfaces as the default.
+- Trend surfaces are insight-first: compare volume / pace / consistency / time against the previous matching period. Show one chart at a time, not a stack of every possible metric.
+- Reserve full achievement sentences (e.g. *"2nd fastest 3,000 steps all-time"*) for surfaces where the effort appears out of record-category context — workout list, workout summary, Live Climb completion, share cards.
 
 ### Firebase Storage Pathing + Rules
 - User-generated media must be stored under user-scoped prefixes:
@@ -117,37 +143,49 @@ Workout, WorkoutSourceLink, WorkoutParticipation, LeaderboardStats, Routine, Rou
 - Account deletion and cleanup should target only the authenticated user's scoped prefixes, including durable workout heart-rate sidecars and private workout backup documents.
 
 ### Workout Durability Architecture
-- Canonical private workout backups live at `users/{uid}/workouts/{workoutId}`. These documents are the durable backend record for private workout metadata, while `Workout` in SwiftData remains the local-first cache and editing surface.
-- Workout document IDs should use the workout's stable UUID string. Heart-rate sidecars must use the matching Storage path `users/{uid}/workout_heart_rate/{workoutId}.json.gz` so cleanup and repair flows can derive both resources from the same identity.
-- `WorkoutRemoteRepository` owns Firestore upserts/deletes for the canonical workout document, and `WorkoutHeartRateStorageRepository` owns the gzip-compressed heart-rate sidecar upload/delete path.
-- Full heart-rate chart samples should not be embedded directly in Firestore workout documents. Store the full series as a Storage sidecar and keep only pointer/metadata fields in Firestore, alongside summary values like average and max heart rate.
-- A workout that includes heart-rate series data is not fully synced until both the Storage sidecar upload and Firestore workout document upsert succeed.
-- Local workout sync state lives on `Workout` itself (`ownerUserId`, last-modified timestamp, last-remote-sync timestamp, last remote heart-rate sidecar path, sync status, and last sync error) so the app can track pending remote backup work without changing the current local-first UX.
-- Existing on-device workouts are backfilled once per signed-in user into that sync model. Phase 1 explicitly assumes one account per install for this backfill, so shared local workout history is not a supported multi-account scenario yet.
-- Pending remote deletes are tracked locally in `PendingWorkoutDeletion` so delete/retry flows can become durable without overloading the canonical workout record.
-- Workout backup is mutation-driven for create/edit/import flows. `WorkoutMutationHandler` persists the local sync-state changes and immediately kicks the remote coordinator after successful mutations instead of waiting for the user to relaunch the app.
-- Background media uploads are part of the same durability contract. When `Workout.photos` or `highlightedPhotoId` changes after upload completion, the app should mark that workout pending and republish the private workout backup immediately.
-- `WorkoutSyncCoordinator` is the single orchestrator for pending workout backup work. It currently runs both during authenticated bootstrap/foreground repair and from mutation-triggered flushes, processes pending workout deletions before pending upserts, uploads any required heart-rate sidecar before the Firestore upsert, and coalesces overlapping process requests so launch/auth/lifecycle hooks do not issue duplicate remote work for the same workout.
-- Future public sharing or social features must not read directly from the private workout backup collection. Public posts/comments/likes should use separate public models.
+
+Local-first with cloud backup. SwiftData is the editing surface and source of truth for in-flight UX; Firestore + Storage carry durable backups so a user's history survives reinstalls and crosses devices.
+
+**Identity and storage**
+- Each workout has *one* durable identity — a stable UUID shared across the local `Workout`, its Firestore document at `users/{uid}/workouts/{workoutId}`, its heart-rate sidecar in Storage, and any associated media. One identity = cleanup and repair flows can act on all resources at once.
+- Firestore stores the workout's metadata and summary fields (averages, max HR, totals). Large time-series data (heart-rate samples) goes to Storage as a compressed sidecar — never embedded in Firestore documents. Firestore holds only pointers and summaries.
+- A workout is *fully synced* only when every component (Firestore document + Storage sidecar + media uploads) has succeeded. Partial success is not success.
+
+**Sync state**
+- Per-workout sync state (owner, last-modified, last-synced, status, last error) lives *on the local `Workout` itself*, not in a separate sync queue. This preserves the local-first UX while keeping pending remote work tracked.
+- Pending remote deletes are tracked on a separate model so the canonical workout record isn't burdened with retry / deletion state.
+
+**Orchestration**
+- A single sync coordinator owns all pending remote work. Mutations don't write to Firestore directly — they update local sync state and kick the coordinator.
+- Backup is mutation-driven (immediate after each mutation), not deferred to next launch. The coordinator also runs on authenticated bootstrap and foreground repair to recover missed or failed work.
+- Ordering: deletes before upserts; Storage sidecars before the Firestore document that references them; overlapping requests coalesced so launch / auth / lifecycle hooks don't produce duplicate remote work.
+- Media uploads are part of the durability contract. When media changes after upload completion, the workout is re-marked pending and the backup is republished.
+
+**Boundaries**
+- Private workout backups are *private*. Future public sharing, posts, comments, or likes must use *separate public data models* — they don't read private workout documents directly. The privacy boundary is data-model separation, not just security rules.
+- Multi-account-on-same-device is not yet supported. Local workout history assumes one user per install; shared local history across accounts is out of scope until intentionally designed.
 
 ### Workout Source + Context Architecture
-- `Workout` is the canonical activity: what the user actually did, including date, duration, steps, floors, health metrics, notes, media, and source.
-- `WorkoutSource` is the capture method. `headphone_motion` is the brand-agnostic source for compatible headphone motion tracking and displays as `Headphone Tracking`; it is verified, but it is not a `WorkoutProvider` because there is no external provider record to dedupe against.
-- Headphone motion tracking should stay behind reusable shared services under `Shared/Services/HeadphoneMotion`: Core Motion adapts `CMDeviceMotion` into app-owned `HeadphoneMotionSample` values, while `HeadphoneMotionStepDetector` remains pure compute so the step algorithm is unit-testable without headphones or simulator hardware. Core Motion callbacks must terminate inside a non-actor runner; UI-facing observable services should receive value updates on `MainActor` and must not be captured directly by Core Motion handlers.
-- `WorkoutProvider` + `WorkoutSourceLink` remain only for external provenance and dedupe records such as Apple Health and Hevy.
-- Feature attribution belongs in `WorkoutParticipation`, not as feature-specific nullable fields on `Workout`. Use participation records for intentional routine template, local routine, climb attempt, challenge, group challenge, program session, and future achievement contexts.
-- Built-in routine leaderboards should use `routine_template` participation with the stable built-in template ID. User-created or copied routines may use local `routine` participation for history, but they are not public-leaderboard eligible until a future shared routine identity exists.
-- Live Climb participation is live-only in v1: only `headphone_motion` workouts created from the Live Climb flow may create `climb_attempt` participation or affect climb leaderboard eligibility. Manual logs, imports, and routine completions must not progress or complete Live Climbs.
-- Passive climb-equivalent badges, profile achievements, lifetime milestones, and collections are interpretations derived from workouts. They should not be modeled as leaderboard-eligible participation unless product explicitly turns them into intentional challenge contexts.
+
+Three distinct concepts. Keep them cleanly separated — don't fold feature-specific data onto the canonical `Workout`.
+
+**`Workout` is the canonical activity** — what the user actually did (date, duration, steps, floors, health metrics, notes, media). It carries enough to describe the session itself, but no feature-specific attribution.
+
+**Source = how the data was captured.** In-app sensor capture (headphone motion, future wearables), external provider imports (Apple Health, future third parties), and manual entry are each their own source kind. Verified-sensor sources are first-class; they aren't external providers because there's no external record to dedupe against. External-provider dedupe + provenance metadata lives on a separate provenance type, never on `Workout` itself.
+
+**Participation = why the workout exists / what it counts toward.** Feature-specific attribution (climb attempt, routine, challenge, future contexts) lives on a separate participation type, never as nullable fields on `Workout`. New features add new participation kinds; they don't add nullable columns to the canonical type. This is the open/closed principle applied to the workout schema.
+
+**Integrity rules**
+- Sensor capture (headphone motion, future wearables) lives behind a shared service layer. The step / progress algorithm is pure compute — unit-testable without hardware. Sensor callbacks must run safely off the main thread; UI updates marshal back to main explicitly.
+- Live Climb completions require *live* sensor data from the live attempt flow. Manual entries, external imports, and routine completions cannot progress or complete a Live Climb. Live Climb eligibility is a quality gate, not a backfill.
+- Passive interpretations of workout history (lifetime step milestones, climb-equivalent badges, collection counts) are *derived* readings — never participation records. They don't make a workout retroactively eligible for any leaderboard.
 
 ### Workout Share Card Architecture
-- Workout share cards in v1 use bundled poster background assets so the share surface renders instantly and offline.
-- All workout share cards should render inside a shared rounded-square surface component; card-specific layout views should sit on top of that surface rather than reimplementing clipping, borders, or background handling.
-- `WorkoutShareCardPreset`, `ShareCardType`, and `WorkoutShareCardComposer` own the preset-driven stat priority, typography tokens, surface/background config, and layout inputs for the rendered card.
-- Shared decorative share-card elements, such as stat dividers, should live in reusable parameterized components rather than being embedded inside one card layout.
-- `WorkoutShareCarouselView` remains the container surface. The default workout flow keeps the bundled poster available, and Live Climb completions may prepend a climb-specific square card when the saved workout resolves to climb metadata.
-- When adding a new share card, prefer a new card type + preset + layout view instead of branching inside an existing card view so current card layouts stay isolated.
-- Do not reintroduce backend-driven workout share backgrounds or Firestore-configured stat layouts unless product explicitly chooses that direction again.
+- Bundle the assets share cards need (backgrounds, decorative elements) so the share surface renders instantly and works offline. Bundled here is the *delivery* choice; the broader content-driven principle still applies (no per-card code paths).
+- Share cards compose on a shared surface — card-specific layouts sit on top and never reimplement clipping, borders, or background handling. Shared decorative elements (dividers, badges, stat blocks) live as reusable parameterized components.
+- Adding a new card variant is additive: new card type + new layout, not a branch inside an existing layout. Existing cards stay isolated so changes can't accidentally break them.
+- Workout share cards serve the manual-log and Apple Health-import flows (where they're the user's only post-session output). For Live Climb completions, the share treatment should be the climb's own overlay/share card — not a parallel workout-share path that fights with it.
+- Don't reintroduce backend-driven share backgrounds or remote-configured stat layouts. Share content is bundled or locally composed, not server-rendered.
 
 ### Privacy Manifest Maintenance Rule
 - `AscendApp/PrivacyInfo.xcprivacy` is a machine-readable Apple privacy manifest that ships inside the app bundle. It is REQUIRED for App Store submission and must stay in sync with reality.
@@ -160,6 +198,10 @@ Workout, WorkoutSourceLink, WorkoutParticipation, LeaderboardStats, Routine, Rou
 - The current manifest declares NO tracking and NO ads. Firebase Analytics is enabled in Release/TestFlight only, with `IS_ADS_ENABLED=false`. Do not enable ad SDKs or IDFA collection without flipping `NSPrivacyTracking` and adding ATT.
 - When in doubt about whether something needs to be declared, declare it. Under-declaring is a rejection risk; over-declaring is not.
 
+### Profile Demographics
+- Post-auth onboarding captures display name, age, and gender as private declared profile fields on `users/{uid}`. Age must stay a bounded integer from 13 through 120, and gender must use the `ProfileGender` raw values: `woman`, `man`, `non_binary`, or `prefer_not_to_say`.
+- Treat age and gender as private account/profile data. Do not denormalize them to public leaderboards, replay rows, share cards, analytics payloads, or other public/community surfaces unless product explicitly adds an opt-in, privacy-safe feature.
+
 ### Firestore Schema-Change Rule
 - `firestore.rules` uses strict `hasOnly` + `hasAll` field validation on every collection. Adding, removing, or renaming a field in the app **requires a matching update to `firestore.rules`** — otherwise writes will be rejected at the server.
 - The same `firestore.rules` file must be deployed to all environments (dev, staging, production) to catch schema mismatches early. Never test against loose rules in dev while production has strict ones.
@@ -169,197 +211,210 @@ Workout, WorkoutSourceLink, WorkoutParticipation, LeaderboardStats, Routine, Rou
   3. Deploy rules to all environments before or alongside the app update
 
 ### Connectivity UX
-- `NetworkConnectivityService` is the app-wide source of truth for immediate connected-vs-offline UX using `NWPathMonitor`.
-- App-wide offline and back-online messaging should be owned by `MainTabView` as a slim conditional status row inside the custom tab bar chrome, so connectivity state appears in one consistent bottom-of-screen location without covering feature content.
-- When connectivity drops, the custom tab bar should briefly emphasize the offline transition by tinting the full tab-bar chrome blue before settling back to the normal tab-bar background with the compact offline status text still visible.
-- Use connectivity state to fail fast for user-initiated refreshes or uploads when there is no network path, instead of waiting for request timeouts to tell the user they are offline.
-- Request-level failures and timeouts are still a separate concern. Features should keep their own timeout/error handling for slow connections, backend failures, or partial cached-data fallbacks.
+- Connectivity is an app-wide concern with a single source of truth — features must not each implement their own offline detection.
+- Surface connectivity state in one consistent, persistent location (not feature-by-feature banners or alerts). When the user is offline, they should know it without having to discover it through failed actions.
+- Fail fast on user-initiated network actions when there is no network path — don't wait for request timeouts to tell the user they're offline.
+- Connectivity is *not* the same as request success. Online requests can still time out, hit backend errors, or return partial data. Features decide the user-facing response (retry button, cache fallback, error message), but the mechanics — timeout policy, retry logic, error categorization — belong in shared request infrastructure. If you find yourself implementing the same network error pattern in a second feature, extract it into the shared layer rather than duplicating it.
 
 ### Import UX
-- Workout import supports individual import, selected-batch import, and import-all from the same sheet.
-- Import architecture uses one canonical `Workout` plus local `WorkoutSourceLink` provenance records per provider. New import UI and state should flow through `WorkoutImportCoordinator`, not provider-specific views/services.
-- Workout totals must pass the shared `WorkoutPlausibilityPolicy` before manual save, edit, import, remote backup, and Best Efforts ranking. Keep implausible average-step-rate records out of new data, and independently ignore any legacy implausible rows in Best Efforts.
-- Apple Health is read-only. First connect may backfill historical workouts, but routine checks must stay incremental and sample-only until a workout is actually imported.
-- Apple Health heart-rate chart samples must expand condensed `HKQuantitySample` records using `HKQuantitySeriesSampleQuery` and save the individual quantities. Parent heart-rate samples may represent aggregate blocks and should only be used as a fallback when no series children are returned.
-- Apple Health auto-import is optional and user-controlled from the Apple Health manage sheet.
-- Auto-import only applies to newly finished Apple Health workouts from the moment the user enables it; older pending history remains in the manual review/import flow.
-- If older local settings have auto-import enabled but no stored activation timestamp, use the previous successful HealthKit check as the conservative activation fallback so newly discovered workouts can import without opening older pending history.
-- Auto-imported Apple Health workouts should use a single latest-unseen review model, not a backlog queue:
-  - Home may surface one quick-edit review sheet for only the latest unseen auto-imported workout
-  - if a newer unseen auto-import arrives before review is completed, it replaces the older unresolved review candidate
-  - completing or deleting that review should advance the review watermark so older auto-imported workouts never surface one-by-one later
-- The Home header bell is the primary import entry point, but it should not show a pointer-style coach mark.
-- Existing users who already have Apple Health connected but have auto-import off should see a dismissible auto-import banner inside `WorkoutImportSheet` the next time they open imports; dismissal is one-time per user and should not reappear.
-- `WorkoutImportSheet` should own Apple Health setup regardless of entry path using inline setup states, not a setup sheet layered on top of the import page. The bell and other manual review entry points should always open the import page rather than jumping straight into the auto-import review flow.
-- While Apple Health still needs setup, suppress the generic `No New Workouts` empty state so setup remains the only focus.
-- After Apple Health access is granted, enable auto-import by default and show inline guidance for where to change that later in Settings > Edit Profile > Integrations > Apple Health.
-- The auto-import review screen is a cleanup pass on an already-saved workout, so it should use `Done` instead of `Save`, omit `Not Now`, open as a quick-edit sheet (about 75% height with expansion to large) that cannot be swiped away, allow edits to `title`, `notes`, `media`, `duration`, and `steps`, keep the imported workout date visible but read-only, and keep the destructive `Delete Workout` action inside the sheet content while suppressing re-import of that same Apple Health sample.
-- HealthKit auto-import freshness should use HealthKit observer/background delivery when available, while keeping the existing launch/foreground incremental refresh as a fallback.
-- HealthKit observer callbacks should only wake the import pipeline; the coordinator must serialize refreshes and fetch changes with an anchored query before completing observer delivery.
+
+External workout imports exist because Ascend partly serves as a logger — alongside the two in-app workout origins (Live Climbs captured via headphone motion, and manual entries typed by the user), users may want to bring in Apple Health stair workouts or future wearable data. The principles below govern how external data enters the system safely. The first subsection's data-integrity rules apply to *all* workout origins, not just imports.
+
+**Data integrity (applies to all workout origins)**
+- A single canonical `Workout` is the only persisted form. Every origin — manual entry, headphone-motion Live Climbs, Apple Health imports, future wearables — converges to it. Source-specific provenance is recorded on a separate provenance type, never as fields on the workout itself.
+- All *external imports* flow through a single import facade. Provider-specific code lives behind that facade; UI and downstream code never speak directly to a provider. (Manual entry and Live Climb capture have their own in-app creation paths — they don't go through the import facade.)
+- Plausibility validation runs at the entry boundary — bad data (implausible step rates, impossible durations) never enters the canonical store. The gate is the same for manual save, edit, external import, and Live Climb completion.
+
+**External health sources (e.g. Apple Health)**
+- External health data is read-only. Never write back to the source platform.
+- Apple Health permission grant doubles as auto-import opt-in: when the user grants access, auto-import turns on automatically, with clear inline guidance about how to disable it later. We never sync without permission, but we treat granted permission as "the user wants their new workouts to flow in."
+- An activation timestamp is recorded at the moment auto-import turns on (i.e., when the user grants permission). Only workouts finished *after* that moment flow in automatically. Pre-existing history stays in the manual review flow until the user explicitly imports it — granting permission shouldn't dump weeks of old data on them.
+- Auto-imported workouts use a **latest-unseen review model**, never a backlog queue. Surface only the newest unseen workout for review; if a newer one arrives mid-review, replace; advance the watermark when review completes so older ones never resurface.
+- Auto-import setup is handled inline in the import flow — don't require the user to navigate to settings to set up a provider for the first time.
+- Apple Health workouts that enrich an existing Live Climb (per the enrichment rules in Live Climbs V1) **do not** surface in the review flow or in the manual import list — regardless of auto-import setting. Enrichment is silent; the user is never asked to confirm imported data on a Live Climb.
+
+**Review semantics**
+- Reviewing an auto-imported workout is a *cleanup pass on an already-saved record* — semantically distinct from creating a new workout. UI affordances (button labels, dismiss behavior) should reflect that the workout already exists.
+- The review surface exists to fix bad step counts on workouts imported from external wearables (Apple Watch step data is frequently wrong for stair-stepper use) and to let the user add notes / media to the imported record. It does not apply to Live Climbs — those have accurate in-app step counts and gather notes / media at the completion summary, not via review.
+
+**Background freshness**
+- Prefer system-provided background delivery (e.g. HealthKit observers) when available; fall back to launch/foreground incremental refresh.
+- Observer callbacks must be serialized through the import facade — a callback wakes the pipeline; the pipeline owns the actual fetch.
 
 ### Analytics Architecture
-- `TelemetryManager` remains the app-facing facade, while reusable telemetry types and sinks live under `Shared/Services/Telemetry`.
-- Feature analytics definitions should live in feature-owned `Analytics/` folders (for example `Features/Workouts/Analytics`) as typed `TelemetryEvent` / `TelemetryScreen` definitions.
-- Feature code must not import Firebase directly for analytics or breadcrumbs. Route analytics through `TelemetryManager` and shared sinks only.
-- Log product events from the owning view model, coordinator, manager, or service instead of scattering calls through leaf views. The main exception is SwiftUI screen tracking, which should use the shared `.analyticsScreen(...)` modifier.
-- Keep analytics parameters low-cardinality and privacy-safe. Do not log raw user-entered text, email, DOB, exact location, exact health samples, or other high-sensitivity payloads.
-- New analytics work should include focused tests using `InMemoryTelemetrySink` so event contracts can be verified without a Firebase runtime.
-- DEBUG builds expose a Telemetry Console inside Debug Tools so recent events and screen views can be inspected locally when running with telemetry enabled.
+
+**What analytics is for**
+- **Funnel measurement** — where users drop off between acquisition → activation → trial start → paid subscription → renewal. This drives the business decisions.
+- **Engagement** — session count, climb completions, leaderboard interactions, return rate (Day 1 / Day 7 / Day 30). Tells us if the product is working day-to-day.
+- **Feature-specific signals** — First Ascent claim rate, Live Climb completion vs. abandon rate, paywall presentation outcomes, copy-variant performance. Tells us what to iterate on.
+- **Quality** — crash rate, error rate, performance regressions. Stability is non-negotiable.
+
+If an event wouldn't change a decision, don't log it. Volume of events ≠ value of analytics.
+
+**Providers**
+
+Multiple analytics destinations are sanctioned — each is best at a different job. Route events to the right destination through a single facade; never call providers directly from feature code.
+
+- **Firebase Analytics** — broad funnel, cohort, retention analysis. Most product events go here.
+- **SuperWall** — onboarding-flow step-level conversion + paywall presentation analytics (its specialty).
+- **Crashlytics** — crashes, fatal errors, stability metrics.
+
+When evaluating new providers, justify them by what they uniquely measure that the existing set doesn't.
+
+**Implementation principles**
+- One analytics facade. Feature code never imports a provider directly; it logs through the facade, which routes to the right destination.
+- Event definitions are typed, discoverable, and feature-owned. Don't pass arbitrary string event names — events are values defined alongside the feature that emits them.
+- Log from logic layers (view models, coordinators, services), not from view bodies. SwiftUI screen tracking is the exception — it belongs on the view via a shared modifier.
+- Parameters stay low-cardinality and privacy-safe: never log raw user input, email, DOB, exact location, exact health samples, or any PII. Bucket continuous values into categories before logging.
+- Event contracts are verifiable. Tests should exercise event-emission paths without requiring a live analytics runtime.
+
+**Local inspection**
+
+DEBUG builds expose a developer-visible analytics console so events and screen views can be inspected without leaving the simulator.
 
 ### Live Climbs V1 Architecture
-- `Live Climbs` is a 3-screen loop:
-- `Home` is a stateful entry card and does **not** show the globe
-- `Browse` owns the searchable globe experience
-- `Climb Detail` is the primary climb destination
-- Live Climb funnel analytics should use typed `LiveClimbAnalyticsEvent` values through `TelemetryManager`, not direct Firebase calls. Keep event parameters low-cardinality and privacy-safe, focusing on entry point, climb tier/category, coarse buckets, action state, completion outcome, and share surface.
-- Browse should treat the globe and drawer as distinct navigation modes: tapping a globe pin opens a compact preview card, while tapping a search result, section card, or list row opens Climb Detail directly.
-- Browse search lives inside the bottom drawer. Focusing search should expand the drawer above the keyboard, and collapsing the drawer should leave the globe available for visual exploration.
-- Home should always show a concrete daily recommended Live Climb so the feature feels active and discoverable. Tapping the Home card opens that climb's detail screen.
-- The recommended Home Live Climb should be persisted by local calendar day so it stays the same for the full day even if climb completion state changes.
-- The Home daily climb card is fully tappable and should not include redundant in-card CTA text, chevrons, or browse-all copy.
-- Hardware capability should not be surfaced as a warning on Home or Browse. Live Climb attempts still require compatible headphones with motion tracking, but that gate belongs at the actual start-live-attempt point.
-- `Just Climb` is the open-ended live-tracked mode for users who want headphone-motion tracking without choosing a catalog climb. It should be reachable from the Add Workout flow, save a normal `headphone_motion` workout with `trackingMode=just_climb`, and must not create or progress a `ClimbAttempt`.
-- Climb Detail should use a flippable climb card: the front shows the landmark image/name/location, and the back shows tier plus the fun fact. The tier step range belongs directly under the tier label; do not repeat climb steps/floors on the back because those already live below the card.
-- Climb Detail should provide a compact top-right Phosphor `globe-hemisphere-west` action for browsing other climbs. Keep this icon standalone with an invisible tap target, not inside a visible circular/chip background. Do not put browse copy or browse buttons on the Home daily card.
-- Climb Detail should explain headphone requirements through a compact persistent help icon, not an inline text box. Help copy should include a `Compatible Headphones` list, a subtle link to Apple's current compatibility page, and avoid extra "why" paragraphs or "preview the route" phrasing.
-- Climb Detail should show Live Climb community state as one avatar/caption row, but the caption should only report the completed count (`0 completed`, `1 completed`, `{N} completed`). Do not show attempted/climber totals in the caption because completions are the meaningful public stat.
-- In the Climb Detail community row, show up to 3 visible avatars without an overflow-count pill. If the current user has completed the climb, pin them first with an accent ring/glow; if they attempted but did not complete, pin them first with a dashed accent ring and subtle pulse.
-- Entering `Browse` from another surface should reset the globe to the default overview state and clear any stale preview card/search state from a previous visit.
-- Dismissing a browse preview card should clear the card and restore the overview zoom while preserving the user's current globe center.
-- Browse pin focus should derive camera zoom from climb metadata (category + climb size signals) so compact landmarks can zoom tighter than large natural climbs without per-climb camera overrides.
-- Globe pins should use state-driven location-pin styling instead of colored dots:
-  - available climbs use a hollow outlined pin
-  - the active climb uses a filled pin with a static double-pin glow treatment
-  - completed climbs use a filled circular check badge instead of a pin
-- Home climb states are:
-  - never climbed
-  - inactive with completion history
-  - active climb in progress
-- `ClimbAttempt` is the source of truth for climb progress and history. It replaces the earlier completion-only model.
-- Only one climb attempt may be `active` at a time. Starting another climb should confirm replacement and mark the old attempt `abandoned`.
-- Manual entries, Apple Health imports, and routines must not complete or progress Live Climbs. Live Climb completions should come from the dedicated headphone-motion live attempt flow.
-- Live Climb attempts should create a `headphone_motion` workout only after a live headphone-motion session stops with recorded steps. The workout should use the live session start time as `Workout.date`, store compact algorithm/session metadata in `sourceMetadata`, and flow through `ClimbService.apply(...)` plus `WorkoutMutationHandler` so climb progress, participations, leaderboards, Best Efforts, and remote backup stay on the normal mutation path.
-- Apple Health can enrich a saved Live Climb workout with wearable metrics, but it must not become the canonical Live Climb source. Enrichment is automatic only for confident one-to-one matches between one unlinked `headphone_motion` Live Climb workout and one unlinked Apple Health stair/step workout; ambiguous matches must be skipped rather than guessed. Enrichment may add heart rate, calories, device metadata, `healthKitUUID`, and an Apple Health `WorkoutSourceLink`, while preserving the Live Climb workout's source, steps, floors, duration, rank/replay metadata, and attempt participation.
-- Live Climb sessions should start a best-effort background execution helper alongside headphone motion: use iOS 26+ `HKWorkoutSession` with `UIBackgroundModes` `processing` when available, do not save HealthKit workouts or request new Health write permissions for this helper, and fall back to a short `UIApplication` background task on older OS versions.
-- Saved Live Climb attempts are immutable competitive history in the app UI. Use the in-session discard action before saving if an attempt should not count; once saved, workout-log delete affordances should not remove the underlying attempt history.
-- Completed Live Climb sessions should transition to a post-save summary before dismissal. The summary should use saved Live Climb step timeline metadata for adaptive pace-split rows, show workout vertical gain using the same step-height calculation as workout detail, and launch the existing workout share carousel with a Live Climb-specific card when climb metadata is available.
-- Live replay leaderboards are context-agnostic under `Shared/Services/LiveReplayLeaderboard`. Live Climbs and future routine race views should use `LiveReplayLeaderboardContext`, `LiveReplaySplitSampler`, and `LiveReplayLeaderboardService` instead of cloning climb-specific comparison logic.
-- Live replay leaderboard rank compares the live user's current steps against completed leaderboard-eligible attempts at the same elapsed-time bucket. Failed, abandoned, partial, or otherwise ineligible attempts must not publish into replay indexes, and tied completed attempts rank ahead of the current live user so a new attempt starts at the bottom of the completed field.
-- Per-climb public replay contexts should contain at most one completed row per user. If a user has multiple completed attempts for the same climb, publish only that user's best eligible attempt into the replay index.
-- The global Just Climb replay context is `just_climb__global`. It should be server-published from all completed leaderboard-eligible Live Climb attempts plus saved Just Climb sessions, keyed by workout ID so users can race against all completed attempts rather than one best row per user. Because Just Climb has no target, completed competitors should remain visible at their final step total in later replay buckets instead of disappearing after their own finish time.
-- Post-completion summary and Live Climb share-card rank should be based on completion duration against completed bucket-zero replay entries, with `completedCount` as the denominator. Do not reuse the in-session time-window rank or total-climber count for completed share surfaces.
-- Future demographic or peer-group insights for Live Climbs should be modeled intentionally from declared profile fields, such as age range, gender, weight range, or region, and should stay opt-in/privacy-safe rather than inferred from sensitive data.
-- Live sessions should record compact source-neutral step timeline checkpoints locally at fixed intervals and store them with the saved source metadata. Hardware-specific producers, such as headphone motion or future wearable integrations, should emit cumulative step samples into the shared Live Climb recorder instead of making result/replay UI depend on one sensor source. The app should not write leaderboard split indexes from the client during a session; public replay windows are read-only client data and should be server-published from saved attempts.
-- The server publisher should normalize saved replay split curves before writing public buckets. If a saved curve is degenerate, such as all zero progress until the final bucket, reconstruct a conservative monotonic curve from the final duration and steps rather than publishing a stationary-until-finish replay row.
-- Replay leaderboard rows may denormalize public display fields (`displayName`, `avatarToken`, optional `photoURL`) so clients do not read private `users/{uid}` documents for profile data during live sessions.
-- `functions/src/liveReplayLeaderboard.ts` owns the server publisher from private workout backups to `live_replay_leaderboards/{contextKey}/splitBuckets/{bucketIndex}/entries/{entryId}` plus the per-context `userBestAttempts` guard collection. Keep that index denormalized and small; do not make live-session client code write directly to it.
-- During a live session, time, steps, progress, SPM, and other sensor stats must update locally every second without waiting on Firestore. The replay leaderboard may refresh a tiny window around the user every 5-10 seconds or on bucket changes, and stale/failed backend reads must not interrupt tracking. Clients should project fetched replay rows forward between backend reads using denormalized `finalSteps` plus completion duration or fallback pace so visible competitors do not appear frozen.
-- The live attempt screen should make the replay leaderboard the primary surface: keep elapsed time in compact top chrome, show the climb's total target steps inline with the leaderboard heading, use the current user's row as the horizontal accent progress indicator with their profile photo when available, and keep pause/resume plus end-attempt controls compact at the bottom. Pre-start countdown should fully obscure the live UI until recording begins. Pausing should suspend headphone-motion updates and active duration until resumed.
-- Live Climb sessions should publish a Live Activity/Dynamic Island through `LiveClimbActivityManager` while `LiveClimbSessionViewModel` remains the source of truth. Compact island surfaces should show current steps and live rank; expanded/long-press surfaces should show the climb name, location, remote climb image when available, rank, duration, steps, and AppIntent-driven pause/resume/stop controls. The widget extension must not read Firestore or write replay indexes directly.
-- Non-`multiSession` climbs are one-live-attempt challenges. The live attempt must fully complete the climb or it becomes `failed`, stops being active immediately, and remains visible in climb history as an attempt rather than a completion.
-- General workout entry surfaces should stay separate from Live Climbs because manual entries, imports, and routines cannot progress Live Climb attempts.
-- General workout launcher copy should use `Add Workout` for the top-level action, then name the creation method inside the sheet (`Manual Entry`, `Start Routine`, `Import`) instead of mixing `start` and `log` verbs at multiple levels.
-- Climb detail has 3 swipe pages:
-  - `Overview` (real)
-  - `Your History` (real)
-  - `Leaderboard` (real; shows fastest completed attempts from the server-published replay index)
-- Per-climb rank and total-climber counts must stay hidden until real backend data exists; do not show placeholder public stats.
-- Climb content uses a remote-first catalog and remote-only climb images:
-  - a tiny hosted manifest at `/climbs/manifest.json`
-  - a versioned hosted catalog at `/climbs/catalog-v{N}.json`
-  - Storage-backed image assets at `climb-images/{climbId}/v{imageSetVersion}/{hero|card|thumb}.heic`
-- The app should keep a tiny bundled/bootstrap fallback for climb metadata only, so Home and Browse can still render if the remote catalog has never been fetched and there is no disk-cached catalog yet.
-- Once the hosted catalog has been fetched successfully, subsequent launches should prefer the disk-cached catalog before falling back to the bundled bootstrap catalog.
-- Climb images should not ship inside the iOS app bundle. Artwork is remote-only, and image misses should render the climb artwork placeholder until the remote image is cached locally.
-- Remote climb catalog and remote climb images should use shared disk-backed cache infrastructure under `Shared/Services/Caching`, while climb-specific fetch/decode logic stays inside climb repositories.
-- Home, Browse, and Detail should render from cached/local state first, then refresh remote climb content in the background instead of blocking the UI on network fetches.
-- Reusable climb card surfaces should share `ClimbSplitCardSurface`, `ClimbLeadingArtworkPanel`, and `AnimatedClimbCardBorder` instead of reimplementing split layouts, image clipping, or tier-border animation per screen.
-- All climb tiers should use the shared rotating border treatment from `AnimatedClimbCardBorder`, with each tier driven by its own color tokens; mythic remains the emphasized tier with the purple-forward prismatic palette and strongest glow.
-- Persistent idle climb surfaces, such as the Home daily climb card, may use a lighter ambient `AnimatedClimbCardBorder` treatment with an unblurred moving highlight to reduce SwiftUI animation work while preserving visible rotating motion.
 
-### Onboarding V2 (Issue #63)
-- Root routing starts with welcome, pre-auth value carousel, Apple/Google auth, then a post-auth onboarding resolver before normal home flow.
-- Post-auth onboarding currently collects only the user's preferred display name. Do not add sentiment, survey, paywall priming, or paywall onboarding screens without product-approved mocks.
-- The post-auth onboarding resolver distinguishes first-time, returning-complete, and interrupted-returning users from per-user onboarding state. During early testing this state is local per Firebase `uid`; do not add remote onboarding fields to `users/{uid}` without updating `firestore.rules`.
-- Post-auth onboarding draft/progress persists locally across app restarts; uninstall/reinstall resets via app data removal until remote onboarding state is introduced.
-- Bodyweight is a single profile-level value editable in settings and is intended to be the app-wide source for body mass usage.
-- Reusable onboarding value screens should use the shared `OnboardingValueScreen` / `OnboardingValueCarouselView` pattern: cinematic dark background, thin top progress indicator, large floating phone hero, unboxed bottom copy, and one bottom CTA. Do not add skip buttons or card shells to these value screens.
+Live Climbs is the hero competitive experience: a user picks a real-world landmark (Mt. Everest, Empire State Building, etc.), races against past attempts in real time via headphone-motion step tracking, and either reaches the target step count (completion) or doesn't (failed attempt). This section defines the surface architecture, attempt model, live session execution, replay leaderboard, content delivery, and visual conventions.
 
-### Base Level + Intensity Architecture
-- User-facing workout personalization now centers on a `base level`, defined as the StairMaster level a user can comfortably sustain for about 10 minutes.
-- `SettingsManager` is the source of truth for base-level state:
-  - `seededBaseLevel` from onboarding or migration
-  - `autoCalculatedBaseLevel` from workout history
-  - `manualBaseLevelOverride` when the user explicitly adjusts it in settings
-- Legacy `fitnessLevel` remains only as migration/bootstrap input. New UX should use `Base Level`, not `Fitness Level`.
-- `SPMMappingService` owns the exact 1-25 level-to-SPM mapping and nearest-level reverse lookup.
-- Unified workout intensity is derived from:
-  1. `steps + duration -> stepsPerMinute`
-  2. `stepsPerMinute -> equivalent level`
-  3. `equivalent level` relative to `effectiveBaseLevel`
-  4. duration plus supporting signals (RPE, HR, METs, added weight) to produce the final effort score
-- Historical percentile remains a ranking layer over the unified effort score and other raw workout metrics. It should not become a separate competing definition of intensity.
-- All create/edit/delete/import flows that change workouts should run through `WorkoutDerivedDataService.recalculateAll(...)` so base level, effort values, percentile snapshots, Best Efforts inputs, and local leaderboard aggregates stay in sync.
+**Surface architecture**
+- Live Climbs lives on a 3-screen loop: **Home** (a stateful entry card showing the day's recommended climb), **Browse** (a searchable globe for discovery), and **Climb Detail** (the primary destination — overview, your history, per-climb leaderboard).
+- Home shows one concrete recommended climb per day, persisted per local calendar day so it stays consistent even if completion state changes mid-day. The card is fully tappable; no extra in-card CTA chrome.
+- Browse treats the globe and bottom drawer as distinct navigation modes: globe pin taps open a compact preview card; search/list/section taps open Climb Detail directly. Search lives in the drawer and expands above the keyboard when focused. Globe state (zoom, preview, search) clears when re-entering Browse from elsewhere.
+- Climb Detail uses a flippable hero card (landmark image on the front, tier + fun fact on the back) and three swipeable pages: overview, personal history, per-climb leaderboard. The leaderboard page uses the per-climb leaderboard pattern defined in **Leaderboard UX Flow**.
+- Globe pins are state-driven: hollow outline for available climbs, filled with double-pin glow for the active climb, filled check badge for completed climbs.
+- Hardware-capability gating (headphones required) belongs at the *start-attempt* moment, not as warnings on Home or Browse. Surface help inline at the gate, not as ambient warnings.
 
-### Routine Template Personalization
-- Built-in routines are now authored as relative templates, not fixed absolute levels.
-- `ClimbZone` defines the shared routine effort offsets from the user's `effectiveBaseLevel`:
-  - `recovery -5`
-  - `warmup -3`
-  - `easy -2`
-  - `steady 0`
-  - `tempo +2`
-  - `threshold +4`
-  - `sprint +7`
-  - `allOut +10`
-- `RelativeRoutineInterval` + `BuiltInRoutineTemplateDefinition` are the source format for built-in templates, and `RoutineTemplateResolver` converts them into absolute `RoutineInterval` values for a specific base level.
-- Built-in template definitions can also declare browse metadata:
-  - `browseSections` for curated rails like `Getting Started`
-  - `isFeatured` for the separate `Popular` rail
-- `RoutineService.ensureBuiltInRoutinesExist()` is responsible for resolving the current built-in routines against `SettingsManager.shared.effectiveBaseLevel`, updating existing built-ins in place, inserting missing templates, and deleting obsolete built-ins.
-- User copies of built-in routines stay frozen at the absolute levels from the moment they are copied. Only routines with `source == .builtin` should be re-resolved when base level changes.
-- When workout-derived data recalculation changes the effective base level, the app should refresh built-in routines and broadcast `.routineTemplatesDidChange` so routines surfaces reload with the new resolved levels.
+**Attempt model**
+- The climb attempt is the source of truth for progress and history. It replaces any older completion-only model.
+- Catalog climbs are *single-session challenges*: the live attempt must reach the target step count to count as a completion. Ending early saves a failed attempt in personal history; only target-reached completions count publicly (leaderboard, First Ascent eligibility).
+- Live Climb completions come only from the live headphone-motion attempt flow. Manual entries, external imports, and routine completions cannot progress or complete a Live Climb. (Integrity gate; cross-referenced from Workout Source + Context.)
+- The live attempt creates a workout only after the live session stops with recorded steps. The workout flows through the normal workout mutation pipeline so leaderboards, Best Efforts, and remote backup stay on one path.
+- Saved Live Climb attempts are immutable competitive history. Discard during the live session if the attempt shouldn't count; once saved, workout-log delete affordances do not erase the underlying attempt.
 
-### Routine Live Player Architecture
-- `ActiveRoutineViewModel` is the source of truth for an in-progress routine session. `ActiveRoutineView` should render from the view model instead of owning workout progression in ad hoc `@State`.
-- Timer updates should flow through the view model using `Timer.publish(...).autoconnect()` and Date-delta math rather than `Task.sleep` loops, so pauses and foregrounding do not distort elapsed time.
-- The live player UI is composed from focused components:
-  - `LiveSessionCountdownOverlay` and `LiveSessionTimelineView` for shared countdown and top timeline chrome used by routines and Live Climbs
-  - `SegmentedProgressBar` for the thin full-width routine timeline
-  - `LiveIntervalLevelPill` for the current level and optional non-standard step type
-  - `StaircaseView` for the right-edge routine progress visualization
-  - `LiveWorkoutControlButton` for skip, pause/resume, and stop controls
-  - `WorkoutCompleteView` for the completion surface instead of embedding that UI directly in `ActiveRoutineView`
-- The staircase is decorative only. It should stay accessibility-hidden, use app-defined colors (`.accent`, heatmap colors, named asset colors), and avoid ad hoc hex values inside feature views.
+**First Ascent (World First) prestige**
+- Every climb has a permanent First Ascent holder — the first user to complete it. The holder's name and completion date remain associated with the climb forever, even after their time is beaten by faster climbers. This creates a permanent-prestige retention loop: every new climb drop opens a fresh First Ascent slot that can never be reclaimed once held. In leaderboard surfaces, First Ascent is honored but secondary to the active top-3 chase — the *current* glory belongs to whoever holds the top times; First Ascent is a permanent annotation, not the headline.
+
+**Live session execution**
+- Sensor stats (time, steps, progress, SPM) update locally every second during a live session without waiting on the network. Stale or failed backend reads must never interrupt local tracking.
+- The replay leaderboard is the primary visual surface during a live attempt — elapsed time + target step count in top chrome, the user's row anchors as a horizontal accent progress indicator, with an end-attempt control at the bottom. Pre-start countdown fully obscures the live UI until recording begins.
+- Live attempts cannot be paused. Once recording starts, the clock runs until the user reaches the target step count (completion) or ends the attempt (DNF). If the user stops stepping or steps off the machine, the clock keeps running — competitive integrity comes from the unbroken clock, like an ultra-marathon. We don't try to detect "is the user still climbing" via motion heuristics or location; that's complexity without product value, and any rest the user takes legitimately costs them rank.
+- A background-execution helper runs alongside the headphone-motion session so the session survives backgrounding. The helper must not write HealthKit workouts or request new Health permissions.
+- A Live Activity / Dynamic Island surface mirrors session state (compact: steps + rank; expanded: name + image + duration + steps + intent-driven controls). The widget extension reads from the session view model only — never Firestore, never the replay index directly.
+- Completed sessions transition to a post-save summary before dismissal — adaptive pace splits, vertical-gain display, share carousel with a Live Climb–specific share card when climb metadata is available, and direct affordances to add notes and media to the climb workout. The completion summary is the moment for adding context; we don't gather notes / media via a deferred review sheet.
+
+**Replay leaderboard architecture**
+- The replay leaderboard is a context-agnostic system reusable for Live Climbs and future race surfaces (challenge climbs). Don't clone climb-specific comparison logic per surface — share the context / sampler / service abstractions.
+- Replay rank compares the live user's current steps against completed eligible attempts at the same elapsed-time bucket. Failed, abandoned, and partial attempts never publish into replay indexes. Tied completed attempts rank ahead of the live user (a new attempt starts at the bottom of the completed field).
+- Per-climb replay contexts rank the live climber against **one row per opponent — each opponent's best (fastest) completion on that climb**. Multiple completions by the same user collapse to their best for the live race; chasing a rival three times (their slow, middling, and fast attempts) is clutter, not competition. The static per-climb leaderboard separately preserves the full completion history (see Leaderboard UX Flow). Only target-reached completions feed the replay context.
+- Post-completion share / summary rank is computed against completed bucket-zero replay entries with `completedCount` as the denominator. Don't reuse in-session time-window rank or total-climber count for completed share surfaces.
+- Step timeline checkpoints are source-neutral. Sensor producers emit cumulative step samples into a shared recorder so result / replay UI doesn't depend on one sensor source.
+- The replay index is server-published — clients write zero leaderboard data during a live session. A Cloud Function publishes from saved attempts after the session ends and normalizes degenerate curves (e.g. all-zero-until-final-bucket) into conservative monotonic curves so replay rows don't appear stationary.
+- Replay rows denormalize public display fields (display name, avatar token, optional photo URL) so live-session client code does not read private user documents during a race.
+- Per-climb rank and total-climber counts stay hidden until real backend data exists. No placeholder public stats.
+- Future demographic / peer-group insights must use declared profile fields and stay opt-in / privacy-safe.
+
+**Apple Health enrichment**
+- Apple Health can *enrich* a saved Live Climb workout with wearable metrics (heart rate, calories, device metadata, HealthKit UUID, an external provenance link). It must never become the canonical Live Climb source.
+- Enrichment is automatic only for confident one-to-one matches between an unlinked Live Climb workout and an unlinked Apple Health stair / step workout. Ambiguous matches are skipped, never guessed.
+- Enrichment preserves the Live Climb's source, steps, floors, duration, and attempt participation — it only adds health metrics and the external provenance link.
+- Enrichment is **silent**. An enriched Live Climb never appears in the auto-import review flow, never shows up as a manual-import candidate, and never asks the user to confirm or edit the merged data. If the Apple Health workout arrives after the Live Climb's completion summary has been dismissed, the new health metrics show up on the workout detail next time the user looks — no notification, no review.
+- The user gathers notes / media for a Live Climb at the **completion summary**, not in a post-hoc review surface. Enrichment never inserts itself into that moment.
+
+**Climb content (catalog + images)**
+- Climb content is remote-first by default. The catalog ships as a hosted manifest + versioned catalog file; climb images live in Storage as hero / card / thumb sizes. Adding a new climb means publishing new content, never shipping app code (see Content-driven over rebuild).
+- A bundled bootstrap catalog ships with the app for *metadata only*, so Home and Browse render even if the remote catalog has never been fetched. Once a remote catalog has been successfully fetched, subsequent launches prefer the disk-cached catalog over the bundled bootstrap.
+- Climb images do not ship in the app bundle — artwork is remote-only. Missing images render a placeholder until the remote image is cached locally.
+- Catalog and image fetching use shared disk-backed cache infrastructure. Climb-specific fetch/decode logic stays in climb repositories; the cache layer is generic.
+- Home, Browse, and Detail render from cached / local state first, then refresh remote content in the background. Don't block UI on network fetches.
+
+**Climb card visual treatment**
+- Reusable climb card surfaces share common chrome (split-card surface, leading artwork, animated tier border). Don't reimplement split layouts, image clipping, or tier-border animation per screen.
+- All climb tiers use the same rotating tier-border treatment driven by per-tier color tokens. Mythic is the emphasized tier (strongest glow, purple-forward prismatic palette).
+- Persistent idle climb surfaces (e.g. the Home daily card) may use a lighter ambient border treatment with an unblurred moving highlight to reduce per-frame animation work while preserving visible motion.
+
+### Onboarding
+
+**Planned flow**
+
+The planned onboarding sequence, in order:
+1. Welcome screen
+2. Pre-auth value carousel
+3. Sign-in (Apple / Google)
+4. Survey
+5. Paywall priming screens
+6. Hard paywall
+7. Home
+
+This sequence will evolve as we learn from SuperWall and RevenueCat funnel analytics. Treat it as the current plan, not a permanent contract.
+
+**Routing & resolver**
+- Sign-in is a routing transition, not a sheet dismissal — auth screens should not dismiss themselves after provider sign-in; the auth surface is replaced by the authenticated root.
+- The post-auth resolver distinguishes three user states: **first-time** (run full post-auth flow), **returning-complete** (skip to home), **interrupted-returning** (resume at the step where they left off, not restart from the beginning).
+
+**Pre-auth value screens**
+- Follow a single shared cinematic pattern — full-bleed dark background, thin top progress indicator, one large product hero, short copy at the bottom, one CTA per screen. Don't fork the layout per screen.
+- No skip affordances. No card chrome or boxed surfaces.
+
+**Content discipline**
+- Survey and paywall content is product-defined. Engineers should not ship onboarding screens, copy, or content beyond what product has provided mocks for.
+
+**State persistence**
+- Onboarding state is local per Firebase `uid` during early testing. Do not add remote onboarding fields to `users/{uid}` without updating `firestore.rules` in the same change.
+- Progress persists locally across app restarts and backgrounding so a user who leaves mid-onboarding resumes at the exact step they left, with the same state. Uninstall/reinstall resets state via app data removal until remote onboarding state is introduced.
+
+**Other**
+- Bodyweight is a single profile-level value editable in settings. It's the app-wide source for body-mass usage; don't introduce parallel bodyweight inputs in feature-specific flows.
+
+### Workout Measurement
+
+Workouts are described by **absolute, measured signals** — steps, duration, cadence (steps per minute), and optional supporting data (heart rate, calories, RPE, added weight). There is no user-calibrated effort score, no base level, no relative-to-fitness intensity calculation. We trust what was measured.
+
+**Why no base level:** the personalization it enables — adjusting workout effort relative to a personal baseline — isn't load-bearing. Live Climbs are target-step-count challenges (same target for everyone). Routines, as they evolve into challenge climbs, expose their own absolute difficulty for self-selection. Leaderboards rank by absolute metrics. Best Efforts compares the user to their own past. None of these need a fitness baseline, and asking for one at onboarding adds friction before the user has felt any value.
+
+**What stays:**
+- The canonical mapping between StairMaster levels (1-25) and steps-per-minute is preserved as a **display utility**. Surfaces that want to show "you stepped at the equivalent of level 8" alongside a workout's cadence read from this shared mapping — don't duplicate the math.
+- Historical percentile remains as a ranking layer over absolute metrics, computed against the user's own workout history ("harder than 85% of your past sessions"). It's a personal benchmark, not a calibrated effort definition.
+- Every workout mutation (create, edit, delete, import) still triggers a recompute of derived data — Best Effort inputs, percentile snapshots, local leaderboard aggregates. Surfaces reading derived values trust them to be current.
+
+**What's deprecated (don't extend):**
+- Base level state (seed value, auto-calculated estimate, manual override).
+- "Fitness level" terminology and migration code.
+- User-calibrated effort score (workout intensity computed relative to a personal baseline).
+- Base-level seeding UI in onboarding; manual base level override in settings.
+
+Existing code for these can stay until the cleanup task lands, but treat it as legacy — don't add features through it, don't introduce new dependencies on it, and prefer absolute metrics in new code.
+
+### Routines → Challenge Climbs (direction)
+
+The current `Routines` feature (built-in routine templates + dedicated live player) is *legacy* product surface. The intended direction is to absorb the routine concept into climbs as **challenge climbs** — climbs with additional constraints beyond "reach the target step count," such as level progressions, sustained SPM thresholds over time windows, or future requirements like verified added weight (vest, ruck).
+
+In this direction:
+- Climbs remain the canonical live-tracked experience. Challenges are a *subtype* of climb, not a separate concept.
+- The live attempt UI for challenges reuses the climb leaderboard chrome and adds challenge-specific state (current target level, threshold compliance, etc.) — not a separate live-player framework.
+- Don't extend the current routines code with new behavior. New constraint-based session formats should be designed as challenge climbs from the start.
+- Existing routine code (templates, live player, browse surfaces) can stay until the migration is real, but treat it as deprecated — don't add features through it.
 
 ### Week Start + Leaderboard Windowing
-- Ascend now uses a single app-wide Monday week start. The old user-configurable week-start preference and selection UI are removed.
-- Per-week user-configurable numeric targets are intentionally out of scope. Do not reintroduce target cards, setup prompts, or CRUD unless product explicitly chooses that direction again.
-- Home summaries should use Monday-based weeks in the relevant local timezone.
-- Competitive/global leaderboards use canonical Monday-based weeks in `UTC`.
-- Leaderboard documents are current-period-only, not historical archives:
-  - one weekly document per user
-  - one monthly document per user
-  - one yearly document per user
-  - one all-time document per user
-- Leaderboard docs must store:
-  - `schemaVersion`
-  - `timeFrame`
-  - `periodKey`
-  - `periodStartAt`
-  - `totalSteps`
-  - `totalFloors`
-  - `totalWorkouts`
-  - `totalDuration`
-  - `stepsPerMinute`
-- `steps` is the canonical climb leaderboard metric. `floors` remains supporting/display data only and must never change rank order.
-- Pace leaderboards remain in product scope, but they rank by canonical `stepsPerMinute`, not viewer-preference floors-per-minute.
-- Leaderboard publication is mutation-driven:
-  - workout create/import/delete always affects leaderboard publication
-  - workout edits only affect leaderboard publication when `date`, `duration`, `steps`, or `floors` change
-  - photo-only, notes-only, METs, heart-rate, calories, and other non-leaderboard edits must not trigger leaderboard publication
-- Leaderboard refresh UI should never own the only Firestore publication path. Users must appear remotely even if they never open the leaderboard tab.
-- Local leaderboard state should update incrementally for the current periods only. Full-history rebuilds are for migration, repair, or schema backfill only.
+
+**Week boundaries**
+- Monday is the single app-wide week start. Don't reintroduce a user-configurable week-start preference or selection UI.
+- Home summaries use Monday-based weeks in the user's local timezone.
+- Competitive / global leaderboards use canonical Monday-based weeks in UTC.
+- Per-week user-configurable numeric targets are intentionally out of scope. Don't reintroduce target cards, setup prompts, or CRUD around personal weekly goals unless product explicitly changes direction.
+
+**Document model**
+- Leaderboard documents are **current-period-only**, not historical archives. One document per user per time frame: weekly, monthly, yearly, all-time.
+- Each document carries metadata (schema version, time frame, period key, period start timestamp) and the aggregated metrics for the period (steps, floors, workouts, duration, pace). The exact field names live in `firestore.rules`; CLAUDE.md → Firestore Schema-Change Rule governs how to extend or modify them.
+
+**Metrics**
+- **Steps** is the canonical climb leaderboard metric.
+- **Floors** is supporting / display data only and must never change rank order.
+- **Pace** leaderboards rank by canonical steps-per-minute (SPM), not by viewer-preference floors-per-minute.
+
+**Publication & sync**
+- Leaderboard publication is mutation-driven: workout create / import / delete always affects publication; workout edits affect publication only when leaderboard-relevant fields change (date, duration, steps, floors). Photo, notes, heart-rate, calorie, or MET edits don't touch leaderboard publication.
+- The leaderboard refresh UI must never own the only publication path. Users must appear remotely even if they never open the leaderboard tab.
+- Local leaderboard state updates incrementally for current periods only. Full-history rebuilds are reserved for migration, repair, or schema backfill.
 
 ### Leaderboard Seeding Policy (Debug / CI)
 - Firestore client rules only allow writes to `leaderboard_stats` where `userId == request.auth.uid`.
@@ -380,20 +435,35 @@ Workout, WorkoutSourceLink, WorkoutParticipation, LeaderboardStats, Routine, Rou
 - Weighted vest debug data should use an intended pounds range and convert to kilograms when measurement system is metric.
 
 ### Leaderboard UX Flow
-- The leaderboard tab root should be a category hub with per-metric preview cards (`Climb`, `Workouts`, `Duration`, `Pace`) and a `See all` action on each card.
-- `See all` opens a metric-specific leaderboard detail screen.
-- On the metric-specific detail screen, keep the metric locked to the selected category and allow filtering by time frame (`Weekly`, `Monthly`, `All Time`).
-- The metric-specific detail screen should be composed from focused subviews:
-  - `LeaderboardPickerView` (time frame chips)
-  - `LeaderboardPodiumView` (top 3 only)
-  - `LeaderboardUserRowView` (pinned current user row when needed)
-  - `LeaderboardRowListView` (rank list)
-- `LeaderboardPodiumView` should always render a 3-slot podium; empty slots use a motivational waiting-for-challengers treatment.
-- The current user row must never be duplicated: when pinned under podium, remove that user from the list rows.
+
+Leaderboard UX in Ascend covers two distinct surfaces — the global tab (community-wide aggregate stats) and per-climb leaderboards (completion times for one specific climb). They share data-model conventions but use different layouts and emphasis.
+
+**Global leaderboard tab — aggregate stats across the community**
+- The tab root is a category hub previewing each canonical metric (climb, workouts, duration, pace per the Week Start + Leaderboard Windowing rules). A "see all" affordance opens a per-metric detail screen.
+- Per-metric detail screens lock the metric and filter by time frame (weekly, monthly, all-time).
+- Detail screens compose from focused, reusable subviews — time-frame picker, podium (top 3), pinned current-user row when not in podium, rank list. Don't reimplement these patterns per metric.
+- The podium always renders three slots even when sparse; empty slots use a motivational empty-slot treatment.
+- The current user appears in exactly one place at a time. If they're in the podium, they're not duplicated in the rank list below.
+
+**Per-climb leaderboard — completion times for one climb**
+- Top finishers (#1, #2, #3) get medal-color emphasis (see Design System: medal tokens). They're the *active* prize being chased.
+- The climb's First Ascent holder is surfaced as a quiet, persistent annotation — permanent prestige, but visually secondary to the active leaderboard chase. See the First Ascent principle in the Live Climbs section.
+- Per-climb leaderboards rank *completed attempts on one climb*, not aggregate community totals. They don't share a layout with the global aggregate leaderboards.
+- The static per-climb leaderboard shows **every completed attempt**, not best-per-user. A user appears as many times as they've completed the climb; this surface is the historical record of completions. Contrast with the in-session live race, which ranks against best-per-user (see Replay leaderboard architecture in Live Climbs).
+
+**Tie handling (applies to global and per-climb)**
+- Ties are ranked using **standard competition ranking** ("1, 2, 2, 4"). Tied users share the same rank; the next rank is skipped by the count of tied users. This matches the sports convention and honors the honest outcome.
+- Don't break ties with secondary metrics (steps tie ≠ floors tiebreaker; time tie ≠ cadence tiebreaker). Adding a secondary criterion quietly changes what the leaderboard measures.
+- Don't break ties with submission timestamp. First-to-submit is a property of when the user happened to climb, not how well they climbed.
+- Match precision to perception. Per-climb completion times rank at second granularity; sub-second tiebreakers feel arbitrary and don't reflect anything users perceived during the attempt.
+- Tied ranks must be visually obvious in the UI — same rank number on each tied row, "T" prefix or equivalent treatment. Don't render ties as if they were ordered.
+- Podium display must handle tied top ranks (e.g. three users tied for #1) — multiple users may share a podium slot. The podium is a *visual* surface; the ranking rule is the source of truth.
+- First Ascent is exempt — it's keyed on submission timestamp and is unambiguous by design. Two users may tie on the leaderboard, but only one submission reached the backend first.
 
 ### Design System
 - **Fonts**: Montserrat (custom) — `montserratBold`, `montserratSemiBold`, `montserratMedium`, `montserratRegular`
 - **Accent color**: `#B4CC00`
+- **Medal tokens**: Gold `#D4AF37`, Silver `#C0C0C0`, Bronze `#CD7F32`. Reserved for podium / rank-prestige moments (leaderboard top 3, First Ascent emphasis, achievement displays). The only sanctioned exceptions to lime-accent discipline — apply sparingly, never as primary surface color.
 - **Theming**: `ThemeManager` with dark/light mode, `effectiveColorScheme`, `.themedBackground()`
 - **Icons**: SF Symbols (considering migrating to a custom icon set for consistency)
 - **Icon consistency**: Use the same icon for the same action across screens (for example, overflow menus should use one consistent `ellipsis` style app-wide unless product design explicitly says otherwise)
@@ -406,12 +476,42 @@ Workout, WorkoutSourceLink, WorkoutParticipation, LeaderboardStats, Routine, Rou
 
 ## Coding Rules
 
+### Engineering Principles
+
+These apply to every change, regardless of feature or domain. If a loaded skill (`swiftui-pro`, `swift-concurrency-pro`, `swiftdata-pro`, etc.) prescribes a more specific pattern, follow the skill — these are the baseline that holds even when no skill is loaded.
+
+**Code structure**
+- **Single Responsibility (SRP).** Each type does one thing. If a type has two unrelated reasons to change, split it.
+- **DRY — Don't Repeat Yourself.** If a non-trivial pattern (UI, logic, formatting) appears more than once, extract it to a shared component, view model, or service. Repeated three-line snippets are tolerable; repeated thirty-line patterns are debt.
+- **YAGNI — You Aren't Gonna Need It.** Don't add abstractions, parameters, or "flexibility hooks" for hypothetical future needs. Build for what's needed now; refactor when a real second use case appears.
+- **Layering — keep responsibilities separated.** Views render. View models hold UI state and orchestrate. Services own side effects (network, persistence, sensors, system APIs). Models represent persistent data. A view that calls a network API directly is a smell.
+- **Dependency injection over singletons in business logic.** Services that touch external systems should be injectable so they can be mocked in tests. Convenience singletons are acceptable for global state (theme, settings) but not for testable business logic.
+- **Content-driven over rebuild.** Distinguish app *shell* (durable code) from *content* (instances the shell handles). Shell code accepts any instance of its content type; adding new content should not require code changes or App Store releases. If you find yourself writing a new code path for every new climb, email template, or share-card background, that's a smell. Whether content lives remote (catalogs, configs) or bundled (offline-first assets) is a separate decision; the principle is that *adding content* should never mean *shipping code*.
+
+**Testability**
+- **Business logic does not live in SwiftUI view bodies.** Anything decision-driving (computations, transformations, conditional flows, side-effect orchestration) must be reachable from a unit test without instantiating a SwiftUI view tree.
+- **ViewModels do not import SwiftUI.** They depend on Foundation, Combine, Observation — never `import SwiftUI`. This guarantees they're testable independently of the UI layer.
+- **Pure functions where possible.** If a computation has no side effects, write it as a pure function or static method. Pure functions are trivially testable and reusable.
+
+**Performance and rendering**
+- **Render path stays cheap.** No filter / reduce / sort over large arrays inside `body`. No SwiftData queries inline in views. Cache derived state via `@State` + `.onChange` or precomputed view-model properties bound to stable inputs.
+- **Don't fight SwiftUI's diff.** Give views stable identities. Avoid forcing re-renders by passing fresh closures or recreated objects into deep children.
+
+**Code hygiene**
+- **Clarity over cleverness.** Code reads like prose. If a future reader (human or agent) won't immediately understand a line, the code is wrong — not the reader.
+- **Delete before you defend.** Dead code, unused parameters, commented-out experiments, "just in case" abstractions — remove them. Git history is the backup.
+- **Comments explain WHY, not WHAT.** A well-named function explains *what*. Comments earn their space only when there's a non-obvious *why*: a hidden constraint, a workaround for a specific bug, an invariant that would surprise a reader.
+- **No leftover scaffolding from refactors.** Removed code stays removed; don't keep deprecated paths "for safety" without a written deprecation/removal date.
+
 ### Specialized Skills
+
+Load these skills before writing or reviewing code in their domains. Each listing below is mandatory for the areas it claims — if a task touches a domain, the matching skill is not optional.
+
 - `swiftui-pro` is required for SwiftUI code, layout, navigation, accessibility, animation, performance work, and SwiftUI-focused reviews.
 - `swift-concurrency-pro` is required for actors, async/await, `Task`, cancellation, `Sendable`, isolation, and strict-concurrency fixes or reviews.
 - `swiftdata-pro` is required for SwiftData models, relationships, predicates, queries, CloudKit sync constraints, and persistence reviews.
 - `swift-testing-pro` is required for Swift Testing, async test patterns, unit/integration test work, and XCTest migration.
-- `vibe-security` is required for Firebase Auth, Firestore rules, Cloud Functions, waitlist/signup endpoints, Strava OAuth, user data, secrets, tokens, privacy, subscriptions/payments, or any auth/authz/trust-boundary change.
+- `vibe-security` is required for Firebase Auth, Firestore rules, Cloud Functions, waitlist/signup endpoints, user data, secrets, tokens, privacy, subscriptions/payments, or any auth/authz/trust-boundary change.
 - `firebase-basics` is required for Firebase project setup, CLI/configuration, emulator/local-environment work, and cross-product Firebase tasks.
 - `firebase-auth-basics` is required for Firebase Authentication flows, providers, session handling, and auth-dependent access design.
 - `firebase-firestore-standard` is required for Firestore collections, queries, indexes, sync design, and security rules.
@@ -427,6 +527,7 @@ Workout, WorkoutSourceLink, WorkoutParticipation, LeaderboardStats, Routine, Rou
 - `debugging-instruments` is required for crash triage, leak detection, hang diagnosis, and performance profiling.
 - `asc-xcode-build` is required for archive/export/IPA build automation.
 - `asc-release-flow`, `asc-metadata-sync`, `asc-submission-health`, and `asc-testflight-orchestration` are required for App Store Connect release, metadata, submission, and TestFlight tasks.
+- `product-design-playbook` (custom user-level skill at `~/.claude/skills/product-design-playbook/`) is required for UI/UX design decisions and consumer-app copywriting — empty states, headlines, CTAs, onboarding patterns, conversion mechanics, brand voice work, and any design-pattern reference. The skill indexes 33 plays from *The Product Design Playbook* and the agent should consult relevant plays before shipping design or copy changes.
 - If a task spans multiple domains, use every matching skill.
 - If a request is ambiguous but clearly adjacent to one of these domains, load the relevant skill rather than skipping it.
 - Keep this file focused on Ascend-specific rules. If a skill conflicts with this guide, follow this guide.
@@ -435,10 +536,9 @@ Workout, WorkoutSourceLink, WorkoutParticipation, LeaderboardStats, Routine, Rou
 - **Targeting**: iOS 17.0+, Swift 6, strict concurrency. If a newer iOS API meaningfully improves a feature, mention it and gate it with `@available` rather than silently raising the baseline.
 - **State management**: SwiftUI with `@Observable` for shared state, and mark shared `@Observable` classes with `@MainActor`.
 - **Dependencies**: No third-party frameworks without asking first. Avoid UIKit unless requested.
-- **Code hygiene**: Never commit API keys/secrets. If SwiftLint is installed, ensure no warnings or errors before committing.
-- **Local style conventions**: Prefer `replacing("a", with: "b")`, `URL.documentsDirectory`, `url.appending(path:)`, `.formatted()` or `Text(..., format:)`, and `localizedStandardContains()` for user-facing filtering.
-- **Testing approach**: Place view logic into view models or similar so it can be tested. Prefer unit tests for core logic; use UI tests only when unit tests are not possible.
-- **SwiftData + CloudKit**: Never use `@Attribute(.unique)`, properties must have defaults or be optional, and all relationships must be optional.
+- **Code hygiene**: Never commit API keys or secrets.
+- **Local style conventions**: prefer modern Swift idioms — `replacing("a", with: "b")`, `URL.documentsDirectory`, `url.appending(path:)`, `.formatted()` or `Text(..., format:)`, and `localizedStandardContains()` for user-facing filtering.
+- **SwiftData + CloudKit**: Never use `@Attribute(.unique)`. Properties must have defaults or be optional. All relationships must be optional.
 
 ---
 
