@@ -288,11 +288,10 @@ struct WorkoutDetailView: View {
                 )
             }
 
-            // Hero stats: Duration + Steps/Floors
             HeroStatsPair(
                 leftLabel: "Duration",
                 leftValue: workout.durationFormatted,
-                rightLabel: preferredMetric.displayName,
+                rightLabel: "Steps",
                 rightValue: formattedPrimaryMetric,
                 effectiveColorScheme: effectiveColorScheme
             )
@@ -355,16 +354,8 @@ struct WorkoutDetailView: View {
     private var adaptiveHeader: some View {
         VStack(spacing: 0) {
             HStack {
-                // Back button
-                Button(action: { dismiss() }) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(headerForegroundColor)
-                        .padding(10)
-                        .background(
-                            Circle()
-                                .fill(headerBackgroundColor)
-                        )
+                OnboardingBackButton {
+                    dismiss()
                 }
 
                 Spacer()
@@ -606,13 +597,8 @@ struct WorkoutDetailView: View {
 
     // MARK: - Data Helpers
 
-    private var preferredMetric: WorkoutMetric {
-        settingsManager.preferredWorkoutMetric
-    }
-
     private var formattedPrimaryMetric: String {
-        let value = workout.metricValue(for: preferredMetric)
-        return value.formatted(.number)
+        workout.steps.formatted(.number)
     }
 
     private var verticalClimbValue: Double? {
@@ -626,10 +612,9 @@ struct WorkoutDetailView: View {
     private var secondaryStatItems: [SecondaryStatItem] {
         var items: [SecondaryStatItem] = []
 
-        // Pace (steps/min or floors/min)
-        if let pace = workout.pace(for: preferredMetric) {
+        if let pace = workout.stepsPerMinute {
             items.append(SecondaryStatItem(
-                label: "\(preferredMetric.unit)/Min",
+                label: "steps/Min",
                 value: pace.formatted(.number.precision(.fractionLength(1)))
             ))
         }

@@ -4,6 +4,18 @@ import Testing
 
 struct LeaderboardTimeFrameTests {
     @Test
+    func dailyPeriodsUseCanonicalUtcDayWindows() {
+        let referenceDate = utcDate(year: 2026, month: 4, day: 5, hour: 18, minute: 30)
+        let period = LeaderboardTimeFrame.daily.currentPeriod(referenceDate: referenceDate)
+
+        #expect(period.key == "2026-04-05")
+        #expect(period.startAt == utcDate(year: 2026, month: 4, day: 5))
+        #expect(period.endAt == utcDate(year: 2026, month: 4, day: 6))
+        #expect(period.contains(referenceDate, referenceDate: referenceDate))
+        #expect(period.contains(utcDate(year: 2026, month: 4, day: 6), referenceDate: referenceDate) == false)
+    }
+
+    @Test
     func weeklyPeriodsUseMondayUtcWindows() {
         let referenceDate = utcDate(year: 2026, month: 4, day: 5, hour: 18, minute: 30)
         let period = LeaderboardTimeFrame.weekly.currentPeriod(referenceDate: referenceDate)

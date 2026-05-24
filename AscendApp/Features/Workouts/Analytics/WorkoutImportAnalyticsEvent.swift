@@ -174,8 +174,6 @@ extension WorkoutImportAnalyticsEvent {
 
     enum SourceMix: String {
         case appleHealthOnly = "apple_health_only"
-        case hevyOnly = "hevy_only"
-        case linkedOnly = "linked_only"
         case mixed
 
         init(candidates: [ImportedWorkoutCandidate]) {
@@ -184,10 +182,6 @@ extension WorkoutImportAnalyticsEvent {
             switch kinds {
             case [.appleHealth]:
                 self = .appleHealthOnly
-            case [.hevy]:
-                self = .hevyOnly
-            case [.linkedHevyAppleHealth]:
-                self = .linkedOnly
             default:
                 self = .mixed
             }

@@ -30,8 +30,7 @@ struct WorkoutDerivedDataService {
         for workout in allWorkouts {
             workout.percentileScores = PercentileScoreService.calculateAllPercentiles(
                 for: workout,
-                existingWorkouts: allWorkouts,
-                preferredMetric: settingsManager.preferredWorkoutMetric
+                existingWorkouts: allWorkouts
             )
         }
 

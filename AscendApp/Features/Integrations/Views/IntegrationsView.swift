@@ -21,11 +21,7 @@ struct IntegrationsView: View {
                 Spacer()
                     .frame(height: 8)
 
-                // Apple Health Integration
                 AppleHealthIntegrationCard()
-
-                // Hevy Integration
-                HevyIntegrationCard()
 
                 Spacer()
             }
@@ -38,14 +34,6 @@ struct IntegrationsView: View {
         .toolbarBackground(.clear, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
     }
-}
-
-#Preview("Light Theme") {
-    NavigationStack {
-        IntegrationsView()
-    }
-    .preferredColorScheme(.light)
-    .modelContainer(for: [Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self], inMemory: true)
 }
 
 #Preview("Dark Theme") {

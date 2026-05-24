@@ -27,7 +27,7 @@ struct FolderOptionsSheet: View {
             // Folder name header
             Text(folderName)
                 .font(.montserratSemiBold(size: 18))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                .foregroundStyle(.white)
                 .padding(.bottom, 20)
 
             // Options list
@@ -105,7 +105,7 @@ struct FolderOptionsSheet: View {
 
             Spacer()
         }
-        .background(effectiveColorScheme == .dark ? Color.jet : Color.white)
+        .background(Color.black)
     }
 }
 
@@ -135,7 +135,7 @@ private struct FolderOptionRow: View {
         if isDestructive {
             return .red.opacity(0.8)
         }
-        return effectiveColorScheme == .dark ? .white : .black
+        return .white
     }
 
     var body: some View {

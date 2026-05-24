@@ -81,22 +81,4 @@ struct AppleHealthAutoImportPolicyTests {
         #expect(policy.shouldAutoImport(.appleHealth(sample: sample)) == false)
     }
 
-    @Test
-    func doesNotAutoImportHevyCandidates() {
-        let policy = AppleHealthAutoImportPolicy(
-            activatedAt: Date(timeIntervalSince1970: 1_775_400_000)
-        )
-        let candidate = ImportedWorkoutCandidate.hevy(
-            workoutID: "hevy_123",
-            workoutTitle: "Morning Session",
-            startDate: Date(timeIntervalSince1970: 1_775_400_100),
-            endDate: Date(timeIntervalSince1970: 1_775_401_900),
-            duration: 1_800,
-            metricValue: 1_200,
-            metricType: .steps,
-            matchingAppleHealthSample: nil
-        )
-
-        #expect(policy.shouldAutoImport(candidate) == false)
-    }
 }

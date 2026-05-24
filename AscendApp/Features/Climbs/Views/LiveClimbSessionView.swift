@@ -112,23 +112,13 @@ struct LiveClimbSessionView: View {
 
     private var topChrome: some View {
         HStack(spacing: 10) {
-            Button {
+            OnboardingBackButton {
                 if viewModel.isRecording {
                     showingDiscardConfirmation = true
                 } else {
                     dismiss()
                 }
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
-                    .background(
-                        Circle()
-                            .fill(.white.opacity(0.09))
-                    )
             }
-            .buttonStyle(.plain)
             .accessibilityLabel(viewModel.isRecording ? "Discard live climb" : "Close")
 
             sessionArtwork

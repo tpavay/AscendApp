@@ -31,9 +31,10 @@ struct AscendApp: App {
     var body: some Scene {
         WindowGroup {
             RootNavigationHost(authVM: authVM)
-            .onOpenURL { url in
-                handleDeepLink(url: url)
-            }
+                .preferredColorScheme(.dark)
+                .onOpenURL { url in
+                    handleDeepLink(url: url)
+                }
         }
         .environment(authVM)
         .environment(NetworkConnectivityService.shared)

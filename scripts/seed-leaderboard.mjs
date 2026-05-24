@@ -80,6 +80,7 @@ const TEST_USERS = [
 ];
 
 const TIME_FRAMES = [
+  { key: "daily", multiplier: 0.5 },
   { key: "weekly", multiplier: 1 },
   { key: "monthly", multiplier: 4 },
   { key: "yearly", multiplier: 48 },
@@ -153,6 +154,15 @@ function weekInfoUTC(date) {
 
 function currentPeriod(timeFrameKey, date = new Date()) {
   switch (timeFrameKey) {
+    case "daily": {
+      const year = date.getUTCFullYear();
+      const month = date.getUTCMonth() + 1;
+      const day = date.getUTCDate();
+      return {
+        key: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+        startAt: utcDate(year, month - 1, day),
+      };
+    }
     case "weekly": {
       const { year, week, startAt } = weekInfoUTC(date);
       return {

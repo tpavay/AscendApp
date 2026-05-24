@@ -158,13 +158,6 @@ struct FitnessLevelSelectionView: View {
     }
 }
 
-#Preview("Light Theme") {
-    NavigationStack {
-        FitnessLevelSelectionView()
-    }
-    .preferredColorScheme(.light)
-}
-
 #Preview("Dark Theme") {
     NavigationStack {
         FitnessLevelSelectionView()

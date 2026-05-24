@@ -11,8 +11,6 @@ struct ProfileSection<Content: View>: View {
     let title: String
     let content: Content
 
-    @Environment(\.colorScheme) private var colorScheme
-
     init(title: String, @ViewBuilder content: () -> Content) {
         self.title = title
         self.content = content()
@@ -34,8 +32,6 @@ struct ProfileSection<Content: View>: View {
 struct ProfileCardSurface<Content: View>: View {
     let content: Content
 
-    @Environment(\.colorScheme) private var colorScheme
-
     init(@ViewBuilder content: () -> Content) {
         self.content = content()
     }
@@ -44,21 +40,18 @@ struct ProfileCardSurface<Content: View>: View {
         content
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(colorScheme == .dark ? .jetLighter.opacity(0.3) : .gray.opacity(0.06))
+                    .fill(.jetLighter.opacity(0.3))
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
-                            .stroke(colorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
+                            .stroke(.white.opacity(0.1), lineWidth: 1)
                     )
             )
     }
 }
 
 struct ProfileCardDivider: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
         Divider()
-            .background(colorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
+            .background(.white.opacity(0.1))
     }
 }
-

@@ -11,7 +11,6 @@ func workoutShareText(
     for workout: Workout,
     measurementSystem: MeasurementSystem,
     stepHeight: Double,
-    preferredMetric: WorkoutMetric,
     bestEffort: RankedBestEffort? = nil
 ) -> String {
     let workoutTitle = workout.name.isEmpty ? "Stair workout" : workout.name
@@ -23,10 +22,7 @@ func workoutShareText(
 
     lines.append("Duration: \(workout.durationFormatted)")
 
-    // Primary metric (steps or floors)
-    if let metricLine = primaryMetricLine(for: workout, preferredMetric: preferredMetric) {
-        lines.append(metricLine)
-    }
+    lines.append("Steps: \(formattedInteger(workout.steps))")
 
     // Added Weight
     if workout.hasWeights {
@@ -38,10 +34,9 @@ func workoutShareText(
     }
 
     // Pace
-    if let pace = workout.pace(for: preferredMetric) {
+    if let pace = workout.stepsPerMinute {
         let paceText = formattedDecimal(pace, decimals: 1)
-        let paceUnit = preferredMetric == .steps ? "steps/min" : "floors/min"
-        lines.append("Pace: \(paceText) \(paceUnit)")
+        lines.append("Pace: \(paceText) steps/min")
     }
 
     if let bestEffort {
@@ -73,17 +68,6 @@ func workoutShareText(
     lines.append("Logged with Ascend")
 
     return lines.joined(separator: "\n")
-}
-
-private func primaryMetricLine(for workout: Workout, preferredMetric: WorkoutMetric) -> String? {
-    let value = workout.metricValue(for: preferredMetric)
-    let formattedValue = formattedInteger(value)
-    switch preferredMetric {
-    case .steps:
-        return "Steps: \(formattedValue)"
-    case .floors:
-        return "Floors: \(formattedValue)"
-    }
 }
 
 private func formattedInteger(_ value: Int) -> String {

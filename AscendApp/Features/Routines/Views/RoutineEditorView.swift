@@ -135,7 +135,7 @@ struct RoutineEditorView: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .scrollIndicators(.hidden)
-        .background((effectiveColorScheme == .dark ? Color.jet : Color.white).ignoresSafeArea())
+        .background(Color.black.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .keyboardDoneToolbar {
             focusedField = nil

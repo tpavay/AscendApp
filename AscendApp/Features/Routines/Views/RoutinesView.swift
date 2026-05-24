@@ -52,7 +52,7 @@ struct RoutinesView: View {
             .padding(.bottom, 24)
         }
         .scrollIndicators(.hidden)
-        .background(effectiveColorScheme == .dark ? Color.jet : Color.white)
+        .background(Color.black)
         .toolbar(.hidden, for: .navigationBar)
         .animation(.easeInOut(duration: 0.2), value: isShowingSearch)
         .keyboardDoneToolbar {
@@ -114,14 +114,9 @@ struct RoutinesView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Button {
+                OnboardingBackButton {
                     dismiss()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(.white)
                 }
-                .buttonStyle(.plain)
 
                 Spacer()
 
@@ -154,7 +149,7 @@ struct RoutinesView: View {
 
             Text("Routines")
                 .font(.montserratBold(size: 32))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                .foregroundStyle(.white)
         }
     }
 
@@ -166,7 +161,7 @@ struct RoutinesView: View {
 
             TextField("Search routines...", text: $viewModel.searchText)
                 .font(.montserratRegular(size: 14))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                .foregroundStyle(.white)
                 .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
                 .submitLabel(.done)

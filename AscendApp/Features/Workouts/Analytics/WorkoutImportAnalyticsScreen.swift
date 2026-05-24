@@ -1,13 +1,12 @@
 import Foundation
 
 enum WorkoutImportAnalyticsScreen {
-    static func sheet(candidateCount: Int, hevyConnected: Bool) -> TelemetryScreen {
+    static func sheet(candidateCount: Int) -> TelemetryScreen {
         TelemetryScreen(
             name: "workout_import_sheet",
             screenClass: "WorkoutImportSheet",
             parameters: [
-                "candidate_count_bucket": .string(candidateCountBucket(for: candidateCount)),
-                "hevy_connected": .bool(hevyConnected)
+                "candidate_count_bucket": .string(candidateCountBucket(for: candidateCount))
             ]
         )
     }

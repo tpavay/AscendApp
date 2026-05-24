@@ -13,7 +13,6 @@ struct EditProfileView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
 
-    @State private var settingsManager = SettingsManager.shared
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var isUploadingPhoto = false
     @State private var imageForCropping: UIImage?
@@ -21,7 +20,6 @@ struct EditProfileView: View {
     @State private var isEditingDisplayName = false
     @State private var editedDisplayName = ""
     @State private var isSavingDisplayName = false
-    @State private var showingBaseLevelSheet = false
     @State private var isShowingDeleteAccountConfirmation = false
     @State private var showingSignOutConfirmation = false
     @FocusState private var isDisplayNameFocused: Bool
@@ -34,9 +32,6 @@ struct EditProfileView: View {
 
                 // User Info Section
                 userInfoSection
-
-                // Base Level Section
-                baseLevelSection
 
                 // Preferences Section
                 preferencesSection
@@ -119,10 +114,6 @@ struct EditProfileView: View {
             if let errorMessage = authVM.errorMessage {
                 Text(errorMessage)
             }
-        }
-        .sheet(isPresented: $showingBaseLevelSheet) {
-            BaseLevelEditorSheet()
-                .appSheetStyle(.fraction(0.7))
         }
         .sheet(isPresented: $isShowingDeleteAccountConfirmation) {
             DeleteAccountConfirmationView(
@@ -233,66 +224,6 @@ struct EditProfileView: View {
         }
     }
 
-    // MARK: - Base Level Section
-
-    private var baseLevelSection: some View {
-        ProfileSection(title: "Base Level") {
-            ProfileCardSurface {
-                Button {
-                    showingBaseLevelSheet = true
-                } label: {
-                    HStack(alignment: .top, spacing: 12) {
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(baseLevelAccentColor)
-                            .frame(width: 4)
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Level \(settingsManager.effectiveBaseLevel) (\(settingsManager.effectiveBaseLevelSPM) SPM)")
-                                .font(.montserratSemiBold(size: 18))
-                                .foregroundStyle(colorScheme == .dark ? .white : .black)
-
-                            Text(baseLevelSubtitle)
-                                .font(.montserratRegular(size: 14))
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.leading)
-                        }
-                        
-                        Spacer()
-
-                        Image(systemName: "pencil")
-                            .font(.system(size: 16))
-                            .foregroundStyle(.accent)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
-    private var baseLevelAccentColor: Color {
-        Color.heatMapColor(
-            for: IntensityTier.from(level: settingsManager.effectiveBaseLevel).heatMapScore,
-            colorScheme: colorScheme
-        )
-    }
-
-    private var baseLevelSubtitle: String {
-        switch settingsManager.baseLevelState {
-        case .seeded:
-            return "Set during onboarding. Log workouts to auto-calibrate."
-        case .autoCalculated:
-            return "Auto-calculated from your workouts."
-        case .manualOverride:
-            if let autoCalculatedBaseLevel = settingsManager.autoCalculatedBaseLevel {
-                return "Auto-calculated level is \(autoCalculatedBaseLevel) from your workouts."
-            }
-            return "Set during onboarding. Log workouts to auto-calibrate."
-        }
-    }
-
     private var preferencesSection: some View {
         ProfileSection(title: "Preferences") {
             SettingsCard(options: preferenceOptions)
@@ -307,16 +238,6 @@ struct EditProfileView: View {
 
     private var preferenceOptions: [SettingsOption] {
         [
-            SettingsOption(
-                icon: .settingsAppearance,
-                title: "Appearance",
-                destination: ThemeSelectionView()
-            ),
-            SettingsOption(
-                icon: .settingsWorkoutMetric,
-                title: "Workout Metric",
-                destination: WorkoutMetricSelectionView()
-            ),
             SettingsOption(
                 icon: .settingsMeasurementSystem,
                 title: "Measurement System",
@@ -352,7 +273,7 @@ struct EditProfileView: View {
             if isEditingDisplayName {
                 TextField("Enter display name", text: $editedDisplayName)
                     .font(.montserratRegular(size: 16))
-                    .foregroundStyle(colorScheme == .dark ? .white : .black)
+                    .foregroundStyle(.white)
                     .textFieldStyle(.plain)
                     .focused($isDisplayNameFocused)
                     .submitLabel(.done)
@@ -367,7 +288,7 @@ struct EditProfileView: View {
                     HStack {
                         Text(authVM.displayName.isEmpty ? "Not Set" : authVM.displayName)
                             .font(.montserratRegular(size: 16))
-                            .foregroundStyle(colorScheme == .dark ? .white : .black)
+                            .foregroundStyle(.white)
                         
                         Spacer()
                         
@@ -455,7 +376,7 @@ private struct InfoRow: View {
             
             Text(value)
                 .font(.montserratRegular(size: 16))
-                .foregroundStyle(colorScheme == .dark ? .white : .black)
+                .foregroundStyle(.white)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)

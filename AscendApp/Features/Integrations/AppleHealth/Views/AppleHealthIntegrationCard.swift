@@ -242,14 +242,6 @@ struct AppleHealthIntegrationCard: View {
     }
 }
 
-#Preview("Light Theme") {
-    AppleHealthIntegrationCard()
-        .padding()
-        .themedBackground()
-        .preferredColorScheme(.light)
-        .modelContainer(for: [Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self], inMemory: true)
-}
-
 #Preview("Dark Theme") {
     AppleHealthIntegrationCard()
         .padding()

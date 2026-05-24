@@ -695,7 +695,7 @@ enum BestEffortRankingBuilder {
             )
 
         case .highestAverageSPM:
-            guard let pace = workout.pace(for: .steps), pace > 0 else { return nil }
+            guard let pace = workout.stepsPerMinute, pace > 0 else { return nil }
             return BestEffortPerformance(
                 metric: metric,
                 workout: workout,

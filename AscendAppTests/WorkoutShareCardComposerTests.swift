@@ -22,18 +22,17 @@ final class WorkoutShareCardComposerTests: XCTestCase {
         let composition = composer.compose(
             workout: workout,
             measurementSystem: .imperial,
-            stepHeight: 8,
-            preferredMetric: .steps
+            stepHeight: 8
         )
 
         XCTAssertEqual(composition.heroStat.kind, .verticalClimb)
         XCTAssertEqual(composition.heroStat.label, "FEET CLIMBED")
         XCTAssertEqual(composition.heroStat.value, "1,668")
-        XCTAssertEqual(composition.supportingStats.map(\.kind), [.preferredMetric, .duration, .calories])
+        XCTAssertEqual(composition.supportingStats.map(\.kind), [.steps, .duration, .calories])
         XCTAssertEqual(composition.supportingStats.map(\.value), ["2,502", "33:47", "511"])
     }
 
-    func testUsesPreferredFloorsMetricWhenNoVerticalClimbIsAvailable() {
+    func testUsesDurationWhenNoStepTotalIsAvailable() {
         let workout = makeWorkout(
             duration: 1_800,
             steps: 0,
@@ -44,15 +43,14 @@ final class WorkoutShareCardComposerTests: XCTestCase {
         let composition = composer.compose(
             workout: workout,
             measurementSystem: .imperial,
-            stepHeight: 8,
-            preferredMetric: .floors
+            stepHeight: 8
         )
 
-        XCTAssertEqual(composition.heroStat.kind, .preferredMetric)
-        XCTAssertEqual(composition.heroStat.label, "FLOORS")
-        XCTAssertEqual(composition.heroStat.value, "42")
-        XCTAssertEqual(composition.supportingStats.map(\.kind), [.duration, .calories, .pace])
-        XCTAssertEqual(composition.supportingStats.map(\.value), ["30:00", "300", "1"])
+        XCTAssertEqual(composition.heroStat.kind, .duration)
+        XCTAssertEqual(composition.heroStat.label, "DURATION")
+        XCTAssertEqual(composition.heroStat.value, "30:00")
+        XCTAssertEqual(composition.supportingStats.map(\.kind), [.calories])
+        XCTAssertEqual(composition.supportingStats.map(\.value), ["300"])
     }
 
     func testDurationOnlyWorkoutOmitsSupportingRailContent() {
@@ -61,8 +59,7 @@ final class WorkoutShareCardComposerTests: XCTestCase {
         let composition = composer.compose(
             workout: workout,
             measurementSystem: .imperial,
-            stepHeight: 8,
-            preferredMetric: .steps
+            stepHeight: 8
         )
 
         XCTAssertEqual(composition.heroStat.kind, .duration)
@@ -82,8 +79,7 @@ final class WorkoutShareCardComposerTests: XCTestCase {
         let composition = composer.compose(
             workout: workout,
             measurementSystem: .imperial,
-            stepHeight: 8,
-            preferredMetric: .steps
+            stepHeight: 8
         )
 
         XCTAssertEqual(composition.heroStat.kind, .duration)
@@ -106,8 +102,7 @@ final class WorkoutShareCardComposerTests: XCTestCase {
         let composition = composer.compose(
             workout: workout,
             measurementSystem: .imperial,
-            stepHeight: 8,
-            preferredMetric: .steps
+            stepHeight: 8
         )
 
         XCTAssertEqual(composition.heroStat.kind, .duration)
@@ -125,11 +120,10 @@ final class WorkoutShareCardComposerTests: XCTestCase {
         let composition = composer.compose(
             workout: workout,
             measurementSystem: .imperial,
-            stepHeight: 0,
-            preferredMetric: .steps
+            stepHeight: 0
         )
 
-        XCTAssertEqual(composition.heroStat.kind, .preferredMetric)
+        XCTAssertEqual(composition.heroStat.kind, .steps)
         XCTAssertEqual(composition.supportingStats.map(\.kind), [.duration, .pace])
         XCTAssertEqual(composition.supportingStats.map(\.value), ["21:00", "30"])
     }

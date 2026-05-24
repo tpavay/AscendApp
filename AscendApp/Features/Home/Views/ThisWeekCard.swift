@@ -13,14 +13,9 @@ struct ThisWeekCard: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
-    @State private var settingsManager = SettingsManager.shared
 
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
-    }
-
-    private var preferredMetric: WorkoutMetric {
-        settingsManager.preferredWorkoutMetric
     }
 
     private var firstWeekday: Int {
@@ -30,7 +25,6 @@ struct ThisWeekCard: View {
     private var summary: WeekActivitySummary? {
         return WeekActivitySummaryCalculator(
             workouts: workouts,
-            metric: preferredMetric,
             firstWeekday: firstWeekday
         ).calculate()
     }
@@ -95,8 +89,7 @@ struct ThisWeekCard: View {
                     .font(.montserratBold(size: 24))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
 
-                // Primary metric + duration - supporting context
-                Text("\(formatCompactValue(summary.weekTotalValue)) \(preferredMetric.unit) · \(formatCompactDuration(summary.totalDuration))")
+                Text("\(formatCompactValue(summary.weekTotalValue)) steps · \(formatCompactDuration(summary.totalDuration))")
                     .font(.montserratMedium(size: 14))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
@@ -417,7 +410,6 @@ private struct DailyActivityData: Identifiable {
 
 private struct WeekActivitySummaryCalculator {
     let workouts: [Workout]
-    let metric: WorkoutMetric
     let firstWeekday: Int
 
     func calculate(referenceDate: Date = Date()) -> WeekActivitySummary {
@@ -446,7 +438,7 @@ private struct WeekActivitySummaryCalculator {
         var dailyValues: [Date: (value: Int, duration: TimeInterval)] = [:]
         for workout in filteredWorkouts {
             let day = calendar.startOfDay(for: workout.date)
-            let value = workout.metricValue(for: metric)
+            let value = workout.steps
             let existing = dailyValues[day] ?? (0, 0)
             dailyValues[day] = (existing.value + value, existing.duration + workout.duration)
         }
@@ -471,7 +463,7 @@ private struct WeekActivitySummaryCalculator {
         let weekWorkouts = filteredWorkouts.filter { workout in
             weekInterval.contains(workout.date)
         }
-        let weekTotalValue = weekWorkouts.reduce(0) { $0 + $1.metricValue(for: metric) }
+        let weekTotalValue = weekWorkouts.reduce(0) { $0 + $1.steps }
         let weekWorkoutCount = weekWorkouts.count
         let totalDuration = weekWorkouts.reduce(0.0) { $0 + $1.duration }
 
@@ -488,7 +480,7 @@ private struct WeekActivitySummaryCalculator {
             let weekOfYear = calendar.component(.weekOfYear, from: workout.date)
             let year = calendar.component(.yearForWeekOfYear, from: workout.date)
             let weekKey = year * 100 + weekOfYear
-            let value = workout.metricValue(for: metric)
+            let value = workout.steps
             let existing = weeklyTotals[weekKey] ?? (0, 0)
             weeklyTotals[weekKey] = (existing.value + value, existing.workouts + 1)
         }

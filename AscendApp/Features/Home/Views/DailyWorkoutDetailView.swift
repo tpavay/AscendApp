@@ -14,7 +14,6 @@ struct DailyWorkoutDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
-    @State private var settingsManager = SettingsManager.shared
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -32,20 +31,8 @@ struct DailyWorkoutDetailView: View {
         sortedWorkouts.map { $0.steps }.reduce(0, +)
     }
     
-    private var totalFloors: Int {
-        sortedWorkouts.map { $0.floors }.reduce(0, +)
-    }
-    
-    private var primaryMetricTotal: Int {
-        if settingsManager.preferredWorkoutMetric == .steps {
-            return totalSteps
-        } else {
-            return totalFloors
-        }
-    }
-    
-    private var primaryMetricType: WorkoutMetric {
-        settingsManager.preferredWorkoutMetric
+    private var totalStepCount: Int {
+        totalSteps
     }
     
     var body: some View {
@@ -78,12 +65,8 @@ struct DailyWorkoutDetailView: View {
     private var customHeader: some View {
         VStack(spacing: 0) {
             HStack {
-                Button(action: {
+                OnboardingBackButton {
                     dismiss()
-                }) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(.accent)
                 }
                 
                 Spacer()
@@ -95,9 +78,11 @@ struct DailyWorkoutDetailView: View {
                 Spacer()
                 
                 // Placeholder for symmetry
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(.clear)
+                Color.clear
+                    .frame(
+                        width: OnboardingChromeMetrics.backButtonSize,
+                        height: OnboardingChromeMetrics.backButtonSize
+                    )
             }
             .padding(.horizontal, 20)
             .padding(.top, 8)
@@ -135,12 +120,11 @@ struct DailyWorkoutDetailView: View {
                         iconColor: .blue
                     )
                     
-                    // Primary Metric Total
                     summaryStatCard(
-                        icon: primaryMetricType == .steps ? "figure.stairs" : "building.2",
-                        title: "Total \(primaryMetricType.displayName)",
-                        value: "\(primaryMetricTotal)",
-                        subtitle: primaryMetricType.unit,
+                        icon: "figure.stairs",
+                        title: "Total Steps",
+                        value: "\(totalStepCount)",
+                        subtitle: "steps",
                         iconColor: .accent
                     )
                 }
@@ -248,14 +232,9 @@ struct WorkoutRowCard: View {
     let workout: Workout
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
-    @State private var settingsManager = SettingsManager.shared
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
-    }
-    
-    private var preferredMetric: WorkoutMetric {
-        settingsManager.preferredWorkoutMetric
     }
     
     private var workoutTime: String {
@@ -308,7 +287,7 @@ struct WorkoutRowCard: View {
                         .font(.montserratMedium(size: 14))
                         .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray)
                     
-                    Text("\(workout.metricValue(for: preferredMetric)) \(preferredMetric.unit)")
+                    Text("\(workout.steps) steps")
                         .font(.montserratMedium(size: 14))
                         .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.7))
                 }

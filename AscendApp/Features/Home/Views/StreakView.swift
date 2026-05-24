@@ -70,7 +70,7 @@ struct StreakView: View {
                 
                 // Streak counter - Tappable
                 Button(action: {
-                    tabRouter.selectedTab = .progress
+                    tabRouter.selectedTab = .profile
                 }) {
                     HStack(spacing: 6) {
                         Image(systemName: "flame.fill")

@@ -47,7 +47,6 @@ struct WorkoutFormView: View {
     @State private var viewModel = WorkoutFormViewModel()
 
     // UI-only state
-    @State private var showingMetricTooltip = false
     @State private var showingDatePicker = false
     @State private var showingEffortRating = false
     @State private var showingDurationPicker = false
@@ -73,10 +72,6 @@ struct WorkoutFormView: View {
             .themedBackground()
             .navigationBarHidden(true)
             .keyboardDoneToolbar()
-        }
-        .sheet(isPresented: $showingMetricTooltip) {
-            MetricTooltipView()
-                .appSheetStyle(.fitted())
         }
         .sheet(isPresented: $showingDatePicker) {
             DateTimePickerView(selectedDate: $viewModel.workoutDate)
@@ -182,27 +177,15 @@ struct WorkoutFormView: View {
                         }
                     )
 
-                    // Steps/Floors
-                    HStack(spacing: 12) {
-                        FormTextField(
-                            label: settingsManager.preferredWorkoutMetric.unit.capitalized,
-                            isRequired: false,
-                            icon: settingsManager.preferredWorkoutMetric == .steps ? "figure.stairs" : "building.2",
-                            keyboardType: .numberPad,
-                            text: $viewModel.metricValue,
-                            focusedField: $focusedField,
-                            fieldIdentifier: WorkoutFormField.metricValue
-                        )
-
-                        Button(action: {
-                            showingMetricTooltip = true
-                        }) {
-                            Image(systemName: "info.circle")
-                                .font(.system(size: 20, weight: .medium))
-                                .foregroundStyle(.accent)
-                                .frame(width: 48, height: 48)
-                        }
-                    }
+                    FormTextField(
+                        label: "Steps",
+                        isRequired: false,
+                        icon: "figure.stairs",
+                        keyboardType: .numberPad,
+                        text: $viewModel.stepsValue,
+                        focusedField: $focusedField,
+                        fieldIdentifier: WorkoutFormField.stepsValue
+                    )
 
                     // Effort Rating
                     FormButton(
@@ -358,7 +341,7 @@ struct WorkoutFormView: View {
 }
 
 enum WorkoutFormField: Hashable {
-    case workoutName, durationHours, durationMinutes, durationSeconds, metricValue, notes, caloriesBurned, avgHeartRate, maxHeartRate
+    case workoutName, durationHours, durationMinutes, durationSeconds, stepsValue, notes, caloriesBurned, avgHeartRate, maxHeartRate
 }
 
 #Preview {

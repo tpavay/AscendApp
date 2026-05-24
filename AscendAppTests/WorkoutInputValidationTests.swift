@@ -22,29 +22,25 @@ struct WorkoutInputValidationTests {
     }
 
     @Test
-    func optionalMetricRequiresNonNegativeInteger() {
-        #expect(WorkoutInputValidation.isValidOptionalMetric(""))
-        #expect(WorkoutInputValidation.isValidOptionalMetric("0"))
-        #expect(WorkoutInputValidation.isValidOptionalMetric("42"))
-        #expect(WorkoutInputValidation.isValidOptionalMetric("-1") == false)
-        #expect(WorkoutInputValidation.isValidOptionalMetric("abc") == false)
+    func optionalStepsRequireNonNegativeInteger() {
+        #expect(WorkoutInputValidation.isValidOptionalSteps(""))
+        #expect(WorkoutInputValidation.isValidOptionalSteps("0"))
+        #expect(WorkoutInputValidation.isValidOptionalSteps("42"))
+        #expect(WorkoutInputValidation.isValidOptionalSteps("-1") == false)
+        #expect(WorkoutInputValidation.isValidOptionalSteps("abc") == false)
     }
 
     @Test
     func workoutTotalsRejectImplausibleAverageStepPace() {
         #expect(WorkoutInputValidation.isValidWorkoutTotals(
-            metricValue: "966",
-            preferredMetric: .steps,
-            stepsPerFloor: 16,
+            stepsValue: "966",
             durationHours: 0,
             durationMinutes: 1,
             durationSeconds: 7
         ) == false)
 
         #expect(WorkoutInputValidation.isValidWorkoutTotals(
-            metricValue: "2117",
-            preferredMetric: .steps,
-            stepsPerFloor: 16,
+            stepsValue: "2117",
             durationHours: 0,
             durationMinutes: 18,
             durationSeconds: 51

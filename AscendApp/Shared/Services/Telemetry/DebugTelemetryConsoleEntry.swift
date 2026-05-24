@@ -159,8 +159,6 @@ private extension DebugTelemetryConsoleEntry {
                 switch component.lowercased() {
                 case "id":
                     return "ID"
-                case "hevy":
-                    return "Hevy"
                 default:
                     return component.capitalized
                 }
@@ -182,8 +180,6 @@ private extension DebugTelemetryConsoleEntry {
             return "Updated Existing"
         case "failed_count_bucket":
             return "Failed"
-        case "hevy_connected":
-            return "Hevy Connected"
         case "app_environment":
             return "Environment"
         default:
@@ -231,10 +227,6 @@ private extension DebugTelemetryConsoleEntry {
             return "Automatic import"
         case "apple_health_only":
             return "Apple Health only"
-        case "hevy_only":
-            return "Hevy only"
-        case "linked_only":
-            return "Linked Hevy + Apple Health"
         case "mixed":
             return "Mixed sources"
         case "updated_existing":
@@ -309,8 +301,6 @@ private extension DebugTelemetryConsoleEntry {
             return "How many candidate workouts failed to import."
         case "outcome":
             return "The final result of the import flow."
-        case "hevy_connected":
-            return "Whether the user currently had a Hevy account connected when the screen opened."
         default:
             return nil
         }

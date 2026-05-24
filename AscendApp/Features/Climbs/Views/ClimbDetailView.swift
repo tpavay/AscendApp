@@ -55,16 +55,10 @@ struct ClimbDetailView: View {
         .toolbar {
             if showsBrowseBackButton {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button {
+                    OnboardingBackButton {
                         dismiss()
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 14, weight: .semibold))
-                            Text("Back to Globe")
-                                .font(.montserratMedium(size: 16))
-                        }
                     }
+                    .accessibilityLabel("Back to Globe")
                 }
             }
 

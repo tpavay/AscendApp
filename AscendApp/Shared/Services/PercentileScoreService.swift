@@ -59,17 +59,13 @@ struct PercentileScoreService {
     /// Should be called at workout save time
     static func calculateAllPercentiles(
         for workout: Workout,
-        existingWorkouts: [Workout],
-        preferredMetric: WorkoutMetric
+        existingWorkouts: [Workout]
     ) -> [String: Double] {
         // Only consider workouts BEFORE this workout for percentile calculation
         let historicalWorkouts = existingWorkouts.filter { $0.date < workout.date }
         let workoutCount = historicalWorkouts.count
-        let workoutValues = metricValues(for: workout, preferredMetric: preferredMetric)
-        let historicalValuesByMetric = historicalValuesByMetric(
-            from: historicalWorkouts,
-            preferredMetric: preferredMetric
-        )
+        let workoutValues = metricValues(for: workout)
+        let historicalValuesByMetric = historicalValuesByMetric(from: historicalWorkouts)
 
         var scores: [String: Double] = [:]
         scores.reserveCapacity(HeatMapMetric.allCases.count)
@@ -79,8 +75,7 @@ struct PercentileScoreService {
                 metric: metric,
                 value: workoutValues[metric],
                 historicalValues: historicalValuesByMetric[metric] ?? [],
-                workoutCount: workoutCount,
-                preferredMetric: preferredMetric
+                workoutCount: workoutCount
             )
             scores[metric.rawValue] = score
         }
@@ -93,8 +88,7 @@ struct PercentileScoreService {
         metric: HeatMapMetric,
         value: Double?,
         historicalValues: [Double],
-        workoutCount: Int,
-        preferredMetric: WorkoutMetric
+        workoutCount: Int
     ) -> Double {
         // If no value (e.g., no heart rate data), return 0
         guard let value = value else { return 0 }
@@ -106,8 +100,7 @@ struct PercentileScoreService {
 
         let fixedScore = fixedScore(
             metric: metric,
-            value: value,
-            preferredMetric: preferredMetric
+            value: value
         )
 
         // If not enough workouts for percentile, use fixed score
@@ -129,23 +122,17 @@ struct PercentileScoreService {
         )
     }
 
-    private static func historicalValuesByMetric(
-        from workouts: [Workout],
-        preferredMetric: WorkoutMetric
-    ) -> [HeatMapMetric: [Double]] {
+    private static func historicalValuesByMetric(from workouts: [Workout]) -> [HeatMapMetric: [Double]] {
         workouts.reduce(into: [:]) { result, workout in
-            for (metric, value) in metricValues(for: workout, preferredMetric: preferredMetric) {
+            for (metric, value) in metricValues(for: workout) {
                 result[metric, default: []].append(value)
             }
         }
     }
 
-    private static func metricValues(
-        for workout: Workout,
-        preferredMetric: WorkoutMetric
-    ) -> [HeatMapMetric: Double] {
+    private static func metricValues(for workout: Workout) -> [HeatMapMetric: Double] {
         HeatMapMetric.allCases.reduce(into: [:]) { result, metric in
-            guard let value = getRawValue(for: workout, metric: metric, preferredMetric: preferredMetric) else {
+            guard let value = getRawValue(for: workout, metric: metric) else {
                 return
             }
             result[metric] = value
@@ -157,15 +144,14 @@ struct PercentileScoreService {
     /// Get the raw value for a workout metric
     private static func getRawValue(
         for workout: Workout,
-        metric: HeatMapMetric,
-        preferredMetric: WorkoutMetric
+        metric: HeatMapMetric
     ) -> Double? {
         switch metric {
         case .effortScore:
             // For effort score, we use the calculated effort value
             return calculateEffortValue(for: workout)
         case .primaryMetric:
-            return Double(preferredMetric == .steps ? workout.steps : workout.floors)
+            return Double(workout.steps)
         case .duration:
             return workout.duration
         case .stepsPerMinute:
@@ -206,17 +192,13 @@ struct PercentileScoreService {
         ).score
     }
 
-    private static func fixedScore(
-        metric: HeatMapMetric,
-        value: Double,
-        preferredMetric: WorkoutMetric
-    ) -> Double {
+    private static func fixedScore(metric: HeatMapMetric, value: Double) -> Double {
         let maxValue: Double
         switch metric {
         case .effortScore:
             return value
         case .primaryMetric:
-            maxValue = preferredMetric == .steps ? 15_000 : 150
+            maxValue = 15_000
         case .duration:
             maxValue = 3_600
         case .stepsPerMinute:

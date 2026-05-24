@@ -183,8 +183,7 @@ private struct WorkoutShareCardStatCell: View {
     let composition = WorkoutShareCardComposer().compose(
         workout: workout,
         measurementSystem: .imperial,
-        stepHeight: 8,
-        preferredMetric: .steps
+        stepHeight: 8
     )
 
     return WorkoutSquareShareCard(composition: composition)

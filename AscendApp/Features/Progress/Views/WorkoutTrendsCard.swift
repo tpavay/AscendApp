@@ -455,13 +455,12 @@ struct WorkoutTrendChartView: View {
     let unitLabel: String
     let points: [WorkoutTrendPoint]
     let metricType: WorkoutTrendMetricType
-    let preferredMetric: WorkoutMetric
     let colorScheme: ColorScheme
 
     private var formatter: NumberFormatter {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
-        formatter.maximumFractionDigits = metricType == .preferredPerMinute ? 1 : 0
+        formatter.maximumFractionDigits = metricType == .stepsPerMinute ? 1 : 0
         formatter.minimumFractionDigits = 0
         return formatter
     }

@@ -62,14 +62,9 @@ final class WorkoutImportCoordinator {
     struct ExistingWorkoutIndex {
         let allWorkouts: [Workout]
         let appleHealthWorkoutsByID: [String: Workout]
-        let hevyWorkoutsByID: [String: Workout]
 
         func workout(forAppleHealthID externalRecordID: String) -> Workout? {
             appleHealthWorkoutsByID[externalRecordID]
-        }
-
-        func workout(forHevyID externalRecordID: String) -> Workout? {
-            hevyWorkoutsByID[externalRecordID]
         }
     }
 
@@ -83,7 +78,6 @@ final class WorkoutImportCoordinator {
     private let authorizationController: any HealthKitAuthorizationControlling
     private let workoutReader: any HealthKitWorkoutReading
     private let metricsReader: any HealthKitMetricsReading
-    private let hevyManager: HevyManager
     private let telemetry: TelemetryManager
     private let leaderboardService = LeaderboardService.shared
     private let settingsManager: SettingsManager
@@ -100,7 +94,6 @@ final class WorkoutImportCoordinator {
         authorizationController: any HealthKitAuthorizationControlling = HealthKitAuthorizationClient.shared,
         workoutReader: any HealthKitWorkoutReading = HealthKitWorkoutReader.shared,
         metricsReader: any HealthKitMetricsReading = HealthKitMetricsReader.shared,
-        hevyManager: HevyManager = .shared,
         telemetry: TelemetryManager = .shared,
         settingsManager: SettingsManager = .shared,
         reviewStateStore: WorkoutAutoImportReviewStateStore = WorkoutAutoImportReviewStateStore(),
@@ -109,7 +102,6 @@ final class WorkoutImportCoordinator {
         self.authorizationController = authorizationController
         self.workoutReader = workoutReader
         self.metricsReader = metricsReader
-        self.hevyManager = hevyManager
         self.telemetry = telemetry
         self.settingsManager = settingsManager
         self.reviewStateStore = reviewStateStore
@@ -500,88 +492,10 @@ final class WorkoutImportCoordinator {
         let appleSamples = HealthKitSyncState.cachedWorkoutSamples
             .filter { !ignoredAppleHealthWorkoutIDs.contains($0.externalRecordID) }
             .sorted { $0.startDate > $1.startDate }
-        let hevyMetricType = HevySyncState.templateType == "floors" ? WorkoutMetric.floors : WorkoutMetric.steps
 
-        var matchedAppleIDs = Set<String>()
         var candidates: [ImportedWorkoutCandidate] = []
 
-        for workout in existingIndex.hevyWorkoutsByID.values.sorted(by: { $0.date > $1.date }) {
-            guard !hasAppleHealthLink(workout) else { continue }
-
-            let hevyWorkoutID = hevyExternalID(for: workout)
-            guard let hevyWorkoutID else { continue }
-
-            guard let sample = matchAppleHealthSample(
-                toWorkoutWindowStart: hevyWindowStart(for: workout),
-                workoutWindowEnd: hevyWindowEnd(for: workout),
-                expectedDuration: workout.duration,
-                candidates: appleSamples,
-                matchedAppleIDs: matchedAppleIDs,
-                allowImportedAppleWorkout: false,
-                existingIndex: existingIndex
-            ) else {
-                continue
-            }
-
-            matchedAppleIDs.insert(sample.externalRecordID)
-            candidates.append(
-                ImportedWorkoutCandidate.hevy(
-                    workoutID: hevyWorkoutID,
-                    workoutTitle: workout.name,
-                    startDate: hevyWindowStart(for: workout),
-                    endDate: hevyWindowEnd(for: workout),
-                    duration: workout.duration,
-                    metricValue: hevyMetricType == .floors ? workout.floors : workout.steps,
-                    metricType: hevyMetricType,
-                    matchingAppleHealthSample: sample,
-                    existingWorkoutID: workout.id
-                )
-            )
-        }
-
-        if hevyManager.isConnected {
-            let exercises = try await hevyManager.fetchExerciseHistory()
-
-            for exercise in exercises {
-                guard !isHevyImported(exercise.workout_id, existingIndex: existingIndex) else { continue }
-                guard let startDate = exercise.startDate else { continue }
-
-                let endDate = resolvedHevyWindowEnd(for: exercise)
-                let matchingSample: HealthKitWorkoutSample?
-                if hevyManager.autoLinkAppleHealth && appleHealthConnectionState == .connected {
-                    matchingSample = matchAppleHealthSample(
-                        toWorkoutWindowStart: startDate,
-                        workoutWindowEnd: endDate,
-                        expectedDuration: exercise.duration,
-                        candidates: appleSamples,
-                        matchedAppleIDs: matchedAppleIDs,
-                        allowImportedAppleWorkout: true,
-                        existingIndex: existingIndex
-                    )
-                } else {
-                    matchingSample = nil
-                }
-
-                if let matchingSample {
-                    matchedAppleIDs.insert(matchingSample.externalRecordID)
-                }
-
-                candidates.append(
-                    ImportedWorkoutCandidate.hevy(
-                        workoutID: exercise.workout_id,
-                        workoutTitle: exercise.workout_title,
-                        startDate: startDate,
-                        endDate: endDate,
-                        duration: exercise.duration,
-                        metricValue: exercise.metricValue,
-                        metricType: hevyMetricType,
-                        matchingAppleHealthSample: matchingSample
-                    )
-                )
-            }
-        }
-
-        for sample in appleSamples where !matchedAppleIDs.contains(sample.externalRecordID) {
+        for sample in appleSamples {
             guard !isAppleHealthImported(sample.externalRecordID, existingIndex: existingIndex) else { continue }
             candidates.append(.appleHealth(sample: sample))
         }
@@ -726,42 +640,6 @@ final class WorkoutImportCoordinator {
         return start...end
     }
 
-    private func matchAppleHealthSample(
-        toWorkoutWindowStart workoutWindowStart: Date,
-        workoutWindowEnd: Date?,
-        expectedDuration: TimeInterval,
-        candidates: [HealthKitWorkoutSample],
-        matchedAppleIDs: Set<String>,
-        allowImportedAppleWorkout: Bool,
-        existingIndex: ExistingWorkoutIndex
-    ) -> HealthKitWorkoutSample? {
-        let workoutWindowEnd = workoutWindowEnd ?? workoutWindowStart.addingTimeInterval(expectedDuration)
-        guard workoutWindowEnd > workoutWindowStart else { return nil }
-
-        let tolerance: TimeInterval = 5 * 60
-        let durationTolerance = max(10 * 60, expectedDuration * 0.25)
-
-        let matches = candidates.filter { candidate in
-            guard !matchedAppleIDs.contains(candidate.externalRecordID) else { return false }
-            guard !isAppleHealthLinkedToHevy(candidate.externalRecordID, existingIndex: existingIndex) else { return false }
-
-            if !allowImportedAppleWorkout && isAppleHealthImported(candidate.externalRecordID, existingIndex: existingIndex) {
-                return false
-            }
-
-            let startsWithinWindow = candidate.startDate >= workoutWindowStart.addingTimeInterval(-tolerance) &&
-                candidate.startDate <= workoutWindowEnd.addingTimeInterval(tolerance)
-            guard startsWithinWindow else { return false }
-
-            guard expectedDuration > 0 else { return true }
-            let durationDifference = abs(candidate.duration - expectedDuration)
-            return durationDifference <= durationTolerance
-        }
-
-        guard matches.count == 1 else { return nil }
-        return matches.first
-    }
-
     private func importCandidatesInternal(
         candidates: [ImportedWorkoutCandidate],
         mode: WorkoutImportAnalyticsEvent.ImportMode
@@ -853,12 +731,6 @@ final class WorkoutImportCoordinator {
                     return .updatedExisting(existingWorkout)
                 }
                 return try await importAppleHealthCandidate(candidate, modelContext: modelContext)
-            case .hevy, .linkedHevyAppleHealth:
-                return try await importHevyCandidate(
-                    candidate,
-                    modelContext: modelContext,
-                    existingIndex: existingIndex
-                )
             }
         } catch {
             lastErrorMessage = error.localizedDescription
@@ -876,8 +748,7 @@ final class WorkoutImportCoordinator {
         }
 
         let metrics = await metricsReader.fetchMetrics(for: hkWorkout)
-        let settings = SettingsManager.shared
-        let workout = hkWorkout.toAscendWorkout(with: metrics, stepsPerFloor: settings.stepsPerFloor)
+        let workout = hkWorkout.toAscendWorkout(with: metrics)
         guard WorkoutPlausibilityPolicy.hasPlausibleTotals(workout) else {
             ignoredAppleHealthWorkoutStore.insert(sample.externalRecordID)
             return .skipped(candidateID: candidate.id)
@@ -904,171 +775,21 @@ final class WorkoutImportCoordinator {
         return .imported(workout)
     }
 
-    private func importHevyCandidate(
-        _ candidate: ImportedWorkoutCandidate,
-        modelContext: ModelContext,
-        existingIndex: ExistingWorkoutIndex
-    ) async throws -> ImportOutcome {
-        guard let hevyWorkoutID = candidate.hevyWorkoutID,
-              let hevyWindowStart = candidate.hevyWorkoutWindowStart else {
-            return .failed(candidateID: candidate.id)
-        }
-
-        let stepsPerFloor = SettingsManager.shared.stepsPerFloor
-        let metricType = candidate.hevyMetricType ?? .steps
-        let metricValue = candidate.hevyMetricValue ?? 0
-        let steps: Int
-        let floors: Int
-
-        if metricType == .floors {
-            floors = metricValue
-            steps = Workout.floorsToSteps(metricValue, stepsPerFloor: stepsPerFloor)
-        } else {
-            steps = metricValue
-            floors = Workout.stepsToFloors(metricValue, stepsPerFloor: stepsPerFloor)
-        }
-
-        guard WorkoutPlausibilityPolicy.hasPlausibleTotals(
-            steps: steps,
-            duration: candidate.duration
-        ) else {
-            if let externalRecordID = candidate.appleHealthSample?.externalRecordID {
-                ignoredAppleHealthWorkoutStore.insert(externalRecordID)
-            }
-            return .skipped(candidateID: candidate.id)
-        }
-
-        if let existingWorkoutID = candidate.existingWorkoutID,
-           let existingWorkout = existingIndex.allWorkouts.first(where: { $0.id == existingWorkoutID }) {
-            applyHevyOwnership(
-                to: existingWorkout,
-                title: candidate.hevyWorkoutTitle,
-                duration: candidate.duration,
-                steps: steps,
-                floors: floors,
-                hevyWorkoutID: hevyWorkoutID
-            )
-
-            if let appleHealthSample = candidate.appleHealthSample,
-               let hkWorkout = try await workoutReader.fetchWorkout(withExternalRecordID: appleHealthSample.externalRecordID) {
-                let metrics = await metricsReader.fetchMetrics(for: hkWorkout)
-                applyAppleHealthMetrics(metrics, from: appleHealthSample, to: existingWorkout)
-                ensureAppleHealthLinkExists(
-                    sample: appleHealthSample,
-                    for: existingWorkout,
-                    modelContext: modelContext
-                )
-            }
-
-            ensureHevyLinkExists(
-                workoutID: hevyWorkoutID,
-                windowStart: hevyWindowStart,
-                windowEnd: candidate.hevyWorkoutWindowEnd ?? hevyWindowStart.addingTimeInterval(candidate.duration),
-                title: candidate.displayName,
-                metricType: metricType,
-                metricValue: metricValue,
-                for: existingWorkout,
-                modelContext: modelContext
-            )
-
-            try modelContext.save()
-            return .updatedExisting(existingWorkout)
-        }
-
-        if let existingWorkout = existingIndex.workout(forHevyID: hevyWorkoutID) {
-            applyHevyOwnership(
-                to: existingWorkout,
-                title: candidate.hevyWorkoutTitle,
-                duration: candidate.duration,
-                steps: steps,
-                floors: floors,
-                hevyWorkoutID: hevyWorkoutID
-            )
-            try modelContext.save()
-            return .updatedExisting(existingWorkout)
-        }
-
-        if let appleHealthSample = candidate.appleHealthSample,
-           let existingAppleWorkout = existingIndex.workout(forAppleHealthID: appleHealthSample.externalRecordID) {
-            applyHevyOwnership(
-                to: existingAppleWorkout,
-                title: candidate.hevyWorkoutTitle,
-                duration: candidate.duration,
-                steps: steps,
-                floors: floors,
-                hevyWorkoutID: hevyWorkoutID
-            )
-            ensureHevyLinkExists(
-                workoutID: hevyWorkoutID,
-                windowStart: hevyWindowStart,
-                windowEnd: candidate.hevyWorkoutWindowEnd ?? hevyWindowStart.addingTimeInterval(candidate.duration),
-                title: candidate.displayName,
-                metricType: metricType,
-                metricValue: metricValue,
-                for: existingAppleWorkout,
-                modelContext: modelContext
-            )
-            try modelContext.save()
-            return .updatedExisting(existingAppleWorkout)
-        }
-
-        let workout = Workout(
-            name: (candidate.hevyWorkoutTitle?.isEmpty == false) ? candidate.hevyWorkoutTitle! : Workout.generateDefaultName(for: candidate.startDate),
-            date: candidate.appleHealthSample?.startDate ?? hevyWindowStart,
-            duration: candidate.duration,
-            steps: steps,
-            floors: floors,
-            stepsPerFloor: stepsPerFloor,
-            source: .hevy,
-            hevyWorkoutId: hevyWorkoutID
-        )
-
-        modelContext.insert(workout)
-
-        if let appleHealthSample = candidate.appleHealthSample,
-           let hkWorkout = try await workoutReader.fetchWorkout(withExternalRecordID: appleHealthSample.externalRecordID) {
-            let metrics = await metricsReader.fetchMetrics(for: hkWorkout)
-            applyAppleHealthMetrics(metrics, from: appleHealthSample, to: workout)
-            ensureAppleHealthLinkExists(sample: appleHealthSample, for: workout, modelContext: modelContext)
-        }
-
-        ensureHevyLinkExists(
-            workoutID: hevyWorkoutID,
-            windowStart: hevyWindowStart,
-            windowEnd: candidate.hevyWorkoutWindowEnd ?? hevyWindowStart.addingTimeInterval(candidate.duration),
-            title: candidate.displayName,
-            metricType: metricType,
-            metricValue: metricValue,
-            for: workout,
-            modelContext: modelContext
-        )
-
-        try modelContext.save()
-
-        return .imported(workout)
-    }
-
     private func buildExistingWorkoutIndex(modelContext: ModelContext) throws -> ExistingWorkoutIndex {
         let workouts = try fetchAllWorkouts(from: modelContext)
 
         var appleHealthWorkoutsByID: [String: Workout] = [:]
-        var hevyWorkoutsByID: [String: Workout] = [:]
 
         for workout in workouts {
             if let healthKitUUID = workout.healthKitUUID {
                 appleHealthWorkoutsByID[healthKitUUID] = workout
-            }
-            if let hevyWorkoutId = workout.hevyWorkoutId {
-                hevyWorkoutsByID[hevyWorkoutId] = workout
             }
 
             for sourceLink in workout.sourceLinks {
                 switch sourceLink.provider {
                 case .appleHealth:
                     appleHealthWorkoutsByID[sourceLink.externalRecordID] = workout
-                case .hevy:
-                    hevyWorkoutsByID[sourceLink.externalRecordID] = workout
-                case .garmin, .fitbit:
+                case .garmin, .fitbit, .hevy:
                     break
                 }
             }
@@ -1076,8 +797,7 @@ final class WorkoutImportCoordinator {
 
         return ExistingWorkoutIndex(
             allWorkouts: workouts,
-            appleHealthWorkoutsByID: appleHealthWorkoutsByID,
-            hevyWorkoutsByID: hevyWorkoutsByID
+            appleHealthWorkoutsByID: appleHealthWorkoutsByID
         )
     }
 
@@ -1086,24 +806,6 @@ final class WorkoutImportCoordinator {
         case .appleHealth:
             guard let appleHealthSample = candidate.appleHealthSample else { return false }
             return isAppleHealthImported(appleHealthSample.externalRecordID, existingIndex: existingIndex)
-        case .hevy:
-            guard let hevyWorkoutID = candidate.hevyWorkoutID else { return false }
-            return isHevyImported(hevyWorkoutID, existingIndex: existingIndex)
-        case .linkedHevyAppleHealth:
-            if let existingWorkoutID = candidate.existingWorkoutID,
-               let workout = existingIndex.allWorkouts.first(where: { $0.id == existingWorkoutID }),
-               let appleHealthSample = candidate.appleHealthSample {
-                return workout.hasSourceLink(provider: .appleHealth) &&
-                    workout.hasSourceLink(provider: .hevy) &&
-                    workout.sourceLink(for: .appleHealth)?.externalRecordID == appleHealthSample.externalRecordID
-            }
-
-            guard let hevyWorkoutID = candidate.hevyWorkoutID else { return false }
-            let hasHevyWorkout = isHevyImported(hevyWorkoutID, existingIndex: existingIndex)
-            let appleLinkedToHevy = candidate.appleHealthSample.map {
-                isAppleHealthLinkedToHevy($0.externalRecordID, existingIndex: existingIndex)
-            } ?? false
-            return hasHevyWorkout && appleLinkedToHevy
         }
     }
 
@@ -1111,64 +813,8 @@ final class WorkoutImportCoordinator {
         existingIndex.workout(forAppleHealthID: externalRecordID) != nil
     }
 
-    private func isHevyImported(_ externalRecordID: String, existingIndex: ExistingWorkoutIndex) -> Bool {
-        existingIndex.workout(forHevyID: externalRecordID) != nil
-    }
-
-    private func isAppleHealthLinkedToHevy(_ externalRecordID: String, existingIndex: ExistingWorkoutIndex) -> Bool {
-        guard let workout = existingIndex.workout(forAppleHealthID: externalRecordID) else { return false }
-        return hasHevyLink(workout)
-    }
-
     private func hasAppleHealthLink(_ workout: Workout) -> Bool {
         workout.hasSourceLink(provider: .appleHealth) || workout.healthKitUUID != nil
-    }
-
-    private func hasHevyLink(_ workout: Workout) -> Bool {
-        workout.hasSourceLink(provider: .hevy) || workout.hevyWorkoutId != nil
-    }
-
-    private func hevyExternalID(for workout: Workout) -> String? {
-        workout.sourceLink(for: .hevy)?.externalRecordID ?? workout.hevyWorkoutId
-    }
-
-    private func hevyWindowStart(for workout: Workout) -> Date {
-        workout.sourceLink(for: .hevy)?.providerWindowStart ?? workout.date
-    }
-
-    private func hevyWindowEnd(for workout: Workout) -> Date? {
-        workout.sourceLink(for: .hevy)?.providerWindowEnd ?? workout.date.addingTimeInterval(workout.duration)
-    }
-
-    private func resolvedHevyWindowEnd(for exercise: HevyExerciseHistory) -> Date? {
-        if let endDate = exercise.endDate {
-            return endDate
-        }
-
-        guard let startDate = exercise.startDate, exercise.duration > 0 else {
-            return nil
-        }
-
-        return startDate.addingTimeInterval(exercise.duration)
-    }
-
-    private func applyHevyOwnership(
-        to workout: Workout,
-        title: String?,
-        duration: TimeInterval,
-        steps: Int,
-        floors: Int,
-        hevyWorkoutID: String
-    ) {
-        workout.name = (title?.isEmpty == false) ? title! : workout.name
-        if duration > 0 {
-            workout.duration = duration
-        }
-        workout.steps = steps
-        workout.floors = floors
-        workout.source = .hevy
-        workout.hevyWorkoutId = hevyWorkoutID
-        workout.integrityLevel = .verified
     }
 
     private func applyAppleHealthMetrics(
@@ -1240,50 +886,11 @@ final class WorkoutImportCoordinator {
         )
     }
 
-    private func ensureHevyLinkExists(
-        workoutID: String,
-        windowStart: Date,
-        windowEnd: Date,
-        title: String,
-        metricType: WorkoutMetric,
-        metricValue: Int,
-        for workout: Workout,
-        modelContext: ModelContext
-    ) {
-        guard workout.sourceLink(for: .hevy) == nil else { return }
-
-        let link = WorkoutSourceLink(
-            provider: .hevy,
-            externalRecordID: workoutID,
-            providerWindowStart: windowStart,
-            providerWindowEnd: windowEnd,
-            timingPrecision: .containerWindow,
-            sourceName: "Hevy",
-            sourceBundleIdentifier: nil,
-            deviceModel: nil,
-            metadataJSON: hevyMetadataJSON(title: title, metricType: metricType, metricValue: metricValue),
-            workout: workout
-        )
-        modelContext.insert(link)
-    }
-
     private func appleHealthMetadataJSON(for sample: HealthKitWorkoutSample) -> String? {
         let payload: [String: String] = [
             "sourceName": sample.displaySourceName,
             "sourceBundleIdentifier": sample.sourceBundleIdentifier,
             "deviceModel": sample.deviceModel ?? ""
-        ]
-        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
-            return nil
-        }
-        return String(data: data, encoding: .utf8)
-    }
-
-    private func hevyMetadataJSON(title: String, metricType: WorkoutMetric, metricValue: Int) -> String? {
-        let payload: [String: Any] = [
-            "title": title,
-            "metricType": metricType.rawValue,
-            "metricValue": metricValue
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
             return nil
@@ -1363,13 +970,11 @@ final class WorkoutImportCoordinator {
 
     private func recalculateDerivedData(modelContext: ModelContext, newWorkouts: [Workout] = []) throws {
         let allWorkouts = try fetchAllWorkouts(from: modelContext)
-        let settings = SettingsManager.shared
 
         for workout in allWorkouts {
             workout.percentileScores = PercentileScoreService.calculateAllPercentiles(
                 for: workout,
-                existingWorkouts: allWorkouts,
-                preferredMetric: settings.preferredWorkoutMetric
+                existingWorkouts: allWorkouts
             )
         }
 
@@ -1424,15 +1029,15 @@ final class WorkoutImportCoordinator {
             deviceModel: "Apple Watch Simulator"
         )
 
-        let stepsPerFloor = settingsManager.stepsPerFloor
         let floors = 132
+        let steps = Workout.floorsToSteps(floors)
         let workout = Workout(
             name: "Simulated Apple Health Import",
             date: sample.startDate,
             duration: sample.duration,
-            steps: Workout.floorsToSteps(floors, stepsPerFloor: stepsPerFloor),
+            steps: steps,
             floors: floors,
-            stepsPerFloor: stepsPerFloor,
+            stepsPerFloor: Workout.defaultStepsPerFloor,
             notes: "Debug-only Apple Health auto-import simulation.",
             avgHeartRate: 146,
             maxHeartRate: 168,

@@ -14,10 +14,8 @@ import SwiftUI
 final class SettingsManager {
     static let shared = SettingsManager()
     
-    private let preferredMetricKey = "preferredWorkoutMetric"
     private let measurementSystemKey = "measurementSystem"
     private let stepHeightKey = "stepHeight"
-    private let stepsPerFloorKey = "stepsPerFloor"
     private let fitnessLevelKey = "userFitnessLevel"
     private let seededBaseLevelKey = "seededBaseLevel"
     private let autoCalculatedBaseLevelKey = "autoCalculatedBaseLevel"
@@ -27,12 +25,6 @@ final class SettingsManager {
     private let appleHealthAutoImportEnabledKey = "appleHealthAutoImportEnabled"
     private let appleHealthAutoImportActivatedAtKey = "appleHealthAutoImportActivatedAt"
     private let appleHealthAutoImportPromptDismissedUserIDsKey = "appleHealthAutoImportPromptDismissedUserIDs"
-    var preferredWorkoutMetric: WorkoutMetric {
-        didSet {
-            savePreferredMetric()
-        }
-    }
-    
     var measurementSystem: MeasurementSystem {
         didSet {
             let oldSystem = oldValue
@@ -48,12 +40,6 @@ final class SettingsManager {
         }
     }
     
-    var stepsPerFloor: Int {
-        didSet {
-            saveStepsPerFloor()
-        }
-    }
-
     var fitnessLevel: FitnessLevel {
         didSet {
             saveFitnessLevel()
@@ -127,14 +113,6 @@ final class SettingsManager {
     }
 
     private init() {
-        // Load saved metric or default to steps
-        if let savedMetric = UserDefaults.standard.string(forKey: preferredMetricKey),
-           let metric = WorkoutMetric(rawValue: savedMetric) {
-            self.preferredWorkoutMetric = metric
-        } else {
-            self.preferredWorkoutMetric = .steps
-        }
-        
         // Load saved measurement system or default to imperial
         let loadedMeasurementSystem: MeasurementSystem
         if let savedSystem = UserDefaults.standard.string(forKey: measurementSystemKey),
@@ -152,11 +130,6 @@ final class SettingsManager {
             self.stepHeight = loadedMeasurementSystem.defaultStepHeight
         }
         
-        // Load saved steps per floor or default to 16
-        self.stepsPerFloor = UserDefaults.standard.object(forKey: stepsPerFloorKey) != nil
-            ? UserDefaults.standard.integer(forKey: stepsPerFloorKey)
-            : 16
-
         // Load saved fitness level or default to intermediate
         let loadedFitnessLevel: FitnessLevel
         if let savedLevel = UserDefaults.standard.string(forKey: fitnessLevelKey),
@@ -203,11 +176,6 @@ final class SettingsManager {
 
     }
     
-    private func savePreferredMetric() {
-        UserDefaults.standard.set(preferredWorkoutMetric.rawValue, forKey: preferredMetricKey)
-        UserDefaults.standard.synchronize()
-    }
-    
     private func saveMeasurementSystem() {
         UserDefaults.standard.set(measurementSystem.rawValue, forKey: measurementSystemKey)
         UserDefaults.standard.synchronize()
@@ -218,11 +186,6 @@ final class SettingsManager {
         UserDefaults.standard.synchronize()
     }
     
-    private func saveStepsPerFloor() {
-        UserDefaults.standard.set(stepsPerFloor, forKey: stepsPerFloorKey)
-        UserDefaults.standard.synchronize()
-    }
-
     private func saveFitnessLevel() {
         UserDefaults.standard.set(fitnessLevel.rawValue, forKey: fitnessLevelKey)
         UserDefaults.standard.synchronize()
@@ -282,12 +245,6 @@ final class SettingsManager {
         }
     }
     
-    func setPreferredMetric(_ metric: WorkoutMetric) {
-        withAnimation(.easeInOut(duration: 0.3)) {
-            preferredWorkoutMetric = metric
-        }
-    }
-    
     func setMeasurementSystem(_ system: MeasurementSystem) {
         withAnimation(.easeInOut(duration: 0.3)) {
             measurementSystem = system
@@ -318,10 +275,6 @@ final class SettingsManager {
         stepHeight = height
     }
     
-    func setStepsPerFloor(_ steps: Int) {
-        stepsPerFloor = steps
-    }
-
     func setFitnessLevel(_ level: FitnessLevel) {
         withAnimation(.easeInOut(duration: 0.3)) {
             fitnessLevel = level

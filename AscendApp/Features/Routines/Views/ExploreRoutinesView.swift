@@ -37,7 +37,7 @@ struct ExploreRoutinesView: View {
                 }
                 .padding(20)
             }
-            .background(effectiveColorScheme == .dark ? Color.jet : Color.white)
+            .background(Color.black)
             .navigationTitle("Explore Routines")
             .navigationBarTitleDisplayMode(.large)
             .searchable(text: $searchText, prompt: "Search templates")
@@ -74,7 +74,7 @@ struct ExploreRoutineCard: View {
                 HStack {
                     Text(routine.name)
                         .font(.montserratSemiBold(size: 18))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                        .foregroundStyle(.white)
 
                     Spacer()
 

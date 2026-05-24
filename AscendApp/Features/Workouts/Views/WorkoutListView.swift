@@ -10,11 +10,11 @@ import SwiftData
 
 struct WorkoutListView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(AuthenticationViewModel.self) private var authVM
     @State private var themeManager = ThemeManager.shared
     @State private var importCoordinator = WorkoutImportCoordinator.shared
-    @State private var settingsManager = SettingsManager.shared
     @State private var filterState = WorkoutListFilterState()
 
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
@@ -34,9 +34,20 @@ struct WorkoutListView: View {
 
     @State private var showingEntrySelection = false
 
+    private let embedsInNavigationStack: Bool
+    private let showsBackButton: Bool
+
+    init(
+        embedsInNavigationStack: Bool = true,
+        showsBackButton: Bool = false
+    ) {
+        self.embedsInNavigationStack = embedsInNavigationStack
+        self.showsBackButton = showsBackButton
+    }
+
     private var filteredWorkouts: [Workout] {
         let filtered = filterState.applyFilters(to: workouts)
-        return filterState.applySorting(to: filtered, preferredMetric: settingsManager.preferredWorkoutMetric)
+        return filterState.applySorting(to: filtered)
     }
 
     private var effectiveColorScheme: ColorScheme {
@@ -44,7 +55,16 @@ struct WorkoutListView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        if embedsInNavigationStack {
+            NavigationStack {
+                content
+            }
+        } else {
+            content
+        }
+    }
+
+    private var content: some View {
             VStack(spacing: 0) {
                 WorkoutListHeaderView(
                     isInDeleteMode: isInDeleteMode,
@@ -96,6 +116,20 @@ struct WorkoutListView: View {
             .safeAreaInset(edge: .bottom) {
                 if isInDeleteMode && !workouts.isEmpty {
                     deleteActionBar
+                }
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if showsBackButton {
+                    HStack {
+                        OnboardingBackButton {
+                            dismiss()
+                        }
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 4)
+                    .background(Color.black.opacity(0.95))
                 }
             }
             .navigationBarHidden(true)
@@ -205,7 +239,6 @@ struct WorkoutListView: View {
             .task {
                 importCoordinator.configure(modelContext: modelContext)
             }
-        }
     }
 
     private func presentWorkoutForm() {

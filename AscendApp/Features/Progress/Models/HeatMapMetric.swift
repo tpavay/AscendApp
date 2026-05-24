@@ -24,7 +24,7 @@ enum HeatMapMetric: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .effortScore: return "Effort Score"
-        case .primaryMetric: return "Primary" // Will be replaced with Steps/Floors
+        case .primaryMetric: return "Steps"
         case .duration: return "Duration"
         case .stepsPerMinute: return "Steps/Min"
         case .calories: return "Calories"
@@ -98,7 +98,7 @@ struct HeatMapScoreCalculator {
         case .effortScore:
             return effortScore(for: workout, using: settings)
         case .primaryMetric:
-            return primaryMetricScore(for: workout, preferredMetric: settings.preferredWorkoutMetric)
+            return primaryMetricScore(for: workout)
         case .duration:
             return durationScore(for: workout)
         case .stepsPerMinute:
@@ -129,11 +129,7 @@ struct HeatMapScoreCalculator {
             let score = effortScore(for: workout, using: settings)
             return (score * 10).formatted(.number.precision(.fractionLength(1))) // Display as 0.0-10.0
         case .primaryMetric:
-            if settings.preferredWorkoutMetric == .steps {
-                return "\(workout.steps)"
-            } else {
-                return "\(workout.floors)"
-            }
+            return "\(workout.steps)"
         case .duration:
             return workout.durationFormatted
         case .stepsPerMinute:
@@ -169,7 +165,7 @@ struct HeatMapScoreCalculator {
     static func unitSuffix(for metric: HeatMapMetric, using settings: SettingsManager = .shared) -> String {
         switch metric {
         case .effortScore: return ""
-        case .primaryMetric: return settings.preferredWorkoutMetric == .steps ? " steps" : " floors"
+        case .primaryMetric: return " steps"
         case .duration: return ""
         case .stepsPerMinute: return " SPM"
         case .calories: return " cal"
@@ -194,14 +190,10 @@ struct HeatMapScoreCalculator {
         ).score
     }
 
-    /// Primary metric score (steps or floors)
-    private static func primaryMetricScore(for workout: Workout, preferredMetric: WorkoutMetric) -> Double {
-        let value = Double(preferredMetric == .steps ? workout.steps : workout.floors)
+    private static func primaryMetricScore(for workout: Workout) -> Double {
+        let value = Double(workout.steps)
 
-        // Typical ranges:
-        // Steps: 0-5000 (low), 5000-10000 (moderate), 10000+ (high)
-        // Floors: 0-50 (low), 50-100 (moderate), 100+ (high)
-        let maxValue: Double = preferredMetric == .steps ? 15000 : 150
+        let maxValue: Double = 15_000
 
         return min(1.0, value / maxValue)
     }

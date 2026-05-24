@@ -7,79 +7,75 @@ import SwiftUI
 
 struct LeaderboardUserRowView: View {
     @Environment(\.colorScheme) private var colorScheme
-    @State private var settingsManager = SettingsManager.shared
 
     let entry: LeaderboardEntry
     let metric: LeaderboardMetric
 
-    private var preferredMetric: WorkoutMetric {
-        settingsManager.preferredWorkoutMetric
+    private var rowFill: Color {
+        colorScheme == .dark ? Color.white.opacity(0.055) : Color.black.opacity(0.045)
     }
 
-    private var rowFill: LinearGradient {
-        if colorScheme == .dark {
-            return LinearGradient(
-                colors: [
-                    Color.night,
-                    Color.jetLighter,
-                    Color.accent.opacity(0.3)
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-        }
+    private var primaryTextColor: Color {
+        colorScheme == .dark ? .white : .black
+    }
 
-        return LinearGradient(
-            colors: [
-                Color.white,
-                Color.night.opacity(0.08),
-                Color.accent.opacity(0.24)
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
+    private var shouldShowYouBadge: Bool {
+        entry.displayName.trimmingCharacters(in: .whitespacesAndNewlines).localizedCaseInsensitiveCompare("you") != .orderedSame
     }
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             Text("\(entry.rank)")
-                .font(.montserratBold(size: 24))
+                .font(.montserratBold(size: 30))
                 .foregroundStyle(.accent)
-                .frame(width: 34, alignment: .leading)
+                .frame(width: 38, alignment: .leading)
 
             profileImage
+                .frame(width: 42, height: 42)
 
-            Text(entry.displayName)
-                .font(.montserratSemiBold(size: 15))
-                .foregroundStyle(colorScheme == .dark ? .white : .black)
-                .lineLimit(1)
-
-            Spacer()
-
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(entry.formattedValue)
-                    .font(.montserratBold(size: 16))
-                    .foregroundStyle(.accent)
-
-                let unitLabel = metric.unit(for: preferredMetric)
-                if !unitLabel.isEmpty {
-                    Text(unitLabel)
-                        .font(.montserratRegular(size: 10))
-                        .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .gray)
+            VStack(alignment: .leading, spacing: 2) {
+                if shouldShowYouBadge {
+                    Text("YOU")
+                        .font(.montserratBold(size: 9))
+                        .foregroundStyle(.accent)
+                        .lineLimit(1)
                 }
+
+                Text(entry.displayName.uppercased())
+                    .font(.montserratBold(size: 15))
+                    .foregroundStyle(primaryTextColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.74)
             }
+
+            Spacer(minLength: 8)
+
+            Text(entry.formattedValue)
+                .font(.montserratMedium(size: 16))
+                .foregroundStyle(primaryTextColor.opacity(0.9))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 11)
+        .padding(.leading, 20)
+        .padding(.trailing, 14)
+        .frame(height: 64)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(rowFill)
         )
+        .overlay(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(Color.accent)
+                .frame(width: 4)
+                .padding(.vertical, 2)
+        }
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.accent.opacity(colorScheme == .dark ? 0.45 : 0.55), lineWidth: 1.5)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(colorScheme == .dark ? .white.opacity(0.06) : .black.opacity(0.05), lineWidth: 1)
         )
         .padding(.horizontal, 20)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Your rank \(entry.rank), \(entry.displayName), \(entry.formattedValue) \(metric.displayName)")
     }
 
     @ViewBuilder
@@ -91,7 +87,6 @@ struct LeaderboardUserRowView: View {
                     image
                         .resizable()
                         .scaledToFill()
-                        .frame(width: 36, height: 36)
                         .clipShape(.circle)
                 case .failure:
                     defaultAvatar
@@ -105,6 +100,10 @@ struct LeaderboardUserRowView: View {
                     defaultAvatar
                 }
             }
+            .overlay(
+                Circle()
+                    .stroke(Color.accent.opacity(0.78), lineWidth: 1.5)
+            )
             .id(photoURL)
         } else {
             defaultAvatar
@@ -112,31 +111,31 @@ struct LeaderboardUserRowView: View {
     }
 
     private var defaultAvatar: some View {
-        ZStack {
-            Circle()
-                .fill(Color.accent.opacity(0.2))
-                .frame(width: 36, height: 36)
-
-            Image(systemName: "person.fill")
-                .font(.system(size: 15))
-                .foregroundStyle(.accent)
-        }
+        Circle()
+            .fill(Color.accent.opacity(colorScheme == .dark ? 0.22 : 0.16))
+            .overlay(
+                Image(systemName: "person.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.accent)
+            )
+            .overlay(
+                Circle()
+                    .stroke(Color.accent.opacity(0.78), lineWidth: 1.5)
+            )
     }
 }
 
 #Preview {
-    VStack(spacing: 20) {
-        LeaderboardUserRowView(
-            entry: LeaderboardEntry(
-                userId: "1",
-                displayName: "Tyler Pavay",
-                rank: 37,
-                value: 3425,
-                formattedValue: "3,425",
-                isCurrentUser: true
-            ),
-            metric: .climb
-        )
-    }
-    .themedBackground()
+    LeaderboardUserRowView(
+        entry: LeaderboardEntry(
+            userId: "1",
+            displayName: "Ryan T.",
+            rank: 4,
+            value: 15_872_211,
+            formattedValue: "15,872,211",
+            isCurrentUser: true
+        ),
+        metric: .climb
+    )
+    .background(Color.black)
 }

@@ -9,13 +9,12 @@ import Foundation
 
 enum ShareCardStatKind: String, CaseIterable, Identifiable {
     case verticalClimb
-    case preferredMetric
+    case steps
     case duration
     case calories
     case pace
     case avgHeartRate
     case addedWeight
-    case alternateMetric
 
     var id: String { rawValue }
 }

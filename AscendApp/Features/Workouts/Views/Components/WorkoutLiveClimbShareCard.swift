@@ -194,7 +194,7 @@ struct WorkoutLiveClimbShareCard: View {
     }
 
     private var averageSPMText: String {
-        guard let pace = workout.pace(for: .steps), pace > 0 else { return "0" }
+        guard let pace = workout.stepsPerMinute, pace > 0 else { return "0" }
         return Int(pace.rounded()).formatted()
     }
 }

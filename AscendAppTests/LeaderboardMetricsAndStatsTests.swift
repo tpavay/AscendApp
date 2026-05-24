@@ -4,11 +4,11 @@ import Testing
 
 struct LeaderboardMetricsAndStatsTests {
     @Test
-    func leaderboardMetricsIgnoreViewerPreferredFloorsSetting() {
-        #expect(LeaderboardMetric.climb.displayName(for: .floors) == "Steps")
-        #expect(LeaderboardMetric.climb.unit(for: .floors) == "steps")
-        #expect(LeaderboardMetric.pace.displayName(for: .floors) == "Steps/Min")
-        #expect(LeaderboardMetric.pace.unit(for: .floors) == "steps/min")
+    func leaderboardMetricsUseCanonicalStepsLabels() {
+        #expect(LeaderboardMetric.climb.displayName == "Steps")
+        #expect(LeaderboardMetric.climb.unit == "steps")
+        #expect(LeaderboardMetric.pace.displayName == "Steps/Min")
+        #expect(LeaderboardMetric.pace.unit == "steps/min")
     }
 
     @Test

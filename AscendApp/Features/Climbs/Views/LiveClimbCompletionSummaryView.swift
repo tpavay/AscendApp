@@ -65,16 +65,9 @@ struct LiveClimbCompletionSummaryView: View {
 
     private var header: some View {
         HStack {
-            Button {
+            OnboardingBackButton {
                 handleDoneTapped(surface: .backButton)
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(.accent)
-                    .frame(width: 42, height: 42)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
             .accessibilityLabel("Close summary")
 
             Spacer()
@@ -304,7 +297,7 @@ struct LiveClimbCompletionSummaryView: View {
     }
 
     private var averageSPMValue: Double {
-        guard let pace = workout.pace(for: .steps), pace > 0 else { return 0 }
+        guard let pace = workout.stepsPerMinute, pace > 0 else { return 0 }
         return pace
     }
 
