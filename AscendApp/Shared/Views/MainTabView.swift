@@ -13,10 +13,8 @@ struct MainTabView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(NetworkConnectivityService.self) private var connectivityService
     @State private var themeManager = ThemeManager.shared
-    @State private var settingsManager = SettingsManager.shared
     @State private var tabRouter = TabRouter()
     @State private var hasCheckedRatingOnLaunch = false
-    @State private var showingBaseLevelOnboarding = false
     @State private var showBackOnlineBanner = false
     @State private var onlineBannerTask: Task<Void, Never>?
     @State private var showOfflineHighlight = false
@@ -44,6 +42,7 @@ struct MainTabView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black.ignoresSafeArea())
         .safeAreaInset(edge: .bottom, spacing: 0) {
             tabBar
         }
@@ -51,19 +50,12 @@ struct MainTabView: View {
         .environment(tabRouter)
         .onAppear {
             checkForRatingPromptOnLaunch()
-            syncBaseLevelOnboardingPresentation()
         }
         .task {
             rebuildBestEffortCacheIfNeeded()
         }
         .onChange(of: connectivityService.isConnected) { oldValue, newValue in
             handleConnectivityChange(from: oldValue, to: newValue)
-        }
-        .onChange(of: settingsManager.hasCompletedBaseLevelOnboarding) { _, _ in
-            syncBaseLevelOnboardingPresentation()
-        }
-        .fullScreenCover(isPresented: $showingBaseLevelOnboarding) {
-            BaseLevelOnboardingView()
         }
         .themeAware()
         .animation(.smooth(duration: 0.2), value: connectivityService.isConnected)
@@ -90,9 +82,14 @@ struct MainTabView: View {
             .id("ProgressNavigationStack")
         case .leaderboard:
             NavigationStack {
-                LeaderboardHubView()
+                LeaderboardView()
             }
             .id("LeaderboardNavigationStack")
+        case .profile:
+            NavigationStack {
+                ProfileView()
+            }
+            .id("ProfileNavigationStack")
         case .settings:
             NavigationStack {
                 AccountView()
@@ -152,12 +149,6 @@ struct MainTabView: View {
         AppStoreRatingManager.shared.checkAndRequestReviewIfNeeded(currentWorkoutCount: workoutCount)
     }
 
-    private func syncBaseLevelOnboardingPresentation() {
-        let workoutCount = (try? modelContext.fetchCount(FetchDescriptor<Workout>())) ?? 0
-        settingsManager.resolveBaseLevelBootstrap(hasWorkoutHistory: workoutCount > 0)
-        showingBaseLevelOnboarding = settingsManager.shouldPresentBaseLevelOnboarding
-    }
-
     private func rebuildBestEffortCacheIfNeeded() {
         do {
             try BestEffortCacheStore.rebuildIfNeeded(modelContext: modelContext)
@@ -202,8 +193,10 @@ struct MainTabView: View {
                 Workout.self,
                 WorkoutSourceLink.self,
                 WorkoutParticipation.self,
+                ClimbAttempt.self,
                 BestEffortCacheEntry.self,
-                BestEffortCacheMetadata.self
+                BestEffortCacheMetadata.self,
+                LeaderboardStats.self
             ],
             inMemory: true
         )

@@ -85,13 +85,6 @@ struct ContactUsView: View {
     }
 }
 
-#Preview("Light Theme") {
-    NavigationStack {
-        ContactUsView()
-    }
-    .preferredColorScheme(.light)
-}
-
 #Preview("Dark Theme") {
     NavigationStack {
         ContactUsView()

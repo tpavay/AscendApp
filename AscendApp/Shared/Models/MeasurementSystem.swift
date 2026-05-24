@@ -50,11 +50,6 @@ enum MeasurementSystem: String, CaseIterable, Codable, Identifiable {
         }
     }
     
-    // Default steps per floor (same for both systems)
-    var defaultStepsPerFloor: Int {
-        return 16
-    }
-    
     // Distance units for total climb
     var distanceUnit: String {
         switch self {

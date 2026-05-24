@@ -31,9 +31,8 @@ struct EditWorkoutView: View {
     @State private var durationHours: String = ""
     @State private var durationMinutes: String = ""
     @State private var durationSeconds: String = ""
-    @State private var metricValue: String = ""
+    @State private var stepsValue: String = ""
     @State private var notes: String = ""
-    @State private var showingMetricTooltip = false
     @State private var selectedImages: [SelectedPhotoItem] = []
     @State private var existingPhotos: [Photo] = []
     @State private var photosMarkedForDeletion: [Photo] = []
@@ -110,8 +109,7 @@ struct EditWorkoutView: View {
     }
     
     private var isFormValid: Bool {
-        // Steps/floors is optional - only validate if provided
-        let metricValid = WorkoutInputValidation.isValidOptionalMetric(metricValue)
+        let stepsValid = WorkoutInputValidation.isValidOptionalSteps(stepsValue)
 
         // Workout name is optional - will use default if empty
         let nameValid = WorkoutInputValidation.isValidWorkoutName(workoutName)
@@ -121,7 +119,7 @@ struct EditWorkoutView: View {
         notesValid &&
         !durationMinutes.isEmpty &&
         !durationSeconds.isEmpty &&
-        metricValid &&
+        stepsValid &&
         Int(durationMinutes) != nil &&
         Int(durationSeconds) != nil &&
         (Int(durationMinutes) ?? 0) < 60 &&
@@ -135,9 +133,7 @@ struct EditWorkoutView: View {
         let totalDurationSeconds = hours * 3600 + minutes * 60 + seconds
         let durationValid = totalDurationSeconds > 0
         let workoutTotalsValid = WorkoutInputValidation.isValidWorkoutTotals(
-            metricValue: metricValue,
-            preferredMetric: settingsManager.preferredWorkoutMetric,
-            stepsPerFloor: workout.stepsPerFloor,
+            stepsValue: stepsValue,
             durationHours: hours,
             durationMinutes: minutes,
             durationSeconds: seconds
@@ -163,10 +159,6 @@ struct EditWorkoutView: View {
             .themedBackground()
             .navigationBarHidden(true)
             .keyboardDoneToolbar()
-        }
-        .sheet(isPresented: $showingMetricTooltip) {
-            MetricTooltipView()
-                .appSheetStyle(.fitted())
         }
         .sheet(isPresented: $showingDatePicker) {
             DateTimePickerView(selectedDate: $workoutDate)
@@ -436,18 +428,17 @@ struct EditWorkoutView: View {
                         }
                     )
 
-                    // Steps/Floors
                     FormTextField(
-                        label: settingsManager.preferredWorkoutMetric.unit.capitalized,
+                        label: "Steps",
                         isRequired: false,
-                        icon: settingsManager.preferredWorkoutMetric == .steps ? "figure.stairs" : "building.2",
+                        icon: "figure.stairs",
                         keyboardType: .numberPad,
-                        text: $metricValue,
+                        text: $stepsValue,
                         focusedField: $focusedField,
-                        fieldIdentifier: WorkoutFormField.metricValue
+                        fieldIdentifier: WorkoutFormField.stepsValue
                     )
-                    .onChange(of: metricValue) { _, newValue in
-                        metricValue = WorkoutInputValidation.filterNumericInput(newValue)
+                    .onChange(of: stepsValue) { _, newValue in
+                        stepsValue = WorkoutInputValidation.filterNumericInput(newValue)
                     }
 
                     // Effort Rating
@@ -569,8 +560,7 @@ struct EditWorkoutView: View {
             durationFormatted = "\(hours):\(minutes < 10 ? "0" : "")\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
         }
         
-        // Primary metric value based on user preference
-        metricValue = String(workout.metricValue(for: settingsManager.preferredWorkoutMetric))
+        stepsValue = String(workout.steps)
         
         // Health metrics
         avgHeartRate = workout.avgHeartRate != nil ? String(workout.avgHeartRate!) : ""
@@ -734,19 +724,8 @@ struct EditWorkoutView: View {
             return
         }
         
-        // Steps/floors is optional - default to 0 if not provided
-        let value = Int(metricValue) ?? 0
-
-        // Calculate both metric values from the user's primary metric
-        let steps: Int
-        let floors: Int
-        if settingsManager.preferredWorkoutMetric == .steps {
-            steps = value
-            floors = Workout.stepsToFloors(value, stepsPerFloor: workout.stepsPerFloor)
-        } else {
-            floors = value
-            steps = Workout.floorsToSteps(value, stepsPerFloor: workout.stepsPerFloor)
-        }
+        let steps = Int(stepsValue) ?? 0
+        let floors = Workout.stepsToFloors(steps)
         
         ensureHighlightSelectionIsValid()
         isSaving = true
@@ -782,9 +761,9 @@ struct EditWorkoutView: View {
             // Update weight configuration
             workout.weightConfiguration = weightConfiguration.isEmpty ? nil : weightConfiguration
 
-            // Update both metric values
             workout.steps = steps
             workout.floors = floors
+            workout.stepsPerFloor = Workout.defaultStepsPerFloor
             
             // Persist new/existing photos
             let combinedPhotos = existingPhotos + newlyUploadedPhotos

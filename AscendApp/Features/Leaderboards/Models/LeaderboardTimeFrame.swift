@@ -1,6 +1,7 @@
 import Foundation
 
 enum LeaderboardTimeFrame: String, CaseIterable, Codable, Identifiable, Sendable {
+    case daily = "daily"
     case weekly = "weekly"
     case monthly = "monthly"
     case yearly = "yearly"
@@ -12,6 +13,8 @@ enum LeaderboardTimeFrame: String, CaseIterable, Codable, Identifiable, Sendable
 
     var displayName: String {
         switch self {
+        case .daily:
+            return "Today"
         case .weekly:
             return "Weekly"
         case .monthly:
@@ -25,6 +28,8 @@ enum LeaderboardTimeFrame: String, CaseIterable, Codable, Identifiable, Sendable
 
     var shortName: String {
         switch self {
+        case .daily:
+            return "Today"
         case .weekly:
             return "Week"
         case .monthly:
@@ -44,6 +49,18 @@ enum LeaderboardTimeFrame: String, CaseIterable, Codable, Identifiable, Sendable
         let calendar = canonicalCalendar
 
         switch self {
+        case .daily:
+            let interval = calendar.dateInterval(of: .day, for: referenceDate) ??
+                DateInterval(start: referenceDate, duration: 24 * 60 * 60)
+            let year = calendar.component(.year, from: interval.start)
+            let month = calendar.component(.month, from: interval.start)
+            let day = calendar.component(.day, from: interval.start)
+            return LeaderboardPeriod(
+                timeFrame: self,
+                key: "\(year)-\(month < 10 ? "0" : "")\(month)-\(day < 10 ? "0" : "")\(day)",
+                startAt: interval.start,
+                endAt: interval.end
+            )
         case .weekly:
             let interval = calendar.dateInterval(of: .weekOfYear, for: referenceDate) ??
                 DateInterval(start: referenceDate, duration: 7 * 24 * 60 * 60)

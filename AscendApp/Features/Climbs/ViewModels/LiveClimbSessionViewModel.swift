@@ -132,7 +132,7 @@ final class LiveClimbSessionViewModel {
     }
 
     var displayedFloors: Int {
-        Workout.stepsToFloors(totalRecordedSteps, stepsPerFloor: settingsManager.stepsPerFloor)
+        Workout.stepsToFloors(totalRecordedSteps)
     }
 
     var estimatedDuration: TimeInterval {
@@ -466,8 +466,7 @@ final class LiveClimbSessionViewModel {
             modelContext: modelContext
         )
 
-        let stepsPerFloor = settingsManager.stepsPerFloor
-        let floors = Workout.stepsToFloors(result.steps, stepsPerFloor: stepsPerFloor)
+        let floors = Workout.stepsToFloors(result.steps)
         let metadata = HeadphoneMotionWorkoutMetadata(
             sampleCount: result.sampleCount,
             trackingMode: mode.trackingMode,
@@ -484,7 +483,7 @@ final class LiveClimbSessionViewModel {
             duration: max(result.duration, 1),
             steps: result.steps,
             floors: floors,
-            stepsPerFloor: stepsPerFloor,
+            stepsPerFloor: Workout.defaultStepsPerFloor,
             source: .headphoneMotion,
             deviceModel: UIDevice.current.model,
             sourceMetadata: metadata.jsonString

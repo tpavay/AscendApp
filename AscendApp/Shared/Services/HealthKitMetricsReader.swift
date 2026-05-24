@@ -369,7 +369,7 @@ private extension HealthKitMetricsReader {
 #endif
 
 extension HKWorkout {
-    func toAscendWorkout(with metrics: WorkoutMetrics, stepsPerFloor: Int) -> Workout {
+    func toAscendWorkout(with metrics: WorkoutMetrics) -> Workout {
         let deviceName = sourceRevision.source.name
         let isFromAppleWatch = deviceName.contains("Apple Watch") || deviceName.contains("Watch")
         let sourceMetadata = """
@@ -382,7 +382,7 @@ extension HKWorkout {
         """
 
         let steps = metrics.steps ?? 0
-        let floors = Workout.stepsToFloors(steps, stepsPerFloor: stepsPerFloor)
+        let floors = Workout.stepsToFloors(steps)
 
         return Workout(
             name: Workout.generateDefaultName(for: startDate),
@@ -390,7 +390,7 @@ extension HKWorkout {
             duration: duration,
             steps: steps,
             floors: floors,
-            stepsPerFloor: stepsPerFloor,
+            stepsPerFloor: Workout.defaultStepsPerFloor,
             avgHeartRate: metrics.avgHeartRate,
             maxHeartRate: metrics.maxHeartRate,
             caloriesBurned: metrics.caloriesBurned,

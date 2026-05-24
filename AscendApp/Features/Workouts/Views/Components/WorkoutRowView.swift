@@ -13,14 +13,9 @@ struct WorkoutRowView: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
-    @State private var settingsManager = SettingsManager.shared
 
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
-    }
-
-    private var preferredMetric: WorkoutMetric {
-        settingsManager.preferredWorkoutMetric
     }
 
     private var formattedDateTime: String {
@@ -39,15 +34,8 @@ struct WorkoutRowView: View {
         }
     }
 
-    private var paceText: String? {
-        guard let pace = workout.pace(for: preferredMetric) else { return nil }
-        let unit = preferredMetric == .steps ? "spm" : "fpm"
-        return "\(Int(pace)) \(unit)"
-    }
-
-    /// Formats metric value compactly for large numbers (100K+)
-    private var compactMetricValue: String {
-        let value = workout.metricValue(for: preferredMetric)
+    private var compactStepsValue: String {
+        let value = workout.steps
         if value >= 100_000 {
             let rounded = (Double(value) / 100).rounded() * 100
             let inK = rounded / 1000
@@ -85,7 +73,7 @@ struct WorkoutRowView: View {
 
             // Main stats row
             HStack(spacing: 6) {
-                Text("\(compactMetricValue) \(preferredMetric.unit)")
+                Text("\(compactStepsValue) steps")
                     .font(.montserratBold(size: 18))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                     .lineLimit(1)

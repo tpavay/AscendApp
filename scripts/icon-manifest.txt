@@ -12,7 +12,6 @@ tabSettingsSelected|gear-six|fill
 
 settingsEditProfile|user-circle|regular
 settingsAppearance|paint-brush|regular
-settingsWorkoutMetric|chart-bar|regular
 settingsMeasurementSystem|ruler|regular
 settingsIntegrations|link|regular
 settingsDebugTools|hammer|regular

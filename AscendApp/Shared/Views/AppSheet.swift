@@ -189,9 +189,9 @@ private struct AppSheetCardModifier: ViewModifier {
         case .standard:
             return palette.cardFill
         case .accent:
-            return .accent.opacity(palette.effectiveColorScheme == .dark ? 0.16 : 0.1)
+            return .accent.opacity(0.16)
         case .destructive:
-            return .red.opacity(palette.effectiveColorScheme == .dark ? 0.16 : 0.1)
+            return .red.opacity(0.16)
         }
     }
 
@@ -260,7 +260,7 @@ private struct AppSheetButtonModifier: ViewModifier {
         case .primary, .destructive:
             return .clear
         case .secondary:
-            return palette.effectiveColorScheme == .dark ? .white.opacity(0.28) : .black.opacity(0.16)
+            return .white.opacity(0.28)
         case .subtle:
             return palette.cardStroke
         }
@@ -288,23 +288,23 @@ private struct AppSheetPalette {
     let effectiveColorScheme: ColorScheme
 
     var background: Color {
-        effectiveColorScheme == .dark ? .jet : .white
+        .black
     }
 
     var primaryText: Color {
-        effectiveColorScheme == .dark ? .white : .black
+        .white
     }
 
     var cardFill: Color {
-        effectiveColorScheme == .dark ? .jetLighter.opacity(0.24) : .black.opacity(0.04)
+        .jetLighter.opacity(0.24)
     }
 
     var cardStroke: Color {
-        effectiveColorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.08)
+        .white.opacity(0.08)
     }
 
     var secondaryText: Color {
-        effectiveColorScheme == .dark ? .white.opacity(0.68) : .gray
+        .white.opacity(0.68)
     }
 }
 
@@ -436,11 +436,11 @@ struct AppSheetOptionRow: View {
     private var iconBackgroundColor: Color {
         switch tone {
         case .standard:
-            return palette.effectiveColorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.06)
+            return .white.opacity(0.08)
         case .accent:
-            return .accent.opacity(palette.effectiveColorScheme == .dark ? 0.16 : 0.12)
+            return .accent.opacity(0.16)
         case .destructive:
-            return .red.opacity(palette.effectiveColorScheme == .dark ? 0.14 : 0.12)
+            return .red.opacity(0.14)
         }
     }
 
@@ -616,14 +616,14 @@ struct AppSheetScaffold<Content: View, Footer: View>: View {
             VStack(alignment: headerAlignment, spacing: 8) {
                 Text(title)
                     .font(.montserratBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    .foregroundStyle(.white)
                     .multilineTextAlignment(textAlignment)
                     .fixedSize(horizontal: false, vertical: true)
 
                 if let message {
                     Text(message)
                         .font(.montserratRegular(size: 16))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .gray)
+                        .foregroundStyle(.white.opacity(0.8))
                         .multilineTextAlignment(textAlignment)
                         .fixedSize(horizontal: false, vertical: true)
                 }

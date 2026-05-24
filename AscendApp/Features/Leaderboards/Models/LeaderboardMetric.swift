@@ -7,7 +7,7 @@
 
 import Foundation
 
-enum LeaderboardMetric: String, CaseIterable, Codable, Identifiable {
+enum LeaderboardMetric: String, CaseIterable, Codable, Identifiable, Sendable {
     case climb = "climb"
     case workouts = "workouts"
     case duration = "duration"
@@ -15,7 +15,7 @@ enum LeaderboardMetric: String, CaseIterable, Codable, Identifiable {
     
     var id: String { rawValue }
     
-    func displayName(for preferredMetric: WorkoutMetric) -> String {
+    var displayName: String {
         switch self {
         case .climb:
             return "Steps"
@@ -28,20 +28,20 @@ enum LeaderboardMetric: String, CaseIterable, Codable, Identifiable {
         }
     }
     
-    func unit(for preferredMetric: WorkoutMetric) -> String {
+    var unit: String {
         switch self {
         case .climb:
-            return WorkoutMetric.steps.unit
+            return "steps"
         case .workouts:
             return "workouts"
         case .duration:
             return ""
         case .pace:
-            return "\(WorkoutMetric.steps.unit)/min"
+            return "steps/min"
         }
     }
     
-    func icon(for preferredMetric: WorkoutMetric) -> String {
+    var icon: String {
         switch self {
         case .climb:
             return "figure.stairs"
@@ -54,7 +54,7 @@ enum LeaderboardMetric: String, CaseIterable, Codable, Identifiable {
         }
     }
     
-    func shortName(for preferredMetric: WorkoutMetric) -> String {
+    var shortName: String {
         switch self {
         case .climb:
             return "Steps"
@@ -65,24 +65,6 @@ enum LeaderboardMetric: String, CaseIterable, Codable, Identifiable {
         case .pace:
             return "Pace"
         }
-    }
-    
-    // MARK: - Legacy convenience properties (use preference-aware methods when possible)
-    
-    var displayName: String {
-        displayName(for: .steps)
-    }
-    
-    var unit: String {
-        unit(for: .steps)
-    }
-    
-    var icon: String {
-        icon(for: .steps)
-    }
-    
-    var shortName: String {
-        shortName(for: .steps)
     }
 
     var sortField: String {

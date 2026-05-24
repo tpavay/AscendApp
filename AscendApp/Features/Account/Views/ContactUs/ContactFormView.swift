@@ -211,14 +211,6 @@ struct ContactFormView: View {
     }
 }
 
-#Preview("Light Theme") {
-    NavigationStack {
-        ContactFormView(feedbackType: .featureRequest)
-            .environment(AuthenticationViewModel())
-    }
-    .preferredColorScheme(.light)
-}
-
 #Preview("Dark Theme") {
     NavigationStack {
         ContactFormView(feedbackType: .bugReport)

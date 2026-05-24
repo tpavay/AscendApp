@@ -38,7 +38,7 @@ struct TopProgressBar: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(.ultraThinMaterial.opacity(0.3))
+        .background(Color.black.opacity(0.96))
     }
 }
 

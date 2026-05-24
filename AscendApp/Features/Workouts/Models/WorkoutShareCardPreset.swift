@@ -88,19 +88,18 @@ struct WorkoutShareCardPreset: Equatable {
         ),
         heroPriority: [
             .verticalClimb,
-            .preferredMetric,
+            .steps,
             .duration,
             .calories,
             .avgHeartRate,
         ],
         supportingPriority: [
-            .preferredMetric,
+            .steps,
             .duration,
             .calories,
             .pace,
             .avgHeartRate,
             .addedWeight,
-            .alternateMetric,
         ],
         maxSupportingStats: 3,
         layout: Layout(

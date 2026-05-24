@@ -161,7 +161,6 @@ final class AccountDeletionService {
         hasCommittedLocalDeletion = true
         try await clearLocalPendingUploadFiles()
         clearUserDefaults()
-        clearLocalIntegrationState()
         ImageCache.shared.clearAll()
         completedSteps += 1
 
@@ -442,8 +441,4 @@ final class AccountDeletionService {
         UserDefaults.standard.synchronize()
     }
 
-    /// Clears local integration state (Keychain/UserDefaults cache)
-    private func clearLocalIntegrationState() {
-        HevyManager.shared.disconnect()
-    }
 }

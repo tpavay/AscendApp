@@ -76,6 +76,8 @@ final class LeaderboardTestDataSeeder {
 
         let multiplier: Double
         switch timeFrame {
+        case .daily:
+            multiplier = 0.5
         case .weekly:
             multiplier = 1.0
         case .monthly:

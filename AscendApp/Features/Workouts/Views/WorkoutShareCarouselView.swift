@@ -207,7 +207,6 @@ struct WorkoutShareCarouselView: View {
                 for: cardType,
                 measurementSystem: settingsManager.measurementSystem,
                 stepHeight: settingsManager.stepHeight,
-                preferredMetric: settingsManager.preferredWorkoutMetric,
                 bestEffort: primaryBestEffort
             )
             .frame(
@@ -266,7 +265,6 @@ struct WorkoutShareCarouselView: View {
                 viewModel.copyShareText(
                     measurementSystem: settingsManager.measurementSystem,
                     stepHeight: settingsManager.stepHeight,
-                    preferredMetric: settingsManager.preferredWorkoutMetric,
                     bestEffort: primaryBestEffort
                 )
             }
@@ -344,7 +342,6 @@ struct WorkoutShareCarouselView: View {
         guard let image = viewModel.renderCurrentCard(
             measurementSystem: settingsManager.measurementSystem,
             stepHeight: settingsManager.stepHeight,
-            preferredMetric: settingsManager.preferredWorkoutMetric,
             bestEffort: primaryBestEffort
         ) else {
             viewModel.shareErrorMessage = "We couldn't render the card. Please try again."
@@ -356,7 +353,6 @@ struct WorkoutShareCarouselView: View {
         let text = viewModel.shareText(
             measurementSystem: settingsManager.measurementSystem,
             stepHeight: settingsManager.stepHeight,
-            preferredMetric: settingsManager.preferredWorkoutMetric,
             bestEffort: primaryBestEffort
         )
         items.append(ShareTextActivityItemSource(text: text))
@@ -374,7 +370,6 @@ struct WorkoutShareCarouselView: View {
         guard let image = viewModel.renderCurrentCard(
             measurementSystem: settingsManager.measurementSystem,
             stepHeight: settingsManager.stepHeight,
-            preferredMetric: settingsManager.preferredWorkoutMetric,
             bestEffort: primaryBestEffort
         ) else {
             viewModel.shareErrorMessage = "We couldn't render the card. Please try again."
@@ -423,7 +418,6 @@ struct WorkoutShareCarouselView: View {
         let text = viewModel.shareText(
             measurementSystem: settingsManager.measurementSystem,
             stepHeight: settingsManager.stepHeight,
-            preferredMetric: settingsManager.preferredWorkoutMetric,
             bestEffort: primaryBestEffort
         )
 

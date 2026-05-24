@@ -13,8 +13,12 @@ enum WorkoutSource: String, CaseIterable, Codable {
     case appleHealth = "apple_health" // Imported from Apple Health
     case garmin = "garmin"           // Future: Garmin Connect
     case fitbit = "fitbit"           // Future: Fitbit
-    case hevy = "hevy"               // Imported from Hevy app
+    case hevy = "hevy"               // Legacy import source retained for old synced workouts
     case headphoneMotion = "headphone_motion" // Live tracking from compatible headphones
+
+    static var filterOptions: [WorkoutSource] {
+        [.manual, .appleHealth, .headphoneMotion]
+    }
 
     var displayName: String {
         switch self {
@@ -27,7 +31,7 @@ enum WorkoutSource: String, CaseIterable, Codable {
         case .fitbit:
             return "Fitbit"
         case .hevy:
-            return "Hevy"
+            return "Imported Workout"
         case .headphoneMotion:
             return "Headphone Tracking"
         }
@@ -58,7 +62,7 @@ enum WorkoutProvider: String, CaseIterable, Codable, Sendable {
         case .fitbit:
             return "Fitbit"
         case .hevy:
-            return "Hevy"
+            return "Imported Workout"
         }
     }
 
@@ -112,6 +116,8 @@ enum DataIntegrityLevel: String, CaseIterable, Codable {
 
 @Model
 class Workout {
+    static let defaultStepsPerFloor = 16
+
     var id: UUID
     var name: String
     var date: Date
@@ -212,7 +218,7 @@ class Workout {
         weightConfiguration?.totalWeight ?? 0
     }
 
-    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int, floors: Int, stepsPerFloor: Int = 16, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil, hevyWorkoutId: String? = nil, photos: [Photo] = [], highlightedPhotoId: UUID? = nil, weightConfiguration: WeightConfiguration? = nil) {
+    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int, floors: Int, stepsPerFloor: Int = Workout.defaultStepsPerFloor, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil, hevyWorkoutId: String? = nil, photos: [Photo] = [], highlightedPhotoId: UUID? = nil, weightConfiguration: WeightConfiguration? = nil) {
         let createdAt = Date()
         self.id = UUID()
         self.name = name.isEmpty ? "Workout" : name
@@ -297,36 +303,9 @@ class Workout {
         }
     }
     
-    /// Returns the metric value for the specified metric type
-    func metricValue(for metric: WorkoutMetric) -> Int {
-        switch metric {
-        case .steps:
-            return steps
-        case .floors:
-            return floors
-        }
-    }
-    
-    /// Calculate pace for the specified metric (steps or floors per minute)
-    func pace(for metric: WorkoutMetric) -> Double? {
-        guard duration > 0 else { return nil }
-        let minutes = duration / 60.0
-        return Double(metricValue(for: metric)) / minutes
-    }
-    
-    /// Legacy computed property - returns steps (views should use metricValue(for:) with user's preference)
-    var primaryMetricValue: Int {
-        return steps
-    }
-    
-    /// Legacy computed property - returns .steps (views should use user's preferredWorkoutMetric directly)
-    var metricType: WorkoutMetric {
-        return .steps
-    }
-    
-    /// Legacy pace - returns steps per minute (use pace(for:) for preference-aware access)
-    var pace: Double? {
-        return pace(for: .steps)
+    var stepsPerMinute: Double? {
+        guard steps > 0, duration > 0 else { return nil }
+        return Double(steps) / (duration / 60.0)
     }
     
     // Calculate total vertical climb using settings
@@ -386,14 +365,14 @@ class Workout {
     
     // MARK: - Metric Conversion Helpers
     
-    /// Converts steps to floors using the given stepsPerFloor rate, rounded to whole numbers
-    static func stepsToFloors(_ steps: Int, stepsPerFloor: Int) -> Int {
+    /// Converts steps to floors using Ascend's fixed conversion rate, rounded to whole numbers.
+    static func stepsToFloors(_ steps: Int, stepsPerFloor: Int = Workout.defaultStepsPerFloor) -> Int {
         guard stepsPerFloor > 0 else { return 0 }
         return Int((Double(steps) / Double(stepsPerFloor)).rounded())
     }
     
-    /// Converts floors to steps using the given stepsPerFloor rate
-    static func floorsToSteps(_ floors: Int, stepsPerFloor: Int) -> Int {
+    /// Converts floors to steps using Ascend's fixed conversion rate.
+    static func floorsToSteps(_ floors: Int, stepsPerFloor: Int = Workout.defaultStepsPerFloor) -> Int {
         return floors * stepsPerFloor
     }
 
@@ -409,12 +388,14 @@ class Workout {
 
     /// Recalculates floors based on current steps value
     func recalculateFloorsFromSteps() {
-        floors = Workout.stepsToFloors(steps, stepsPerFloor: stepsPerFloor)
+        stepsPerFloor = Workout.defaultStepsPerFloor
+        floors = Workout.stepsToFloors(steps)
     }
     
     /// Recalculates steps based on current floors value
     func recalculateStepsFromFloors() {
-        steps = Workout.floorsToSteps(floors, stepsPerFloor: stepsPerFloor)
+        stepsPerFloor = Workout.defaultStepsPerFloor
+        steps = Workout.floorsToSteps(floors)
     }
     
     // MARK: - Highlighted Photo

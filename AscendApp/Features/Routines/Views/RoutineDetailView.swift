@@ -28,7 +28,7 @@ struct RoutineDetailView: View {
                 }
                 .padding(20)
             }
-            .background(effectiveColorScheme == .dark ? Color.jet : Color.white)
+            .background(Color.black)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

@@ -14,10 +14,8 @@ struct MainTabBarPreviewScaffold: View {
 
     private static let previewTabs: [TabItem] = [
         TabItem(identifier: .home, title: "Home", icon: .tabHome, selectedIcon: .tabHomeSelected),
-        TabItem(identifier: .workouts, title: "Workouts", icon: .tabWorkouts, selectedIcon: .tabWorkoutsSelected),
-        TabItem(identifier: .progress, title: "Progress", icon: .tabProgress, selectedIcon: .tabProgressSelected),
         TabItem(identifier: .leaderboard, title: "Leaderboard", icon: .tabLeaderboard, selectedIcon: .tabLeaderboardSelected),
-        TabItem(identifier: .settings, title: "Settings", icon: .tabSettings, selectedIcon: .tabSettingsSelected)
+        TabItem(identifier: .profile, title: "Profile", icon: .tabProfile, selectedIcon: .tabProfileSelected)
     ]
 
     var body: some View {

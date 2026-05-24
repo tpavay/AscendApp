@@ -17,7 +17,6 @@ struct WorkoutImportSheet: View {
     @State private var settingsManager = SettingsManager.shared
     @State private var themeManager = ThemeManager.shared
     @State private var importCoordinator = WorkoutImportCoordinator.shared
-    @State private var hevyManager = HevyManager.shared
     @State private var showingCelebration = false
     @State private var celebrationData: ImportCelebrationData?
     @State private var importTask: Task<Void, Never>?
@@ -140,10 +139,7 @@ struct WorkoutImportSheet: View {
         }
         .themedBackground()
         .analyticsScreen(
-            WorkoutImportAnalyticsScreen.sheet(
-                candidateCount: candidateCount,
-                hevyConnected: hevyManager.isConnected
-            )
+            WorkoutImportAnalyticsScreen.sheet(candidateCount: candidateCount)
         )
         .interactiveDismissDisabled(importCoordinator.isImporting || showingCelebration)
         .safeAreaInset(edge: .bottom) {
@@ -226,15 +222,9 @@ struct WorkoutImportSheet: View {
 
     private var emptyStateMessage: String {
         if shouldShowAppleHealthSetupCard {
-            if hevyManager.isConnected {
-                return "Connect Apple Health here, or keep importing from your connected sources."
-            }
             return "Connect Apple Health above to import existing workouts and optionally auto-import new ones."
         }
 
-        if hevyManager.isConnected {
-            return "All your Apple Health and Hevy workouts are already imported."
-        }
         return "All your Apple Health workouts are already imported."
     }
 
@@ -756,27 +746,6 @@ struct ImportedWorkoutCandidateRow: View {
     @ViewBuilder
     private var sourceIcon: some View {
         switch candidate.kind {
-        case .linkedHevyAppleHealth:
-            HStack(spacing: -6) {
-                Image("hevy-icon")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 20, height: 20)
-                    .clipShape(.rect(cornerRadius: 4))
-
-                Image(systemName: "heart.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.red)
-                    .padding(4)
-                    .background(.white)
-                    .clipShape(.circle)
-            }
-        case .hevy:
-            Image("hevy-icon")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 20, height: 20)
-                .clipShape(.rect(cornerRadius: 4))
         case .appleHealth:
             Image(systemName: "heart.fill")
                 .font(.system(size: 14))

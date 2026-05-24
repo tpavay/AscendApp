@@ -12,15 +12,13 @@ struct WorkoutShareCardComposer {
         workout: Workout,
         measurementSystem: MeasurementSystem,
         stepHeight: Double,
-        preferredMetric: WorkoutMetric,
         preset: WorkoutShareCardPreset = .defaultSquarePoster,
         bestEffort: RankedBestEffort? = nil
     ) -> WorkoutShareCardComposition {
         let resolvedStats = resolvedStats(
             for: workout,
             measurementSystem: measurementSystem,
-            stepHeight: stepHeight,
-            preferredMetric: preferredMetric
+            stepHeight: stepHeight
         )
 
         let heroStat = preset.heroPriority
@@ -43,11 +41,8 @@ struct WorkoutShareCardComposer {
     private func resolvedStats(
         for workout: Workout,
         measurementSystem: MeasurementSystem,
-        stepHeight: Double,
-        preferredMetric: WorkoutMetric
+        stepHeight: Double
     ) -> [ShareCardStatKind: ShareCardResolvedStat] {
-        let alternateMetric: WorkoutMetric = preferredMetric == .steps ? .floors : .steps
-
         return Dictionary(
             uniqueKeysWithValues: [
                 resolvedVerticalClimb(
@@ -55,13 +50,12 @@ struct WorkoutShareCardComposer {
                     measurementSystem: measurementSystem,
                     stepHeight: stepHeight
                 ),
-                resolvedMetricStat(.preferredMetric, metric: preferredMetric, workout: workout),
+                resolvedStepsStat(workout: workout),
                 resolvedDurationStat(workout: workout),
                 resolvedCaloriesStat(workout: workout),
-                resolvedPaceStat(workout: workout, preferredMetric: preferredMetric),
+                resolvedPaceStat(workout: workout),
                 resolvedAverageHeartRateStat(workout: workout),
-                resolvedAddedWeightStat(workout: workout, measurementSystem: measurementSystem),
-                resolvedMetricStat(.alternateMetric, metric: alternateMetric, workout: workout),
+                resolvedAddedWeightStat(workout: workout, measurementSystem: measurementSystem)
             ].compactMap { $0 }.map { ($0.kind, $0) }
         )
     }
@@ -88,18 +82,13 @@ struct WorkoutShareCardComposer {
         return ShareCardResolvedStat(kind: .verticalClimb, label: label, value: value)
     }
 
-    private func resolvedMetricStat(
-        _ kind: ShareCardStatKind,
-        metric: WorkoutMetric,
-        workout: Workout
-    ) -> ShareCardResolvedStat? {
-        let metricValue = workout.metricValue(for: metric)
-        guard metricValue > 0 else { return nil }
+    private func resolvedStepsStat(workout: Workout) -> ShareCardResolvedStat? {
+        guard workout.steps > 0 else { return nil }
 
         return ShareCardResolvedStat(
-            kind: kind,
-            label: metric.displayName.uppercased(),
-            value: metricValue.formatted()
+            kind: .steps,
+            label: "STEPS",
+            value: workout.steps.formatted()
         )
     }
 
@@ -117,14 +106,11 @@ struct WorkoutShareCardComposer {
         )
     }
 
-    private func resolvedPaceStat(
-        workout: Workout,
-        preferredMetric: WorkoutMetric
-    ) -> ShareCardResolvedStat? {
-        guard let pace = workout.pace(for: preferredMetric), pace > 0 else { return nil }
+    private func resolvedPaceStat(workout: Workout) -> ShareCardResolvedStat? {
+        guard let pace = workout.stepsPerMinute, pace > 0 else { return nil }
         return ShareCardResolvedStat(
             kind: .pace,
-            label: preferredMetric == .steps ? "STEPS / MIN" : "FLOORS / MIN",
+            label: "STEPS / MIN",
             value: Int(pace.rounded()).formatted()
         )
     }

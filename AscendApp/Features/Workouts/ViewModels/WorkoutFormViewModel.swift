@@ -19,7 +19,7 @@ class WorkoutFormViewModel {
     var durationHours: String = ""
     var durationMinutes: String = ""
     var durationSeconds: String = ""
-    var metricValue: String = ""
+    var stepsValue: String = ""
     var notes: String = ""
     var highlightedSelectedItemId: UUID?
     var selectedImages: [SelectedPhotoItem] = [] {
@@ -102,8 +102,7 @@ class WorkoutFormViewModel {
 
     // MARK: - Computed Properties
     var isFormValid: Bool {
-        // Steps/floors is optional - only validate if provided
-        let metricValid = WorkoutInputValidation.isValidOptionalMetric(metricValue)
+        let stepsValid = WorkoutInputValidation.isValidOptionalSteps(stepsValue)
 
         // Workout name is optional - will use default if empty
         let nameValid = WorkoutInputValidation.isValidWorkoutName(workoutName)
@@ -113,7 +112,7 @@ class WorkoutFormViewModel {
         notesValid &&
         !durationMinutes.isEmpty &&
         !durationSeconds.isEmpty &&
-        metricValid &&
+        stepsValid &&
         Int(durationMinutes) != nil &&
         Int(durationSeconds) != nil &&
         (Int(durationMinutes) ?? 0) < 60 &&
@@ -127,9 +126,7 @@ class WorkoutFormViewModel {
         let totalDurationSeconds = hours * 3600 + minutes * 60 + seconds
         let durationValid = totalDurationSeconds > 0
         let workoutTotalsValid = WorkoutInputValidation.isValidWorkoutTotals(
-            metricValue: metricValue,
-            preferredMetric: settingsManager.preferredWorkoutMetric,
-            stepsPerFloor: settingsManager.stepsPerFloor,
+            stepsValue: stepsValue,
             durationHours: hours,
             durationMinutes: minutes,
             durationSeconds: seconds
@@ -340,8 +337,8 @@ class WorkoutFormViewModel {
             throw WorkoutFormError.invalidInput
         }
         
-        // Steps/floors is optional - default to 0 if not provided
-        let value = Int(metricValue) ?? 0
+        let steps = Int(stepsValue) ?? 0
+        let floors = Workout.stepsToFloors(steps)
 
         let hours = Int(durationHours) ?? 0
         let totalDuration = TimeInterval(hours * 3600 + minutes * 60 + seconds)
@@ -350,21 +347,6 @@ class WorkoutFormViewModel {
         let maxHR = !maxHeartRate.isEmpty ? Int(maxHeartRate) : nil
         let calories = !caloriesBurned.isEmpty ? Int(caloriesBurned) : nil
         
-        // Snapshot the current stepsPerFloor setting
-        let stepsPerFloor = settingsManager.stepsPerFloor
-        
-        // Calculate both steps and floors based on which metric user entered
-        let steps: Int
-        let floors: Int
-        
-        if settingsManager.preferredWorkoutMetric == .steps {
-            steps = value
-            floors = Workout.stepsToFloors(value, stepsPerFloor: stepsPerFloor)
-        } else {
-            floors = value
-            steps = Workout.floorsToSteps(value, stepsPerFloor: stepsPerFloor)
-        }
-
         // Only include weight configuration if it has enabled entries
         let weights = weightConfiguration.isEmpty ? nil : weightConfiguration
 
@@ -374,7 +356,7 @@ class WorkoutFormViewModel {
             duration: totalDuration,
             steps: steps,
             floors: floors,
-            stepsPerFloor: stepsPerFloor,
+            stepsPerFloor: Workout.defaultStepsPerFloor,
             notes: notes,
             avgHeartRate: avgHR,
             maxHeartRate: maxHR,

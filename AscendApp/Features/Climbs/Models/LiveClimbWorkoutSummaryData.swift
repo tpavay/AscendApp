@@ -81,7 +81,7 @@ enum LiveClimbWorkoutSummaryData {
                     startElapsedSeconds: 0,
                     endElapsedSeconds: durationSeconds,
                     steps: max(workout.steps, 0),
-                    stepsPerMinute: workout.pace(for: .steps) ?? 0
+                    stepsPerMinute: workout.stepsPerMinute ?? 0
                 )
             ]
         }

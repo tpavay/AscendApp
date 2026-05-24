@@ -8,18 +8,11 @@ import SwiftData
 final class LeaderboardViewModel {
     var selectedMetric: LeaderboardMetric = .climb
     var selectedTimeFrame: LeaderboardTimeFrame = .weekly
-    var searchText: String = "" {
-        didSet {
-            guard searchText != oldValue else { return }
-            resetPagination()
-        }
-    }
     var leaderboardEntries: [LeaderboardEntry] = []
     var userEntry: LeaderboardEntry?
     var isLoading = false
     var errorMessage: String?
     var isOffline = false
-    var showingTopLeaders = true
 
     private let service = LeaderboardService.shared
     private let repository = LeaderboardRepository.shared
@@ -39,13 +32,8 @@ final class LeaderboardViewModel {
     }
 
     var displayedEntries: [LeaderboardEntry] {
-        let entries = filteredEntries
-        guard !entries.isEmpty else { return [] }
-        return Array(entries.prefix(min(visibleEntryLimit, entries.count)))
-    }
-
-    var resetStatusText: String {
-        selectedTimeFrame.resetDescription()
+        guard !leaderboardEntries.isEmpty else { return [] }
+        return Array(leaderboardEntries.prefix(min(visibleEntryLimit, leaderboardEntries.count)))
     }
 
     var hasCachedEntries: Bool {
@@ -236,19 +224,10 @@ final class LeaderboardViewModel {
         isLoading = false
     }
 
-    func toggleView() {
-        showingTopLeaders.toggle()
-    }
-
-    func scrollToUser() {
-        showingTopLeaders = false
-    }
-
     func loadMoreEntriesIfNeeded(currentEntry entry: LeaderboardEntry) {
         guard let lastVisible = displayedEntries.last, lastVisible.id == entry.id else { return }
-        let totalEntries = filteredEntries.count
-        guard visibleEntryLimit < totalEntries else { return }
-        visibleEntryLimit = min(visibleEntryLimit + pageSize, totalEntries)
+        guard visibleEntryLimit < leaderboardEntries.count else { return }
+        visibleEntryLimit = min(visibleEntryLimit + pageSize, leaderboardEntries.count)
     }
 
     func updateCurrentUserProfile(userId: String?, displayName: String, photoURL: URL?) {
@@ -289,12 +268,6 @@ final class LeaderboardViewModel {
         }
     }
 
-    private var filteredEntries: [LeaderboardEntry] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return leaderboardEntries }
-        return leaderboardEntries.filter { $0.displayName.localizedStandardContains(query) }
-    }
-
     private func apply(stats: [FirestoreLeaderboardStats], userId: String) {
         let entries = stats.enumerated().map { index, stat in
             let value = stat.value(for: selectedMetric)
@@ -332,7 +305,7 @@ final class LeaderboardViewModel {
     }
 
     private func resetPagination() {
-        visibleEntryLimit = min(pageSize, filteredEntries.count)
+        visibleEntryLimit = min(pageSize, leaderboardEntries.count)
     }
 
     private func reconcileCurrentUserStats(
@@ -361,13 +334,15 @@ final class LeaderboardViewModel {
             let totalSeconds = Int(value.rounded())
             let hours = totalSeconds / 3600
             let minutes = (totalSeconds % 3600) / 60
-            if hours > 0 {
-                return "\(hours)h \(minutes)m"
-            }
-            return "\(minutes)m"
+            let seconds = totalSeconds % 60
+            return "\(hours):\(Self.twoDigit(minutes)):\(Self.twoDigit(seconds))"
         case .pace:
             return value.formatted(.number.precision(.fractionLength(1)))
         }
+    }
+
+    private static func twoDigit(_ value: Int) -> String {
+        value < 10 ? "0\(value)" : "\(value)"
     }
 
     private func handleCachedFallbackError(_ error: Error) {

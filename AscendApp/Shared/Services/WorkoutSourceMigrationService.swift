@@ -45,22 +45,5 @@ enum WorkoutSourceMigrationService {
             )
             modelContext.insert(link)
         }
-
-        if let hevyWorkoutId = workout.hevyWorkoutId,
-           workout.sourceLink(for: .hevy) == nil {
-            let link = WorkoutSourceLink(
-                provider: .hevy,
-                externalRecordID: hevyWorkoutId,
-                providerWindowStart: workout.date,
-                providerWindowEnd: workout.date.addingTimeInterval(workout.duration),
-                timingPrecision: .containerWindow,
-                sourceName: "Hevy",
-                sourceBundleIdentifier: nil,
-                deviceModel: nil,
-                metadataJSON: workout.sourceMetadata,
-                workout: workout
-            )
-            modelContext.insert(link)
-        }
     }
 }

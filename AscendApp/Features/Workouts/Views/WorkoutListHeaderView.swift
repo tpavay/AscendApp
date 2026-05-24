@@ -22,11 +22,6 @@ struct WorkoutListHeaderView: View {
     @State private var activeSheet: FilterSheet?
     @State private var showingSortSheet = false
     @FocusState private var isSearchFocused: Bool
-    @State private var settingsManager = SettingsManager.shared
-
-    private var preferredMetric: WorkoutMetric {
-        settingsManager.preferredWorkoutMetric
-    }
 
     enum FilterSheet: Identifiable {
         case source
@@ -63,10 +58,10 @@ struct WorkoutListHeaderView: View {
 
         var id: String { rawValue }
 
-        func label(for metric: WorkoutMetric) -> String {
+        var label: String {
             switch self {
             case .source: return "Source"
-            case .steps: return metric.displayName
+            case .steps: return "Steps"
             case .dates: return "Dates"
             case .duration: return "Duration"
             }
@@ -83,7 +78,7 @@ struct WorkoutListHeaderView: View {
     }
 
     private var stepsBounds: ClosedRange<Double> {
-        let maxValue = workouts.map { $0.metricValue(for: preferredMetric) }.max() ?? 0
+        let maxValue = workouts.map(\.steps).max() ?? 0
         let upper = maxValue > 0 ? Double(maxValue) : 1000
         return 0...max(upper, 1)
     }
@@ -131,12 +126,11 @@ struct WorkoutListHeaderView: View {
             }
 
             Rectangle()
-                .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
+                .fill(.white.opacity(0.1))
                 .frame(height: 1)
         }
         .background(
-            (effectiveColorScheme == .dark ? Color.jet : Color.white)
-                .opacity(0.95)
+            Color.black.opacity(0.95)
         )
         .keyboardDoneToolbar {
             isSearchFocused = false
@@ -151,7 +145,6 @@ struct WorkoutListHeaderView: View {
                     filterState: filterState,
                     bounds: stepsBounds,
                     formatter: Self.stepsFormatter,
-                    preferredMetric: preferredMetric,
                     effectiveColorScheme: effectiveColorScheme
                 )
                 .appSheetStyle(sheet.sheetPreset)
@@ -166,8 +159,7 @@ struct WorkoutListHeaderView: View {
         .sheet(isPresented: $showingSortSheet) {
             SortOptionSheet(
                 filterState: filterState,
-                effectiveColorScheme: effectiveColorScheme,
-                preferredMetric: preferredMetric
+                effectiveColorScheme: effectiveColorScheme
             )
             .appSheetStyle(.filterMenu(height: 520))
         }
@@ -178,7 +170,7 @@ struct WorkoutListHeaderView: View {
             if isInDeleteMode {
                 Text("Select Workouts")
                     .font(.montserratBold(size: 18))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    .foregroundStyle(.white)
 
                 Spacer()
 
@@ -189,7 +181,7 @@ struct WorkoutListHeaderView: View {
                 // Normal mode - compact header like leaderboard
                 Text("Workouts")
                     .font(.montserratBold(size: 18))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    .foregroundStyle(.white)
 
                 Spacer()
 
@@ -207,7 +199,7 @@ struct WorkoutListHeaderView: View {
                     } label: {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 18, weight: .medium))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                            .foregroundStyle(.white)
                             .frame(width: 44, height: 44)
                             .contentShape(.rect)
                     }
@@ -219,7 +211,7 @@ struct WorkoutListHeaderView: View {
                     } label: {
                         Image(systemName: "arrow.up.arrow.down")
                             .font(.system(size: 18, weight: .medium))
-                            .foregroundStyle(filterState.sortOption != .dateNewest ? .accent : (effectiveColorScheme == .dark ? .white : .black))
+                            .foregroundStyle(filterState.sortOption != .dateNewest ? .accent : .white)
                             .frame(width: 44, height: 44)
                             .contentShape(.rect)
                     }
@@ -268,7 +260,7 @@ struct WorkoutListHeaderView: View {
         .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(effectiveColorScheme == .dark ? Color("Jet") : Color.gray.opacity(0.08))
+                .fill(Color("Jet"))
         )
     }
 
@@ -282,7 +274,7 @@ struct WorkoutListHeaderView: View {
                         activeSheet = chip.associatedSheet
                     } label: {
                         FilterChipView(
-                            title: chip.label(for: preferredMetric),
+                            title: chip.label,
                             isActive: isActive(chip),
                             colorScheme: effectiveColorScheme
                         )
@@ -327,7 +319,7 @@ struct WorkoutListHeaderView: View {
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                .foregroundStyle(.white)
                 .frame(width: 44, height: 44)
                 .contentShape(.rect)
         }
@@ -350,7 +342,7 @@ private struct FilterChipView: View {
     }
 
     private var activeTextColor: Color {
-        isActive ? .accent : (colorScheme == .dark ? .white : .black)
+        isActive ? .accent : .white
     }
 
     var body: some View {
@@ -382,7 +374,7 @@ private struct WorkoutSourceFilterSheet: View {
             VStack(spacing: 4) {
                 Text("Workout Source")
                     .font(.montserratSemiBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    .foregroundStyle(.white)
                 Text("Choose the sources you want to include.")
                     .font(.montserratRegular(size: 14))
                     .foregroundStyle(.secondary)
@@ -390,7 +382,7 @@ private struct WorkoutSourceFilterSheet: View {
             .multilineTextAlignment(.center)
 
             VStack(spacing: 12) {
-                ForEach(WorkoutSource.allCases, id: \.self) { source in
+                ForEach(WorkoutSource.filterOptions, id: \.self) { source in
                     Button {
                         toggleSelection(for: source)
                     } label: {
@@ -445,17 +437,15 @@ private struct StepsFilterSheet: View {
     @Environment(\.dismiss) private var dismiss
     let bounds: ClosedRange<Double>
     let formatter: NumberFormatter
-    let preferredMetric: WorkoutMetric
     let effectiveColorScheme: ColorScheme
 
     @State private var minValue: Double = 0
     @State private var maxValue: Double = 0
 
-    init(filterState: WorkoutListFilterState, bounds: ClosedRange<Double>, formatter: NumberFormatter, preferredMetric: WorkoutMetric, effectiveColorScheme: ColorScheme) {
+    init(filterState: WorkoutListFilterState, bounds: ClosedRange<Double>, formatter: NumberFormatter, effectiveColorScheme: ColorScheme) {
         self.filterState = filterState
         self.bounds = bounds
         self.formatter = formatter
-        self.preferredMetric = preferredMetric
         self.effectiveColorScheme = effectiveColorScheme
         let initialRange = filterState.stepsRange ?? bounds
         let clampedLower = max(bounds.lowerBound, min(initialRange.lowerBound, bounds.upperBound))
@@ -467,10 +457,10 @@ private struct StepsFilterSheet: View {
     var body: some View {
         VStack(spacing: 24) {
             VStack(spacing: 4) {
-                Text("\(preferredMetric.displayName) Range")
+                Text("Steps Range")
                     .font(.montserratSemiBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                Text("Filter workouts by the recorded \(preferredMetric.unit).")
+                    .foregroundStyle(.white)
+                Text("Filter workouts by recorded steps.")
                     .font(.montserratRegular(size: 14))
                     .foregroundStyle(.secondary)
             }
@@ -579,7 +569,7 @@ private struct DatesFilterSheet: View {
                 VStack(spacing: 4) {
                     Text("Date Range")
                         .font(.montserratSemiBold(size: 20))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                        .foregroundStyle(.white)
                     Text("Only show workouts completed between these dates.")
                         .font(.montserratRegular(size: 14))
                         .foregroundStyle(.secondary)
@@ -760,7 +750,7 @@ private struct DurationFilterSheet: View {
             VStack(spacing: 4) {
                 Text("Duration")
                     .font(.montserratSemiBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    .foregroundStyle(.white)
                 Text("Filter workouts by duration.")
                     .font(.montserratRegular(size: 14))
                     .foregroundStyle(.secondary)
@@ -834,14 +824,13 @@ private struct SortOptionSheet: View {
     var filterState: WorkoutListFilterState
     @Environment(\.dismiss) private var dismiss
     let effectiveColorScheme: ColorScheme
-    let preferredMetric: WorkoutMetric
 
     var body: some View {
         VStack(spacing: 24) {
             VStack(spacing: 4) {
                 Text("Sort By")
                     .font(.montserratSemiBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    .foregroundStyle(.white)
                 Text("Choose how to order your workouts")
                     .font(.montserratRegular(size: 14))
                     .foregroundStyle(.secondary)
@@ -859,9 +848,9 @@ private struct SortOptionSheet: View {
                                 .font(.system(size: 16))
                                 .frame(width: 24)
                                 .foregroundStyle(filterState.sortOption == option ? .accent : .secondary)
-                            Text(option.displayName(for: preferredMetric))
+                            Text(option.displayName)
                                 .font(.montserratMedium(size: 16))
-                                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                                .foregroundStyle(.white)
                             Spacer()
                             if filterState.sortOption == option {
                                 Image(systemName: "checkmark.circle.fill")

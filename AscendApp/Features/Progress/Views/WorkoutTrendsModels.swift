@@ -29,19 +29,19 @@ struct WorkoutTrendBucket: Identifiable {
 
 /// The kinds of trend metrics we plot for workouts.
 enum WorkoutTrendMetricType: String, Identifiable {
-    case preferredTotal
-    case preferredPerMinute
+    case stepsTotal
+    case stepsPerMinute
     case averageHeartRate
     case duration
 
     var id: String { rawValue }
 
-    func title(using preferredMetric: WorkoutMetric) -> String {
+    var title: String {
         switch self {
-        case .preferredTotal:
-            return preferredMetric.displayName
-        case .preferredPerMinute:
-            return "\(preferredMetric.displayName) per Minute"
+        case .stepsTotal:
+            return "Steps"
+        case .stepsPerMinute:
+            return "Steps per Minute"
         case .averageHeartRate:
             return "Average Heart Rate"
         case .duration:
@@ -49,12 +49,12 @@ enum WorkoutTrendMetricType: String, Identifiable {
         }
     }
 
-    func unit(using preferredMetric: WorkoutMetric) -> String {
+    var unit: String {
         switch self {
-        case .preferredTotal:
-            return preferredMetric.unit
-        case .preferredPerMinute:
-            return "\(preferredMetric.unit)/min"
+        case .stepsTotal:
+            return "steps"
+        case .stepsPerMinute:
+            return "steps/min"
         case .averageHeartRate:
             return "bpm"
         case .duration:
@@ -62,12 +62,12 @@ enum WorkoutTrendMetricType: String, Identifiable {
         }
     }
 
-    func value(for workout: Workout, preferredMetric: WorkoutMetric) -> Double? {
+    func value(for workout: Workout) -> Double? {
         switch self {
-        case .preferredTotal:
-            return Double(workout.metricValue(for: preferredMetric))
-        case .preferredPerMinute:
-            return workout.pace(for: preferredMetric)
+        case .stepsTotal:
+            return Double(workout.steps)
+        case .stepsPerMinute:
+            return workout.stepsPerMinute
         case .averageHeartRate:
             guard let avg = workout.avgHeartRate else { return nil }
             return Double(avg)
@@ -80,12 +80,11 @@ enum WorkoutTrendMetricType: String, Identifiable {
 struct WorkoutTrendsBuilder {
     static func trendPoints(
         from workouts: [Workout],
-        metric: WorkoutTrendMetricType,
-        preferredMetric: WorkoutMetric
+        metric: WorkoutTrendMetricType
     ) -> [WorkoutTrendPoint] {
         workouts
             .compactMap { workout in
-                guard let value = metric.value(for: workout, preferredMetric: preferredMetric) else { return nil }
+                guard let value = metric.value(for: workout) else { return nil }
                 return WorkoutTrendPoint(date: workout.date, value: value, workout: workout)
             }
             .sorted { $0.date < $1.date }
@@ -93,7 +92,6 @@ struct WorkoutTrendsBuilder {
     
     static func trendBuckets(
         from workouts: [Workout],
-        preferredMetric: WorkoutMetric,
         range: WorkoutTrendRange,
         calendar: Calendar,
         anchor: Date = Date()
@@ -110,7 +108,7 @@ struct WorkoutTrendsBuilder {
             let next = calendar.date(byAdding: .month, value: 1, to: cursor) ?? interval.end
 
             let bucketWorkouts = workouts.filter { $0.date >= cursor && $0.date < next }
-            let totalMetric = bucketWorkouts.reduce(0.0) { $0 + Double($1.metricValue(for: preferredMetric)) }
+            let totalMetric = bucketWorkouts.reduce(0.0) { $0 + Double($1.steps) }
             let totalDuration = bucketWorkouts.reduce(0.0) { $0 + $1.duration }
             let minutes = totalDuration / 60.0
             let metricPerMinute = minutes > 0 ? totalMetric / minutes : 0

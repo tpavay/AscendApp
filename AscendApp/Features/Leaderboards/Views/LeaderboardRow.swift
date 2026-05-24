@@ -9,165 +9,68 @@ import SwiftUI
 
 struct LeaderboardRow: View {
     @Environment(\.colorScheme) private var colorScheme
-    @State private var settingsManager = SettingsManager.shared
 
     let entry: LeaderboardEntry
     let metric: LeaderboardMetric
 
-    private var preferredMetric: WorkoutMetric {
-        settingsManager.preferredWorkoutMetric
-    }
-
-    private var rankTextColor: Color {
-        if entry.rank == 1 {
-            return colorScheme == .dark ? .accent : .black
-        }
-        return colorScheme == .dark ? .white.opacity(0.75) : .black.opacity(0.7)
-    }
-
-    private var rowFill: LinearGradient {
-        if entry.isCurrentUser {
-            return LinearGradient(
-                colors: [
-                    Color.accent.opacity(colorScheme == .dark ? 0.16 : 0.11),
-                    Color.accent.opacity(colorScheme == .dark ? 0.09 : 0.06)
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-        }
-
-        return LinearGradient(
-            colors: [
-                colorScheme == .dark ? Color.white.opacity(0.07) : Color.night.opacity(0.12),
-                colorScheme == .dark ? Color.white.opacity(0.04) : Color.night.opacity(0.08)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
-
-    private var valueColor: Color {
-        entry.isCurrentUser ? .accent : (colorScheme == .dark ? .white : .black)
-    }
-
-    private var rankLabel: some View {
-        Text("\(entry.rank)")
-            .font(.montserratBold(size: 24))
-            .foregroundStyle(rankTextColor)
-            .frame(width: 34, alignment: .leading)
+    private var primaryTextColor: Color {
+        colorScheme == .dark ? .white : .black
     }
 
     var body: some View {
-        HStack(spacing: 14) {
-            rankLabel
+        HStack(spacing: 12) {
+            Text("\(entry.rank)")
+                .font(.montserratMedium(size: 14))
+                .foregroundStyle(primaryTextColor.opacity(0.82))
+                .frame(width: 34, alignment: .leading)
 
-            profileImage
-
-            Text(entry.displayName)
-                .font(.montserratMedium(size: 15))
-                .foregroundStyle(entry.isCurrentUser ? .accent : (colorScheme == .dark ? .white : .black))
+            Text(entry.displayName.uppercased())
+                .font(.montserratMedium(size: 13))
+                .foregroundStyle(entry.isCurrentUser ? .accent : primaryTextColor.opacity(0.82))
                 .lineLimit(1)
+                .minimumScaleFactor(0.74)
 
-            Spacer()
+            Spacer(minLength: 8)
 
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(entry.formattedValue)
-                    .font(.montserratBold(size: 16))
-                    .foregroundStyle(valueColor)
-
-                let unitLabel = metric.unit(for: preferredMetric)
-                if !unitLabel.isEmpty {
-                    Text(unitLabel)
-                        .font(.montserratRegular(size: 10))
-                        .foregroundStyle(colorScheme == .dark ? .white.opacity(0.6) : .gray)
-                }
-            }
+            Text(entry.formattedValue)
+                .font(.montserratMedium(size: 13))
+                .foregroundStyle(entry.isCurrentUser ? .accent : primaryTextColor.opacity(0.78))
+                .lineLimit(1)
+                .minimumScaleFactor(0.74)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 11)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(rowFill)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(
-                    entry.isCurrentUser
-                        ? Color.accent.opacity(0.5)
-                        : (colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.06)),
-                    lineWidth: 1
-                )
-        )
-        .padding(.horizontal, 20)
-    }
-
-    @ViewBuilder
-    private var profileImage: some View {
-        if let photoURL = entry.photoURL {
-            AsyncImage(url: photoURL) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 36, height: 36)
-                        .clipShape(.circle)
-                case .failure:
-                    defaultAvatar
-                case .empty:
-                    defaultAvatar
-                        .overlay(
-                            ProgressView()
-                                .scaleEffect(0.5)
-                        )
-                @unknown default:
-                    defaultAvatar
-                }
-            }
-            .id(photoURL)
-        } else {
-            defaultAvatar
-        }
-    }
-
-    private var defaultAvatar: some View {
-        Circle()
-            .fill(entry.isCurrentUser ? Color.accent.opacity(0.2) : (colorScheme == .dark ? Color.white.opacity(0.12) : Color.night.opacity(0.14)))
-            .frame(width: 36, height: 36)
-            .overlay(
-                Image(systemName: "person.fill")
-                    .font(.system(size: 15))
-                    .foregroundStyle(entry.isCurrentUser ? .accent : (colorScheme == .dark ? .white.opacity(0.55) : .gray))
-            )
+        .frame(height: 36)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Rank \(entry.rank), \(entry.displayName), \(entry.formattedValue) \(metric.displayName)")
     }
 }
 
 #Preview {
-    VStack(spacing: 12) {
+    VStack(spacing: 0) {
         LeaderboardRow(
             entry: LeaderboardEntry(
                 userId: "1",
-                displayName: "John Doe",
-                rank: 6,
-                value: 15000,
-                formattedValue: "15,000",
-                isCurrentUser: false
+                displayName: "Alex P.",
+                rank: 5,
+                value: 13_178_802,
+                formattedValue: "13,178,802"
             ),
             metric: .climb
         )
 
+        Divider()
+
         LeaderboardRow(
             entry: LeaderboardEntry(
                 userId: "2",
-                displayName: "You",
-                rank: 8,
-                value: 12000,
-                formattedValue: "12,000",
-                isCurrentUser: true
+                displayName: "Mia K.",
+                rank: 6,
+                value: 11_246_663,
+                formattedValue: "11,246,663"
             ),
             metric: .climb
         )
     }
-    .themedBackground()
+    .padding()
+    .background(Color.black)
 }

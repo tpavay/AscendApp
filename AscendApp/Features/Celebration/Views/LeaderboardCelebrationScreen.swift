@@ -17,8 +17,6 @@ struct LeaderboardCelebrationScreen: View {
     @State private var userRowOffset: CGFloat = 24
     @State private var buttonOpacity: Double = 0
 
-    private let settings = SettingsManager.shared
-
     var body: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 36)
@@ -117,7 +115,7 @@ struct LeaderboardCelebrationScreen: View {
             }
         case .pace:
             let formatted = currentValue.formatted(.number.precision(.fractionLength(1)))
-            return "\(formatted) \(settings.preferredWorkoutMetric.unit)/min"
+            return "\(formatted) steps/min"
         }
     }
 

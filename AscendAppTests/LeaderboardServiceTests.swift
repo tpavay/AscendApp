@@ -26,6 +26,8 @@ struct LeaderboardServiceTests {
 
         var statsByTimeFrame = try fetchStats(for: userId, in: modelContext)
         #expect(statsByTimeFrame.count == LeaderboardTimeFrame.allCases.count)
+        #expect(statsByTimeFrame[.daily]?.totalSteps == 0)
+        #expect(statsByTimeFrame[.daily]?.periodStartAt == utcDate(year: 2026, month: 4, day: 10))
         #expect(statsByTimeFrame[.weekly]?.totalSteps == 900)
         #expect(statsByTimeFrame[.weekly]?.periodStartAt == utcDate(year: 2026, month: 4, day: 6))
         #expect(statsByTimeFrame[.monthly]?.totalSteps == 900)
@@ -52,6 +54,7 @@ struct LeaderboardServiceTests {
         #expect(movedTouchedStats)
 
         statsByTimeFrame = try fetchStats(for: userId, in: modelContext)
+        #expect(statsByTimeFrame[.daily]?.totalSteps == 0)
         #expect(statsByTimeFrame[.weekly]?.totalSteps == 0)
         #expect(statsByTimeFrame[.weekly]?.totalWorkouts == 0)
         #expect(statsByTimeFrame[.weekly]?.hasActivity == false)

@@ -52,9 +52,7 @@ struct AutoImportedWorkoutReviewView: View {
         let totalDurationSeconds = hours * 3600 + (minutes ?? 0) * 60 + (seconds ?? 0)
         let stepsValid = stepsValue.isEmpty || Int(stepsValue) != nil
         let workoutTotalsValid = WorkoutInputValidation.isValidWorkoutTotals(
-            metricValue: stepsValue,
-            preferredMetric: .steps,
-            stepsPerFloor: workout.stepsPerFloor,
+            stepsValue: stepsValue,
             durationHours: hours,
             durationMinutes: minutes ?? 0,
             durationSeconds: seconds ?? 0
@@ -452,7 +450,8 @@ struct AutoImportedWorkoutReviewView: View {
             workout.notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
             workout.duration = totalDuration
             workout.steps = steps
-            workout.floors = Workout.stepsToFloors(steps, stepsPerFloor: workout.stepsPerFloor)
+            workout.floors = Workout.stepsToFloors(steps)
+            workout.stepsPerFloor = Workout.defaultStepsPerFloor
 
             let combinedPhotos = existingPhotosSnapshot + newlyUploadedPhotos
             workout.photos = combinedPhotos

@@ -164,7 +164,6 @@ final class WorkoutTestDataSeeder {
         preset: WorkoutSeedPreset,
         rng: inout SeededGenerator
     ) -> Workout {
-        let stepsPerFloor = max(settings.stepsPerFloor, 1)
         let steps = Int.random(in: phase.stepRange, using: &rng)
         let pace = Double.random(in: phase.paceRange, using: &rng)
         let minutes = clamped(
@@ -173,7 +172,7 @@ final class WorkoutTestDataSeeder {
             max: phase.durationMinutesRange.upperBound
         )
         let duration = max(10 * 60, (minutes * 60).rounded())
-        let floors = Workout.stepsToFloors(steps, stepsPerFloor: stepsPerFloor)
+        let floors = Workout.stepsToFloors(steps)
 
         let hasHeartRate = chance(0.70, rng: &rng)
         let avgHeartRate = hasHeartRate ? Int.random(in: phase.avgHeartRateRange, using: &rng) : nil
@@ -214,7 +213,7 @@ final class WorkoutTestDataSeeder {
             duration: duration,
             steps: steps,
             floors: floors,
-            stepsPerFloor: stepsPerFloor,
+            stepsPerFloor: Workout.defaultStepsPerFloor,
             avgHeartRate: avgHeartRate,
             maxHeartRate: maxHeartRate,
             caloriesBurned: caloriesBurned,

@@ -101,7 +101,7 @@ struct FolderSelectionSheet: View {
                 }
                 .padding(20)
             }
-            .background(effectiveColorScheme == .dark ? Color.jet : Color.white)
+            .background(Color.black)
             .navigationTitle("Choose Folder")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -140,7 +140,7 @@ struct FolderSelectionRow: View {
 
                 Text(name)
                     .font(.montserratMedium(size: 16))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                    .foregroundStyle(.white)
 
                 Spacer()
 

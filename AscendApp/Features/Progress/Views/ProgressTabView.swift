@@ -13,8 +13,6 @@ struct ProgressTabView: View {
     
     var body: some View {
         ProgressSheet(workouts: workouts)
-            .navigationTitle("Progress")
-            .navigationBarTitleDisplayMode(.large)
     }
 }
 

@@ -83,6 +83,28 @@ test('users cannot write demographics into another users profile', async () => {
   })));
 });
 
+test('owner can write daily leaderboard stats', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const statsRef = doc(context.firestore(), `leaderboard_stats/${userId}_daily`);
+
+  await assertSucceeds(setDoc(statsRef, makeLeaderboardDocument({
+    timeFrame: 'daily',
+    periodKey: '2026-04-10',
+    periodStartAt: new Date('2026-04-10T00:00:00.000Z'),
+  })));
+});
+
+test('daily leaderboard stats require a daily period key', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const statsRef = doc(context.firestore(), `leaderboard_stats/${userId}_daily`);
+
+  await assertFails(setDoc(statsRef, makeLeaderboardDocument({
+    timeFrame: 'daily',
+    periodKey: '2026-W15',
+    periodStartAt: new Date('2026-04-10T00:00:00.000Z'),
+  })));
+});
+
 test('owner can write a valid workout backup document', async () => {
   const context = testEnv.authenticatedContext(userId);
   const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
@@ -319,6 +341,25 @@ function makeUserDocument(overrides = {}) {
     displayName: 'Tyler',
     createdAt: new Date('2026-05-18T12:00:00.000Z'),
     lastUpdated: new Date('2026-05-18T12:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+function makeLeaderboardDocument(overrides = {}) {
+  return {
+    userId,
+    displayName: 'Tyler',
+    photoURL: '',
+    timeFrame: 'weekly',
+    schemaVersion: 2,
+    periodKey: '2026-W15',
+    periodStartAt: new Date('2026-04-06T00:00:00.000Z'),
+    totalSteps: 1200,
+    totalFloors: 75,
+    totalWorkouts: 1,
+    totalDuration: 1800,
+    stepsPerMinute: 40,
+    lastUpdated: new Date('2026-04-10T07:00:00.000Z'),
     ...overrides,
   };
 }

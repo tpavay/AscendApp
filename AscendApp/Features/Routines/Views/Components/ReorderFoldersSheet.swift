@@ -98,7 +98,7 @@ struct ReorderFoldersSheet: View {
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .background(effectiveColorScheme == .dark ? Color.jet : Color.white)
+            .background(Color.black)
             .environment(\.editMode, .constant(.active))
             .navigationTitle("Reorder Folders")
             .navigationBarTitleDisplayMode(.inline)
@@ -161,7 +161,7 @@ private struct ReorderFolderRow: View {
 
             Text(name)
                 .font(.montserratMedium(size: 16))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+                .foregroundStyle(.white)
 
             Spacer()
         }

@@ -25,12 +25,12 @@ enum WorkoutSortOption: String, CaseIterable, Identifiable {
         }
     }
 
-    func displayName(for metric: WorkoutMetric) -> String {
+    var displayName: String {
         switch self {
         case .dateNewest: return "Date (Newest)"
         case .dateOldest: return "Date (Oldest)"
-        case .stepsHighest: return "\(metric.displayName) (Highest)"
-        case .stepsLowest: return "\(metric.displayName) (Lowest)"
+        case .stepsHighest: return "Steps (Highest)"
+        case .stepsLowest: return "Steps (Lowest)"
         case .durationLongest: return "Duration (Longest)"
         case .durationShortest: return "Duration (Shortest)"
         }
@@ -76,16 +76,16 @@ final class WorkoutListFilterState {
         }
     }
 
-    func applySorting(to workouts: [Workout], preferredMetric: WorkoutMetric) -> [Workout] {
+    func applySorting(to workouts: [Workout]) -> [Workout] {
         switch sortOption {
         case .dateNewest:
             return workouts.sorted { $0.date > $1.date }
         case .dateOldest:
             return workouts.sorted { $0.date < $1.date }
         case .stepsHighest:
-            return workouts.sorted { $0.metricValue(for: preferredMetric) > $1.metricValue(for: preferredMetric) }
+            return workouts.sorted { $0.steps > $1.steps }
         case .stepsLowest:
-            return workouts.sorted { $0.metricValue(for: preferredMetric) < $1.metricValue(for: preferredMetric) }
+            return workouts.sorted { $0.steps < $1.steps }
         case .durationLongest:
             return workouts.sorted { $0.duration > $1.duration }
         case .durationShortest:
@@ -123,8 +123,7 @@ final class WorkoutListFilterState {
     
     private func matchesStepsRange(_ workout: Workout) -> Bool {
         guard let range = stepsRange else { return true }
-        let preferredMetric = SettingsManager.shared.preferredWorkoutMetric
-        return range.contains(Double(workout.metricValue(for: preferredMetric)))
+        return range.contains(Double(workout.steps))
     }
     
     private func matchesDurationRange(_ workout: Workout) -> Bool {

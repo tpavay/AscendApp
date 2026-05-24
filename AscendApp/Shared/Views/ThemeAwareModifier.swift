@@ -8,16 +8,9 @@
 import SwiftUI
 
 struct ThemeAwareModifier: ViewModifier {
-    @Environment(\.colorScheme) private var systemColorScheme
-    @State private var themeManager = ThemeManager.shared
-    
-    private var effectiveColorScheme: ColorScheme {
-        themeManager.effectiveColorScheme(for: systemColorScheme)
-    }
-    
     func body(content: Content) -> some View {
         content
-            .preferredColorScheme(effectiveColorScheme)
+            .preferredColorScheme(.dark)
     }
 }
 

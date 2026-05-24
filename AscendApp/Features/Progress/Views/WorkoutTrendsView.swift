@@ -190,8 +190,8 @@ struct WorkoutTrendsView: View {
 
     private var fastestClimb: Workout? {
         monthlyWorkouts
-            .filter { $0.pace(for: .steps) != nil }
-            .max { ($0.pace(for: .steps) ?? 0) < ($1.pace(for: .steps) ?? 0) }
+            .filter { $0.stepsPerMinute != nil }
+            .max { ($0.stepsPerMinute ?? 0) < ($1.stepsPerMinute ?? 0) }
     }
 
     private var longestSession: Workout? {
@@ -226,7 +226,7 @@ struct WorkoutTrendsView: View {
             )
         }
 
-        if let fastestClimb, let pace = fastestClimb.pace(for: .steps) {
+        if let fastestClimb, let pace = fastestClimb.stepsPerMinute {
             let points = paceMetricPoints(from: monthlyWorkouts, prefix: "fastest-climb")
             metrics.append(
                 TrendMetric(
@@ -781,7 +781,7 @@ struct WorkoutTrendsView: View {
         prefix: String
     ) -> [ProgressLineChartPoint] {
         workouts.compactMap { workout in
-            guard let pace = workout.pace(for: .steps) else {
+            guard let pace = workout.stepsPerMinute else {
                 return nil
             }
             return ProgressLineChartPoint(

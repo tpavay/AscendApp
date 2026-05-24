@@ -9,9 +9,10 @@ import SwiftUI
 
 enum AppTab: Hashable {
     case home
+    case leaderboard
+    case profile
     case workouts
     case progress
-    case leaderboard
     case settings
 }
 
@@ -59,20 +60,6 @@ extension TabItem {
             ),
 
             TabItem(
-                identifier: .workouts,
-                title: "Workouts",
-                icon: .tabWorkouts,
-                selectedIcon: .tabWorkoutsSelected
-            ),
-
-            TabItem(
-                identifier: .progress,
-                title: "Progress",
-                icon: .tabProgress,
-                selectedIcon: .tabProgressSelected
-            ),
-
-            TabItem(
                 identifier: .leaderboard,
                 title: "Leaderboard",
                 icon: .tabLeaderboard,
@@ -80,10 +67,10 @@ extension TabItem {
             ),
 
             TabItem(
-                identifier: .settings,
-                title: "Settings",
-                icon: .tabSettings,
-                selectedIcon: .tabSettingsSelected
+                identifier: .profile,
+                title: "Profile",
+                icon: .tabProfile,
+                selectedIcon: .tabProfileSelected
             )
         ]
     }
@@ -91,14 +78,7 @@ extension TabItem {
     // Currently active tabs - easily configurable
     @MainActor
     static var activeTabs: [TabItem] {
-        let tabs = availableTabs
-        return [
-            tabs[0], // Home
-            tabs[1], // Workouts
-            tabs[2], // Progress
-            tabs[3], // Leaderboard
-            tabs[4]  // Settings
-        ]
+        availableTabs
     }
 }
 

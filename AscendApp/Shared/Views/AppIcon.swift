@@ -42,7 +42,7 @@ struct AppIcon: View {
         AppIcon(token: .tabHome)
             .foregroundStyle(.accent)
 
-        AppIcon(token: .settingsWorkoutMetric, pointSize: 20, weight: .medium)
+        AppIcon(token: .settingsMeasurementSystem, pointSize: 20, weight: .medium)
             .foregroundStyle(.accent)
     }
     .padding()

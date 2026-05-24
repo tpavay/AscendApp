@@ -25,9 +25,31 @@ struct LeaderboardViewModelTests {
         #expect(viewModel.leaderboardEntries.count == 1)
     }
 
-    private func makeRemoteStat(userId: String, displayName: String) -> FirestoreLeaderboardStats {
+    @Test
+    func durationMetricFormatsAsHoursMinutesSeconds() async {
+        let cache = LeaderboardSessionCache()
+        let userId = UUID().uuidString
+        let totalDuration = Double((176 * 3_600) + (12 * 60) + 12)
+
+        let viewModel = LeaderboardViewModel(sessionCache: cache)
+        viewModel.selectedMetric = .duration
+        viewModel.selectedTimeFrame = .weekly
+
+        let stats = [makeRemoteStat(userId: userId, displayName: "User", totalDuration: totalDuration)]
+        await cache.setDetailEntries(stats, for: .duration, timeFrame: .weekly)
+
+        await viewModel.loadLeaderboard(userId: userId)
+
+        #expect(viewModel.leaderboardEntries.first?.formattedValue == "176:12:12")
+    }
+
+    private func makeRemoteStat(
+        userId: String,
+        displayName: String,
+        totalDuration: Double = 1_800
+    ) -> FirestoreLeaderboardStats {
         let period = LeaderboardTimeFrame.weekly.currentPeriod(referenceDate: utcDate(year: 2026, month: 4, day: 10))
-        let aggregate = LeaderboardAggregate(totalSteps: 1_200, totalFloors: 75, totalWorkouts: 2, totalDuration: 1_800)
+        let aggregate = LeaderboardAggregate(totalSteps: 1_200, totalFloors: 75, totalWorkouts: 2, totalDuration: totalDuration)
 
         return FirestoreLeaderboardStats(
             userId: userId,

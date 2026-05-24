@@ -6,25 +6,20 @@ enum WorkoutInputValidation {
     static let minimumHeartRate = 25
     static let maximumHeartRate = 230
 
-    static func isValidOptionalMetric(_ value: String) -> Bool {
+    static func isValidOptionalSteps(_ value: String) -> Bool {
         guard value.isEmpty == false else { return true }
         guard let intValue = Int(value) else { return false }
         return intValue >= 0
     }
 
     static func isValidWorkoutTotals(
-        metricValue: String,
-        preferredMetric: WorkoutMetric,
-        stepsPerFloor: Int,
+        stepsValue: String,
         durationHours: Int,
         durationMinutes: Int,
         durationSeconds: Int
     ) -> Bool {
-        let enteredValue = Int(metricValue) ?? 0
+        let steps = Int(stepsValue) ?? 0
         let totalDuration = TimeInterval(durationHours * 3_600 + durationMinutes * 60 + durationSeconds)
-        let steps = preferredMetric == .steps
-            ? enteredValue
-            : Workout.floorsToSteps(enteredValue, stepsPerFloor: stepsPerFloor)
 
         return WorkoutPlausibilityPolicy.hasPlausibleTotals(
             steps: steps,
