@@ -300,56 +300,6 @@
     "sourceURL": "https://en.wikipedia.org/wiki/Monument_to_the_Revolution"
   },
   {
-    "id": "hoover-dam",
-    "name": "Hoover Dam",
-    "city": "Boulder City",
-    "country": "USA",
-    "continent": "North America",
-    "latitude": 36.0156,
-    "longitude": -114.7378,
-    "totalHeightMeters": 221,
-    "totalHeightFeet": 725.1,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 1216,
-    "realStairCount": null,
-    "calculatedFloors": 61,
-    "category": "monument",
-    "tier": "gold",
-    "tags": [
-      "dam",
-      "engineering",
-      "desert"
-    ],
-    "funFact": "Hoover Dam was the tallest dam in the world when it opened in 1936.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Hoover_Dam"
-  },
-  {
-    "id": "golden-gate-bridge",
-    "name": "Golden Gate Bridge",
-    "city": "San Francisco",
-    "country": "USA",
-    "continent": "North America",
-    "latitude": 37.8199,
-    "longitude": -122.4783,
-    "totalHeightMeters": 227,
-    "totalHeightFeet": 744.8,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 1249,
-    "realStairCount": null,
-    "calculatedFloors": 63,
-    "category": "bridge",
-    "tier": "gold",
-    "tags": [
-      "bridge",
-      "bay",
-      "icon"
-    ],
-    "funFact": "The Golden Gate Bridge's color is officially called International Orange.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Golden_Gate_Bridge"
-  },
-  {
     "id": "half-dome",
     "name": "Half Dome",
     "city": "Yosemite Valley",
@@ -450,31 +400,6 @@
     "sourceURL": "https://en.wikipedia.org/wiki/Pikes_Peak"
   },
   {
-    "id": "brooklyn-bridge",
-    "name": "Brooklyn Bridge",
-    "city": "New York",
-    "country": "USA",
-    "continent": "North America",
-    "latitude": 40.7061,
-    "longitude": -73.9969,
-    "totalHeightMeters": 84,
-    "totalHeightFeet": 275.6,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 462,
-    "realStairCount": null,
-    "calculatedFloors": 23,
-    "category": "bridge",
-    "tier": "bronze",
-    "tags": [
-      "bridge",
-      "skyline",
-      "river"
-    ],
-    "funFact": "The Brooklyn Bridge was the longest suspension bridge in the world when it opened in 1883.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Brooklyn_Bridge"
-  },
-  {
     "id": "reunion-tower",
     "name": "Reunion Tower",
     "city": "Dallas",
@@ -573,31 +498,6 @@
     ],
     "funFact": "Sugarloaf Mountain gets its English name from the cone-shaped molds once used for sugar.",
     "sourceURL": "https://en.wikipedia.org/wiki/Sugarloaf_Mountain"
-  },
-  {
-    "id": "angel-falls",
-    "name": "Angel Falls",
-    "city": "Canaima National Park",
-    "country": "Venezuela",
-    "continent": "South America",
-    "latitude": 5.967,
-    "longitude": -62.5356,
-    "totalHeightMeters": 979,
-    "totalHeightFeet": 3211.9,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 5385,
-    "realStairCount": null,
-    "calculatedFloors": 272,
-    "category": "waterfall",
-    "tier": "epic",
-    "tags": [
-      "waterfall",
-      "tepui",
-      "jungle"
-    ],
-    "funFact": "Angel Falls is the world's tallest uninterrupted waterfall.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Angel_Falls"
   },
   {
     "id": "gran-torre-santiago",
@@ -1700,31 +1600,6 @@
     "sourceURL": "https://en.wikipedia.org/wiki/Marina_Bay_Sands"
   },
   {
-    "id": "gateway-of-india",
-    "name": "Gateway of India",
-    "city": "Mumbai",
-    "country": "India",
-    "continent": "Asia",
-    "latitude": 18.922,
-    "longitude": 72.8347,
-    "totalHeightMeters": 26,
-    "totalHeightFeet": 85.3,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 143,
-    "realStairCount": null,
-    "calculatedFloors": 7,
-    "category": "monument",
-    "tier": "common",
-    "tags": [
-      "arch",
-      "mumbai",
-      "harbor"
-    ],
-    "funFact": "The Gateway of India commemorated the 1911 visit of King George V and Queen Mary to India.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Gateway_of_India"
-  },
-  {
     "id": "mount-fuji",
     "name": "Mount Fuji",
     "city": "Shizuoka",
@@ -2050,56 +1925,6 @@
     "sourceURL": "https://en.wikipedia.org/wiki/Voortrekker_Monument"
   },
   {
-    "id": "martyrs-memorial",
-    "name": "Martyrs Memorial",
-    "city": "Algiers",
-    "country": "Algeria",
-    "continent": "Africa",
-    "latitude": 36.7459,
-    "longitude": 3.0706,
-    "totalHeightMeters": 92,
-    "totalHeightFeet": 301.8,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 506,
-    "realStairCount": null,
-    "calculatedFloors": 26,
-    "category": "monument",
-    "tier": "bronze",
-    "tags": [
-      "algiers",
-      "history",
-      "icon"
-    ],
-    "funFact": "The Martyrs Memorial honors Algerians who died during the struggle for independence.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Martyrs%27_Memorial"
-  },
-  {
-    "id": "fnb-stadium",
-    "name": "FNB Stadium",
-    "city": "Johannesburg",
-    "country": "South Africa",
-    "continent": "Africa",
-    "latitude": -26.2347,
-    "longitude": 27.9828,
-    "totalHeightMeters": 56,
-    "totalHeightFeet": 183.7,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 308,
-    "realStairCount": null,
-    "calculatedFloors": 16,
-    "category": "stadium",
-    "tier": "bronze",
-    "tags": [
-      "soccer",
-      "world cup",
-      "johannesburg"
-    ],
-    "funFact": "FNB Stadium hosted the 2010 FIFA World Cup final.",
-    "sourceURL": "https://en.wikipedia.org/wiki/FNB_Stadium"
-  },
-  {
     "id": "mount-cameroon",
     "name": "Mount Cameroon",
     "city": "Buea",
@@ -2148,56 +1973,6 @@
     ],
     "funFact": "Abuna Yemata Guh is famed for its cliffside approach and painted cave church interior.",
     "sourceURL": "https://en.wikipedia.org/wiki/Abuna_Yemata_Guh"
-  },
-  {
-    "id": "sydney-harbour-bridge",
-    "name": "Sydney Harbour Bridge",
-    "city": "Sydney",
-    "country": "Australia",
-    "continent": "Oceania",
-    "latitude": -33.8523,
-    "longitude": 151.2108,
-    "totalHeightMeters": 134,
-    "totalHeightFeet": 439.6,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 737,
-    "realStairCount": null,
-    "calculatedFloors": 37,
-    "category": "bridge",
-    "tier": "silver",
-    "tags": [
-      "bridge",
-      "harbor",
-      "icon"
-    ],
-    "funFact": "Sydney Harbour Bridge is nicknamed the Coathanger because of its steel arch.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Sydney_Harbour_Bridge"
-  },
-  {
-    "id": "sydney-opera-house",
-    "name": "Sydney Opera House",
-    "city": "Sydney",
-    "country": "Australia",
-    "continent": "Oceania",
-    "latitude": -33.8568,
-    "longitude": 151.2153,
-    "totalHeightMeters": 65,
-    "totalHeightFeet": 213.3,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 358,
-    "realStairCount": null,
-    "calculatedFloors": 18,
-    "category": "monument",
-    "tier": "bronze",
-    "tags": [
-      "performing arts",
-      "sails",
-      "icon"
-    ],
-    "funFact": "The Sydney Opera House is one of the most recognizable performing arts venues in the world.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Sydney_Opera_House"
   },
   {
     "id": "sky-tower-auckland",
@@ -2275,31 +2050,6 @@
     "sourceURL": "https://en.wikipedia.org/wiki/Q1_(building)"
   },
   {
-    "id": "uluru",
-    "name": "Uluru",
-    "city": "Northern Territory",
-    "country": "Australia",
-    "continent": "Oceania",
-    "latitude": -25.3444,
-    "longitude": 131.0369,
-    "totalHeightMeters": 348,
-    "totalHeightFeet": 1141.7,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 1914,
-    "realStairCount": null,
-    "calculatedFloors": 97,
-    "category": "rock",
-    "tier": "gold",
-    "tags": [
-      "outback",
-      "sandstone",
-      "icon"
-    ],
-    "funFact": "Uluru changes color dramatically through the day as the sun moves across the desert sky.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Uluru"
-  },
-  {
     "id": "mount-kosciuszko",
     "name": "Mount Kosciuszko",
     "city": "New South Wales",
@@ -2325,31 +2075,6 @@
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Kosciuszko"
   },
   {
-    "id": "story-bridge",
-    "name": "Story Bridge",
-    "city": "Brisbane",
-    "country": "Australia",
-    "continent": "Oceania",
-    "latitude": -27.463,
-    "longitude": 153.0345,
-    "totalHeightMeters": 74,
-    "totalHeightFeet": 242.8,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 407,
-    "realStairCount": null,
-    "calculatedFloors": 21,
-    "category": "bridge",
-    "tier": "bronze",
-    "tags": [
-      "river",
-      "brisbane",
-      "bridge climb"
-    ],
-    "funFact": "Story Bridge is one of the few major bridges in the world that supports a public bridge climb.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Story_Bridge"
-  },
-  {
     "id": "melbourne-arts-centre-spire",
     "name": "Melbourne Arts Centre Spire",
     "city": "Melbourne",
@@ -2373,31 +2098,6 @@
     ],
     "funFact": "The Arts Centre spire is lit every night and has become a Melbourne skyline signature.",
     "sourceURL": "https://en.wikipedia.org/wiki/Arts_Centre_Melbourne"
-  },
-  {
-    "id": "auckland-harbour-bridge",
-    "name": "Auckland Harbour Bridge",
-    "city": "Auckland",
-    "country": "New Zealand",
-    "continent": "Oceania",
-    "latitude": -36.8304,
-    "longitude": 174.7464,
-    "totalHeightMeters": 43,
-    "totalHeightFeet": 141.1,
-    "realClimbableHeightMeters": null,
-    "realClimbableHeightFeet": null,
-    "totalSteps": 237,
-    "realStairCount": null,
-    "calculatedFloors": 12,
-    "category": "bridge",
-    "tier": "common",
-    "tags": [
-      "harbor",
-      "auckland",
-      "icon"
-    ],
-    "funFact": "Auckland Harbour Bridge gained extra clip-on lanes in the late 1960s to handle more traffic.",
-    "sourceURL": "https://en.wikipedia.org/wiki/Auckland_Harbour_Bridge"
   },
   {
     "id": "kunanyi-mount-wellington",

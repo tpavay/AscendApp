@@ -39,11 +39,17 @@ struct ClimbDetailView: View {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
 
+    private static let detailPageTitles = [
+        "OVERVIEW",
+        "HISTORY",
+        "LEADERBOARD"
+    ]
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 heroCard
-                pageDots
+                detailPageSelector
                 detailPages
             }
             .padding(20)
@@ -103,7 +109,7 @@ struct ClimbDetailView: View {
             if let initialCollectionOrder {
                 viewModel.collectionOrder = initialCollectionOrder
             }
-            await viewModel.refreshLeaderboardSummary()
+            await viewModel.refreshLeaderboardSummary(modelContext: modelContext)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             headphoneMotionService.refresh()
@@ -111,13 +117,13 @@ struct ClimbDetailView: View {
         .onReceive(NotificationCenter.default.publisher(for: .climbStateDidChange)) { _ in
             viewModel.refresh(modelContext: modelContext)
             Task {
-                await viewModel.refreshLeaderboardSummary()
+                await viewModel.refreshLeaderboardSummary(modelContext: modelContext)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .climbCatalogDidChange)) { _ in
             viewModel.refresh(modelContext: modelContext)
             Task {
-                await viewModel.refreshLeaderboardSummary()
+                await viewModel.refreshLeaderboardSummary(modelContext: modelContext)
             }
         }
     }
@@ -145,6 +151,8 @@ struct ClimbDetailView: View {
                     axis: (x: 0, y: 1, z: 0),
                     perspective: 0.72
                 )
+
+            flipCardButton
         }
         .contentShape(heroShape)
         .onTapGesture {
@@ -315,19 +323,77 @@ struct ClimbDetailView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
     }
 
-    private var pageDots: some View {
-        HStack(spacing: 10) {
-            Spacer(minLength: 0)
-
-            ForEach(0..<3, id: \.self) { index in
-                Capsule(style: .continuous)
-                    .fill(index == selectedPage ? viewModel.climb.tier.color : .white.opacity(0.18))
-                    .frame(width: index == selectedPage ? 24 : 8, height: 8)
+    private var flipCardButton: some View {
+        Button {
+            withAnimation(.spring(response: 0.58, dampingFraction: 0.82)) {
+                isHeroCardFlipped.toggle()
             }
+        } label: {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 34, height: 34)
+                .background(.black.opacity(0.58), in: Circle())
+                .overlay {
+                    Circle()
+                        .stroke(.white.opacity(0.14), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.36), radius: 8, x: 0, y: 3)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isHeroCardFlipped ? "Show climb artwork" : "Show climb details")
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        .padding(16)
+    }
 
-            Spacer(minLength: 0)
+    private var detailPageSelector: some View {
+        HStack(spacing: 4) {
+            ForEach(Self.detailPageTitles.indices, id: \.self) { index in
+                Button {
+                    withAnimation(.smooth(duration: 0.25)) {
+                        selectedPage = index
+                    }
+                } label: {
+                    Text(Self.detailPageTitles[index])
+                        .font(.montserratBold(size: 11))
+                        .tracking(1.1)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                        .foregroundStyle(index == selectedPage ? .black : selectorInactiveTextColor)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 38)
+                        .background {
+                            if index == selectedPage {
+                                Capsule(style: .continuous)
+                                    .fill(viewModel.climb.tier.color)
+                            }
+                        }
+                        .contentShape(Capsule(style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Self.detailPageTitles[index].capitalized)
+                .accessibilityValue(index == selectedPage ? "Selected" : "")
+            }
+        }
+        .padding(4)
+        .background(selectorBackgroundColor, in: Capsule(style: .continuous))
+        .overlay {
+            Capsule(style: .continuous)
+                .stroke(selectorStrokeColor, lineWidth: 1)
         }
         .animation(.smooth(duration: 0.25), value: selectedPage)
+    }
+
+    private var selectorInactiveTextColor: Color {
+        effectiveColorScheme == .dark ? .white.opacity(0.64) : .black.opacity(0.56)
+    }
+
+    private var selectorBackgroundColor: Color {
+        effectiveColorScheme == .dark ? .white.opacity(0.055) : .black.opacity(0.045)
+    }
+
+    private var selectorStrokeColor: Color {
+        effectiveColorScheme == .dark ? .white.opacity(0.1) : .black.opacity(0.08)
     }
 
     private var detailPages: some View {
@@ -513,19 +579,19 @@ struct ClimbDetailView: View {
                 firstAscentSummary(firstAscent)
             }
 
+            if viewModel.shouldShowPersonalRankSummary {
+                personalLeaderboardRankSummary
+            }
+
             if viewModel.isLeaderboardLoading && !viewModel.hasCompletionLeaderboardRows {
                 leaderboardLoadingState
             } else if viewModel.hasCompletionLeaderboardRows {
-                if viewModel.shouldShowPersonalRankSummary {
-                    personalLeaderboardRankSummary
-                }
-
                 VStack(spacing: 8) {
                     ForEach(viewModel.completionLeaderboardRows) { row in
                         leaderboardRow(for: row)
                     }
                 }
-            } else {
+            } else if !viewModel.shouldShowPersonalRankSummary {
                 leaderboardEmptyState
             }
 
@@ -586,7 +652,7 @@ struct ClimbDetailView: View {
 
     @ViewBuilder
     private var personalLeaderboardRankSummary: some View {
-        if let personalCompletionRank = viewModel.personalCompletionRank,
+        if let personalFinisherOrder = viewModel.personalFinisherOrder,
            let bestCompletionDurationSeconds = viewModel.historySummary.bestCompletionDurationSeconds {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -604,12 +670,12 @@ struct ClimbDetailView: View {
                 Spacer(minLength: 0)
 
                 VStack(alignment: .trailing, spacing: 4) {
-                    Text("#\(personalCompletionRank.rank.formatted())")
+                    Text("#\(personalFinisherOrder.formatted())")
                         .font(.montserratBold(size: 20))
                         .foregroundStyle(.accent)
                         .monospacedDigit()
 
-                    Text("of \(personalCompletionRank.completedCount.formatted())")
+                    Text("of \(viewModel.communityCompletedCount.formatted())")
                         .font(.montserratSemiBold(size: 12))
                         .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.58) : .black.opacity(0.5))
                         .monospacedDigit()

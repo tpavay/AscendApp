@@ -9,16 +9,13 @@ import SwiftData
 import SwiftUI
 
 struct ProfileView: View {
-    @Environment(\.modelContext) private var modelContext
     @Environment(AuthenticationViewModel.self) private var authVM
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
     @Query(sort: \ClimbAttempt.startedAt, order: .reverse) private var climbAttempts: [ClimbAttempt]
     @Query(sort: \BestEffortCacheEntry.sortKey) private var bestEffortCacheEntries: [BestEffortCacheEntry]
 
     @State private var firstAscents: [ProfileFirstAscentCardModel] = []
-    @State private var rankCards: [ProfileRankCardModel] = []
     @State private var climbRanksByID: [String: Int] = [:]
-    @State private var isLoadingCurrentRanks = true
 
     private var displayName: String {
         let trimmed = authVM.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -75,25 +72,24 @@ struct ProfileView: View {
             VStack(alignment: .leading, spacing: 18) {
                 profileHeader
 
-                if !firstAscents.isEmpty {
-                    firstAscentsSection
+                VStack(alignment: .leading, spacing: 18) {
+                    if !firstAscents.isEmpty {
+                        firstAscentsSection
+                    }
+
+                    if !completedClimbCards.isEmpty {
+                        completedClimbsSection
+                    }
+
+                    ProfileActivityCalendarView(workouts: workouts)
+
+                    recentWorkoutsSection
+
+                    profileProgressLinks
                 }
-
-                if !completedClimbCards.isEmpty {
-                    completedClimbsSection
-                }
-
-                currentRanksSection
-
-                ProfileActivityCalendarView(workouts: workouts)
-
-                recentWorkoutsSection
-
-                profileProgressLinks
+                .padding(.horizontal, 16)
+                .padding(.bottom, 118)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 28)
-            .padding(.bottom, 118)
         }
         .scrollIndicators(.hidden)
         .background(Color.black.ignoresSafeArea())
@@ -104,58 +100,107 @@ struct ProfileView: View {
     }
 
     private var profileHeader: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 18) {
+        ZStack(alignment: .topTrailing) {
+            Image("ProfileHeaderBackground")
+                .resizable()
+                .scaledToFill()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .saturation(0.08)
+                .contrast(1.12)
+                .brightness(-0.08)
+                .overlay(Color.black.opacity(0.18))
+                .overlay {
+                    LinearGradient(
+                        colors: [
+                            Color.black.opacity(0.62),
+                            Color.black.opacity(0.08),
+                            Color.black.opacity(0.72),
+                            Color.black
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+                .overlay {
+                    RadialGradient(
+                        colors: [
+                            Color.black.opacity(0.02),
+                            Color.black.opacity(0.62)
+                        ],
+                        center: .center,
+                        startRadius: 132,
+                        endRadius: 332
+                    )
+                }
+
+            NavigationLink {
+                AccountView()
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.82))
+                    .frame(width: 48, height: 48)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Settings")
+            .padding(.top, 16)
+            .padding(.trailing, 18)
+
+            VStack(spacing: 10) {
+                Spacer(minLength: 0)
+
                 NavigationLink {
                     EditProfileView()
                 } label: {
-                    ProfileAvatarView(photoURL: authVM.displayPhotoURL, size: 128)
+                    ProfileAvatarView(photoURL: authVM.displayPhotoURL, size: 156)
                         .overlay(alignment: .bottomTrailing) {
                             Circle()
-                                .fill(Color.accent.opacity(0.94))
-                                .frame(width: 38, height: 38)
+                                .fill(Color.black.opacity(0.78))
+                                .frame(width: 46, height: 46)
                                 .overlay {
                                     Image(systemName: "pencil")
                                         .font(.system(size: 16, weight: .bold))
-                                        .foregroundStyle(.black)
+                                        .foregroundStyle(.white)
                                 }
-                                .shadow(color: Color.accent.opacity(0.5), radius: 12, x: 0, y: 0)
+                                .overlay {
+                                    Circle()
+                                        .stroke(.white.opacity(0.12), lineWidth: 1)
+                                }
+                                .shadow(color: Color.black.opacity(0.45), radius: 14, x: 0, y: 5)
+                                .offset(x: 8, y: 8)
                         }
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Edit profile")
 
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .top, spacing: 12) {
-                        Text(displayName)
-                            .font(.montserratBold(size: 26))
-                            .foregroundStyle(.white)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.72)
+                Text(displayName)
+                    .font(.montserratBold(size: 50))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.48)
+                    .multilineTextAlignment(.center)
+                    .shadow(color: Color.black.opacity(0.72), radius: 12, x: 0, y: 4)
+                    .padding(.horizontal, 32)
 
-                        Spacer(minLength: 0)
-
-                        NavigationLink {
-                            AccountView()
-                        } label: {
-                            AppIcon(token: .tabSettings, pointSize: 30)
-                                .foregroundStyle(Color.accent)
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Settings")
-                    }
+                if let memberSinceText {
+                    Text(memberSinceText)
+                        .font(.montserratMedium(size: 12))
+                        .foregroundStyle(.white.opacity(0.62))
+                        .tracking(2.1)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+                        .padding(.horizontal, 24)
                 }
             }
-
-            if let memberSinceText {
-                Text(memberSinceText)
-                    .font(.montserratMedium(size: 12))
-                    .foregroundStyle(.white.opacity(0.52))
-                    .tracking(1.4)
-                    .padding(.leading, 4)
-            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 108)
+            .padding(.bottom, 32)
         }
+        .frame(maxWidth: .infinity)
+        .frame(height: 430)
+        .clipped()
+        .ignoresSafeArea(edges: .top)
     }
 
     private var firstAscentsSection: some View {
@@ -194,37 +239,6 @@ struct ProfileView: View {
             }
             .scrollIndicators(.hidden)
             .scrollTargetBehavior(.viewAligned)
-        }
-    }
-
-    private var currentRanksSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ProfileSectionHeader(
-                iconName: "medal.fill",
-                title: "CURRENT RANKS",
-                trailingText: nil,
-                accent: Color.accent
-            )
-
-            if isLoadingCurrentRanks {
-                ProfileCurrentRanksLoadingView()
-            } else if rankCards.isEmpty {
-                ProfileEmptyCard(
-                    title: "No global ranks yet.",
-                    message: "Log workouts. Claim a spot."
-                )
-            } else {
-                ScrollView(.horizontal) {
-                    HStack(spacing: 10) {
-                        ForEach(rankCards) { card in
-                            ProfileRankCard(card: card)
-                        }
-                    }
-                    .scrollTargetLayout()
-                }
-                .scrollIndicators(.hidden)
-                .scrollTargetBehavior(.viewAligned)
-            }
         }
     }
 
@@ -292,39 +306,15 @@ struct ProfileView: View {
 
     @MainActor
     private func loadProfileHighlights() async {
-        isLoadingCurrentRanks = true
-        defer {
-            isLoadingCurrentRanks = false
-        }
-
         guard let userId = authVM.user?.uid else {
             firstAscents = []
-            rankCards = []
             climbRanksByID = [:]
             return
         }
 
-        let workoutSummaries = workouts.map(ProfileWorkoutSummary.init(workout:))
         let completedClimbSnapshots = loadCompletedClimbSnapshots()
-        let displayName = displayName
-        let photoURL = authVM.displayPhotoURL
-
-        if !workouts.isEmpty {
-            let leaderboardService = LeaderboardService.shared
-            leaderboardService.configure(modelContext: modelContext)
-            _ = try? leaderboardService.rebuildCurrentStatsIfNeeded(
-                for: userId,
-                workouts: workouts
-            )
-            await LeaderboardSyncCoordinator.shared.enqueueSync(
-                userId: userId,
-                displayName: displayName,
-                photoURL: photoURL
-            )
-        }
 
         var loadedFirstAscents: [ProfileFirstAscentCardModel] = []
-        var loadedRanks: [ProfileRankCardModel] = []
         var loadedClimbRanks: [String: Int] = [:]
 
         for snapshot in completedClimbSnapshots {
@@ -354,34 +344,8 @@ struct ProfileView: View {
             }
         }
 
-        if !workoutSummaries.isEmpty {
-            for target in ProfileRankTarget.defaultTargets {
-                if let rank = try? await LeaderboardRepository.shared.getUserRank(
-                    userId: userId,
-                    metric: target.metric,
-                    timeFrame: target.timeFrame
-                ) {
-                    loadedRanks.append(
-                        ProfileRankCardModel(
-                            title: "\(target.timeFrame.displayName) \(target.metric.displayName)",
-                            rank: rank.rank,
-                            valueText: target.valueText(from: workoutSummaries),
-                            subtitle: target.metric.unit.uppercased()
-                        )
-                    )
-                }
-            }
-        }
-
         firstAscents = loadedFirstAscents.sorted { $0.date > $1.date }
         climbRanksByID = loadedClimbRanks
-        rankCards = loadedRanks
-            .sorted {
-                if $0.rank != $1.rank { return $0.rank < $1.rank }
-                return $0.title < $1.title
-            }
-            .prefix(8)
-            .map { $0 }
     }
 
     @MainActor
@@ -499,14 +463,10 @@ private struct ProfileAvatarView: View {
                     .scaledToFill()
             default:
                 ZStack {
-                    LinearGradient(
-                        colors: [Color.accent.opacity(0.28), Color.white.opacity(0.08), Color.black],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
+                    Color.black.opacity(0.42)
 
                     Image(systemName: "person.fill")
-                        .font(.system(size: size * 0.36, weight: .semibold))
+                        .font(.system(size: size * 0.42, weight: .semibold))
                         .foregroundStyle(Color.accent)
                 }
             }
@@ -515,9 +475,9 @@ private struct ProfileAvatarView: View {
         .clipShape(Circle())
         .overlay {
             Circle()
-                .stroke(Color.accent, lineWidth: 2)
+                .stroke(Color.accent, lineWidth: 3)
         }
-        .shadow(color: Color.accent.opacity(0.28), radius: 18, x: 0, y: 0)
+        .shadow(color: Color.accent.opacity(0.44), radius: 20, x: 0, y: 0)
     }
 }
 
@@ -632,94 +592,6 @@ private struct ProfileCompletedClimbCard: View {
         }
         .frame(width: 154, alignment: .leading)
         .padding(8)
-        .background(ProfileColors.cardFill)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(ProfileColors.cardStroke, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-}
-
-private struct ProfileCurrentRanksLoadingView: View {
-    var body: some View {
-        HStack {
-            Spacer()
-
-            VStack(spacing: 12) {
-                ProgressView()
-                    .tint(Color.accent)
-
-                Text("Loading ranks")
-                    .font(.montserratMedium(size: 12))
-                    .foregroundStyle(ProfileColors.secondaryText)
-                    .tracking(0.9)
-            }
-
-            Spacer()
-        }
-        .frame(height: 142)
-        .background(ProfileColors.cardFill)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(ProfileColors.cardStroke, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-}
-
-private struct ProfileRankCard: View {
-    let card: ProfileRankCardModel
-
-    private var accent: Color {
-        switch card.rank {
-        case 1:
-            return ProfileColors.gold
-        case 2:
-            return ProfileColors.silver
-        case 3:
-            return ProfileColors.bronze
-        default:
-            return Color.accent
-        }
-    }
-
-    var body: some View {
-        VStack(spacing: 8) {
-            Text(card.title.uppercased())
-                .font(.montserratMedium(size: 12))
-                .foregroundStyle(.white.opacity(0.72))
-                .tracking(1.2)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .frame(height: 34)
-
-            HStack(alignment: .center, spacing: 10) {
-                Image(systemName: "medal.fill")
-                    .font(.system(size: 34, weight: .bold))
-                    .foregroundStyle(accent)
-                    .shadow(color: accent.opacity(0.3), radius: 10, x: 0, y: 0)
-
-                Text("#\(card.rank)")
-                    .font(.montserratBold(size: 30))
-                    .foregroundStyle(.white)
-                    .minimumScaleFactor(0.78)
-            }
-
-            Text(card.valueText)
-                .font(.montserratSemiBold(size: 13))
-                .foregroundStyle(Color.accent)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-
-            Text(card.subtitle)
-                .font(.montserratMedium(size: 11))
-                .foregroundStyle(ProfileColors.secondaryText)
-                .tracking(1.1)
-                .lineLimit(1)
-        }
-        .frame(width: 166, height: 142)
-        .padding(12)
         .background(ProfileColors.cardFill)
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -1358,14 +1230,6 @@ private struct ProfileCompletedClimbCardModel: Identifiable {
     var id: String { climb.id }
 }
 
-private struct ProfileRankCardModel: Identifiable, Sendable {
-    let id = UUID()
-    let title: String
-    let rank: Int
-    let valueText: String
-    let subtitle: String
-}
-
 private struct ProfileCompletedClimbSnapshot: Sendable {
     let id: String
     let name: String
@@ -1374,49 +1238,6 @@ private struct ProfileCompletedClimbSnapshot: Sendable {
     let bestCompletionDurationSeconds: Int?
 }
 
-private struct ProfileWorkoutSummary: Sendable {
-    let date: Date
-    let duration: TimeInterval
-    let steps: Int
-
-    init(workout: Workout) {
-        date = workout.date
-        duration = workout.duration
-        steps = workout.steps
-    }
-}
-
-private struct ProfileRankTarget: Sendable {
-    let metric: LeaderboardMetric
-    let timeFrame: LeaderboardTimeFrame
-
-    static let defaultTargets: [ProfileRankTarget] = [
-        .init(metric: .climb, timeFrame: .weekly),
-        .init(metric: .climb, timeFrame: .monthly),
-        .init(metric: .climb, timeFrame: .allTime),
-        .init(metric: .duration, timeFrame: .monthly),
-        .init(metric: .pace, timeFrame: .allTime)
-    ]
-
-    func valueText(from workouts: [ProfileWorkoutSummary]) -> String {
-        let filtered = workouts.filter { timeFrame.contains($0.date) }
-
-        switch metric {
-        case .climb:
-            return filtered.reduce(0) { $0 + $1.steps }.formatted(.number.grouping(.automatic))
-        case .duration:
-            return ProfileFormatters.durationClock(filtered.reduce(0) { $0 + $1.duration })
-        case .pace:
-            let totalSteps = filtered.reduce(0) { $0 + $1.steps }
-            let totalDuration = filtered.reduce(0) { $0 + $1.duration }
-            guard totalDuration > 0 else { return "0" }
-            let spm = Double(totalSteps) / (totalDuration / 60)
-            return "\(Int(spm.rounded()))"
-        case .workouts:
-            return filtered.count.formatted(.number.grouping(.automatic))
-        }
-    }
-}
 
 private struct ProfileTrendSnapshot {
     let currentSteps: Int

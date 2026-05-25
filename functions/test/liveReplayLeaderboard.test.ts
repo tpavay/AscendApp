@@ -99,6 +99,80 @@ test("builds First Ascent replay summary fields", () => {
   });
 });
 
+test("builds first finisher status with permanent completion order", () => {
+  const completedAt = "server-timestamp";
+  const payload = liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload(
+    makeWorkoutDocument(),
+    {requireEligibleParticipation: true}
+  );
+  assert.ok(payload);
+
+  const write = liveReplayLeaderboardTestHooks.finisherStatusWrite({
+    payload,
+    userId: "user-a",
+    entryId: "workout-a",
+    publicUser: {
+      avatarToken: "MC",
+      displayName: "Maya C.",
+      photoURL: null,
+    },
+    globalCompletionOrder: 47,
+    existingData: undefined,
+    completedAt,
+  });
+
+  assert.deepEqual(write, {
+    avatarToken: "MC",
+    bestCompletionDurationSeconds: 738,
+    bestWorkoutId: "workout-a",
+    displayName: "Maya C.",
+    firstCompletedAt: completedAt,
+    firstWorkoutId: "workout-a",
+    globalCompletionOrder: 47,
+    photoURL: "",
+    schemaVersion: 1,
+    updatedAt: completedAt,
+    userId: "user-a",
+  });
+});
+
+test("preserves finisher order on later attempts", () => {
+  const completedAt = "server-timestamp";
+  const payload = liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload(
+    makeWorkoutDocument({durationSeconds: 760}),
+    {requireEligibleParticipation: true}
+  );
+  assert.ok(payload);
+
+  const write = liveReplayLeaderboardTestHooks.finisherStatusWrite({
+    payload,
+    userId: "user-a",
+    entryId: "workout-b",
+    publicUser: {
+      avatarToken: "MC",
+      displayName: "Maya C.",
+      photoURL: "https://example.com/maya.jpg",
+    },
+    globalCompletionOrder: 47,
+    existingData: {
+      bestCompletionDurationSeconds: 738,
+      firstWorkoutId: "workout-a",
+      globalCompletionOrder: 47,
+    },
+    completedAt,
+  });
+
+  assert.deepEqual(write, {
+    avatarToken: "MC",
+    displayName: "Maya C.",
+    globalCompletionOrder: 47,
+    photoURL: "https://example.com/maya.jpg",
+    schemaVersion: 1,
+    updatedAt: completedAt,
+    userId: "user-a",
+  });
+});
+
 /**
  * Builds a private workout backup document.
  * @param {Record<string, unknown>} overrides Document overrides.

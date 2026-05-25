@@ -8,21 +8,25 @@ final class DiskAssetCache: @unchecked Sendable {
 
     static let climbImages = DiskAssetCache(
         namespace: "ClimbImages",
-        maxBytes: 320 * 1024 * 1024
+        maxBytes: 200 * 1024 * 1024,
+        maxFileCount: 180
     )
 
     private let fileManager: FileManager
     private let directoryURL: URL
     private let maxBytes: Int
+    private let maxFileCount: Int?
     private let lock = NSLock()
 
     init(
         namespace: String,
         maxBytes: Int,
+        maxFileCount: Int? = nil,
         fileManager: FileManager = .default
     ) {
         self.fileManager = fileManager
         self.maxBytes = maxBytes
+        self.maxFileCount = maxFileCount
 
         let cachesDirectory = fileManager.urls(
             for: .cachesDirectory,
@@ -177,14 +181,22 @@ final class DiskAssetCache: @unchecked Sendable {
             ))
         }
 
-        guard totalBytes > maxBytes else { return }
+        let isOverByteLimit = totalBytes > maxBytes
+        let isOverFileLimit = exceedsFileLimit(entries.count)
+        guard isOverByteLimit || isOverFileLimit else { return }
 
         let sortedEntries = entries.sorted { $0.modifiedAt < $1.modifiedAt }
         var remainingBytes = totalBytes
+        var remainingFileCount = entries.count
 
-        for entry in sortedEntries where remainingBytes > maxBytes {
+        for entry in sortedEntries where remainingBytes > maxBytes || exceedsFileLimit(remainingFileCount) {
             try fileManager.removeItem(at: entry.url)
             remainingBytes -= entry.size
+            remainingFileCount -= 1
         }
+    }
+
+    private func exceedsFileLimit(_ fileCount: Int) -> Bool {
+        maxFileCount.map { fileCount > $0 } ?? false
     }
 }

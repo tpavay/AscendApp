@@ -64,6 +64,25 @@ struct LiveReplayCompletionRank: Equatable, Sendable {
     }
 }
 
+struct LiveReplayFinisherStatus: Equatable, Sendable {
+    let globalCompletionOrder: Int
+    let firstCompletedAt: Date?
+    let bestCompletionDurationSeconds: TimeInterval?
+    let updatedAt: Date?
+
+    init(
+        globalCompletionOrder: Int,
+        firstCompletedAt: Date?,
+        bestCompletionDurationSeconds: TimeInterval?,
+        updatedAt: Date?
+    ) {
+        self.globalCompletionOrder = max(globalCompletionOrder, 1)
+        self.firstCompletedAt = firstCompletedAt
+        self.bestCompletionDurationSeconds = bestCompletionDurationSeconds
+        self.updatedAt = updatedAt
+    }
+}
+
 struct LiveReplayCompletionLeaderboard: Equatable, Sendable {
     let rows: [LiveReplayLeaderboardRow]
     let completedCount: Int

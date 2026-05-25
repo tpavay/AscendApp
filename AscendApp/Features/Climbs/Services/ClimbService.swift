@@ -131,6 +131,9 @@ final class ClimbService {
         let completedDurations = completedAttempts
             .compactMap { $0.bestCompletionDurationSeconds ?? $0.accumulatedDurationSeconds }
         let bestDuration = completedDurations.min()
+        let globalCompletionOrder = completedAttempts
+            .compactMap(\.globalCompletionOrder)
+            .min()
         let averageDuration = completedDurations.count > 1
             ? Int((Double(completedDurations.reduce(0, +)) / Double(completedDurations.count)).rounded())
             : nil
@@ -154,9 +157,32 @@ final class ClimbService {
             completionsCount: completedAttempts.count,
             failedAttemptsCount: relevantAttempts.filter { $0.status == .failed }.count,
             bestCompletionDurationSeconds: bestDuration,
+            globalCompletionOrder: globalCompletionOrder,
             averageCompletionDurationSeconds: averageDuration,
             recentEntries: recentEntries
         )
+    }
+
+    func mirrorFinisherStatus(
+        _ status: LiveReplayFinisherStatus,
+        for climb: Climb,
+        modelContext: ModelContext
+    ) throws {
+        let completedAttempts = fetchAttempts(modelContext: modelContext)
+            .filter { $0.climbId == climb.id && $0.status == .completed }
+
+        guard !completedAttempts.isEmpty else { return }
+
+        var didChange = false
+        for attempt in completedAttempts where attempt.globalCompletionOrder != status.globalCompletionOrder {
+            attempt.globalCompletionOrder = status.globalCompletionOrder
+            didChange = true
+        }
+
+        guard didChange else { return }
+
+        try modelContext.save()
+        postStateChangeNotification()
     }
 
     func prepareLiveClimbAttempt(

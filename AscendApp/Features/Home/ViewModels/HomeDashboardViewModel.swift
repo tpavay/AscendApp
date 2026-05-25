@@ -10,13 +10,25 @@ struct HomeRecentPRRecord: Identifiable, Equatable {
     let isNew: Bool
 }
 
+struct HomeWeeklyRankSummary: Equatable {
+    let rank: Int
+    let percentile: Int?
+    let population: Int
+    let isTiedForGold: Bool
+    let stepsAheadOfSecond: Int?
+    let stepsFromGold: Int?
+    let stepsFromSilver: Int?
+    let stepsToBronze: Int?
+    let stepsToTop10: Int?
+}
+
 @MainActor
 @Observable
 final class HomeDashboardViewModel {
-    var weeklyStats: HomeWeeklyStats = .zero
     var completedClimbCount: Int = 0
     var weeklyRank: Int?
     var rankPercentile: Int?
+    var weeklyRankSummary: HomeWeeklyRankSummary?
     var workoutCount: Int = 0
     var isRankLoading = false
     var recentPersonalRecords: [HomeRecentPRRecord] = []
@@ -39,11 +51,6 @@ final class HomeDashboardViewModel {
     }
 
     func refreshLocalData(modelContext: ModelContext, referenceDate: Date = Date()) {
-        let weeklyStats = fetchWeeklyStats(modelContext: modelContext, referenceDate: referenceDate)
-        if self.weeklyStats != weeklyStats {
-            self.weeklyStats = weeklyStats
-        }
-
         let completedClimbCount = fetchCompletedClimbCount(modelContext: modelContext)
         if self.completedClimbCount != completedClimbCount {
             self.completedClimbCount = completedClimbCount
@@ -138,25 +145,6 @@ final class HomeDashboardViewModel {
 
             isRankLoading = false
         }
-    }
-
-    private func fetchWeeklyStats(modelContext: ModelContext, referenceDate: Date) -> HomeWeeklyStats {
-        let calendar = WeekConfiguration.calendar()
-        let weekInterval = calendar.dateInterval(of: .weekOfYear, for: referenceDate) ??
-            DateInterval(start: referenceDate, duration: 7 * 24 * 60 * 60)
-        let startDate = weekInterval.start
-        let endDate = min(referenceDate, weekInterval.end)
-        let descriptor = FetchDescriptor<Workout>(
-            predicate: #Predicate<Workout> { workout in
-                workout.date >= startDate && workout.date <= endDate
-            }
-        )
-
-        guard let workouts = try? modelContext.fetch(descriptor) else {
-            return .zero
-        }
-
-        return HomeWeeklyStats.make(from: workouts)
     }
 
     private func fetchCompletedClimbCount(modelContext: ModelContext) -> Int {
@@ -257,14 +245,16 @@ final class HomeDashboardViewModel {
         alreadyReconciled: Bool = false
     ) -> Bool {
         let resolvedStats = alreadyReconciled ? stats : Self.reconciledStats(stats, localSnapshot: localSnapshot)
-        guard let result = Self.rankResult(from: resolvedStats, userId: localSnapshot.userId) else {
+        guard let result = Self.rankSummary(from: resolvedStats, userId: localSnapshot.userId) else {
             weeklyRank = nil
             rankPercentile = nil
+            weeklyRankSummary = nil
             return false
         }
 
         weeklyRank = result.rank
-        rankPercentile = Self.percentile(rank: result.rank, total: result.total)
+        rankPercentile = result.percentile
+        weeklyRankSummary = result
         return true
     }
 
@@ -272,6 +262,7 @@ final class HomeDashboardViewModel {
         rankTask?.cancel()
         weeklyRank = nil
         rankPercentile = nil
+        weeklyRankSummary = nil
         isRankLoading = false
         lastRankRequest = nil
         lastRankRefreshAt = nil
@@ -302,15 +293,35 @@ final class HomeDashboardViewModel {
         return resolved
     }
 
-    private static func rankResult(
+    private static func rankSummary(
         from stats: [FirestoreLeaderboardStats],
         userId: String
-    ) -> (rank: Int, total: Int)? {
-        guard let index = stats.firstIndex(where: { $0.userId == userId }) else {
+    ) -> HomeWeeklyRankSummary? {
+        guard let currentUser = stats.first(where: { $0.userId == userId }) else {
             return nil
         }
 
-        return (rank: index + 1, total: stats.count)
+        let currentSteps = currentUser.totalSteps
+        let rank = stats.filter { $0.totalSteps > currentSteps }.count + 1
+        let population = stats.count
+        let sortedSteps = stats
+            .map(\.totalSteps)
+            .sorted(by: >)
+        let uniqueStepTotals = Array(Set(sortedSteps)).sorted(by: >)
+        let topTieCount = stats.filter { $0.totalSteps == currentSteps }.count
+        let secondPlaceSteps = uniqueStepTotals.dropFirst().first ?? currentSteps
+
+        return HomeWeeklyRankSummary(
+            rank: rank,
+            percentile: percentile(rank: rank, total: population),
+            population: population,
+            isTiedForGold: rank == 1 && topTieCount > 1,
+            stepsAheadOfSecond: rank == 1 ? max(currentSteps - secondPlaceSteps, 0) : nil,
+            stepsFromGold: uniqueStepTotals.first.map { max($0 - currentSteps, 0) },
+            stepsFromSilver: uniqueStepTotals.dropFirst().first.map { max($0 - currentSteps, 0) },
+            stepsToBronze: uniqueStepTotals.dropFirst(2).first.map { max($0 - currentSteps, 0) },
+            stepsToTop10: sortedSteps.count >= 10 ? max(sortedSteps[9] - currentSteps, 0) : nil
+        )
     }
 
     private static func percentile(rank: Int, total: Int) -> Int? {
