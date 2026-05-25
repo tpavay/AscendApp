@@ -10,7 +10,7 @@ final class ClimbDetailViewModel {
     var leaderboardSummary: LiveReplayLeaderboardSummary = .empty
     var leaderboardPreviewRows: [LiveReplayLeaderboardRow] = []
     var completionLeaderboard: LiveReplayCompletionLeaderboard = .empty
-    var personalCompletionRank: LiveReplayCompletionRank?
+    var personalFinisherStatus: LiveReplayFinisherStatus?
     var isLeaderboardLoading = false
     var leaderboardErrorMessage: String?
     var collectionOrder: Int?
@@ -65,6 +65,7 @@ final class ClimbDetailViewModel {
         max(
             leaderboardSummary.completedCount,
             completionLeaderboard.completedCount,
+            personalFinisherOrder ?? 0,
             hasCompletionHistory ? 1 : 0
         )
     }
@@ -89,13 +90,17 @@ final class ClimbDetailViewModel {
     }
 
     var completionLeaderboardCompletedCount: Int {
-        max(completionLeaderboard.completedCount, leaderboardSummary.completedCount)
+        max(completionLeaderboard.completedCount, leaderboardSummary.completedCount, personalFinisherOrder ?? 0)
     }
 
     var shouldShowPersonalRankSummary: Bool {
-        guard let personalCompletionRank else { return false }
-        return !completionLeaderboard.rows.contains(where: \.isCurrentUser) &&
-            personalCompletionRank.completedCount > 0
+        guard personalFinisherOrder != nil else { return false }
+        return communityCompletedCount > 0
+    }
+
+    var personalFinisherOrder: Int? {
+        personalFinisherStatus?.globalCompletionOrder ??
+            historySummary.globalCompletionOrder
     }
 
     var stripOrderText: String? {
@@ -119,7 +124,7 @@ final class ClimbDetailViewModel {
         }
     }
 
-    func refreshLeaderboardSummary() async {
+    func refreshLeaderboardSummary(modelContext: ModelContext) async {
         let context = LiveReplayLeaderboardContext.liveClimb(
             climbId: climb.id,
             targetSteps: climb.referenceStepCount
@@ -138,7 +143,9 @@ final class ClimbDetailViewModel {
             context: context,
             limit: 25
         )
-        async let fetchedPersonalRank = fetchPersonalCompletionRank(context: context)
+        async let fetchedFinisherStatus = leaderboardService.fetchCurrentUserFinisherStatus(
+            context: context
+        )
 
         do {
             leaderboardSummary = try await fetchedSummary
@@ -169,25 +176,23 @@ final class ClimbDetailViewModel {
         }
 
         do {
-            personalCompletionRank = try await fetchedPersonalRank
+            if let finisherStatus = try await fetchedFinisherStatus {
+                personalFinisherStatus = finisherStatus
+                try? climbService.mirrorFinisherStatus(
+                    finisherStatus,
+                    for: climb,
+                    modelContext: modelContext
+                )
+                historySummary = climbService.historySummary(
+                    for: climb,
+                    modelContext: modelContext
+                )
+            }
         } catch {
-            personalCompletionRank = nil
+            personalFinisherStatus = nil
         }
 
         isLeaderboardLoading = false
-    }
-
-    private func fetchPersonalCompletionRank(
-        context: LiveReplayLeaderboardContext
-    ) async throws -> LiveReplayCompletionRank? {
-        guard let bestCompletionDurationSeconds = historySummary.bestCompletionDurationSeconds else {
-            return nil
-        }
-
-        return try await leaderboardService.fetchCompletionRank(
-            context: context,
-            completionDurationSeconds: TimeInterval(bestCompletionDurationSeconds)
-        )
     }
 
 }

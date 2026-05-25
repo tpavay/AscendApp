@@ -37,6 +37,16 @@ interface FirstAscentWriteInput {
   claimedAt: unknown;
 }
 
+interface FinisherStatusWriteInput {
+  payload: LiveReplayIndexPayload;
+  userId: string;
+  entryId: string;
+  publicUser: PublicUserSnapshot;
+  globalCompletionOrder: number;
+  existingData: Record<string, unknown> | undefined;
+  completedAt: unknown;
+}
+
 /**
  * Publishes saved live-attempt split checkpoints into read-only replay windows.
  */
@@ -336,11 +346,26 @@ async function publishReplayEntries(
   const leaderboardRef = db
     .collection(LIVE_REPLAY_COLLECTION)
     .doc(payload.contextKey);
+  const finisherRef = finisherReference(payload, userId);
 
   await db.runTransaction(async (transaction) => {
     const leaderboardSnapshot = await transaction.get(leaderboardRef);
+    const finisherSnapshot = await transaction.get(finisherRef);
+    const leaderboardData = leaderboardSnapshot.data();
+    const existingFinisherData = finisherSnapshot.data();
+    const existingOrder = positiveIntegerValue(
+      existingFinisherData?.globalCompletionOrder
+    );
+    const isNewFinisher = existingOrder === null;
+    const previousCompletedCount = nonNegativeIntegerValue(
+      leaderboardData?.completedCount
+    ) ?? 0;
+    const globalCompletionOrder = existingOrder ?? previousCompletedCount + 1;
     const summaryWrite: Record<string, unknown> = {
       bucketIntervalSeconds: payload.splitIntervalSeconds,
+      completedCount: isNewFinisher ?
+        Math.max(previousCompletedCount + 1, globalCompletionOrder) :
+        Math.max(previousCompletedCount, globalCompletionOrder),
       contextId: payload.contextId,
       contextType: payload.contextType,
       schemaVersion: 1,
@@ -348,7 +373,7 @@ async function publishReplayEntries(
       updatedAt: now,
     };
 
-    if (!leaderboardHasFirstAscent(leaderboardSnapshot.data())) {
+    if (!leaderboardHasFirstAscent(leaderboardData)) {
       Object.assign(
         summaryWrite,
         firstAscentWrite({
@@ -361,6 +386,19 @@ async function publishReplayEntries(
     }
 
     transaction.set(leaderboardRef, summaryWrite, {merge: true});
+    transaction.set(
+      finisherRef,
+      finisherStatusWrite({
+        payload,
+        userId,
+        entryId,
+        publicUser,
+        globalCompletionOrder,
+        existingData: existingFinisherData,
+        completedAt: now,
+      }),
+      {merge: true}
+    );
 
     for (let index = 0; index < payload.splitSteps.length; index += 1) {
       transaction.set(entryReference(payload, index, entryId), {
@@ -412,6 +450,44 @@ function firstAscentWrite(
     firstAscentUserId: input.userId,
     firstAscentWorkoutId: input.entryId,
   };
+}
+
+/**
+ * Builds the server-owned per-user finisher status for a replay context.
+ * The completion order is permanent; later attempts only refresh display
+ * snapshots and best-time metadata.
+ * @param {FinisherStatusWriteInput} input Finisher write input.
+ * @return {Record<string, unknown>} Firestore fields to merge.
+ */
+function finisherStatusWrite(
+  input: FinisherStatusWriteInput
+): Record<string, unknown> {
+  const existingBestDuration = nonNegativeNumberValue(
+    input.existingData?.bestCompletionDurationSeconds
+  );
+  const didImproveBest = existingBestDuration === null ||
+    input.payload.finalDurationSeconds < existingBestDuration;
+  const write: Record<string, unknown> = {
+    avatarToken: input.publicUser.avatarToken,
+    displayName: input.publicUser.displayName,
+    globalCompletionOrder: input.globalCompletionOrder,
+    photoURL: input.publicUser.photoURL ?? "",
+    schemaVersion: 1,
+    updatedAt: input.completedAt,
+    userId: input.userId,
+  };
+
+  if (!input.existingData) {
+    write.firstCompletedAt = input.completedAt;
+    write.firstWorkoutId = input.entryId;
+  }
+
+  if (didImproveBest) {
+    write.bestCompletionDurationSeconds = input.payload.finalDurationSeconds;
+    write.bestWorkoutId = input.entryId;
+  }
+
+  return write;
 }
 
 /**
@@ -538,6 +614,23 @@ function entryReference(
     .doc(String(bucketIndex))
     .collection("entries")
     .doc(entryId);
+}
+
+/**
+ * Per-user finisher status document reference for a replay payload.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @param {string} userId Owner user ID.
+ * @return {FirebaseFirestore.DocumentReference} Finisher document reference.
+ */
+function finisherReference(
+  payload: LiveReplayIndexPayload,
+  userId: string
+): FirebaseFirestore.DocumentReference {
+  return admin.firestore()
+    .collection(LIVE_REPLAY_COLLECTION)
+    .doc(payload.contextKey)
+    .collection("finishers")
+    .doc(userId);
 }
 
 /**
@@ -697,6 +790,7 @@ function integerArrayValue(value: unknown): number[] | null {
 }
 
 export const liveReplayLeaderboardTestHooks = {
+  finisherStatusWrite,
   firstAscentWrite,
   leaderboardHasFirstAscent,
   parseLiveClimbReplayPayload,

@@ -19,9 +19,11 @@ final class GlobeViewModel {
     var catalogSource: ClimbCatalogSource = .bootstrap
     var isRefreshingCatalog = false
     var liveClimbCommunitySummary: LiveClimbCommunitySummary = .empty
+    var todayClimbStakeLine: TodayClimbStakeLine = .unavailable
 
     private let climbService: ClimbService
     private let communityStatsService: LiveClimbCommunityStatsServicing
+    private let leaderboardService: LiveReplayLeaderboardServicing
     private let autoSpinResumeDelay: TimeInterval = 6
     private let overviewCameraDistance: CLLocationDistance = GlobeViewModel.defaultOverviewCameraDistance
     private var hasLoaded = false
@@ -32,10 +34,12 @@ final class GlobeViewModel {
 
     init(
         climbService: ClimbService = .shared,
-        communityStatsService: LiveClimbCommunityStatsServicing = FirestoreLiveClimbCommunityStatsService.shared
+        communityStatsService: LiveClimbCommunityStatsServicing = FirestoreLiveClimbCommunityStatsService.shared,
+        leaderboardService: LiveReplayLeaderboardServicing = LiveReplayLeaderboardService.shared
     ) {
         self.climbService = climbService
         self.communityStatsService = communityStatsService
+        self.leaderboardService = leaderboardService
     }
 
     var climbCount: Int {
@@ -134,6 +138,53 @@ final class GlobeViewModel {
         } catch {
             liveClimbCommunitySummary = .empty
         }
+    }
+
+    func refreshTodayClimbStake(
+        modelContext: ModelContext,
+        currentUserId: String?
+    ) async {
+        guard let climb = dailyRecommendedClimb else {
+            todayClimbStakeLine = .unavailable
+            return
+        }
+
+        let localHistory = climbService.historySummary(for: climb, modelContext: modelContext)
+        todayClimbStakeLine = Self.stakeLine(
+            summary: nil,
+            finisherStatus: nil,
+            localHistory: localHistory,
+            currentUserId: currentUserId
+        )
+
+        let context = LiveReplayLeaderboardContext.liveClimb(
+            climbId: climb.id,
+            targetSteps: climb.referenceStepCount
+        )
+
+        async let fetchedSummary = leaderboardService.fetchSummary(context: context)
+        async let fetchedFinisherStatus = leaderboardService.fetchCurrentUserFinisherStatus(context: context)
+
+        let summary = try? await fetchedSummary
+        let finisherStatus = try? await fetchedFinisherStatus
+
+        guard dailyRecommendedClimb?.id == climb.id else { return }
+
+        if let finisherStatus {
+            try? climbService.mirrorFinisherStatus(
+                finisherStatus,
+                for: climb,
+                modelContext: modelContext
+            )
+        }
+
+        let refreshedHistory = climbService.historySummary(for: climb, modelContext: modelContext)
+        todayClimbStakeLine = Self.stakeLine(
+            summary: summary,
+            finisherStatus: finisherStatus,
+            localHistory: refreshedHistory,
+            currentUserId: currentUserId
+        )
     }
 
     func selectPreview(_ climb: Climb, modelContext: ModelContext) {
@@ -281,6 +332,56 @@ final class GlobeViewModel {
         }
 
         return nil
+    }
+
+    private static func stakeLine(
+        summary: LiveReplayLeaderboardSummary?,
+        finisherStatus: LiveReplayFinisherStatus?,
+        localHistory: ClimbHistorySummary,
+        currentUserId: String?
+    ) -> TodayClimbStakeLine {
+        let bestDurationSeconds = localHistory.bestCompletionDurationSeconds ??
+            finisherStatus?.bestCompletionDurationSeconds.map { Int($0.rounded()) }
+        let globalCompletionOrder = finisherStatus?.globalCompletionOrder ??
+            localHistory.globalCompletionOrder
+        let currentUserHoldsFirstAscent = summary?.firstAscent?.userId != nil &&
+            summary?.firstAscent?.userId == currentUserId
+
+        if currentUserHoldsFirstAscent, let bestDurationSeconds {
+            return .firstAscent(bestDurationSeconds: bestDurationSeconds)
+        }
+
+        if localHistory.completionsCount > 0 || finisherStatus != nil {
+            if let bestDurationSeconds, let globalCompletionOrder {
+                return .completed(
+                    bestDurationSeconds: bestDurationSeconds,
+                    globalCompletionOrder: globalCompletionOrder
+                )
+            }
+
+            if let bestDurationSeconds {
+                return .completedPendingOrdinal(bestDurationSeconds: bestDurationSeconds)
+            }
+        }
+
+        guard let summary else {
+            return .unavailable
+        }
+
+        let completedCount = max(
+            summary.completedCount,
+            summary.firstAscent == nil ? 0 : 1
+        )
+
+        guard completedCount > 0 else {
+            return .openFirstAscent
+        }
+
+        if completedCount < 100 {
+            return .nextFinisher(completedCount + 1)
+        }
+
+        return .joinFinishers(completedCount)
     }
 
     private func refreshCatalogInBackground() {

@@ -63,6 +63,28 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         )
     }
 
+    func fetchCurrentUserFinisherStatus(
+        context: LiveReplayLeaderboardContext
+    ) async throws -> LiveReplayFinisherStatus? {
+        guard let uid = Auth.auth().currentUser?.uid else {
+            return nil
+        }
+
+        let snapshot = try await finisherDocument(context: context, userId: uid)
+            .getDocument(source: .server)
+        guard let data = snapshot.data(),
+              let globalCompletionOrder = intValue(for: "globalCompletionOrder", in: data) else {
+            return nil
+        }
+
+        return LiveReplayFinisherStatus(
+            globalCompletionOrder: globalCompletionOrder,
+            firstCompletedAt: timestampValue(for: "firstCompletedAt", in: data),
+            bestCompletionDurationSeconds: doubleValue(for: "bestCompletionDurationSeconds", in: data),
+            updatedAt: timestampValue(for: "updatedAt", in: data)
+        )
+    }
+
     func fetchCompletionLeaderboard(
         context: LiveReplayLeaderboardContext,
         limit: Int
@@ -402,6 +424,15 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             .collection("splitBuckets")
             .document("\(max(bucketIndex, 0))")
             .collection("entries")
+    }
+
+    private func finisherDocument(
+        context: LiveReplayLeaderboardContext,
+        userId: String
+    ) -> DocumentReference {
+        leaderboardDocument(context: context)
+            .collection("finishers")
+            .document(userId)
     }
 
     private func intValue(for key: String, in data: [String: Any]) -> Int? {

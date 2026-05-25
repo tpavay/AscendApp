@@ -16,7 +16,7 @@ struct ClimbCardView: View {
 
     private func dailyRecommendationCard(climb: Climb) -> some View {
         ZStack(alignment: .bottomLeading) {
-            ClimbArtworkView(climb: climb, variant: .hero)
+            ClimbArtworkView(climb: climb, variant: .card)
 
             LinearGradient(
                 colors: [.clear, .black.opacity(0.7)],
@@ -41,39 +41,16 @@ struct ClimbCardView: View {
                     .font(.montserratRegular(size: 14))
                     .foregroundStyle(.white.opacity(0.78))
                     .lineLimit(1)
-                    .padding(.bottom, 10)
 
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "person.2.fill")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Color.accent)
-                            .frame(width: 16, alignment: .leading)
-
-                        Text("4,718 climbers have summited")
-                            .font(.montserratMedium(size: 13))
-                            .foregroundStyle(.white.opacity(0.84))
-                            .lineLimit(1)
-                    }
-
-                    HStack(spacing: 8) {
-                        Image(systemName: "shoeprints.fill")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Color.accent)
-                            .frame(width: 16, alignment: .leading)
-
-                        Text("187M community steps logged")
-                            .font(.montserratMedium(size: 13))
-                            .foregroundStyle(.white.opacity(0.84))
-                            .lineLimit(1)
-                    }
-                }
+                todayStakeLine
+                    .padding(.top, 6)
             }
             .padding(.horizontal, 20)
-            .padding(.bottom, 22)
+            .padding(.bottom, 44)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 360)
+        .frame(height: 420)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .animatedClimbCardBorder(
             colors: climb.tier.borderColors,
@@ -137,6 +114,24 @@ struct ClimbCardView: View {
                 .padding(.vertical, 14)
             }
         )
+    }
+
+    private var todayStakeLine: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: viewModel.todayClimbStakeLine.systemImageName)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Color.accent)
+                .frame(width: 16, alignment: .leading)
+
+            Text(viewModel.todayClimbStakeLine.text)
+                .font(.montserratMedium(size: 13))
+                .foregroundStyle(.white.opacity(0.86))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(viewModel.todayClimbStakeLine.text)
     }
 
     private var recommendedHomeClimb: Climb {

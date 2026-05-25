@@ -86,9 +86,6 @@ struct HomeView: View {
 
             ScrollView {
                 VStack(spacing: 20) {
-                    HomeWeeklyStatsStrip(stats: homeDashboard.weeklyStats)
-                        .padding(.horizontal, 4)
-
                     ClimbCardView(
                         viewModel: globeViewModel,
                         onOpenClimb: { climb in
@@ -103,9 +100,9 @@ struct HomeView: View {
                     )
 
                     HomeRankGlobeRow(
-                        weeklyRank: homeDashboard.weeklyRank,
-                        rankPercentile: homeDashboard.rankPercentile,
+                        weeklyRankSummary: homeDashboard.weeklyRankSummary,
                         completedClimbCount: homeDashboard.completedClimbCount,
+                        totalClimbCount: globeViewModel.visibleClimbs.count,
                         onRankTapped: { tabRouter.selectedTab = .leaderboard },
                         onGlobeTapped: { presentClimbBrowse() }
                     )
@@ -162,6 +159,7 @@ struct HomeView: View {
             globeViewModel.loadIfNeeded(modelContext: modelContext)
             refreshHomeDashboard(forceRank: true)
             refreshLiveClimbCommunityStats()
+            refreshTodayClimbStake()
 
             // Check for workouts from all sources on app launch
             await importCoordinator.refreshPendingImports(trigger: .homeEntry)
@@ -171,6 +169,7 @@ struct HomeView: View {
             guard newValue == .home else { return }
             refreshHomeDashboard()
             refreshLiveClimbCommunityStats()
+            refreshTodayClimbStake()
             Task {
                 await importCoordinator.refreshPendingImports(trigger: .homeEntry)
                 syncAutoImportedReviewPresentation()
@@ -185,6 +184,7 @@ struct HomeView: View {
         }
         .onChange(of: authVM.user?.uid) { _, _ in
             refreshHomeDashboard(forceRank: true)
+            refreshTodayClimbStake()
         }
         .onReceive(NotificationCenter.default.publisher(for: .workoutsDidChange)) { _ in
             refreshHomeDashboard(forceRank: true)
@@ -193,6 +193,7 @@ struct HomeView: View {
             // Check for new workouts when app comes to foreground (throttled to prevent spam)
             refreshHomeDashboard(forceRank: true)
             refreshLiveClimbCommunityStats()
+            refreshTodayClimbStake()
             Task {
                 await importCoordinator.refreshPendingImports(trigger: .automatic)
                 syncAutoImportedReviewPresentation()
@@ -202,11 +203,13 @@ struct HomeView: View {
             globeViewModel.refresh(modelContext: modelContext)
             refreshHomeDashboard()
             refreshLiveClimbCommunityStats()
+            refreshTodayClimbStake()
         }
         .onReceive(NotificationCenter.default.publisher(for: .climbCatalogDidChange)) { _ in
             globeViewModel.reloadCatalog(modelContext: modelContext)
             refreshHomeDashboard()
             refreshLiveClimbCommunityStats()
+            refreshTodayClimbStake()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
             // Reset throttling when app goes to background so next foreground check works
@@ -258,6 +261,15 @@ struct HomeView: View {
     private func refreshLiveClimbCommunityStats() {
         Task {
             await globeViewModel.refreshLiveClimbCommunityStats()
+        }
+    }
+
+    private func refreshTodayClimbStake() {
+        Task {
+            await globeViewModel.refreshTodayClimbStake(
+                modelContext: modelContext,
+                currentUserId: authVM.user?.uid
+            )
         }
     }
 
@@ -405,73 +417,23 @@ private struct HomeExploreGlobeCard: View {
     }
 }
 
-private struct HomeWeeklyStatsStrip: View {
-    let stats: HomeWeeklyStats
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Text("This week")
-                .font(.montserratMedium(size: 13))
-                .foregroundStyle(Color.primary.opacity(0.6))
-
-            dot
-
-            statRow(value: "\(stats.climbs)", label: stats.climbs == 1 ? "climb" : "climbs")
-
-            dot
-
-            Text(stats.durationText)
-                .font(.montserratSemiBold(size: 14))
-                .foregroundStyle(Color.primary)
-
-            dot
-
-            statRow(value: stats.steps.formatted(), label: "steps")
-
-            Spacer(minLength: 0)
-        }
-        .lineLimit(1)
-        .minimumScaleFactor(0.82)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("This week: \(stats.climbs) climbs, \(stats.durationText), \(stats.steps.formatted()) steps")
-    }
-
-    private var dot: some View {
-        Text("·")
-            .font(.montserratRegular(size: 13))
-            .foregroundStyle(Color.primary.opacity(0.4))
-    }
-
-    private func statRow(value: String, label: String) -> some View {
-        HStack(spacing: 4) {
-            Text(value)
-                .font(.montserratSemiBold(size: 14))
-                .foregroundStyle(Color.primary)
-
-            Text(label)
-                .font(.montserratRegular(size: 13))
-                .foregroundStyle(Color.primary.opacity(0.6))
-        }
-    }
-}
-
 private struct HomeRankGlobeRow: View {
-    let weeklyRank: Int?
-    let rankPercentile: Int?
+    let weeklyRankSummary: HomeWeeklyRankSummary?
     let completedClimbCount: Int
+    let totalClimbCount: Int
     let onRankTapped: () -> Void
     let onGlobeTapped: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
             HomeRankCard(
-                rank: weeklyRank,
-                percentile: rankPercentile,
+                summary: weeklyRankSummary,
                 action: onRankTapped
             )
 
             HomeMyGlobeCard(
                 count: completedClimbCount,
+                total: totalClimbCount,
                 action: onGlobeTapped
             )
         }
@@ -479,21 +441,20 @@ private struct HomeRankGlobeRow: View {
 }
 
 private struct HomeRankCard: View {
-    let rank: Int?
-    let percentile: Int?
+    let summary: HomeWeeklyRankSummary?
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("YOUR RANK THIS WEEK")
+                Text("WEEKLY RANK · STEPS")
                     .font(.montserratSemiBold(size: 10))
                     .tracking(1.2)
                     .foregroundStyle(Color.accent)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
 
-                Text(rank.map { "#\($0)" } ?? "—")
+                Text(summary.map { "#\($0.rank)" } ?? "—")
                     .font(.montserratBold(size: 34))
                     .foregroundStyle(.white)
                     .lineLimit(1)
@@ -516,23 +477,38 @@ private struct HomeRankCard: View {
         .accessibilityLabel(accessibilityLabel)
     }
 
+    private static let top100PopulationThreshold = 500
+
     private var percentileText: String {
-        if let rank, rank == 1 {
-            return "TOP OF THE LEADERBOARD"
+        guard let summary else { return "Climb to be ranked" }
+
+        switch summary.rank {
+        case 1:
+            if summary.isTiedForGold {
+                return "TIED FOR GOLD"
+            }
+            return "DEFENDING GOLD · \(formattedSteps(summary.stepsAheadOfSecond)) AHEAD"
+        case 2:
+            return "\(formattedSteps(summary.stepsFromGold)) STEPS FROM GOLD"
+        case 3:
+            return "\(formattedSteps(summary.stepsFromSilver)) STEPS FROM SILVER"
+        case 4...10:
+            return "\(formattedSteps(summary.stepsToBronze)) STEPS TO BRONZE"
+        case 11...100 where summary.population >= Self.top100PopulationThreshold:
+            return "TOP 100 · \(formattedSteps(summary.stepsToTop10)) TO TOP 10"
+        default:
+            guard let percentile = summary.percentile else { return "Climb to be ranked" }
+            return "TOP \(percentile)% OF CLIMBERS"
         }
-        guard let percentile else { return "Climb to be ranked" }
-        return "TOP \(percentile)% OF CLIMBERS"
     }
 
     private var accessibilityLabel: String {
-        guard let rank else { return "Not yet ranked. Climb to be ranked." }
-        if rank == 1 {
-            return "Your rank this week: number 1. Top of the leaderboard."
-        }
-        if let percentile {
-            return "Your rank this week: \(rank), top \(percentile) percent of climbers."
-        }
-        return "Your rank this week: \(rank)"
+        guard let summary else { return "Not yet ranked. Climb to be ranked." }
+        return "Weekly rank by steps: number \(summary.rank). \(percentileText)."
+    }
+
+    private func formattedSteps(_ value: Int?) -> String {
+        max(value ?? 0, 0).formatted()
     }
 
     private var cardBackground: some View {
@@ -547,54 +523,64 @@ private struct HomeRankCard: View {
 
 private struct HomeMyGlobeCard: View {
     let count: Int
+    let total: Int
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("MY GLOBE")
-                        .font(.montserratSemiBold(size: 10))
-                        .tracking(1.2)
-                        .foregroundStyle(Color.accent)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("MY GLOBE")
+                    .font(.montserratSemiBold(size: 10))
+                    .tracking(1.2)
+                    .foregroundStyle(Color.accent)
 
-                    Text("\(count)")
-                        .font(.montserratBold(size: 34))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
+                Text("\(count) / \(resolvedTotal)")
+                    .font(.montserratBold(size: 34))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.64)
+                    .allowsTightening(true)
+                    .layoutPriority(2)
 
-                    Text(count == 1 ? "climb completed" : "climbs completed")
-                        .font(.montserratMedium(size: 10))
-                        .foregroundStyle(.white.opacity(0.55))
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.82)
-                        .multilineTextAlignment(.leading)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                Image("HomeMyGlobeArtwork")
-                    .resizable()
-                    .renderingMode(.original)
-                    .scaledToFit()
-                    .frame(width: 72, height: 72)
-                    .accessibilityHidden(true)
+                Text("climbs collected")
+                    .font(.montserratMedium(size: 10))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+                    .multilineTextAlignment(.leading)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14)
             .frame(minHeight: 116)
             .background(cardBackground)
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("My globe: \(count) \(count == 1 ? "climb" : "climbs") completed")
+        .accessibilityLabel("My globe: \(count) of \(resolvedTotal) climbs collected")
+    }
+
+    private var resolvedTotal: Int {
+        max(total, count)
     }
 
     private var cardBackground: some View {
         RoundedRectangle(cornerRadius: 14, style: .continuous)
             .fill(Color(hex: "111111"))
+            .overlay(alignment: .bottomTrailing) {
+                Image("HomeMyGlobeArtwork")
+                    .resizable()
+                    .renderingMode(.original)
+                    .scaledToFit()
+                    .frame(width: 180, height: 180)
+                    .opacity(0.85)
+                    .offset(x: 40, y: 40)
+                    .accessibilityHidden(true)
+            }
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .stroke(.white.opacity(0.1), lineWidth: 1)
             )
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
