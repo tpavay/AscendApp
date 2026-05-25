@@ -82,6 +82,22 @@ struct LiveReplayLeaderboardServiceTests {
         #expect(refreshedWindow?.currentSteps == 30)
         #expect(await repository.fetchWindowCount == 2)
     }
+
+    @Test
+    func fetchesCurrentUserFinisherStatus() async throws {
+        let repository = MockLiveReplayLeaderboardRepository()
+        let service = LiveReplayLeaderboardService(repository: repository)
+        let context = LiveReplayLeaderboardContext.liveClimb(
+            climbId: "pyramid-giza",
+            targetSteps: 809
+        )
+
+        let status = try await service.fetchCurrentUserFinisherStatus(context: context)
+
+        #expect(status?.globalCompletionOrder == 47)
+        #expect(status?.bestCompletionDurationSeconds == 872)
+        #expect(await repository.fetchFinisherStatusCount == 1)
+    }
 }
 
 private final class MutableDateProvider: @unchecked Sendable {
@@ -98,6 +114,7 @@ private final class MutableDateProvider: @unchecked Sendable {
 
 private actor MockLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepository {
     private(set) var fetchWindowCount = 0
+    private(set) var fetchFinisherStatusCount = 0
 
     func fetchSummary(
         context: LiveReplayLeaderboardContext
@@ -117,6 +134,19 @@ private actor MockLiveReplayLeaderboardRepository: LiveReplayLeaderboardReposito
         LiveReplayCompletionRank(
             rank: 12,
             completedCount: 89,
+            updatedAt: Date(timeIntervalSince1970: 1_777_777_700)
+        )
+    }
+
+    func fetchCurrentUserFinisherStatus(
+        context: LiveReplayLeaderboardContext
+    ) async throws -> LiveReplayFinisherStatus? {
+        fetchFinisherStatusCount += 1
+
+        return LiveReplayFinisherStatus(
+            globalCompletionOrder: 47,
+            firstCompletedAt: Date(timeIntervalSince1970: 1_777_777_600),
+            bestCompletionDurationSeconds: 872,
             updatedAt: Date(timeIntervalSince1970: 1_777_777_700)
         )
     }
