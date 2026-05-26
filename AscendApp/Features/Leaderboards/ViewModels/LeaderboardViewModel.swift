@@ -85,14 +85,20 @@ final class LeaderboardViewModel {
         )
 
         guard let syncError else { return }
+        let loadFailedWithoutEntries = errorMessage != nil && leaderboardEntries.isEmpty
+        guard loadFailedWithoutEntries == false else { return }
+
+        let hasUnsyncedActivity = hasUnsyncedActivityForSelectedBoard(userId: userId)
         switch LeaderboardNetworkIssue.classify(syncError) {
         case .offline:
             isOffline = true
             errorMessage = nil
         case .slowConnection:
+            guard hasUnsyncedActivity else { return }
             isOffline = false
             errorMessage = "Latest changes may take a moment to appear."
         case .other:
+            guard hasUnsyncedActivity else { return }
             isOffline = false
             errorMessage = leaderboardEntries.isEmpty
                 ? "Couldn’t publish your latest leaderboard stats yet."
@@ -324,6 +330,14 @@ final class LeaderboardViewModel {
             displayName: userEntry?.displayName ?? "You",
             photoURL: userEntry?.photoURL
         )
+    }
+
+    private func hasUnsyncedActivityForSelectedBoard(userId: String) -> Bool {
+        guard let localStats = try? service.getLocalStats(for: userId, timeFrame: selectedTimeFrame) else {
+            return false
+        }
+
+        return localStats.needsSync && localStats.hasActivity
     }
 
     private func formatValue(_ value: Double, for metric: LeaderboardMetric) -> String {

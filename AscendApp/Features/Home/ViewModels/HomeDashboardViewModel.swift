@@ -206,7 +206,7 @@ final class HomeDashboardViewModel {
         case .longestClimb:
             return "LONGEST CLIMB"
         case .highestAverageSPM:
-            return "HIGHEST SPM"
+            return "FASTEST PACE"
         case .mostStepsInTime(let minutes):
             return "BEST \(minutes) MIN"
         case .fastestStepTarget(let steps):
@@ -219,7 +219,9 @@ final class HomeDashboardViewModel {
         switch effort.metric {
         case .longestClimb, .fastestStepTarget:
             return BestEffortFormatting.clockTime(effort.performance.value)
-        case .mostSteps, .mostStepsInTime, .highestAverageSPM:
+        case .highestAverageSPM:
+            return effort.valueText
+        case .mostSteps, .mostStepsInTime:
             return effort.compactValueText
         }
     }

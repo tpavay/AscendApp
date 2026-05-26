@@ -8,6 +8,21 @@ final class WorkoutRemoteRepository: WorkoutRemoteRepositoryProtocol, @unchecked
 
     private init() {}
 
+    func fetchWorkouts(userId: String) async throws -> [RemoteWorkoutRecord] {
+        let snapshot = try await workoutCollectionReference(userId: userId).getDocuments()
+
+        return try snapshot.documents.compactMap { snapshot in
+            guard let workoutId = UUID(uuidString: snapshot.documentID) else {
+                return nil
+            }
+
+            return RemoteWorkoutRecord(
+                workoutId: workoutId,
+                document: try firestoreDocument(from: snapshot.data())
+            )
+        }
+    }
+
     func upsertWorkout(
         userId: String,
         workoutId: UUID,
@@ -26,10 +41,14 @@ final class WorkoutRemoteRepository: WorkoutRemoteRepositoryProtocol, @unchecked
 }
 
 private extension WorkoutRemoteRepository {
-    func workoutDocumentReference(userId: String, workoutId: UUID) -> DocumentReference {
+    func workoutCollectionReference(userId: String) -> CollectionReference {
         db.collection("users")
             .document(userId)
             .collection("workouts")
+    }
+
+    func workoutDocumentReference(userId: String, workoutId: UUID) -> DocumentReference {
+        workoutCollectionReference(userId: userId)
             .document(workoutId.uuidString)
     }
 
@@ -162,4 +181,188 @@ private extension WorkoutRemoteRepository {
             "stepsPerMinute": snapshot.stepsPerMinute
         ]
     }
+
+    func firestoreDocument(from data: [String: Any]) throws -> FirestoreWorkoutDocument {
+        FirestoreWorkoutDocument(
+            userId: try stringValue("userId", in: data),
+            schemaVersion: optionalIntValue("schemaVersion", in: data) ?? FirestoreWorkoutDocument.currentSchemaVersion,
+            name: try stringValue("name", in: data),
+            startedAt: try dateValue("startedAt", in: data),
+            durationSeconds: try doubleValue("durationSeconds", in: data),
+            steps: try intValue("steps", in: data),
+            floors: try intValue("floors", in: data),
+            stepsPerFloor: try intValue("stepsPerFloor", in: data),
+            notes: try stringValue("notes", in: data),
+            source: try stringValue("source", in: data),
+            integrityLevel: try stringValue("integrityLevel", in: data),
+            createdAt: try dateValue("createdAt", in: data),
+            updatedAt: try dateValue("updatedAt", in: data),
+            avgHeartRateBpm: optionalIntValue("avgHeartRateBpm", in: data),
+            maxHeartRateBpm: optionalIntValue("maxHeartRateBpm", in: data),
+            caloriesBurned: optionalIntValue("caloriesBurned", in: data),
+            effortRating: optionalDoubleValue("effortRating", in: data),
+            averageMETs: optionalDoubleValue("averageMETs", in: data),
+            deviceModel: data["deviceModel"] as? String,
+            sourceMetadata: data["sourceMetadata"] as? String,
+            healthKitUUID: data["healthKitUUID"] as? String,
+            hevyWorkoutId: data["hevyWorkoutId"] as? String,
+            media: try firestoreMediaItems(from: data["media"]),
+            highlightedMediaId: data["highlightedMediaId"] as? String,
+            weightConfiguration: try firestoreWeightConfiguration(from: data["weightConfiguration"]),
+            heartRateSeries: try firestoreHeartRateSeriesReference(from: data["heartRateSeries"]),
+            participations: try firestoreParticipations(from: data["participations"])
+        )
+    }
+
+    func firestoreMediaItems(from value: Any?) throws -> [FirestoreWorkoutMediaItem]? {
+        guard let items = value as? [[String: Any]] else { return nil }
+        return try items.map { item in
+            FirestoreWorkoutMediaItem(
+                id: try stringValue("id", in: item),
+                url: try stringValue("url", in: item),
+                uploadedAt: try dateValue("uploadedAt", in: item),
+                type: try stringValue("type", in: item),
+                durationSeconds: optionalDoubleValue("durationSeconds", in: item)
+            )
+        }
+    }
+
+    func firestoreWeightConfiguration(from value: Any?) throws -> FirestoreWorkoutWeightConfiguration? {
+        guard let data = value as? [String: Any],
+              let entries = data["entries"] as? [[String: Any]] else {
+            return nil
+        }
+
+        return FirestoreWorkoutWeightConfiguration(
+            entries: try entries.map { entry in
+                FirestoreWorkoutWeightEntry(
+                    id: try stringValue("id", in: entry),
+                    equipmentType: try stringValue("equipmentType", in: entry),
+                    weightValue: try doubleValue("weightValue", in: entry),
+                    isEnabled: optionalBoolValue("isEnabled", in: entry) ?? true
+                )
+            }
+        )
+    }
+
+    func firestoreHeartRateSeriesReference(from value: Any?) throws -> FirestoreWorkoutHeartRateSeriesReference? {
+        guard let data = value as? [String: Any] else { return nil }
+
+        return FirestoreWorkoutHeartRateSeriesReference(
+            storagePath: try stringValue("storagePath", in: data),
+            encoding: try stringValue("encoding", in: data),
+            sampleCount: try intValue("sampleCount", in: data),
+            seriesStartAt: try dateValue("seriesStartAt", in: data),
+            seriesEndAt: try dateValue("seriesEndAt", in: data)
+        )
+    }
+
+    func firestoreParticipations(from value: Any?) throws -> [FirestoreWorkoutParticipation]? {
+        guard let participations = value as? [[String: Any]] else { return nil }
+        return try participations.map { participation in
+            FirestoreWorkoutParticipation(
+                id: try stringValue("id", in: participation),
+                workoutId: try stringValue("workoutId", in: participation),
+                userId: try stringValue("userId", in: participation),
+                contextType: try stringValue("contextType", in: participation),
+                contextId: try stringValue("contextId", in: participation),
+                contextVersion: try intValue("contextVersion", in: participation),
+                rulesVersion: try intValue("rulesVersion", in: participation),
+                role: try stringValue("role", in: participation),
+                leaderboardEligible: try boolValue("leaderboardEligible", in: participation),
+                verificationTier: try stringValue("verificationTier", in: participation),
+                metricsSnapshot: try firestoreParticipationMetricsSnapshot(from: participation["metricsSnapshot"]),
+                createdAt: try dateValue("createdAt", in: participation)
+            )
+        }
+    }
+
+    func firestoreParticipationMetricsSnapshot(from value: Any?) throws -> FirestoreWorkoutParticipationMetricsSnapshot {
+        guard let data = value as? [String: Any] else {
+            throw WorkoutRemoteRepositoryDecodingError.missingField("metricsSnapshot")
+        }
+
+        return FirestoreWorkoutParticipationMetricsSnapshot(
+            startedAt: try dateValue("startedAt", in: data),
+            durationSeconds: try doubleValue("durationSeconds", in: data),
+            steps: try intValue("steps", in: data),
+            floors: try intValue("floors", in: data),
+            stepsPerMinute: try doubleValue("stepsPerMinute", in: data)
+        )
+    }
+
+    func stringValue(_ key: String, in data: [String: Any]) throws -> String {
+        guard let value = data[key] as? String else {
+            throw WorkoutRemoteRepositoryDecodingError.missingField(key)
+        }
+        return value
+    }
+
+    func intValue(_ key: String, in data: [String: Any]) throws -> Int {
+        guard let value = optionalIntValue(key, in: data) else {
+            throw WorkoutRemoteRepositoryDecodingError.missingField(key)
+        }
+        return value
+    }
+
+    func optionalIntValue(_ key: String, in data: [String: Any]) -> Int? {
+        if let value = data[key] as? Int {
+            return value
+        }
+        if let value = data[key] as? NSNumber {
+            return value.intValue
+        }
+        return nil
+    }
+
+    func doubleValue(_ key: String, in data: [String: Any]) throws -> Double {
+        guard let value = optionalDoubleValue(key, in: data) else {
+            throw WorkoutRemoteRepositoryDecodingError.missingField(key)
+        }
+        return value
+    }
+
+    func optionalDoubleValue(_ key: String, in data: [String: Any]) -> Double? {
+        if let value = data[key] as? Double {
+            return value
+        }
+        if let value = data[key] as? Int {
+            return Double(value)
+        }
+        if let value = data[key] as? NSNumber {
+            return value.doubleValue
+        }
+        return nil
+    }
+
+    func boolValue(_ key: String, in data: [String: Any]) throws -> Bool {
+        guard let value = optionalBoolValue(key, in: data) else {
+            throw WorkoutRemoteRepositoryDecodingError.missingField(key)
+        }
+        return value
+    }
+
+    func optionalBoolValue(_ key: String, in data: [String: Any]) -> Bool? {
+        if let value = data[key] as? Bool {
+            return value
+        }
+        if let value = data[key] as? NSNumber {
+            return value.boolValue
+        }
+        return nil
+    }
+
+    func dateValue(_ key: String, in data: [String: Any]) throws -> Date {
+        if let timestamp = data[key] as? Timestamp {
+            return timestamp.dateValue()
+        }
+        if let date = data[key] as? Date {
+            return date
+        }
+        throw WorkoutRemoteRepositoryDecodingError.missingField(key)
+    }
+}
+
+enum WorkoutRemoteRepositoryDecodingError: Error, Equatable {
+    case missingField(String)
 }

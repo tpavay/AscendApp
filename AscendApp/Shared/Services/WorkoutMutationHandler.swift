@@ -35,7 +35,7 @@ final class WorkoutMutationHandler {
             let didUpdateLeaderboard = try leaderboardService.applyMutationImpact(impact, for: userId)
 
             try modelContext.save()
-            rebuildBestEffortCacheAfterMutation(modelContext: modelContext)
+            rebuildBestEffortCacheAfterMutation(modelContext: modelContext, userId: userId)
             NotificationCenter.default.post(name: .workoutsDidChange, object: nil)
 
             if !changedWorkouts.isEmpty {
@@ -67,7 +67,7 @@ final class WorkoutMutationHandler {
         }
 
         try modelContext.save()
-        rebuildBestEffortCacheAfterMutation(modelContext: modelContext)
+        rebuildBestEffortCacheAfterMutation(modelContext: modelContext, userId: nil)
         NotificationCenter.default.post(name: .workoutsDidChange, object: nil)
     }
 
@@ -81,9 +81,9 @@ final class WorkoutMutationHandler {
         }
     }
 
-    private func rebuildBestEffortCacheAfterMutation(modelContext: ModelContext) {
+    private func rebuildBestEffortCacheAfterMutation(modelContext: ModelContext, userId: String?) {
         do {
-            try BestEffortCacheStore.rebuild(modelContext: modelContext)
+            try BestEffortCacheStore.rebuild(modelContext: modelContext, userId: userId)
         } catch {
             print("Failed to rebuild Best Effort cache after workout mutation: \(error)")
         }

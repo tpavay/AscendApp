@@ -11,6 +11,7 @@ import SwiftData
 struct MainTabView: View {
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
+    @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(NetworkConnectivityService.self) private var connectivityService
     @State private var themeManager = ThemeManager.shared
     @State private var tabRouter = TabRouter()
@@ -151,7 +152,10 @@ struct MainTabView: View {
 
     private func rebuildBestEffortCacheIfNeeded() {
         do {
-            try BestEffortCacheStore.rebuildIfNeeded(modelContext: modelContext)
+            try BestEffortCacheStore.rebuildIfNeeded(
+                modelContext: modelContext,
+                userId: authVM.user?.uid
+            )
         } catch {
             print("Failed to rebuild Best Effort cache: \(error)")
         }

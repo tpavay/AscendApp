@@ -44,14 +44,18 @@ class AuthenticationViewModel {
     var isErrorAlertPresented: Bool = false
     var photoURL: URL?
     var customProfilePictureURL: URL?
+    private(set) var lastUsedProvider: AuthProviderKind?
 
     /// Indicates whether the profile data has been loaded from Firestore/cache after auth restore.
     /// Used to avoid showing authenticated UI before profile state is known.
     private(set) var isProfileLoaded: Bool = false
 
     private var authenticationService = AuthenticationService()
+    private let accountSessionStore = AccountSessionStore.shared
 
     init() {
+        lastUsedProvider = accountSessionStore.lastUsedProvider
+
         // Load cached display name immediately for UI responsiveness
         displayName = UserDataRepository.shared.getCachedDisplayName() ?? ""
         
@@ -173,6 +177,7 @@ extension AuthenticationViewModel {
 
         do {
             _ = try await authenticationService.signInWithGoogle()
+            recordSuccessfulSignIn(provider: .google)
             TelemetryManager.shared.log(.authInteractiveSignInSuccess)
         } catch {
             // Don't show error for user cancellation
@@ -214,6 +219,7 @@ extension AuthenticationViewModel {
 
         do {
             _ = try await authenticationService.signInWithEmail(email: trimmedEmail, password: password)
+            recordSuccessfulSignIn(provider: .internalQA)
             TelemetryManager.shared.log(.authInteractiveSignInSuccess)
         } catch {
             TelemetryManager.shared.log(.authSignInFailed)
@@ -234,6 +240,7 @@ extension AuthenticationViewModel {
 
         do {
             _ = try await authenticationService.signInWithApple()
+            recordSuccessfulSignIn(provider: .apple)
             TelemetryManager.shared.log(.authInteractiveSignInSuccess)
         } catch {
             // Don't show error for user cancellation
@@ -282,6 +289,11 @@ extension AuthenticationViewModel {
         }
 
         return .authenticated
+    }
+
+    private func recordSuccessfulSignIn(provider: AuthProviderKind) {
+        accountSessionStore.recordSuccessfulSignIn(provider: provider)
+        lastUsedProvider = provider
     }
     
     private func saveUserToFirestore(user: User) async throws {

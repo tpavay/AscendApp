@@ -22,7 +22,23 @@ struct Climb: Codable, Identifiable, Hashable {
     let funFact: String
     let sourceURL: String
     let imageSetVersion: Int
-    let isPublished: Bool
+    let releaseState: ClimbReleaseState
+
+    var isAvailable: Bool {
+        releaseState.isAvailable
+    }
+
+    var isComingSoon: Bool {
+        releaseState == .comingSoon
+    }
+
+    var isVisibleOnGlobe: Bool {
+        releaseState.isVisibleOnGlobe
+    }
+
+    var isPublished: Bool {
+        releaseState != .hidden && releaseState != .disabled
+    }
 
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
@@ -82,7 +98,31 @@ struct Climb: Codable, Identifiable, Hashable {
         funFact: "The Empire State Building opened in 1931 and held the tallest-building title for nearly 40 years.",
         sourceURL: "https://en.wikipedia.org/wiki/Empire_State_Building",
         imageSetVersion: 1,
-        isPublished: true
+        releaseState: .available
+    )
+
+    static let previewComingSoon = Climb(
+        id: "coming-soon-preview",
+        name: "Coming Soon",
+        city: "Unknown",
+        country: "Unknown",
+        continent: "Unknown",
+        latitude: 0,
+        longitude: 0,
+        totalHeightMeters: 100,
+        totalHeightFeet: 328,
+        realClimbableHeightMeters: nil,
+        realClimbableHeightFeet: nil,
+        totalSteps: 500,
+        realStairCount: nil,
+        calculatedFloors: 25,
+        category: "tower",
+        tier: .bronze,
+        tags: ["coming soon"],
+        funFact: "A new First Ascent opens here soon.",
+        sourceURL: "https://ascendstepper.com",
+        imageSetVersion: 1,
+        releaseState: .comingSoon
     )
 
     enum CodingKeys: String, CodingKey {
@@ -106,6 +146,7 @@ struct Climb: Codable, Identifiable, Hashable {
         case funFact
         case sourceURL
         case imageSetVersion
+        case releaseState
         case isPublished
     }
 
@@ -130,7 +171,8 @@ struct Climb: Codable, Identifiable, Hashable {
         funFact: String,
         sourceURL: String,
         imageSetVersion: Int = 1,
-        isPublished: Bool = true
+        releaseState: ClimbReleaseState = .available,
+        isPublished: Bool? = nil
     ) {
         self.id = id
         self.name = name
@@ -152,7 +194,11 @@ struct Climb: Codable, Identifiable, Hashable {
         self.funFact = funFact
         self.sourceURL = sourceURL
         self.imageSetVersion = imageSetVersion
-        self.isPublished = isPublished
+        if isPublished == false {
+            self.releaseState = .hidden
+        } else {
+            self.releaseState = releaseState
+        }
     }
 
     init(from decoder: Decoder) throws {
@@ -177,7 +223,13 @@ struct Climb: Codable, Identifiable, Hashable {
         funFact = try container.decode(String.self, forKey: .funFact)
         sourceURL = try container.decode(String.self, forKey: .sourceURL)
         imageSetVersion = try container.decodeIfPresent(Int.self, forKey: .imageSetVersion) ?? 1
-        isPublished = try container.decodeIfPresent(Bool.self, forKey: .isPublished) ?? true
+        if let decodedReleaseState = try container.decodeIfPresent(ClimbReleaseState.self, forKey: .releaseState) {
+            releaseState = decodedReleaseState
+        } else if try container.decodeIfPresent(Bool.self, forKey: .isPublished) == false {
+            releaseState = .hidden
+        } else {
+            releaseState = .available
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -202,7 +254,7 @@ struct Climb: Codable, Identifiable, Hashable {
         try container.encode(funFact, forKey: .funFact)
         try container.encode(sourceURL, forKey: .sourceURL)
         try container.encode(imageSetVersion, forKey: .imageSetVersion)
-        try container.encode(isPublished, forKey: .isPublished)
+        try container.encode(releaseState, forKey: .releaseState)
     }
 
     private func clampedCameraDistance(

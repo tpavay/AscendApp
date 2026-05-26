@@ -570,6 +570,10 @@ private actor FakeWorkoutRemoteRepository: WorkoutRemoteRepositoryProtocol {
         self.onUpsert = onUpsert
     }
 
+    func fetchWorkouts(userId: String) async throws -> [RemoteWorkoutRecord] {
+        []
+    }
+
     func upsertWorkout(
         userId: String,
         workoutId: UUID,
@@ -677,6 +681,10 @@ private actor FlakyWorkoutRemoteRepository: WorkoutRemoteRepositoryProtocol {
 
     init(failingUpsertAttempts: Int) {
         self.remainingFailingUpsertAttempts = failingUpsertAttempts
+    }
+
+    func fetchWorkouts(userId: String) async throws -> [RemoteWorkoutRecord] {
+        []
     }
 
     func upsertWorkout(

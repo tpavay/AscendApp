@@ -30,6 +30,20 @@ struct WorkoutParticipationMetricsSnapshot: Codable, Equatable, Sendable {
     let floors: Int
     let stepsPerMinute: Double
 
+    init(
+        startedAt: Date,
+        durationSeconds: Double,
+        steps: Int,
+        floors: Int,
+        stepsPerMinute: Double
+    ) {
+        self.startedAt = startedAt
+        self.durationSeconds = durationSeconds
+        self.steps = steps
+        self.floors = floors
+        self.stepsPerMinute = stepsPerMinute
+    }
+
     init(workout: Workout) {
         startedAt = workout.date
         durationSeconds = workout.duration

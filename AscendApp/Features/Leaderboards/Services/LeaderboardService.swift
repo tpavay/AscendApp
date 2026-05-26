@@ -34,6 +34,7 @@ final class LeaderboardService {
     ) throws {
         let context = try requireContext()
         let existingStats = try fetchUserStats(for: userId)
+        let ownedWorkouts = workouts.filter { $0.ownerUserId == userId }
 
         for stat in existingStats {
             context.delete(stat)
@@ -41,7 +42,7 @@ final class LeaderboardService {
 
         for timeFrame in LeaderboardTimeFrame.allCases {
             let period = timeFrame.currentPeriod(referenceDate: referenceDate)
-            let aggregate = aggregate(for: timeFrame, workouts: workouts, referenceDate: referenceDate)
+            let aggregate = aggregate(for: timeFrame, workouts: ownedWorkouts, referenceDate: referenceDate)
             let stats = LeaderboardStats(userId: userId, timeFrame: timeFrame, period: period)
             stats.replaceTotals(with: aggregate, period: period, updatedAt: referenceDate)
             context.insert(stats)
@@ -59,13 +60,13 @@ final class LeaderboardService {
 
         let context = try requireContext()
         if impact == .rebuildAll {
-            let workouts = try fetchAllWorkouts()
+            let workouts = try fetchWorkouts(for: userId)
             try rebuildCurrentStats(for: userId, workouts: workouts, referenceDate: referenceDate)
             return true
         }
 
         if try needsCurrentSchemaRebuild(for: userId, referenceDate: referenceDate) {
-            let workouts = try fetchAllWorkouts()
+            let workouts = try fetchWorkouts(for: userId)
             try rebuildCurrentStats(for: userId, workouts: workouts, referenceDate: referenceDate)
             return true
         }
@@ -128,8 +129,15 @@ final class LeaderboardService {
             stats.userId == userId && stats.needsSync
         }
         let statsToSync = try context.fetch(FetchDescriptor<LeaderboardStats>(predicate: predicate))
+        var clearedNoOpStats = false
 
-        return statsToSync.compactMap { stats in
+        let payloads: [LeaderboardSyncPayload] = statsToSync.compactMap { stats -> LeaderboardSyncPayload? in
+            if stats.hasActivity == false, stats.lastSyncedToFirestore == nil {
+                stats.needsSync = false
+                clearedNoOpStats = true
+                return nil
+            }
+
             guard let timeFrame = LeaderboardTimeFrame(rawValue: stats.timeFrame) else { return nil }
             return LeaderboardSyncPayload(
                 localStatID: stats.id,
@@ -149,6 +157,12 @@ final class LeaderboardService {
                 operation: stats.hasActivity ? .upsert : .delete
             )
         }
+
+        if clearedNoOpStats {
+            try context.save()
+        }
+
+        return payloads
     }
 
     func markSynced(payloads: [LeaderboardSyncPayload], syncedAt: Date = Date()) throws {
@@ -298,10 +312,15 @@ final class LeaderboardService {
         return try context.fetch(FetchDescriptor<LeaderboardStats>())
     }
 
-    private func fetchAllWorkouts() throws -> [Workout] {
+    private func fetchWorkouts(for userId: String) throws -> [Workout] {
         let context = try requireContext()
         return try context.fetch(
-            FetchDescriptor<Workout>(sortBy: [SortDescriptor(\.date, order: .forward)])
+            FetchDescriptor<Workout>(
+                predicate: #Predicate<Workout> { workout in
+                    workout.ownerUserId == userId
+                },
+                sortBy: [SortDescriptor(\.date, order: .forward)]
+            )
         )
     }
 

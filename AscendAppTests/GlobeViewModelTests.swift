@@ -163,6 +163,37 @@ struct GlobeViewModelTests {
         #expect(viewModel.liveClimbCommunityCompletedUserCount == 1)
     }
 
+    @Test
+    func comingSoonClimbsStayOnGlobeButOutOfSearchAndDailyRecommendation() throws {
+        let available = makeClimb(
+            id: "available-climb",
+            category: "tower",
+            heightMeters: 100,
+            steps: 1_000,
+            floors: 50
+        )
+        let comingSoon = makeClimb(
+            id: "coming-soon-climb",
+            category: "tower",
+            heightMeters: 200,
+            steps: 2_000,
+            floors: 100,
+            releaseState: .comingSoon
+        )
+        let viewModel = GlobeViewModel(climbService: makeClimbService(with: [available, comingSoon]))
+        let modelContext = try makeModelContext()
+
+        GlobeViewModel.debugClearDailyRecommendedClimbId()
+        viewModel.loadIfNeeded(modelContext: modelContext)
+        viewModel.searchQuery = "coming"
+
+        #expect(viewModel.visibleClimbs.map(\.id) == [available.id, comingSoon.id])
+        #expect(viewModel.availableClimbs.map(\.id) == [available.id])
+        #expect(viewModel.searchSuggestions.isEmpty)
+        #expect(viewModel.dailyRecommendedClimb?.id == available.id)
+    }
+
+
     private func makeModelContext() throws -> ModelContext {
         let container = try ModelContainer(
             for: ClimbAttempt.self,
@@ -182,7 +213,8 @@ struct GlobeViewModelTests {
         category: String,
         heightMeters: Double,
         steps: Int,
-        floors: Int
+        floors: Int,
+        releaseState: ClimbReleaseState = .available
     ) -> Climb {
         Climb(
             id: id,
@@ -205,7 +237,7 @@ struct GlobeViewModelTests {
             funFact: "Fact",
             sourceURL: "https://example.com",
             imageSetVersion: 1,
-            isPublished: true
+            releaseState: releaseState
         )
     }
 }

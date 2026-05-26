@@ -43,7 +43,15 @@ final class GlobeViewModel {
     }
 
     var climbCount: Int {
-        visibleClimbs.count
+        availableClimbs.count
+    }
+
+    var availableClimbs: [Climb] {
+        visibleClimbs.filter(\.isAvailable)
+    }
+
+    var comingSoonClimbs: [Climb] {
+        visibleClimbs.filter(\.isComingSoon)
     }
 
     var liveClimbCommunityCompletedUserCount: Int {
@@ -52,11 +60,11 @@ final class GlobeViewModel {
 
     var firstFeaturedClimb: Climb? {
         if let featuredClimbId,
-           let featuredClimb = visibleClimbs.first(where: { $0.id == featuredClimbId }) {
+           let featuredClimb = availableClimbs.first(where: { $0.id == featuredClimbId }) {
             return featuredClimb
         }
 
-        return visibleClimbs.sorted { lhs, rhs in
+        return availableClimbs.sorted { lhs, rhs in
             if lhs.tier == rhs.tier {
                 return lhs.name < rhs.name
             }
@@ -68,7 +76,7 @@ final class GlobeViewModel {
         let normalizedQuery = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedQuery.isEmpty else { return [] }
 
-        return visibleClimbs
+        return availableClimbs
             .compactMap { climb -> (climb: Climb, rank: Int)? in
                 guard let rank = searchRank(for: climb, query: normalizedQuery) else { return nil }
                 return (climb, rank)
@@ -92,7 +100,7 @@ final class GlobeViewModel {
         }
 
         do {
-            visibleClimbs = try climbService.loadClimbs()
+            visibleClimbs = try climbService.loadVisibleClimbs()
             featuredClimbId = climbService.featuredClimbId
             catalogSource = climbService.catalogSource
             refresh(modelContext: modelContext)
@@ -108,7 +116,7 @@ final class GlobeViewModel {
 
     func reloadCatalog(modelContext: ModelContext) {
         do {
-            visibleClimbs = try climbService.loadClimbs()
+            visibleClimbs = try climbService.loadVisibleClimbs()
             featuredClimbId = climbService.featuredClimbId
             catalogSource = climbService.catalogSource
             refresh(modelContext: modelContext)
@@ -123,7 +131,7 @@ final class GlobeViewModel {
     func refresh(modelContext: ModelContext) {
         completedClimbIds = climbService.completedClimbIds(modelContext: modelContext)
         lastCompletedSummary = try? climbService.lastCompletedSummary(modelContext: modelContext)
-        homeCardState = (try? climbService.homeCardState(modelContext: modelContext)) ?? .neverClimbed(totalClimbs: visibleClimbs.count)
+        homeCardState = (try? climbService.homeCardState(modelContext: modelContext)) ?? .neverClimbed(totalClimbs: availableClimbs.count)
         refreshDailyRecommendedClimb()
 
         if let previewSummary {
@@ -417,16 +425,16 @@ final class GlobeViewModel {
     }
 
     private func nextDailyRecommendedClimb() -> Climb? {
-        let uncompletedClimbs = sortedDailyClimbs(visibleClimbs.filter { !completedClimbIds.contains($0.id) })
+        let uncompletedClimbs = sortedDailyClimbs(availableClimbs.filter { !completedClimbIds.contains($0.id) })
         if let climb = dailyClimb(from: uncompletedClimbs) {
             return climb
         }
 
-        return dailyClimb(from: sortedDailyClimbs(visibleClimbs))
+        return dailyClimb(from: sortedDailyClimbs(availableClimbs))
     }
 
     private func refreshDailyRecommendedClimb() {
-        guard !visibleClimbs.isEmpty else {
+        guard !availableClimbs.isEmpty else {
             dailyRecommendedClimb = nil
             return
         }
@@ -436,7 +444,7 @@ final class GlobeViewModel {
 
         if defaults.string(forKey: Self.dailyRecommendationDayDefaultsKey) == todayKey,
            let storedClimbId = defaults.string(forKey: Self.dailyRecommendationClimbDefaultsKey),
-           let storedClimb = visibleClimbs.first(where: { $0.id == storedClimbId }) {
+           let storedClimb = availableClimbs.first(where: { $0.id == storedClimbId }) {
             dailyRecommendedClimb = storedClimb
             return
         }
@@ -489,7 +497,7 @@ final class GlobeViewModel {
     )
 }
 
-#if DEBUG
+#if DEBUG || STAGING
 extension GlobeViewModel {
     static func debugDailyRecommendedClimbId() -> String? {
         let defaults = UserDefaults.standard

@@ -28,7 +28,9 @@ struct LeaderboardUserRowView: View {
             Text("\(entry.rank)")
                 .font(.montserratBold(size: 30))
                 .foregroundStyle(.accent)
-                .frame(width: 38, alignment: .leading)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(width: 52, alignment: .leading)
 
             profileImage
                 .frame(width: 42, height: 42)
@@ -130,7 +132,7 @@ struct LeaderboardUserRowView: View {
         entry: LeaderboardEntry(
             userId: "1",
             displayName: "Ryan T.",
-            rank: 4,
+            rank: 43,
             value: 15_872_211,
             formattedValue: "15,872,211",
             isCurrentUser: true

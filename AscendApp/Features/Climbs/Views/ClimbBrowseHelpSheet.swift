@@ -79,6 +79,15 @@ struct ClimbBrowseHelpSheet: View {
                             legendRow(
                                 title: "Available",
                                 description: "A climb you can preview and start.",
+                                climb: .preview,
+                                isCompleted: false,
+                                isHighlighted: false
+                            )
+
+                            legendRow(
+                                title: "Coming Soon",
+                                description: "A future climb pinned on the globe but not open yet.",
+                                climb: .previewComingSoon,
                                 isCompleted: false,
                                 isHighlighted: false
                             )
@@ -86,6 +95,7 @@ struct ClimbBrowseHelpSheet: View {
                             legendRow(
                                 title: "Completed",
                                 description: "A climb you have already finished at least once.",
+                                climb: .preview,
                                 isCompleted: true,
                                 isHighlighted: false
                             )
@@ -175,12 +185,13 @@ struct ClimbBrowseHelpSheet: View {
     private func legendRow(
         title: String,
         description: String,
+        climb: Climb,
         isCompleted: Bool,
         isHighlighted: Bool
     ) -> some View {
         HStack(alignment: .top, spacing: 14) {
             ClimbPinView(
-                climb: .preview,
+                climb: climb,
                 isCompleted: isCompleted,
                 isHighlighted: isHighlighted
             )

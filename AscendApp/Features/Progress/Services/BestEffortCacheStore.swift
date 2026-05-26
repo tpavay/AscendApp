@@ -16,10 +16,11 @@ enum BestEffortCacheStore {
 
     static func rebuildIfNeeded(
         modelContext: ModelContext,
+        userId: String? = nil,
         referenceDate: Date = Date(),
         calendar: Calendar = .current
     ) throws {
-        let workouts = try fetchWorkouts(modelContext: modelContext)
+        let workouts = try fetchWorkouts(modelContext: modelContext, userId: userId)
         let referenceYear = calendar.component(.year, from: referenceDate)
         let signature = workoutSignature(for: workouts, referenceYear: referenceYear)
         let metadata = try fetchMetadata(modelContext: modelContext)
@@ -43,10 +44,11 @@ enum BestEffortCacheStore {
 
     static func rebuild(
         modelContext: ModelContext,
+        userId: String? = nil,
         referenceDate: Date = Date(),
         calendar: Calendar = .current
     ) throws {
-        let workouts = try fetchWorkouts(modelContext: modelContext)
+        let workouts = try fetchWorkouts(modelContext: modelContext, userId: userId)
         let referenceYear = calendar.component(.year, from: referenceDate)
         try rebuild(
             modelContext: modelContext,
@@ -150,7 +152,17 @@ enum BestEffortCacheStore {
         try modelContext.save()
     }
 
-    private static func fetchWorkouts(modelContext: ModelContext) throws -> [Workout] {
+    private static func fetchWorkouts(modelContext: ModelContext, userId: String?) throws -> [Workout] {
+        if let userId {
+            let descriptor = FetchDescriptor<Workout>(
+                predicate: #Predicate<Workout> { workout in
+                    workout.ownerUserId == userId
+                },
+                sortBy: [SortDescriptor(\.date, order: .reverse)]
+            )
+            return try modelContext.fetch(descriptor)
+        }
+
         let descriptor = FetchDescriptor<Workout>(
             sortBy: [SortDescriptor(\.date, order: .reverse)]
         )

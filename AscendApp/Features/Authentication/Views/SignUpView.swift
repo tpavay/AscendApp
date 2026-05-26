@@ -18,6 +18,7 @@ struct SignUpView: View {
                     errorMessage: hasAttemptedInteractiveSignIn ? authVM.errorMessage : nil,
                     googleIsLoading: authVM.authenticationState == .authenticatingWithGoogle,
                     appleIsLoading: authVM.authenticationState == .authenticatingWithApple,
+                    lastUsedProvider: authVM.lastUsedProvider,
                     showsInternalQA: InternalQASignInAvailability.isEnabled(projectID: FirebaseApp.app()?.options.projectID),
                     isDisabled: authVM.authenticationState.isAuthenticating,
                     onGoogle: signInWithGoogle,
@@ -143,6 +144,7 @@ private struct AuthLandingContent: View {
     let errorMessage: String?
     let googleIsLoading: Bool
     let appleIsLoading: Bool
+    let lastUsedProvider: AuthProviderKind?
     let showsInternalQA: Bool
     let isDisabled: Bool
     let onGoogle: () -> Void
@@ -183,6 +185,7 @@ private struct AuthLandingContent: View {
                         height: layout.buttonHeight,
                         cornerRadius: layout.buttonCornerRadius,
                         fontSize: layout.buttonFontSize,
+                        accessoryTitle: lastUsedProvider == .google ? "Last Used" : nil,
                         icon: {
                             Image("GoogleIcon")
                                 .resizable()
@@ -200,6 +203,7 @@ private struct AuthLandingContent: View {
                         height: layout.buttonHeight,
                         cornerRadius: layout.buttonCornerRadius,
                         fontSize: layout.buttonFontSize,
+                        accessoryTitle: lastUsedProvider == .apple ? "Last Used" : nil,
                         icon: {
                             Image(systemName: "apple.logo")
                                 .font(.system(size: 24, weight: .semibold))
@@ -321,6 +325,24 @@ private enum AuthProviderButtonStyle {
         }
     }
 
+    var accessoryForegroundColor: Color {
+        switch self {
+        case .google:
+            Color(red: 23 / 255, green: 25 / 255, blue: 31 / 255).opacity(0.72)
+        case .apple:
+            .white.opacity(0.76)
+        }
+    }
+
+    var accessoryBackgroundColor: Color {
+        switch self {
+        case .google:
+            Color.black.opacity(0.08)
+        case .apple:
+            .white.opacity(0.12)
+        }
+    }
+
     func background(cornerRadius: CGFloat) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
 
@@ -375,6 +397,7 @@ private struct AuthProviderButton<Icon: View>: View {
     let height: CGFloat
     let cornerRadius: CGFloat
     let fontSize: CGFloat
+    let accessoryTitle: String?
     @ViewBuilder let icon: () -> Icon
     let action: () -> Void
 
@@ -393,6 +416,20 @@ private struct AuthProviderButton<Icon: View>: View {
                     .font(.montserratSemiBold(size: fontSize))
                     .lineLimit(1)
                     .minimumScaleFactor(0.76)
+
+                if let accessoryTitle, !isLoading {
+                    Text(accessoryTitle.uppercased())
+                        .font(.montserratBold(size: 9))
+                        .foregroundStyle(style.accessoryForegroundColor)
+                        .lineLimit(1)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(
+                            Capsule()
+                                .fill(style.accessoryBackgroundColor)
+                        )
+                        .accessibilityHidden(true)
+                }
             }
             .foregroundStyle(style.foregroundColor)
             .frame(maxWidth: .infinity)
@@ -404,7 +441,12 @@ private struct AuthProviderButton<Icon: View>: View {
         .buttonStyle(.plain)
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.72 : 1)
-        .accessibilityLabel(title)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var accessibilityLabel: String {
+        guard let accessoryTitle else { return title }
+        return "\(title), \(accessoryTitle)"
     }
 }
 

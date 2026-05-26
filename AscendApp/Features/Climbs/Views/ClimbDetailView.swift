@@ -152,7 +152,10 @@ struct ClimbDetailView: View {
                     perspective: 0.72
                 )
 
-            flipCardButton
+            if !isHeroCardFlipped {
+                flipCardButton
+                    .transition(.opacity)
+            }
         }
         .contentShape(heroShape)
         .onTapGesture {
@@ -528,10 +531,6 @@ struct ClimbDetailView: View {
 
     private var historyPage: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Your History")
-                .font(.montserratBold(size: 22))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
             if viewModel.historySummary.recentEntries.isEmpty {
                 Text("Attempts and completions for this climb will show up here.")
                     .font(.montserratRegular(size: 15))
@@ -560,19 +559,12 @@ struct ClimbDetailView: View {
 
     private var leaderboardPage: some View {
         VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Leaderboard")
-                    .font(.montserratBold(size: 22))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                Spacer(minLength: 0)
-
-                if viewModel.completionLeaderboardCompletedCount > 0 {
-                    Text("\(viewModel.completionLeaderboardCompletedCount.formatted()) completed")
-                        .font(.montserratSemiBold(size: 13))
-                        .foregroundStyle(.accent)
-                        .monospacedDigit()
-                }
+            if viewModel.completionLeaderboardCompletedCount > 0 {
+                Text("\(viewModel.completionLeaderboardCompletedCount.formatted()) completed")
+                    .font(.montserratSemiBold(size: 13))
+                    .foregroundStyle(.accent)
+                    .monospacedDigit()
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
 
             if let firstAscent = viewModel.leaderboardSummary.firstAscent {
@@ -638,11 +630,11 @@ struct ClimbDetailView: View {
 
     private var leaderboardEmptyState: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("No completed times yet")
+            Text("No completed times yet.")
                 .font(.montserratBold(size: 18))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
 
-            Text("Complete this climb to put the first time on the board.")
+            Text("First Ascent open. The first finisher claims it forever.")
                 .font(.montserratRegular(size: 14))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.66) : .black.opacity(0.58))
                 .fixedSize(horizontal: false, vertical: true)
@@ -971,7 +963,7 @@ struct ClimbDetailView: View {
     private var communityCaption: some View {
         Group {
             if viewModel.communityCompletedCount == 0 {
-                Text("Nobody's finished this climb yet. Be the first.")
+                Text("First Ascent open. The first finisher claims it forever.")
                     .font(.montserratRegular(size: 15))
                     .foregroundStyle(communitySecondaryColor)
                     .lineLimit(2)
@@ -996,7 +988,7 @@ struct ClimbDetailView: View {
 
     private var communityAccessibilityLabel: String {
         if viewModel.communityCompletedCount == 0 {
-            return "Nobody has finished this climb yet. Be the first."
+            return "First Ascent open. The first finisher claims it forever."
         }
         return "\(viewModel.communityCompletedCount) completed"
     }

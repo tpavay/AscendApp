@@ -246,6 +246,26 @@ struct ClimbServiceTests {
         #expect(workout.participations.isEmpty)
     }
 
+    @Test
+    func releaseStatesSeparateAvailableFromVisibleCatalogClimbs() throws {
+        let available = makeClimb(id: "available-climb", requiredSteps: 1_000)
+        let comingSoon = makeClimb(
+            id: "coming-soon-climb",
+            requiredSteps: 2_000,
+            releaseState: .comingSoon
+        )
+        let hidden = makeClimb(
+            id: "hidden-climb",
+            requiredSteps: 3_000,
+            releaseState: .hidden
+        )
+        let service = ClimbService(catalogRepository: TestClimbCatalogRepository(climbs: [available, comingSoon, hidden]))
+
+        #expect(try service.loadClimbs().map(\.id) == [available.id])
+        #expect(try service.loadVisibleClimbs().map(\.id) == [available.id, comingSoon.id])
+        #expect(try service.climb(for: comingSoon.id)?.id == comingSoon.id)
+    }
+
     private func makeModelContext() throws -> ModelContext {
         let container = try ModelContainer(
             for: ClimbAttempt.self,
@@ -257,7 +277,11 @@ struct ClimbServiceTests {
         return ModelContext(container)
     }
 
-    private func makeClimb(id: String, requiredSteps: Int) -> Climb {
+    private func makeClimb(
+        id: String,
+        requiredSteps: Int,
+        releaseState: ClimbReleaseState = .available
+    ) -> Climb {
         Climb(
             id: id,
             name: id,
@@ -279,7 +303,7 @@ struct ClimbServiceTests {
             funFact: "Fact",
             sourceURL: "https://example.com",
             imageSetVersion: 1,
-            isPublished: true
+            releaseState: releaseState
         )
     }
 }
