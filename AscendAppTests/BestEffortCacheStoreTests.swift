@@ -101,6 +101,45 @@ struct BestEffortCacheStoreTests {
         #expect(cachedProgression.map(\.compactValueText) == ["1,000", "1,500"])
     }
 
+    @Test
+    @MainActor
+    func rebuildWithUserIdIgnoresOtherUsersWorkouts() throws {
+        let modelContext = try makeModelContext()
+        let referenceDate = makeDate(year: 2026, month: 5, day: 10)
+        let ownedWorkout = makeWorkout(
+            name: "Owned Record",
+            date: referenceDate,
+            duration: 600,
+            steps: 1_000,
+            ownerUserId: "user-1"
+        )
+        let foreignWorkout = makeWorkout(
+            name: "Foreign Record",
+            date: referenceDate,
+            duration: 600,
+            steps: 4_000,
+            ownerUserId: "user-2"
+        )
+
+        modelContext.insert(ownedWorkout)
+        modelContext.insert(foreignWorkout)
+        try modelContext.save()
+
+        try BestEffortCacheStore.rebuild(
+            modelContext: modelContext,
+            userId: "user-1",
+            referenceDate: referenceDate
+        )
+
+        let snapshot = BestEffortCacheSnapshot(
+            entries: try fetchCacheEntries(in: modelContext),
+            workouts: try fetchWorkouts(in: modelContext)
+        )
+
+        #expect(snapshot.primaryEffort(for: ownedWorkout) != nil)
+        #expect(snapshot.primaryEffort(for: foreignWorkout) == nil)
+    }
+
     private func makeModelContext() throws -> ModelContext {
         let container = try ModelContainer(
             for: Workout.self,
@@ -133,9 +172,10 @@ struct BestEffortCacheStoreTests {
         name: String,
         date: Date,
         duration: TimeInterval,
-        steps: Int
+        steps: Int,
+        ownerUserId: String? = nil
     ) -> Workout {
-        Workout(
+        let workout = Workout(
             name: name,
             date: date,
             duration: duration,
@@ -144,6 +184,10 @@ struct BestEffortCacheStoreTests {
             stepsPerFloor: 16,
             source: .manual
         )
+        if let ownerUserId {
+            workout.markPendingRemoteUpsert(ownerUserId: ownerUserId, modifiedAt: date)
+        }
+        return workout
     }
 
     private func makeDate(year: Int, month: Int, day: Int) -> Date {

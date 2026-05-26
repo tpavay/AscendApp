@@ -261,7 +261,7 @@ struct ClimbBrowseView: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(.white.opacity(isSearchFocused ? 0.2 : 0.1), lineWidth: 1)
         )
-        .disabled(viewModel.visibleClimbs.isEmpty)
+        .disabled(viewModel.availableClimbs.isEmpty)
     }
 
     // MARK: - Search Results
@@ -304,15 +304,15 @@ struct ClimbBrowseView: View {
 
     private var browseSectionsContent: some View {
         VStack(alignment: .leading, spacing: 22) {
-            horizontalClimbSection(title: "Popular", climbs: popularClimbs, showsSeeAll: true)
-            horizontalClimbSection(title: "Easiest", climbs: easiestClimbs)
-            horizontalClimbSection(title: "Hardest", climbs: hardestClimbs)
-
-            if !completedClimbs.isEmpty {
-                horizontalClimbSection(title: "Completed", climbs: completedClimbs)
+            if let dailyRecommendedClimb = viewModel.dailyRecommendedClimb {
+                todaysClimbSection(dailyRecommendedClimb)
             }
 
             allClimbsSection
+
+            if !viewModel.comingSoonClimbs.isEmpty {
+                comingSoonSection
+            }
         }
     }
 
@@ -352,13 +352,65 @@ struct ClimbBrowseView: View {
 
     private var allClimbsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader("All Climbs")
+            sectionHeader("All Climbs (\(allClimbs.count))")
 
             VStack(spacing: 8) {
                 ForEach(allClimbs) { climb in
-                    climbResultRow(for: climb, source: .browseAll)
+                    climbResultRow(
+                        for: climb,
+                        source: .browseAll,
+                        isHighlighted: climb.id == viewModel.dailyRecommendedClimb?.id
+                    )
                 }
             }
+        }
+    }
+
+    private func todaysClimbSection(_ climb: Climb) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeader("Today's Climb")
+
+            climbResultRow(for: climb, source: .browseSection, isHighlighted: true)
+        }
+    }
+
+    private var comingSoonSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeader("Coming Soon")
+
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "lock")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(.accent)
+                    .frame(width: 28, height: 28)
+                    .background(
+                        Circle()
+                            .fill(Color.accent.opacity(0.14))
+                    )
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("\(viewModel.comingSoonClimbs.count.formatted()) First Ascents are still locked.")
+                        .font(.montserratSemiBold(size: 14))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text("New climbs open soon. Ghost pins on the globe show where the next races will land.")
+                        .font(.montserratRegular(size: 12.5))
+                        .foregroundStyle(.white.opacity(0.56))
+                        .lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(.white.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(.white.opacity(0.1), lineWidth: 1)
+            )
         }
     }
 
@@ -433,7 +485,8 @@ struct ClimbBrowseView: View {
 
     private func climbResultRow(
         for climb: Climb,
-        source: LiveClimbAnalyticsEvent.EntryPoint
+        source: LiveClimbAnalyticsEvent.EntryPoint,
+        isHighlighted: Bool = false
     ) -> some View {
         Button {
             openClimbFromDrawer(climb, source: source)
@@ -441,6 +494,10 @@ struct ClimbBrowseView: View {
             ClimbResultRowView(
                 climb: climb,
                 isCompleted: viewModel.isCompleted(climb)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(isHighlighted ? Color.accent.opacity(0.72) : .clear, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -525,6 +582,8 @@ struct ClimbBrowseView: View {
         _ climb: Climb,
         source: LiveClimbAnalyticsEvent.EntryPoint
     ) {
+        guard climb.isAvailable else { return }
+
         isSearchFocused = false
         viewModel.previewSummary = nil
         viewModel.userDidInteract()
@@ -539,6 +598,8 @@ struct ClimbBrowseView: View {
     }
 
     private func openPreviewClimb(_ climb: Climb) {
+        guard climb.isAvailable else { return }
+
         isSearchFocused = false
         viewModel.userDidInteract()
         selectedDetailEntryPoint = .browsePreview
@@ -562,7 +623,7 @@ struct ClimbBrowseView: View {
         TelemetryManager.shared.track(
             LiveClimbAnalyticsEvent.browseOpened(
                 entryPoint: analyticsEntryPoint,
-                totalClimbs: viewModel.visibleClimbs.count
+                totalClimbs: viewModel.climbCount
             )
         )
     }
@@ -591,70 +652,12 @@ struct ClimbBrowseView: View {
         !viewModel.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private var popularClimbs: [Climb] {
-        let featured = viewModel.firstFeaturedClimb.map { [$0] } ?? []
-        let tiered = viewModel.visibleClimbs.sorted { lhs, rhs in
-            if lhs.tier == rhs.tier {
-                return lhs.referenceStepCount < rhs.referenceStepCount
-            }
-            return lhs.tier > rhs.tier
-        }
-        return Array(uniqueClimbs(featured + tiered).prefix(10))
-    }
-
-    private var easiestClimbs: [Climb] {
-        Array(
-            viewModel.visibleClimbs
-                .sorted { lhs, rhs in
-                    if lhs.referenceStepCount == rhs.referenceStepCount {
-                        return lhs.name < rhs.name
-                    }
-                    return lhs.referenceStepCount < rhs.referenceStepCount
-                }
-                .prefix(10)
-        )
-    }
-
-    private var hardestClimbs: [Climb] {
-        Array(
-            viewModel.visibleClimbs
-                .sorted { lhs, rhs in
-                    if lhs.referenceStepCount == rhs.referenceStepCount {
-                        return lhs.name < rhs.name
-                    }
-                    return lhs.referenceStepCount > rhs.referenceStepCount
-                }
-                .prefix(10)
-        )
-    }
-
-    private var completedClimbs: [Climb] {
-        Array(
-            viewModel.visibleClimbs
-                .filter { viewModel.isCompleted($0) }
-                .sorted { lhs, rhs in
-                    if lhs.tier == rhs.tier {
-                        return lhs.name < rhs.name
-                    }
-                    return lhs.tier > rhs.tier
-                }
-                .prefix(10)
-        )
-    }
-
     private var allClimbs: [Climb] {
-        viewModel.visibleClimbs.sorted { lhs, rhs in
+        viewModel.availableClimbs.sorted { lhs, rhs in
             if lhs.referenceStepCount == rhs.referenceStepCount {
                 return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
             }
             return lhs.referenceStepCount < rhs.referenceStepCount
-        }
-    }
-
-    private func uniqueClimbs(_ climbs: [Climb]) -> [Climb] {
-        var seenIds = Set<String>()
-        return climbs.filter { climb in
-            seenIds.insert(climb.id).inserted
         }
     }
 }

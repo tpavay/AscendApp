@@ -17,7 +17,8 @@ struct LeaderboardServiceTests {
             date: utcDate(year: 2026, month: 4, day: 8, hour: 7),
             duration: 1_800,
             steps: 900,
-            floors: 60
+            floors: 60,
+            ownerUserId: userId
         )
         modelContext.insert(originalWorkout)
         try modelContext.save()
@@ -83,6 +84,91 @@ struct LeaderboardServiceTests {
         }
     }
 
+    @Test
+    func rebuildCurrentStatsIgnoresWorkoutsOwnedByOtherUsers() throws {
+        let referenceDate = utcDate(year: 2026, month: 4, day: 10, hour: 12)
+        let userId = "user-1"
+        let service = LeaderboardService.shared
+        let modelContext = try makeModelContext()
+        service.configure(modelContext: modelContext)
+
+        let ownedWorkout = makeWorkout(
+            date: utcDate(year: 2026, month: 4, day: 8, hour: 7),
+            duration: 1_800,
+            steps: 900,
+            floors: 60,
+            ownerUserId: userId
+        )
+        let foreignWorkout = makeWorkout(
+            date: utcDate(year: 2026, month: 4, day: 8, hour: 8),
+            duration: 1_800,
+            steps: 2_000,
+            floors: 125,
+            ownerUserId: "user-2"
+        )
+
+        modelContext.insert(ownedWorkout)
+        modelContext.insert(foreignWorkout)
+        try modelContext.save()
+
+        try service.rebuildCurrentStats(
+            for: userId,
+            workouts: [ownedWorkout, foreignWorkout],
+            referenceDate: referenceDate
+        )
+
+        let statsByTimeFrame = try fetchStats(for: userId, in: modelContext)
+        #expect(statsByTimeFrame[.weekly]?.totalSteps == 900)
+        #expect(statsByTimeFrame[.weekly]?.totalWorkouts == 1)
+        #expect(statsByTimeFrame[.allTime]?.totalSteps == 900)
+    }
+
+    @Test
+    func prepareSyncPayloadsSkipsNeverSyncedZeroActivityStats() throws {
+        let referenceDate = utcDate(year: 2026, month: 4, day: 10, hour: 12)
+        let userId = "user-1"
+        let service = LeaderboardService.shared
+        let modelContext = try makeModelContext()
+        service.configure(modelContext: modelContext)
+        let period = LeaderboardTimeFrame.weekly.currentPeriod(referenceDate: referenceDate)
+        let emptyStats = LeaderboardStats(userId: userId, timeFrame: .weekly, period: period)
+        modelContext.insert(emptyStats)
+        try modelContext.save()
+
+        let payloads = try service.prepareSyncPayloads(
+            userId: userId,
+            displayName: "User",
+            photoURL: nil
+        )
+
+        #expect(payloads.isEmpty)
+        #expect(emptyStats.needsSync == false)
+    }
+
+    @Test
+    func prepareSyncPayloadsKeepsDeleteForPreviouslySyncedZeroActivityStats() throws {
+        let referenceDate = utcDate(year: 2026, month: 4, day: 10, hour: 12)
+        let userId = "user-1"
+        let service = LeaderboardService.shared
+        let modelContext = try makeModelContext()
+        service.configure(modelContext: modelContext)
+        let period = LeaderboardTimeFrame.weekly.currentPeriod(referenceDate: referenceDate)
+        let emptyStats = LeaderboardStats(userId: userId, timeFrame: .weekly, period: period)
+        emptyStats.lastSyncedToFirestore = referenceDate.addingTimeInterval(-60)
+        modelContext.insert(emptyStats)
+        try modelContext.save()
+
+        let payloads = try service.prepareSyncPayloads(
+            userId: userId,
+            displayName: "User",
+            photoURL: nil
+        )
+
+        #expect(payloads.count == 1)
+        #expect(payloads.first?.operation == .delete)
+        #expect(emptyStats.needsSync)
+    }
+
     private func makeModelContext() throws -> ModelContext {
         let container = try ModelContainer(
             for: Workout.self,
@@ -105,8 +191,14 @@ struct LeaderboardServiceTests {
         })
     }
 
-    private func makeWorkout(date: Date, duration: TimeInterval, steps: Int, floors: Int) -> Workout {
-        Workout(
+    private func makeWorkout(
+        date: Date,
+        duration: TimeInterval,
+        steps: Int,
+        floors: Int,
+        ownerUserId: String? = nil
+    ) -> Workout {
+        let workout = Workout(
             name: "Workout",
             date: date,
             duration: duration,
@@ -115,6 +207,10 @@ struct LeaderboardServiceTests {
             stepsPerFloor: 16,
             source: .manual
         )
+        if let ownerUserId {
+            workout.markPendingRemoteUpsert(ownerUserId: ownerUserId, modifiedAt: date)
+        }
+        return workout
     }
 
     private func utcDate(year: Int, month: Int, day: Int, hour: Int = 0) -> Date {

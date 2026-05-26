@@ -7,6 +7,8 @@ final class ClimbService {
 
     private let catalogRepository: any ClimbCatalogRepository
     private var cachedClimbs: [Climb]?
+    private var cachedVisibleClimbs: [Climb] = []
+    private var cachedAvailableClimbs: [Climb] = []
     private var cachedClimbsByID: [String: Climb] = [:]
     private(set) var featuredClimbId: String?
     private(set) var catalogSource: ClimbCatalogSource = .bootstrap
@@ -17,13 +19,37 @@ final class ClimbService {
     }
 
     func loadClimbs() throws -> [Climb] {
-        if let cachedClimbs {
-            return cachedClimbs
+        try loadAvailableClimbs()
+    }
+
+    func loadVisibleClimbs() throws -> [Climb] {
+        if cachedClimbs != nil {
+            return cachedVisibleClimbs
         }
 
         let snapshot = try catalogRepository.loadInitialCatalog()
         cache(snapshot: snapshot)
-        return snapshot.publishedClimbs
+        return snapshot.visibleClimbs
+    }
+
+    func loadAvailableClimbs() throws -> [Climb] {
+        if cachedClimbs != nil {
+            return cachedAvailableClimbs
+        }
+
+        let snapshot = try catalogRepository.loadInitialCatalog()
+        cache(snapshot: snapshot)
+        return snapshot.availableClimbs
+    }
+
+    func loadComingSoonClimbs() throws -> [Climb] {
+        if let cachedClimbs {
+            return cachedClimbs.filter(\.isComingSoon)
+        }
+
+        let snapshot = try catalogRepository.loadInitialCatalog()
+        cache(snapshot: snapshot)
+        return snapshot.comingSoonClimbs
     }
 
     @discardableResult
@@ -37,7 +63,7 @@ final class ClimbService {
 
         let didChange = existingVersion != snapshot.catalogVersion ||
             existingFeaturedClimbId != snapshot.featuredClimbId ||
-            existingClimbs != snapshot.publishedClimbs
+            existingClimbs != snapshot.climbs
 
         if didChange {
             postCatalogChangeNotification()
@@ -54,7 +80,7 @@ final class ClimbService {
     }
 
     func homeCardState(modelContext: ModelContext) throws -> ClimbHomeCardState {
-        let climbs = try loadClimbs()
+        let climbs = try loadAvailableClimbs()
 
         if let lastCompletedSummary = try lastCompletedSummary(modelContext: modelContext) {
             return .inactive(lastCompletedSummary)
@@ -86,7 +112,7 @@ final class ClimbService {
     }
 
     func lastCompletedSummary(modelContext: ModelContext) throws -> CompletedClimbSummary? {
-        let climbs = try loadClimbs()
+        let climbs = try loadAvailableClimbs()
         let totalClimbs = climbs.count
         let completedAttempts = fetchAttempts(modelContext: modelContext)
             .filter { $0.status == .completed }
@@ -322,9 +348,10 @@ final class ClimbService {
     }
 
     private func cache(snapshot: ClimbCatalogSnapshot) {
-        let publishedClimbs = snapshot.publishedClimbs
-        cachedClimbs = publishedClimbs
-        cachedClimbsByID = Dictionary(uniqueKeysWithValues: publishedClimbs.map { ($0.id, $0) })
+        cachedClimbs = snapshot.climbs
+        cachedVisibleClimbs = snapshot.visibleClimbs
+        cachedAvailableClimbs = snapshot.availableClimbs
+        cachedClimbsByID = Dictionary(uniqueKeysWithValues: snapshot.climbs.map { ($0.id, $0) })
         featuredClimbId = snapshot.featuredClimbId
         catalogSource = snapshot.source
         catalogVersion = snapshot.catalogVersion

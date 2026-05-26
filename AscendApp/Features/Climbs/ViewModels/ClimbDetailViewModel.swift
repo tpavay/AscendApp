@@ -47,11 +47,11 @@ final class ClimbDetailViewModel {
     }
 
     var actionTitle: String {
-        "Start Live Climb"
+        climb.isAvailable ? "Start Live Climb" : "Coming Soon"
     }
 
     var isActionEnabled: Bool {
-        true
+        climb.isAvailable
     }
 
     var estimatedTimeText: String {

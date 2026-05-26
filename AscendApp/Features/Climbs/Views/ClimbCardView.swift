@@ -140,15 +140,15 @@ struct ClimbCardView: View {
         }
 
         if let featuredClimbId = viewModel.featuredClimbId,
-           let featuredClimb = viewModel.visibleClimbs.first(where: { $0.id == featuredClimbId }) {
+           let featuredClimb = viewModel.availableClimbs.first(where: { $0.id == featuredClimbId }) {
             return featuredClimb
         }
 
-        if let empireState = viewModel.visibleClimbs.first(where: { $0.id == "empire-state-building" }) {
+        if let empireState = viewModel.availableClimbs.first(where: { $0.id == "empire-state-building" }) {
             return empireState
         }
 
-        return viewModel.visibleClimbs.first ?? .preview
+        return viewModel.availableClimbs.first ?? .preview
     }
 
     private func estimatedTimeText(for climb: Climb) -> String {

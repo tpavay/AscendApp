@@ -102,7 +102,7 @@ struct HomeView: View {
                     HomeRankGlobeRow(
                         weeklyRankSummary: homeDashboard.weeklyRankSummary,
                         completedClimbCount: homeDashboard.completedClimbCount,
-                        totalClimbCount: globeViewModel.visibleClimbs.count,
+                        totalClimbCount: globeViewModel.climbCount,
                         onRankTapped: { tabRouter.selectedTab = .leaderboard },
                         onGlobeTapped: { presentClimbBrowse() }
                     )
@@ -227,7 +227,7 @@ struct HomeView: View {
     private func presentClimbBrowse() {
         TelemetryManager.shared.track(
             LiveClimbAnalyticsEvent.homeExploreTapped(
-                totalClimbs: globeViewModel.visibleClimbs.count
+                totalClimbs: globeViewModel.climbCount
             )
         )
         globeViewModel.prepareForBrowseEntry()
@@ -514,10 +514,21 @@ private struct HomeRankCard: View {
     private var cardBackground: some View {
         RoundedRectangle(cornerRadius: 14, style: .continuous)
             .fill(Color(hex: "111111"))
+            .overlay(alignment: .bottomTrailing) {
+                Image("HomeRankTrophyArtwork")
+                    .resizable()
+                    .renderingMode(.original)
+                    .scaledToFit()
+                    .frame(width: 180, height: 180)
+                    .opacity(0.85)
+                    .offset(x: 40, y: 40)
+                    .accessibilityHidden(true)
+            }
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .stroke(.white.opacity(0.1), lineWidth: 1)
             )
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
@@ -646,11 +657,7 @@ private struct HomePRCard: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.82)
 
-            Text(record.value)
-                .font(.montserratBold(size: 22))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+            valueText
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -665,6 +672,39 @@ private struct HomePRCard: View {
         )
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(record.label): \(record.value)\(record.isNew ? ", new personal record" : "")")
+    }
+
+    @ViewBuilder
+    private var valueText: some View {
+        switch record.metric {
+        case .highestAverageSPM:
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(paceValueNumber)
+                    .font(.montserratBold(size: 22))
+                    .foregroundStyle(.white)
+
+                Text(paceValueUnit)
+                    .font(.montserratBold(size: 11))
+                    .foregroundStyle(.white.opacity(0.72))
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+        default:
+            Text(record.value)
+                .font(.montserratBold(size: 22))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+    }
+
+    private var paceValueNumber: String {
+        record.value.split(separator: " ", maxSplits: 1).first.map(String.init) ?? record.value
+    }
+
+    private var paceValueUnit: String {
+        let parts = record.value.split(separator: " ", maxSplits: 1).map(String.init)
+        return parts.dropFirst().first ?? "SPM"
     }
 }
 

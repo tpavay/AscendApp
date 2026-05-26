@@ -1,6 +1,8 @@
 import Foundation
 
 protocol WorkoutRemoteRepositoryProtocol: Sendable {
+    func fetchWorkouts(userId: String) async throws -> [RemoteWorkoutRecord]
+
     func upsertWorkout(
         userId: String,
         workoutId: UUID,

@@ -14,7 +14,7 @@ enum TodayClimbStakeLine: Equatable {
         case .unavailable:
             return "Climb it. Claim your place on the board."
         case .openFirstAscent:
-            return "Be the first. Earn the First Ascent forever."
+            return "First Ascent open. The first finisher claims it forever."
         case .nextFinisher(let order):
             return "Be the \(Self.ordinalText(for: order)) finisher."
         case .joinFinishers(let count):

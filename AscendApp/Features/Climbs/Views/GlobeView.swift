@@ -48,8 +48,16 @@ struct GlobeView: View {
             )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(climb.name), \(climb.displayLocation)")
-        .accessibilityHint("Preview climb details")
+        .accessibilityLabel(accessibilityLabel(for: climb))
+        .accessibilityHint(climb.isAvailable ? "Preview climb details" : "Preview coming soon climb")
+    }
+
+    private func accessibilityLabel(for climb: Climb) -> String {
+        if climb.isComingSoon {
+            return "Coming soon climb, \(climb.displayLocation)"
+        }
+
+        return "\(climb.name), \(climb.displayLocation)"
     }
 }
 

@@ -7,7 +7,15 @@ struct ClimbCatalogSnapshot {
     let featuredClimbId: String?
     let updatedAt: Date?
 
-    var publishedClimbs: [Climb] {
-        climbs.filter(\.isPublished)
+    var visibleClimbs: [Climb] {
+        climbs.filter(\.isVisibleOnGlobe)
+    }
+
+    var availableClimbs: [Climb] {
+        climbs.filter(\.isAvailable)
+    }
+
+    var comingSoonClimbs: [Climb] {
+        climbs.filter(\.isComingSoon)
     }
 }

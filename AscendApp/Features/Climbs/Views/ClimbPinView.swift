@@ -41,19 +41,28 @@ struct ClimbPinView: View {
 
     private var pinIcon: some View {
         AppIcon(
-            token: isCompleted ? .mapPinFill : .mapPin,
+            token: isCompleted || climb.isAvailable ? .mapPinFill : .mapPin,
             pointSize: pinSize
         )
         .foregroundStyle(pinColor)
+        .opacity(climb.isComingSoon ? 0.42 : 1)
     }
 
     private var pinColor: Color {
+        if climb.isComingSoon {
+            return .white.opacity(0.72)
+        }
+
         return tierColor
     }
 
     private var shadowColor: Color {
         if isCompleted {
             return tierColor
+        }
+
+        if climb.isComingSoon {
+            return .white.opacity(0.3)
         }
 
         return tierColor
@@ -84,7 +93,7 @@ struct ClimbPinView: View {
 
     private var availableSelectionGlow: some View {
         Circle()
-            .fill(.white.opacity(0.24))
+            .fill((climb.isComingSoon ? Color.white.opacity(0.12) : Color.white.opacity(0.24)))
             .frame(width: 12, height: 12)
             .blur(radius: 0.8)
             .offset(y: -7)
@@ -101,6 +110,10 @@ struct ClimbPinView: View {
         VStack(spacing: 8) {
             ClimbPinView(climb: .preview, isCompleted: true, isHighlighted: false)
             Text("Completed").font(.caption2)
+        }
+        VStack(spacing: 8) {
+            ClimbPinView(climb: .previewComingSoon, isCompleted: false, isHighlighted: false)
+            Text("Coming").font(.caption2)
         }
         VStack(spacing: 8) {
             ClimbPinView(climb: .preview, isCompleted: false, isHighlighted: true)
