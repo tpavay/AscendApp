@@ -1,4 +1,6 @@
 import SwiftUI
+import UIKit
+import UserNotifications
 
 struct CollectionSection: View {
     let collection: ProfileCollectionSummary
@@ -12,40 +14,53 @@ struct CollectionSection: View {
         if collection.catalogCount > 0, !previewCards.isEmpty {
             ProfileCardSurfaceView {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("COLLECTION")
-                        .font(.montserratSemiBold(size: 11))
-                        .tracking(1.2)
-                        .foregroundStyle(Color.accentColor)
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text("Climbs Collection")
+                            .font(.montserratBold(size: 21))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
 
-                    Text("\(collection.collectedCount) of \(collection.catalogCount) climbs collected")
-                        .font(.montserratBold(size: 21))
-                        .foregroundStyle(.white)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.72)
+                        Spacer(minLength: 0)
 
-                    HStack(alignment: .top, spacing: 10) {
-                        ForEach(previewCards) { item in
-                            NavigationLink {
-                                ClimbDetailView(climb: item.climb, analyticsEntryPoint: .unknown)
-                            } label: {
-                                CollectionPreviewCard(item: item)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(accessibilityLabel(for: item))
-                            .accessibilityHint("Open \(item.climb.name)")
-                        }
+                        Text("\(collection.collectedCount) of \(collection.catalogCount)")
+                            .font(.montserratSemiBold(size: 12))
+                            .tracking(0.8)
+                            .foregroundStyle(Color.accentColor)
+                            .lineLimit(1)
+                            .fixedSize()
+                            .accessibilityLabel("\(collection.collectedCount) of \(collection.catalogCount) climbs collected")
                     }
 
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(alignment: .top, spacing: 10) {
+                            ForEach(previewCards) { item in
+                                NavigationLink {
+                                    ClimbDetailView(climb: item.climb, analyticsEntryPoint: .unknown)
+                                } label: {
+                                    CollectionCard(item: item, style: .profilePreview)
+                                        .frame(width: CollectionCardStyle.profilePreview.cardWidth)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(accessibilityLabel(for: item))
+                                .accessibilityHint("Open \(item.climb.name)")
+                            }
+                        }
+                        .padding(.vertical, 1)
+                        .padding(.trailing, 2)
+                    }
+                    .scrollIndicators(.hidden)
+
                     NavigationLink {
-                        CollectionGalleryPlaceholderView(totalCount: collection.catalogCount)
+                        ClimbsCollectionView(collection: collection, mode: mode)
                     } label: {
-                        Text("View all \(collection.catalogCount) climbs")
+                        Text("View all climbs")
                             .font(.montserratSemiBold(size: 14))
                             .foregroundStyle(Color.accentColor)
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.plain)
-                    .padding(.top, 2)
+                    .padding(.top, 4)
                 }
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -63,99 +78,458 @@ struct CollectionSection: View {
     }
 }
 
-private struct CollectionPreviewCard: View {
-    let item: ProfileCollectionCardItem
+private struct ClimbsCollectionView: View {
+    let collection: ProfileCollectionSummary
+    let mode: ProfileViewMode
 
-    private let cornerRadius: CGFloat = 9
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedComingSoonClimb: Climb?
+    @State private var isHandlingNotifications = false
+
+    private let launchedColumns = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12)
+    ]
+    private let comingSoonColumns = [
+        GridItem(.flexible(), spacing: 8),
+        GridItem(.flexible(), spacing: 8),
+        GridItem(.flexible(), spacing: 8)
+    ]
 
     var body: some View {
-        VStack(spacing: 7) {
-            ClimbArtworkView(climb: item.climb, variant: .card)
-                .aspectRatio(1.02, contentMode: .fill)
-                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                topBar
+                progressSummary
+                launchedGrid
 
-            Text(item.climb.name)
-                .font(.montserratBold(size: 11))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.78)
-                .frame(height: 28)
-                .frame(maxWidth: .infinity)
+                if !collection.comingSoonClimbs.isEmpty {
+                    comingSoonSection
+                }
 
-            statusStrip
-                .frame(height: 32)
+                if mode == .own {
+                    notificationsCTA
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 34)
         }
-        .padding(7)
-        .frame(maxWidth: .infinity)
-        .background(ProfileVisualStyle.cardFill)
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        .animatedClimbCardBorder(
-            colors: item.climb.tier.borderColors,
-            shadowColor: item.climb.tier.shadowColor,
-            cornerRadius: cornerRadius,
-            lineWidth: 1,
-            isEmphasized: item.climb.tier.usesEmphasizedBorderStyle,
-            animationStyle: .ambient
-        )
-        .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .scrollIndicators(.hidden)
+        .background(ProfileVisualStyle.background.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
+        .sheet(item: $selectedComingSoonClimb) { climb in
+            CollectionComingSoonDetailSheet(climb: climb)
+        }
     }
 
-    @ViewBuilder
-    private var statusStrip: some View {
-        if let claimedAt = item.claimedAt {
-            HStack(spacing: 5) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 13, weight: .semibold))
+    private var topBar: some View {
+        ZStack {
+            Text("CLIMBS COLLECTION")
+                .font(.montserratSemiBold(size: 18))
+                .tracking(2.4)
+                .foregroundStyle(Color.accentColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .frame(maxWidth: .infinity)
+
+            HStack {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 48, height: 48)
+                        .background(
+                            Circle()
+                                .fill(Color.white.opacity(0.045))
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                                )
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Back")
+
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private var progressSummary: some View {
+        HStack(spacing: 16) {
+            CollectionProgressBar(
+                collectedCount: collection.collectedCount,
+                catalogCount: collection.catalogCount
+            )
+            .frame(height: 10)
+
+            Text("\(collection.collectedCount) / \(collection.catalogCount)")
+                .font(.montserratBold(size: 18))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(collection.collectedCount) of \(collection.catalogCount) climbs collected")
+    }
+
+    private var launchedGrid: some View {
+        LazyVGrid(columns: launchedColumns, spacing: 12) {
+            ForEach(collection.launchedCards) { item in
+                NavigationLink {
+                    ClimbDetailView(climb: item.climb, analyticsEntryPoint: .unknown)
+                } label: {
+                    CollectionCard(item: item, style: .grid)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(accessibilityLabel(for: item))
+                .accessibilityHint("Open \(item.climb.name)")
+            }
+        }
+    }
+
+    private var comingSoonSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("COMING SOON")
+                    .font(.montserratSemiBold(size: 11))
+                    .tracking(2.4)
                     .foregroundStyle(Color.accentColor)
 
-                Text("Claimed \(ProfileDateFormatters.fullDate(claimedAt))")
-                    .font(.montserratMedium(size: 9))
-                    .foregroundStyle(ProfileVisualStyle.secondaryText)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.72)
+                Text("More climbs are on the way")
+                    .font(.montserratBold(size: 20))
+                    .foregroundStyle(.white)
             }
-            .frame(maxWidth: .infinity, alignment: .center)
-        } else {
-            Text("Climb")
-                .font(.montserratSemiBold(size: 13))
-                .foregroundStyle(Color.accentColor)
+
+            LazyVGrid(columns: comingSoonColumns, spacing: 8) {
+                ForEach(collection.comingSoonClimbs) { climb in
+                    Button {
+                        selectedComingSoonClimb = climb
+                    } label: {
+                        CollectionComingSoonCard(climb: climb)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Coming soon climb")
+                    .accessibilityHint("Reveal the region")
+                }
+            }
+        }
+        .padding(.top, 2)
+    }
+
+    private var notificationsCTA: some View {
+        VStack(spacing: 10) {
+            Text("Be the first to know when new climbs drop.")
+                .font(.montserratMedium(size: 14))
+                .foregroundStyle(.white.opacity(0.9))
+                .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
-                .frame(height: 32)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .stroke(Color.accentColor, lineWidth: 1)
-                )
+
+            Button {
+                handleNotificationsTap()
+            } label: {
+                Text("Turn on notifications")
+                    .font(.montserratBold(size: 20))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 46)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color.accentColor, lineWidth: 1.5)
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(isHandlingNotifications)
+        }
+        .padding(.top, 2)
+    }
+
+    private func accessibilityLabel(for item: ProfileCollectionCardItem) -> String {
+        if item.claimedAt != nil {
+            return "\(item.climb.name), collected"
+        }
+
+        return "\(item.climb.name), not collected"
+    }
+
+    private func handleNotificationsTap() {
+        guard !isHandlingNotifications else { return }
+        isHandlingNotifications = true
+
+        Task {
+            await CollectionNotificationPermissionHandler.handleTurnOnNotifications()
+            isHandlingNotifications = false
         }
     }
 }
 
-private struct CollectionGalleryPlaceholderView: View {
-    let totalCount: Int
+private struct CollectionProgressBar: View {
+    let collectedCount: Int
+    let catalogCount: Int
+
+    private var progress: CGFloat {
+        guard catalogCount > 0 else { return 0 }
+        return min(max(CGFloat(collectedCount) / CGFloat(catalogCount), 0), 1)
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("COLLECTION")
-                    .font(.montserratBold(size: 28))
-                    .foregroundStyle(.white)
-                    .tracking(1.4)
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.white.opacity(0.08))
 
-                ProfileCardSurfaceView {
-                    Text("Full collection grid is next. \(totalCount) launched climbs are available.")
-                        .font(.montserratMedium(size: 14))
-                        .foregroundStyle(ProfileVisualStyle.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(16)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                Capsule()
+                    .fill(Color.accentColor)
+                    .frame(width: max(proxy.size.width * progress, progress > 0 ? 18 : 0))
             }
-            .padding(20)
         }
-        .scrollIndicators(.hidden)
+    }
+}
+
+private struct CollectionCardStyle {
+    let cardWidth: CGFloat
+    let artworkHeight: CGFloat
+    let cardPadding: CGFloat
+    let spacing: CGFloat
+    let cornerRadius: CGFloat
+    let artworkCornerRadius: CGFloat
+    let nameFontSize: CGFloat
+    let nameHeight: CGFloat
+    let buttonFontSize: CGFloat
+    let buttonHeight: CGFloat
+    let badgeSize: CGFloat
+
+    static let profilePreview = CollectionCardStyle(
+        cardWidth: 154,
+        artworkHeight: 138,
+        cardPadding: 7,
+        spacing: 7,
+        cornerRadius: 9,
+        artworkCornerRadius: 7,
+        nameFontSize: 11,
+        nameHeight: 28,
+        buttonFontSize: 13,
+        buttonHeight: 32,
+        badgeSize: 26
+    )
+
+    static let grid = CollectionCardStyle(
+        cardWidth: 0,
+        artworkHeight: 96,
+        cardPadding: 7,
+        spacing: 7,
+        cornerRadius: 10,
+        artworkCornerRadius: 8,
+        nameFontSize: 12,
+        nameHeight: 30,
+        buttonFontSize: 13,
+        buttonHeight: 32,
+        badgeSize: 26
+    )
+}
+
+private struct CollectionCard: View {
+    let item: ProfileCollectionCardItem
+    let style: CollectionCardStyle
+
+    private var isClaimed: Bool {
+        item.claimedAt != nil
+    }
+
+    var body: some View {
+        VStack(spacing: style.spacing) {
+            ClimbArtworkView(climb: item.climb, variant: .card)
+                .frame(height: style.artworkHeight)
+                .clipShape(RoundedRectangle(cornerRadius: style.artworkCornerRadius, style: .continuous))
+                .overlay(alignment: .topTrailing) {
+                    if isClaimed {
+                        claimedBadge
+                            .padding(7)
+                    }
+                }
+
+            Text(item.climb.name)
+                .font(.montserratBold(size: style.nameFontSize))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.78)
+                .frame(height: style.nameHeight)
+                .frame(maxWidth: .infinity)
+
+            climbAction
+        }
+        .padding(style.cardPadding)
+        .frame(maxWidth: .infinity)
+        .background(Color.black.opacity(0.54))
+        .clipShape(RoundedRectangle(cornerRadius: style.cornerRadius, style: .continuous))
+        .animatedClimbCardBorder(
+            colors: item.climb.tier.borderColors,
+            shadowColor: item.climb.tier.shadowColor,
+            cornerRadius: style.cornerRadius,
+            lineWidth: 1,
+            isEmphasized: item.climb.tier.usesEmphasizedBorderStyle,
+            animationStyle: .ambient
+        )
+        .contentShape(RoundedRectangle(cornerRadius: style.cornerRadius, style: .continuous))
+    }
+
+    private var claimedBadge: some View {
+        Circle()
+            .fill(Color.accentColor)
+            .frame(width: style.badgeSize, height: style.badgeSize)
+            .overlay {
+                Image(systemName: "checkmark")
+                    .font(.system(size: style.badgeSize * 0.48, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+            .shadow(color: Color.black.opacity(0.34), radius: 5, x: 0, y: 2)
+    }
+
+    private var climbAction: some View {
+        Text("Climb")
+            .font(.montserratSemiBold(size: style.buttonFontSize))
+            .foregroundStyle(Color.accentColor)
+            .frame(maxWidth: .infinity)
+            .frame(height: style.buttonHeight)
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(Color.accentColor, lineWidth: 1)
+            )
+    }
+}
+
+private struct CollectionComingSoonCard: View {
+    let climb: Climb
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ZStack {
+                ClimbArtworkView(climb: climb, variant: .card)
+                    .frame(height: 76)
+                    .blur(radius: 8)
+                    .saturation(0.25)
+                    .brightness(-0.12)
+                    .overlay(
+                        LinearGradient(
+                            colors: [.clear, .black.opacity(0.72)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+
+                Text("???")
+                    .font(.montserratBold(size: 16))
+                    .foregroundStyle(.white)
+                    .padding(.top, 30)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+            HStack(spacing: 6) {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 11, weight: .bold))
+
+                Text("Coming soon")
+                    .font(.montserratSemiBold(size: 10))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+            }
+            .foregroundStyle(.white)
+        }
+        .padding(7)
+        .frame(maxWidth: .infinity)
+        .background(Color.white.opacity(0.04))
+        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(Color.white.opacity(0.34), lineWidth: 1)
+        )
+        .opacity(0.42)
+    }
+}
+
+private struct CollectionComingSoonDetailSheet: View {
+    let climb: Climb
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            ZStack(alignment: .topTrailing) {
+                ClimbArtworkView(climb: climb, variant: .hero)
+                    .frame(height: 230)
+                    .blur(radius: 12)
+                    .saturation(0.18)
+                    .brightness(-0.16)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(
+                        LinearGradient(
+                            colors: [.clear, .black.opacity(0.76)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    )
+
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(Color.black.opacity(0.46)))
+                }
+                .buttonStyle(.plain)
+                .padding(10)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("???")
+                    .font(.montserratBold(size: 30))
+                    .foregroundStyle(.white)
+
+                Text("Coming soon · \(climb.continent)")
+                    .font(.montserratSemiBold(size: 14))
+                    .foregroundStyle(Color.accentColor)
+
+                Text("New First Ascent slot loading. Watch the globe and be ready.")
+                    .font(.montserratMedium(size: 14))
+                    .foregroundStyle(ProfileVisualStyle.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(20)
         .background(ProfileVisualStyle.background.ignoresSafeArea())
-        .navigationTitle("Collection")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
+        .presentationDetents([.medium])
+    }
+}
+
+@MainActor
+private enum CollectionNotificationPermissionHandler {
+    static func handleTurnOnNotifications() async {
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+
+        switch settings.authorizationStatus {
+        case .notDetermined:
+            let granted = (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false
+            if !granted {
+                openNotificationSettings()
+            }
+        case .denied, .authorized, .provisional, .ephemeral:
+            openNotificationSettings()
+        @unknown default:
+            openNotificationSettings()
+        }
+    }
+
+    private static func openNotificationSettings() {
+        guard let url = URL(string: UIApplication.openNotificationSettingsURLString) else { return }
+        UIApplication.shared.open(url)
     }
 }

@@ -48,7 +48,9 @@ struct ProfileComparisonSummaryTests {
             collection: ProfileCollectionSummary(
                 collectedCount: Set(workouts.compactMap(\.climbId)).count,
                 catalogCount: 0,
-                previewCards: []
+                previewCards: [],
+                launchedCards: [],
+                comingSoonClimbs: []
             ),
             achievements: .zero,
             firstAscentsHeld: [],

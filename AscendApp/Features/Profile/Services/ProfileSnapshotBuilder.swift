@@ -206,9 +206,14 @@ enum ProfileSnapshotBuilder {
         fitnessLevel: FitnessLevel
     ) -> ProfileCollectionSummary {
         let availableClimbs = climbs.filter(\.isAvailable)
+        let comingSoonClimbs = climbs.filter(\.isComingSoon)
         let completedClimbs = claimedClimbs(
             from: completedAttempts,
             availableClimbs: availableClimbs
+        )
+        let launchedCards = collectionCards(
+            for: collectionOrderedLaunchedClimbs(availableClimbs),
+            claimedClimbs: completedClimbs
         )
         let previewCards = collectionPreviewCards(
             claimedClimbs: completedClimbs,
@@ -219,7 +224,9 @@ enum ProfileSnapshotBuilder {
         return ProfileCollectionSummary(
             collectedCount: completedClimbs.count,
             catalogCount: availableClimbs.count,
-            previewCards: previewCards
+            previewCards: previewCards,
+            launchedCards: launchedCards,
+            comingSoonClimbs: Array(comingSoonClimbs.prefix(6))
         )
     }
 
@@ -228,9 +235,14 @@ enum ProfileSnapshotBuilder {
         climbs: [Climb]
     ) -> ProfileCollectionSummary {
         let availableClimbs = climbs.filter(\.isAvailable)
+        let comingSoonClimbs = climbs.filter(\.isComingSoon)
         let completedClimbs = claimedClimbs(
             from: workoutSummaries,
             availableClimbs: availableClimbs
+        )
+        let launchedCards = collectionCards(
+            for: collectionOrderedLaunchedClimbs(availableClimbs),
+            claimedClimbs: completedClimbs
         )
         let previewCards = collectionPreviewCards(
             claimedClimbs: completedClimbs,
@@ -240,7 +252,9 @@ enum ProfileSnapshotBuilder {
         return ProfileCollectionSummary(
             collectedCount: completedClimbs.count,
             catalogCount: availableClimbs.count,
-            previewCards: previewCards
+            previewCards: previewCards,
+            launchedCards: launchedCards,
+            comingSoonClimbs: Array(comingSoonClimbs.prefix(6))
         )
     }
 
@@ -317,6 +331,57 @@ enum ProfileSnapshotBuilder {
 
         return Array(claimedCards + recommendedCards)
     }
+
+    private static func collectionCards(
+        for climbs: [Climb],
+        claimedClimbs: [ProfileCollectionClaimedClimb]
+    ) -> [ProfileCollectionCardItem] {
+        let claimedByID = Dictionary(uniqueKeysWithValues: claimedClimbs.map { ($0.climb.id, $0) })
+
+        return climbs.map { climb in
+            if let claimedClimb = claimedByID[climb.id] {
+                return .claimed(claimedClimb)
+            }
+
+            return .unclaimed(climb)
+        }
+    }
+
+    private static func collectionOrderedLaunchedClimbs(_ climbs: [Climb]) -> [Climb] {
+        climbs.sorted(by: collectionLaunchSort)
+    }
+
+    private static func collectionLaunchSort(lhs: Climb, rhs: Climb) -> Bool {
+        let lhsRank = collectionLaunchOrder[lhs.id] ?? Int.max
+        let rhsRank = collectionLaunchOrder[rhs.id] ?? Int.max
+
+        if lhsRank != rhsRank {
+            return lhsRank < rhsRank
+        }
+
+        if lhs.tier != rhs.tier {
+            return lhs.tier < rhs.tier
+        }
+
+        if lhs.totalSteps != rhs.totalSteps {
+            return lhs.totalSteps < rhs.totalSteps
+        }
+
+        return lhs.name < rhs.name
+    }
+
+    private static let collectionLaunchOrder: [String: Int] = [
+        "taipei-101": 0,
+        "statue-of-liberty": 1,
+        "space-needle": 2,
+        "empire-state-building": 3,
+        "eiffel-tower": 4,
+        "burj-khalifa": 5,
+        "table-mountain": 6,
+        "machu-picchu": 7,
+        "mount-everest": 8,
+        "sydney-tower": 9
+    ]
 
     private static func recommendedUnclaimedClimbs(
         from climbs: [Climb],

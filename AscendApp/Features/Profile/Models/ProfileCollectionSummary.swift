@@ -37,4 +37,6 @@ struct ProfileCollectionSummary: Equatable {
     let collectedCount: Int
     let catalogCount: Int
     let previewCards: [ProfileCollectionCardItem]
+    let launchedCards: [ProfileCollectionCardItem]
+    let comingSoonClimbs: [Climb]
 }
