@@ -1,7 +1,7 @@
 import CoreLocation
 import Foundation
 
-struct Climb: Codable, Identifiable, Hashable {
+struct Climb: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let city: String

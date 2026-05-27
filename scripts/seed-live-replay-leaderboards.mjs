@@ -53,7 +53,7 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
 
 const ACTIVE_CLIMBS = [
-  {id: "great-pyramid-of-giza", totalClimbers: 247, replayEntries: 96, completionRate: 0.36},
+  {id: "mount-everest", totalClimbers: 247, replayEntries: 96, completionRate: 0.36},
   {id: "empire-state-building", totalClimbers: 198, replayEntries: 88, completionRate: 0.42},
   {id: "burj-khalifa", totalClimbers: 173, replayEntries: 84, completionRate: 0.34},
   {id: "gateway-arch", totalClimbers: 166, replayEntries: 72, completionRate: 0.48},
@@ -73,14 +73,14 @@ const WARM_CLIMBS = [
   {id: "chrysler-building", totalClimbers: 46, replayEntries: 24, completionRate: 0.40},
   {id: "the-shard", totalClimbers: 42, replayEntries: 24, completionRate: 0.40},
   {id: "sagrada-familia", totalClimbers: 39, replayEntries: 22, completionRate: 0.46},
-  {id: "colosseum", totalClimbers: 36, replayEntries: 20, completionRate: 0.58},
-  {id: "arc-de-triomphe", totalClimbers: 34, replayEntries: 20, completionRate: 0.58},
+  {id: "acropolis-of-athens", totalClimbers: 36, replayEntries: 20, completionRate: 0.58},
+  {id: "elizabeth-tower", totalClimbers: 34, replayEntries: 20, completionRate: 0.58},
   {id: "tokyo-tower", totalClimbers: 32, replayEntries: 20, completionRate: 0.40},
   {id: "shanghai-tower", totalClimbers: 29, replayEntries: 18, completionRate: 0.34},
   {id: "canton-tower", totalClimbers: 27, replayEntries: 18, completionRate: 0.34},
   {id: "leaning-tower-of-pisa", totalClimbers: 24, replayEntries: 16, completionRate: 0.56},
   {id: "cairo-tower", totalClimbers: 23, replayEntries: 16, completionRate: 0.44},
-  {id: "sydney-opera-house", totalClimbers: 21, replayEntries: 16, completionRate: 0.56},
+  {id: "sydney-tower", totalClimbers: 21, replayEntries: 16, completionRate: 0.56},
 ];
 
 const SEEDED_DISPLAY_NAMES = [
@@ -480,10 +480,18 @@ function buildSeedPlan(climbsById, paceSamples, args, avatarURLs) {
     ...WARM_CLIMBS.map((config) => ({...config, activityTier: "warm"})),
   ];
 
-  const climbPlans = configs.map((config) => {
+  const missingConfigs = configs.filter((config) => !climbsById.has(config.id));
+  if (missingConfigs.length > 0) {
+    console.warn(
+      `Skipping ${missingConfigs.length} seed climb(s) missing from catalog: ` +
+        missingConfigs.map((config) => config.id).join(", ")
+    );
+  }
+
+  const climbPlans = configs.flatMap((config) => {
     const climb = climbsById.get(config.id);
     if (!climb) {
-      throw new Error(`Seed climb not found in catalog: ${config.id}`);
+      return [];
     }
 
     const completedCount = Math.round(config.totalClimbers * config.completionRate);
@@ -501,7 +509,7 @@ function buildSeedPlan(climbsById, paceSamples, args, avatarURLs) {
       (_, index) => seedAttemptId(args.seedPackId, climb.id, index)
     );
 
-    return {
+    return [{
       config,
       climb,
       attempts,
@@ -509,8 +517,12 @@ function buildSeedPlan(climbsById, paceSamples, args, avatarURLs) {
       clearAttemptIds,
       maxBucketIndex,
       entryDocumentCount: attempts.length * (maxBucketIndex + 1),
-    };
+    }];
   });
+
+  if (climbPlans.length === 0) {
+    throw new Error("No configured seed climbs matched the catalog.");
+  }
 
   const justClimbAttempts = climbPlans.flatMap((plan) => plan.attempts);
   const justClimbClearAttemptIds = climbPlans.flatMap(

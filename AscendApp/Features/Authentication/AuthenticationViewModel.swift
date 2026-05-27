@@ -45,6 +45,7 @@ class AuthenticationViewModel {
     var photoURL: URL?
     var customProfilePictureURL: URL?
     private(set) var lastUsedProvider: AuthProviderKind?
+    private(set) var hasRemoteDisplayName: Bool = false
 
     /// Indicates whether the profile data has been loaded from Firestore/cache after auth restore.
     /// Used to avoid showing authenticated UI before profile state is known.
@@ -127,6 +128,9 @@ class AuthenticationViewModel {
                             // Update display name if we got one from Firestore
                             if let firestoreDisplayName, !firestoreDisplayName.isEmpty {
                                 self.displayName = firestoreDisplayName
+                                self.hasRemoteDisplayName = true
+                            } else {
+                                self.hasRemoteDisplayName = false
                             }
 
                             // Update profile picture URL
@@ -150,6 +154,7 @@ class AuthenticationViewModel {
 
                     self.displayName = ""
                     self.customProfilePictureURL = nil
+                    self.hasRemoteDisplayName = false
                     self.isProfileLoaded = false
                     self.authenticationState = .unauthenticated
                     UserDataRepository.shared.clearUserCache()
@@ -274,6 +279,7 @@ extension AuthenticationViewModel {
                     lastName: lastName,
                     displayName: fullDisplayName
                 )
+                hasRemoteDisplayName = true
             }
             
             authenticationState = .authenticated
@@ -306,7 +312,11 @@ extension AuthenticationViewModel {
             lastName: existingData?.lastName,
             displayName: existingData?.displayName,
             age: existingData?.age,
-            gender: existingData?.gender
+            gender: existingData?.gender,
+            weightKg: existingData?.weightKg,
+            locationCountry: existingData?.locationCountry,
+            locationRegion: existingData?.locationRegion,
+            joinedAt: existingData?.joinedAt ?? user.metadata.creationDate
         )
     }
     
@@ -426,6 +436,7 @@ extension AuthenticationViewModel {
                 email: user.email,
                 displayName: trimmedName
             )
+            hasRemoteDisplayName = true
             
             // Update all leaderboard entries with the new display name
             do {
@@ -482,6 +493,7 @@ extension AuthenticationViewModel {
                 age: age,
                 gender: gender
             )
+            hasRemoteDisplayName = true
 
             do {
                 try await LeaderboardService.shared.updateDisplayName(

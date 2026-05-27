@@ -54,12 +54,19 @@ final class WorkoutMutationHandler {
             let cachedPhotoURL = UserDataRepository.shared.getCachedProfilePictureURL().flatMap(URL.init(string:))
             let photoURL = cachedPhotoURL ?? currentUser.photoURL
 
-            Task {
+            Task { @MainActor in
                 await LeaderboardSessionCache.shared.invalidateAll()
                 await LeaderboardSyncCoordinator.shared.enqueueSync(
                     userId: userId,
                     displayName: displayName,
                     photoURL: photoURL
+                )
+                await ProfilePublicationService.publishCurrentUserProfile(
+                    modelContext: modelContext,
+                    userId: userId,
+                    displayName: displayName,
+                    photoURL: photoURL,
+                    joinedAt: currentUser.metadata.creationDate
                 )
             }
 

@@ -35,6 +35,9 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 const COLLECTION = "leaderboard_stats";
 const BATCH_LIMIT = 500; // Firestore batch write limit
 const SCHEMA_VERSION = 2;
+const DEV_PROJECT_ID = "ascend-f2e4f";
+const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
+const ALLOWED_PROJECT_IDS = new Set([DEV_PROJECT_ID, STAGING_PROJECT_ID]);
 
 const TEST_USERS = [
   { id: "test_user_1", name: "Sarah Johnson" },
@@ -267,7 +270,7 @@ function resolveProjectId(alias) {
     console.error(`Error: Could not read .firebaserc at ${rcPath}`);
     process.exit(1);
   }
-  const projectId = rc.projects?.[alias];
+  const projectId = rc.projects?.[alias] ?? alias;
   if (!projectId) {
     console.error(`Error: No project alias "${alias}" found in .firebaserc`);
     process.exit(1);
@@ -301,12 +304,6 @@ function parseArgs() {
 
   if (!project) {
     console.error("Error: --project is required (e.g., --project dev)");
-    process.exit(1);
-  }
-
-  // Safety: only allow dev
-  if (project !== "dev") {
-    console.error(`Error: Only --project dev is allowed. "${project}" is blocked to prevent accidental writes to shared environments.`);
     process.exit(1);
   }
 
@@ -463,6 +460,12 @@ async function clear(db, dryRun) {
 async function main() {
   const { command, project, dryRun } = parseArgs();
   const projectId = resolveProjectId(project);
+  if (!ALLOWED_PROJECT_IDS.has(projectId)) {
+    console.error(
+      `Error: Refusing to write ${projectId}. Only ${DEV_PROJECT_ID} and ${STAGING_PROJECT_ID} are allowed.`
+    );
+    process.exit(1);
+  }
 
   console.log(`Project: ${project} -> ${projectId}`);
   console.log(`Command: ${command}${dryRun ? " (dry run)" : ""}`);

@@ -12,7 +12,6 @@ struct HomeRecentPRRecord: Identifiable, Equatable {
 
 struct HomeWeeklyRankSummary: Equatable {
     let rank: Int
-    let percentile: Int?
     let population: Int
     let isTiedForGold: Bool
     let stepsAheadOfSecond: Int?
@@ -20,6 +19,8 @@ struct HomeWeeklyRankSummary: Equatable {
     let stepsFromSilver: Int?
     let stepsToBronze: Int?
     let stepsToTop10: Int?
+    let stepsToTop100: Int?
+    let stepsToTop50Percent: Int?
 }
 
 @MainActor
@@ -27,7 +28,6 @@ struct HomeWeeklyRankSummary: Equatable {
 final class HomeDashboardViewModel {
     var completedClimbCount: Int = 0
     var weeklyRank: Int?
-    var rankPercentile: Int?
     var weeklyRankSummary: HomeWeeklyRankSummary?
     var workoutCount: Int = 0
     var isRankLoading = false
@@ -249,13 +249,11 @@ final class HomeDashboardViewModel {
         let resolvedStats = alreadyReconciled ? stats : Self.reconciledStats(stats, localSnapshot: localSnapshot)
         guard let result = Self.rankSummary(from: resolvedStats, userId: localSnapshot.userId) else {
             weeklyRank = nil
-            rankPercentile = nil
             weeklyRankSummary = nil
             return false
         }
 
         weeklyRank = result.rank
-        rankPercentile = result.percentile
         weeklyRankSummary = result
         return true
     }
@@ -263,7 +261,6 @@ final class HomeDashboardViewModel {
     private func clearRank() {
         rankTask?.cancel()
         weeklyRank = nil
-        rankPercentile = nil
         weeklyRankSummary = nil
         isRankLoading = false
         lastRankRequest = nil
@@ -312,24 +309,22 @@ final class HomeDashboardViewModel {
         let uniqueStepTotals = Array(Set(sortedSteps)).sorted(by: >)
         let topTieCount = stats.filter { $0.totalSteps == currentSteps }.count
         let secondPlaceSteps = uniqueStepTotals.dropFirst().first ?? currentSteps
+        let topFiftyPercentIndex = max(Int(ceil(Double(population) * 0.5)), 1) - 1
 
         return HomeWeeklyRankSummary(
             rank: rank,
-            percentile: percentile(rank: rank, total: population),
             population: population,
             isTiedForGold: rank == 1 && topTieCount > 1,
             stepsAheadOfSecond: rank == 1 ? max(currentSteps - secondPlaceSteps, 0) : nil,
             stepsFromGold: uniqueStepTotals.first.map { max($0 - currentSteps, 0) },
             stepsFromSilver: uniqueStepTotals.dropFirst().first.map { max($0 - currentSteps, 0) },
             stepsToBronze: uniqueStepTotals.dropFirst(2).first.map { max($0 - currentSteps, 0) },
-            stepsToTop10: sortedSteps.count >= 10 ? max(sortedSteps[9] - currentSteps, 0) : nil
+            stepsToTop10: sortedSteps.count >= 10 ? max(sortedSteps[9] - currentSteps, 0) : nil,
+            stepsToTop100: sortedSteps.count >= 100 ? max(sortedSteps[99] - currentSteps, 0) : nil,
+            stepsToTop50Percent: sortedSteps.indices.contains(topFiftyPercentIndex)
+                ? max(sortedSteps[topFiftyPercentIndex] - currentSteps, 0)
+                : nil
         )
-    }
-
-    private static func percentile(rank: Int, total: Int) -> Int? {
-        guard total > 0 else { return nil }
-        let percentile = Int(ceil((Double(rank) / Double(total)) * 100))
-        return min(max(percentile, 1), 100)
     }
 
     private static let rankRefreshMinimumInterval: TimeInterval = 5 * 60

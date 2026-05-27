@@ -15,6 +15,8 @@ struct MainTabView: View {
     @Environment(NetworkConnectivityService.self) private var connectivityService
     @State private var themeManager = ThemeManager.shared
     @State private var tabRouter = TabRouter()
+    @State private var homeDashboard = HomeDashboardViewModel()
+    @State private var profileScreen = ProfileScreenViewModel()
     @State private var hasCheckedRatingOnLaunch = false
     @State private var showBackOnlineBanner = false
     @State private var onlineBannerTask: Task<Void, Never>?
@@ -68,7 +70,7 @@ struct MainTabView: View {
         switch tab {
         case .home:
             NavigationStack {
-                HomeView()
+                HomeView(homeDashboard: homeDashboard)
             }
             .id("HomeNavigationStack")
         case .workouts:
@@ -88,7 +90,7 @@ struct MainTabView: View {
             .id("LeaderboardNavigationStack")
         case .profile:
             NavigationStack {
-                ProfileView()
+                ProfileView(viewModel: profileScreen)
             }
             .id("ProfileNavigationStack")
         case .settings:

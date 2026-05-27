@@ -26,13 +26,29 @@ struct LeaderboardRowListView: View {
 
             LazyVStack(spacing: 0) {
                 ForEach(entries) { entry in
-                    LeaderboardRow(
-                        entry: entry,
-                        metric: metric
-                    )
-                    .onAppear {
-                        onEntryAppear(entry)
+                    Group {
+                        if entry.isCurrentUser {
+                            LeaderboardRow(
+                                entry: entry,
+                                metric: metric
+                            )
+                        } else {
+                            NavigationLink {
+                                OtherUserProfileView(
+                                    userId: entry.userId,
+                                    seedDisplayName: entry.displayName,
+                                    seedPhotoURL: entry.photoURL
+                                )
+                            } label: {
+                                LeaderboardRow(
+                                    entry: entry,
+                                    metric: metric
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
+                    .onAppear { onEntryAppear(entry) }
 
                     if entry.id != entries.last?.id {
                         Divider()
