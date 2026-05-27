@@ -19,10 +19,17 @@ struct ProfileCollectionSummaryTests {
 
         #expect(snapshot.collection.catalogCount == 4)
         #expect(snapshot.collection.collectedCount == 0)
+        #expect(snapshot.collection.comingSoonClimbs.map(\.id) == ["coming-soon"])
         #expect(snapshot.collection.previewCards.map(\.climb.id) == [
             "common-low-steps",
             "common-high-steps",
             "bronze-low-steps"
+        ])
+        #expect(snapshot.collection.launchedCards.map(\.climb.id) == [
+            "common-low-steps",
+            "common-high-steps",
+            "bronze-low-steps",
+            "gold-low-steps"
         ])
     }
 
@@ -53,6 +60,51 @@ struct ProfileCollectionSummaryTests {
             recentClaimDate,
             olderClaimDate
         ])
+        #expect(snapshot.collection.launchedCards.map(\.climb.id) == [
+            "common-recommendation",
+            "bronze-recommendation",
+            "silver-claimed",
+            "gold-claimed"
+        ])
+        #expect(snapshot.collection.launchedCards.compactMap(\.claimedAt) == [
+            recentClaimDate,
+            olderClaimDate
+        ])
+    }
+
+    @Test
+    func launchedCollectionUsesProductOrderForKnownLaunchClimbs() {
+        let snapshot = snapshot(
+            attempts: [
+                attempt(climbId: "taipei-101", completedAt: Date(timeIntervalSince1970: 1_000))
+            ],
+            climbs: [
+                climb(id: "mount-everest", tier: .mythic, steps: 48_664),
+                climb(id: "statue-of-liberty", tier: .bronze, steps: 512),
+                climb(id: "taipei-101", tier: .diamond, steps: 2_794),
+                climb(id: "sydney-tower", tier: .gold, steps: 1_700),
+                climb(id: "space-needle", tier: .silver, steps: 1_012),
+                climb(id: "empire-state-building", tier: .gold, steps: 2_096),
+                climb(id: "eiffel-tower", tier: .gold, steps: 1_815),
+                climb(id: "burj-khalifa", tier: .epic, steps: 4_554),
+                climb(id: "table-mountain", tier: .legendary, steps: 6_023),
+                climb(id: "machu-picchu", tier: .mythic, steps: 13_365)
+            ]
+        )
+
+        #expect(snapshot.collection.launchedCards.map(\.climb.id) == [
+            "taipei-101",
+            "statue-of-liberty",
+            "space-needle",
+            "empire-state-building",
+            "eiffel-tower",
+            "burj-khalifa",
+            "table-mountain",
+            "machu-picchu",
+            "mount-everest",
+            "sydney-tower"
+        ])
+        #expect(snapshot.collection.launchedCards.first?.claimedAt != nil)
     }
 
     private func snapshot(attempts: [ClimbAttempt], climbs: [Climb]) -> ProfileSnapshot {

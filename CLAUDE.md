@@ -93,6 +93,7 @@ functions/src/                  # Cloud Functions (TypeScript)
 - Post-auth onboarding must collect the required profile fields before the user reaches the main app: display name plus declared demographics when that stage is enabled. Age stays bounded from 13 through 120, and gender uses the `ProfileGender` raw values.
 - Smart-default first-climb recommendations should come from the user's declared behavioral baseline: easier starters for new stair-stepper users, larger landmarks for regulars and serious athletes. Defaults route to the climb detail screen, not directly into a live attempt.
 - Notifications opt-in should be anchored to a concrete value prop: never miss a climb drop. Do not ask for notification permission as generic setup housekeeping.
+- Notifications opt-in is the gateway to First Ascent opportunity. Climbers with notifications enabled receive 24-hour advance notice of new climb drops, giving them a fair shot to claim the FA at unlock.
 
 ### Environments
 Three Firebase environments. App selects at compile time via `#if DEBUG / #elseif STAGING`:
@@ -214,6 +215,7 @@ Three distinct concepts. Keep them cleanly separated — don't fold feature-spec
 - Profile sections render in this order: identity hero, other-user comparison, Active Standings, Activity + Streak, Collection, Achievements, First Ascents, Records, Trends, Recent Workouts.
 - Active Standings stays above Activity because active competition is more urgent than long-arc history. First Ascents stay above Records because permanent competitive prestige is more aspirational than personal records. Trends sit between Records and Recent Workouts.
 - Collection on Profile is a 3-card preview, never the full Pokedex. Card composition adapts to claimed climbs: 0 claimed shows 3 recommended unclaimed; 1 claimed shows 1 claimed + 2 recommended unclaimed; 2 claimed shows 2 claimed + 1 recommended unclaimed; 3+ claimed shows the 3 most recent claimed.
+- Claimed climbs retain the Climb action. A small checkmark badge overlay on the thumbnail signals claimed state; the action button is never replaced or hidden by completion.
 - Recommended unclaimed Collection cards sort by tier ascending, then step count ascending, and exclude climbs the user has already claimed. The full collection grid lives behind the `View all` link as a separate page.
 - Public profile reads must use public-safe documents/subcollections such as public profile, cached profile stats, achievements, and public workout summaries. Never read private workout backups to render another user's profile.
 - Business logic for profile section visibility, achievement counting, ranking subtitles, comparison state, and stat derivation belongs in models/services that can be unit tested without a SwiftUI view tree.
@@ -352,6 +354,7 @@ Live Climbs is the hero competitive experience: a user picks a real-world landma
 - Launch composition should be content-driven: available climbs, coming-soon climbs, hidden climbs, and disabled climbs are all catalog data, not app-release code paths.
 - New climb drops should be publishable by changing hosted catalog data and image assets. Avoid adding per-climb code, hardcoded IDs outside smart defaults, or app-store-release dependencies for catalog expansion.
 - First Ascent availability follows release phasing: hidden and disabled climbs do not appear as open First Ascent opportunities; coming-soon climbs can tease future drops but must not accept live attempts until available.
+- Coming Soon climbs follow a cross-surface mystery pattern. The Pokedex shows blurred silhouette only (no name, no location). The Globe shows location only (via dim pin with region revealed on tap). The user pieces together identity by cross-referencing both surfaces; neither reveals everything on its own.
 - All climb tiers use the same rotating tier-border treatment driven by per-tier color tokens. Mythic is the emphasized tier (strongest glow, purple-forward prismatic palette).
 - Persistent idle climb surfaces (e.g. the Home daily card) may use a lighter ambient border treatment with an unblurred moving highlight to reduce per-frame animation work while preserving visible motion.
 

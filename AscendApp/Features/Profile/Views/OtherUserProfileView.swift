@@ -23,7 +23,7 @@ struct OtherUserProfileView: View {
 
     private var climbs: [Climb] {
         _ = catalogRevision
-        return (try? ClimbService.shared.loadClimbs()) ?? []
+        return (try? ClimbService.shared.loadVisibleClimbs()) ?? []
     }
 
     private var seedIdentity: ProfileUserIdentity {
