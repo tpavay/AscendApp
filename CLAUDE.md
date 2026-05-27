@@ -89,6 +89,11 @@ functions/src/                  # Cloud Functions (TypeScript)
 - Shared onboarding screens should use `OnboardingScaffold` for consistent top-left chevron-only back-button placement and bottom action layout.
 - The unauthenticated auth screen should stay background-first, using `AuthStaircaseBackground`, the angular Ascend `A` mark, Apple/Google provider buttons, and inline links to `https://ascendstepper.com/terms` and `https://ascendstepper.com/privacy`.
 
+### Onboarding
+- Post-auth onboarding must collect the required profile fields before the user reaches the main app: display name plus declared demographics when that stage is enabled. Age stays bounded from 13 through 120, and gender uses the `ProfileGender` raw values.
+- Smart-default first-climb recommendations should come from the user's declared behavioral baseline: easier starters for new stair-stepper users, larger landmarks for regulars and serious athletes. Defaults route to the climb detail screen, not directly into a live attempt.
+- Notifications opt-in should be anchored to a concrete value prop: never miss a climb drop. Do not ask for notification permission as generic setup housekeeping.
+
 ### Environments
 Three Firebase environments. App selects at compile time via `#if DEBUG / #elseif STAGING`:
 
@@ -199,8 +204,19 @@ Three distinct concepts. Keep them cleanly separated — don't fold feature-spec
 - When in doubt about whether something needs to be declared, declare it. Under-declaring is a rejection risk; over-declaring is not.
 
 ### Profile Demographics
-- Post-auth onboarding captures display name, age, and gender as private declared profile fields on `users/{uid}`. Age must stay a bounded integer from 13 through 120, and gender must use the `ProfileGender` raw values: `woman`, `man`, `non_binary`, or `prefer_not_to_say`.
-- Treat age and gender as private account/profile data. Do not denormalize them to public leaderboards, replay rows, share cards, analytics payloads, or other public/community surfaces unless product explicitly adds an opt-in, privacy-safe feature.
+- Post-auth onboarding captures display name and declared demographics on `users/{uid}`. Age must stay a bounded integer from 13 through 120, and gender must use the `ProfileGender` raw values: `woman`, `man`, `non_binary`, or `prefer_not_to_say`.
+- Profile demographics for V1 are public by default with no per-field opt-out: age, gender, body weight, country/region, and joined date may appear on profiles and leaderboard-adjacent surfaces. Email and authentication/provider data remain private.
+- Firestore does not support field-level read masking on a document. Keep `users/{uid}` owner-readable because it contains private account fields, and mirror only public-safe profile fields into public profile documents/subcollections for other-user profile reads.
+
+### Profile Architecture
+- Profile has two display modes: `OwnProfileView` and `OtherUserProfileView`. Own profile keeps empty sections visible as activation moments; other-user profile hides empty sections entirely unless a comparison state needs to explain why comparison is unavailable.
+- The profile tab entry point remains `ProfileView`, but it should delegate to the own-profile surface rather than owning all profile layout and business logic directly.
+- Profile sections render in this order: identity hero, other-user comparison, Active Standings, Activity + Streak, Collection, Achievements, First Ascents, Records, Trends, Recent Workouts.
+- Active Standings stays above Activity because active competition is more urgent than long-arc history. First Ascents stay above Records because permanent competitive prestige is more aspirational than personal records. Trends sit between Records and Recent Workouts.
+- Collection on Profile is a 3-card preview, never the full Pokedex. Card composition adapts to claimed climbs: 0 claimed shows 3 recommended unclaimed; 1 claimed shows 1 claimed + 2 recommended unclaimed; 2 claimed shows 2 claimed + 1 recommended unclaimed; 3+ claimed shows the 3 most recent claimed.
+- Recommended unclaimed Collection cards sort by tier ascending, then step count ascending, and exclude climbs the user has already claimed. The full collection grid lives behind the `View all` link as a separate page.
+- Public profile reads must use public-safe documents/subcollections such as public profile, cached profile stats, achievements, and public workout summaries. Never read private workout backups to render another user's profile.
+- Business logic for profile section visibility, achievement counting, ranking subtitles, comparison state, and stat derivation belongs in models/services that can be unit tested without a SwiftUI view tree.
 
 ### Firestore Schema-Change Rule
 - `firestore.rules` uses strict `hasOnly` + `hasAll` field validation on every collection. Adding, removing, or renaming a field in the app **requires a matching update to `firestore.rules`** — otherwise writes will be rejected at the server.
@@ -293,6 +309,7 @@ Live Climbs is the hero competitive experience: a user picks a real-world landma
 
 **First Ascent (World First) prestige**
 - Every climb has a permanent First Ascent holder — the first user to complete it. The holder's name and completion date remain associated with the climb forever, even after their time is beaten by faster climbers. This creates a permanent-prestige retention loop: every new climb drop opens a fresh First Ascent slot that can never be reclaimed once held. In leaderboard surfaces, First Ascent is honored but secondary to the active top-3 chase — the *current* glory belongs to whoever holds the top times; First Ascent is a permanent annotation, not the headline.
+- The universal no-finisher copy is: "First Ascent open. The first finisher claims it forever." Use it verbatim on any surface that needs to explain an unclaimed climb.
 
 **Live session execution**
 - Sensor stats (time, steps, progress, SPM) update locally every second during a live session without waiting on the network. Stale or failed backend reads must never interrupt local tracking.
@@ -329,6 +346,12 @@ Live Climbs is the hero competitive experience: a user picks a real-world landma
 
 **Climb card visual treatment**
 - Reusable climb card surfaces share common chrome (split-card surface, leading artwork, animated tier border). Don't reimplement split layouts, image clipping, or tier-border animation per screen.
+
+### Catalog Release Phasing
+- Catalog release state is server-controlled. The app model currently uses `releaseState`; if a remote content feed exposes `releaseStatus`, map it into the same release-state domain instead of branching UI on a second concept.
+- Launch composition should be content-driven: available climbs, coming-soon climbs, hidden climbs, and disabled climbs are all catalog data, not app-release code paths.
+- New climb drops should be publishable by changing hosted catalog data and image assets. Avoid adding per-climb code, hardcoded IDs outside smart defaults, or app-store-release dependencies for catalog expansion.
+- First Ascent availability follows release phasing: hidden and disabled climbs do not appear as open First Ascent opportunities; coming-soon climbs can tease future drops but must not accept live attempts until available.
 - All climb tiers use the same rotating tier-border treatment driven by per-tier color tokens. Mythic is the emphasized tier (strongest glow, purple-forward prismatic palette).
 - Persistent idle climb surfaces (e.g. the Home daily card) may use a lighter ambient border treatment with an unblurred moving highlight to reduce per-frame animation work while preserving visible motion.
 
@@ -421,6 +444,10 @@ In this direction:
 - Multi-user seed data should not be written from client debug tools in shared environments.
 - Use server-side seeding (Admin SDK / Cloud Function / CI job) for deterministic multi-user leaderboard fixtures.
 - For local-only iteration, use Firestore emulator or seed only the authenticated user.
+- Use `scripts/dev-db.mjs` as the central dev/staging database tool for repeatable fixture workflows. It can seed, clear, or reset `profiles`, `leaderboard`, `live-replay`, or `all`, and it must keep refusing production (`ascend-prod-9c8f2`) and unknown Firebase projects.
+- Dev database cleanup should be target-scoped and metadata-driven. Do not hide an unrestricted project wipe behind a friendly `clear all` command; full destructive wipes need an explicit, separately guarded command and a reviewed collection list.
+- Profile fixture data must include the full public profile contract: display name, age, gender, `weight_kg`, `location_country`, optional `location_region`, `joined_at`, public profile mirror, profile stats, achievements, and public workout summaries.
+- To patch one dev/staging account, use `scripts/dev-db.mjs hydrate-user` so private `users/{uid}` and public `users/{uid}/public_profile/current` stay in sync.
 - Live replay leaderboard seed data must be Admin SDK/server-written into the read-only `live_replay_leaderboards` index, never client-written during a live session.
 - `scripts/seed-live-replay-leaderboards.mjs` may write only to dev (`ascend-f2e4f`) or staging (`ascend-staging-fa7d5`) and must hard-refuse production or any unknown project; use environment-specific seed packs for repeatable active/warm Live Climb replay fixtures.
 - Live replay seed entries must carry `isSynthetic`, `source`, and `seedPackId` so synthetic replay data can be filtered, cleared, or phased out later. Do not claim seeded replay rows are users climbing right now.
@@ -444,10 +471,14 @@ Leaderboard UX in Ascend covers two distinct surfaces — the global tab (commun
 - Detail screens compose from focused, reusable subviews — time-frame picker, podium (top 3), pinned current-user row when not in podium, rank list. Don't reimplement these patterns per metric.
 - The podium always renders three slots even when sparse; empty slots use a motivational empty-slot treatment.
 - The current user appears in exactly one place at a time. If they're in the podium, they're not duplicated in the rank list below.
+- Rank subtitles must be chase-oriented. Show earned percentile bands only at Top 1%, Top 5%, Top 10%, Top 25%, or Top 50%; never render low-value percentiles such as Top 98% or Top 100%. Below Top 50%, show the nearest meaningful steps target instead: Top 100 when unlocked, otherwise Top 10, or Top 50% when that is the relevant next tier.
+- Active rank cards use this ladder: #1 `DEFENDING GOLD · X AHEAD`, tied #1 `TIED FOR GOLD`, #2 `X STEPS FROM GOLD`, #3 `X STEPS FROM SILVER`, #4-10 `X STEPS TO BRONZE`, #11-100 after the Top 100 population threshold `TOP 100 · X TO TOP 10`, and #11+ before that threshold `X STEPS TO TOP 10`.
 
 **Per-climb leaderboard — completion times for one climb**
 - Top finishers (#1, #2, #3) get medal-color emphasis (see Design System: medal tokens). They're the *active* prize being chased.
 - The climb's First Ascent holder is surfaced as a quiet, persistent annotation — permanent prestige, but visually secondary to the active leaderboard chase. See the First Ascent principle in the Live Climbs section.
+- Achievement terminology is locked to **Top 1**, **Top 3**, **Top 10**, and **Top 100**. Top 1 may be swapped to a product-approved label later, but it must be centralized as a single string constant.
+- Achievement counts use cumulative inclusive counting: a Top 1 finish also counts toward Top 3, Top 10, and Top 100. Do not render these as mutually exclusive medal bands.
 - Per-climb leaderboards rank *completed attempts on one climb*, not aggregate community totals. They don't share a layout with the global aggregate leaderboards.
 - The static per-climb leaderboard shows **every completed attempt**, not best-per-user. A user appears as many times as they've completed the climb; this surface is the historical record of completions. Contrast with the in-session live race, which ranks against best-per-user (see Replay leaderboard architecture in Live Climbs).
 
@@ -464,6 +495,7 @@ Leaderboard UX in Ascend covers two distinct surfaces — the global tab (commun
 - **Fonts**: Montserrat (custom) — `montserratBold`, `montserratSemiBold`, `montserratMedium`, `montserratRegular`
 - **Accent color**: `#B4CC00`
 - **Medal tokens**: Gold `#D4AF37`, Silver `#C0C0C0`, Bronze `#CD7F32`. Reserved for podium / rank-prestige moments (leaderboard top 3, First Ascent emphasis, achievement displays). The only sanctioned exceptions to lime-accent discipline — apply sparingly, never as primary surface color.
+- **Achievement motif vocabulary**: laurels represent personal achievements and record-book moments; crowns represent competitive ranking dominance. Do not combine laurel and crown in the same badge treatment.
 - **Theming**: `ThemeManager` with dark/light mode, `effectiveColorScheme`, `.themedBackground()`
 - **Icons**: SF Symbols (considering migrating to a custom icon set for consistency)
 - **Icon consistency**: Use the same icon for the same action across screens (for example, overflow menus should use one consistent `ellipsis` style app-wide unless product design explicitly says otherwise)

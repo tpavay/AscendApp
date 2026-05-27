@@ -34,12 +34,7 @@ struct LeaderboardPodiumView: View {
     var body: some View {
         HStack(alignment: .bottom, spacing: 10) {
             ForEach(podiumSlots) { slot in
-                LeaderboardPodiumSlotView(
-                    rank: slot.rank,
-                    entry: slot.entry,
-                    metric: metric
-                )
-                .frame(maxWidth: .infinity, alignment: .bottom)
+                podiumSlot(slot)
             }
         }
         .padding(.top, 2)
@@ -55,6 +50,34 @@ struct LeaderboardPodiumView: View {
                             .stroke(colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.06), lineWidth: 1)
                     )
             }
+        }
+    }
+
+    @ViewBuilder
+    private func podiumSlot(_ slot: PodiumSlot) -> some View {
+        if let entry = slot.entry, !entry.isCurrentUser {
+            NavigationLink {
+                OtherUserProfileView(
+                    userId: entry.userId,
+                    seedDisplayName: entry.displayName,
+                    seedPhotoURL: entry.photoURL
+                )
+            } label: {
+                LeaderboardPodiumSlotView(
+                    rank: slot.rank,
+                    entry: slot.entry,
+                    metric: metric
+                )
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .bottom)
+        } else {
+            LeaderboardPodiumSlotView(
+                rank: slot.rank,
+                entry: slot.entry,
+                metric: metric
+            )
+            .frame(maxWidth: .infinity, alignment: .bottom)
         }
     }
 }

@@ -53,8 +53,15 @@ struct RootView: View {
         .onChange(of: authVM.user?.uid) { _, _ in
             Task {
                 postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
+                completePostAuthOnboardingIfRemoteProfileExists()
                 await bootstrapAuthenticatedLocalState()
             }
+        }
+        .onChange(of: authVM.hasRemoteDisplayName) { _, _ in
+            completePostAuthOnboardingIfRemoteProfileExists()
+        }
+        .onChange(of: authVM.isProfileLoaded) { _, _ in
+            completePostAuthOnboardingIfRemoteProfileExists()
         }
         .onReceive(NotificationCenter.default.publisher(for: .postAuthOnboardingStateDidChange)) { _ in
             postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid, force: true)
@@ -151,15 +158,37 @@ struct RootView: View {
             let cachedDisplayName = UserDataRepository.shared.getCachedDisplayName()?.trimmingCharacters(in: .whitespacesAndNewlines)
             let displayName = cachedDisplayName?.isEmpty == false ? cachedDisplayName! : authVM.displayName
             let photoURL = UserDataRepository.shared.getCachedProfilePictureURL().flatMap(URL.init(string:)) ?? authVM.displayPhotoURL
+            guard !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return
+            }
 
             await LeaderboardSyncCoordinator.shared.enqueueSync(
                 userId: currentUserId,
                 displayName: displayName,
                 photoURL: photoURL
             )
+
+            await ProfilePublicationService.publishCurrentUserProfile(
+                modelContext: modelContext,
+                userId: currentUserId,
+                displayName: displayName,
+                photoURL: photoURL,
+                joinedAt: user.metadata.creationDate
+            )
         } catch {
             print("Authenticated bootstrap failed: \(error)")
         }
+    }
+
+    @MainActor
+    private func completePostAuthOnboardingIfRemoteProfileExists() {
+        guard authVM.user != nil,
+              authVM.isProfileLoaded,
+              authVM.hasRemoteDisplayName else {
+            return
+        }
+
+        postAuthOnboardingCoordinator.markCurrentUserComplete()
     }
 }
 

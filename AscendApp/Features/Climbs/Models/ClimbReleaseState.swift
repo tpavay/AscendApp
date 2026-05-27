@@ -1,6 +1,6 @@
 import Foundation
 
-enum ClimbReleaseState: String, Codable, CaseIterable {
+enum ClimbReleaseState: String, Codable, CaseIterable, Sendable {
     case available
     case comingSoon
     case hidden

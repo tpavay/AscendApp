@@ -15,6 +15,10 @@ struct UserDisplayNameData: Sendable {
     let profilePictureURL: String?
     let age: Int?
     let gender: String?
+    let weightKg: Double?
+    let locationCountry: String?
+    let locationRegion: String?
+    let joinedAt: Date?
 
     init(_ data: [String: Any]?) {
         self.firstName = data?["firstName"] as? String
@@ -29,6 +33,22 @@ struct UserDisplayNameData: Sendable {
             self.age = nil
         }
         self.gender = data?["gender"] as? String
+        if let weightKg = data?["weight_kg"] as? Double {
+            self.weightKg = weightKg
+        } else if let weightKg = data?["weight_kg"] as? NSNumber {
+            self.weightKg = weightKg.doubleValue
+        } else {
+            self.weightKg = nil
+        }
+        self.locationCountry = data?["location_country"] as? String
+        self.locationRegion = data?["location_region"] as? String
+        if let joinedAt = data?["joined_at"] as? Timestamp {
+            self.joinedAt = joinedAt.dateValue()
+        } else if let joinedAt = data?["joined_at"] as? Date {
+            self.joinedAt = joinedAt
+        } else {
+            self.joinedAt = nil
+        }
     }
 }
 
@@ -99,7 +119,11 @@ final class UserDataRepository: Sendable {
         displayName: String?,
         profilePictureURL: String? = nil,
         age: Int? = nil,
-        gender: String? = nil
+        gender: String? = nil,
+        weightKg: Double? = nil,
+        locationCountry: String? = nil,
+        locationRegion: String? = nil,
+        joinedAt: Date? = nil
     ) async throws {
         let userRef = db.collection("users").document(userId)
         
@@ -138,6 +162,22 @@ final class UserDataRepository: Sendable {
                 newData["gender"] = gender
             }
 
+            if let weightKg {
+                newData["weight_kg"] = weightKg
+            }
+
+            if let locationCountry {
+                newData["location_country"] = locationCountry
+            }
+
+            if let locationRegion {
+                newData["location_region"] = locationRegion
+            }
+
+            if let joinedAt {
+                newData["joined_at"] = Timestamp(date: joinedAt)
+            }
+
             // Compare with existing data and only update changed fields
             let existingData = document.data() ?? [:]
             var changedData: [String: Any] = [:]
@@ -151,6 +191,16 @@ final class UserDataRepository: Sendable {
                 } else if let newIntValue = newValue as? Int {
                     let existingValue = (existingData[key] as? Int) ?? (existingData[key] as? NSNumber)?.intValue
                     if existingValue != newIntValue {
+                        changedData[key] = newValue
+                    }
+                } else if let newDoubleValue = newValue as? Double {
+                    let existingValue = (existingData[key] as? Double) ?? (existingData[key] as? NSNumber)?.doubleValue
+                    if existingValue != newDoubleValue {
+                        changedData[key] = newValue
+                    }
+                } else if let newTimestampValue = newValue as? Timestamp {
+                    let existingValue = existingData[key] as? Timestamp
+                    if existingValue?.dateValue() != newTimestampValue.dateValue() {
                         changedData[key] = newValue
                     }
                 }
@@ -182,7 +232,20 @@ final class UserDataRepository: Sendable {
                 userData["gender"] = gender
             }
 
+            if let weightKg {
+                userData["weight_kg"] = weightKg
+            }
+
+            if let locationCountry {
+                userData["location_country"] = locationCountry
+            }
+
+            if let locationRegion {
+                userData["location_region"] = locationRegion
+            }
+
             userData["createdAt"] = FieldValue.serverTimestamp()
+            userData["joined_at"] = joinedAt.map(Timestamp.init(date:)) ?? FieldValue.serverTimestamp()
             userData["lastUpdated"] = FieldValue.serverTimestamp()
             try await userRef.setData(userData, merge: true)
         }
@@ -195,6 +258,12 @@ final class UserDataRepository: Sendable {
             "profilePictureURL": profilePictureURL,
             "lastUpdated": FieldValue.serverTimestamp()
         ], merge: true)
+        let existing = try? await getUserFromFirestore(userId: userId)
+        try? await ProfileRepository.shared.updatePublicIdentityFields(
+            userId: userId,
+            displayName: existing?.displayName,
+            photoURL: URL(string: profilePictureURL)
+        )
         
         cacheProfilePictureURL(profilePictureURL)
     }
@@ -232,6 +301,21 @@ final class UserDataRepository: Sendable {
                 displayName: displayName
             )
         }
+
+        let existing = try? await getUserFromFirestore(userId: userId)
+        try? await ProfileRepository.shared.upsertPublicIdentity(
+            ProfileUserIdentity(
+                userId: userId,
+                displayName: displayName,
+                photoURL: existing?.profilePictureURL.flatMap(URL.init(string:)),
+                age: existing?.age,
+                gender: existing?.gender.flatMap(ProfileGender.init(rawValue:)),
+                weightKg: existing?.weightKg,
+                locationCountryCode: existing?.locationCountry,
+                locationRegionCode: existing?.locationRegion,
+                joinedAt: existing?.joinedAt
+            )
+        )
         
         cacheDisplayName(displayName)
     }
@@ -265,6 +349,20 @@ final class UserDataRepository: Sendable {
             )
         }
 
+        let existing = try? await getUserFromFirestore(userId: userId)
+        try? await ProfileRepository.shared.upsertPublicIdentity(
+            ProfileUserIdentity(
+                userId: userId,
+                displayName: displayName,
+                photoURL: existing?.profilePictureURL.flatMap(URL.init(string:)),
+                age: age,
+                gender: gender,
+                weightKg: existing?.weightKg,
+                locationCountryCode: existing?.locationCountry,
+                locationRegionCode: existing?.locationRegion,
+                joinedAt: existing?.joinedAt
+            )
+        )
         cacheDisplayName(displayName)
     }
 

@@ -39,6 +39,10 @@ service cloud.firestore {
           "profilePictureURL",
           "age",
           "gender",
+          "weight_kg",
+          "location_country",
+          "location_region",
+          "joined_at",
           "createdAt",
           "lastUpdated"
         ]) &&
@@ -73,7 +77,177 @@ service cloud.firestore {
               "non_binary",
               "prefer_not_to_say"
             ])) &&
+        (!request.resource.data.keys().hasAny(["weight_kg"]) ||
+          (isNonNegativeNumber(request.resource.data.weight_kg) &&
+            request.resource.data.weight_kg <= 400)) &&
+        (!request.resource.data.keys().hasAny(["location_country"]) ||
+          (request.resource.data.location_country is string &&
+            request.resource.data.location_country.matches("^[A-Z]{2}$"))) &&
+        (!request.resource.data.keys().hasAny(["location_region"]) ||
+          (request.resource.data.location_region is string &&
+            request.resource.data.location_region.matches("^[A-Z0-9-]{1,8}$"))) &&
+        (!request.resource.data.keys().hasAny(["joined_at"]) ||
+          request.resource.data.joined_at is timestamp) &&
         request.resource.data.createdAt is timestamp &&
+        request.resource.data.lastUpdated is timestamp;
+    }
+
+    function isValidClimbTier(tier) {
+      return tier in [
+        "common",
+        "bronze",
+        "silver",
+        "gold",
+        "diamond",
+        "epic",
+        "legendary",
+        "mythic"
+      ];
+    }
+
+    function isValidPublicProfileDocument(userId) {
+      return request.resource.data.keys().hasOnly([
+          "userId",
+          "displayName",
+          "photoURL",
+          "age",
+          "gender",
+          "weight_kg",
+          "location_country",
+          "location_region",
+          "joined_at",
+          "lastUpdated"
+        ]) &&
+        request.resource.data.keys().hasAll([
+          "userId",
+          "displayName",
+          "photoURL",
+          "lastUpdated"
+        ]) &&
+        request.resource.data.userId == userId &&
+        request.resource.data.displayName is string &&
+        request.resource.data.displayName.size() > 0 &&
+        request.resource.data.displayName.size() <= 80 &&
+        request.resource.data.photoURL is string &&
+        request.resource.data.photoURL.size() <= 2048 &&
+        (!request.resource.data.keys().hasAny(["age"]) ||
+          (request.resource.data.age is int &&
+            request.resource.data.age >= 13 &&
+            request.resource.data.age <= 120)) &&
+        (!request.resource.data.keys().hasAny(["gender"]) ||
+          (request.resource.data.gender is string &&
+            request.resource.data.gender in [
+              "woman",
+              "man",
+              "non_binary",
+              "prefer_not_to_say"
+            ])) &&
+        (!request.resource.data.keys().hasAny(["weight_kg"]) ||
+          (isNonNegativeNumber(request.resource.data.weight_kg) &&
+            request.resource.data.weight_kg <= 400)) &&
+        (!request.resource.data.keys().hasAny(["location_country"]) ||
+          (request.resource.data.location_country is string &&
+            request.resource.data.location_country.matches("^[A-Z]{2}$"))) &&
+        (!request.resource.data.keys().hasAny(["location_region"]) ||
+          (request.resource.data.location_region is string &&
+            request.resource.data.location_region.matches("^[A-Z0-9-]{1,8}$"))) &&
+        (!request.resource.data.keys().hasAny(["joined_at"]) ||
+          request.resource.data.joined_at is timestamp) &&
+        request.resource.data.lastUpdated is timestamp;
+    }
+
+    function isValidProfileStatsDocument() {
+      return request.resource.data.keys().hasOnly([
+          "total_climbs_completed",
+          "total_first_ascents",
+          "top_1_weeks",
+          "top_3_weeks",
+          "top_10_weeks",
+          "top_100_weeks",
+          "most_completed_climb_id",
+          "current_streak_weeks",
+          "best_streak_weeks",
+          "pr_most_steps",
+          "pr_longest_climb_seconds",
+          "pr_highest_spm",
+          "lastUpdated"
+        ]) &&
+        request.resource.data.keys().hasAll([
+          "total_climbs_completed",
+          "total_first_ascents",
+          "top_1_weeks",
+          "top_3_weeks",
+          "top_10_weeks",
+          "top_100_weeks",
+          "most_completed_climb_id",
+          "current_streak_weeks",
+          "best_streak_weeks",
+          "pr_most_steps",
+          "pr_longest_climb_seconds",
+          "pr_highest_spm",
+          "lastUpdated"
+        ]) &&
+        request.resource.data.total_climbs_completed is int &&
+        request.resource.data.total_climbs_completed >= 0 &&
+        request.resource.data.total_first_ascents is int &&
+        request.resource.data.total_first_ascents >= 0 &&
+        request.resource.data.top_1_weeks is int &&
+        request.resource.data.top_1_weeks >= 0 &&
+        request.resource.data.top_3_weeks is int &&
+        request.resource.data.top_3_weeks >= request.resource.data.top_1_weeks &&
+        request.resource.data.top_10_weeks is int &&
+        request.resource.data.top_10_weeks >= request.resource.data.top_3_weeks &&
+        request.resource.data.top_100_weeks is int &&
+        request.resource.data.top_100_weeks >= request.resource.data.top_10_weeks &&
+        request.resource.data.most_completed_climb_id is string &&
+        request.resource.data.most_completed_climb_id.size() <= 160 &&
+        request.resource.data.current_streak_weeks is int &&
+        request.resource.data.current_streak_weeks >= 0 &&
+        request.resource.data.best_streak_weeks is int &&
+        request.resource.data.best_streak_weeks >= request.resource.data.current_streak_weeks &&
+        request.resource.data.pr_most_steps is int &&
+        request.resource.data.pr_most_steps >= 0 &&
+        request.resource.data.pr_longest_climb_seconds is int &&
+        request.resource.data.pr_longest_climb_seconds >= 0 &&
+        isNonNegativeNumber(request.resource.data.pr_highest_spm) &&
+        request.resource.data.lastUpdated is timestamp;
+    }
+
+    function isValidProfileWorkoutSummary() {
+      return request.resource.data.keys().hasOnly([
+          "name",
+          "startedAt",
+          "durationSeconds",
+          "steps",
+          "source",
+          "climbId",
+          "climbTier",
+          "lastUpdated"
+        ]) &&
+        request.resource.data.keys().hasAll([
+          "name",
+          "startedAt",
+          "durationSeconds",
+          "steps",
+          "source",
+          "lastUpdated"
+        ]) &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() > 0 &&
+        request.resource.data.name.size() <= 120 &&
+        request.resource.data.startedAt is timestamp &&
+        isNonNegativeNumber(request.resource.data.durationSeconds) &&
+        request.resource.data.steps is int &&
+        request.resource.data.steps >= 0 &&
+        request.resource.data.source is string &&
+        isValidWorkoutSource(request.resource.data.source) &&
+        (!request.resource.data.keys().hasAny(["climbId"]) ||
+          (request.resource.data.climbId is string &&
+            request.resource.data.climbId.size() > 0 &&
+            request.resource.data.climbId.size() <= 160)) &&
+        (!request.resource.data.keys().hasAny(["climbTier"]) ||
+          (request.resource.data.climbTier is string &&
+            isValidClimbTier(request.resource.data.climbTier))) &&
         request.resource.data.lastUpdated is timestamp;
     }
 
@@ -655,6 +829,35 @@ service cloud.firestore {
           request.resource.data.schemaVersion == resource.data.schemaVersion &&
           request.resource.data.createdAt == resource.data.createdAt;
         allow delete: if isOwner(userId);
+      }
+
+      match /public_profile/{docId} {
+        allow read: if isSignedIn() && docId == "current";
+        allow create, update: if isOwner(userId) &&
+          docId == "current" &&
+          isValidPublicProfileDocument(userId);
+        allow delete: if isOwner(userId) && docId == "current";
+      }
+
+      match /profile_stats/{docId} {
+        allow read: if isSignedIn() && docId == "current";
+        allow create, update: if isOwner(userId) &&
+          docId == "current" &&
+          isValidProfileStatsDocument();
+        allow delete: if isOwner(userId) && docId == "current";
+      }
+
+      match /profile_workouts/{workoutId} {
+        allow read: if isSignedIn();
+        allow create, update: if isOwner(userId) &&
+          isValidWorkoutId(workoutId) &&
+          isValidProfileWorkoutSummary();
+        allow delete: if isOwner(userId);
+      }
+
+      match /achievements/{achievementId} {
+        allow read: if isSignedIn();
+        allow write: if false;
       }
     }
 

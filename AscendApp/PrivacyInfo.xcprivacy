@@ -86,7 +86,7 @@
             </array>
         </dict>
 
-        <!-- Other Data Types — declared profile demographics: age and gender -->
+        <!-- Other Data Types — declared profile demographics: age, gender, weight, country/region -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeOtherDataTypes</string>

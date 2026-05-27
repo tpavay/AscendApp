@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum ClimbTier: String, Codable, CaseIterable, Comparable {
+enum ClimbTier: String, Codable, CaseIterable, Comparable, Sendable {
     case common
     case bronze
     case silver

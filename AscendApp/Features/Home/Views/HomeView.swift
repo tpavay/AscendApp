@@ -15,7 +15,7 @@ struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
     @State private var importCoordinator = WorkoutImportCoordinator.shared
-    @State private var homeDashboard = HomeDashboardViewModel()
+    private let homeDashboard: HomeDashboardViewModel
     @State private var showingImportSheet = false
     @State private var showingClimbBrowse = false
     @State private var selectedHomeClimb: Climb?
@@ -25,6 +25,10 @@ struct HomeView: View {
 
     private var isHomeTabSelected: Bool {
         tabRouter.selectedTab == .home
+    }
+
+    init(homeDashboard: HomeDashboardViewModel = HomeDashboardViewModel()) {
+        self.homeDashboard = homeDashboard
     }
 
     private var hasBlockingModalPresentation: Bool {
@@ -101,6 +105,7 @@ struct HomeView: View {
 
                     HomeRankGlobeRow(
                         weeklyRankSummary: homeDashboard.weeklyRankSummary,
+                        isRankLoading: homeDashboard.isRankLoading,
                         completedClimbCount: homeDashboard.completedClimbCount,
                         totalClimbCount: globeViewModel.climbCount,
                         onRankTapped: { tabRouter.selectedTab = .leaderboard },
@@ -419,6 +424,7 @@ private struct HomeExploreGlobeCard: View {
 
 private struct HomeRankGlobeRow: View {
     let weeklyRankSummary: HomeWeeklyRankSummary?
+    let isRankLoading: Bool
     let completedClimbCount: Int
     let totalClimbCount: Int
     let onRankTapped: () -> Void
@@ -428,6 +434,7 @@ private struct HomeRankGlobeRow: View {
         HStack(spacing: 12) {
             HomeRankCard(
                 summary: weeklyRankSummary,
+                isLoading: isRankLoading,
                 action: onRankTapped
             )
 
@@ -442,6 +449,7 @@ private struct HomeRankGlobeRow: View {
 
 private struct HomeRankCard: View {
     let summary: HomeWeeklyRankSummary?
+    let isLoading: Bool
     let action: () -> Void
 
     var body: some View {
@@ -460,7 +468,7 @@ private struct HomeRankCard: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
 
-                Text(percentileText)
+                Text(statusText)
                     .font(.montserratMedium(size: 10))
                     .tracking(0.6)
                     .foregroundStyle(.white.opacity(0.55))
@@ -477,50 +485,29 @@ private struct HomeRankCard: View {
         .accessibilityLabel(accessibilityLabel)
     }
 
-    private static let top100PopulationThreshold = 500
-
-    private var percentileText: String {
-        guard let summary else { return "Climb to be ranked" }
-
-        switch summary.rank {
-        case 1:
-            if summary.isTiedForGold {
-                return "TIED FOR GOLD"
-            }
-            return "DEFENDING GOLD · \(formattedSteps(summary.stepsAheadOfSecond)) AHEAD"
-        case 2:
-            return "\(formattedSteps(summary.stepsFromGold)) STEPS FROM GOLD"
-        case 3:
-            return "\(formattedSteps(summary.stepsFromSilver)) STEPS FROM SILVER"
-        case 4...10:
-            return "\(formattedSteps(summary.stepsToBronze)) STEPS TO BRONZE"
-        case 11...100 where summary.population >= Self.top100PopulationThreshold:
-            return "TOP 100 · \(formattedSteps(summary.stepsToTop10)) TO TOP 10"
-        default:
-            guard let percentile = summary.percentile else { return "Climb to be ranked" }
-            return "TOP \(percentile)% OF CLIMBERS"
+    private var statusText: String {
+        guard let summary else {
+            return isLoading ? "Updating rank" : "Climb to be ranked"
         }
+
+        return LeaderboardRankSubtitleFormatter.subtitle(for: summary.subtitleContext)
     }
 
     private var accessibilityLabel: String {
-        guard let summary else { return "Not yet ranked. Climb to be ranked." }
-        return "Weekly rank by steps: number \(summary.rank). \(percentileText)."
-    }
-
-    private func formattedSteps(_ value: Int?) -> String {
-        max(value ?? 0, 0).formatted()
+        guard let summary else {
+            return isLoading ? "Weekly rank by steps is updating." : "Not yet ranked. Climb to be ranked."
+        }
+        return "Weekly rank by steps: number \(summary.rank). \(statusText)."
     }
 
     private var cardBackground: some View {
         RoundedRectangle(cornerRadius: 14, style: .continuous)
             .fill(Color(hex: "111111"))
             .overlay(alignment: .bottomTrailing) {
-                Image("HomeRankTrophyArtwork")
-                    .resizable()
-                    .renderingMode(.original)
-                    .scaledToFit()
-                    .frame(width: 180, height: 180)
-                    .opacity(0.85)
+                Image(systemName: "trophy.fill")
+                    .font(.system(size: 96, weight: .bold))
+                    .foregroundStyle(Color.accentColor.opacity(0.16))
+                    .frame(width: 150, height: 150)
                     .offset(x: 40, y: 40)
                     .accessibilityHidden(true)
             }
@@ -529,6 +516,23 @@ private struct HomeRankCard: View {
                     .stroke(.white.opacity(0.1), lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+private extension HomeWeeklyRankSummary {
+    var subtitleContext: LeaderboardRankSubtitleContext {
+        LeaderboardRankSubtitleContext(
+            rank: rank,
+            totalClimbers: population,
+            tiedForFirst: isTiedForGold,
+            stepsAheadOfSecond: stepsAheadOfSecond,
+            stepsFromGold: stepsFromGold,
+            stepsFromSilver: stepsFromSilver,
+            stepsToBronze: stepsToBronze,
+            stepsToTopTen: stepsToTop10,
+            stepsToTopHundred: stepsToTop100,
+            stepsToTopFiftyPercent: stepsToTop50Percent
+        )
     }
 }
 
