@@ -11,29 +11,20 @@ struct ActivityCalendarSection: View {
     private var calendar: Calendar { .current }
 
     var body: some View {
+        let monthData = calendarMonthData
+
         VStack(alignment: .leading, spacing: 12) {
             ProfileSectionHeaderView(title: "Activity")
 
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 12) {
-                    calendarGrid
-                        .frame(minWidth: 0, maxWidth: .infinity)
+            HStack(alignment: .top, spacing: 12) {
+                calendarGrid(monthData)
+                    .frame(minWidth: 0, maxWidth: .infinity)
 
-                    StreakPanel(
-                        currentStreakWeeks: currentStreakWeeks,
-                        bestStreakWeeks: bestStreakWeeks
-                    )
-                    .frame(width: 62)
-                }
-
-                VStack(alignment: .leading, spacing: 12) {
-                    calendarGrid
-
-                    StreakPanel(
-                        currentStreakWeeks: currentStreakWeeks,
-                        bestStreakWeeks: bestStreakWeeks
-                    )
-                }
+                StreakPanel(
+                    currentStreakWeeks: currentStreakWeeks,
+                    bestStreakWeeks: bestStreakWeeks
+                )
+                .frame(width: 62)
             }
 
             if mode == .own, workouts.isEmpty {
@@ -45,7 +36,7 @@ struct ActivityCalendarSection: View {
         }
     }
 
-    private var calendarGrid: some View {
+    private func calendarGrid(_ monthData: ProfileCalendarMonthData) -> some View {
         ProfileCardSurfaceView {
             VStack(spacing: 10) {
                 monthControl
@@ -61,13 +52,13 @@ struct ActivityCalendarSection: View {
                             .frame(height: 14)
                     }
 
-                    ForEach(calendarDays) { day in
+                    ForEach(monthData.days) { day in
                         Text("\(calendar.component(.day, from: day.date))")
                             .font(.montserratSemiBold(size: 12))
                             .foregroundStyle(day.isCurrentMonth ? .white : ProfileVisualStyle.tertiaryText)
                             .frame(maxWidth: .infinity)
                             .frame(height: 30)
-                            .background(dayFill(day))
+                            .background(dayFill(day, maxSteps: monthData.maxSteps))
                             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                     }
                 }
@@ -87,7 +78,7 @@ struct ActivityCalendarSection: View {
                 selectedDate = calendar.date(byAdding: .month, value: -1, to: selectedDate) ?? selectedDate
             }
 
-            Text(monthYearFormatter.string(from: selectedDate).uppercased())
+            Text(monthTitle)
                 .font(.montserratBold(size: 12))
                 .foregroundStyle(Color.accentColor)
                 .tracking(1.2)
@@ -128,18 +119,23 @@ struct ActivityCalendarSection: View {
         return calendar.compare(next, to: Date(), toGranularity: .month) != .orderedDescending
     }
 
-    private var calendarDays: [ProfileCalendarDayModel] {
+    private var calendarMonthData: ProfileCalendarMonthData {
         guard let monthInterval = calendar.dateInterval(of: .month, for: selectedDate),
               let lastDayOfMonth = calendar.date(byAdding: .day, value: -1, to: monthInterval.end) else {
-            return []
+            return ProfileCalendarMonthData(days: [], maxSteps: 0)
         }
 
         let firstWeekday = calendar.component(.weekday, from: monthInterval.start)
         let daysFromMonday = (firstWeekday + 5) % 7
-        let gridStart = calendar.date(byAdding: .day, value: -daysFromMonday, to: monthInterval.start) ?? monthInterval.start
+        let gridStart = calendar.startOfDay(
+            for: calendar.date(byAdding: .day, value: -daysFromMonday, to: monthInterval.start) ?? monthInterval.start
+        )
         let lastWeekday = calendar.component(.weekday, from: lastDayOfMonth)
         let daysToSunday = (8 - lastWeekday) % 7
-        let gridEnd = calendar.date(byAdding: .day, value: daysToSunday, to: lastDayOfMonth) ?? lastDayOfMonth
+        let gridEnd = calendar.startOfDay(
+            for: calendar.date(byAdding: .day, value: daysToSunday, to: lastDayOfMonth) ?? lastDayOfMonth
+        )
+        let stepsByDay = stepsByDay(from: gridStart, through: gridEnd)
         var days: [ProfileCalendarDayModel] = []
         var current = gridStart
 
@@ -158,21 +154,21 @@ struct ActivityCalendarSection: View {
             current = next
         }
 
-        return days
+        return ProfileCalendarMonthData(
+            days: days,
+            maxSteps: days.map(\.steps).max() ?? 0
+        )
     }
 
-    private var stepsByDay: [Date: Int] {
+    private func stepsByDay(from gridStart: Date, through gridEnd: Date) -> [Date: Int] {
         workouts.reduce(into: [Date: Int]()) { result, workout in
             let key = calendar.startOfDay(for: workout.startedAt)
+            guard key >= gridStart, key <= gridEnd else { return }
             result[key, default: 0] += workout.steps
         }
     }
 
-    private var maxSteps: Int {
-        calendarDays.map(\.steps).max() ?? 0
-    }
-
-    private func dayFill(_ day: ProfileCalendarDayModel) -> Color {
+    private func dayFill(_ day: ProfileCalendarDayModel, maxSteps: Int) -> Color {
         guard day.isCurrentMonth else { return Color.white.opacity(0.035) }
         guard day.steps > 0, maxSteps > 0 else { return Color.white.opacity(0.075) }
         let progress = min(Double(day.steps) / Double(maxSteps), 1)
@@ -183,11 +179,16 @@ struct ActivityCalendarSection: View {
         )
     }
 
-    private var monthYearFormatter: DateFormatter {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM yyyy"
-        return formatter
+    private var monthTitle: String {
+        selectedDate
+            .formatted(.dateTime.month(.abbreviated).year())
+            .uppercased()
     }
+}
+
+private struct ProfileCalendarMonthData {
+    let days: [ProfileCalendarDayModel]
+    let maxSteps: Int
 }
 
 private struct ProfileCalendarDayModel: Identifiable {

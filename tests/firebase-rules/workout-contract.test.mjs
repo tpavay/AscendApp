@@ -105,6 +105,39 @@ test('daily leaderboard stats require a daily period key', async () => {
   })));
 });
 
+test('signed-in users can read published routine templates', async () => {
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await setDoc(
+      doc(adminContext.firestore(), 'routine_templates/social-pyramid-20'),
+      makeRoutineTemplateDocument()
+    );
+  });
+
+  const context = testEnv.authenticatedContext(userId);
+  await assertSucceeds(getDoc(doc(context.firestore(), 'routine_templates/social-pyramid-20')));
+});
+
+test('clients cannot read unpublished routine templates', async () => {
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await setDoc(
+      doc(adminContext.firestore(), 'routine_templates/draft-pyramid-20'),
+      makeRoutineTemplateDocument({ status: 'draft' })
+    );
+  });
+
+  const context = testEnv.authenticatedContext(userId);
+  await assertFails(getDoc(doc(context.firestore(), 'routine_templates/draft-pyramid-20')));
+});
+
+test('clients cannot write routine templates', async () => {
+  const context = testEnv.authenticatedContext(userId);
+
+  await assertFails(setDoc(
+    doc(context.firestore(), 'routine_templates/social-pyramid-20'),
+    makeRoutineTemplateDocument()
+  ));
+});
+
 test('owner can write a valid workout backup document', async () => {
   const context = testEnv.authenticatedContext(userId);
   const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
@@ -360,6 +393,28 @@ function makeLeaderboardDocument(overrides = {}) {
     totalDuration: 1800,
     stepsPerMinute: 40,
     lastUpdated: new Date('2026-04-10T07:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+function makeRoutineTemplateDocument(overrides = {}) {
+  return {
+    templateId: 'social-pyramid-20',
+    status: 'published',
+    version: 1,
+    name: 'Social Pyramid 20',
+    description: 'A clean 20-minute pyramid climb.',
+    intervals: [
+      { durationSeconds: 120, level: 6 },
+      { durationSeconds: 120, level: 8 },
+      { durationSeconds: 120, level: 10 },
+    ],
+    browseSections: [],
+    isFeatured: true,
+    displayOrder: 50,
+    featuredOrder: 50,
+    seedPackId: 'routine-templates-v1-dev',
+    updatedAt: new Date('2026-06-01T12:00:00.000Z'),
     ...overrides,
   };
 }

@@ -360,7 +360,12 @@ async function publishReplayEntries(
     const previousCompletedCount = nonNegativeIntegerValue(
       leaderboardData?.completedCount
     ) ?? 0;
-    const globalCompletionOrder = existingOrder ?? previousCompletedCount + 1;
+    const hasFirstAscent = leaderboardHasFirstAscent(leaderboardData);
+    const globalCompletionOrder = nextGlobalCompletionOrder({
+      existingOrder,
+      hasFirstAscent,
+      previousCompletedCount,
+    });
     const summaryWrite: Record<string, unknown> = {
       bucketIntervalSeconds: payload.splitIntervalSeconds,
       completedCount: isNewFinisher ?
@@ -373,7 +378,7 @@ async function publishReplayEntries(
       updatedAt: now,
     };
 
-    if (!leaderboardHasFirstAscent(leaderboardData)) {
+    if (!hasFirstAscent) {
       Object.assign(
         summaryWrite,
         firstAscentWrite({
@@ -432,6 +437,33 @@ function leaderboardHasFirstAscent(
 
   return data.firstAscentCompletedAt !== undefined ||
     stringValue(data.firstAscentUserId) !== null;
+}
+
+/**
+ * Resolves the permanent chronological finisher order for a user in a replay
+ * context. Seeded synthetic rows may already populate completedCount while the
+ * First Ascent is still open; the first real First Ascent holder must still be
+ * finisher #1.
+ * @param {object} input Completion order inputs.
+ * @param {number | null} input.existingOrder Existing permanent order.
+ * @param {boolean} input.hasFirstAscent Whether the context has a FA holder.
+ * @param {number} input.previousCompletedCount Current summary completed count.
+ * @return {number} Permanent global completion order.
+ */
+function nextGlobalCompletionOrder(input: {
+  existingOrder: number | null;
+  hasFirstAscent: boolean;
+  previousCompletedCount: number;
+}): number {
+  if (input.existingOrder !== null) {
+    return input.existingOrder;
+  }
+
+  if (!input.hasFirstAscent) {
+    return 1;
+  }
+
+  return input.previousCompletedCount + 1;
 }
 
 /**
@@ -793,5 +825,6 @@ export const liveReplayLeaderboardTestHooks = {
   finisherStatusWrite,
   firstAscentWrite,
   leaderboardHasFirstAscent,
+  nextGlobalCompletionOrder,
   parseLiveClimbReplayPayload,
 };

@@ -89,8 +89,8 @@ struct HomeView: View {
             .padding(.bottom, 12)
 
             ScrollView {
-                VStack(spacing: 20) {
-                    ClimbCardView(
+                LazyVStack(spacing: 20) {
+                    TodayHomeSectionView(
                         viewModel: globeViewModel,
                         onOpenClimb: { climb in
                             TelemetryManager.shared.track(
@@ -103,7 +103,7 @@ struct HomeView: View {
                         }
                     )
 
-                    HomeRankGlobeRow(
+                    HomeRankGlobeSection(
                         weeklyRankSummary: homeDashboard.weeklyRankSummary,
                         isRankLoading: homeDashboard.isRankLoading,
                         completedClimbCount: homeDashboard.completedClimbCount,
@@ -165,6 +165,7 @@ struct HomeView: View {
             refreshHomeDashboard(forceRank: true)
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
+            refreshTodayClimbNotifications()
 
             // Check for workouts from all sources on app launch
             await importCoordinator.refreshPendingImports(trigger: .homeEntry)
@@ -175,6 +176,7 @@ struct HomeView: View {
             refreshHomeDashboard()
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
+            refreshTodayClimbNotifications()
             Task {
                 await importCoordinator.refreshPendingImports(trigger: .homeEntry)
                 syncAutoImportedReviewPresentation()
@@ -190,15 +192,18 @@ struct HomeView: View {
         .onChange(of: authVM.user?.uid) { _, _ in
             refreshHomeDashboard(forceRank: true)
             refreshTodayClimbStake()
+            refreshTodayClimbNotifications()
         }
         .onReceive(NotificationCenter.default.publisher(for: .workoutsDidChange)) { _ in
             refreshHomeDashboard(forceRank: true)
+            refreshTodayClimbNotifications()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             // Check for new workouts when app comes to foreground (throttled to prevent spam)
             refreshHomeDashboard(forceRank: true)
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
+            refreshTodayClimbNotifications()
             Task {
                 await importCoordinator.refreshPendingImports(trigger: .automatic)
                 syncAutoImportedReviewPresentation()
@@ -209,12 +214,17 @@ struct HomeView: View {
             refreshHomeDashboard()
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
+            refreshTodayClimbNotifications()
         }
         .onReceive(NotificationCenter.default.publisher(for: .climbCatalogDidChange)) { _ in
             globeViewModel.reloadCatalog(modelContext: modelContext)
             refreshHomeDashboard()
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
+            refreshTodayClimbNotifications()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .todayClimbNotificationPreferenceDidChange)) { _ in
+            refreshTodayClimbNotifications()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
             // Reset throttling when app goes to background so next foreground check works
@@ -278,6 +288,18 @@ struct HomeView: View {
         }
     }
 
+    private func refreshTodayClimbNotifications() {
+        let availableClimbs = globeViewModel.availableClimbs
+        let completedClimbIds = globeViewModel.completedClimbIds
+
+        Task {
+            await TodayClimbNotificationScheduler.shared.scheduleIfAuthorized(
+                availableClimbs: availableClimbs,
+                completedClimbIds: completedClimbIds
+            )
+        }
+    }
+
     private func refreshHomeDashboard(forceRank: Bool = false) {
         homeDashboard.refreshLocalData(modelContext: modelContext)
         homeDashboard.refreshWeeklyRank(
@@ -299,416 +321,6 @@ struct HomeView: View {
         )
 
         return try? modelContext.fetch(descriptor).first
-    }
-}
-
-private struct HomeExploreGlobeCard: View {
-    let climbs: [Climb]
-    let communityClimbersCount: Int
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 16) {
-                thumbnailStack
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(titleText)
-                        .font(.montserratBold(size: 15))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.88)
-
-                    Text(subtitleText)
-                        .font(.montserratRegular(size: 12))
-                        .foregroundStyle(.white.opacity(0.56))
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                AppIcon(token: .disclosureChevronRight, pointSize: 14, weight: .semibold)
-                    .foregroundStyle(.white.opacity(0.48))
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity)
-            .background(cardBackground)
-        }
-        .buttonStyle(.plain)
-        .accessibilityHint("Open the Live Climbs globe")
-    }
-
-    private var thumbnailStack: some View {
-        ZStack(alignment: .leading) {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(.black.opacity(0.42))
-
-            ForEach(Array(stackedClimbs.enumerated()), id: \.offset) { index, climb in
-                ClimbArtworkView(climb: climb, variant: .thumb)
-                    .frame(width: 30, height: 34)
-                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .stroke(.white.opacity(0.08), lineWidth: 1)
-                    )
-                    .offset(x: CGFloat(index) * 23)
-                    .zIndex(Double(index))
-            }
-            .padding(.leading, 4)
-        }
-        .frame(width: 80, height: 40)
-        .clipped()
-        .accessibilityHidden(true)
-    }
-
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(Color(hex: "111111"))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(.white.opacity(0.1), lineWidth: 1)
-            )
-    }
-
-    private var stackedClimbs: [Climb] {
-        let featuredIDs = [
-            "mount-etna",
-            "empire-state-building",
-            "burj-khalifa"
-        ]
-
-        let featuredClimbs = featuredIDs.compactMap { id in
-            climbs.first { $0.id == id }
-        }
-
-        return Array(uniqueClimbs(featuredClimbs + climbs).prefix(3))
-    }
-
-    private var titleText: String {
-        if communityClimbersCount == 1 {
-            return "Join 1 climber worldwide"
-        }
-
-        if communityClimbersCount > 0 {
-            return "Join \(communityClimbersCount.formatted()) climbers worldwide"
-        }
-
-        return "Join climbers worldwide"
-    }
-
-    private var subtitleText: String {
-        if climbs.count >= 100 {
-            return "100+ climbs from Etna to Dubai"
-        }
-
-        if climbs.count > 0 {
-            return "\(climbs.count.formatted()) climbs from Etna to Dubai"
-        }
-
-        return "From Etna to Dubai"
-    }
-
-    private func uniqueClimbs(_ climbs: [Climb]) -> [Climb] {
-        var seenIDs: Set<String> = []
-        var unique: [Climb] = []
-
-        for climb in climbs {
-            guard !seenIDs.contains(climb.id) else { continue }
-            seenIDs.insert(climb.id)
-            unique.append(climb)
-        }
-
-        return unique.isEmpty ? [.preview] : unique
-    }
-}
-
-private struct HomeRankGlobeRow: View {
-    let weeklyRankSummary: HomeWeeklyRankSummary?
-    let isRankLoading: Bool
-    let completedClimbCount: Int
-    let totalClimbCount: Int
-    let onRankTapped: () -> Void
-    let onGlobeTapped: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            HomeRankCard(
-                summary: weeklyRankSummary,
-                isLoading: isRankLoading,
-                action: onRankTapped
-            )
-
-            HomeMyGlobeCard(
-                count: completedClimbCount,
-                total: totalClimbCount,
-                action: onGlobeTapped
-            )
-        }
-    }
-}
-
-private struct HomeRankCard: View {
-    let summary: HomeWeeklyRankSummary?
-    let isLoading: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("WEEKLY RANK · STEPS")
-                    .font(.montserratSemiBold(size: 10))
-                    .tracking(1.2)
-                    .foregroundStyle(Color.accent)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-
-                Text(summary.map { "#\($0.rank)" } ?? "—")
-                    .font(.montserratBold(size: 34))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-
-                Text(statusText)
-                    .font(.montserratMedium(size: 10))
-                    .tracking(0.6)
-                    .foregroundStyle(.white.opacity(0.55))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .frame(minHeight: 116)
-            .background(cardBackground)
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilityLabel)
-    }
-
-    private var statusText: String {
-        guard let summary else {
-            return isLoading ? "Updating rank" : "Climb to be ranked"
-        }
-
-        return LeaderboardRankSubtitleFormatter.subtitle(for: summary.subtitleContext)
-    }
-
-    private var accessibilityLabel: String {
-        guard let summary else {
-            return isLoading ? "Weekly rank by steps is updating." : "Not yet ranked. Climb to be ranked."
-        }
-        return "Weekly rank by steps: number \(summary.rank). \(statusText)."
-    }
-
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .fill(Color(hex: "111111"))
-            .overlay(alignment: .bottomTrailing) {
-                Image(systemName: "trophy.fill")
-                    .font(.system(size: 96, weight: .bold))
-                    .foregroundStyle(Color.accentColor.opacity(0.16))
-                    .frame(width: 150, height: 150)
-                    .offset(x: 40, y: 40)
-                    .accessibilityHidden(true)
-            }
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(.white.opacity(0.1), lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-}
-
-private extension HomeWeeklyRankSummary {
-    var subtitleContext: LeaderboardRankSubtitleContext {
-        LeaderboardRankSubtitleContext(
-            rank: rank,
-            totalClimbers: population,
-            tiedForFirst: isTiedForGold,
-            stepsAheadOfSecond: stepsAheadOfSecond,
-            stepsFromGold: stepsFromGold,
-            stepsFromSilver: stepsFromSilver,
-            stepsToBronze: stepsToBronze,
-            stepsToTopTen: stepsToTop10,
-            stepsToTopHundred: stepsToTop100,
-            stepsToTopFiftyPercent: stepsToTop50Percent
-        )
-    }
-}
-
-private struct HomeMyGlobeCard: View {
-    let count: Int
-    let total: Int
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("MY GLOBE")
-                    .font(.montserratSemiBold(size: 10))
-                    .tracking(1.2)
-                    .foregroundStyle(Color.accent)
-
-                Text("\(count) / \(resolvedTotal)")
-                    .font(.montserratBold(size: 34))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.64)
-                    .allowsTightening(true)
-                    .layoutPriority(2)
-
-                Text("climbs collected")
-                    .font(.montserratMedium(size: 10))
-                    .foregroundStyle(.white.opacity(0.55))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
-                    .multilineTextAlignment(.leading)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .frame(minHeight: 116)
-            .background(cardBackground)
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("My globe: \(count) of \(resolvedTotal) climbs collected")
-    }
-
-    private var resolvedTotal: Int {
-        max(total, count)
-    }
-
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .fill(Color(hex: "111111"))
-            .overlay(alignment: .bottomTrailing) {
-                Image("HomeMyGlobeArtwork")
-                    .resizable()
-                    .renderingMode(.original)
-                    .scaledToFit()
-                    .frame(width: 180, height: 180)
-                    .opacity(0.85)
-                    .offset(x: 40, y: 40)
-                    .accessibilityHidden(true)
-            }
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(.white.opacity(0.1), lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-}
-
-private struct HomeRecentPRsSection: View {
-    let records: [HomeRecentPRRecord]
-    let workouts: [Workout]
-
-    var body: some View {
-        VStack(spacing: 12) {
-            HStack {
-                Text("RECENT PERSONAL RECORDS")
-                    .font(.montserratSemiBold(size: 11))
-                    .tracking(1.2)
-                    .foregroundStyle(Color.accent)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-
-                Spacer()
-
-                NavigationLink {
-                    BestEffortsListView(workouts: workouts)
-                } label: {
-                    HStack(spacing: 4) {
-                        Text("VIEW ALL")
-                            .font(.montserratSemiBold(size: 11))
-                            .tracking(0.8)
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 9, weight: .semibold))
-                    }
-                    .foregroundStyle(Color.accent)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("View all personal records")
-            }
-
-            HStack(spacing: 12) {
-                ForEach(records) { record in
-                    NavigationLink {
-                        BestEffortRecordDetailView(
-                            metric: record.metric,
-                            workouts: workouts
-                        )
-                    } label: {
-                        HomePRCard(record: record)
-                    }
-                    .buttonStyle(.plain)
-                    .frame(maxWidth: .infinity)
-                }
-            }
-        }
-    }
-}
-
-private struct HomePRCard: View {
-    let record: HomeRecentPRRecord
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(record.label)
-                .font(.montserratSemiBold(size: 9))
-                .tracking(0.8)
-                .foregroundStyle(.white.opacity(0.55))
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
-
-            valueText
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, minHeight: 74, maxHeight: 74, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(hex: "111111"))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(.white.opacity(0.1), lineWidth: 1)
-                )
-        )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(record.label): \(record.value)\(record.isNew ? ", new personal record" : "")")
-    }
-
-    @ViewBuilder
-    private var valueText: some View {
-        switch record.metric {
-        case .highestAverageSPM:
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(paceValueNumber)
-                    .font(.montserratBold(size: 22))
-                    .foregroundStyle(.white)
-
-                Text(paceValueUnit)
-                    .font(.montserratBold(size: 11))
-                    .foregroundStyle(.white.opacity(0.72))
-            }
-            .lineLimit(1)
-            .minimumScaleFactor(0.7)
-        default:
-            Text(record.value)
-                .font(.montserratBold(size: 22))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-        }
-    }
-
-    private var paceValueNumber: String {
-        record.value.split(separator: " ", maxSplits: 1).first.map(String.init) ?? record.value
-    }
-
-    private var paceValueUnit: String {
-        let parts = record.value.split(separator: " ", maxSplits: 1).map(String.init)
-        return parts.dropFirst().first ?? "SPM"
     }
 }
 

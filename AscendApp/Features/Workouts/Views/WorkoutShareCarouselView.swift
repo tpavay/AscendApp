@@ -295,11 +295,6 @@ struct WorkoutShareCarouselView: View {
 
     private var doneButton: some View {
         Button(action: {
-            // Check if we should prompt for a rating
-            if let workoutCount = viewModel.workoutCount {
-                AppStoreRatingManager.shared.checkAndRequestReviewIfNeeded(currentWorkoutCount: workoutCount)
-            }
-
             onDismiss?()
         }) {
             Text("Done")

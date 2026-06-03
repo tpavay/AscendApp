@@ -2,6 +2,12 @@ import SwiftUI
 import SwiftData
 
 struct RoutinesView: View {
+    enum Presentation {
+        case standalone
+        case tab
+    }
+
+    private let presentation: Presentation
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
@@ -25,6 +31,10 @@ struct RoutinesView: View {
 
     private var hasSearchResults: Bool {
         !viewModel.filteredMyRoutines.isEmpty || !viewModel.filteredBuiltInRoutines.isEmpty
+    }
+
+    init(presentation: Presentation = .standalone) {
+        self.presentation = presentation
     }
 
     var body: some View {
@@ -105,6 +115,9 @@ struct RoutinesView: View {
         .onAppear {
             viewModel.configure(modelContext: modelContext)
             viewModel.loadRoutines()
+            Task {
+                await viewModel.refreshRemoteRoutineTemplates()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .routineTemplatesDidChange)) { _ in
             viewModel.loadRoutines()
@@ -113,43 +126,59 @@ struct RoutinesView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                OnboardingBackButton {
-                    dismiss()
+            if presentation == .tab {
+                HStack(alignment: .center, spacing: 16) {
+                    Text("Training")
+                        .font(.montserratBold(size: 32))
+                        .foregroundStyle(.white)
+
+                    Spacer()
+
+                    headerActions
+                }
+            } else {
+                HStack {
+                    OnboardingBackButton {
+                        dismiss()
+                    }
+
+                    Spacer()
+
+                    headerActions
                 }
 
-                Spacer()
-
-                HStack(spacing: 18) {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isShowingSearch.toggle()
-                            if !isShowingSearch {
-                                viewModel.searchText = ""
-                                isSearchFocused = false
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 20, weight: .medium))
-                            .foregroundStyle(.white)
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        showingCreateRoutine = true
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 22, weight: .medium))
-                            .foregroundStyle(.white)
-                    }
-                    .buttonStyle(.plain)
-                }
+                Text("Routines")
+                    .font(.montserratBold(size: 32))
+                    .foregroundStyle(.white)
             }
+        }
+    }
 
-            Text("Routines")
-                .font(.montserratBold(size: 32))
-                .foregroundStyle(.white)
+    private var headerActions: some View {
+        HStack(spacing: 18) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isShowingSearch.toggle()
+                    if !isShowingSearch {
+                        viewModel.searchText = ""
+                        isSearchFocused = false
+                    }
+                }
+            } label: {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(.white)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                showingCreateRoutine = true
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(.white)
+            }
+            .buttonStyle(.plain)
         }
     }
 

@@ -37,6 +37,32 @@ struct LiveReplayLeaderboardContext: Hashable, Codable, Sendable {
         )
     }
 
+    static func routineTemplate(
+        templateId: String,
+        targetSteps: Int,
+        bucketIntervalSeconds: Int = 10
+    ) -> LiveReplayLeaderboardContext {
+        LiveReplayLeaderboardContext(
+            type: .routineTemplate,
+            id: templateId,
+            targetSteps: targetSteps,
+            bucketIntervalSeconds: bucketIntervalSeconds
+        )
+    }
+
+    static func routine(
+        routineId: UUID,
+        targetSteps: Int,
+        bucketIntervalSeconds: Int = 10
+    ) -> LiveReplayLeaderboardContext {
+        LiveReplayLeaderboardContext(
+            type: .routine,
+            id: routineId.uuidString,
+            targetSteps: targetSteps,
+            bucketIntervalSeconds: bucketIntervalSeconds
+        )
+    }
+
     var contextKey: String {
         "\(type.rawValue)__\(sanitizedId)"
     }

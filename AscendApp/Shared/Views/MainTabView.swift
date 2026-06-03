@@ -17,7 +17,6 @@ struct MainTabView: View {
     @State private var tabRouter = TabRouter()
     @State private var homeDashboard = HomeDashboardViewModel()
     @State private var profileScreen = ProfileScreenViewModel()
-    @State private var hasCheckedRatingOnLaunch = false
     @State private var showBackOnlineBanner = false
     @State private var onlineBannerTask: Task<Void, Never>?
     @State private var showOfflineHighlight = false
@@ -51,9 +50,6 @@ struct MainTabView: View {
         }
         .accentColor(.accent)
         .environment(tabRouter)
-        .onAppear {
-            checkForRatingPromptOnLaunch()
-        }
         .task {
             rebuildBestEffortCacheIfNeeded()
         }
@@ -73,6 +69,11 @@ struct MainTabView: View {
                 HomeView(homeDashboard: homeDashboard)
             }
             .id("HomeNavigationStack")
+        case .training:
+            NavigationStack {
+                RoutinesView(presentation: .tab)
+            }
+            .id("TrainingNavigationStack")
         case .workouts:
             NavigationStack {
                 WorkoutListView()
@@ -138,19 +139,6 @@ struct MainTabView: View {
     }
 
     // MARK: - Helpers
-
-    private func checkForRatingPromptOnLaunch() {
-        // Only check once per app session
-        guard !hasCheckedRatingOnLaunch else { return }
-        hasCheckedRatingOnLaunch = true
-
-        // Check if user is eligible for rating prompt based on workout count
-        // This handles cases where user imported workouts and became eligible
-        // Note: We fetch count on-demand rather than using @Query to avoid crashes
-        // when workouts are deleted (e.g., during account deletion) while this view is in the hierarchy
-        let workoutCount = (try? modelContext.fetchCount(FetchDescriptor<Workout>())) ?? 0
-        AppStoreRatingManager.shared.checkAndRequestReviewIfNeeded(currentWorkoutCount: workoutCount)
-    }
 
     private func rebuildBestEffortCacheIfNeeded() {
         do {

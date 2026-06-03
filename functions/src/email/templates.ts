@@ -6,6 +6,8 @@ import type {
   WaitlistWelcomePayload,
 } from "./types";
 
+const BRAND_ACCENT_COLOR = "#86D30A";
+
 /**
  * Escapes untrusted HTML content for safe email rendering.
  * @param {string} value - Raw user-provided content
@@ -113,13 +115,17 @@ export function renderWaitlistWelcomeEmail(
       // eslint-disable-next-line max-len
       "\" width=\"42\" height=\"42\" alt=\"Ascend icon\" style=\"display:block;width:42px;height:42px;border:0;border-radius:10px;\" /></td><td valign=\"middle\" style=\"font-size:16px;line-height:1;color:#ffffff;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;\">Ascend</td></tr></table></td></tr>",
       // eslint-disable-next-line max-len
-      "<tr><td style=\"padding:40px 32px 24px;\"><p style=\"margin:0 0 18px;font-size:12px;line-height:1.3;color:#b4cc00;font-weight:700;letter-spacing:0.28em;text-transform:uppercase;\">",
+      "<tr><td style=\"padding:40px 32px 24px;\"><p style=\"margin:0 0 18px;font-size:12px;line-height:1.3;color:",
+      BRAND_ACCENT_COLOR,
+      ";font-weight:700;letter-spacing:0.28em;text-transform:uppercase;\">",
       eyebrow,
       "</p>",
       // eslint-disable-next-line max-len
       "<h1 style=\"margin:0 0 20px;font-size:58px;line-height:0.94;font-weight:900;letter-spacing:-0.04em;color:#111111;\">",
       headlineLeading,
-      "<br /><span style=\"color:#b4cc00;\">",
+      "<br /><span style=\"color:",
+      BRAND_ACCENT_COLOR,
+      ";\">",
       headlineAccent,
       "</span></h1>",
       // eslint-disable-next-line max-len
@@ -135,7 +141,10 @@ export function renderWaitlistWelcomeEmail(
       "<a href=\"",
       betaInviteUrl ? escapedBetaInviteUrl : escapedPrimaryCtaUrl,
       // eslint-disable-next-line max-len
-      "\" style=\"display:inline-block;padding:20px 28px;border-radius:18px;background:#b4cc00;color:#111111;font-size:18px;line-height:1;font-weight:800;text-decoration:none;text-transform:uppercase;letter-spacing:0.04em;\">",
+      "\" style=\"display:inline-block;padding:20px 28px;border-radius:18px;background:",
+      BRAND_ACCENT_COLOR,
+      ";color:#111111;font-size:18px;line-height:1;font-weight:800;",
+      "text-decoration:none;text-transform:uppercase;letter-spacing:0.04em;\">",
       primaryCtaLabel,
       "</a></div></td></tr>",
       // eslint-disable-next-line max-len
@@ -171,7 +180,7 @@ const FEEDBACK_TYPE_LABELS: Record<string, string> = {
 
 const FEEDBACK_TYPE_COLORS: Record<string, string> = {
   bug_report: "#ef4444",
-  feature_request: "#b4cc00",
+  feature_request: BRAND_ACCENT_COLOR,
   get_help: "#3b82f6",
 };
 

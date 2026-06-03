@@ -49,7 +49,7 @@
     ],
     "funFact": "The Washington Monument is the tallest masonry obelisk in the world.",
     "sourceURL": "https://en.wikipedia.org/wiki/Washington_Monument",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "gateway-arch",
@@ -75,7 +75,7 @@
     ],
     "funFact": "The Gateway Arch is the tallest arch monument on Earth.",
     "sourceURL": "https://en.wikipedia.org/wiki/Gateway_Arch",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "space-needle",
@@ -127,7 +127,7 @@
     ],
     "funFact": "The Transamerica Pyramid remained San Francisco's tallest building for decades.",
     "sourceURL": "https://en.wikipedia.org/wiki/Transamerica_Pyramid",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "empire-state-building",
@@ -179,7 +179,7 @@
     ],
     "funFact": "The Chrysler Building briefly held the world's tallest-building title in 1930.",
     "sourceURL": "https://en.wikipedia.org/wiki/Chrysler_Building",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "one-world-trade-center",
@@ -205,7 +205,7 @@
     ],
     "funFact": "One World Trade Center rises to a symbolic 1,776 feet.",
     "sourceURL": "https://en.wikipedia.org/wiki/One_World_Trade_Center",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "willis-tower",
@@ -231,7 +231,7 @@
     ],
     "funFact": "Willis Tower was known as Sears Tower when it became the world's tallest building in 1974.",
     "sourceURL": "https://en.wikipedia.org/wiki/Willis_Tower",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "cn-tower",
@@ -257,7 +257,7 @@
     ],
     "funFact": "The CN Tower was the tallest free-standing structure in the world for more than 30 years.",
     "sourceURL": "https://en.wikipedia.org/wiki/CN_Tower",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "torre-latinoamericana",
@@ -283,7 +283,7 @@
     ],
     "funFact": "Torre Latinoamericana is famous for surviving multiple major earthquakes.",
     "sourceURL": "https://en.wikipedia.org/wiki/Torre_Latinoamericana",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "half-dome",
@@ -309,7 +309,7 @@
     ],
     "funFact": "Half Dome's cable route is one of the most famous day hikes in the United States.",
     "sourceURL": "https://en.wikipedia.org/wiki/Half_Dome",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "denali",
@@ -335,7 +335,7 @@
     ],
     "funFact": "Denali is the highest mountain peak in North America.",
     "sourceURL": "https://en.wikipedia.org/wiki/Denali",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "mount-whitney",
@@ -361,7 +361,7 @@
     ],
     "funFact": "Mount Whitney is the highest summit in the contiguous United States.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Whitney",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "pikes-peak",
@@ -387,7 +387,7 @@
     ],
     "funFact": "Katharine Lee Bates was inspired to write America the Beautiful after visiting Pikes Peak.",
     "sourceURL": "https://en.wikipedia.org/wiki/Pikes_Peak",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "reunion-tower",
@@ -413,7 +413,7 @@
     ],
     "funFact": "Reunion Tower's glowing geodesic sphere makes it one of Dallas's most recognizable landmarks.",
     "sourceURL": "https://en.wikipedia.org/wiki/Reunion_Tower",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "machu-picchu",
@@ -465,7 +465,7 @@
     ],
     "funFact": "Sugarloaf Mountain gets its English name from the cone-shaped molds once used for sugar.",
     "sourceURL": "https://en.wikipedia.org/wiki/Sugarloaf_Mountain",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "gran-torre-santiago",
@@ -491,7 +491,7 @@
     ],
     "funFact": "Gran Torre Santiago is the tallest building in South America.",
     "sourceURL": "https://en.wikipedia.org/wiki/Gran_Torre_Santiago",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "aconcagua",
@@ -517,7 +517,7 @@
     ],
     "funFact": "Aconcagua is the highest mountain outside Asia.",
     "sourceURL": "https://en.wikipedia.org/wiki/Aconcagua",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "monserrate",
@@ -543,7 +543,7 @@
     ],
     "funFact": "Monserrate rises above Bogota with a church at its summit.",
     "sourceURL": "https://en.wikipedia.org/wiki/Monserrate",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "torres-del-paine",
@@ -569,7 +569,7 @@
     ],
     "funFact": "The granite towers of Torres del Paine are among Patagonia's most famous sights.",
     "sourceURL": "https://en.wikipedia.org/wiki/Torres_del_Paine",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "el-penon-de-guatape",
@@ -595,7 +595,7 @@
     ],
     "funFact": "A famous zigzag staircase is carved into the side of this giant granite monolith.",
     "sourceURL": "https://en.wikipedia.org/wiki/El_Penon_de_Guatape",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "palacio-salvo",
@@ -621,7 +621,7 @@
     ],
     "funFact": "Palacio Salvo dominated Montevideo's skyline when it opened in 1928.",
     "sourceURL": "https://en.wikipedia.org/wiki/Palacio_Salvo",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "mount-roraima",
@@ -647,7 +647,7 @@
     ],
     "funFact": "Mount Roraima's tabletop summit inspired lost world adventure stories.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Roraima",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "farol-santander",
@@ -673,7 +673,7 @@
     ],
     "funFact": "This former bank tower is now an arts and observation space in downtown Sao Paulo.",
     "sourceURL": "https://en.wikipedia.org/wiki/Farol_Santander",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "llaima-volcano",
@@ -699,7 +699,7 @@
     ],
     "funFact": "Llaima is one of Chile's largest and most active volcanoes.",
     "sourceURL": "https://en.wikipedia.org/wiki/Llaima",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "eiffel-tower",
@@ -751,7 +751,7 @@
     ],
     "funFact": "Big Ben is the nickname of the tower's Great Bell, not the tower itself.",
     "sourceURL": "https://en.wikipedia.org/wiki/Elizabeth_Tower",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "the-shard",
@@ -777,7 +777,7 @@
     ],
     "funFact": "The Shard was designed by Renzo Piano to look like a shard of glass.",
     "sourceURL": "https://en.wikipedia.org/wiki/The_Shard",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "berlin-tv-tower",
@@ -803,7 +803,7 @@
     ],
     "funFact": "The sphere of the Berlin TV Tower often reflects sunlight in a cross shape nicknamed the Pope's Revenge.",
     "sourceURL": "https://en.wikipedia.org/wiki/Fernsehturm_Berlin",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "leaning-tower-of-pisa",
@@ -829,7 +829,7 @@
     ],
     "funFact": "The Leaning Tower of Pisa began tilting during construction in the 12th century.",
     "sourceURL": "https://en.wikipedia.org/wiki/Leaning_Tower_of_Pisa",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "sagrada-familia",
@@ -855,7 +855,7 @@
     ],
     "funFact": "Construction on the Sagrada Familia began in 1882 and is still ongoing.",
     "sourceURL": "https://en.wikipedia.org/wiki/Sagrada_Familia",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "matterhorn",
@@ -881,7 +881,7 @@
     ],
     "funFact": "The Matterhorn's near-symmetrical pyramid shape makes it one of the world's most recognizable mountains.",
     "sourceURL": "https://en.wikipedia.org/wiki/Matterhorn",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "mont-blanc",
@@ -907,7 +907,7 @@
     ],
     "funFact": "Mont Blanc is the highest mountain in the Alps and Western Europe.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mont_Blanc",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "mount-etna",
@@ -933,7 +933,7 @@
     ],
     "funFact": "Mount Etna is one of the world's most active stratovolcanoes.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Etna",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "acropolis-of-athens",
@@ -959,7 +959,7 @@
     ],
     "funFact": "The Acropolis has overlooked Athens since classical antiquity.",
     "sourceURL": "https://en.wikipedia.org/wiki/Acropolis_of_Athens",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "st-peters-basilica",
@@ -985,7 +985,7 @@
     ],
     "funFact": "St. Peter's Basilica stands over the traditional burial site of Saint Peter.",
     "sourceURL": "https://en.wikipedia.org/wiki/St._Peter%27s_Basilica",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "neuschwanstein-castle",
@@ -1011,7 +1011,7 @@
     ],
     "funFact": "Neuschwanstein Castle inspired the look of several fairy-tale castles in popular culture.",
     "sourceURL": "https://en.wikipedia.org/wiki/Neuschwanstein_Castle",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "moscow-state-university-main-building",
@@ -1037,7 +1037,7 @@
     ],
     "funFact": "The main building is one of Moscow's famed Seven Sisters skyscrapers.",
     "sourceURL": "https://en.wikipedia.org/wiki/Moscow_State_University",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "sacre-coeur",
@@ -1063,7 +1063,7 @@
     ],
     "funFact": "Sacre-Coeur sits at the summit of Montmartre, the highest natural point in Paris.",
     "sourceURL": "https://en.wikipedia.org/wiki/Sacre-Coeur,_Paris",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "alhambra",
@@ -1089,7 +1089,7 @@
     ],
     "funFact": "The Alhambra was the royal court of the Nasrid dynasty in Granada.",
     "sourceURL": "https://en.wikipedia.org/wiki/Alhambra",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "hallgrimskirkja",
@@ -1115,7 +1115,7 @@
     ],
     "funFact": "Hallgrimskirkja's design was inspired by Icelandic basalt columns.",
     "sourceURL": "https://en.wikipedia.org/wiki/Hallgrimskirkja",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "burj-khalifa",
@@ -1167,7 +1167,7 @@
     ],
     "funFact": "The Petronas Towers were the world's tallest buildings from 1998 to 2004.",
     "sourceURL": "https://en.wikipedia.org/wiki/Petronas_Towers",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "taipei-101",
@@ -1219,7 +1219,7 @@
     ],
     "funFact": "Tokyo Skytree is the tallest structure in Japan.",
     "sourceURL": "https://en.wikipedia.org/wiki/Tokyo_Skytree",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "tokyo-tower",
@@ -1245,7 +1245,7 @@
     ],
     "funFact": "Tokyo Tower's color scheme follows international air safety rules for tall structures.",
     "sourceURL": "https://en.wikipedia.org/wiki/Tokyo_Tower",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "shanghai-tower",
@@ -1271,7 +1271,7 @@
     ],
     "funFact": "Shanghai Tower has one of the world's fastest elevators.",
     "sourceURL": "https://en.wikipedia.org/wiki/Shanghai_Tower",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "canton-tower",
@@ -1297,7 +1297,7 @@
     ],
     "funFact": "Canton Tower's twisted form is sometimes called the Supermodel Tower.",
     "sourceURL": "https://en.wikipedia.org/wiki/Canton_Tower",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "oriental-pearl-tower",
@@ -1323,7 +1323,7 @@
     ],
     "funFact": "The Oriental Pearl Tower became a symbol of modern Shanghai soon after opening in 1994.",
     "sourceURL": "https://en.wikipedia.org/wiki/Oriental_Pearl_Tower",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "lotte-world-tower",
@@ -1349,7 +1349,7 @@
     ],
     "funFact": "Lotte World Tower is the tallest building on the Korean Peninsula.",
     "sourceURL": "https://en.wikipedia.org/wiki/Lotte_World_Tower",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "n-seoul-tower",
@@ -1375,7 +1375,7 @@
     ],
     "funFact": "N Seoul Tower stands atop Namsan and overlooks the South Korean capital.",
     "sourceURL": "https://en.wikipedia.org/wiki/N_Seoul_Tower",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "merdeka-118",
@@ -1401,7 +1401,7 @@
     ],
     "funFact": "Merdeka 118 became one of the tallest buildings in the world after topping out in 2021.",
     "sourceURL": "https://en.wikipedia.org/wiki/Merdeka_118",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "marina-bay-sands",
@@ -1427,7 +1427,7 @@
     ],
     "funFact": "The three towers of Marina Bay Sands are linked by a huge rooftop SkyPark.",
     "sourceURL": "https://en.wikipedia.org/wiki/Marina_Bay_Sands",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "mount-fuji",
@@ -1453,7 +1453,7 @@
     ],
     "funFact": "Mount Fuji is Japan's highest peak and a longstanding cultural icon.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Fuji",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "mount-kinabalu",
@@ -1479,7 +1479,7 @@
     ],
     "funFact": "Mount Kinabalu is the highest mountain in Malaysia.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Kinabalu",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "mount-everest",
@@ -1531,7 +1531,7 @@
     ],
     "funFact": "The Charminar has four grand arches and four minarets at a historic crossroads in Hyderabad.",
     "sourceURL": "https://en.wikipedia.org/wiki/Charminar",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "osaka-castle",
@@ -1557,7 +1557,7 @@
     ],
     "funFact": "Toyotomi Hideyoshi built Osaka Castle in the late 16th century.",
     "sourceURL": "https://en.wikipedia.org/wiki/Osaka_Castle",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "mount-kilimanjaro",
@@ -1583,7 +1583,7 @@
     ],
     "funFact": "Kilimanjaro is Africa's highest mountain and a freestanding volcanic massif.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Kilimanjaro",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "table-mountain",
@@ -1635,7 +1635,7 @@
     ],
     "funFact": "The lattice exterior of Cairo Tower was designed to echo a lotus plant.",
     "sourceURL": "https://en.wikipedia.org/wiki/Cairo_Tower",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "mount-kenya",
@@ -1661,7 +1661,7 @@
     ],
     "funFact": "Mount Kenya is the second-highest mountain in Africa.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Kenya",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "voortrekker-monument",
@@ -1687,7 +1687,7 @@
     ],
     "funFact": "The Voortrekker Monument commemorates the 19th-century migration known as the Great Trek.",
     "sourceURL": "https://en.wikipedia.org/wiki/Voortrekker_Monument",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "mount-cameroon",
@@ -1713,7 +1713,7 @@
     ],
     "funFact": "Mount Cameroon is one of Africa's most active volcanoes.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Cameroon",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "abuna-yemata-guh",
@@ -1739,7 +1739,7 @@
     ],
     "funFact": "Abuna Yemata Guh is famed for its cliffside approach and painted cave church interior.",
     "sourceURL": "https://en.wikipedia.org/wiki/Abuna_Yemata_Guh",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "sky-tower-auckland",
@@ -1765,7 +1765,7 @@
     ],
     "funFact": "Sky Tower is the tallest freestanding structure in the Southern Hemisphere.",
     "sourceURL": "https://en.wikipedia.org/wiki/Sky_Tower_(Auckland)",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "eureka-tower",
@@ -1791,7 +1791,7 @@
     ],
     "funFact": "Eureka Tower's top floors are wrapped in gold-plated glass.",
     "sourceURL": "https://en.wikipedia.org/wiki/Eureka_Tower",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "q1-tower",
@@ -1817,7 +1817,7 @@
     ],
     "funFact": "Q1 Tower's spire was inspired by the Sydney Olympic torch.",
     "sourceURL": "https://en.wikipedia.org/wiki/Q1_(building)",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "mount-kosciuszko",
@@ -1843,7 +1843,7 @@
     ],
     "funFact": "Mount Kosciuszko is the highest mountain on mainland Australia.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Kosciuszko",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "kunanyi-mount-wellington",
@@ -1869,7 +1869,7 @@
     ],
     "funFact": "kunanyi towers above Hobart and can be dusted with snow in winter.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Wellington_(Tasmania)",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "aoraki-mount-cook",
@@ -1895,7 +1895,7 @@
     ],
     "funFact": "Aoraki / Mount Cook is the highest mountain in New Zealand.",
     "sourceURL": "https://en.wikipedia.org/wiki/Aoraki_/_Mount_Cook",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "mount-taranaki",
@@ -1921,7 +1921,7 @@
     ],
     "funFact": "Mount Taranaki's near-perfect cone makes it one of New Zealand's most distinctive mountains.",
     "sourceURL": "https://en.wikipedia.org/wiki/Mount_Taranaki",
-    "releaseState": "comingSoon"
+    "releaseState": "available"
   },
   {
     "id": "sydney-tower",

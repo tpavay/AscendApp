@@ -134,8 +134,7 @@ struct OwnProfileView: View {
                 photoURL: authVM.displayPhotoURL,
                 joinedAt: authVM.user?.metadata.creationDate,
                 climbs: climbs,
-                taskKey: supportTaskKey,
-                forceRefresh: true
+                taskKey: supportTaskKey
             )
         }
         .onReceive(NotificationCenter.default.publisher(for: .climbCatalogDidChange)) { _ in

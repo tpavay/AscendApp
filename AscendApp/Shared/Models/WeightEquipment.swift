@@ -8,7 +8,7 @@
 import Foundation
 
 /// Types of weight equipment that can be used during workouts
-enum WeightEquipmentType: String, Codable, CaseIterable, Identifiable {
+enum WeightEquipmentType: String, Codable, CaseIterable, Identifiable, Sendable {
     case weightedVest = "weighted_vest"
     case dumbbells = "dumbbells"
     case barbell = "barbell"
@@ -228,7 +228,7 @@ struct WeightLoadoutKey: Codable, Hashable, Identifiable {
 }
 
 /// Override settings for interval-specific weight configuration
-struct IntervalWeightOverride: Codable, Equatable {
+struct IntervalWeightOverride: Codable, Equatable, Sendable {
     /// Equipment types enabled for this specific interval.
     /// - nil: Use routine defaults (inherit from routine)
     /// - empty set: No weights for this interval

@@ -209,7 +209,13 @@ enum BuiltInRoutines {
     }
 
     static func resolvedTemplates(for baseLevel: Int) -> [Routine] {
-        definitions.map { RoutineTemplateResolver.resolveTemplate($0, baseLevel: baseLevel) }
+        definitions.enumerated().map { index, definition in
+            RoutineTemplateResolver.resolveTemplate(
+                definition,
+                baseLevel: baseLevel,
+                displayOrder: index
+            )
+        }
     }
 
     static var previewTemplates: [Routine] {

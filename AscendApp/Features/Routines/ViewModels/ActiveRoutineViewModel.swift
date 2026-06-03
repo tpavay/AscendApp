@@ -8,17 +8,23 @@ final class ActiveRoutineViewModel {
     let intervals: [RoutineInterval]
     let totalDuration: TimeInterval
 
+    private let replayContext: LiveReplayLeaderboardContext
+    private let leaderboardService: LiveReplayLeaderboardServicing
+
     var phase: ActiveRoutinePhase = .countdown
     var countdownValue = 3
     var currentIntervalIndex = 0
     var elapsedInInterval: TimeInterval = 0
     var actualElapsed: TimeInterval = 0
     var timelineElapsed: TimeInterval = 0
+    var sessionStartedAt: Date?
     var isPaused = false
     var showStopConfirmation = false
     var showCompletionSheet = false
     var showWorkoutForm = false
     var shouldDismissAfterForm = false
+    private(set) var leaderboardWindow: LiveReplayLeaderboardWindow?
+    private(set) var leaderboardFetchFailed = false
 
     private var countdownStartDate: Date?
     private var lastTickDate: Date?
@@ -27,10 +33,15 @@ final class ActiveRoutineViewModel {
     @ObservationIgnored private var timerCancellable: AnyCancellable?
     private(set) var hasRecordedCompletion = false
 
-    init(routine: Routine) {
+    init(
+        routine: Routine,
+        leaderboardService: LiveReplayLeaderboardServicing = LiveReplayLeaderboardService.shared
+    ) {
         self.routine = routine
         intervals = routine.intervals
         totalDuration = routine.totalDuration
+        replayContext = RoutineReplayLeaderboardContextBuilder.context(for: routine)
+        self.leaderboardService = leaderboardService
     }
 
     var currentInterval: RoutineInterval? {
@@ -78,6 +89,61 @@ final class ActiveRoutineViewModel {
         formatClockTime(remainingInInterval)
     }
 
+    var targetStepGoal: Int {
+        replayContext.targetSteps
+    }
+
+    var estimatedCurrentSteps: Int {
+        let estimatedSteps = intervals.indices.reduce(0.0) { total, index in
+            let interval = intervals[index]
+            let intervalElapsed: TimeInterval
+
+            if index < currentIntervalIndex {
+                intervalElapsed = interval.duration
+            } else if index == currentIntervalIndex {
+                intervalElapsed = min(max(elapsedInInterval, 0), interval.duration)
+            } else {
+                intervalElapsed = 0
+            }
+
+            return total + (Double(interval.mappedStepsPerMinute) * intervalElapsed / 60)
+        }
+
+        return max(Int(estimatedSteps.rounded()), 0)
+    }
+
+    var leaderboardRows: [LiveReplayLeaderboardRow] {
+        guard let leaderboardWindow else {
+            return [
+                LiveReplayLeaderboardRow.currentUser(
+                    rank: nil,
+                    steps: estimatedCurrentSteps
+                )
+            ]
+        }
+
+        return leaderboardWindow.locallyRankedRows(
+            currentSteps: estimatedCurrentSteps,
+            currentElapsedSeconds: Int(timelineElapsed.rounded(.down))
+        )
+    }
+
+    var leaderboardProgressScale: Int {
+        let fetchedMaxSteps = leaderboardWindow?.rows.map(\.finalSteps).max() ?? 0
+        return max(max(targetStepGoal, fetchedMaxSteps), estimatedCurrentSteps)
+    }
+
+    var leaderboardCurrentProgressFraction: Double {
+        guard leaderboardProgressScale > 0 else { return 0 }
+        return min(max(Double(estimatedCurrentSteps) / Double(leaderboardProgressScale), 0), 1)
+    }
+
+    var currentIntervalPositionText: String {
+        guard !intervals.isEmpty else { return "No intervals" }
+        let displayIndex = min(max(currentIntervalIndex + 1, 1), intervals.count)
+        return "Interval \(displayIndex) of \(intervals.count)"
+    }
+
     var isNearIntervalEnd: Bool {
         remainingInInterval <= 3 && remainingInInterval > 0
     }
@@ -90,10 +156,13 @@ final class ActiveRoutineViewModel {
         elapsedInInterval = 0
         actualElapsed = 0
         timelineElapsed = 0
+        sessionStartedAt = nil
         isPaused = false
         showCompletionSheet = false
         showWorkoutForm = false
         shouldDismissAfterForm = false
+        leaderboardWindow = nil
+        leaderboardFetchFailed = false
         countdownStartDate = Date()
         lastTickDate = nil
         lastCountdownHapticValue = 3
@@ -146,6 +215,27 @@ final class ActiveRoutineViewModel {
         hasRecordedCompletion = true
     }
 
+    func refreshReplayLeaderboardIfNeeded(force: Bool = false) async {
+        guard phase == .active || phase == .complete else { return }
+
+        do {
+            let window = try await leaderboardService.refreshIfNeeded(
+                context: replayContext,
+                elapsedSeconds: Int(timelineElapsed.rounded(.down)),
+                currentSteps: estimatedCurrentSteps,
+                force: force
+            )
+
+            if let window {
+                leaderboardWindow = window
+            }
+
+            leaderboardFetchFailed = false
+        } catch {
+            leaderboardFetchFailed = true
+        }
+    }
+
     private func updateCountdown(at now: Date) {
         guard let startDate = countdownStartDate else {
             countdownStartDate = now
@@ -163,6 +253,7 @@ final class ActiveRoutineViewModel {
 
         if elapsed >= 3 {
             phase = .active
+            sessionStartedAt = now
             self.countdownStartDate = nil
             lastTickDate = now
             HapticsManager.shared.trigger(.heavyImpact)
@@ -241,7 +332,7 @@ final class ActiveRoutineViewModel {
     }
 }
 
-enum ActiveRoutinePhase {
+enum ActiveRoutinePhase: Equatable {
     case countdown
     case active
     case complete

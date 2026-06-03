@@ -98,7 +98,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
     }
 
     .waitlist-form input:focus {
-      border-color: rgba(180, 204, 0, 0.72);
+      border-color: color-mix(in srgb, var(--accent) 72%, transparent);
       background: rgba(255, 255, 255, 0.11);
     }
 
@@ -148,12 +148,12 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       position: relative;
       padding: 16px 20px 16px 56px;
       border-radius: 8px;
-      border: 1px solid rgba(180, 204, 0, 0.36);
+      border: 1px solid color-mix(in srgb, var(--accent) 36%, transparent);
       background: linear-gradient(
         120deg,
-        rgba(180, 204, 0, 0.2) 0%,
-        rgba(180, 204, 0, 0.08) 55%,
-        rgba(180, 204, 0, 0.12) 100%
+        color-mix(in srgb, var(--accent) 20%, transparent) 0%,
+        color-mix(in srgb, var(--accent) 8%, transparent) 55%,
+        color-mix(in srgb, var(--accent) 12%, transparent) 100%
       );
       color: #d6ed58;
       font-size: 15px;
@@ -179,7 +179,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       place-items: center;
       transform: translateY(-50%);
       border-radius: 999px;
-      background: linear-gradient(135deg, #d8f451 0%, #b4cc00 100%);
+      background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 55%, white) 0%, var(--accent) 100%);
       color: #101722;
       font-size: 13px;
       font-weight: 800;
@@ -248,7 +248,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       width: 8px;
       height: 2px;
       border-radius: 999px;
-      background: linear-gradient(90deg, #efff94 0%, #b4cc00 100%);
+      background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 42%, white) 0%, var(--accent) 100%);
       opacity: 0;
       transform: translate(-50%, -50%) rotate(var(--r));
       animation: waitlistParticle 0.72s cubic-bezier(0.22, 1, 0.36, 1) forwards;
@@ -522,7 +522,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
     .live-step-copy {
       margin-top: 16px;
       padding-top: 14px;
-      border-top: 1px dashed rgba(180, 204, 0, 0.42);
+      border-top: 1px dashed color-mix(in srgb, var(--accent) 42%, transparent);
     }
 
     .live-step-copy span {
@@ -635,7 +635,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       border-radius: 50%;
       border: 1px solid rgba(255, 255, 255, 0.2);
       box-shadow:
-        inset 0 0 36px rgba(180, 204, 0, 0.12),
+        inset 0 0 36px color-mix(in srgb, var(--accent) 12%, transparent),
         0 0 42px rgba(48, 122, 167, 0.22);
     }
 
@@ -643,7 +643,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       position: absolute;
       width: 16px;
       height: 16px;
-      border: 2px solid #d9ef54;
+      border: 2px solid var(--accent);
       border-radius: 50% 50% 50% 0;
       transform: rotate(-45deg);
       background: rgba(11, 15, 20, 0.82);
@@ -654,7 +654,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       position: absolute;
       inset: 4px;
       border-radius: 50%;
-      background: #d9ef54;
+      background: var(--accent);
     }
 
     .pin.one {
@@ -735,9 +735,9 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 
     .best-effort-hero {
       padding: 24px;
-      border: 1px solid rgba(180, 204, 0, 0.25);
+      border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
       border-radius: 8px;
-      background: rgba(180, 204, 0, 0.09);
+      background: color-mix(in srgb, var(--accent) 9%, transparent);
       text-align: center;
     }
 
@@ -746,7 +746,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       height: 86px;
       margin: 0 auto 14px;
       object-fit: contain;
-      filter: drop-shadow(0 12px 28px rgba(180, 204, 0, 0.22));
+      filter: drop-shadow(0 12px 28px color-mix(in srgb, var(--accent) 22%, transparent));
     }
 
     .best-effort-hero span {
@@ -876,7 +876,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       padding: 104px 40px;
       text-align: center;
       background:
-        linear-gradient(180deg, rgba(180, 204, 0, 0.04) 0%, rgba(8, 11, 16, 0) 100%),
+        linear-gradient(180deg, color-mix(in srgb, var(--accent) 4%, transparent) 0%, rgba(8, 11, 16, 0) 100%),
         #0d1117;
     }
 
@@ -926,10 +926,10 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 
     @keyframes waitlistPulse {
       0% {
-        box-shadow: 0 0 0 0 rgba(180, 204, 0, 0.62);
+        box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 62%, transparent);
       }
       100% {
-        box-shadow: 0 0 0 16px rgba(180, 204, 0, 0);
+        box-shadow: 0 0 0 16px color-mix(in srgb, var(--accent) 0%, transparent);
       }
     }
 

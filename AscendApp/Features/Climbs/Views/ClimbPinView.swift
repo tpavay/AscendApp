@@ -49,11 +49,11 @@ struct ClimbPinView: View {
     }
 
     private var pinColor: Color {
-        if climb.isComingSoon {
-            return .white.opacity(0.72)
-        }
-
-        return tierColor
+        // Unclaimed climbs (available OR coming-soon) render in neutral grey.
+        // Tier color is reserved for the completed-state check badge so the
+        // grey-vs-color contrast becomes the user's at-a-glance "what have I
+        // claimed?" signal.
+        .white.opacity(0.55)
     }
 
     private var shadowColor: Color {
@@ -61,11 +61,7 @@ struct ClimbPinView: View {
             return tierColor
         }
 
-        if climb.isComingSoon {
-            return .white.opacity(0.3)
-        }
-
-        return tierColor
+        return .white.opacity(0.25)
     }
 
     private var completedBadge: some View {

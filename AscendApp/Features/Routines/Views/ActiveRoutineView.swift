@@ -1,4 +1,5 @@
 import Combine
+@preconcurrency import FirebaseAuth
 import SwiftData
 import SwiftUI
 
@@ -9,6 +10,8 @@ struct ActiveRoutineView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
     @State private var viewModel: ActiveRoutineViewModel
+
+    private let leaderboardTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     init(routine: Routine) {
         self.routine = routine
@@ -39,6 +42,18 @@ struct ActiveRoutineView: View {
                 recordCompletionIfNeeded()
             }
         }
+        .onChange(of: viewModel.phase) { _, phase in
+            guard phase == .active else { return }
+            Task {
+                await viewModel.refreshReplayLeaderboardIfNeeded(force: true)
+            }
+        }
+        .onReceive(leaderboardTick) { _ in
+            guard viewModel.phase == .active else { return }
+            Task {
+                await viewModel.refreshReplayLeaderboardIfNeeded()
+            }
+        }
         .alert("Stop Workout?", isPresented: $bindableViewModel.showStopConfirmation) {
             Button("Continue", role: .cancel) {}
             Button("Log Workout") {
@@ -64,92 +79,168 @@ struct ActiveRoutineView: View {
     }
 
     private var activeWorkoutView: some View {
-        GeometryReader { geometry in
-            let bottomPadding = Layout.controlBottomPadding + geometry.safeAreaInsets.bottom
-            let staircaseTopPadding = max(
-                Layout.minimumStairTopPadding,
-                geometry.size.height * Layout.stairTopPaddingRatio
-            )
-            let staircaseHeight = max(
-                geometry.size.height - staircaseTopPadding - bottomPadding - Layout.stairBottomOffset,
-                Layout.minimumStairHeight
-            )
-            let staircaseWidth = min(geometry.size.width * Layout.stairWidthRatio, Layout.maximumStairWidth)
+        VStack(spacing: 0) {
+            topChrome
 
-            ZStack {
-                StaircaseView(
-                    totalSteps: viewModel.staircaseStepCount,
-                    currentStepIndex: viewModel.staircaseActiveIndex,
-                    isWorkoutComplete: viewModel.phase == .complete
+            routineTimeline
+                .padding(.horizontal, Layout.horizontalPadding)
+                .padding(.top, Layout.timelineTopPadding)
+
+            liveLeaderboardSection
+                .frame(maxHeight: .infinity)
+                .padding(.horizontal, Layout.leaderboardHorizontalPadding)
+                .padding(.top, Layout.leaderboardTopPadding)
+
+            intervalStatusPanel
+                .padding(.horizontal, Layout.horizontalPadding)
+                .padding(.top, Layout.intervalPanelTopPadding)
+
+            bottomControls
+                .padding(.horizontal, Layout.horizontalPadding)
+                .padding(.top, Layout.controlsTopPadding)
+                .padding(.bottom, Layout.controlBottomPadding)
+        }
+    }
+
+    private var topChrome: some View {
+        HStack(spacing: 12) {
+            OnboardingBackButton {
+                viewModel.showStopConfirmation = true
+            }
+            .accessibilityLabel("Stop routine")
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(routine.name)
+                    .font(.montserratBold(size: 16))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+
+                Text(viewModel.currentIntervalPositionText)
+                    .font(.montserratMedium(size: 11))
+                    .foregroundStyle(.white.opacity(0.56))
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+
+            Text(viewModel.formattedElapsed)
+                .font(.montserratBold(size: 13))
+                .monospacedDigit()
+                .foregroundStyle(.white)
+                .contentTransition(.numericText())
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .frame(height: 38)
+                .background(
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .fill(.white.opacity(0.10))
                 )
-                .frame(width: staircaseWidth, height: staircaseHeight)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                .padding(.trailing, Layout.stairTrailingPadding)
-                .padding(.top, staircaseTopPadding)
-                .padding(.bottom, bottomPadding + Layout.stairBottomOffset)
+        }
+        .padding(.horizontal, Layout.horizontalPadding)
+        .padding(.top, Layout.topChromeTopPadding)
+    }
 
-                VStack(spacing: 0) {
-                    SegmentedProgressBar(
-                        title: routine.name,
-                        intervals: viewModel.intervals,
-                        elapsedLabel: viewModel.formattedElapsed,
-                        totalLabel: viewModel.formattedTotalDuration,
-                        elapsedTime: viewModel.timelineElapsed
-                    )
-                    .padding(.horizontal, Layout.horizontalPadding)
-                    .padding(.top, Layout.timelineTopPadding)
+    private var routineTimeline: some View {
+        SegmentedProgressBar(
+            intervals: viewModel.intervals,
+            elapsedLabel: "\(viewModel.estimatedCurrentSteps.formatted()) est steps",
+            totalLabel: "\(viewModel.targetStepGoal.formatted()) target",
+            elapsedTime: viewModel.timelineElapsed
+        )
+    }
 
-                    VStack(spacing: 0) {
-                        Text(viewModel.formattedRemainingInInterval)
-                            .font(.montserratBold(size: Layout.timerFontSize))
-                            .tracking(Layout.timerTracking)
-                            .foregroundStyle(.white)
-                            .contentTransition(.numericText())
-                            .monospacedDigit()
-                            .accessibilityLabel("Time remaining")
-                            .accessibilityValue(Text(viewModel.formattedRemainingInInterval))
+    private var liveLeaderboardSection: some View {
+        LiveReplayLeaderboardPanel(
+            rows: viewModel.leaderboardRows,
+            progressScaleSteps: viewModel.leaderboardProgressScale,
+            targetStepGoal: viewModel.targetStepGoal,
+            progress: viewModel.leaderboardCurrentProgressFraction,
+            currentUserPhotoURL: currentUserPhotoURL,
+            fetchFailed: viewModel.leaderboardFetchFailed,
+            tint: currentIntervalColor,
+            effectiveColorScheme: .dark
+        )
+    }
 
-                        LiveIntervalLevelPill(
-                            levelText: viewModel.currentLevelText,
-                            stepTypeText: viewModel.currentStepTypeText,
-                            color: currentIntervalColor
-                        )
-                        .padding(.top, Layout.levelPillTopPadding)
-                    }
-                    .padding(.top, Layout.headerToTimerSpacing)
-                    .frame(maxWidth: .infinity)
+    private var intervalStatusPanel: some View {
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(viewModel.formattedRemainingInInterval)
+                    .font(.montserratBold(size: 38))
+                    .tracking(-1.4)
+                    .foregroundStyle(.white)
+                    .contentTransition(.numericText())
+                    .monospacedDigit()
+                    .accessibilityLabel("Time remaining")
+                    .accessibilityValue(Text(viewModel.formattedRemainingInInterval))
 
-                    Spacer()
+                Text("REMAINING")
+                    .font(.montserratBold(size: 10))
+                    .tracking(1.0)
+                    .foregroundStyle(.white.opacity(0.38))
+            }
+
+            Spacer(minLength: 0)
+
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(viewModel.currentLevelText)
+                    .font(.montserratBold(size: 22))
+                    .foregroundStyle(currentIntervalColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                if let stepTypeText = viewModel.currentStepTypeText {
+                    Text(stepTypeText)
+                        .font(.montserratSemiBold(size: 10))
+                        .tracking(0.5)
+                        .foregroundStyle(currentIntervalColor.opacity(0.62))
+                        .lineLimit(1)
+                } else {
+                    Text("CURRENT LEVEL")
+                        .font(.montserratBold(size: 10))
+                        .tracking(1.0)
+                        .foregroundStyle(.white.opacity(0.38))
+                        .lineLimit(1)
                 }
+            }
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 86)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.jetLighter.opacity(0.62))
+        )
+    }
 
-                VStack(spacing: Layout.controlSpacing) {
-                    LiveWorkoutControlButton(
-                        systemImage: "forward.fill",
-                        isPrimary: false,
-                        accessibilityLabel: "Skip to next interval"
-                    ) {
-                        viewModel.skipInterval()
-                    }
+    private var bottomControls: some View {
+        HStack(spacing: Layout.controlSpacing) {
+            LiveWorkoutControlButton(
+                systemImage: "forward.fill",
+                isPrimary: false,
+                accessibilityLabel: "Skip to next interval"
+            ) {
+                viewModel.skipInterval()
+            }
 
-                    LiveWorkoutControlButton(
-                        systemImage: viewModel.isPaused ? "play.fill" : "pause.fill",
-                        isPrimary: true,
-                        accessibilityLabel: viewModel.isPaused ? "Resume workout" : "Pause workout"
-                    ) {
-                        viewModel.togglePause()
-                    }
+            Spacer(minLength: 0)
 
-                    LiveWorkoutControlButton(
-                        systemImage: "stop.fill",
-                        isPrimary: false,
-                        accessibilityLabel: "Stop workout"
-                    ) {
-                        viewModel.showStopConfirmation = true
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                .padding(.leading, Layout.controlLeadingPadding)
-                .padding(.bottom, bottomPadding)
+            LiveWorkoutControlButton(
+                systemImage: viewModel.isPaused ? "play.fill" : "pause.fill",
+                isPrimary: true,
+                accessibilityLabel: viewModel.isPaused ? "Resume workout" : "Pause workout"
+            ) {
+                viewModel.togglePause()
+            }
+
+            Spacer(minLength: 0)
+
+            LiveWorkoutControlButton(
+                systemImage: "stop.fill",
+                isPrimary: false,
+                accessibilityLabel: "Stop workout"
+            ) {
+                viewModel.showStopConfirmation = true
             }
         }
     }
@@ -187,9 +278,12 @@ struct ActiveRoutineView: View {
                 get: { viewModel.showWorkoutForm },
                 set: { viewModel.showWorkoutForm = $0 }
             ),
-            onWorkoutCompleted: { _ in },
+            onWorkoutCompleted: { _ in
+                viewModel.showWorkoutForm = false
+            },
             routinePrefill: RoutinePrefillData(
                 name: routine.name,
+                startedAt: routineWorkoutStartedAt,
                 duration: viewModel.actualElapsed,
                 weightConfiguration: routine.defaultWeightConfiguration,
                 difficulty: routine.difficulty,
@@ -200,6 +294,19 @@ struct ActiveRoutineView: View {
                 )
             )
         )
+    }
+
+    private var routineWorkoutStartedAt: Date {
+        viewModel.sessionStartedAt ?? Date().addingTimeInterval(-max(viewModel.actualElapsed, 0))
+    }
+
+    private var currentUserPhotoURL: URL? {
+        if let cachedURL = UserDataRepository.shared.getCachedProfilePictureURL()
+            .flatMap(URL.init(string:)) {
+            return cachedURL
+        }
+
+        return Auth.auth().currentUser?.photoURL
     }
 
     private func recordCompletionIfNeeded() {
@@ -213,22 +320,14 @@ struct ActiveRoutineView: View {
 
 private enum Layout {
     static let horizontalPadding: CGFloat = 20
-    static let timelineTopPadding: CGFloat = 8
-    static let headerToTimerSpacing: CGFloat = 40
-    static let timerFontSize: CGFloat = 112
-    static let timerTracking = -5.0
-    static let levelPillTopPadding: CGFloat = 20
-
-    static let controlSpacing: CGFloat = 10
-    static let controlLeadingPadding: CGFloat = 24
-    static let controlBottomPadding: CGFloat = 34
-    static let stairWidthRatio = 0.72
-    static let maximumStairWidth: CGFloat = 300
-    static let stairTopPaddingRatio = 0.45
-    static let minimumStairTopPadding: CGFloat = 340
-    static let minimumStairHeight: CGFloat = 320
-    static let stairTrailingPadding: CGFloat = 0
-    static let stairBottomOffset: CGFloat = 2
+    static let topChromeTopPadding: CGFloat = 14
+    static let timelineTopPadding: CGFloat = 16
+    static let leaderboardHorizontalPadding: CGFloat = 18
+    static let leaderboardTopPadding: CGFloat = 18
+    static let intervalPanelTopPadding: CGFloat = 10
+    static let controlsTopPadding: CGFloat = 12
+    static let controlSpacing: CGFloat = 18
+    static let controlBottomPadding: CGFloat = 18
 }
 
 #Preview {

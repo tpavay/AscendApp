@@ -10,6 +10,7 @@ import SwiftData
 
 struct RootView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
+    @Environment(MonetizationManager.self) private var monetizationManager
     @Environment(\.modelContext) private var modelContext
     @Environment(MediaUploadManager.self) private var uploadManager
     @State private var importCoordinator = WorkoutImportCoordinator.shared
@@ -18,26 +19,31 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            switch authVM.authenticationState {
-            case .authenticated:
-                authenticatedContent
+            switch rootRoute {
+            case .signedOut:
+                LandingScreen()
+            case .signingIn:
+                ProgressView("Signing In...")
+                    .themedBackground()
             case .restoringSession:
                 ProgressView("Restoring Session...")
                     .themedBackground()
-            case .authenticatingWithApple,
-                 .authenticatingWithGoogle,
-                 .authenticatingWithInternalQA:
-                ProgressView("Signing In...")
-                    .themedBackground()
-            case .unauthenticated:
-                LandingScreen()
+            case .resolving:
+                authenticatedContent(for: .resolving)
+            case .onboarding:
+                authenticatedContent(for: rootRoute)
+            case .paywall:
+                authenticatedContent(for: .paywall)
+            case .mainApp:
+                authenticatedContent(for: .mainApp)
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: authVM.authenticationState)
+        .animation(.easeInOut(duration: 0.25), value: rootRoute)
         .themeAware()
         .task {
             importCoordinator.configure(modelContext: modelContext)
             postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
+            await monetizationManager.refreshEntitlements()
             // Resume any pending uploads from previous session
             await uploadManager.processPendingUploads(modelContext: modelContext)
             await bootstrapAuthenticatedLocalState()
@@ -46,6 +52,7 @@ struct RootView: View {
             // Retry pending uploads when app comes to foreground (network may have restored)
             Task {
                 importCoordinator.configure(modelContext: modelContext)
+                await monetizationManager.refreshEntitlements()
                 await uploadManager.processPendingUploads(modelContext: modelContext)
                 await bootstrapAuthenticatedLocalState()
             }
@@ -54,6 +61,7 @@ struct RootView: View {
             Task {
                 postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
                 completePostAuthOnboardingIfRemoteProfileExists()
+                await monetizationManager.refreshEntitlements()
                 await bootstrapAuthenticatedLocalState()
             }
         }
@@ -68,16 +76,35 @@ struct RootView: View {
         }
     }
 
+    private var rootRoute: AppRootRoute {
+        AppRootRouteResolver.resolve(
+            authenticationState: authVM.authenticationState,
+            userId: authVM.user?.uid,
+            postAuthOnboardingPhase: postAuthOnboardingCoordinator.phase,
+            entitlementState: monetizationManager.entitlementState,
+            requiredEntitlementID: monetizationManager.configuration.revenueCatEntitlementID,
+            allowsUnentitledAppAccess: monetizationManager.configuration.allowsUnentitledAppAccess
+        )
+    }
+
     @ViewBuilder
-    private var authenticatedContent: some View {
+    private func authenticatedContent(for route: AppRootRoute) -> some View {
         if let accountDataConflict {
             AccountDataConflictView(
                 conflict: accountDataConflict,
                 onSignOut: authVM.signOut
             )
         } else {
-            switch postAuthOnboardingCoordinator.phase {
-            case .signedOut, .resolving:
+            switch route {
+            case .signedOut:
+                LandingScreen()
+            case .signingIn:
+                ProgressView("Signing In...")
+                    .themedBackground()
+            case .restoringSession:
+                ProgressView("Restoring Session...")
+                    .themedBackground()
+            case .resolving:
                 ProgressView("Setting Up...")
                     .themedBackground()
 
@@ -88,7 +115,21 @@ struct RootView: View {
                     onContinue: postAuthOnboardingCoordinator.completeCurrentStage
                 )
 
-            case .complete:
+            case .paywall:
+                AppAccessPaywallPlaceholderView(
+                    onRestore: {
+                        Task {
+                            try? await monetizationManager.restorePurchases()
+                        }
+                    }
+                )
+                .onAppear {
+                    LifecycleEventRecorder.shared.recordPaywallReached(
+                        placement: SuperwallPlacement.appAccessGate.rawValue
+                    )
+                }
+
+            case .mainApp:
                 MainTabView()
             }
         }

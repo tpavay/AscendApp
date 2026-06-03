@@ -29,6 +29,7 @@ struct RoutineFolderGroup: Identifiable {
 @Observable
 final class RoutineListViewModel {
     private var routineService: RoutineService?
+    private var hasAttemptedRemoteTemplateRefresh = false
 
     var builtInRoutines: [Routine] = []
     var userRoutines: [Routine] = []
@@ -63,15 +64,25 @@ final class RoutineListViewModel {
     }
 
     var filteredBuiltInRoutines: [Routine] {
-        filteredBuiltInRoutines(matching: BuiltInRoutines.templateIdsInDisplayOrder)
+        filteredTemplateRoutines()
     }
 
     var filteredFeaturedBuiltInRoutines: [Routine] {
-        filteredBuiltInRoutines(matching: BuiltInRoutines.featuredTemplateIdsInDisplayOrder)
+        filteredTemplateRoutines { $0.isFeaturedTemplate }
+            .sorted { lhs, rhs in
+                let lhsOrder = lhs.templateFeaturedOrder ?? lhs.templateDisplayOrder
+                let rhsOrder = rhs.templateFeaturedOrder ?? rhs.templateDisplayOrder
+
+                if lhsOrder != rhsOrder {
+                    return lhsOrder < rhsOrder
+                }
+
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
     }
 
     func filteredBuiltInRoutines(in section: BuiltInRoutineBrowseSection) -> [Routine] {
-        filteredBuiltInRoutines(matching: BuiltInRoutines.templateIds(in: section))
+        filteredTemplateRoutines { $0.browseSections.contains(section) }
     }
 
     var filteredMyRoutines: [Routine] {
@@ -189,6 +200,20 @@ final class RoutineListViewModel {
         isLoading = false
     }
 
+    func refreshRemoteRoutineTemplates() async {
+        guard let service = routineService,
+              !hasAttemptedRemoteTemplateRefresh else { return }
+
+        hasAttemptedRemoteTemplateRefresh = true
+
+        do {
+            try await service.refreshRemoteRoutineTemplates()
+            loadRoutines()
+        } catch {
+            print("Failed to refresh remote routine templates: \(error)")
+        }
+    }
+
     /// Copy a built-in routine to user routines
     func copyBuiltInRoutine(_ routine: Routine) {
         guard let service = routineService else { return }
@@ -221,8 +246,9 @@ final class RoutineListViewModel {
         }
     }
 
-    private func filteredBuiltInRoutines(matching templateIds: [String]) -> [Routine] {
-        let allowedTemplateIds = Set(templateIds)
+    private func filteredTemplateRoutines(
+        _ include: (Routine) -> Bool = { _ in true }
+    ) -> [Routine] {
         let routines: [Routine]
         if searchText.isEmpty {
             routines = builtInRoutines
@@ -232,13 +258,14 @@ final class RoutineListViewModel {
             }
         }
 
-        let orderLookup = Dictionary(uniqueKeysWithValues: templateIds.enumerated().map { ($1, $0) })
         return routines
-            .filter { allowedTemplateIds.contains($0.templateId ?? "") }
+            .filter(include)
             .sorted { lhs, rhs in
-                let lhsOrder = orderLookup[lhs.templateId ?? ""] ?? .max
-                let rhsOrder = orderLookup[rhs.templateId ?? ""] ?? .max
-                return lhsOrder < rhsOrder
+                if lhs.templateDisplayOrder != rhs.templateDisplayOrder {
+                    return lhs.templateDisplayOrder < rhs.templateDisplayOrder
+                }
+
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             }
     }
 
@@ -314,7 +341,7 @@ final class RoutineListViewModel {
 
         do {
             if let updatedRoutine = try service.getRoutine(by: routineId) {
-                if updatedRoutine.source == .builtin {
+                if updatedRoutine.source.isTemplate {
                     if let index = builtInRoutines.firstIndex(where: { $0.id == routineId }) {
                         builtInRoutines[index] = updatedRoutine
                     }

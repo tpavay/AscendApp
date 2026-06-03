@@ -22,7 +22,8 @@ enum RoutineTemplateResolver {
 
     static func resolveTemplate(
         _ template: BuiltInRoutineTemplateDefinition,
-        baseLevel: Int
+        baseLevel: Int,
+        displayOrder: Int = 0
     ) -> Routine {
         Routine(
             name: template.name,
@@ -31,7 +32,11 @@ enum RoutineTemplateResolver {
             intervals: resolveIntervals(template.intervals, baseLevel: baseLevel),
             templateId: template.id,
             difficulty: template.difficulty,
-            estimatedCalories: template.estimatedCalories
+            estimatedCalories: template.estimatedCalories,
+            browseSections: template.browseSections,
+            isFeaturedTemplate: template.isFeatured,
+            templateDisplayOrder: displayOrder,
+            templateFeaturedOrder: template.isFeatured ? displayOrder : nil
         )
     }
 }

@@ -45,7 +45,7 @@ struct GlobeViewModelTests {
     }
 
     @Test
-    func selectPreviewUsesClimbSpecificCameraDistance() throws {
+    func selectPreviewUsesClimbSpecificFlyoverDistance() throws {
         let climb = makeClimb(
             id: "gateway-arch",
             latitude: 38.6247,
@@ -62,7 +62,7 @@ struct GlobeViewModelTests {
 
         let camera = try #require(viewModel.cameraPosition.camera)
         #expect(viewModel.previewSummary?.climb.id == climb.id)
-        #expect(camera.distance == climb.browsePreviewCameraDistance)
+        #expect(camera.distance == ClimbCameraFraming.distance(for: climb))
         #expect(camera.centerCoordinate.latitude == climb.latitude)
         #expect(camera.centerCoordinate.longitude == climb.longitude)
     }

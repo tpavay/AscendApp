@@ -18,6 +18,7 @@ struct AscendApp: App {
         Self.configureFirebase()
         TelemetryManager.shared.configure()
         TelemetryManager.shared.setAppMetadata()
+        MonetizationManager.shared.configure()
         authVM = AuthenticationViewModel()
     }
 
@@ -38,6 +39,7 @@ struct AscendApp: App {
         }
         .environment(authVM)
         .environment(NetworkConnectivityService.shared)
+        .environment(MonetizationManager.shared)
         .environment(MediaUploadManager.shared)  // For async media upload status observation
         .modelContainer(createModelContainer())
     }

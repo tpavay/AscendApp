@@ -71,33 +71,43 @@ struct ProgressLineChartView: View {
 
     private var chart: some View {
         Chart {
-            ForEach(points) { point in
-                AreaMark(
-                    x: .value("Date", point.date),
-                    yStart: .value("Baseline", yScaleDomain.lowerBound),
-                    yEnd: .value(title, point.value)
-                )
-                .foregroundStyle(chartAreaGradient)
-                .interpolationMethod(.monotone)
+            if points.count > 1 {
+                ForEach(points) { point in
+                    AreaMark(
+                        x: .value("Date", point.date),
+                        yStart: .value("Baseline", yScaleDomain.lowerBound),
+                        yEnd: .value(title, point.value)
+                    )
+                    .foregroundStyle(chartAreaGradient)
+                    .interpolationMethod(.monotone)
+                }
+
+                ForEach(points) { point in
+                    LineMark(
+                        x: .value("Date", point.date),
+                        y: .value(title, point.value)
+                    )
+                    .foregroundStyle(chartLine)
+                    .lineStyle(StrokeStyle(lineWidth: 2.8, lineCap: .round, lineJoin: .round))
+                    .interpolationMethod(.monotone)
+                }
             }
 
-            ForEach(points) { point in
-                LineMark(
+            if points.count == 1, let point = points.first {
+                PointMark(
                     x: .value("Date", point.date),
                     y: .value(title, point.value)
                 )
-                .foregroundStyle(chartLine)
-                .lineStyle(StrokeStyle(lineWidth: 2.8, lineCap: .round, lineJoin: .round))
-                .interpolationMethod(.monotone)
-            }
-
-            if let selectedPoint {
+                .symbol {
+                    chartPointSymbol(isSelected: selectedPointID == point.id)
+                }
+            } else if let selectedPoint {
                 PointMark(
                     x: .value("Selected Date", selectedPoint.date),
                     y: .value(title, selectedPoint.value)
                 )
                 .symbol {
-                    selectedPointSymbol
+                    chartPointSymbol(isSelected: true)
                 }
             }
         }
@@ -155,15 +165,15 @@ struct ProgressLineChartView: View {
         }
     }
 
-    private var selectedPointSymbol: some View {
+    private func chartPointSymbol(isSelected: Bool) -> some View {
         Circle()
             .fill(accentColor)
-            .frame(width: 11, height: 11)
+            .frame(width: isSelected ? 11 : 10, height: isSelected ? 11 : 10)
             .overlay(
                 Circle()
-                    .stroke(Color.white.opacity(0.92), lineWidth: 2.1)
+                    .stroke(Color.white.opacity(isSelected ? 0.92 : 0.82), lineWidth: isSelected ? 2.1 : 1.8)
             )
-            .shadow(color: accentColor.opacity(0.72), radius: 9, x: 0, y: 0)
+            .shadow(color: accentColor.opacity(isSelected ? 0.72 : 0.5), radius: isSelected ? 9 : 7, x: 0, y: 0)
     }
 
     @ViewBuilder

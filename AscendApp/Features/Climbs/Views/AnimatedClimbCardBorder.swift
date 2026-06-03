@@ -276,7 +276,7 @@ extension View {
         cornerRadius: CGFloat = 28,
         lineWidth: CGFloat = 1.5,
         isEmphasized: Bool = false,
-        animationStyle: ClimbCardBorderAnimationStyle = .full
+        animationStyle: ClimbCardBorderAnimationStyle = .static
     ) -> some View {
         modifier(
             AnimatedClimbCardBorder(

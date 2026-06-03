@@ -6,10 +6,13 @@ struct LiveClimbCompletionSummaryView: View {
     let workout: Workout
     let leaderboardRank: Int?
     let leaderboardTotal: Int?
+    let allowsRatingPrompt: Bool
     let onDone: () -> Void
 
+    @Environment(\.modelContext) private var modelContext
     @Query(sort: \BestEffortCacheEntry.sortKey) private var bestEffortCacheEntries: [BestEffortCacheEntry]
     @State private var showingShareSheet = false
+    @State private var showingRatingEnjoymentPrompt = false
     @State private var completionRank: LiveReplayCompletionRank?
     @State private var isLoadingCompletionRank = false
     @State private var didTrackSummaryViewed = false
@@ -39,6 +42,7 @@ struct LiveClimbCompletionSummaryView: View {
                     primaryStatsGrid
                     achievementCard
                     paceSplitsCard
+                    paceTrendCard
                     shareButton
                     doneButton
                 }
@@ -51,11 +55,23 @@ struct LiveClimbCompletionSummaryView: View {
         .background(Color.black.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .fullScreenCover(isPresented: $showingShareSheet) {
-            WorkoutShareCarouselView(
+            ShareComposerView(
                 workout: workout,
+                climb: climb,
                 liveClimbRank: displayedRank,
                 liveClimbRankTotal: displayedTotal
             )
+        }
+        .alert("Enjoying Ascend?", isPresented: $showingRatingEnjoymentPrompt) {
+            Button("Yes") {
+                handleRatingEnjoymentResponse(.yes)
+            }
+
+            Button("No", role: .cancel) {
+                handleRatingEnjoymentResponse(.no)
+            }
+        } message: {
+            Text("If Ascend made this climb better, leave a quick rating.")
         }
         .task {
             trackSummaryViewedIfNeeded()
@@ -86,46 +102,58 @@ struct LiveClimbCompletionSummaryView: View {
     }
 
     private var rankingSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("GLOBAL RANKING")
-                .font(.montserratBold(size: 11))
-                .foregroundStyle(.accent)
-
-            if isLoadingCompletionRank && displayedRank == nil {
-                Text("Ranking...")
-                    .font(.montserratBold(size: 38))
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 7) {
+                Text("GLOBAL RANK")
+                    .font(.montserratBold(size: 10))
                     .foregroundStyle(.accent)
 
-                Text("CHECKING COMPLETED ATTEMPTS")
+                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                    Text(rankingValueText)
+                        .font(.montserratBold(size: rankingValueText.count > 6 ? 28 : 44))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.white, .accent.opacity(0.72)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+
+                    if let displayedTotal, displayedTotal > 0, displayedRank != nil {
+                        Text("of \(displayedTotal.formatted())")
+                            .font(.montserratBold(size: 13))
+                            .foregroundStyle(.white.opacity(0.5))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                    }
+                }
+
+                Text(rankingDetailText)
                     .font(.montserratBold(size: 10))
                     .foregroundStyle(.white.opacity(0.46))
-            } else if let displayedRank {
-                Text(displayedRank.ordinalText)
-                    .font(.montserratBold(size: 52))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.accent, .white],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.74)
+            }
+
+            Spacer(minLength: 0)
+
+            VStack(alignment: .trailing, spacing: 5) {
+                Text("STATUS")
+                    .font(.montserratBold(size: 8))
+                    .foregroundStyle(.white.opacity(0.42))
+
+                Text(rankingStatusText)
+                    .font(.montserratBold(size: 11))
+                    .foregroundStyle(.white.opacity(0.72))
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
-
-                Text(rankingSubtitle)
-                    .font(.montserratBold(size: 10))
-                    .foregroundStyle(.white.opacity(0.46))
-            } else {
-                Text("Pending")
-                    .font(.montserratBold(size: 38))
-                    .foregroundStyle(.accent)
-
-                Text("RANKING UPDATES AFTER SYNC")
-                    .font(.montserratBold(size: 10))
-                    .foregroundStyle(.white.opacity(0.46))
             }
         }
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(rankingSectionBackground)
     }
 
     private var primaryStatsGrid: some View {
@@ -160,56 +188,74 @@ struct LiveClimbCompletionSummaryView: View {
     }
 
     private var paceSplitsCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Splits")
-                    .font(.montserratBold(size: 21))
+                Text("SPLITS")
+                    .font(.montserratBold(size: 19))
                     .foregroundStyle(.white)
 
                 HStack(spacing: 5) {
-                    Text(paceSplitSummaryText)
+                    Text("\(paceSplits.count.formatted()) \(paceSplits.count == 1 ? "segment" : "segments")")
                         .foregroundStyle(.white.opacity(0.54))
 
                     Text("·")
-                        .foregroundStyle(.white.opacity(0.34))
+                        .foregroundStyle(.accent)
 
-                    Text("avg")
+                    Text("Avg \(averageSPMText) SPM")
                         .foregroundStyle(.white.opacity(0.54))
-
-                    Text("\(averageSPMText) SPM")
-                        .foregroundStyle(.white)
                 }
                 .font(.montserratMedium(size: 12))
                 .lineLimit(1)
                 .minimumScaleFactor(0.74)
             }
 
-            LiveClimbPaceTrendChart(
-                splits: paceSplits,
-                averageStepsPerMinute: averageSPMValue
-            )
-            .frame(height: 84)
-            .accessibilityHidden(true)
-
-            Rectangle()
-                .fill(.white.opacity(0.08))
-                .frame(height: 1)
-
-            VStack(spacing: 0) {
+            VStack(spacing: 8) {
                 ForEach(paceSplits) { split in
                     LiveClimbPaceSplitRow(
                         split: split,
                         minStepsPerMinute: minSplitSPM,
                         maxStepsPerMinute: maxSplitSPM
                     )
+                }
+            }
+        }
+    }
 
-                    if split.id != paceSplits.last?.id {
-                        Rectangle()
-                            .fill(.white.opacity(0.06))
-                            .frame(height: 1)
+    private var paceTrendCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("SPM TREND")
+                        .font(.montserratBold(size: 16))
+                        .foregroundStyle(.white)
+
+                    Text("Pace throughout the climb")
+                        .font(.montserratMedium(size: 12))
+                        .foregroundStyle(.white.opacity(0.54))
+                }
+
+                Spacer(minLength: 0)
+
+                if paceTrendDelta != 0 {
+                    VStack(alignment: .trailing, spacing: 3) {
+                        Text(paceTrendDeltaText)
+                            .font(.montserratBold(size: 20))
+                            .foregroundStyle(.accent)
+                            .monospacedDigit()
+
+                        Text("Start to Finish")
+                            .font(.montserratMedium(size: 10))
+                            .foregroundStyle(.white.opacity(0.54))
                     }
                 }
             }
+
+            LiveClimbPaceTrendChart(
+                splits: paceSplits,
+                averageStepsPerMinute: averageSPMValue
+            )
+            .frame(height: 118)
+            .accessibilityHidden(true)
         }
         .padding(16)
         .background(summaryCardBackground)
@@ -283,12 +329,71 @@ struct LiveClimbCompletionSummaryView: View {
             )
     }
 
-    private var rankingSubtitle: String {
-        if let displayedTotal, displayedTotal > 0 {
-            return "OUT OF \(displayedTotal.formatted())"
+    private var rankingSectionBackground: some View {
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color(hex: "17191B"),
+                        Color(hex: "0D0F10")
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                .accent.opacity(0.16),
+                                .clear
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(.white.opacity(0.07), lineWidth: 1)
+            )
+    }
+
+    private var rankingValueText: String {
+        if isLoadingCompletionRank && displayedRank == nil {
+            return "Ranking..."
         }
 
-        return climb == nil ? "JUST CLIMB COMPLETE" : "LIVE CLIMB COMPLETE"
+        if let displayedRank {
+            return displayedRank.ordinalText
+        }
+
+        return "Pending"
+    }
+
+    private var rankingDetailText: String {
+        if isLoadingCompletionRank && displayedRank == nil {
+            return "CHECKING COMPLETED ATTEMPTS"
+        }
+
+        if displayedRank != nil {
+            return climb == nil ? "WORKOUT COMPLETE" : "LIVE CLIMB COMPLETE"
+        }
+
+        return "RANKING UPDATES AFTER SYNC"
+    }
+
+    private var rankingStatusText: String {
+        if isLoadingCompletionRank && displayedRank == nil {
+            return "CHECKING"
+        }
+
+        if displayedRank != nil {
+            return "COMPLETE"
+        }
+
+        return "PENDING"
     }
 
     private var averageSPMText: String {
@@ -355,21 +460,58 @@ struct LiveClimbCompletionSummaryView: View {
         paceSplits.map(\.stepsPerMinute).min() ?? 0
     }
 
-    private var paceSplitSummaryText: String {
-        let segmentLabel = paceSplits.count == 1 ? "segment" : "segments"
-        guard let firstSplit = paceSplits.first else {
-            return "0 segments"
+    private var paceTrendDelta: Int {
+        guard let firstSPM = paceSplits.first?.stepsPerMinute,
+              let lastSPM = paceSplits.last?.stepsPerMinute else {
+            return 0
         }
 
-        guard paceSplits.allSatisfy({ $0.durationSeconds == firstSplit.durationSeconds }) else {
-            let finalDuration = paceSplits.last?.durationSeconds ?? firstSplit.durationSeconds
-            return "\(paceSplits.count) \(segmentLabel), final \(clockTime(finalDuration))"
-        }
+        return Int((lastSPM - firstSPM).rounded())
+    }
 
-        return "\(paceSplits.count) x \(clockTime(firstSplit.durationSeconds)) \(segmentLabel)"
+    private var paceTrendDeltaText: String {
+        paceTrendDelta > 0 ? "+\(paceTrendDelta) SPM" : "\(paceTrendDelta) SPM"
     }
 
     private func handleDoneTapped(surface: LiveClimbAnalyticsEvent.SummaryDismissSurface) {
+        if case .doneButton = surface, shouldShowRatingEnjoymentPrompt {
+            showingRatingEnjoymentPrompt = true
+            return
+        }
+
+        finishDoneTapped(surface: surface)
+    }
+
+    private func handleRatingEnjoymentResponse(_ response: AppStoreRatingManager.EnjoymentResponse) {
+        AppStoreRatingManager.shared.recordEnjoymentResponse(response)
+
+        if response == .yes {
+            AppStoreRatingManager.shared.requestReview()
+        }
+
+        finishDoneTapped(surface: .doneButton)
+    }
+
+    private var shouldShowRatingEnjoymentPrompt: Bool {
+        guard allowsRatingPrompt, climb != nil else { return false }
+
+        return AppStoreRatingManager.shared.shouldAskEnjoymentQuestionAfterFirstLiveClimb(
+            completedLiveClimbCount: completedLiveClimbCount
+        )
+    }
+
+    private var completedLiveClimbCount: Int {
+        let completedStatus = ClimbAttemptStatus.completed.rawValue
+        let descriptor = FetchDescriptor<ClimbAttempt>(
+            predicate: #Predicate<ClimbAttempt> { attempt in
+                attempt.statusRawValue == completedStatus
+            }
+        )
+
+        return (try? modelContext.fetchCount(descriptor)) ?? 0
+    }
+
+    private func finishDoneTapped(surface: LiveClimbAnalyticsEvent.SummaryDismissSurface) {
         if let climb {
             TelemetryManager.shared.track(
                 LiveClimbAnalyticsEvent.summaryDoneTapped(
@@ -590,49 +732,73 @@ private struct LiveClimbPaceSplitRow: View {
     let maxStepsPerMinute: Double
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(timeRangeText)
-                    .font(.montserratBold(size: 13))
-                    .foregroundStyle(.white)
-                    .frame(width: 94, alignment: .leading)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.76)
-                    .monospacedDigit()
+        HStack(alignment: .center, spacing: 10) {
+            Text("\(split.index + 1)")
+                .font(.montserratBold(size: 12))
+                .foregroundStyle(.white.opacity(0.44))
+                .monospacedDigit()
+                .frame(width: 26, alignment: .center)
 
-                Text("\(split.steps.formatted()) steps")
-                    .font(.montserratMedium(size: 12))
-                    .foregroundStyle(.white.opacity(0.42))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(timeRangeText)
+                        .font(.montserratBold(size: 13))
+                        .foregroundStyle(.white)
+                        .frame(width: 104, alignment: .leading)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .monospacedDigit()
 
-                Spacer(minLength: 0)
+                    Text("\(split.steps.formatted()) steps")
+                        .font(.montserratMedium(size: 12))
+                        .foregroundStyle(.white.opacity(0.52))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
 
-                Text("\(Int(split.stepsPerMinute.rounded()).formatted())")
-                    .font(.montserratBold(size: 19))
-                    .foregroundStyle(.white)
-                    .monospacedDigit()
+                    Spacer(minLength: 0)
 
-                Text("SPM")
-                    .font(.montserratBold(size: 8))
-                    .foregroundStyle(.white.opacity(0.42))
-            }
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text("\(Int(split.stepsPerMinute.rounded()).formatted())")
+                            .font(.montserratBold(size: 20))
+                            .foregroundStyle(.white)
+                            .monospacedDigit()
 
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(.white.opacity(0.08))
-
-                    Capsule()
-                        .fill(Color.accent)
-                        .frame(width: max(proxy.size.width * barProgress, 7))
+                        Text("SPM")
+                            .font(.montserratBold(size: 8))
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
+                    .frame(width: 54, alignment: .trailing)
                 }
+
+                GeometryReader { proxy in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(.white.opacity(0.08))
+
+                        Capsule()
+                            .fill(splitBarGradient)
+                            .frame(width: max(proxy.size.width * barProgress, 12))
+                            .shadow(color: .accent.opacity(0.34), radius: 10, x: 0, y: 0)
+                    }
+                }
+                .frame(height: 10)
             }
-            .frame(height: 6)
         }
-        .padding(.vertical, 9)
+        .padding(.vertical, 8)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(timeRangeText), \(split.steps.formatted()) steps, \(Int(split.stepsPerMinute.rounded()).formatted()) steps per minute")
+    }
+
+    private var splitBarGradient: LinearGradient {
+        LinearGradient(
+            colors: [
+                Color.accent.opacity(0.42),
+                Color.accent.opacity(0.82),
+                Color.accent
+            ],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
     }
 
     private var barProgress: Double {
@@ -682,7 +848,8 @@ private extension Int {
         ),
         leaderboardRank: 12,
         leaderboardTotal: 2_460,
+        allowsRatingPrompt: true,
         onDone: {}
     )
-    .modelContainer(for: [Workout.self, BestEffortCacheEntry.self, BestEffortCacheMetadata.self], inMemory: true)
+    .modelContainer(for: [Workout.self, ClimbAttempt.self, BestEffortCacheEntry.self, BestEffortCacheMetadata.self], inMemory: true)
 }

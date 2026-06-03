@@ -58,7 +58,7 @@ struct ClimbCardView: View {
             cornerRadius: 24,
             lineWidth: 1.5,
             isEmphasized: climb.tier.usesEmphasizedBorderStyle,
-            animationStyle: .ambient
+            animationStyle: .static
         )
     }
 

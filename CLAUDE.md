@@ -83,7 +83,7 @@ functions/src/                  # Cloud Functions (TypeScript)
 - Only the active tab should be mounted and running expensive work (SwiftData queries, refreshes, animations). Hidden tabs are deliberately inert. Switching tabs is allowed to lose per-tab navigation/scroll state — the lifecycle benefit outweighs that polish loss for now.
 
 ### Branding
-- Use the angular Ascend `A` mark for in-app and launch-screen branding. The internal logo assets are `AppIconInternal` and `AppIconInternalAccent`; do not reintroduce the legacy stair-stepper logo for app branding surfaces.
+- Use the angular Ascend `A` mark for in-app and launch-screen branding. The internal logo asset is `AppIconInternalAccent`; do not reintroduce the legacy stair-stepper logo for app branding surfaces.
 - When displaying the word "Ascend" as part of app UI branding (top chrome, splash, onboarding, auth), use the integrated wordmark where the angular A mark serves as the letter A — not the A icon placed next to a separate "ASCEND" text label. The shared `AscendWordmark` component is the canonical implementation; reuse it rather than reinstating logo + text combos.
 - The unauthenticated landing screen uses the bundled `OnboardingWelcomeBackground` asset with readability overlays. Keep a bundled image as the primary background — do not replace it with a generated gradient.
 - Shared onboarding screens should use `OnboardingScaffold` for consistent top-left chevron-only back-button placement and bottom action layout.
@@ -186,12 +186,33 @@ Three distinct concepts. Keep them cleanly separated — don't fold feature-spec
 - Live Climb completions require *live* sensor data from the live attempt flow. Manual entries, external imports, and routine completions cannot progress or complete a Live Climb. Live Climb eligibility is a quality gate, not a backfill.
 - Passive interpretations of workout history (lifetime step milestones, climb-equivalent badges, collection counts) are *derived* readings — never participation records. They don't make a workout retroactively eligible for any leaderboard.
 
-### Workout Share Card Architecture
-- Bundle the assets share cards need (backgrounds, decorative elements) so the share surface renders instantly and works offline. Bundled here is the *delivery* choice; the broader content-driven principle still applies (no per-card code paths).
-- Share cards compose on a shared surface — card-specific layouts sit on top and never reimplement clipping, borders, or background handling. Shared decorative elements (dividers, badges, stat blocks) live as reusable parameterized components.
-- Adding a new card variant is additive: new card type + new layout, not a branch inside an existing layout. Existing cards stay isolated so changes can't accidentally break them.
-- Workout share cards serve the manual-log and Apple Health-import flows (where they're the user's only post-session output). For Live Climb completions, the share treatment should be the climb's own overlay/share card — not a parallel workout-share path that fights with it.
-- Don't reintroduce backend-driven share backgrounds or remote-configured stat layouts. Share content is bundled or locally composed, not server-rendered.
+### Share Composer Architecture
+
+Sharing in Ascend is a **user-composed canvas**, not a gallery of pre-designed cards. The user picks a background (their own photo/video or a preset), then drops stat "stickers" onto it and arranges them freely — the Instagram Story editor model. This replaces the older "carousel of fixed share-card variants" approach. Every share surface in the app (workout detail, Live Climb completion summary, manual log, Apple Health import) routes into the same composer.
+
+**The two composable inputs — keep them independent**
+- **Background** = what fills the canvas. Sources: the user's Camera Roll (photo or video) or a bundled/known **preset**. For a Live Climb, the climb's bespoke share card becomes one of the presets — it's no longer a parallel share path. Backgrounds and stats are decoupled: a background is just a backing layer, never bundled with baked-in stats.
+- **Stat stickers** = draggable overlays the user adds on top. Each sticker is one stat (Steps, Duration, Calories, Avg SPM, Heart Rate, Climb Rank/"Nth finisher", Climb Name, Date, etc.) rendered in a chosen visual style. The user adds as many as they want, in any arrangement.
+
+**Composer interaction model**
+- Each sticker supports simultaneous pan / pinch-scale / rotate via composed SwiftUI gestures. Drag-to-bottom reveals a trash zone; release over it deletes the sticker.
+- Alignment: center + edge snap guides (V1). Full Instagram-grade snapping (third-lines, between-sticker magnetism) is deferred.
+- **Editing is SwiftUI-over-player; export is the only AVFoundation work.** While composing, the canvas is a SwiftUI `ZStack` of the background (an `Image` or an `AVPlayer`-backed video) with draggable sticker views on top — no composition happens during editing. Composition runs ONCE at save/share time.
+
+**Stat sticker discipline (content-driven, mirrors the rest of the app)**
+- Stat stickers are typed, parameterized values — NOT per-stat bespoke layouts. A sticker is `(stat kind, visual style, transform)`. Adding a new stat is data (a new kind + how to read it from the workout/climb), not a new code path. Adding a new visual style is one reusable styled view that any stat can use.
+- Stat values are read from the canonical `Workout` (and, for climbs, the attempt/leaderboard data) — never recomputed or stored on a share model. The composer reads derived values it trusts to be current.
+- Low-cardinality, privacy-safe: stickers display the same measured/derived metrics the rest of the app shows. No raw PII, no exact location.
+
+**Export pipeline**
+- **Photo background**: composite background + rendered sticker views into a single image (`ImageRenderer` for the stickers, drawn onto the background) → save to Photos / share.
+- **Video background**: burn the rendered sticker layers onto the video via `AVVideoCompositionCoreAnimationTool` + `AVAssetExportSession`. This is the hard, isolated piece — it only runs at export, and the editing UI is shared with the photo path. Build photo export first; video export slots in as a branch at the export step.
+- Export targets: Save to Photos and a dedicated Instagram Story share (`instagram-stories://` URL scheme) with a generic share-sheet fallback.
+
+**Boundaries**
+- Photos library permission is requested at first share (point of use), never in onboarding.
+- Backgrounds/presets/sticker styles are bundled or locally composed — NOT server-rendered. Don't reintroduce backend-driven share backgrounds or remote-configured stat layouts.
+- The Live Climb completion summary stays as the emotional payoff; its Share button opens the composer (with the climb's card available as a preset). The composer never replaces the summary screen itself.
 
 ### Privacy Manifest Maintenance Rule
 - `AscendApp/PrivacyInfo.xcprivacy` is a machine-readable Apple privacy manifest that ships inside the app bundle. It is REQUIRED for App Store submission and must stay in sync with reality.
@@ -340,6 +361,7 @@ Live Climbs is the hero competitive experience: a user picks a real-world landma
 - The user gathers notes / media for a Live Climb at the **completion summary**, not in a post-hoc review surface. Enrichment never inserts itself into that moment.
 
 **Climb content (catalog + images)**
+- When adding, editing, releasing, or validating Live Climb catalog content, use the repo-local skill at `skills/live-climb-content/SKILL.md`. This file is intentionally harness-neutral so Codex, Claude, Cursor, or any other AI provider can follow the same workflow.
 - Climb content is remote-first by default. The catalog ships as a hosted manifest + versioned catalog file; climb images live in Storage as hero / card / thumb sizes. Adding a new climb means publishing new content, never shipping app code (see Content-driven over rebuild).
 - A bundled bootstrap catalog ships with the app for *metadata only*, so Home and Browse render even if the remote catalog has never been fetched. Once a remote catalog has been successfully fetched, subsequent launches prefer the disk-cached catalog over the bundled bootstrap.
 - Climb images do not ship in the app bundle — artwork is remote-only. Missing images render a placeholder until the remote image is cached locally.
@@ -395,7 +417,7 @@ This sequence will evolve as we learn from SuperWall and RevenueCat funnel analy
 
 Workouts are described by **absolute, measured signals** — steps, duration, cadence (steps per minute), and optional supporting data (heart rate, calories, RPE, added weight). There is no user-calibrated effort score, no base level, no relative-to-fitness intensity calculation. We trust what was measured.
 
-**Why no base level:** the personalization it enables — adjusting workout effort relative to a personal baseline — isn't load-bearing. Live Climbs are target-step-count challenges (same target for everyone). Routines, as they evolve into challenge climbs, expose their own absolute difficulty for self-selection. Leaderboards rank by absolute metrics. Best Efforts compares the user to their own past. None of these need a fitness baseline, and asking for one at onboarding adds friction before the user has felt any value.
+**Why no base level:** the personalization it enables — adjusting workout effort relative to a personal baseline — isn't load-bearing. Live Climbs are target-step-count challenges (same target for everyone). Routines expose their own absolute difficulty (level + duration sequences) for self-selection. Leaderboards rank by absolute metrics. Best Efforts compares the user to their own past. None of these need a fitness baseline, and asking for one at onboarding adds friction before the user has felt any value.
 
 **What stays:**
 - The canonical mapping between StairMaster levels (1-25) and steps-per-minute is preserved as a **display utility**. Surfaces that want to show "you stepped at the equivalent of level 8" alongside a workout's cadence read from this shared mapping — don't duplicate the math.
@@ -410,15 +432,37 @@ Workouts are described by **absolute, measured signals** — steps, duration, ca
 
 Existing code for these can stay until the cleanup task lands, but treat it as legacy — don't add features through it, don't introduce new dependencies on it, and prefer absolute metrics in new code.
 
-### Routines → Challenge Climbs (direction)
+### Routines
 
-The current `Routines` feature (built-in routine templates + dedicated live player) is *legacy* product surface. The intended direction is to absorb the routine concept into climbs as **challenge climbs** — climbs with additional constraints beyond "reach the target step count," such as level progressions, sustained SPM thresholds over time windows, or future requirements like verified added weight (vest, ruck).
+Routines are a **first-class peer feature** to climbs — not a stepping stone toward absorption. Climbs and routines coexist as the two canonical live-tracked experiences, and they answer different user intents.
 
-In this direction:
-- Climbs remain the canonical live-tracked experience. Challenges are a *subtype* of climb, not a separate concept.
-- The live attempt UI for challenges reuses the climb leaderboard chrome and adds challenge-specific state (current target level, threshold compliance, etc.) — not a separate live-player framework.
-- Don't extend the current routines code with new behavior. New constraint-based session formats should be designed as challenge climbs from the start.
-- Existing routine code (templates, live player, browse surfaces) can stay until the migration is real, but treat it as deprecated — don't add features through it.
+**Climbs vs. routines — the core distinction:**
+- **Climb** = race to a specific step target tied to a real-world landmark ("I'm climbing to the top of the Burj Khalifa"). Fixed destination, fixed step goal, prestige tied to the place.
+- **Routine** = open-ended guided interval session ("I'm running through these intervals"). Variable step count depending on how many intervals the user completes. Prestige tied to the routine itself, not a destination.
+
+Both have their own browse, detail, live, and leaderboard surfaces. Don't fold one into the other.
+
+**Routine structure:**
+- A routine is an ordered sequence of **intervals**, each specifying a target level (1-25 on the StairMaster mapping) and a duration. The session ends when all intervals are completed, or when the user ends early.
+- Routines are content-driven: server-published catalog entries plus user-created routines. Adding a new routine should never require an app release. The same content-driven principle that applies to the climbs catalog applies to routines.
+- User-created routines live alongside server-published routines and use the same model. The browse surface distinguishes them visually (e.g. "My Routines" vs. catalog) but the detail / live / leaderboard experiences are the same.
+
+**Per-routine leaderboards:**
+- Every routine has its own leaderboard. Completing a routine publishes the user's attempt onto that routine's leaderboard.
+- Leaderboards include a **"Just Me" toggle** so the user can switch between the global ranking and their own attempt history filtered to that routine.
+- Leaderboard rankings use absolute metrics (matching the Workout Measurement section's "no calibrated effort score" rule). The ranking metric for a given routine is whichever absolute signal best reflects performance on that routine's intervals — typically a combination of completion, total session duration vs. target, and adherence to interval levels. Don't introduce a calibrated effort score for routine ranking.
+
+**Live routine sessions:**
+- Routine completions come only from the live routine flow (analogous to how Live Climb completions come only from the live climb flow). Manual entries and external imports cannot complete a routine.
+- The live experience is routine-specific: current interval, target level, time remaining in interval, progress through the full routine, real-time step count. It is NOT the same UI as a Live Climb (which is structured around a step-target race), even though both share the headphone-motion sensor pipeline.
+
+**Routines vs. challenge climbs:**
+- The "challenge climb" concept stays alive but as a **subtype of climbs**, not a way to absorb routines. A challenge climb is a regular climb (target step count tied to a landmark) with additional constraints layered on — e.g. "you must sustain level 12+ for the final 5,000 steps." Challenges live inside the climbs feature; they do not replace or absorb routines.
+- The two features answer fundamentally different user intents: routines = open-ended interval training, climbs = destination-focused races. Don't conflate them.
+
+**Visual identity:**
+- Each routine's interval sequence has an intrinsic **shape** (a pyramid, a plateau, alternating spikes, etc.) that visually encodes what the workout feels like. Treat that shape as the routine's primary visual identity — a hero-sized stylized rendering of the interval bars on the detail screen, not a generic data viz widget tucked in a corner.
+- Don't require per-routine illustrations or category icons. The interval shape itself differentiates one routine from another and works automatically for user-created routines without needing a designer in the loop.
 
 ### Week Start + Leaderboard Windowing
 
@@ -496,7 +540,7 @@ Leaderboard UX in Ascend covers two distinct surfaces — the global tab (commun
 
 ### Design System
 - **Fonts**: Montserrat (custom) — `montserratBold`, `montserratSemiBold`, `montserratMedium`, `montserratRegular`
-- **Accent color**: `#B4CC00`
+- **Accent color**: `#86D30A`
 - **Medal tokens**: Gold `#D4AF37`, Silver `#C0C0C0`, Bronze `#CD7F32`. Reserved for podium / rank-prestige moments (leaderboard top 3, First Ascent emphasis, achievement displays). The only sanctioned exceptions to lime-accent discipline — apply sparingly, never as primary surface color.
 - **Achievement motif vocabulary**: laurels represent personal achievements and record-book moments; crowns represent competitive ranking dominance. Do not combine laurel and crown in the same badge treatment.
 - **Theming**: `ThemeManager` with dark/light mode, `effectiveColorScheme`, `.themedBackground()`
@@ -648,6 +692,7 @@ Website source lives in `web/` and is built to `web/dist/` before deploy.
 - Cloud Functions email provider config lives in the `TRANSACTIONAL_EMAIL_CONFIG` Secret Manager JSON secret, with `functions/.secret.local` used only for local emulator overrides.
 - Legacy queued transactional emails are delivered in the background by the scheduled `processEmailJobs` worker. Do not reintroduce waitlist welcome emails through `email_jobs` unless product explicitly moves off Beehiiv.
 - In-app feedback submissions (`feedback` collection) trigger `onFeedbackCreated`, which sends an admin notification email directly via Resend (not queued). The recipient is `feedbackNotificationEmail` from the secret config (falls back to `replyTo` → `fromEmail`). Reply-to is set to the submitting user's email. Notification delivery metadata is written back onto the feedback document.
+- Email copy, templates, lifecycle automations, Beehiiv campaigns, and subject lines must follow the Ascend Email Playbook. Codex has this as the `ascend-email-playbook` skill at `~/.codex/skills/ascend-email-playbook`; other agents should apply the same rule set: app-triggered emails go through Cloud Functions/Resend with deterministic dedupe, broadcasts go through Beehiiv, copy is competitive/stair-stepper-specific, and each email has one primary CTA.
 
 ### Key Config Files
 - `.firebaserc` — project aliases (dev, staging, prod)

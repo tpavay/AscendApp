@@ -158,7 +158,7 @@ final class TelemetryManager: @unchecked Sendable {
     // MARK: - Custom Keys (Native Types)
 
     enum Key: String {
-        case isPremium = "is_premium"
+        case hasAppAccess = "has_app_access"
         case buildConfig = "build_config"
         case appVersion = "app_version"
         case buildNumber = "build_number"

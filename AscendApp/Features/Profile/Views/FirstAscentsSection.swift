@@ -1,10 +1,15 @@
+import SwiftData
 import SwiftUI
 
 struct FirstAscentsSection: View {
+    @Environment(\.modelContext) private var modelContext
+
     let held: [ProfileFirstAscentSummary]
     let open: [ProfileFirstAscentSummary]
     let mode: ProfileViewMode
     let climbs: [Climb]
+
+    @State private var isHandlingNotifications = false
 
     private var climbsByID: [String: Climb] {
         Dictionary(uniqueKeysWithValues: climbs.map { ($0.id, $0) })
@@ -12,7 +17,7 @@ struct FirstAscentsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ProfileSectionHeaderView(title: "First Ascents", trailing: "\(held.count) claimed")
+            sectionHeader
 
             ProfileCardSurfaceView {
                 VStack(alignment: .leading, spacing: 12) {
@@ -27,16 +32,27 @@ struct FirstAscentsSection: View {
         }
     }
 
+    private var sectionHeader: some View {
+        HStack(alignment: .center, spacing: 9) {
+            firstAscentBadge(assetName: "FirstAscentBadgeDetailed", size: 28)
+
+            Text("FIRST ASCENTS")
+                .font(.montserratBold(size: 16))
+                .foregroundStyle(.white)
+                .tracking(1.4)
+
+            Spacer()
+
+            Text("\(held.count) CLAIMED")
+                .font(.montserratSemiBold(size: 11))
+                .foregroundStyle(Color.accentColor)
+                .tracking(1.2)
+        }
+        .padding(.horizontal, 2)
+    }
+
     @ViewBuilder
     private var emptyContent: some View {
-        HStack(spacing: 12) {
-            firstAscentBadge(assetName: "FirstAscentBadgeDetailed", size: 58)
-
-            Text("0 claimed")
-                .font(.montserratBold(size: 24))
-                .foregroundStyle(.white)
-        }
-
         if open.isEmpty {
             Text("Every First Ascent is taken. New climbs drop monthly - turn on notifications to get 24 hours' notice.")
                 .font(.montserratMedium(size: 13))
@@ -44,10 +60,12 @@ struct FirstAscentsSection: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if mode == .own {
-                Button("Turn on notifications") {}
+                Button("Turn on notifications") {
+                    handleNotificationsTap()
+                }
                     .buttonStyle(ProfileActionButtonStyle())
-                    .disabled(true)
-                    .opacity(0.72)
+                    .disabled(isHandlingNotifications)
+                    .opacity(isHandlingNotifications ? 0.72 : 1)
             }
         } else {
             Text("\(open.count) First Ascents are still open. Be the first up.")
@@ -62,14 +80,6 @@ struct FirstAscentsSection: View {
 
     private var heldContent: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                firstAscentBadge(assetName: "FirstAscentBadgeDetailed", size: 58)
-
-                Text("\(held.count) claimed")
-                    .font(.montserratBold(size: 24))
-                    .foregroundStyle(.white)
-            }
-
             ForEach(held.prefix(4)) { ascent in
                 firstAscentRow(ascent, isOpen: false)
             }
@@ -120,7 +130,7 @@ struct FirstAscentsSection: View {
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
         return Group {
-            if isOpen, let climb = climbsByID[ascent.climbId] {
+            if let climb = climbsByID[ascent.climbId] {
                 NavigationLink {
                     ClimbDetailView(climb: climb, analyticsEntryPoint: .unknown)
                 } label: {
@@ -176,5 +186,21 @@ struct FirstAscentsSection: View {
             }
             .shadow(color: ProfileVisualStyle.gold.opacity(0.24), radius: 8, y: 3)
             .accessibilityHidden(true)
+    }
+
+    private func handleNotificationsTap() {
+        guard !isHandlingNotifications else { return }
+        isHandlingNotifications = true
+
+        let availableClimbs = climbs.filter(\.isAvailable)
+        let completedClimbIds = ClimbService.shared.completedClimbIds(modelContext: modelContext)
+
+        Task {
+            await TodayClimbNotificationPermissionController.enable(
+                availableClimbs: availableClimbs,
+                completedClimbIds: completedClimbIds
+            )
+            isHandlingNotifications = false
+        }
     }
 }

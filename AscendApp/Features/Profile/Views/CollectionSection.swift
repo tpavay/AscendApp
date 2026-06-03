@@ -12,58 +12,40 @@ struct CollectionSection: View {
 
     var body: some View {
         if collection.catalogCount > 0, !previewCards.isEmpty {
-            ProfileCardSurfaceView {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        Text("Climbs Collection")
-                            .font(.montserratBold(size: 21))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.72)
+            VStack(alignment: .leading, spacing: 12) {
+                ProfileSectionHeaderView(
+                    title: "Climbs Collection",
+                    trailing: "\(collection.collectedCount) of \(collection.catalogCount)"
+                )
+                .accessibilityLabel("\(collection.collectedCount) of \(collection.catalogCount) climbs collected")
 
-                        Spacer(minLength: 0)
-
-                        Text("\(collection.collectedCount) of \(collection.catalogCount)")
-                            .font(.montserratSemiBold(size: 12))
-                            .tracking(0.8)
-                            .foregroundStyle(Color.accentColor)
-                            .lineLimit(1)
-                            .fixedSize()
-                            .accessibilityLabel("\(collection.collectedCount) of \(collection.catalogCount) climbs collected")
-                    }
-
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(alignment: .top, spacing: 10) {
-                            ForEach(previewCards) { item in
-                                NavigationLink {
-                                    ClimbDetailView(climb: item.climb, analyticsEntryPoint: .unknown)
-                                } label: {
-                                    CollectionCard(item: item, style: .profilePreview)
-                                        .frame(width: CollectionCardStyle.profilePreview.cardWidth)
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel(accessibilityLabel(for: item))
-                                .accessibilityHint("Open \(item.climb.name)")
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 10) {
+                        ForEach(previewCards) { item in
+                            NavigationLink {
+                                ClimbDetailView(climb: item.climb, analyticsEntryPoint: .unknown)
+                            } label: {
+                                CollectionCard(item: item, style: .profilePreview)
+                                    .frame(width: CollectionCardStyle.profilePreview.cardWidth)
                             }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(accessibilityLabel(for: item))
+                            .accessibilityHint("Open \(item.climb.name)")
                         }
-                        .padding(.vertical, 1)
-                        .padding(.trailing, 2)
-                    }
-                    .scrollIndicators(.hidden)
 
-                    NavigationLink {
-                        ClimbsCollectionView(collection: collection, mode: mode)
-                    } label: {
-                        Text("View all climbs")
-                            .font(.montserratSemiBold(size: 14))
-                            .foregroundStyle(Color.accentColor)
-                            .frame(maxWidth: .infinity)
+                        NavigationLink {
+                            ClimbsCollectionView(collection: collection, mode: mode)
+                        } label: {
+                            ViewAllClimbsCard(catalogCount: collection.catalogCount)
+                                .frame(width: CollectionCardStyle.profilePreview.cardWidth)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("View all climbs")
                     }
-                    .buttonStyle(.plain)
-                    .padding(.top, 4)
+                    .padding(.vertical, 1)
+                    .padding(.trailing, 2)
                 }
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .scrollIndicators(.hidden)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -260,7 +242,9 @@ private struct ClimbsCollectionView: View {
         isHandlingNotifications = true
 
         Task {
-            await CollectionNotificationPermissionHandler.handleTurnOnNotifications()
+            await CollectionNotificationPermissionHandler.handleTurnOnNotifications(
+                collection: collection
+            )
             isHandlingNotifications = false
         }
     }
@@ -302,6 +286,10 @@ private struct CollectionCardStyle {
     let buttonHeight: CGFloat
     let badgeSize: CGFloat
 
+    var cardHeight: CGFloat {
+        artworkHeight + nameHeight + buttonHeight + (spacing * 2) + (cardPadding * 2)
+    }
+
     static let profilePreview = CollectionCardStyle(
         cardWidth: 154,
         artworkHeight: 138,
@@ -331,6 +319,51 @@ private struct CollectionCardStyle {
     )
 }
 
+private struct ViewAllClimbsCard: View {
+    let catalogCount: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Spacer(minLength: 0)
+
+            Image(systemName: "arrow.right")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 38, height: 38)
+                .background(
+                    Circle()
+                        .fill(Color.accentColor.opacity(0.14))
+                )
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("View all climbs")
+                    .font(.montserratBold(size: 16))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.82)
+
+                Text("\(catalogCount) climbs")
+                    .font(.montserratSemiBold(size: 11))
+                    .tracking(0.6)
+                    .foregroundStyle(ProfileVisualStyle.secondaryText)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: CollectionCardStyle.profilePreview.cardHeight)
+        .background(Color.black.opacity(0.54))
+        .clipShape(RoundedRectangle(cornerRadius: CollectionCardStyle.profilePreview.cornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: CollectionCardStyle.profilePreview.cornerRadius, style: .continuous)
+                .stroke(Color.accentColor.opacity(0.72), lineWidth: 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: CollectionCardStyle.profilePreview.cornerRadius, style: .continuous))
+    }
+}
+
 private struct CollectionCard: View {
     let item: ProfileCollectionCardItem
     let style: CollectionCardStyle
@@ -343,6 +376,8 @@ private struct CollectionCard: View {
         VStack(spacing: style.spacing) {
             ClimbArtworkView(climb: item.climb, variant: .card)
                 .frame(height: style.artworkHeight)
+                .saturation(isClaimed ? 1 : 0)
+                .brightness(isClaimed ? 0 : -0.08)
                 .clipShape(RoundedRectangle(cornerRadius: style.artworkCornerRadius, style: .continuous))
                 .overlay(alignment: .topTrailing) {
                     if isClaimed {
@@ -372,21 +407,25 @@ private struct CollectionCard: View {
             cornerRadius: style.cornerRadius,
             lineWidth: 1,
             isEmphasized: item.climb.tier.usesEmphasizedBorderStyle,
-            animationStyle: .ambient
+            animationStyle: .static
         )
         .contentShape(RoundedRectangle(cornerRadius: style.cornerRadius, style: .continuous))
     }
 
     private var claimedBadge: some View {
         Circle()
-            .fill(Color.accentColor)
+            .fill(item.climb.tier.color)
             .frame(width: style.badgeSize, height: style.badgeSize)
             .overlay {
                 Image(systemName: "checkmark")
-                    .font(.system(size: style.badgeSize * 0.48, weight: .bold))
-                    .foregroundStyle(.white)
+                    .font(.system(size: style.badgeSize * 0.48, weight: .black))
+                    .foregroundStyle(Color.black.opacity(0.88))
             }
-            .shadow(color: Color.black.opacity(0.34), radius: 5, x: 0, y: 2)
+            .overlay {
+                Circle()
+                    .strokeBorder(.white.opacity(0.22), lineWidth: 0.75)
+            }
+            .shadow(color: item.climb.tier.color.opacity(0.4), radius: 5, x: 0, y: 2)
     }
 
     private var climbAction: some View {
@@ -511,25 +550,17 @@ private struct CollectionComingSoonDetailSheet: View {
 
 @MainActor
 private enum CollectionNotificationPermissionHandler {
-    static func handleTurnOnNotifications() async {
-        let center = UNUserNotificationCenter.current()
-        let settings = await center.notificationSettings()
-
-        switch settings.authorizationStatus {
-        case .notDetermined:
-            let granted = (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false
-            if !granted {
-                openNotificationSettings()
+    static func handleTurnOnNotifications(collection: ProfileCollectionSummary) async {
+        let availableClimbs = collection.launchedCards.map(\.climb)
+        let completedClimbIds = Set(
+            collection.launchedCards.compactMap { item in
+                item.claimedAt == nil ? nil : item.climb.id
             }
-        case .denied, .authorized, .provisional, .ephemeral:
-            openNotificationSettings()
-        @unknown default:
-            openNotificationSettings()
-        }
-    }
+        )
 
-    private static func openNotificationSettings() {
-        guard let url = URL(string: UIApplication.openNotificationSettingsURLString) else { return }
-        UIApplication.shared.open(url)
+        await TodayClimbNotificationPermissionController.enable(
+            availableClimbs: availableClimbs,
+            completedClimbIds: completedClimbIds
+        )
     }
 }

@@ -39,12 +39,4 @@ extension Font {
     static var montserratRegular: Font {
         Font.custom("Montserrat-Regular", size: 17, relativeTo: .body)
     }
-
-    static var montserratLight: Font {
-        Font.custom("Montserrat-Light", size: 15, relativeTo: .callout)
-    }
-
-    static var montserratItalic: Font {
-        Font.custom("Montserrat-Italic", size: 17, relativeTo: .body)
-    }
 }

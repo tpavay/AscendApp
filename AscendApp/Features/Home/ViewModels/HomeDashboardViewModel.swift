@@ -308,14 +308,14 @@ final class HomeDashboardViewModel {
             .sorted(by: >)
         let uniqueStepTotals = Array(Set(sortedSteps)).sorted(by: >)
         let topTieCount = stats.filter { $0.totalSteps == currentSteps }.count
-        let secondPlaceSteps = uniqueStepTotals.dropFirst().first ?? currentSteps
+        let secondPlaceSteps = uniqueStepTotals.dropFirst().first
         let topFiftyPercentIndex = max(Int(ceil(Double(population) * 0.5)), 1) - 1
 
         return HomeWeeklyRankSummary(
             rank: rank,
             population: population,
             isTiedForGold: rank == 1 && topTieCount > 1,
-            stepsAheadOfSecond: rank == 1 ? max(currentSteps - secondPlaceSteps, 0) : nil,
+            stepsAheadOfSecond: rank == 1 ? max(currentSteps - (secondPlaceSteps ?? 0), 0) : nil,
             stepsFromGold: uniqueStepTotals.first.map { max($0 - currentSteps, 0) },
             stepsFromSilver: uniqueStepTotals.dropFirst().first.map { max($0 - currentSteps, 0) },
             stepsToBronze: uniqueStepTotals.dropFirst(2).first.map { max($0 - currentSteps, 0) },

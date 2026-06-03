@@ -32,6 +32,7 @@ final class PostAuthOnboardingCoordinator {
         }
 
         phase = snapshot.isComplete ? .complete : .onboarding(snapshot.currentStage)
+        recordLifecycleSnapshot(snapshot)
     }
 
     func completeCurrentStage() {
@@ -45,12 +46,14 @@ final class PostAuthOnboardingCoordinator {
             snapshot.currentStage = nextStage
             store.save(snapshot, for: userId)
             phase = .onboarding(nextStage)
+            recordLifecycleSnapshot(snapshot)
         } else {
             snapshot.isComplete = true
             snapshot.completedAt = Date()
             store.save(snapshot, for: userId)
             SettingsManager.shared.hasCompletedBaseLevelOnboarding = true
             phase = .complete
+            recordLifecycleSnapshot(snapshot)
         }
     }
 
@@ -66,21 +69,44 @@ final class PostAuthOnboardingCoordinator {
         snapshot.currentStage = previousStage
         store.save(snapshot, for: userId)
         phase = .onboarding(previousStage)
+        recordLifecycleSnapshot(snapshot)
     }
 
     func resetCurrentUser() {
         guard let userId = currentUserId else { return }
         store.reset(for: userId)
+        let snapshot = store.snapshot(for: userId)
         phase = .onboarding(.first)
+        recordLifecycleSnapshot(snapshot)
         NotificationCenter.default.post(name: .postAuthOnboardingStateDidChange, object: nil)
     }
 
     func markCurrentUserComplete() {
         guard let userId = currentUserId else { return }
         store.markComplete(for: userId)
+        let snapshot = store.snapshot(for: userId)
         SettingsManager.shared.hasCompletedBaseLevelOnboarding = true
         phase = .complete
+        recordLifecycleSnapshot(snapshot)
         NotificationCenter.default.post(name: .postAuthOnboardingStateDidChange, object: nil)
+    }
+
+    private func recordLifecycleSnapshot(_ snapshot: PostAuthOnboardingSnapshot) {
+        let completedStages = PostAuthOnboardingStage.allCases
+            .filter { snapshot.completedStages.contains($0) }
+            .map(\.rawValue)
+
+        if snapshot.isComplete {
+            LifecycleEventRecorder.shared.recordOnboardingCompleted(
+                currentStage: snapshot.currentStage.rawValue,
+                completedStages: completedStages
+            )
+        } else {
+            LifecycleEventRecorder.shared.recordOnboardingStageReached(
+                stage: snapshot.currentStage.rawValue,
+                completedStages: completedStages
+            )
+        }
     }
 
     private func normalized(_ snapshot: PostAuthOnboardingSnapshot) -> PostAuthOnboardingSnapshot {

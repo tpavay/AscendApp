@@ -162,6 +162,7 @@ extension MainTabBarView {
     static var previewTabs: [TabItem] {
         [
             TabItem(identifier: .home, title: "Home", icon: .tabHome, selectedIcon: .tabHomeSelected),
+            TabItem(identifier: .training, title: "Training", icon: .tabWorkouts, selectedIcon: .tabWorkoutsSelected),
             TabItem(identifier: .leaderboard, title: "Leaderboard", icon: .tabLeaderboard, selectedIcon: .tabLeaderboardSelected),
             TabItem(identifier: .profile, title: "Profile", icon: .tabProfile, selectedIcon: .tabProfileSelected)
         ]
