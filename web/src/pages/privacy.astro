@@ -92,7 +92,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
   <div class="privacy-page">
     <main>
       <h1>Privacy Policy</h1>
-      <p class="last-updated">Last updated: May 18, 2026</p>
+      <p class="last-updated">Last updated: May 27, 2026</p>
 
       <h2>Introduction</h2>
       <p>Ascend ("we", "our", or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, and safeguard your information when you use our stairstepper workout tracking application.</p>
@@ -106,6 +106,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         <li><strong>Photos and Videos:</strong> Media you optionally attach to your workouts, stored securely in the cloud.</li>
         <li><strong>Account Identifiers:</strong> A unique account ID assigned when you sign up. This ID is associated with crash reports, app usage diagnostics, and server-side Live Climb community dedupe markers so we can investigate issues tied to a specific account if you contact support and show aggregate community counts without double-counting repeat completions.</li>
         <li><strong>Feedback Submissions:</strong> When you submit in-app feedback, we collect the text you write along with your email address, device model, operating system version, and app version to help us reproduce and respond to issues.</li>
+        <li><strong>Purchase History:</strong> If you start a trial, subscribe, restore purchases, or interact with a paywall, we process purchase and subscription status information through RevenueCat and Superwall to unlock paid access, manage entitlements, measure paywall performance, and support subscriptions.</li>
         <li><strong>Crash &amp; Diagnostic Data:</strong> We collect crash logs and non-fatal error reports through Firebase Crashlytics so we can find and fix bugs. These reports include device model, OS version, app version, and a stack trace of where the crash or error occurred. They are linked to your account identifier.</li>
         <li><strong>Product Usage Analytics:</strong> In production builds we collect first-party analytics through Firebase Analytics — for example, which screens are visited and which features are used — to understand how the app is performing and where to improve it. This data is linked to your account identifier and is <strong>not</strong> shared with advertisers, ad networks, or data brokers, and is <strong>not</strong> used for cross-app or cross-site tracking. Ascend does not use the iOS advertising identifier (IDFA) and does not show the App Tracking Transparency prompt because we do not track you across other apps or websites.</li>
       </ul>
@@ -117,6 +118,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         <li>Calculate personal records and statistics</li>
         <li>Sync your data across devices via iCloud and Firebase</li>
         <li>Provide leaderboard, profile, achievement, and aggregate community-count functionality</li>
+        <li>Process subscriptions, restore purchases, manage paid access, and measure onboarding/paywall performance</li>
         <li>Improve the app experience</li>
         <li>Send important service updates</li>
       </ul>
@@ -144,6 +146,8 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         <li><strong>Apple HealthKit:</strong> To read health and workout data (with your explicit permission).</li>
         <li><strong>Hevy:</strong> To optionally import workout data.</li>
         <li><strong>Firebase (Google):</strong> For secure cloud storage, authentication, and analytics.</li>
+        <li><strong>RevenueCat:</strong> To process subscription status, purchase history, entitlement access, and restore purchases.</li>
+        <li><strong>Superwall:</strong> To present paywalls, measure onboarding and paywall conversion, and coordinate subscription-related paywall events.</li>
       </ul>
       <p>These services have their own privacy policies that govern their use of your data.</p>
 
@@ -151,9 +155,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       <p>You have the right to:</p>
       <ul>
         <li>Access your personal data</li>
-        <li>Export your workout data</li>
         <li>Delete your account and all associated data</li>
-        <li>Opt out of optional features like leaderboards</li>
         <li>Revoke HealthKit permissions at any time</li>
       </ul>
 

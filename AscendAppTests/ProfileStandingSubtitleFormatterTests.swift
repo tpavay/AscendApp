@@ -4,6 +4,36 @@ import Testing
 
 struct ProfileStandingSubtitleFormatterTests {
     @Test
+    func firstPlaceWithoutSecondPlaceShowsCurrentStepsAhead() {
+        let standing = ProfileStanding(
+            timeFrame: .weekly,
+            rank: 1,
+            value: 2_096,
+            leaderValue: 2_096,
+            previousRankValue: nil,
+            totalClimbers: 1,
+            tiedForFirst: false
+        )
+
+        #expect(ProfileStandingSubtitleFormatter.subtitle(for: standing) == "DEFENDING GOLD · 2,096 AHEAD")
+    }
+
+    @Test
+    func firstPlaceWithSecondPlaceShowsLeadOverSecond() {
+        let standing = ProfileStanding(
+            timeFrame: .weekly,
+            rank: 1,
+            value: 42_000,
+            leaderValue: 42_000,
+            previousRankValue: 39_000,
+            totalClimbers: 600,
+            tiedForFirst: false
+        )
+
+        #expect(ProfileStandingSubtitleFormatter.subtitle(for: standing) == "DEFENDING GOLD · 3,000 AHEAD")
+    }
+
+    @Test
     func tiedFirstUsesLockedGoldCopy() {
         let standing = ProfileStanding(
             timeFrame: .weekly,

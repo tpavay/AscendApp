@@ -1,48 +1,38 @@
-import Foundation
+import SwiftUI
 
 enum OnboardingValuePages {
     static let all: [OnboardingValuePage] = [
         OnboardingValuePage(
-            id: "global-climbs",
-            headline: "Join The\nGlobal Climb",
-            subtitle: "Discover climbs around the world and take them on from your own stair machine.",
-            heroImageName: "OnboardingGlobalClimbsScreenshot",
-            background: .image("OnboardingGlobalClimbsBackground"),
-            heroScale: 1.34,
-            heroYOffset: 48
-        ),
-        OnboardingValuePage(
-            id: "leaderboards",
-            headline: "See Where\nYou Stand",
-            subtitle: "Push alongside past finishers, with ranks that update as you climb.",
-            heroImageName: "OnboardingEmpireLeaderboardScreenshot",
-            background: .image("OnboardingLeaderboardsBackground"),
-            heroScale: 1.14,
-            heroXOffset: -4,
-            heroYOffset: 50,
-            heroRotation: .degrees(0)
+            id: "engagement",
+            headline: "Never get bored\non the climb.",
+            subtitle: "Every climb becomes a race that holds your attention from step one.",
+            heroImageName: "OnboardingEngagementHero",
+            background: .solid(Color(red: 0x11 / 255, green: 0x11 / 255, blue: 0x11 / 255)),
+            heroPresentation: .fullBleed
         ),
         OnboardingValuePage(
             id: "tracking",
-            headline: "Track Every\nClimb",
-            subtitle: "Save Live Climbs, import completed sessions from Apple Health, or log stair sessions manually in one place.",
-            heroImageName: "OnboardingWorkoutsScreenshot",
-            background: .image(
-                "OnboardingWorkoutsBackground",
-                dimmingOpacity: 0.12,
-                topReadabilityOpacity: 0.08
-            ),
-            heroScale: 1.34,
-            heroYOffset: 48
+            headline: "Never lose a\nworkout again.",
+            subtitle: "Every climb gets logged forever — steps, time, and all the data you actually want.",
+            heroImageName: "OnboardingWorkoutScreen",
+            background: .solid(Color(red: 0x11 / 255, green: 0x11 / 255, blue: 0x11 / 255)),
+            heroPresentation: .fullBleed
         ),
         OnboardingValuePage(
             id: "progress",
-            headline: "Analyze Your\nProgress",
-            subtitle: "See how your climbs are adding up, from new records to training trends and streaks.",
-            heroImageName: "OnboardingProgressScreenshot",
-            background: .image("OnboardingProgressBackground"),
-            heroScale: 1.05,
-            heroYOffset: -4
+            headline: "Watch yourself\nget better.",
+            subtitle: "Every climb feeds records, best efforts, and trends. Watch them all climb.",
+            heroImageName: "OnboardingProgressHero",
+            background: .solid(Color(red: 0x11 / 255, green: 0x11 / 255, blue: 0x11 / 255)),
+            heroPresentation: .fullBleed
+        ),
+        OnboardingValuePage(
+            id: "consistency",
+            headline: "Always have a reason\nto come back.",
+            subtitle: "Ranks to defend. Climbs to claim. Routines to run. Records to break.",
+            heroImageName: "OnboardingConsistencyHero",
+            background: .solid(Color(red: 0x11 / 255, green: 0x11 / 255, blue: 0x11 / 255)),
+            heroPresentation: .fullBleed
         )
     ]
 }

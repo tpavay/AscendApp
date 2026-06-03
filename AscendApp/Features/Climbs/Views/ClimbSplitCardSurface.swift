@@ -22,7 +22,7 @@ struct ClimbSplitCardSurface<Leading: View, Content: View>: View {
         cornerRadius: CGFloat = 28,
         lineWidth: CGFloat = 1.25,
         isEmphasizedBorderStyle: Bool = false,
-        borderAnimationStyle: ClimbCardBorderAnimationStyle = .full,
+        borderAnimationStyle: ClimbCardBorderAnimationStyle = .static,
         @ViewBuilder leading: () -> Leading,
         @ViewBuilder content: () -> Content
     ) {

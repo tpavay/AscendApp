@@ -19,15 +19,15 @@ struct SignOutButton: View {
                 Text("Sign Out")
                     .font(.montserratSemiBold)
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(.accent)
             .frame(maxWidth: .infinity)
             .frame(height: 55)
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(.red.opacity(0.8))
+                    .fill(.black)
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
-                            .stroke(.red.opacity(0.3), lineWidth: 1)
+                            .stroke(.accent.opacity(0.85), lineWidth: 1)
                     )
             )
         }

@@ -7,7 +7,7 @@ struct RoutineWorkoutAttribution: Equatable {
     let templateId: String?
 
     var contextType: WorkoutParticipationContextType {
-        routineSource == .builtin && templateId?.isEmpty == false
+        routineSource.isTemplate && templateId?.isEmpty == false
             ? .routineTemplate
             : .routine
     }

@@ -74,8 +74,8 @@ struct WorkoutDetailView: View {
                 )
                 .interactiveDismissDisabled()
             }
-            .sheet(isPresented: $showingShareWorkoutView) {
-                WorkoutShareCarouselView(workout: workout)
+            .fullScreenCover(isPresented: $showingShareWorkoutView) {
+                ShareComposerView(workout: workout)
             }
             .fullScreenCover(isPresented: $showingLiveClimbSummaryPreview) {
                 if liveClimbSummaryMetadata?.climbId == nil || liveClimbDetailClimb != nil {
@@ -84,6 +84,7 @@ struct WorkoutDetailView: View {
                         workout: workout,
                         leaderboardRank: liveClimbCompletionRank?.rank,
                         leaderboardTotal: liveClimbCompletionRank?.completedCount,
+                        allowsRatingPrompt: false,
                         onDone: {
                             showingLiveClimbSummaryPreview = false
                         }

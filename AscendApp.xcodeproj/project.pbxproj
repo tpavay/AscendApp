@@ -14,6 +14,9 @@
 		9A8C9A352EEF22F800C94089 /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = 9A8C9A342EEF22F800C94089 /* FirebaseCrashlytics */; };
 		9A8E4CE62E2418D200C78912 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 9A8E4CE52E2418D200C78912 /* FirebaseAnalytics */; };
 		9AF20E5E2E64DCFF00044C25 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 9AF20E5D2E64DCFF00044C25 /* FirebaseFirestore */; };
+		9B1000012F22000000100001 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 9B1000052F22000000100005 /* RevenueCat */; };
+		9B1000022F22000000100002 /* SuperwallKit in Frameworks */ = {isa = PBXBuildFile; productRef = 9B1000062F22000000100006 /* SuperwallKit */; };
+		9B2000022F23000000100002 /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = 9B2000012F23000000100001 /* FirebaseFunctions */; };
 		A20000012F10000000000001 /* AscendLiveActivityWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A20000012F10000000000003 /* AscendLiveActivityWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -112,6 +115,9 @@
 				9AF20E5E2E64DCFF00044C25 /* FirebaseFirestore in Frameworks */,
 				9A4D66FF2E49447800EEAE1D /* GoogleSignInSwift in Frameworks */,
 				9A6A00D42E7F36E70015F349 /* FirebaseStorage in Frameworks */,
+				9B2000022F23000000100002 /* FirebaseFunctions in Frameworks */,
+				9B1000012F22000000100001 /* RevenueCat in Frameworks */,
+				9B1000022F22000000100002 /* SuperwallKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -199,6 +205,9 @@
 				9AF20E5D2E64DCFF00044C25 /* FirebaseFirestore */,
 				9A6A00D32E7F36E70015F349 /* FirebaseStorage */,
 				9A8C9A342EEF22F800C94089 /* FirebaseCrashlytics */,
+				9B2000012F23000000100001 /* FirebaseFunctions */,
+				9B1000052F22000000100005 /* RevenueCat */,
+				9B1000062F22000000100006 /* SuperwallKit */,
 			);
 			productName = AscendApp;
 			productReference = 9A5E4D822E2406F8008DE803 /* AscendApp.app */;
@@ -284,6 +293,8 @@
 			packageReferences = (
 				9A8E4CE42E2418D200C78912 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 				9A4D66FB2E49447800EEAE1D /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+				9B1000032F22000000100003 /* XCRemoteSwiftPackageReference "purchases-ios" */,
+				9B1000042F22000000100004 /* XCRemoteSwiftPackageReference "Superwall-iOS" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 9A5E4D832E2406F8008DE803 /* Products */;
@@ -452,6 +463,11 @@
 		9A09EB322F032E36007A47DD /* Staging */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASCEND_REVENUECAT_API_KEY = appl_OuhVbQoKshaWOxkeVfELTpsvlHP;
+				ASCEND_REVENUECAT_TEST_API_KEY = "";
+				ASCEND_SUPERWALL_API_KEY = "";
+				ASCEND_SUPERWALL_TEST_MODE = NO;
+				ASCEND_USE_REVENUECAT_TEST_STORE = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconStaging;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = AscendApp/AscendApp.entitlements;
@@ -621,6 +637,11 @@
 		9A5E4D8E2E2406F9008DE803 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASCEND_REVENUECAT_API_KEY = appl_OuhVbQoKshaWOxkeVfELTpsvlHP;
+				ASCEND_REVENUECAT_TEST_API_KEY = "";
+				ASCEND_SUPERWALL_API_KEY = "";
+				ASCEND_SUPERWALL_TEST_MODE = YES;
+				ASCEND_USE_REVENUECAT_TEST_STORE = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconDev;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = AscendApp/AscendApp.entitlements;
@@ -665,6 +686,11 @@
 		9A5E4D8F2E2406F9008DE803 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASCEND_REVENUECAT_API_KEY = appl_OuhVbQoKshaWOxkeVfELTpsvlHP;
+				ASCEND_REVENUECAT_TEST_API_KEY = "";
+				ASCEND_SUPERWALL_API_KEY = "";
+				ASCEND_SUPERWALL_TEST_MODE = NO;
+				ASCEND_USE_REVENUECAT_TEST_STORE = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = AscendApp/AscendApp.entitlements;
@@ -926,6 +952,22 @@
 				minimumVersion = 11.15.0;
 			};
 		};
+		9B1000032F22000000100003 /* XCRemoteSwiftPackageReference "purchases-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/RevenueCat/purchases-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.74.0;
+			};
+		};
+		9B1000042F22000000100004 /* XCRemoteSwiftPackageReference "Superwall-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/superwall/Superwall-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 4.15.3;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -963,6 +1005,21 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 9A8E4CE42E2418D200C78912 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseFirestore;
+		};
+		9B1000052F22000000100005 /* RevenueCat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9B1000032F22000000100003 /* XCRemoteSwiftPackageReference "purchases-ios" */;
+			productName = RevenueCat;
+		};
+		9B1000062F22000000100006 /* SuperwallKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9B1000042F22000000100004 /* XCRemoteSwiftPackageReference "Superwall-iOS" */;
+			productName = SuperwallKit;
+		};
+		9B2000012F23000000100001 /* FirebaseFunctions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9A8E4CE42E2418D200C78912 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFunctions;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

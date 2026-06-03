@@ -13,7 +13,6 @@ final class ClimbDetailViewModel {
     var personalFinisherStatus: LiveReplayFinisherStatus?
     var isLeaderboardLoading = false
     var leaderboardErrorMessage: String?
-    var collectionOrder: Int?
     var loadErrorMessage: String?
 
     private let climbService: ClimbService
@@ -104,7 +103,7 @@ final class ClimbDetailViewModel {
     }
 
     var stripOrderText: String? {
-        let order = collectionOrder
+        let order = personalFinisherOrder
         guard let order else { return nil }
         return "#\(order)"
     }
@@ -115,11 +114,9 @@ final class ClimbDetailViewModel {
                 climb = refreshedClimb
             }
             historySummary = climbService.historySummary(for: climb, modelContext: modelContext)
-            collectionOrder = climbService.collectionOrder(for: climb, modelContext: modelContext)
             loadErrorMessage = nil
         } catch {
             historySummary = .empty(for: climb)
-            collectionOrder = nil
             loadErrorMessage = error.localizedDescription
         }
     }

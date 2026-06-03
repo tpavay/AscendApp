@@ -85,6 +85,9 @@ class AuthenticationViewModel {
                     // Set telemetry user ID and log session restored
                     TelemetryManager.shared.setUserId(user.uid)
                     TelemetryManager.shared.log(.authSessionRestored)
+                    Task {
+                        await MonetizationManager.shared.identify(userId: user.uid)
+                    }
 
                     // Check if we're in an interactive sign-in flow (already showing progress)
                     let isInteractiveSignIn = self.authenticationState == .authenticatingWithGoogle ||
@@ -151,6 +154,9 @@ class AuthenticationViewModel {
                     // User signed out - reset all state
                     TelemetryManager.shared.log(.authSignOut)
                     TelemetryManager.shared.clearUserId()
+                    Task {
+                        await MonetizationManager.shared.resetIdentity()
+                    }
 
                     self.displayName = ""
                     self.customProfilePictureURL = nil

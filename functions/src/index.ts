@@ -11,6 +11,7 @@ admin.initializeApp();
 
 export {processEmailJobs} from "./email/processor";
 export {onFeedbackCreated} from "./feedback";
+export {recordLifecycleEvent} from "./lifecycle";
 export {onWorkoutReplaySplitsWritten} from "./liveReplayLeaderboard";
 export {joinWaitlist} from "./waitlist";
 

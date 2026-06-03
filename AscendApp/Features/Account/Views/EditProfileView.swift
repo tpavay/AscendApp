@@ -20,8 +20,6 @@ struct EditProfileView: View {
     @State private var isEditingDisplayName = false
     @State private var editedDisplayName = ""
     @State private var isSavingDisplayName = false
-    @State private var isShowingDeleteAccountConfirmation = false
-    @State private var showingSignOutConfirmation = false
     @FocusState private var isDisplayNameFocused: Bool
     
     var body: some View {
@@ -36,9 +34,6 @@ struct EditProfileView: View {
                 // Preferences Section
                 preferencesSection
 
-                // Account actions
-                accountActionsSection
-
                 Spacer(minLength: 40)
             }
             .padding(.horizontal, 20)
@@ -49,17 +44,6 @@ struct EditProfileView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.clear, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(role: .destructive) {
-                    showingSignOutConfirmation = true
-                } label: {
-                    Text("Sign Out")
-                }
-                .font(.montserratSemiBold(size: 15))
-                .buttonStyle(.plain)
-            }
-        }
         .keyboardAccessoryToolbar {
             if isEditingDisplayName {
                 Button("Cancel") {
@@ -114,24 +98,6 @@ struct EditProfileView: View {
             if let errorMessage = authVM.errorMessage {
                 Text(errorMessage)
             }
-        }
-        .sheet(isPresented: $isShowingDeleteAccountConfirmation) {
-            DeleteAccountConfirmationView(
-                onAccountDeleted: {
-                    dismiss()
-                }
-            )
-        }
-        .alert(
-            "Sign Out",
-            isPresented: $showingSignOutConfirmation,
-        ) {
-            Button("Cancel", role: .cancel) { }
-            Button("Sign Out", role: .destructive) {
-                authVM.signOut()
-            }
-        } message: {
-            Text("You'll need to sign back in to access your account.")
         }
         .onChange(of: authVM.authenticationState) { _, newValue in
             if newValue == .unauthenticated {
@@ -230,12 +196,6 @@ struct EditProfileView: View {
         }
     }
 
-    private var accountActionsSection: some View {
-        ProfileSection(title: "Account") {
-            SettingsCard(options: accountOptions)
-        }
-    }
-
     private var preferenceOptions: [SettingsOption] {
         [
             SettingsOption(
@@ -247,19 +207,6 @@ struct EditProfileView: View {
                 icon: .settingsIntegrations,
                 title: "Integrations",
                 destination: IntegrationsView()
-            )
-        ]
-    }
-
-    private var accountOptions: [SettingsOption] {
-        [
-            SettingsOption(
-                icon: .settingsDeleteAccount,
-                title: "Delete Account",
-                isDestructive: true,
-                action: {
-                    isShowingDeleteAccountConfirmation = true
-                }
             )
         ]
     }

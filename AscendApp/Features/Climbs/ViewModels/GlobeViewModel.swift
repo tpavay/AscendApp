@@ -197,7 +197,16 @@ final class GlobeViewModel {
 
     func selectPreview(_ climb: Climb, modelContext: ModelContext) {
         previewSummary = climbService.previewSummary(for: climb, modelContext: modelContext)
-        focus(on: climb, distance: climb.browsePreviewCameraDistance)
+        // Fly down to the landmark itself (close, pitched 3D framing) rather
+        // than the far top-down preview distance.
+        currentLatitude = climb.latitude
+        currentLongitude = climb.longitude
+        setCamera(
+            latitude: climb.latitude,
+            longitude: climb.longitude,
+            distance: ClimbCameraFraming.distance(for: climb),
+            pitch: ClimbCameraFraming.pitch(for: climb)
+        )
         userDidInteract()
     }
 
@@ -276,20 +285,14 @@ final class GlobeViewModel {
         setCamera(latitude: currentLatitude, longitude: currentLongitude, distance: overviewCameraDistance)
     }
 
-    private func focus(on climb: Climb, distance: CLLocationDistance) {
-        currentLatitude = min(max(climb.latitude, -42), 58)
-        currentLongitude = climb.longitude
-        setCamera(latitude: currentLatitude, longitude: currentLongitude, distance: distance)
-    }
-
-    private func setCamera(latitude: Double, longitude: Double, distance: CLLocationDistance) {
+    private func setCamera(latitude: Double, longitude: Double, distance: CLLocationDistance, pitch: CGFloat = 0) {
         suppressCameraInteraction = true
         cameraPosition = .camera(
             MapCamera(
                 centerCoordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
                 distance: distance,
                 heading: 0,
-                pitch: 0
+                pitch: pitch
             )
         )
     }
@@ -415,22 +418,11 @@ final class GlobeViewModel {
         }
     }
 
-    private func sortedDailyClimbs(_ climbs: [Climb]) -> [Climb] {
-        climbs.sorted { lhs, rhs in
-            if lhs.tier == rhs.tier {
-                return lhs.id < rhs.id
-            }
-            return lhs.tier < rhs.tier
-        }
-    }
-
     private func nextDailyRecommendedClimb() -> Climb? {
-        let uncompletedClimbs = sortedDailyClimbs(availableClimbs.filter { !completedClimbIds.contains($0.id) })
-        if let climb = dailyClimb(from: uncompletedClimbs) {
-            return climb
-        }
-
-        return dailyClimb(from: sortedDailyClimbs(availableClimbs))
+        DailyClimbRecommendationPolicy.recommendation(
+            from: availableClimbs,
+            completedClimbIds: completedClimbIds
+        )
     }
 
     private func refreshDailyRecommendedClimb() {
@@ -459,19 +451,8 @@ final class GlobeViewModel {
         dailyRecommendedClimb = climb
     }
 
-    private func dailyClimb(from climbs: [Climb]) -> Climb? {
-        guard !climbs.isEmpty else { return nil }
-
-        let dayOrdinal = Calendar.current.ordinality(of: .day, in: .era, for: Date()) ?? 0
-        return climbs[dayOrdinal % climbs.count]
-    }
-
     private static var dailyRecommendationDayKey: String {
-        let components = Calendar.current.dateComponents([.year, .month, .day], from: Date())
-        let year = components.year ?? 0
-        let month = components.month ?? 0
-        let day = components.day ?? 0
-        return "\(year)-\(month)-\(day)"
+        DailyClimbRecommendationPolicy.dayKey()
     }
 
     private static let dailyRecommendationDayDefaultsKey = "liveClimbDailyRecommendationDay"

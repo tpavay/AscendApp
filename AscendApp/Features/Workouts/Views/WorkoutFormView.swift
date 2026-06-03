@@ -12,6 +12,7 @@ import SwiftData
 /// Data to prefill the workout form from a completed routine
 struct RoutinePrefillData {
     let name: String
+    let startedAt: Date
     let duration: TimeInterval
     let weightConfiguration: WeightConfiguration?
     let difficulty: Int?
@@ -19,12 +20,14 @@ struct RoutinePrefillData {
 
     init(
         name: String,
+        startedAt: Date,
         duration: TimeInterval,
         weightConfiguration: WeightConfiguration?,
         difficulty: Int?,
         attribution: RoutineWorkoutAttribution? = nil
     ) {
         self.name = name
+        self.startedAt = startedAt
         self.duration = duration
         self.weightConfiguration = weightConfiguration
         self.difficulty = difficulty
@@ -53,6 +56,7 @@ struct WorkoutFormView: View {
     @State private var durationPickerHours = 0
     @State private var durationPickerMinutes = 0
     @State private var durationPickerSeconds = 0
+    @State private var didApplyRoutinePrefill = false
 
     @FocusState private var focusedField: WorkoutFormField?
 
@@ -110,14 +114,16 @@ struct WorkoutFormView: View {
                 viewModel.workoutName = Workout.generateDefaultName(for: viewModel.workoutDate)
             }
             // Apply prefill from routine completion if provided
-            if let routine = routinePrefill {
+            if let routine = routinePrefill, !didApplyRoutinePrefill {
                 viewModel.prefillFromRoutine(
                     name: routine.name,
+                    startedAt: routine.startedAt,
                     duration: routine.duration,
                     weightConfiguration: routine.weightConfiguration,
                     difficulty: routine.difficulty,
                     attribution: routine.attribution
                 )
+                didApplyRoutinePrefill = true
             }
         }
     }

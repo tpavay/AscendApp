@@ -9,6 +9,7 @@ import SwiftUI
 
 enum AppTab: Hashable {
     case home
+    case training
     case leaderboard
     case profile
     case workouts
@@ -57,6 +58,13 @@ extension TabItem {
                 title: "Home",
                 icon: .tabHome,
                 selectedIcon: .tabHomeSelected
+            ),
+
+            TabItem(
+                identifier: .training,
+                title: "Training",
+                icon: .tabWorkouts,
+                selectedIcon: .tabWorkoutsSelected
             ),
 
             TabItem(

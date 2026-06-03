@@ -186,13 +186,7 @@ struct WorkoutListView: View {
             }
             .fullScreenCover(isPresented: $showingCompletedView) {
                 if let workout = completedWorkout {
-                    WorkoutShareCarouselView(
-                        workout: workout,
-                        workoutCount: workouts.count,
-                        onDismiss: {
-                            showingCompletedView = false
-                        }
-                    )
+                    ShareComposerView(workout: workout)
                 }
             }
             .sheet(isPresented: $showingDeleteConfirmation) {

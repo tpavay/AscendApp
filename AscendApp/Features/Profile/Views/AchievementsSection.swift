@@ -43,12 +43,6 @@ struct AchievementsSection: View {
                 )
             }
 
-            if mode == .own, !counts.hasAny {
-                Text("Finish in the top 100 this week to start ranking here.")
-                    .font(.montserratMedium(size: 13))
-                    .foregroundStyle(ProfileVisualStyle.secondaryText)
-                    .padding(.horizontal, 2)
-            }
         }
     }
 

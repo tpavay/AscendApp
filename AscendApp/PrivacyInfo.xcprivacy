@@ -184,6 +184,20 @@
             </array>
         </dict>
 
+        <!-- Purchase History — RevenueCat and Superwall subscription/paywall SDKs -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypePurchaseHistory</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+
         <!-- Crash Data — Firebase Crashlytics -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>

@@ -20,8 +20,13 @@ final class Routine {
 
     // Template metadata (for built-in templates)
     var templateId: String?
+    var templateVersion: Int?
     var difficulty: Int?
     var estimatedCalories: Int?
+    var isFeaturedTemplate: Bool = false
+    var templateDisplayOrder: Int = 0
+    var templateFeaturedOrder: Int?
+    var browseSectionRawValuesData: Data?
 
     // Completion tracking
     var completionCount: Int = 0
@@ -117,7 +122,21 @@ final class Routine {
     }
 
     var isBuiltIn: Bool {
-        source == .builtin
+        source.isTemplate
+    }
+
+    var browseSections: [BuiltInRoutineBrowseSection] {
+        get {
+            guard let browseSectionRawValuesData,
+                  let rawValues = try? JSONDecoder().decode([String].self, from: browseSectionRawValuesData) else {
+                return []
+            }
+
+            return rawValues.compactMap(BuiltInRoutineBrowseSection.init(rawValue:))
+        }
+        set {
+            browseSectionRawValuesData = try? JSONEncoder().encode(newValue.map(\.rawValue))
+        }
     }
 
     init(
@@ -128,9 +147,14 @@ final class Routine {
         intervals: [RoutineInterval] = [],
         folderId: UUID? = nil,
         templateId: String? = nil,
+        templateVersion: Int? = nil,
         difficulty: Int? = nil,
         estimatedCalories: Int? = nil,
-        defaultWeightConfiguration: WeightConfiguration? = nil
+        defaultWeightConfiguration: WeightConfiguration? = nil,
+        browseSections: [BuiltInRoutineBrowseSection] = [],
+        isFeaturedTemplate: Bool = false,
+        templateDisplayOrder: Int = 0,
+        templateFeaturedOrder: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -141,10 +165,15 @@ final class Routine {
         self.folderId = folderId
         self.isArchived = false
         self.templateId = templateId
+        self.templateVersion = templateVersion
         self.difficulty = difficulty
         self.estimatedCalories = estimatedCalories
+        self.isFeaturedTemplate = isFeaturedTemplate
+        self.templateDisplayOrder = templateDisplayOrder
+        self.templateFeaturedOrder = templateFeaturedOrder
         self.intervals = intervals
         self.defaultWeightConfiguration = defaultWeightConfiguration
+        self.browseSections = browseSections
     }
 
     /// Creates a user copy of a built-in routine
@@ -155,6 +184,7 @@ final class Routine {
             source: .copiedFromBuiltin,
             intervals: intervals,
             templateId: templateId,
+            templateVersion: templateVersion,
             difficulty: difficulty,
             estimatedCalories: estimatedCalories,
             defaultWeightConfiguration: defaultWeightConfiguration

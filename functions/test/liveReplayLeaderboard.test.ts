@@ -99,6 +99,28 @@ test("builds First Ascent replay summary fields", () => {
   });
 });
 
+test("assigns first ascent holder finisher order one with seeded rows", () => {
+  assert.equal(
+    liveReplayLeaderboardTestHooks.nextGlobalCompletionOrder({
+      existingOrder: null,
+      hasFirstAscent: false,
+      previousCompletedCount: 83,
+    }),
+    1
+  );
+});
+
+test("assigns later finishers after existing completed count", () => {
+  assert.equal(
+    liveReplayLeaderboardTestHooks.nextGlobalCompletionOrder({
+      existingOrder: null,
+      hasFirstAscent: true,
+      previousCompletedCount: 84,
+    }),
+    85
+  );
+});
+
 test("builds first finisher status with permanent completion order", () => {
   const completedAt = "server-timestamp";
   const payload = liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload(

@@ -2,6 +2,16 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>AscendRevenueCatAPIKey</key>
+	<string>$(ASCEND_REVENUECAT_API_KEY)</string>
+	<key>AscendRevenueCatTestAPIKey</key>
+	<string>$(ASCEND_REVENUECAT_TEST_API_KEY)</string>
+	<key>AscendUseRevenueCatTestStore</key>
+	<string>$(ASCEND_USE_REVENUECAT_TEST_STORE)</string>
+	<key>AscendSuperwallAPIKey</key>
+	<string>$(ASCEND_SUPERWALL_API_KEY)</string>
+	<key>AscendSuperwallTestMode</key>
+	<string>$(ASCEND_SUPERWALL_TEST_MODE)</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -36,30 +46,22 @@
 	<string>Ascend needs access to your photo library to attach photos and videos to workouts.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.</string>
-	<key>NSHealthUpdateUsageDescription</key>
-	<string>Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Ascend uses motion from compatible headphones to track steps during Live Climbs.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
 	<true/>
-	<key>BGTaskSchedulerPermittedIdentifiers</key>
-	<array>
-		<string>$(PRODUCT_BUNDLE_IDENTIFIER).live-climb-processing</string>
-	</array>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>processing</string>
-	</array>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Montserrat-Regular.ttf</string>
 		<string>Montserrat-Medium.ttf</string>
 		<string>Montserrat-Bold.ttf</string>
 		<string>Montserrat-SemiBold.ttf</string>
-		<string>Montserrat-Light.ttf</string>
-		<string>Montserrat-Italic.ttf</string>
+		<string>Anton-Regular.ttf</string>
+		<string>PlayfairDisplay-Italic-VariableFont_wght.ttf</string>
+		<string>SpaceMono-Regular.ttf</string>
+		<string>SpaceMono-Bold.ttf</string>
 	</array>
 </dict>
 </plist>

@@ -7,10 +7,7 @@ struct RecentWorkoutsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ProfileSectionHeaderView(
-                title: "Recent Workouts",
-                trailing: workouts.count >= 5 ? "View all" : nil
-            )
+            sectionHeader
 
             if workouts.isEmpty {
                 ProfileCardSurfaceView {
@@ -36,6 +33,35 @@ struct RecentWorkoutsSection: View {
                 }
             }
         }
+    }
+
+    private var sectionHeader: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("RECENT WORKOUTS")
+                .font(.montserratBold(size: 16))
+                .foregroundStyle(.white)
+                .tracking(1.4)
+
+            Spacer()
+
+            if showsViewAll {
+                NavigationLink {
+                    WorkoutListView(embedsInNavigationStack: false, showsBackButton: true)
+                } label: {
+                    Text("VIEW ALL")
+                        .font(.montserratSemiBold(size: 11))
+                        .foregroundStyle(Color.accentColor)
+                        .tracking(1.2)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("View all recent workouts")
+            }
+        }
+        .padding(.horizontal, 2)
+    }
+
+    private var showsViewAll: Bool {
+        mode == .own && localWorkouts.count > workouts.count
     }
 
     private func workoutRow(_ summary: ProfileWorkoutSummary) -> some View {

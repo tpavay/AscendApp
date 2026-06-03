@@ -91,7 +91,7 @@ private extension ProfileStanding {
             rank: rank,
             totalClimbers: totalClimbers,
             tiedForFirst: tiedForFirst,
-            stepsAheadOfSecond: delta(from: previousRankValue ?? value, to: value),
+            stepsAheadOfSecond: delta(from: previousRankValue ?? 0, to: value),
             stepsFromGold: delta(from: value, to: leaderValue),
             stepsFromSilver: delta(from: value, to: previousRankValue),
             stepsToBronze: delta(from: value, to: previousRankValue),

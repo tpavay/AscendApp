@@ -1,7 +1,7 @@
 import Foundation
 
 /// How intensity is specified for an interval
-enum IntensityType: String, Codable, CaseIterable {
+enum IntensityType: String, Codable, CaseIterable, Sendable {
     case level
     case stepsPerMinute
 
@@ -25,7 +25,7 @@ enum IntensityType: String, Codable, CaseIterable {
 }
 
 /// Direction for sideways climbing
-enum SidewaysDirection: String, Codable, CaseIterable {
+enum SidewaysDirection: String, Codable, CaseIterable, Sendable {
     case left
     case right
 
@@ -49,7 +49,7 @@ enum SidewaysDirection: String, Codable, CaseIterable {
 }
 
 /// Modifiers that can be applied during an interval
-struct IntervalModifiers: Codable, Equatable {
+struct IntervalModifiers: Codable, Equatable, Sendable {
     var sidewaysDirection: SidewaysDirection? = nil
     var skipStep: Bool = false
     var backwardStep: Bool = false
@@ -132,8 +132,9 @@ struct IntervalModifiers: Codable, Equatable {
 }
 
 /// Source of a routine (built-in vs user-created)
-enum RoutineSource: String, Codable {
+enum RoutineSource: String, Codable, Sendable {
     case builtin
+    case remoteTemplate
     case userCreated
     case copiedFromBuiltin
 
@@ -141,16 +142,27 @@ enum RoutineSource: String, Codable {
         switch self {
         case .builtin:
             return "Built-in"
+        case .remoteTemplate:
+            return "Ascend Routine"
         case .userCreated:
             return "My Routine"
         case .copiedFromBuiltin:
             return "Customized"
         }
     }
+
+    var isTemplate: Bool {
+        switch self {
+        case .builtin, .remoteTemplate:
+            return true
+        case .userCreated, .copiedFromBuiltin:
+            return false
+        }
+    }
 }
 
 /// Completion status of a routine-based workout
-enum RoutineCompletionStatus: String, Codable {
+enum RoutineCompletionStatus: String, Codable, Sendable {
     case completed
     case stoppedEarly
 

@@ -252,8 +252,9 @@ struct BestEffortRecordDetailView: View {
         rankedEfforts.first
     }
 
-    private var runnerUpEffort: RankedBestEffort? {
-        rankedEfforts.dropFirst().first
+    private var previousRecordEffort: RankedBestEffort? {
+        guard progressionEfforts.count > 1 else { return nil }
+        return progressionEfforts.dropLast().last
     }
 
     var body: some View {
@@ -262,7 +263,7 @@ struct BestEffortRecordDetailView: View {
                 if let topEffort {
                     BestEffortRecordHeroView(
                         effort: topEffort,
-                        runnerUp: runnerUpEffort,
+                        previousRecord: previousRecordEffort,
                         colorScheme: effectiveColorScheme
                     )
 
@@ -474,7 +475,7 @@ private struct BestEffortDetailSegmentedControl: View {
 
 private struct BestEffortRecordHeroView: View {
     let effort: RankedBestEffort
-    let runnerUp: RankedBestEffort?
+    let previousRecord: RankedBestEffort?
     let colorScheme: ColorScheme
 
     private let gold = Color(red: 0.92, green: 0.68, blue: 0.22)
@@ -586,8 +587,8 @@ private struct BestEffortRecordHeroView: View {
     }
 
     private var comparisonText: String? {
-        guard let runnerUp else { return nil }
-        let delta = abs(runnerUp.performance.value - effort.performance.value)
+        guard let previousRecord else { return nil }
+        let delta = abs(previousRecord.performance.value - effort.performance.value)
         guard delta > 0 else { return nil }
 
         switch effort.metric.comparisonDirection {

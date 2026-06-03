@@ -1,8 +1,8 @@
 /* ── Design Tokens ─────────────────────── */
 :root {
-  --accent: #B4CC00;
-  --accent-soft: rgba(180, 204, 0, 0.12);
-  --accent-hover: #c8e000;
+  --accent: #86D30A;
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+  --accent-hover: color-mix(in srgb, var(--accent) 88%, white);
   --bg: #0d1117;
   --bg-soft: #161b22;
   --surface: #1c2333;

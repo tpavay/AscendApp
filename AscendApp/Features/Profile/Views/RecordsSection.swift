@@ -7,7 +7,7 @@ struct RecordsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ProfileSectionHeaderView(title: "Records")
+            sectionHeader
 
             LazyVGrid(columns: columns, spacing: 8) {
                 ForEach(records.personalRecords) { record in
@@ -20,10 +20,32 @@ struct RecordsSection: View {
                     .font(.montserratMedium(size: 13))
                     .foregroundStyle(ProfileVisualStyle.secondaryText)
                     .padding(.horizontal, 2)
-            } else if let effort = records.featuredBestEffort {
-                bestEffortRow(effort)
             }
         }
+    }
+
+    private var sectionHeader: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("BEST EFFORTS")
+                .font(.montserratBold(size: 16))
+                .foregroundStyle(.white)
+                .tracking(1.4)
+
+            Spacer()
+
+            if canOpenBestEfforts {
+                NavigationLink {
+                    BestEffortsListView(workouts: workouts)
+                } label: {
+                    Text("MORE RECORDS")
+                        .font(.montserratSemiBold(size: 11))
+                        .foregroundStyle(Color.accentColor)
+                        .tracking(1.2)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 2)
     }
 
     private var columns: [GridItem] {
@@ -34,7 +56,24 @@ struct RecordsSection: View {
         ]
     }
 
+    @ViewBuilder
     private func recordCard(_ record: ProfileRecordSummary.PersonalRecord) -> some View {
+        if canOpenBestEfforts, let metric = bestEffortMetric(for: record.kind) {
+            NavigationLink {
+                BestEffortRecordDetailView(
+                    metric: metric,
+                    workouts: workouts
+                )
+            } label: {
+                recordCardContent(record)
+            }
+            .buttonStyle(.plain)
+        } else {
+            recordCardContent(record)
+        }
+    }
+
+    private func recordCardContent(_ record: ProfileRecordSummary.PersonalRecord) -> some View {
         ProfileCardSurfaceView {
             VStack(alignment: .leading, spacing: 8) {
                 Text(record.label)
@@ -63,40 +102,18 @@ struct RecordsSection: View {
         }
     }
 
-    private func bestEffortRow(_ effort: RankedBestEffort) -> some View {
-        NavigationLink {
-            BestEffortsListView(workouts: workouts)
-        } label: {
-            ProfileCardSurfaceView {
-                HStack(spacing: 12) {
-                    Image("best-effort-laurel-wreath")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 42, height: 38)
-                        .accessibilityHidden(true)
+    private var canOpenBestEfforts: Bool {
+        !workouts.isEmpty
+    }
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("BEST EFFORTS")
-                            .font(.montserratBold(size: 11))
-                            .foregroundStyle(ProfileVisualStyle.secondaryText)
-                            .tracking(1.1)
-
-                        Text("\(effort.metric.title) · \(effort.valueText)")
-                            .font(.montserratSemiBold(size: 13))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.72)
-                    }
-
-                    Spacer()
-
-                    Text("More records")
-                        .font(.montserratSemiBold(size: 12))
-                        .foregroundStyle(Color.accentColor)
-                }
-                .padding(12)
-            }
+    private func bestEffortMetric(for kind: ProfileRecordSummary.PersonalRecord.Kind) -> BestEffortMetric? {
+        switch kind {
+        case .mostSteps:
+            return .mostSteps
+        case .longestClimb:
+            return .longestClimb
+        case .fastestPace:
+            return .highestAverageSPM
         }
-        .buttonStyle(.plain)
     }
 }

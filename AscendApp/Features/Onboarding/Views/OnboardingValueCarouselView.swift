@@ -18,13 +18,12 @@ struct OnboardingValueCarouselView: View {
                         ScrollView(.horizontal) {
                             LazyHStack(spacing: 0) {
                                 ForEach(pages) { page in
-                                    OnboardingValueShowcasePageContent(
-                                        headline: page.headline,
-                                        subtitle: page.subtitle,
-                                        backgroundImageName: backgroundImageName(for: page),
-                                        screenshotImageName: page.heroImageName
-                                    )
+                                    ZStack {
+                                        pageContent(for: page)
+                                            .frame(width: geometry.size.width, height: geometry.size.height)
+                                    }
                                     .frame(width: geometry.size.width, height: geometry.size.height)
+                                    .clipped()
                                     .id(page.id)
                                 }
                             }
@@ -66,17 +65,57 @@ struct OnboardingValueCarouselView: View {
         switch page.background {
         case .image(let imageName, _, _):
             imageName
-        case .ambient:
+        case .ambient, .solid:
             "OnboardingGlobalClimbsBackground"
         }
     }
 
+    @ViewBuilder
+    private func pageContent(for page: OnboardingValuePage) -> some View {
+        if page.id == "global-climbs" {
+            OnboardingLandmarksValuePageContent(
+                headline: page.headline,
+                subtitle: page.subtitle
+            )
+        } else if page.id == "leaderboards" {
+            OnboardingLeaderboardValuePageContent(
+                headline: page.headline,
+                subtitle: page.subtitle
+            )
+        } else {
+            switch page.heroPresentation {
+            case .fullBleed:
+                OnboardingValueFullBleedPageContent(
+                    headline: page.headline,
+                    subtitle: page.subtitle,
+                    heroImageName: page.heroImageName
+                )
+            case .framedScreenshot:
+                OnboardingValueShowcasePageContent(
+                    headline: page.headline,
+                    subtitle: page.subtitle,
+                    backgroundImageName: backgroundImageName(for: page),
+                    screenshotImageName: page.heroImageName
+                )
+            }
+        }
+    }
+
     private func buttonTitle(for index: Int) -> String {
-        index == pages.count - 1 ? "Get Started" : "Continue"
+        index == pages.count - 1 ? "GET STARTED" : "CONTINUE"
     }
 
     private func continueFromCurrentPage() {
-        onFinish()
+        guard !pages.isEmpty else {
+            onFinish()
+            return
+        }
+
+        if selectedIndex < pages.count - 1 {
+            selectedIndex += 1
+        } else {
+            onFinish()
+        }
     }
 
     private func clampSelectedIndex() {

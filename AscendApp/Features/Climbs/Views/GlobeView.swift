@@ -11,7 +11,7 @@ struct GlobeView: View {
     }
 
     private var mapView: some View {
-        Map(position: cameraPositionBinding, interactionModes: [.pan, .zoom]) {
+        Map(position: cameraPositionBinding, interactionModes: .all) {
             climbAnnotations
         }
         .mapStyle(.imagery(elevation: .realistic))

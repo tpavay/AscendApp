@@ -10,7 +10,7 @@ struct SignUpView: View {
         OnboardingScaffold(
             backAction: { dismiss() },
             background: {
-                AuthLandingBackground()
+                Color.black
             },
             content: { scaffoldLayout in
                 AuthLandingContent(
@@ -59,84 +59,38 @@ private struct AuthLandingLayout {
 
     var isCompactHeight: Bool { size.height < 740 }
 
-    var horizontalPadding: CGFloat { isCompactHeight ? 28 : 32 }
+    var horizontalPadding: CGFloat { isCompactHeight ? 24 : 28 }
 
-    var brandTopPadding: CGFloat {
-        isCompactHeight ? safeAreaInsets.top + 34 : max(safeAreaInsets.top + 44, size.height * 0.11)
+    /// Vertical position of the wordmark (top of A mark) as a proportion of the
+    /// total screen height. ~27% from the top mirrors the Figma placement.
+    var wordmarkTopPadding: CGFloat {
+        let ratio: CGFloat = isCompactHeight ? 0.22 : 0.27
+        return max(safeAreaInsets.top + 80, size.height * ratio)
     }
 
     var bottomPadding: CGFloat {
-        safeAreaInsets.bottom + (isCompactHeight ? 14 : 26)
+        safeAreaInsets.bottom + (isCompactHeight ? 10 : 14)
     }
 
-    var brandIconSize: CGFloat { isCompactHeight ? 74 : 84 }
+    // Wordmark sizing — matches Figma (A mark 56px, SCEND 30pt)
+    var letterFontSize: CGFloat { isCompactHeight ? 26 : 30 }
+    var letterSpacing: CGFloat { isCompactHeight ? 4 : 5 }
+    var iconSize: CGFloat { isCompactHeight ? 48 : 56 }
+    var iconTrailingSpacing: CGFloat { isCompactHeight ? 12 : 14 }
 
-    var brandSpacing: CGFloat { isCompactHeight ? 8 : 10 }
+    var accentLineTopSpacing: CGFloat { isCompactHeight ? 22 : 28 }
+    var accentLineWidth: CGFloat { 48 }
+    var accentLineHeight: CGFloat { 2 }
 
-    var brandLetterSpacing: CGFloat { isCompactHeight ? 13 : 15 }
+    var buttonSpacing: CGFloat { isCompactHeight ? 10 : 12 }
+    var internalQATopSpacing: CGFloat { isCompactHeight ? 14 : 18 }
+    var buttonHeight: CGFloat { isCompactHeight ? 52 : 56 }
+    var buttonCornerRadius: CGFloat { 12 }
+    var buttonFontSize: CGFloat { isCompactHeight ? 16 : 17 }
 
-    var brandLetterFontSize: CGFloat { isCompactHeight ? 18 : 20 }
-
-    var brandToContentSpacing: CGFloat { isCompactHeight ? 28 : 44 }
-
-    var authContentSpacing: CGFloat { isCompactHeight ? 20 : 28 }
-
-    var headlineSpacing: CGFloat { 2 }
-
-    var headlineFontSize: CGFloat { isCompactHeight ? 38 : 42 }
-
-    var bodySpacing: CGFloat { isCompactHeight ? 12 : 18 }
-
-    var subtitleFontSize: CGFloat { isCompactHeight ? 14 : 16 }
-
-    var subtitleLineSpacing: CGFloat { isCompactHeight ? 3 : 5 }
-
-    var buttonSpacing: CGFloat { isCompactHeight ? 12 : 14 }
-
-    var buttonHeight: CGFloat { isCompactHeight ? 52 : 58 }
-
-    var buttonCornerRadius: CGFloat { 10 }
-
-    var buttonFontSize: CGFloat { isCompactHeight ? 16 : 18 }
-
-    var legalFontSize: CGFloat { isCompactHeight ? 9.5 : 10.5 }
-
-    var legalLineSpacing: CGFloat { isCompactHeight ? 1.5 : 2 }
-}
-
-private struct AuthLandingBackground: View {
-    var body: some View {
-        GeometryReader { geometry in
-            Image("AuthStaircaseBackground")
-                .resizable()
-                .scaledToFill()
-                .frame(width: geometry.size.width, height: geometry.size.height)
-                .clipped()
-                .overlay {
-                    LinearGradient(
-                        colors: [
-                            Color.black.opacity(0.28),
-                            Color.black.opacity(0.16),
-                            Color.black.opacity(0.34),
-                            Color.black.opacity(0.94)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                }
-                .overlay {
-                    LinearGradient(
-                        colors: [
-                            Color.black.opacity(0.5),
-                            Color.black.opacity(0.12),
-                            Color.black.opacity(0.42)
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                }
-        }
-    }
+    var legalTopSpacing: CGFloat { isCompactHeight ? 14 : 18 }
+    var legalFontSize: CGFloat { isCompactHeight ? 10 : 11 }
+    var legalLineSpacing: CGFloat { 2 }
 }
 
 private struct AuthLandingContent: View {
@@ -153,78 +107,66 @@ private struct AuthLandingContent: View {
     var body: some View {
         VStack(spacing: 0) {
             Spacer()
-                .frame(height: layout.brandTopPadding)
+                .frame(height: layout.wordmarkTopPadding)
 
             AuthLandingBrand(layout: layout)
 
-            Spacer(minLength: layout.brandToContentSpacing)
+            Rectangle()
+                .fill(Color.accentColor.opacity(0.7))
+                .frame(width: layout.accentLineWidth, height: layout.accentLineHeight)
+                .clipShape(Capsule())
+                .shadow(color: Color.accentColor.opacity(0.5), radius: 8, x: 0, y: 0)
+                .padding(.top, layout.accentLineTopSpacing)
 
-            VStack(alignment: .leading, spacing: layout.authContentSpacing) {
-                VStack(alignment: .leading, spacing: layout.bodySpacing) {
-                    AuthLandingHeadline(
-                        spacing: layout.headlineSpacing,
-                        fontSize: layout.headlineFontSize
-                    )
+            Spacer()
 
-                    Text("Track climbs, save progress, and\ncompete against climbers around the world.")
-                        .font(.montserratSemiBold(size: layout.subtitleFontSize))
-                        .foregroundStyle(Color.white.opacity(0.68))
-                        .lineSpacing(layout.subtitleLineSpacing)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.76)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityLabel("Track climbs, save progress, and compete against climbers around the world.")
-                }
+            VStack(spacing: layout.buttonSpacing) {
+                AuthProviderButton(
+                    title: appleIsLoading ? "Signing In..." : "Continue with Apple",
+                    style: .apple,
+                    isLoading: appleIsLoading,
+                    isDisabled: isDisabled,
+                    height: layout.buttonHeight,
+                    cornerRadius: layout.buttonCornerRadius,
+                    fontSize: layout.buttonFontSize,
+                    accessoryTitle: lastUsedProvider == .apple ? "Last Used" : nil,
+                    icon: {
+                        Image(systemName: "apple.logo")
+                            .resizable()
+                            .scaledToFit()
+                            .foregroundStyle(.black)
+                            .frame(width: 22, height: 22)
+                    },
+                    action: onApple
+                )
 
-                VStack(spacing: layout.buttonSpacing) {
-                    AuthProviderButton(
-                        title: googleIsLoading ? "Signing In..." : "Continue with Google",
-                        style: .google,
-                        isLoading: googleIsLoading,
-                        isDisabled: isDisabled,
-                        height: layout.buttonHeight,
-                        cornerRadius: layout.buttonCornerRadius,
-                        fontSize: layout.buttonFontSize,
-                        accessoryTitle: lastUsedProvider == .google ? "Last Used" : nil,
-                        icon: {
-                            Image("GoogleIcon")
-                                .resizable()
-                                .renderingMode(.original)
-                                .frame(width: 24, height: 24)
-                        },
-                        action: onGoogle
-                    )
+                AuthProviderButton(
+                    title: googleIsLoading ? "Signing In..." : "Continue with Google",
+                    style: .google,
+                    isLoading: googleIsLoading,
+                    isDisabled: isDisabled,
+                    height: layout.buttonHeight,
+                    cornerRadius: layout.buttonCornerRadius,
+                    fontSize: layout.buttonFontSize,
+                    accessoryTitle: lastUsedProvider == .google ? "Last Used" : nil,
+                    icon: {
+                        Image("GoogleIcon")
+                            .resizable()
+                            .renderingMode(.original)
+                            .frame(width: 24, height: 24)
+                    },
+                    action: onGoogle
+                )
 
-                    AuthProviderButton(
-                        title: appleIsLoading ? "Signing In..." : "Continue with Apple",
-                        style: .apple,
-                        isLoading: appleIsLoading,
-                        isDisabled: isDisabled,
-                        height: layout.buttonHeight,
-                        cornerRadius: layout.buttonCornerRadius,
-                        fontSize: layout.buttonFontSize,
-                        accessoryTitle: lastUsedProvider == .apple ? "Last Used" : nil,
-                        icon: {
-                            Image(systemName: "apple.logo")
-                                .font(.system(size: 24, weight: .semibold))
-                        },
-                        action: onApple
-                    )
-
-                    if showsInternalQA {
-                        NavigationLink {
-                            InternalQASignInView()
-                        } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: "lock.shield")
-                                    .font(.system(size: 20, weight: .semibold))
-
-                                Text("Internal QA Sign-In")
-                                    .font(.montserratSemiBold(size: max(layout.buttonFontSize - 1, 14)))
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.76)
-                            }
+                if showsInternalQA {
+                    NavigationLink {
+                        InternalQASignInView()
+                    } label: {
+                        Text("Internal QA Sign-In")
+                            .font(.montserratSemiBold(size: max(layout.buttonFontSize - 2, 14)))
                             .foregroundStyle(.white.opacity(0.92))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.76)
                             .frame(maxWidth: .infinity)
                             .frame(height: layout.buttonHeight)
                             .background(
@@ -236,29 +178,30 @@ private struct AuthLandingContent: View {
                                     )
                             )
                             .contentShape(RoundedRectangle(cornerRadius: layout.buttonCornerRadius, style: .continuous))
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isDisabled)
-                        .opacity(isDisabled ? 0.72 : 1)
-                        .accessibilityLabel("Internal QA Sign-In")
                     }
+                    .buttonStyle(.plain)
+                    .disabled(isDisabled)
+                    .opacity(isDisabled ? 0.72 : 1)
+                    .padding(.top, layout.internalQATopSpacing - layout.buttonSpacing)
+                    .accessibilityLabel("Internal QA Sign-In")
                 }
-
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(.montserratMedium(size: 12))
-                        .foregroundStyle(.red.opacity(0.95))
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                        .accessibilityLabel("Authentication error: \(errorMessage)")
-                }
-
-                AuthLegalText(layout: layout)
-                    .padding(.top, errorMessage == nil ? 4 : 0)
             }
-            .padding(.horizontal, layout.horizontalPadding)
-            .padding(.bottom, layout.bottomPadding)
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.montserratMedium(size: 12))
+                    .foregroundStyle(.red.opacity(0.95))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, layout.buttonSpacing)
+                    .accessibilityLabel("Authentication error: \(errorMessage)")
+            }
+
+            AuthLegalText(layout: layout)
+                .padding(.top, layout.legalTopSpacing)
+                .padding(.bottom, layout.bottomPadding)
         }
+        .padding(.horizontal, layout.horizontalPadding)
         .frame(width: layout.size.width, height: layout.size.height)
     }
 }
@@ -268,38 +211,12 @@ private struct AuthLandingBrand: View {
 
     var body: some View {
         AscendWordmark(
-            size: layout.brandLetterFontSize * 1.6,
-            letterColor: .white.opacity(0.94)
+            size: layout.letterFontSize,
+            letterColor: .white.opacity(0.95),
+            letterSpacing: layout.letterSpacing,
+            iconSize: layout.iconSize,
+            iconTrailingSpacing: layout.iconTrailingSpacing
         )
-        .frame(maxWidth: .infinity)
-    }
-}
-
-private struct AuthLandingHeadline: View {
-    let spacing: CGFloat
-    let fontSize: CGFloat
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: spacing) {
-            Text("Start")
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.78)
-
-            Text("building endurance")
-                .foregroundStyle(Color.accentColor)
-                .lineLimit(1)
-                .minimumScaleFactor(0.78)
-
-            Text("that lasts.")
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.78)
-        }
-        .font(.montserratBold(size: fontSize))
-        .lineSpacing(0)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Start building endurance that lasts.")
     }
 }
 
@@ -310,36 +227,36 @@ private enum AuthProviderButtonStyle {
     var foregroundColor: Color {
         switch self {
         case .google:
-            Color(red: 23 / 255, green: 25 / 255, blue: 31 / 255)
+            .white.opacity(0.92)
         case .apple:
-            .white
+            .black
         }
     }
 
     var loadingTint: Color {
         switch self {
         case .google:
-            Color(red: 23 / 255, green: 25 / 255, blue: 31 / 255)
-        case .apple:
             .white
+        case .apple:
+            .black
         }
     }
 
     var accessoryForegroundColor: Color {
         switch self {
         case .google:
-            Color(red: 23 / 255, green: 25 / 255, blue: 31 / 255).opacity(0.72)
+            .white.opacity(0.78)
         case .apple:
-            .white.opacity(0.76)
+            .black.opacity(0.7)
         }
     }
 
     var accessoryBackgroundColor: Color {
         switch self {
         case .google:
-            Color.black.opacity(0.08)
+            .white.opacity(0.14)
         case .apple:
-            .white.opacity(0.12)
+            Color.black.opacity(0.08)
         }
     }
 
@@ -349,42 +266,23 @@ private enum AuthProviderButtonStyle {
         return shape
             .fill(backgroundFill)
             .overlay(shape.stroke(borderColor, lineWidth: 1))
-            .shadow(color: shadowColor, radius: shadowRadius, x: 0, y: 10)
     }
 
     private var backgroundFill: Color {
         switch self {
         case .google:
-            .white
+            .white.opacity(0.08)
         case .apple:
-            Color.black.opacity(0.42)
+            .white
         }
     }
 
     private var borderColor: Color {
         switch self {
         case .google:
-            .white.opacity(0.72)
-        case .apple:
-            .white.opacity(0.2)
-        }
-    }
-
-    private var shadowColor: Color {
-        switch self {
-        case .google:
-            .black.opacity(0.28)
+            .white.opacity(0.18)
         case .apple:
             .clear
-        }
-    }
-
-    private var shadowRadius: CGFloat {
-        switch self {
-        case .google:
-            20
-        case .apple:
-            0
         }
     }
 }
@@ -401,37 +299,52 @@ private struct AuthProviderButton<Icon: View>: View {
     @ViewBuilder let icon: () -> Icon
     let action: () -> Void
 
+    private let iconLeftPadding: CGFloat = 20
+    private let badgeRightPadding: CGFloat = 14
+
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 14) {
-                if isLoading {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: style.loadingTint))
-                        .scaleEffect(0.92)
-                } else {
-                    icon()
-                }
-
+            ZStack {
+                // Centered title — anchored to the full button width
                 Text(title)
                     .font(.montserratSemiBold(size: fontSize))
                     .lineLimit(1)
                     .minimumScaleFactor(0.76)
+                    .foregroundStyle(style.foregroundColor)
 
+                // Left-anchored icon (or loading spinner)
+                HStack {
+                    if isLoading {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: style.loadingTint))
+                            .scaleEffect(0.92)
+                    } else {
+                        icon()
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.leading, iconLeftPadding)
+
+                // Right-anchored accessory badge (e.g. "LAST USED")
                 if let accessoryTitle, !isLoading {
-                    Text(accessoryTitle.uppercased())
-                        .font(.montserratBold(size: 9))
-                        .foregroundStyle(style.accessoryForegroundColor)
-                        .lineLimit(1)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .background(
-                            Capsule()
-                                .fill(style.accessoryBackgroundColor)
-                        )
-                        .accessibilityHidden(true)
+                    HStack {
+                        Spacer(minLength: 0)
+                        Text(accessoryTitle.uppercased())
+                            .font(.montserratBold(size: 6.5))
+                            .tracking(0.25)
+                            .foregroundStyle(style.accessoryForegroundColor)
+                            .lineLimit(1)
+                            .padding(.horizontal, 5.5)
+                            .padding(.vertical, 2.5)
+                            .background(
+                                Capsule()
+                                    .fill(style.accessoryBackgroundColor)
+                            )
+                            .accessibilityHidden(true)
+                    }
+                    .padding(.trailing, badgeRightPadding)
                 }
             }
-            .foregroundStyle(style.foregroundColor)
             .frame(maxWidth: .infinity)
             .frame(height: height)
             .background(style.background(cornerRadius: cornerRadius))
@@ -454,9 +367,9 @@ private struct AuthLegalText: View {
     let layout: AuthLandingLayout
 
     var body: some View {
-        Text(.init("By continuing, you acknowledge that you have read and agreed to our [Terms of Service](https://ascendstepper.com/terms) and [Privacy Policy](https://ascendstepper.com/privacy)."))
+        Text(.init("By continuing, you agree to our [Terms](https://ascendstepper.com/terms) and [Privacy Policy](https://ascendstepper.com/privacy)."))
             .font(.montserratMedium(size: layout.legalFontSize))
-            .foregroundStyle(Color.white.opacity(0.62))
+            .foregroundStyle(Color.white.opacity(0.55))
             .tint(Color.accentColor)
             .multilineTextAlignment(.center)
             .lineSpacing(layout.legalLineSpacing)

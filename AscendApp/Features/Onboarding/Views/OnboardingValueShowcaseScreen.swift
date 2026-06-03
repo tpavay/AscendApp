@@ -63,15 +63,58 @@ struct OnboardingValueShowcasePageContent: View {
 
                 OnboardingValueShowcaseTextSection(
                     headline: headline,
-                    subtitle: subtitle
+                    subtitle: subtitle,
+                    headlineSize: layout.headlineSize,
+                    subtitleSize: layout.subtitleSize,
+                    stackSpacing: layout.textStackSpacing
                 )
                 .padding(.horizontal, layout.horizontalPadding)
-                .frame(height: layout.textSectionHeight, alignment: .bottom)
+                .frame(height: layout.textSectionHeight, alignment: .top)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .padding(.bottom, layout.textSectionBottomPadding)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .background(Color.black)
+        }
+    }
+}
+
+struct OnboardingValueFullBleedPageContent: View {
+    let headline: String
+    let subtitle: String
+    let heroImageName: String
+
+    var body: some View {
+        GeometryReader { geometry in
+            let layout = OnboardingValueShowcaseLayout(
+                size: geometry.size,
+                safeAreaInsets: geometry.safeAreaInsets
+            )
+
+            ZStack(alignment: .top) {
+                Color(red: 0x11 / 255, green: 0x11 / 255, blue: 0x11 / 255)
+                    .ignoresSafeArea()
+
+                Image(heroImageName)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: geometry.size.width, height: layout.textSectionTop - layout.heroBottomGap, alignment: .center)
+                    .clipped()
+                    .allowsHitTesting(false)
+
+                OnboardingValueShowcaseTextSection(
+                    headline: headline,
+                    subtitle: subtitle,
+                    headlineSize: layout.headlineSize,
+                    subtitleSize: layout.subtitleSize,
+                    stackSpacing: layout.textStackSpacing
+                )
+                .padding(.horizontal, layout.horizontalPadding)
+                .frame(height: layout.textSectionHeight, alignment: .top)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .padding(.bottom, layout.textSectionBottomPadding)
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
         }
     }
 }
@@ -130,11 +173,14 @@ struct OnboardingValueShowcaseButton: View {
 struct OnboardingValueShowcaseTextSection: View {
     let headline: String
     let subtitle: String
+    var headlineSize: CGFloat = 30
+    var subtitleSize: CGFloat = 14.5
+    var stackSpacing: CGFloat = 10
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: stackSpacing) {
             Text(headline)
-                .font(.montserratBold(size: 27))
+                .font(.montserratBold(size: headlineSize))
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
                 .lineSpacing(0)
@@ -143,7 +189,7 @@ struct OnboardingValueShowcaseTextSection: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             Text(subtitle)
-                .font(.montserratRegular(size: 14.5))
+                .font(.montserratRegular(size: subtitleSize))
                 .foregroundStyle(.white.opacity(0.72))
                 .multilineTextAlignment(.center)
                 .lineSpacing(2)
@@ -152,7 +198,7 @@ struct OnboardingValueShowcaseTextSection: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: 340)
-        .frame(maxWidth: .infinity, alignment: .bottom)
+        .frame(maxWidth: .infinity, alignment: .top)
     }
 }
 
@@ -388,7 +434,7 @@ struct OnboardingValueShowcaseLayout {
     }
 
     var textSectionHeight: CGFloat {
-        size.height < 740 ? 124 : 136
+        size.height < 740 ? 138 : 150
     }
 
     var textSectionTop: CGFloat {
@@ -404,11 +450,27 @@ struct OnboardingValueShowcaseLayout {
     }
 
     var bottomPadding: CGFloat {
-        max(safeAreaInsets.bottom + 10, 28)
+        max(safeAreaInsets.bottom + 22, 46)
     }
 
     var textToControlsGap: CGFloat {
-        size.height < 740 ? 16 : 22
+        size.height < 740 ? 14 : 16
+    }
+
+    var heroBottomGap: CGFloat {
+        size.height < 740 ? 24 : 32
+    }
+
+    var headlineSize: CGFloat {
+        min(max(size.width * 0.077, 28), 30)
+    }
+
+    var subtitleSize: CGFloat {
+        min(max(size.width * 0.037, 14), 15)
+    }
+
+    var textStackSpacing: CGFloat {
+        10
     }
 }
 

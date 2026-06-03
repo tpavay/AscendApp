@@ -73,6 +73,7 @@ class WorkoutFormViewModel {
     /// Prefill form fields from a completed routine session
     func prefillFromRoutine(
         name: String,
+        startedAt: Date,
         duration: TimeInterval,
         weightConfiguration: WeightConfiguration?,
         difficulty: Int?,
@@ -80,6 +81,7 @@ class WorkoutFormViewModel {
     ) {
         // Use routine name as workout name
         workoutName = name
+        workoutDate = startedAt
         routineAttribution = attribution
 
         // Set duration from elapsed time
@@ -184,6 +186,15 @@ class WorkoutFormViewModel {
                     highlightedIndex: highlightedIndex,
                     modelContext: modelContext
                 )
+            }
+
+            if routineAttribution != nil {
+                Task { @MainActor in
+                    await WorkoutImportCoordinator.shared.enrichInAppWorkoutWithAppleHealthIfPossible(
+                        workout,
+                        modelContext: modelContext
+                    )
+                }
             }
 
             // Don't clean up video files here - MediaUploadManager needs them

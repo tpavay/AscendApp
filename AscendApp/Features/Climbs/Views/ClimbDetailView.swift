@@ -5,7 +5,6 @@ import SwiftUI
 struct ClimbDetailView: View {
     let showsBrowseBackButton: Bool
     let analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint
-    private let initialCollectionOrder: Int?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -15,6 +14,7 @@ struct ClimbDetailView: View {
     @State private var selectedPage = 0
     @State private var detailPageHeights: [Int: CGFloat] = [:]
     @State private var showingBrowseClimbs = false
+    @State private var showingFlyover = false
     @State private var showingLiveClimbSession = false
     @State private var showingHeadphoneHelp = false
     @State private var isHeroCardFlipped = false
@@ -26,12 +26,10 @@ struct ClimbDetailView: View {
     init(
         climb: Climb,
         showsBrowseBackButton: Bool = false,
-        analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown,
-        initialCollectionOrder: Int? = nil
+        analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown
     ) {
         self.showsBrowseBackButton = showsBrowseBackButton
         self.analyticsEntryPoint = analyticsEntryPoint
-        self.initialCollectionOrder = initialCollectionOrder
         _viewModel = State(initialValue: ClimbDetailViewModel(climb: climb))
     }
 
@@ -70,6 +68,20 @@ struct ClimbDetailView: View {
 
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
+                    showingFlyover = true
+                } label: {
+                    Image(systemName: "airplane")
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.88) : .black.opacity(0.78))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Flyover")
+            }
+
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
                     presentBrowseFromDetail()
                 } label: {
                     AppIcon(token: .globeHemisphereWest, pointSize: 23)
@@ -80,6 +92,9 @@ struct ClimbDetailView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Browse climbs")
             }
+        }
+        .fullScreenCover(isPresented: $showingFlyover) {
+            ClimbFlyoverScreen(climb: viewModel.climb)
         }
         .navigationDestination(isPresented: $showingBrowseClimbs) {
             ClimbBrowseView(viewModel: browseViewModel, analyticsEntryPoint: .detailBrowse)
@@ -106,9 +121,6 @@ struct ClimbDetailView: View {
             trackDetailViewedIfNeeded()
             headphoneMotionService.refresh()
             viewModel.refresh(modelContext: modelContext)
-            if let initialCollectionOrder {
-                viewModel.collectionOrder = initialCollectionOrder
-            }
             await viewModel.refreshLeaderboardSummary(modelContext: modelContext)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
@@ -179,7 +191,8 @@ struct ClimbDetailView: View {
                 shadowColor: viewModel.climb.tier.shadowColor,
                 cornerRadius: 28,
                 lineWidth: 1.8,
-                isEmphasized: viewModel.climb.tier.usesEmphasizedBorderStyle
+                isEmphasized: viewModel.climb.tier.usesEmphasizedBorderStyle,
+                animationStyle: .full
             )
     }
 
@@ -1535,13 +1548,6 @@ private struct ClimbCommunityAvatarView: View {
 #Preview("Default") {
     NavigationStack {
         ClimbDetailView(climb: .preview, showsBrowseBackButton: true)
-    }
-    .preferredColorScheme(.dark)
-}
-
-#Preview("With Collection Strip") {
-    NavigationStack {
-        ClimbDetailView(climb: .preview, showsBrowseBackButton: true, initialCollectionOrder: 3)
     }
     .preferredColorScheme(.dark)
 }

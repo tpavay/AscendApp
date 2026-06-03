@@ -13,6 +13,7 @@
  *   node scripts/dev-db.mjs reset --target all --project dev
  *   node scripts/dev-db.mjs wipe --project dev --confirm-dev-wipe
  *   node scripts/dev-db.mjs hydrate-user --project dev --user <uid> --display-name "Tyler P." --age 27 --gender man --weight-lb 178 --country US --region IL
+ *   node scripts/dev-db.mjs seed-demo-user --project staging --email person@example.com
  */
 
 import {spawnSync} from "node:child_process";
@@ -25,7 +26,7 @@ import {FieldValue, getFirestore, Timestamp} from "firebase-admin/firestore";
 const DEV_PROJECT_ID = "ascend-f2e4f";
 const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
 const PRODUCTION_PROJECT_ID = "ascend-prod-9c8f2";
-const BATCH_TARGET_ORDER = ["profiles", "leaderboard", "live-replay"];
+const BATCH_TARGET_ORDER = ["profiles", "leaderboard", "live-replay", "routine-templates"];
 const ALLOWED_PROJECT_IDS = new Set([DEV_PROJECT_ID, STAGING_PROJECT_ID]);
 const VALID_GENDERS = new Set(["woman", "man", "non_binary", "prefer_not_to_say"]);
 const WIPE_COLLECTION_IDS = [
@@ -33,6 +34,7 @@ const WIPE_COLLECTION_IDS = [
   "leaderboard_stats",
   "live_replay_leaderboards",
   "live_climb_community_stats",
+  "routine_templates",
   "feedback",
   "userRateLimits",
   "config",
@@ -58,9 +60,25 @@ const TARGETS = {
     label: "Live Replay leaderboard summaries, finishers, split buckets, and entries",
     script: "seed-live-replay-leaderboards.mjs",
   },
+  "routine-templates": {
+    label: "Remote routine template content",
+    script: "seed-routine-templates.mjs",
+  },
 };
 
 const SERVER_TIMESTAMP_PREVIEW = "<serverTimestamp>";
+const LIVE_REPLAY_SEED_FLAGS = new Set([
+  "--source-user",
+  "--avatar-dir",
+  "--seed-pack",
+  "--apple-health-step-factor",
+  "--skip-clear",
+]);
+const ROUTINE_TEMPLATE_SEED_FLAGS = new Set([
+  "--file",
+  "--seed-pack",
+  "--skip-clear",
+]);
 
 const TARGET_ALIASES = new Map([
   ["all", "all"],
@@ -73,6 +91,11 @@ const TARGET_ALIASES = new Map([
   ["replay", "live-replay"],
   ["live-replay", "live-replay"],
   ["live_replay", "live-replay"],
+  ["routine-template", "routine-templates"],
+  ["routine-templates", "routine-templates"],
+  ["routine_templates", "routine-templates"],
+  ["routines", "routine-templates"],
+  ["training", "routine-templates"],
 ]);
 
 function parseArgs(argv) {
@@ -96,6 +119,9 @@ function parseArgs(argv) {
     locationCountry: null,
     locationRegion: null,
     joinedAt: null,
+    scenario: "full-showcase",
+    seedFirstAscent: true,
+    firstAscentClimbId: null,
   };
 
   for (let index = 3; index < argv.length; index += 1) {
@@ -121,6 +147,7 @@ function parseArgs(argv) {
       case "--source-user":
       case "--avatar-dir":
       case "--seed-pack":
+      case "--file":
       case "--apple-health-step-factor":
         args.passthrough.push(value, requireValue(argv, ++index, value));
         break;
@@ -163,6 +190,15 @@ function parseArgs(argv) {
         break;
       case "--joined-at":
         args.joinedAt = parseDate(requireValue(argv, ++index, value), value);
+        break;
+      case "--scenario":
+        args.scenario = requireValue(argv, ++index, value);
+        break;
+      case "--first-ascent-climb":
+        args.firstAscentClimbId = requireValue(argv, ++index, value);
+        break;
+      case "--no-first-ascent":
+        args.seedFirstAscent = false;
         break;
       case "--help":
       case "-h":
@@ -209,6 +245,7 @@ Usage:
   node scripts/dev-db.mjs reset --target all --project dev
   node scripts/dev-db.mjs wipe --project dev --confirm-dev-wipe
   node scripts/dev-db.mjs hydrate-user --project dev --user <uid> --display-name "Tyler P." --age 27 --gender man --weight-lb 178 --country US --region IL
+  node scripts/dev-db.mjs seed-demo-user --project staging --email person@example.com
 
 Commands:
   plan          Show available targets and examples.
@@ -217,12 +254,14 @@ Commands:
   reset         Clear then seed one or more targets.
   wipe          Delete all reviewed top-level Firestore collections in dev only.
   hydrate-user  Merge complete profile identity/demographic fields into one dev/staging user.
+  seed-demo-user Seed one real dev/staging Auth user with product-demo data.
 
 Targets:
   profiles      ${TARGETS.profiles.label}
   leaderboard   ${TARGETS.leaderboard.label}
   live-replay   ${TARGETS["live-replay"].label}
-  all           profiles, leaderboard, live-replay
+  routine-templates ${TARGETS["routine-templates"].label}
+  all           profiles, leaderboard, live-replay, routine-templates
 
 Options:
   --project <dev|staging|projectId>  Defaults to dev. Production is refused.
@@ -232,8 +271,12 @@ Options:
   --confirm-dev-wipe                 Required for wipe without --dry-run.
   --source-user <uid>                Forwarded to live-replay seed.
   --avatar-dir <path>                Forwarded to live-replay seed.
-  --seed-pack <id>                   Forwarded to live-replay seed.
+  --seed-pack <id>                   Forwarded to seed targets that support it.
+  --file <path>                      Forwarded to routine-templates seed.
   --apple-health-step-factor <n>     Forwarded to live-replay seed.
+  --scenario <name>                  Demo user scenario. Defaults to full-showcase.
+  --first-ascent-climb <climbId>     Demo First Ascent climb. Defaults in seed script.
+  --no-first-ascent                  Demo user seed will not claim a First Ascent.
 
 hydrate-user fields:
   --user <uid> --display-name <name> --age <13-120> --gender <woman|man|non_binary|prefer_not_to_say>
@@ -246,7 +289,7 @@ hydrate-user fields:
 async function main() {
   const args = parseArgs(process.argv);
 
-  if (args.command === "help") {
+  if (args.command === "help" || args.command === "--help" || args.command === "-h") {
     printHelp();
     return;
   }
@@ -269,8 +312,13 @@ async function main() {
     return;
   }
 
+  if (args.command === "seed-demo-user") {
+    runDemoUserScript(projectId, args);
+    return;
+  }
+
   if (!["seed", "clear", "reset"].includes(args.command)) {
-    throw new Error("Command must be plan, seed, clear, reset, wipe, hydrate-user, or help");
+    throw new Error("Command must be plan, seed, clear, reset, wipe, hydrate-user, seed-demo-user, or help");
   }
 
   const targets = resolveTargets(args.targets);
@@ -298,8 +346,10 @@ function printPlan() {
   console.log("  node scripts/dev-db.mjs reset --target all --project dev");
   console.log("  node scripts/dev-db.mjs wipe --project dev --confirm-dev-wipe");
   console.log("  node scripts/dev-db.mjs seed --target profiles,live-replay --project dev --dry-run");
+  console.log("  node scripts/dev-db.mjs seed --target routine-templates --project dev");
   console.log("  node scripts/dev-db.mjs clear --target leaderboard --project dev");
   console.log("  node scripts/dev-db.mjs hydrate-user --project dev --user <uid> --display-name \"Tyler P.\" --age 27 --gender man --weight-lb 178 --country US --region IL");
+  console.log("  node scripts/dev-db.mjs seed-demo-user --project staging --email person@example.com");
 }
 
 function resolveProjectId(projectOrAlias) {
@@ -320,7 +370,7 @@ function resolveTargets(rawTargets) {
   for (const rawTarget of rawTargets) {
     const target = TARGET_ALIASES.get(rawTarget);
     if (!target) {
-      throw new Error(`Unknown target "${rawTarget}". Use profiles, leaderboard, live-replay, or all.`);
+      throw new Error(`Unknown target "${rawTarget}". Use profiles, leaderboard, live-replay, routine-templates, or all.`);
     }
 
     if (target === "all") {
@@ -367,14 +417,97 @@ function runTargetScript(target, command, projectId, args) {
   }
 }
 
+function runDemoUserScript(projectId, args) {
+  const scriptArgs = [
+    resolve(SCRIPT_DIR, "seed-demo-user.mjs"),
+    "seed",
+    "--project",
+    projectId,
+  ];
+
+  if (args.dryRun) {
+    scriptArgs.push("--dry-run");
+  }
+  if (args.userId) {
+    scriptArgs.push("--user", args.userId);
+  }
+  if (args.email) {
+    scriptArgs.push("--email", args.email);
+  }
+  if (args.displayName) {
+    scriptArgs.push("--display-name", args.displayName);
+  }
+  if (args.photoURL) {
+    scriptArgs.push("--photo-url", args.photoURL);
+  }
+  if (args.age != null) {
+    scriptArgs.push("--age", String(args.age));
+  }
+  if (args.gender) {
+    scriptArgs.push("--gender", args.gender);
+  }
+  if (args.weightKg != null) {
+    scriptArgs.push("--weight-kg", String(args.weightKg));
+  }
+  if (args.locationCountry) {
+    scriptArgs.push("--country", args.locationCountry);
+  }
+  if (args.locationRegion) {
+    scriptArgs.push("--region", args.locationRegion);
+  }
+  if (args.joinedAt) {
+    scriptArgs.push("--joined-at", args.joinedAt.toISOString());
+  }
+  if (args.scenario) {
+    scriptArgs.push("--scenario", args.scenario);
+  }
+  if (args.firstAscentClimbId) {
+    scriptArgs.push("--first-ascent-climb", args.firstAscentClimbId);
+  }
+  if (!args.seedFirstAscent) {
+    scriptArgs.push("--no-first-ascent");
+  }
+
+  console.log(`\n> node seed-demo-user.mjs ${scriptArgs.slice(1).join(" ")}`);
+  const result = spawnSync(process.execPath, scriptArgs, {
+    cwd: SCRIPT_DIR,
+    stdio: "inherit",
+  });
+
+  if (result.status !== 0) {
+    throw new Error(`seed-demo-user.mjs seed failed with exit code ${result.status}`);
+  }
+}
+
 function appendSeedPassthroughArgs(target, scriptArgs, args) {
   if (target === "live-replay") {
-    scriptArgs.push(...args.passthrough);
+    appendFilteredPassthroughArgs(scriptArgs, args.passthrough, LIVE_REPLAY_SEED_FLAGS);
+  } else if (target === "routine-templates") {
+    appendFilteredPassthroughArgs(scriptArgs, args.passthrough, ROUTINE_TEMPLATE_SEED_FLAGS);
   } else if (args.skipClear && target === "profiles") {
     // seed-test-users clears before seeding and does not currently support --skip-clear.
     console.warn("profiles target does not support --skip-clear; it will replace its seed pack.");
   } else if (args.skipClear && target === "leaderboard") {
     console.warn("leaderboard target does not support --skip-clear; it will upsert generated rows.");
+  }
+}
+
+function appendFilteredPassthroughArgs(scriptArgs, passthroughArgs, allowedFlags) {
+  for (let index = 0; index < passthroughArgs.length; index += 1) {
+    const flag = passthroughArgs[index];
+    const isBooleanFlag = flag === "--skip-clear";
+    const value = isBooleanFlag ? null : passthroughArgs[index + 1];
+
+    if (allowedFlags.has(flag)) {
+      scriptArgs.push(flag);
+      if (!isBooleanFlag) {
+        scriptArgs.push(value);
+      }
+    }
+
+    if (!isBooleanFlag) {
+      index += 1;
+    }
   }
 }
 

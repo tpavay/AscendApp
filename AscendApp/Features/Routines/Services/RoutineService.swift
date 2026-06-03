@@ -5,9 +5,14 @@ import SwiftData
 @MainActor
 final class RoutineService {
     private let modelContext: ModelContext
+    private let templateRepository: RoutineTemplateRepository
 
-    init(modelContext: ModelContext) {
+    init(
+        modelContext: ModelContext,
+        templateRepository: RoutineTemplateRepository = FirestoreRoutineTemplateRepository.shared
+    ) {
         self.modelContext = modelContext
+        self.templateRepository = templateRepository
     }
 
     // MARK: - Fetch Operations
@@ -24,23 +29,28 @@ final class RoutineService {
     /// Fetches only user-created routines (not built-in)
     func getUserRoutines() throws -> [Routine] {
         let builtinRaw = RoutineSource.builtin.rawValue
+        let remoteTemplateRaw = RoutineSource.remoteTemplate.rawValue
         let descriptor = FetchDescriptor<Routine>(
             predicate: #Predicate {
-                !$0.isArchived && $0.sourceRawValue != builtinRaw
+                !$0.isArchived &&
+                $0.sourceRawValue != builtinRaw &&
+                $0.sourceRawValue != remoteTemplateRaw
             },
             sortBy: [SortDescriptor(\.order), SortDescriptor(\.updatedAt, order: .reverse)]
         )
         return try modelContext.fetch(descriptor)
     }
 
-    /// Fetches only built-in routines
+    /// Fetches read-only template routines, including bundled and remote-managed templates.
     func getBuiltInRoutines() throws -> [Routine] {
         let builtinRaw = RoutineSource.builtin.rawValue
+        let remoteTemplateRaw = RoutineSource.remoteTemplate.rawValue
         let descriptor = FetchDescriptor<Routine>(
             predicate: #Predicate {
-                !$0.isArchived && $0.sourceRawValue == builtinRaw
+                !$0.isArchived &&
+                ($0.sourceRawValue == builtinRaw || $0.sourceRawValue == remoteTemplateRaw)
             },
-            sortBy: [SortDescriptor(\.name)]
+            sortBy: [SortDescriptor(\.templateDisplayOrder), SortDescriptor(\.name)]
         )
         return try modelContext.fetch(descriptor)
     }
@@ -106,11 +116,11 @@ final class RoutineService {
     }
 
     func savedCopy(templateId: String) throws -> Routine? {
-        let builtinRaw = RoutineSource.builtin.rawValue
+        let copiedRaw = RoutineSource.copiedFromBuiltin.rawValue
         let descriptor = FetchDescriptor<Routine>(
             predicate: #Predicate {
                 !$0.isArchived &&
-                $0.sourceRawValue != builtinRaw &&
+                $0.sourceRawValue == copiedRaw &&
                 $0.templateId == templateId
             },
             sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
@@ -237,7 +247,52 @@ final class RoutineService {
             guard let templateId = template.templateId else { continue }
 
             if let existingRoutine = existingByTemplateId[templateId] {
-                didChange = updateBuiltInRoutine(existingRoutine, using: template) || didChange
+                didChange = updateTemplateRoutine(
+                    existingRoutine,
+                    using: template,
+                    expectedSource: .builtin
+                ) || didChange
+            } else {
+                modelContext.insert(template)
+                didChange = true
+            }
+        }
+
+        if didChange {
+            try modelContext.save()
+        }
+    }
+
+    func refreshRemoteRoutineTemplates() async throws {
+        let baseLevel = SettingsManager.shared.effectiveBaseLevel
+        let remoteTemplates = try await templateRepository.fetchPublishedTemplates()
+        let resolvedTemplates = remoteTemplates.map { $0.resolvedRoutine(baseLevel: baseLevel) }
+        let expectedTemplateIds = Set(resolvedTemplates.compactMap(\.templateId))
+        let remoteTemplateRaw = RoutineSource.remoteTemplate.rawValue
+        let descriptor = FetchDescriptor<Routine>(
+            predicate: #Predicate { $0.sourceRawValue == remoteTemplateRaw }
+        )
+        let existingRemoteTemplates = try modelContext.fetch(descriptor)
+        let existingByTemplateId = existingRemoteTemplates.reduce(into: [String: Routine]()) { result, routine in
+            guard let templateId = routine.templateId else { return }
+            result[templateId] = routine
+        }
+        var didChange = false
+
+        for existingRoutine in existingRemoteTemplates where !expectedTemplateIds.contains(existingRoutine.templateId ?? "") {
+            modelContext.delete(existingRoutine)
+            didChange = true
+        }
+
+        for template in resolvedTemplates {
+            guard let templateId = template.templateId else { continue }
+
+            if let existingRoutine = existingByTemplateId[templateId] {
+                didChange = updateTemplateRoutine(
+                    existingRoutine,
+                    using: template,
+                    expectedSource: .remoteTemplate
+                ) || didChange
             } else {
                 modelContext.insert(template)
                 didChange = true
@@ -252,9 +307,12 @@ final class RoutineService {
     /// Returns the count of user routines
     func getUserRoutineCount() throws -> Int {
         let builtinRaw = RoutineSource.builtin.rawValue
+        let remoteTemplateRaw = RoutineSource.remoteTemplate.rawValue
         let descriptor = FetchDescriptor<Routine>(
             predicate: #Predicate {
-                !$0.isArchived && $0.sourceRawValue != builtinRaw
+                !$0.isArchived &&
+                $0.sourceRawValue != builtinRaw &&
+                $0.sourceRawValue != remoteTemplateRaw
             }
         )
         return try modelContext.fetchCount(descriptor)
@@ -269,7 +327,11 @@ final class RoutineService {
     }
 
     @discardableResult
-    private func updateBuiltInRoutine(_ routine: Routine, using template: Routine) -> Bool {
+    private func updateTemplateRoutine(
+        _ routine: Routine,
+        using template: Routine,
+        expectedSource: RoutineSource
+    ) -> Bool {
         var didChange = false
 
         if routine.name != template.name {
@@ -297,6 +359,31 @@ final class RoutineService {
             didChange = true
         }
 
+        if routine.templateVersion != template.templateVersion {
+            routine.templateVersion = template.templateVersion
+            didChange = true
+        }
+
+        if routine.browseSections != template.browseSections {
+            routine.browseSections = template.browseSections
+            didChange = true
+        }
+
+        if routine.isFeaturedTemplate != template.isFeaturedTemplate {
+            routine.isFeaturedTemplate = template.isFeaturedTemplate
+            didChange = true
+        }
+
+        if routine.templateDisplayOrder != template.templateDisplayOrder {
+            routine.templateDisplayOrder = template.templateDisplayOrder
+            didChange = true
+        }
+
+        if routine.templateFeaturedOrder != template.templateFeaturedOrder {
+            routine.templateFeaturedOrder = template.templateFeaturedOrder
+            didChange = true
+        }
+
         if routine.defaultWeightConfigurationData != template.defaultWeightConfigurationData {
             routine.defaultWeightConfigurationData = template.defaultWeightConfigurationData
             didChange = true
@@ -307,8 +394,8 @@ final class RoutineService {
             didChange = true
         }
 
-        if routine.source != .builtin {
-            routine.source = .builtin
+        if routine.source != expectedSource {
+            routine.source = expectedSource
             didChange = true
         }
 

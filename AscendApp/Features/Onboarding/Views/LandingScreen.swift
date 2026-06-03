@@ -6,58 +6,84 @@ struct LandingScreen: View {
             OnboardingWelcomeBackground()
 
             GeometryReader { geometry in
-                VStack(spacing: 0) {
-                    VStack(spacing: 24) {
-                        AscendWordmark(size: 11, letterColor: .white.opacity(0.85))
+                let scaleX = geometry.size.width / 390
+                let scaleY = geometry.size.height / 844
+                let typeScale = min(scaleX, scaleY)
+                let centerX = geometry.size.width / 2
 
-                        (Text("Race the world up ").foregroundStyle(.white)
-                         + Text("real landmarks").foregroundStyle(Color.accentColor)
-                         + Text(".").foregroundStyle(.white))
-                            .font(.montserratBold(size: 34))
-                            .multilineTextAlignment(.center)
-                            .lineSpacing(2)
-                            .fixedSize(horizontal: false, vertical: true)
+                ZStack(alignment: .topLeading) {
+                    AscendWordmark(
+                        size: 30 * typeScale,
+                        letterColor: .white,
+                        letterSpacing: 5.0 * typeScale,
+                        iconSize: 52 * typeScale,
+                        iconTrailingSpacing: 14 * typeScale
+                    )
+                    .position(x: centerX, y: 200 * scaleY)
+
+                    welcomeHeadline(typeScale: typeScale)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                        .frame(width: 334 * scaleX, height: 36 * scaleY, alignment: .top)
+                        .position(x: centerX, y: 270 * scaleY)
+
+                    NavigationLink(destination: PreAuthOnboardingValueCarouselScreen()) {
+                        Text("GET STARTED")
                     }
-                    .padding(.horizontal, 24)
-
-                    Spacer(minLength: 0)
-
-                    VStack(spacing: 14) {
-                        NavigationLink(destination: PreAuthOnboardingValueCarouselScreen()) {
-                            Text("GET STARTED")
-                        }
-                        .buttonStyle(
-                            OnboardingPrimaryCTAButtonStyle(
-                                height: 62,
-                                tint: .accent,
-                                shadowOpacity: 0
-                            )
+                    .buttonStyle(
+                        OnboardingPrimaryCTAButtonStyle(
+                            height: 56 * scaleY,
+                            cornerRadius: 12 * typeScale,
+                            fontSize: 16 * typeScale,
+                            tint: brandAccentColor,
+                            shadowOpacity: 0
                         )
-                        .padding(.horizontal, 28)
+                    )
+                    .frame(width: 334 * scaleX)
+                    .position(x: centerX, y: 752 * scaleY)
 
-                        NavigationLink(destination: SignUpView()) {
-                            HStack(spacing: 4) {
-                                Text("Already have an account?")
-                                    .foregroundStyle(.white.opacity(0.66))
-
-                                Text("Log in")
-                                    .foregroundStyle(Color.accentColor)
-                            }
-                            .font(.montserratSemiBold(size: 13))
+                    NavigationLink(destination: SignUpView()) {
+                        welcomeLoginText(typeScale: typeScale)
                             .multilineTextAlignment(.center)
                             .lineLimit(1)
                             .minimumScaleFactor(0.82)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Already have an account? Log in")
+                            .frame(width: 334 * scaleX, height: 20 * scaleY, alignment: .top)
                     }
-                    .padding(.bottom, max(geometry.safeAreaInsets.bottom + 12, 36))
+                    .buttonStyle(.plain)
+                    .position(x: centerX, y: 802 * scaleY)
+                    .accessibilityLabel("Already have an account? Log in")
                 }
-                .padding(.top, geometry.size.height * 0.08)
             }
+            .ignoresSafeArea()
         }
         .background(Color.black)
         .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private func welcomeHeadline(typeScale: CGFloat) -> Text {
+        Text("The ")
+            .foregroundStyle(.white.opacity(0.95))
+            .font(.montserratSemiBold(size: 24 * typeScale))
+        + Text("stair stepper")
+            .foregroundStyle(brandAccentColor)
+            .font(.montserratSemiBold(size: 24 * typeScale))
+        + Text(" app.")
+            .foregroundStyle(.white.opacity(0.95))
+            .font(.montserratSemiBold(size: 24 * typeScale))
+    }
+
+    private func welcomeLoginText(typeScale: CGFloat) -> Text {
+        Text("Already have an account? ")
+            .foregroundStyle(Color.white.opacity(0.68))
+            .font(.montserratRegular(size: 13 * typeScale))
+        + Text("Log in")
+            .foregroundStyle(Color.accentColor)
+            .font(.montserratSemiBold(size: 13 * typeScale))
+    }
+
+    private var brandAccentColor: Color {
+        Color.accentColor
     }
 }
 
@@ -69,31 +95,6 @@ private struct OnboardingWelcomeBackground: View {
                 .scaledToFill()
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .clipped()
-                .overlay {
-                    LinearGradient(
-                        colors: [
-                            Color.black.opacity(0.78),
-                            Color.black.opacity(0.24),
-                            Color.black.opacity(0.08)
-                        ],
-                        startPoint: .top,
-                        endPoint: .center
-                    )
-                }
-                .overlay {
-                    LinearGradient(
-                        colors: [
-                            .clear,
-                            Color.black.opacity(0.2),
-                            Color.black.opacity(0.82)
-                        ],
-                        startPoint: .center,
-                        endPoint: .bottom
-                    )
-                }
-                .overlay {
-                    Color.black.opacity(0.12)
-                }
         }
         .ignoresSafeArea()
     }
