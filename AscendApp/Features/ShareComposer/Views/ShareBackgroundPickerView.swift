@@ -5,14 +5,24 @@ import SwiftUI
 struct ShareBackgroundPickerView: View {
     let title: String
     let presets: [ShareComposerPreset]
+    /// Optional one-tap recap card (climb hero + auto-arranged stats).
+    var recap: RecapPreview?
     let onPick: (ShareBackgroundSource) -> Void
+    var onPickRecap: (() -> Void)?
     let onClose: () -> Void
 
     @State private var selectedTab: Tab = .cameraRoll
 
     private let accent = Color(red: 0.706, green: 0.8, blue: 0)
 
-    enum Tab { case cameraRoll, presets }
+    enum Tab { case cameraRoll, presets, recaps }
+
+    /// Data for the Recaps tab card (our pre-made climb card).
+    struct RecapPreview {
+        let climb: Climb
+        let stats: [ResolvedShareStat]
+        let bestEffort: ResolvedShareStat?
+    }
 
     var body: some View {
         ZStack {
@@ -24,10 +34,13 @@ struct ShareBackgroundPickerView: View {
                     .padding(.top, 18)
                     .padding(.bottom, 8)
 
-                if selectedTab == .cameraRoll {
+                switch selectedTab {
+                case .cameraRoll:
                     ShareCameraRollGrid(onPick: onPick)
-                } else {
+                case .presets:
                     presetsContent
+                case .recaps:
+                    recapsContent
                 }
 
                 Spacer(minLength: 0)
@@ -68,6 +81,9 @@ struct ShareBackgroundPickerView: View {
         HStack(spacing: 0) {
             tabButton("Camera Roll", tab: .cameraRoll)
             tabButton("Presets", tab: .presets)
+            if recap != nil {
+                tabButton("Recaps", tab: .recaps)
+            }
         }
         .padding(4)
         .background(.white.opacity(0.06), in: Capsule(style: .continuous))
@@ -97,30 +113,61 @@ struct ShareBackgroundPickerView: View {
 
     // MARK: - Presets
 
+    // MARK: - Presets (backgrounds we offer)
+
     private var presetsContent: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+            VStack(spacing: 14) {
                 ForEach(presets) { preset in
                     Button {
                         HapticsManager.shared.trigger(.lightImpact)
                         onPick(.preset(preset))
                     } label: {
                         ShareBackgroundView(source: .preset(preset), isStatic: true)
-                            .frame(height: 240)
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            .overlay(alignment: .bottomLeading) {
-                                Text(preset.displayName.uppercased())
-                                    .font(.montserratSemiBold(size: 11))
-                                    .tracking(1)
-                                    .foregroundStyle(.white)
-                                    .padding(10)
-                            }
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 420)
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                             .overlay(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
                                     .stroke(.white.opacity(0.1), lineWidth: 1)
                             )
                     }
                     .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 16)
+        }
+    }
+
+    // MARK: - Recaps (our pre-made climb cards)
+
+    private var recapsContent: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                if let recap, let onPickRecap {
+                    Button {
+                        HapticsManager.shared.trigger(.lightImpact)
+                        onPickRecap()
+                    } label: {
+                        // Color.clear gives the flexible card a concrete 9:16 box.
+                        Color.clear
+                            .aspectRatio(9.0 / 16.0, contentMode: .fit)
+                            .overlay {
+                                ShareRecapCard(climb: recap.climb, stats: recap.stats, bestEffort: recap.bestEffort)
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .stroke(accent.opacity(0.5), lineWidth: 1.5)
+                            )
+                    }
+                    .buttonStyle(.plain)
+
+                    Text("Your climb, ready to share — tap to use, then add anything on top.")
+                        .font(.montserratRegular(size: 12))
+                        .foregroundStyle(Color.customGray)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .padding(.horizontal, 24)

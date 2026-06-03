@@ -9,8 +9,24 @@ struct ShareBackgroundView: View {
     /// When true (export), video falls back to a poster frame since the export
     /// pipeline composites video separately.
     var isStatic: Bool = false
+    /// Color grade applied to the background only (stickers are unaffected).
+    var filter: ShareBackgroundFilter = .original
+    /// Core Image-processed photo for geometric filters. When set, it's shown
+    /// directly (the effect is already baked in) instead of the raw source.
+    var processedImage: UIImage? = nil
 
     var body: some View {
+        if let processedImage {
+            Image(uiImage: processedImage)
+                .resizable()
+                .scaledToFill()
+        } else {
+            content.shareBackgroundFilter(filter)
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         switch source {
         case .photo(let image):
             Image(uiImage: image)

@@ -75,7 +75,7 @@ struct WorkoutDetailView: View {
                 .interactiveDismissDisabled()
             }
             .fullScreenCover(isPresented: $showingShareWorkoutView) {
-                ShareComposerView(workout: workout)
+                ShareComposerView(workout: workout, climb: liveClimbDetailClimb)
             }
             .fullScreenCover(isPresented: $showingLiveClimbSummaryPreview) {
                 if liveClimbSummaryMetadata?.climbId == nil || liveClimbDetailClimb != nil {

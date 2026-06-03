@@ -24,6 +24,34 @@ extension ShareStickerFont {
     }
 }
 
+extension View {
+    /// Applies a background filter's color grade. Resolution-independent
+    /// adjustments only, so the editing canvas and the export render identically.
+    @ViewBuilder
+    func shareBackgroundFilter(_ filter: ShareBackgroundFilter) -> some View {
+        switch filter {
+        case .original:
+            self
+        case .mono:
+            grayscale(1).contrast(1.05)
+        case .noir:
+            grayscale(1).contrast(1.4).brightness(-0.06)
+        case .vivid:
+            saturation(1.55).contrast(1.08)
+        case .fade:
+            saturation(0.72).contrast(0.88).brightness(0.07)
+        case .warm:
+            colorMultiply(Color(red: 1.0, green: 0.9, blue: 0.78)).saturation(1.1)
+        case .cool:
+            colorMultiply(Color(red: 0.82, green: 0.9, blue: 1.0)).saturation(1.05)
+        case .zoomBlur, .motionBlur, .fisheye:
+            // Geometric filters are baked into a processed image via Core Image;
+            // no color adjustment here.
+            self
+        }
+    }
+}
+
 extension RGBAColor {
     var color: Color {
         Color(.sRGB, red: r, green: g, blue: b, opacity: a)

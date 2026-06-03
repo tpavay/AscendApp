@@ -87,11 +87,11 @@ struct ShareCameraRollGrid: View {
         Task {
             defer { isLoadingSelection = false }
             if asset.mediaType == .video {
-                if let url = await library.videoURL(for: asset) {
+                if let url = await library.videoURL(forIdentifier: asset.localIdentifier) {
                     onPick(.video(url))
                 }
             } else {
-                if let image = await library.fullImage(for: asset) {
+                if let image = await library.fullImage(forIdentifier: asset.localIdentifier) {
                     onPick(.photo(image))
                 }
             }
@@ -129,7 +129,7 @@ private struct PhotoThumbCell: View {
             .clipped()
             .contentShape(Rectangle())
             .task(id: asset.localIdentifier) {
-                thumbnail = await library.thumbnail(for: asset, size: 130)
+                thumbnail = await library.thumbnail(forIdentifier: asset.localIdentifier, size: 130)
             }
     }
 

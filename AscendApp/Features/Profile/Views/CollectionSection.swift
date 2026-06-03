@@ -402,15 +402,18 @@ private struct CollectionCard: View {
         .background(Color.black.opacity(0.54))
         .clipShape(RoundedRectangle(cornerRadius: style.cornerRadius, style: .continuous))
         .animatedClimbCardBorder(
-            colors: item.climb.tier.borderColors,
-            shadowColor: item.climb.tier.shadowColor,
+            colors: isClaimed ? item.climb.tier.borderColors : Self.lockedBorderColors,
+            shadowColor: isClaimed ? item.climb.tier.shadowColor : .clear,
             cornerRadius: style.cornerRadius,
             lineWidth: 1,
-            isEmphasized: item.climb.tier.usesEmphasizedBorderStyle,
+            isEmphasized: isClaimed && item.climb.tier.usesEmphasizedBorderStyle,
             animationStyle: .static
         )
         .contentShape(RoundedRectangle(cornerRadius: style.cornerRadius, style: .continuous))
     }
+
+    /// Muted grey border for climbs the user hasn't collected yet.
+    private static let lockedBorderColors: [Color] = [Color.white.opacity(0.16)]
 
     private var claimedBadge: some View {
         Circle()

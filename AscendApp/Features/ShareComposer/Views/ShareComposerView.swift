@@ -7,12 +7,25 @@ import SwiftUI
 struct ShareComposerView: View {
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \BestEffortCacheEntry.sortKey) private var bestEffortCacheEntries: [BestEffortCacheEntry]
+    @Query(sort: \Workout.date, order: .reverse) private var allWorkouts: [Workout]
 
     @State private var viewModel: ShareComposerViewModel
     @State private var showAddSheet = false
     @State private var showFontSheet = false
-    @State private var isExporting = false
+    @State private var showStructureSheet = false
+    @State private var showRenameClimb = false
+    @State private var renameText = ""
+    @State private var exportingAction: ExportAction?
     @State private var toast: String?
+    /// Transient filter name shown briefly after a swipe.
+    @State private var filterFlash: String?
+    /// Live background pinch/drag deltas (committed to the view model on end).
+    @GestureState private var bgZoomLive: CGFloat = 1
+    @GestureState private var bgPanLive: CGSize = .zero
+
+    /// Which export is in flight (drives the per-button spinner).
+    private enum ExportAction { case story, save, share }
+    private var isExporting: Bool { exportingAction != nil }
 
     private let exporter = ShareComposerExporter()
     private let presets: [ShareComposerPreset]
@@ -30,18 +43,17 @@ struct ShareComposerView: View {
             workout: workout,
             measurementSystem: settings.measurementSystem,
             stepHeight: settings.stepHeight,
+            climb: climb,
             climbName: climb?.name,
             climbRank: liveClimbRank,
             climbRankTotal: liveClimbRankTotal
         ))
 
+        // Only the hero artwork is offered as a background preset; the card and
+        // thumbnail are addable as stickers (in the Climb tab), not backgrounds.
         var presets: [ShareComposerPreset] = []
         if let climb {
-            presets = [
-                .climbImage(climb, .hero),
-                .climbImage(climb, .card),
-                .climbImage(climb, .thumb)
-            ]
+            presets = [.climbImage(climb, .hero)]
         }
         self.presets = presets
 
@@ -49,6 +61,23 @@ struct ShareComposerView: View {
             self.shareTitle = climb.name
         } else {
             self.shareTitle = workout.name.isEmpty ? "your workout" : workout.name
+        }
+    }
+
+    /// Data for the picker's Recaps tab (only when sharing a climb).
+    private var recapPreview: ShareBackgroundPickerView.RecapPreview? {
+        guard let climb = viewModel.climb else { return nil }
+        return .init(climb: climb, stats: viewModel.recapStats(), bestEffort: viewModel.bestEffortStats.first)
+    }
+
+    /// Bake the recap card to an image and use it as the background (the climb
+    /// artwork is already warm from the Recaps tab preview, so the render
+    /// captures it). The user can then add stickers on top or save as-is.
+    private func applyRecap() {
+        guard let climb = viewModel.climb else { return }
+        let card = ShareRecapCard(climb: climb, stats: viewModel.recapStats(), bestEffort: viewModel.bestEffortStats.first)
+        if let image = exporter.renderRecap(card) {
+            viewModel.resetForNewBackground(.photo(image))
         }
     }
 
@@ -60,12 +89,16 @@ struct ShareComposerView: View {
                 ShareBackgroundPickerView(
                     title: shareTitle,
                     presets: presets,
+                    recap: recapPreview,
                     onPick: { source in
-                        viewModel.background = source
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        // Re-picking a background starts a clean canvas.
+                        viewModel.resetForNewBackground(source)
+                        Task {
+                            try? await Task.sleep(for: .seconds(0.35))
                             showAddSheet = true
                         }
                     },
+                    onPickRecap: viewModel.climb != nil ? { applyRecap() } : nil,
                     onClose: { dismiss() }
                 )
             } else {
@@ -74,10 +107,24 @@ struct ShareComposerView: View {
         }
         .sheet(isPresented: $showAddSheet) {
             ShareAddStatSheet(
-                stats: viewModel.availableStats(),
-                onPick: { stat in
+                climbStats: viewModel.climbStats(),
+                bestEffortStats: viewModel.bestEffortStats,
+                weeklyTotalStats: viewModel.weeklyTotalStats,
+                climb: viewModel.climb,
+                imageVariants: viewModel.climbImageStickerVariants,
+                onPickStat: { stat in
                     HapticsManager.shared.trigger(.lightImpact)
                     viewModel.addSticker(kind: stat.kind)
+                    showAddSheet = false
+                },
+                onPickInjected: { stat in
+                    HapticsManager.shared.trigger(.lightImpact)
+                    viewModel.addInjectedSticker(stat)
+                    showAddSheet = false
+                },
+                onPickImage: { variant in
+                    HapticsManager.shared.trigger(.lightImpact)
+                    viewModel.addClimbImageSticker(variant: variant)
                     showAddSheet = false
                 }
             )
@@ -86,7 +133,7 @@ struct ShareComposerView: View {
             .presentationBackground(Color(hex: "121212"))
         }
         .sheet(isPresented: $showFontSheet) {
-            if let index = selectedIndex, let stat = viewModel.resolve(viewModel.stickers[index].kind) {
+            if let index = selectedIndex, let stat = viewModel.resolve(viewModel.stickers[index]) {
                 ShareFontPickerSheet(
                     sampleStat: stat,
                     current: viewModel.stickers[index].font,
@@ -100,36 +147,82 @@ struct ShareComposerView: View {
                 .presentationBackground(Color(hex: "121212"))
             }
         }
+        .sheet(isPresented: $showStructureSheet) {
+            if let index = selectedIndex {
+                ShareStructureSheet(viewModel: viewModel, stickerID: viewModel.stickers[index].id)
+                    .presentationDetents([.fraction(0.55), .large])
+                    .presentationDragIndicator(.visible)
+                    .presentationBackground(Color(hex: "121212"))
+            }
+        }
+        .alert("Rename climb", isPresented: $showRenameClimb) {
+            TextField("Climb name", text: $renameText)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") { viewModel.setClimbName(renameText) }
+        } message: {
+            Text("Rename how this climb appears on your share. Stat values can't be changed.")
+        }
         .overlay(alignment: .bottom) { toastView }
         .task {
-            // Inject the workout's headline Best Effort (from the cache) so it
-            // can be added as a sticker.
+            // Inject the workout's Best Efforts (from the cache) so each can be
+            // added as its own sticker — they get their own add-sheet section.
+            // The cache can hold the same metric across multiple scopes/contexts,
+            // so dedupe by label (the list is significance-sorted; keep the first).
             let snapshot = BestEffortCacheSnapshot(entries: bestEffortCacheEntries, workouts: [viewModel.workout])
-            if let effort = snapshot.primaryEffort(for: viewModel.workout) {
-                viewModel.primaryBestEffortStat = ResolvedShareStat(
-                    kind: .bestEffort,
-                    label: effort.metric.title.uppercased(),
-                    value: effort.compactValueText
-                )
+            var seenEffortLabels = Set<String>()
+            viewModel.bestEffortStats = snapshot.efforts(for: viewModel.workout).compactMap { effort in
+                let label = effort.metric.title.uppercased()
+                guard seenEffortLabels.insert(label).inserted else { return nil }
+                return ResolvedShareStat(kind: .bestEffort, label: label, value: effort.compactValueText)
             }
+            // Inject this-week totals for the Totals tab.
+            viewModel.injectWeeklyTotals(from: allWorkouts)
         }
     }
 
     // MARK: - Composer canvas
 
     private var composer: some View {
+        VStack(spacing: 0) {
+            canvasRegion
+            bottomBar
+        }
+        .background(Color.black)
+        .ignoresSafeArea(edges: .top)
+    }
+
+    /// The shareable photo region — everything that gets exported. The action
+    /// bar lives *below* this (in `bottomBar`) so controls never overlap the
+    /// image, matching the Aura layout.
+    private var canvasRegion: some View {
         GeometryReader { geo in
             let canvasSize = geo.size
             let canvasScale = canvasSize.width / 390
 
             ZStack {
-                // Background (live)
+                // Black base so a shrunk (zoomed-out) background floats on black.
+                Color.black
+
+                // Background (live): pinch to zoom (in or out), drag to move it
+                // freely once manipulated, or swipe to change the filter at fit.
+                // Double-tap resets it to fit.
                 if let background = viewModel.background {
-                    ShareBackgroundView(source: background)
-                        .frame(width: canvasSize.width, height: canvasSize.height)
-                        .clipped()
-                        .contentShape(Rectangle())
-                        .onTapGesture { viewModel.deselect() }
+                    let panActive = viewModel.backgroundIsManipulated
+                    let scale = viewModel.backgroundScale * bgZoomLive
+                    let offX = viewModel.backgroundOffset.width * canvasSize.width + (panActive ? bgPanLive.width : 0)
+                    let offY = viewModel.backgroundOffset.height * canvasSize.height + (panActive ? bgPanLive.height : 0)
+                    ShareBackgroundView(
+                        source: background,
+                        filter: viewModel.backgroundFilter,
+                        processedImage: viewModel.processedBackgroundImage
+                    )
+                    .frame(width: canvasSize.width, height: canvasSize.height)
+                    .scaleEffect(scale)
+                    .offset(x: offX, y: offY)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) { viewModel.resetBackgroundTransform() }
+                    .onTapGesture { viewModel.deselect() }
+                    .gesture(backgroundGesture(canvasSize: canvasSize))
                 }
 
                 // Snap guides (drawn at the active snap line: center or edge)
@@ -146,13 +239,15 @@ struct ShareComposerView: View {
 
                 // Stickers
                 ForEach(Array(viewModel.stickers.enumerated()), id: \.element.id) { index, sticker in
-                    if let stat = viewModel.resolve(sticker.kind) {
+                    if sticker.isImage || !viewModel.resolvedStats(for: sticker).isEmpty {
                         ShareStickerView(
                             instance: $viewModel.stickers[index],
-                            stat: stat,
+                            stats: viewModel.resolvedStats(for: sticker),
+                            climb: viewModel.climb,
                             canvasSize: canvasSize,
                             canvasScale: canvasScale,
                             isSelected: viewModel.selectedID == sticker.id,
+                            isOverTrash: viewModel.isOverTrash && viewModel.draggingID == sticker.id,
                             onSelect: { viewModel.select(sticker.id) },
                             onDragChanged: { center in
                                 viewModel.handleDragChanged(id: sticker.id, center: center, canvasSize: canvasSize)
@@ -172,16 +267,39 @@ struct ShareComposerView: View {
                     trashZone(in: canvasSize)
                 }
 
+                // Transient filter name after a swipe.
+                if let filterFlash {
+                    Text(filterFlash.uppercased())
+                        .font(.montserratBold(size: 15))
+                        .tracking(2)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                        .background(Capsule().fill(.black.opacity(0.55)))
+                        .transition(.opacity)
+                        .allowsHitTesting(false)
+                }
+
+                // Bottom overlay: the + pill (hidden while dragging) above the
+                // always-on Ascend wordmark that's burned into every export.
+                VStack(spacing: 10) {
+                    Spacer()
+                    if viewModel.draggingID == nil { addPill }
+                    AscendWordmark(size: 13 * canvasScale, letterColor: .white.opacity(0.92))
+                        .shadow(color: .black.opacity(0.5), radius: 4, x: 0, y: 1)
+                        .allowsHitTesting(false)
+                        .padding(.bottom, 12)
+                }
+
                 // Chrome
                 topChrome
                 if viewModel.draggingID == nil {
                     editRail
-                    bottomBar
                 }
             }
             .frame(width: canvasSize.width, height: canvasSize.height)
+            .clipped()
         }
-        .ignoresSafeArea()
     }
 
     private func trashZone(in canvasSize: CGSize) -> some View {
@@ -203,9 +321,13 @@ struct ShareComposerView: View {
     private var topChrome: some View {
         VStack {
             HStack {
-                circleButton(systemName: "xmark") { dismiss() }
+                // Back to the background picker (not exit). Exit happens from
+                // the picker's chevron-down.
+                circleButton(systemName: "chevron.left") {
+                    viewModel.deselect()
+                    viewModel.background = nil
+                }
                 Spacer()
-                circleButton(systemName: "photo") { viewModel.background = nil }
             }
             .padding(.horizontal, 12)
             .padding(.top, 52)
@@ -222,8 +344,23 @@ struct ShareComposerView: View {
 
     @ViewBuilder
     private var editRail: some View {
-        if let index = selectedIndex {
+        if let index = selectedIndex, !viewModel.stickers[index].isImage {
             VStack(spacing: 14) {
+                // Structure: arrange multiple metrics (row / grid / column) + toggle which show.
+                railButton(systemName: "square.grid.2x2") {
+                    HapticsManager.shared.trigger(.lightImpact)
+                    showStructureSheet = true
+                }
+
+                // Rename — only when the sticker includes the climb name.
+                if viewModel.stickers[index].containsClimbName {
+                    railButton(systemName: "pencil") {
+                        HapticsManager.shared.trigger(.lightImpact)
+                        renameText = viewModel.resolve(viewModel.stickers[index])?.value ?? ""
+                        showRenameClimb = true
+                    }
+                }
+
                 railButton(systemName: "textformat.size") {
                     HapticsManager.shared.trigger(.lightImpact)
                     viewModel.stickers[index].style = viewModel.stickers[index].style.next()
@@ -270,45 +407,104 @@ struct ShareComposerView: View {
         )
     }
 
-    private var bottomBar: some View {
-        VStack {
-            Spacer()
+    /// Translucent "add sticker" button floating at the bottom of the photo,
+    /// matching the Share button's footprint. Light haptic on tap.
+    private var addPill: some View {
+        Button {
+            HapticsManager.shared.trigger(.lightImpact)
+            showAddSheet = true
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 52, height: 52)
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(Circle().stroke(.white.opacity(0.18), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
 
-            // Add sticker pill
-            Button { showAddSheet = true } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 56, height: 56)
-                    .background(Circle().fill(.black.opacity(0.4)).overlay(Circle().stroke(.white.opacity(0.25), lineWidth: 1)))
+    /// Action strip in its own space below the photo — never overlaps the image.
+    private var bottomBar: some View {
+        HStack(spacing: 12) {
+            actionPill(label: "STORY", systemName: "camera", isLoading: exportingAction == .story) {
+                Task { await exportToStory() }
+            }
+            actionPill(label: "SAVE", systemName: "arrow.down.to.line", isLoading: exportingAction == .save) {
+                Task { await save() }
+            }
+            Button { Task { await shareSheet() } } label: {
+                Group {
+                    if exportingAction == .share {
+                        ProgressView().tint(.black)
+                    } else {
+                        Image(systemName: "square.and.arrow.up").font(.system(size: 20, weight: .semibold))
+                    }
+                }
+                .foregroundStyle(.black)
+                .frame(width: 52, height: 52)
+                .background(Circle().fill(accent))
             }
             .buttonStyle(.plain)
-            .padding(.bottom, 16)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 14)
+        .padding(.bottom, 4)
+        .frame(maxWidth: .infinity)
+        .background(Color.black)
+        .disabled(isExporting)
+    }
 
-            // Action bar
-            HStack(spacing: 12) {
-                actionPill(label: "STORY", systemName: "camera") { Task { await exportToStory() } }
-                actionPill(label: "SAVE", systemName: "arrow.down.to.line") { Task { await save() } }
-                Button { Task { await shareSheet() } } label: {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(.black)
-                        .frame(width: 52, height: 52)
-                        .background(Circle().fill(accent))
+    // MARK: - Background transform + filter swipe
+
+    /// Pinch zooms the background; dragging repositions it when zoomed, or
+    /// (at fit-scale) a horizontal swipe cycles the filter.
+    private func backgroundGesture(canvasSize: CGSize) -> some Gesture {
+        let zoom = MagnifyGesture()
+            .updating($bgZoomLive) { value, state, _ in state = value.magnification }
+            .onEnded { value in viewModel.commitBackgroundZoom(value.magnification) }
+
+        let pan = DragGesture(minimumDistance: 20)
+            .updating($bgPanLive) { value, state, _ in state = value.translation }
+            .onEnded { value in
+                if viewModel.backgroundIsManipulated {
+                    viewModel.commitBackgroundPan(
+                        dxFraction: value.translation.width / canvasSize.width,
+                        dyFraction: value.translation.height / canvasSize.height
+                    )
+                } else {
+                    handleFilterSwipe(value.translation)
                 }
-                .buttonStyle(.plain)
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 36)
-            .opacity(isExporting ? 0.5 : 1)
-            .disabled(isExporting)
+
+        return zoom.simultaneously(with: pan)
+    }
+
+    private func handleFilterSwipe(_ translation: CGSize) {
+        // Only horizontal swipes of meaningful length cycle the filter.
+        guard abs(translation.width) > abs(translation.height), abs(translation.width) > 45 else { return }
+        HapticsManager.shared.trigger(.selection)
+        viewModel.cycleFilter(forward: translation.width < 0)
+        flashFilterName()
+    }
+
+    private func flashFilterName() {
+        let name = viewModel.backgroundFilter.displayName
+        withAnimation { filterFlash = name }
+        Task {
+            try? await Task.sleep(for: .seconds(0.9))
+            withAnimation { if filterFlash == name { filterFlash = nil } }
         }
     }
 
-    private func actionPill(label: String, systemName: String, action: @escaping () -> Void) -> some View {
+    private func actionPill(label: String, systemName: String, isLoading: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                Image(systemName: systemName).font(.system(size: 16, weight: .semibold))
+                if isLoading {
+                    ProgressView().tint(.white)
+                } else {
+                    Image(systemName: systemName).font(.system(size: 16, weight: .semibold))
+                }
                 Text(label).font(.montserratBold(size: 14)).tracking(1)
             }
             .foregroundStyle(.white)
@@ -348,86 +544,236 @@ struct ShareComposerView: View {
 
     private func showToast(_ message: String) {
         withAnimation { toast = message }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+        Task {
+            try? await Task.sleep(for: .seconds(2))
             withAnimation { if toast == message { toast = nil } }
         }
     }
 
-    private func save() async {
-        isExporting = true
-        defer { isExporting = false }
-        guard let image = await exporter.renderImage(viewModel: viewModel) else {
-            showToast("Couldn't render image")
-            return
+    private var isVideoBackground: Bool { viewModel.background?.isVideo ?? false }
+
+    private func finishSave(_ ok: Bool) {
+        if ok {
+            HapticsManager.shared.trigger(.success)
+            showToast("Saved to Photos")
+        } else {
+            showToast("Allow Photos access to save")
         }
-        let ok = await exporter.saveToPhotos(image)
-        showToast(ok ? "Saved to Photos" : "Allow Photos access to save")
+    }
+
+    private func save() async {
+        exportingAction = .save
+        defer { exportingAction = nil }
+        if isVideoBackground {
+            guard let url = await exporter.exportVideo(viewModel: viewModel) else {
+                showToast("Couldn't export video")
+                return
+            }
+            finishSave(await exporter.saveVideoToPhotos(url))
+        } else {
+            guard let image = await exporter.renderImage(viewModel: viewModel) else {
+                showToast("Couldn't render image")
+                return
+            }
+            finishSave(await exporter.saveToPhotos(image))
+        }
     }
 
     private func shareSheet() async {
-        isExporting = true
-        defer { isExporting = false }
-        guard let image = await exporter.renderImage(viewModel: viewModel) else { return }
-        exporter.presentShareSheet(image: image)
+        exportingAction = .share
+        defer { exportingAction = nil }
+        if isVideoBackground {
+            guard let url = await exporter.exportVideo(viewModel: viewModel) else { return }
+            exporter.presentShareSheet(url: url)
+        } else {
+            guard let image = await exporter.renderImage(viewModel: viewModel) else { return }
+            exporter.presentShareSheet(image: image)
+        }
     }
 
     private func exportToStory() async {
-        isExporting = true
-        defer { isExporting = false }
-        guard let image = await exporter.renderImage(viewModel: viewModel) else { return }
-        if !exporter.shareToInstagramStory(image) {
-            exporter.presentShareSheet(image: image)
+        exportingAction = .story
+        defer { exportingAction = nil }
+        if isVideoBackground {
+            // IG Stories video import isn't wired yet — fall back to the share sheet.
+            guard let url = await exporter.exportVideo(viewModel: viewModel) else { return }
+            exporter.presentShareSheet(url: url)
+        } else {
+            guard let image = await exporter.renderImage(viewModel: viewModel) else { return }
+            if !exporter.shareToInstagramStory(image) {
+                exporter.presentShareSheet(image: image)
+            }
         }
     }
 }
 
-/// Bottom sheet listing the stats available to add as stickers.
+/// Bottom sheet for adding stickers. A Climb | Totals toggle (Aura-style)
+/// switches between this-climb content (artwork + stats + Best Efforts) and
+/// this-week totals.
 private struct ShareAddStatSheet: View {
-    let stats: [ResolvedShareStat]
-    let onPick: (ResolvedShareStat) -> Void
+    let climbStats: [ResolvedShareStat]
+    let bestEffortStats: [ResolvedShareStat]
+    let weeklyTotalStats: [ResolvedShareStat]
+    let climb: Climb?
+    let imageVariants: [ClimbImageVariant]
+    let onPickStat: (ResolvedShareStat) -> Void
+    let onPickInjected: (ResolvedShareStat) -> Void
+    let onPickImage: (ClimbImageVariant) -> Void
+
+    @State private var tab: Tab = .primary
+    enum Tab { case primary, totals }
 
     private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+    private let lime = Color(red: 0.706, green: 0.8, blue: 0)
+
+    /// Left tab is "Climb" when sharing a climb, otherwise "Workout".
+    private var primaryLabel: String { climb == nil ? "Workout" : "Climb" }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Add to your share")
-                .font(.montserratBold(size: 18))
-                .foregroundStyle(.white)
+        VStack(spacing: 0) {
+            tabPill
                 .padding(.horizontal, 24)
-                .padding(.top, 24)
+                .padding(.top, 18)
                 .padding(.bottom, 16)
 
             ScrollView {
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(stats, id: \.kind) { stat in
-                        Button { onPick(stat) } label: {
-                            VStack(spacing: 6) {
-                                Text(stat.value)
-                                    .font(.montserratBold(size: 26))
-                                    .foregroundStyle(.white)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.6)
-                                Text(stat.label)
-                                    .font(.montserratSemiBold(size: 10))
-                                    .tracking(1.5)
-                                    .foregroundStyle(Color(red: 0.706, green: 0.8, blue: 0))
-                            }
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 88)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(.white.opacity(0.05))
-                                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
+                if tab == .primary {
+                    primaryContent
+                } else {
+                    totalsContent
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 32)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    // MARK: - Tabs
+
+    private var tabPill: some View {
+        HStack(spacing: 0) {
+            tabButton(primaryLabel, tab: .primary)
+            tabButton("Totals", tab: .totals)
+        }
+        .padding(4)
+        .background(.white.opacity(0.06), in: Capsule(style: .continuous))
+        .overlay(Capsule(style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
+    }
+
+    private func tabButton(_ label: String, tab destination: Tab) -> some View {
+        Button {
+            guard tab != destination else { return }
+            HapticsManager.shared.trigger(.lightImpact)
+            tab = destination
+        } label: {
+            Text(label)
+                .font(.montserratSemiBold(size: 14))
+                .foregroundStyle(tab == destination ? .white : .white.opacity(0.5))
+                .frame(maxWidth: .infinity)
+                .frame(height: 38)
+                .background {
+                    if tab == destination {
+                        Capsule(style: .continuous).fill(.white.opacity(0.12))
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Climb / Workout tab
+
+    private var primaryContent: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            if let climb, !imageVariants.isEmpty {
+                section("CLIMB") {
+                    HStack(spacing: 12) {
+                        ForEach(imageVariants, id: \.self) { variant in
+                            Button { onPickImage(variant) } label: {
+                                ShareClimbImageVisual(climb: climb, variant: variant)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+
+            if !climbStats.isEmpty {
+                section("STATS") { statGrid(climbStats, onTap: onPickStat) }
+            }
+
+            if !bestEffortStats.isEmpty {
+                section("BEST EFFORTS") { statGrid(bestEffortStats, onTap: onPickInjected) }
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 32)
+    }
+
+    // MARK: - Totals tab
+
+    private var totalsContent: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            if weeklyTotalStats.isEmpty {
+                Text("No workouts yet this week.\nLog a session to share your weekly totals.")
+                    .font(.montserratMedium(size: 14))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(Color.customGray)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 44)
+            } else {
+                section("THIS WEEK") { statGrid(weeklyTotalStats, onTap: onPickInjected) }
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 32)
+    }
+
+    // MARK: - Reusable bits
+
+    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeader(title)
+            content()
+        }
+    }
+
+    private func statGrid(_ stats: [ResolvedShareStat], onTap: @escaping (ResolvedShareStat) -> Void) -> some View {
+        LazyVGrid(columns: columns, spacing: 12) {
+            ForEach(stats, id: \.label) { stat in
+                Button { onTap(stat) } label: { statTile(stat) }
+                    .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func statTile(_ stat: ResolvedShareStat) -> some View {
+        VStack(spacing: 6) {
+            Text(stat.value)
+                .font(.montserratBold(size: 24))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+            Text(stat.label)
+                .font(.montserratSemiBold(size: 10))
+                .tracking(1.2)
+                .foregroundStyle(lime)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 88)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.white.opacity(0.05))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
+        )
+    }
+
+    private func sectionHeader(_ text: String) -> some View {
+        Text(text)
+            .font(.montserratSemiBold(size: 11))
+            .tracking(2)
+            .foregroundStyle(lime)
     }
 }
 
@@ -487,5 +833,142 @@ private struct ShareFontPickerSheet: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+}
+
+/// Sheet to arrange a stat sticker's metrics: pick a layout (row / 2×2 grid /
+/// column) and select/deselect which metrics appear. Stat *values* aren't
+/// editable here — only the arrangement and which metrics show (they're the
+/// truth). Reads/writes the live view model so the canvas updates as you toggle.
+private struct ShareStructureSheet: View {
+    let viewModel: ShareComposerViewModel
+    let stickerID: UUID
+
+    private let lime = Color(red: 0.706, green: 0.8, blue: 0)
+    private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+
+    private var sticker: ShareStickerInstance? {
+        viewModel.stickers.first { $0.id == stickerID }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text("Arrange stats")
+                .font(.montserratBold(size: 16))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.top, 20)
+                .padding(.bottom, 16)
+
+            if let sticker {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 22) {
+                        layoutSection(current: sticker.layout)
+                        metricSection(sticker: sticker)
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 32)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    // MARK: - Layout
+
+    private func layoutSection(current: ShareStatLayout) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            header("LAYOUT")
+            HStack(spacing: 12) {
+                layoutButton(.row, icon: "rectangle.split.3x1", current: current)
+                layoutButton(.grid, icon: "square.grid.2x2", current: current)
+                layoutButton(.column, icon: "rectangle.split.1x2", current: current)
+            }
+        }
+    }
+
+    private func layoutButton(_ layout: ShareStatLayout, icon: String, current: ShareStatLayout) -> some View {
+        let isOn = layout == current
+        return Button {
+            HapticsManager.shared.trigger(.lightImpact)
+            viewModel.setLayout(layout, for: stickerID)
+        } label: {
+            Image(systemName: icon)
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(isOn ? .black : .white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 56)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(isOn ? lime : .white.opacity(0.06))
+                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Metrics
+
+    private func metricSection(sticker: ShareStickerInstance) -> some View {
+        let palette = viewModel.paletteRefs(for: sticker)
+        let selected = Set(sticker.statRefs)
+        return VStack(alignment: .leading, spacing: 10) {
+            header("METRICS")
+            LazyVGrid(columns: columns, spacing: 12) {
+                ForEach(palette, id: \.self) { ref in
+                    let stat = viewModel.resolved(ref)
+                    metricChip(
+                        label: stat?.label ?? "",
+                        value: stat?.value ?? "",
+                        isOn: selected.contains(ref)
+                    ) {
+                        HapticsManager.shared.trigger(.lightImpact)
+                        viewModel.toggleStat(ref, for: stickerID)
+                    }
+                }
+            }
+        }
+    }
+
+    private func metricChip(label: String, value: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(isOn ? lime : .white.opacity(0.4))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(value)
+                        .font(.montserratBold(size: 16))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    Text(label)
+                        .font(.montserratSemiBold(size: 9))
+                        .tracking(1)
+                        .foregroundStyle(Color.customGray)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 60)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(.white.opacity(0.05))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(isOn ? lime.opacity(0.6) : .white.opacity(0.08), lineWidth: isOn ? 1.5 : 1)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func header(_ text: String) -> some View {
+        Text(text)
+            .font(.montserratSemiBold(size: 11))
+            .tracking(2)
+            .foregroundStyle(lime)
     }
 }
