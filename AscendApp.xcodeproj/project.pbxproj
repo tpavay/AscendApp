@@ -17,6 +17,7 @@
 		9B1000012F22000000100001 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 9B1000052F22000000100005 /* RevenueCat */; };
 		9B1000022F22000000100002 /* SuperwallKit in Frameworks */ = {isa = PBXBuildFile; productRef = 9B1000062F22000000100006 /* SuperwallKit */; };
 		9B2000022F23000000100002 /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = 9B2000012F23000000100001 /* FirebaseFunctions */; };
+		9C3000012F2A000000100001 /* Mixpanel in Frameworks */ = {isa = PBXBuildFile; productRef = 9C3000032F2A000000100003 /* Mixpanel */; };
 		A20000012F10000000000001 /* AscendLiveActivityWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A20000012F10000000000003 /* AscendLiveActivityWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -118,6 +119,7 @@
 				9B2000022F23000000100002 /* FirebaseFunctions in Frameworks */,
 				9B1000012F22000000100001 /* RevenueCat in Frameworks */,
 				9B1000022F22000000100002 /* SuperwallKit in Frameworks */,
+				9C3000012F2A000000100001 /* Mixpanel in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -208,6 +210,7 @@
 				9B2000012F23000000100001 /* FirebaseFunctions */,
 				9B1000052F22000000100005 /* RevenueCat */,
 				9B1000062F22000000100006 /* SuperwallKit */,
+				9C3000032F2A000000100003 /* Mixpanel */,
 			);
 			productName = AscendApp;
 			productReference = 9A5E4D822E2406F8008DE803 /* AscendApp.app */;
@@ -295,6 +298,7 @@
 				9A4D66FB2E49447800EEAE1D /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 				9B1000032F22000000100003 /* XCRemoteSwiftPackageReference "purchases-ios" */,
 				9B1000042F22000000100004 /* XCRemoteSwiftPackageReference "Superwall-iOS" */,
+				9C3000022F2A000000100002 /* XCRemoteSwiftPackageReference "mixpanel-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 9A5E4D832E2406F8008DE803 /* Products */;
@@ -968,6 +972,14 @@
 				minimumVersion = 4.15.3;
 			};
 		};
+		9C3000022F2A000000100002 /* XCRemoteSwiftPackageReference "mixpanel-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mixpanel/mixpanel-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 6.3.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1020,6 +1032,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 9A8E4CE42E2418D200C78912 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseFunctions;
+		};
+		9C3000032F2A000000100003 /* Mixpanel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9C3000022F2A000000100002 /* XCRemoteSwiftPackageReference "mixpanel-swift" */;
+			productName = Mixpanel;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

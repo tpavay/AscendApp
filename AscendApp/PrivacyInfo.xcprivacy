@@ -42,10 +42,10 @@
     <!-- ============================================================ -->
     <!--
       Ascend does not perform cross-app or cross-site tracking as defined by
-      App Tracking Transparency. Firebase Analytics is enabled in
-      Release/TestFlight builds but is configured without IDFA collection
-      (IS_ADS_ENABLED=false) and is used only for first-party app telemetry.
-      No ad networks are integrated.
+      App Tracking Transparency. Firebase Analytics and Mixpanel are enabled in
+      Release/TestFlight builds for first-party app telemetry. Firebase is
+      configured without IDFA collection (IS_ADS_ENABLED=false), Mixpanel does
+      not use IDFA by default, and no ad networks are integrated.
     -->
     <key>NSPrivacyTracking</key>
     <false/>
@@ -169,7 +169,7 @@
             </array>
         </dict>
 
-        <!-- Product Interaction — first-party telemetry breadcrumbs (Release/TestFlight only) -->
+        <!-- Product Interaction — first-party telemetry via Firebase Analytics and Mixpanel (Release/TestFlight only) -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeProductInteraction</string>

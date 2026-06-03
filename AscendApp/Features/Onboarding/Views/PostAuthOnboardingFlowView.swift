@@ -31,12 +31,10 @@ private struct PostAuthOnboardingDisplayNameScreen: View {
     @State private var isSaving = false
     @State private var validationMessage: String?
 
-    private let plannedQuestionCount = 5
-
     var body: some View {
         OnboardingQuestionScaffold(
             progressIndex: stage.progressIndex,
-            progressCount: plannedQuestionCount,
+            progressCount: PostAuthOnboardingStage.plannedStepCount,
             backgroundImageName: "OnboardingQuestionsBackground",
             eyebrow: "FIRST THINGS FIRST",
             headline: "What Should\nWe Call You?",
@@ -159,6 +157,9 @@ private struct PostAuthOnboardingDisplayNameScreen: View {
     }
 
     private func handleBack() {
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.backTapped(context: stage.analyticsContext)
+        )
         authVM.signOut()
     }
 }

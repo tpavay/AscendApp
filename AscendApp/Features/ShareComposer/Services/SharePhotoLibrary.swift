@@ -19,9 +19,13 @@ final class SharePhotoLibrary {
     private(set) var accessState: AccessState = .unknown
     private(set) var assets: [PHAsset] = []
 
-    private let imageManager = PHCachingImageManager()
+    /// PhotoKit's image manager is thread-safe and its request callbacks fire on
+    /// background queues, so the loading methods below are `nonisolated`. The
+    /// manager is therefore accessed off the main actor — `nonisolated(unsafe)`
+    /// is safe because `PHCachingImageManager` is itself thread-safe.
+    nonisolated(unsafe) private let imageManager = PHCachingImageManager()
 
-    /// Non-Sendable image ferried across a Photos callback boundary.
+    /// Non-Sendable values ferried across a Photos callback boundary.
     private struct SendableImage: @unchecked Sendable { let image: UIImage? }
     private struct SendableURL: @unchecked Sendable { let url: URL? }
 
@@ -67,8 +71,15 @@ final class SharePhotoLibrary {
     }
 
     // MARK: - Loading
+    //
+    // These are `nonisolated` so PhotoKit can invoke their result handlers on
+    // its own background queues without tripping a main-actor executor
+    // assertion (`dispatch_assert_queue`). They take the asset's `localIdentifier`
+    // (a `Sendable` String) rather than the non-Sendable `PHAsset`, re-fetching
+    // the asset off the main actor.
 
-    func thumbnail(for asset: PHAsset, size: CGFloat) async -> UIImage? {
+    nonisolated func thumbnail(forIdentifier id: String, size: CGFloat) async -> UIImage? {
+        guard let asset = Self.fetchAsset(id) else { return nil }
         let target = CGSize(width: size * 2, height: size * 2)
         let options = PHImageRequestOptions()
         options.deliveryMode = .highQualityFormat
@@ -86,7 +97,8 @@ final class SharePhotoLibrary {
         }
     }
 
-    func fullImage(for asset: PHAsset) async -> UIImage? {
+    nonisolated func fullImage(forIdentifier id: String) async -> UIImage? {
+        guard let asset = Self.fetchAsset(id) else { return nil }
         let options = PHImageRequestOptions()
         options.deliveryMode = .highQualityFormat
         options.isNetworkAccessAllowed = true
@@ -103,7 +115,8 @@ final class SharePhotoLibrary {
         }
     }
 
-    func videoURL(for asset: PHAsset) async -> URL? {
+    nonisolated func videoURL(forIdentifier id: String) async -> URL? {
+        guard let asset = Self.fetchAsset(id) else { return nil }
         let options = PHVideoRequestOptions()
         options.deliveryMode = .highQualityFormat
         options.isNetworkAccessAllowed = true
@@ -113,5 +126,9 @@ final class SharePhotoLibrary {
                 continuation.resume(returning: SendableURL(url: url).url)
             }
         }
+    }
+
+    nonisolated private static func fetchAsset(_ id: String) -> PHAsset? {
+        PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject
     }
 }

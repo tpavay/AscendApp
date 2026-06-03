@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreImage
 import Photos
 import SwiftUI
 import UIKit
@@ -32,24 +33,146 @@ struct ShareComposerExporter {
         return renderer.uiImage
     }
 
-    /// Whether the composed background is a video (full export not yet supported).
+    /// Whether the composed background is a video.
     func isVideoBackground(_ viewModel: ShareComposerViewModel) -> Bool {
         viewModel.background?.isVideo ?? false
     }
 
+    /// Render just the sticker/wordmark overlay (transparent background) at the
+    /// given size — used as the layer composited onto a video.
+    func renderOverlay(viewModel: ShareComposerViewModel, size: CGSize) -> UIImage? {
+        let canvas = ShareExportCanvas(viewModel: viewModel, size: size, overlayOnly: true)
+        let renderer = ImageRenderer(content: canvas)
+        renderer.scale = 1
+        renderer.isOpaque = false
+        return renderer.uiImage
+    }
+
+    /// Bake a recap card (climb artwork + laid-out stats) to a full-resolution
+    /// image, used as a ready-made background. The climb artwork must already be
+    /// in memory (the Recaps tab renders the same card first, warming the cache)
+    /// so this synchronous render captures it.
+    func renderRecap(_ card: ShareRecapCard) -> UIImage? {
+        let sized = card.frame(width: Self.exportSize.width, height: Self.exportSize.height)
+        let renderer = ImageRenderer(content: sized)
+        renderer.scale = 1
+        renderer.isOpaque = true
+        return renderer.uiImage
+    }
+
     // MARK: - Save to Photos
+
+    /// Ferries a non-Sendable `UIImage` into the nonisolated Photos change block.
+    private struct UncheckedImage: @unchecked Sendable { let image: UIImage }
 
     /// Saves the image to the Photos library (add-only permission). Returns true
     /// on success. Requires `NSPhotoLibraryAddUsageDescription` in Info.plist.
     func saveToPhotos(_ image: UIImage) async -> Bool {
         let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         guard status == .authorized || status == .limited else { return false }
-        return await withCheckedContinuation { continuation in
-            PHPhotoLibrary.shared().performChanges {
-                PHAssetChangeRequest.creationRequestForAsset(from: image)
-            } completionHandler: { success, _ in
-                continuation.resume(returning: success)
+        return await Self.writeToLibrary(image)
+    }
+
+    /// Performs the actual library write OFF the main actor.
+    ///
+    /// `PHPhotoLibrary` runs the change block on its own private serial queue.
+    /// A change block created inside this `@MainActor` type is implicitly
+    /// inferred MainActor-isolated, so running it off-main trips
+    /// `dispatch_assert_queue` and crashes with `EXC_BREAKPOINT`
+    /// (see Apple DTS forum 763665 / swiftlang/swift#75453). Marking this
+    /// helper `nonisolated` keeps the change block free of MainActor isolation
+    /// so Photos can run it on its queue safely.
+    nonisolated private static func writeToLibrary(_ image: UIImage) async -> Bool {
+        let boxed = UncheckedImage(image: image)
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                let request = PHAssetChangeRequest.creationRequestForAsset(from: boxed.image)
+                // Stamp "now" so it sorts as the most recent item.
+                request.creationDate = Date()
             }
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    // MARK: - Video export (overlays composited onto the video)
+
+    /// Ferries a non-Sendable `CIImage` into the (`@Sendable`) per-frame handler.
+    private struct UncheckedCIImage: @unchecked Sendable { let image: CIImage }
+
+    /// Exports the video background with the sticker/wordmark overlay burned in,
+    /// returning a temporary file URL (or nil on failure). The overlay is
+    /// rendered once and composited over every frame via Core Image.
+    func exportVideo(viewModel: ShareComposerViewModel) async -> URL? {
+        guard case .video(let url) = viewModel.background else { return nil }
+        let asset = AVURLAsset(url: url)
+        guard let renderSize = await Self.videoRenderSize(asset) else { return nil }
+
+        // Render the overlay at the video's display size so it aligns 1:1.
+        guard let overlay = renderOverlay(viewModel: viewModel, size: renderSize),
+              let overlayCI = CIImage(image: overlay) else {
+            return nil
+        }
+        return await Self.composeVideo(asset: asset, overlay: UncheckedCIImage(image: overlayCI))
+    }
+
+    /// The asset's display (orientation-applied) size.
+    nonisolated private static func videoRenderSize(_ asset: AVURLAsset) async -> CGSize? {
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+              let natural = try? await track.load(.naturalSize),
+              let transform = try? await track.load(.preferredTransform) else {
+            return nil
+        }
+        let rect = CGRect(origin: .zero, size: natural).applying(transform)
+        let size = CGSize(width: abs(rect.width), height: abs(rect.height))
+        return (size.width > 0 && size.height > 0) ? size : natural
+    }
+
+    nonisolated private static func composeVideo(asset: AVURLAsset, overlay: UncheckedCIImage) async -> URL? {
+        // Composite the static overlay over every frame. The source image is
+        // already display-oriented, so the same-size overlay lines up.
+        let videoComposition = AVVideoComposition(asset: asset) { request in
+            let source = request.sourceImage
+            let composited = overlay.image.composited(over: source)
+            request.finish(with: composited.cropped(to: source.extent), context: nil)
+        }
+
+        guard let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality) else {
+            return nil
+        }
+        let outURL = FileManager.default.temporaryDirectory
+            .appending(path: "ascend-share-\(UUID().uuidString).mov")
+        export.videoComposition = videoComposition
+        export.outputURL = outURL
+        export.outputFileType = .mov
+
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            export.exportAsynchronously { continuation.resume() }
+        }
+        return export.status == .completed ? outURL : nil
+    }
+
+    /// Saves an exported video file to Photos (add-only). See `writeToLibrary`
+    /// for why the change block runs off the main actor.
+    func saveVideoToPhotos(_ url: URL) async -> Bool {
+        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        guard status == .authorized || status == .limited else { return false }
+        return await Self.writeVideoToLibrary(url)
+    }
+
+    nonisolated private static func writeVideoToLibrary(_ url: URL) async -> Bool {
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                let request = PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
+                // The exported file carries the source video's date metadata, so
+                // Photos would otherwise file it next to the original. Stamp "now"
+                // so it lands as the most recent item.
+                request?.creationDate = Date()
+            }
+            return true
+        } catch {
+            return false
         }
     }
 
@@ -79,13 +202,16 @@ struct ShareComposerExporter {
 
     // MARK: - System share sheet
 
-    func presentShareSheet(image: UIImage) {
+    func presentShareSheet(image: UIImage) { present(items: [image]) }
+    func presentShareSheet(url: URL) { present(items: [url]) }
+
+    private func present(items: [Any]) {
         guard let scene = UIApplication.shared.connectedScenes
             .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
               let root = scene.keyWindow?.rootViewController else {
             return
         }
-        let activityVC = UIActivityViewController(activityItems: [image], applicationActivities: nil)
+        let activityVC = UIActivityViewController(activityItems: items, applicationActivities: nil)
         // Present from the top-most controller.
         var presenter = root
         while let presented = presenter.presentedViewController {

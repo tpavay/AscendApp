@@ -3,6 +3,9 @@ import Foundation
 enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
     case displayName
 
+    static let flowID = "post_auth_onboarding"
+    static let plannedStepCount = 5
+
     static var allCases: [PostAuthOnboardingStage] {
         [
             .displayName
@@ -24,6 +27,15 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
 
     static var first: PostAuthOnboardingStage {
         .displayName
+    }
+
+    var analyticsContext: OnboardingAnalyticsContext {
+        OnboardingAnalyticsContext(
+            flowID: Self.flowID,
+            stepID: rawValue,
+            stepIndex: progressIndex,
+            stepCount: Self.plannedStepCount
+        )
     }
 }
 

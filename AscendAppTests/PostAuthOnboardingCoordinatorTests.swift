@@ -9,6 +9,8 @@ struct PostAuthOnboardingCoordinatorTests {
             .displayName
         ])
         #expect(PostAuthOnboardingStage.first == .displayName)
+        #expect(PostAuthOnboardingStage.flowID == "post_auth_onboarding")
+        #expect(PostAuthOnboardingStage.plannedStepCount == 5)
     }
 
     @MainActor

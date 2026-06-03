@@ -35,6 +35,7 @@ final class TelemetryManager: @unchecked Sendable {
         } else {
             var defaultSinks: [any TelemetrySink] = [
                 FirebaseTelemetrySink(),
+                MixpanelTelemetrySink(),
                 CrashlyticsBreadcrumbSink(reporter: reporter)
             ]
 

@@ -24,6 +24,8 @@ enum ShareStatStickerKind: String, CaseIterable, Identifiable, Codable, Sendable
     case climbRank       // "Nth finisher"
     // Derived achievement (resolved from the Best Effort cache, not the workout)
     case bestEffort
+    // Aggregate (resolved from this-week totals across workouts, not one workout)
+    case totals
 
     var id: String { rawValue }
 
@@ -111,6 +113,26 @@ struct RGBAColor: Equatable, Codable, Sendable {
     static let lime = RGBAColor(r: 0.706, g: 0.8, b: 0, a: 1)
 }
 
+/// Arrangement for a multi-metric (composite) stat sticker. Single-metric
+/// stickers ignore this. `grid` is the 2×2 "cube" (top-left, top-right,
+/// bottom-left, bottom-right).
+enum ShareStatLayout: String, CaseIterable, Identifiable, Codable, Sendable {
+    case row      // metrics side by side
+    case grid     // 2×2 cube
+    case column   // stacked vertically
+
+    var id: String { rawValue }
+}
+
+/// A reference to one resolvable stat: its kind plus, for injected stats
+/// (`.bestEffort` / `.totals`), the key identifying which value. Composite
+/// stickers hold several of these. The value itself is always resolved live
+/// from canonical data — only the reference is stored.
+struct ShareStatRef: Hashable, Codable, Sendable {
+    var kind: ShareStatStickerKind
+    var injectedStatKey: String?
+}
+
 /// One placed sticker on the canvas. Position is normalized (0...1) relative to
 /// the canvas so it survives different export sizes; scale and rotation are the
 /// user's gesture transforms.
@@ -127,6 +149,31 @@ struct ShareStickerInstance: Identifiable, Equatable {
     var font: ShareStickerFont
     var color: RGBAColor
     var textBackground: ShareTextBackground
+    /// When set, this sticker renders the climb's artwork (an image overlay)
+    /// instead of a stat; `kind` is unused in that case.
+    var climbImageVariant: ClimbImageVariant?
+    /// Selector for injected stats whose value isn't resolvable from the workout
+    /// alone (`.bestEffort`, `.totals`). Identifies *which* injected stat this
+    /// sticker shows; the value is still read live from the view model's
+    /// injected lists at render time (never stored on the model).
+    var injectedStatKey: String?
+    /// Extra metrics beyond the primary (`kind` + `injectedStatKey`), making this
+    /// a composite sticker. Empty = single-metric sticker (the common case).
+    var extraStats: [ShareStatRef]
+    /// Arrangement used when the sticker shows more than one metric.
+    var layout: ShareStatLayout
+
+    /// Image stickers (climb artwork) don't take text styling.
+    var isImage: Bool { climbImageVariant != nil }
+
+    /// The primary metric as a reference.
+    var primaryStatRef: ShareStatRef { ShareStatRef(kind: kind, injectedStatKey: injectedStatKey) }
+    /// All metrics in display order (primary first, then extras).
+    var statRefs: [ShareStatRef] { [primaryStatRef] + extraStats }
+    /// True when the sticker renders more than one metric.
+    var isComposite: Bool { !extraStats.isEmpty }
+    /// True when this is a text sticker that includes the climb name (renameable).
+    var containsClimbName: Bool { !isImage && statRefs.contains { $0.kind == .climbName } }
 
     init(
         id: UUID = UUID(),
@@ -137,7 +184,11 @@ struct ShareStickerInstance: Identifiable, Equatable {
         rotationRadians: Double = 0,
         font: ShareStickerFont = .montserrat,
         color: RGBAColor = .white,
-        textBackground: ShareTextBackground = .none
+        textBackground: ShareTextBackground = .none,
+        climbImageVariant: ClimbImageVariant? = nil,
+        injectedStatKey: String? = nil,
+        extraStats: [ShareStatRef] = [],
+        layout: ShareStatLayout = .row
     ) {
         self.id = id
         self.kind = kind
@@ -148,6 +199,10 @@ struct ShareStickerInstance: Identifiable, Equatable {
         self.font = font
         self.color = color
         self.textBackground = textBackground
+        self.climbImageVariant = climbImageVariant
+        self.injectedStatKey = injectedStatKey
+        self.extraStats = extraStats
+        self.layout = layout
     }
 }
 

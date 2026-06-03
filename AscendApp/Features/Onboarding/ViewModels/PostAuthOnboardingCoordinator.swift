@@ -33,6 +33,7 @@ final class PostAuthOnboardingCoordinator {
 
         phase = snapshot.isComplete ? .complete : .onboarding(snapshot.currentStage)
         recordLifecycleSnapshot(snapshot)
+        recordStepViewedIfNeeded(snapshot)
     }
 
     func completeCurrentStage() {
@@ -41,12 +42,19 @@ final class PostAuthOnboardingCoordinator {
 
         var snapshot = store.snapshot(for: userId)
         snapshot.completedStages.insert(stage)
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.stepCompleted(
+                context: stage.analyticsContext,
+                actionID: "continue"
+            )
+        )
 
         if let nextStage = stage.next {
             snapshot.currentStage = nextStage
             store.save(snapshot, for: userId)
             phase = .onboarding(nextStage)
             recordLifecycleSnapshot(snapshot)
+            recordStepViewedIfNeeded(snapshot)
         } else {
             snapshot.isComplete = true
             snapshot.completedAt = Date()
@@ -54,6 +62,9 @@ final class PostAuthOnboardingCoordinator {
             SettingsManager.shared.hasCompletedBaseLevelOnboarding = true
             phase = .complete
             recordLifecycleSnapshot(snapshot)
+            TelemetryManager.shared.track(
+                OnboardingAnalyticsEvent.flowCompleted(context: stage.analyticsContext)
+            )
         }
     }
 
@@ -63,6 +74,10 @@ final class PostAuthOnboardingCoordinator {
               let currentIndex = PostAuthOnboardingStage.allCases.firstIndex(of: stage),
               currentIndex > PostAuthOnboardingStage.allCases.startIndex else { return }
 
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.backTapped(context: stage.analyticsContext)
+        )
+
         let previousIndex = PostAuthOnboardingStage.allCases.index(before: currentIndex)
         let previousStage = PostAuthOnboardingStage.allCases[previousIndex]
         var snapshot = store.snapshot(for: userId)
@@ -70,6 +85,7 @@ final class PostAuthOnboardingCoordinator {
         store.save(snapshot, for: userId)
         phase = .onboarding(previousStage)
         recordLifecycleSnapshot(snapshot)
+        recordStepViewedIfNeeded(snapshot)
     }
 
     func resetCurrentUser() {
@@ -78,6 +94,7 @@ final class PostAuthOnboardingCoordinator {
         let snapshot = store.snapshot(for: userId)
         phase = .onboarding(.first)
         recordLifecycleSnapshot(snapshot)
+        recordStepViewedIfNeeded(snapshot)
         NotificationCenter.default.post(name: .postAuthOnboardingStateDidChange, object: nil)
     }
 
@@ -107,6 +124,14 @@ final class PostAuthOnboardingCoordinator {
                 completedStages: completedStages
             )
         }
+    }
+
+    private func recordStepViewedIfNeeded(_ snapshot: PostAuthOnboardingSnapshot) {
+        guard !snapshot.isComplete else { return }
+
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.stepViewed(context: snapshot.currentStage.analyticsContext)
+        )
     }
 
     private func normalized(_ snapshot: PostAuthOnboardingSnapshot) -> PostAuthOnboardingSnapshot {

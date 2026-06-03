@@ -28,8 +28,12 @@ struct ShareStatResolver {
     func resolve(_ kind: ShareStatStickerKind) -> ResolvedShareStat? {
         switch kind {
         case .workoutName:
+            // For climbs the dedicated climb-name sticker covers this, so don't
+            // offer a duplicate. The "ASCEND" branding lives only in the
+            // always-on bottom wordmark, never tied to a stat.
+            if isClimb { return nil }
             let name = workout.name.isEmpty ? "Stair Workout" : workout.name
-            return ResolvedShareStat(kind: kind, label: "ASCEND", value: name)
+            return ResolvedShareStat(kind: kind, label: "WORKOUT", value: name)
 
         case .date:
             return ResolvedShareStat(kind: kind, label: "DATE", value: Self.dateFormatter.string(from: workout.date))
@@ -79,9 +83,10 @@ struct ShareStatResolver {
             guard let climbRank, climbRank > 0 else { return nil }
             return ResolvedShareStat(kind: kind, label: "FINISHER", value: "#\(climbRank)")
 
-        case .bestEffort:
-            // Best Effort isn't on the Workout — it's injected into the view
-            // model from the Best Effort cache. The resolver can't produce it.
+        case .bestEffort, .totals:
+            // Injected stats: Best Effort comes from the Best Effort cache and
+            // Totals from this-week aggregates. Neither is resolvable from a
+            // single Workout, so the view model supplies them.
             return nil
         }
     }

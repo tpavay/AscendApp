@@ -8,21 +8,25 @@ struct ShareExportCanvas: View {
     let size: CGSize
     /// Poster frame substituted for a video background at export time.
     var backgroundOverride: UIImage?
+    /// When true, render only the stickers + wordmark on a transparent canvas
+    /// (used as the overlay composited onto a video).
+    var overlayOnly: Bool = false
 
     var body: some View {
         let canvasScale = size.width / 390
 
         ZStack {
-            backgroundLayer
+            if !overlayOnly {
+                Color.black
+                backgroundLayer
+            }
 
             ForEach(viewModel.stickers) { sticker in
-                if let stat = viewModel.resolve(sticker.kind) {
-                    ShareStatStickerContent(
-                        stat: stat,
-                        style: sticker.style,
-                        font: sticker.font,
-                        color: sticker.color,
-                        textBackground: sticker.textBackground
+                if sticker.isImage || !viewModel.resolvedStats(for: sticker).isEmpty {
+                    ShareStickerVisual(
+                        instance: sticker,
+                        stats: viewModel.resolvedStats(for: sticker),
+                        climb: viewModel.climb
                     )
                         .scaleEffect(sticker.scale * canvasScale)
                         .rotationEffect(.radians(sticker.rotationRadians))
@@ -45,16 +49,30 @@ struct ShareExportCanvas: View {
 
     @ViewBuilder
     private var backgroundLayer: some View {
+        // Same pan/zoom as the editing canvas (offset is a canvas fraction, so it
+        // maps to the export size). The outer ZStack clip trims any overflow.
+        let scale = viewModel.backgroundScale
+        let offX = viewModel.backgroundOffset.width * size.width
+        let offY = viewModel.backgroundOffset.height * size.height
+
         if let backgroundOverride {
             Image(uiImage: backgroundOverride)
                 .resizable()
                 .scaledToFill()
                 .frame(width: size.width, height: size.height)
-                .clipped()
+                .shareBackgroundFilter(viewModel.backgroundFilter)
+                .scaleEffect(scale)
+                .offset(x: offX, y: offY)
         } else if let background = viewModel.background {
-            ShareBackgroundView(source: background, isStatic: true)
-                .frame(width: size.width, height: size.height)
-                .clipped()
+            ShareBackgroundView(
+                source: background,
+                isStatic: true,
+                filter: viewModel.backgroundFilter,
+                processedImage: viewModel.processedBackgroundImage
+            )
+            .frame(width: size.width, height: size.height)
+            .scaleEffect(scale)
+            .offset(x: offX, y: offY)
         } else {
             Color.black
         }

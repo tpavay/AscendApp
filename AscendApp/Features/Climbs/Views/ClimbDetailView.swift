@@ -16,6 +16,7 @@ struct ClimbDetailView: View {
     @State private var showingBrowseClimbs = false
     @State private var showingFlyover = false
     @State private var showingLiveClimbSession = false
+    @State private var selectedHistoryWorkout: Workout?
     @State private var showingHeadphoneHelp = false
     @State private var isHeroCardFlipped = false
     @State private var didTrackDetailViewed = false
@@ -95,6 +96,9 @@ struct ClimbDetailView: View {
         }
         .fullScreenCover(isPresented: $showingFlyover) {
             ClimbFlyoverScreen(climb: viewModel.climb)
+        }
+        .navigationDestination(item: $selectedHistoryWorkout) { workout in
+            WorkoutDetailView(workout: workout)
         }
         .navigationDestination(isPresented: $showingBrowseClimbs) {
             ClimbBrowseView(viewModel: browseViewModel, analyticsEntryPoint: .detailBrowse)
@@ -559,7 +563,14 @@ struct ClimbDetailView: View {
 
                 VStack(spacing: 0) {
                     ForEach(viewModel.historySummary.recentEntries) { entry in
-                        historyRow(for: entry)
+                        Button {
+                            if let workout = workout(forAttemptId: entry.attemptId) {
+                                selectedHistoryWorkout = workout
+                            }
+                        } label: {
+                            historyRow(for: entry)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.top, -2)
@@ -1171,6 +1182,18 @@ struct ClimbDetailView: View {
                 .foregroundStyle(Color.customGray)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Finds the workout backing a climb attempt so a history tap can open it.
+    private func workout(forAttemptId attemptId: UUID) -> Workout? {
+        let attemptKey = attemptId.uuidString
+        let climbAttemptRaw = WorkoutParticipationContextType.climbAttempt.rawValue
+        let descriptor = FetchDescriptor<WorkoutParticipation>(
+            predicate: #Predicate { participation in
+                participation.contextId == attemptKey && participation.contextTypeRawValue == climbAttemptRaw
+            }
+        )
+        return (try? modelContext.fetch(descriptor))?.first?.workout
     }
 
     private func historyRow(for entry: ClimbHistoryEntry) -> some View {
