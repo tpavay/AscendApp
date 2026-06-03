@@ -6,7 +6,7 @@ struct DailyClimbRecommendationPolicyTests {
     @Test
     func dayKeyUsesPreviousCalendarDayBeforeFourAM() throws {
         let calendar = utcCalendar
-        let date = try #require(date(year: 2026, month: 1, day: 2, hour: 3, minute: 59, calendar: calendar))
+        let date = try #require(makeDate(year: 2026, month: 1, day: 2, hour: 3, minute: 59, calendar: calendar))
 
         let key = DailyClimbRecommendationPolicy.dayKey(for: date, calendar: calendar)
 
@@ -16,7 +16,7 @@ struct DailyClimbRecommendationPolicyTests {
     @Test
     func dayKeyUsesCurrentCalendarDayAtFourAM() throws {
         let calendar = utcCalendar
-        let date = try #require(date(year: 2026, month: 1, day: 2, hour: 4, minute: 0, calendar: calendar))
+        let date = try #require(makeDate(year: 2026, month: 1, day: 2, hour: 4, minute: 0, calendar: calendar))
 
         let key = DailyClimbRecommendationPolicy.dayKey(for: date, calendar: calendar)
 
@@ -26,8 +26,8 @@ struct DailyClimbRecommendationPolicyTests {
     @Test
     func nextRolloverIsTodayWhenBeforeFourAM() throws {
         let calendar = utcCalendar
-        let date = try #require(date(year: 2026, month: 1, day: 2, hour: 3, minute: 0, calendar: calendar))
-        let expected = try #require(date(year: 2026, month: 1, day: 2, hour: 4, minute: 0, calendar: calendar))
+        let date = try #require(makeDate(year: 2026, month: 1, day: 2, hour: 3, minute: 0, calendar: calendar))
+        let expected = try #require(makeDate(year: 2026, month: 1, day: 2, hour: 4, minute: 0, calendar: calendar))
 
         let rollover = DailyClimbRecommendationPolicy.nextRolloverDate(after: date, calendar: calendar)
 
@@ -37,8 +37,8 @@ struct DailyClimbRecommendationPolicyTests {
     @Test
     func nextRolloverIsTomorrowWhenAtFourAM() throws {
         let calendar = utcCalendar
-        let date = try #require(date(year: 2026, month: 1, day: 2, hour: 4, minute: 0, calendar: calendar))
-        let expected = try #require(date(year: 2026, month: 1, day: 3, hour: 4, minute: 0, calendar: calendar))
+        let date = try #require(makeDate(year: 2026, month: 1, day: 2, hour: 4, minute: 0, calendar: calendar))
+        let expected = try #require(makeDate(year: 2026, month: 1, day: 3, hour: 4, minute: 0, calendar: calendar))
 
         let rollover = DailyClimbRecommendationPolicy.nextRolloverDate(after: date, calendar: calendar)
 
@@ -51,7 +51,7 @@ struct DailyClimbRecommendationPolicyTests {
         return calendar
     }
 
-    private func date(
+    private func makeDate(
         year: Int,
         month: Int,
         day: Int,
