@@ -690,31 +690,68 @@ private struct PreAuthGuideScreenView: View {
     @ViewBuilder
     private func guideArtwork(metrics: PreAuthGuideMetrics) -> some View {
         switch screen.kind {
+        case .landmarkCollage:
+            PreAuthLandmarkCollage(metrics: metrics)
         case .liveTracking:
             PreAuthLiveClimbCard(metrics: metrics)
                 .frame(width: metrics.width(236), height: metrics.height(396))
                 .position(x: metrics.x(195), y: metrics.y(317))
-        case .airPods:
-            Image("OnboardingAirPodsHero")
-                .resizable()
-                .scaledToFill()
-                .frame(width: metrics.width(420), height: metrics.height(306))
-                .clipped()
-                .position(x: metrics.x(194), y: metrics.y(288))
 
-            Text("100% Accurate")
-                .font(.montserratBold(size: metrics.font(28)))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.78)
-                .frame(width: metrics.width(227), height: metrics.height(53))
-                .background(OnboardingValuePalette.lime)
-                .position(x: metrics.x(189.5), y: metrics.y(467.5))
+            Image("OnboardingAirPodsCutout")
+                .resizable()
+                .scaledToFit()
+                .frame(width: metrics.width(199), height: metrics.height(145))
+                .position(x: metrics.x(294.5), y: metrics.y(464.5))
+                .accessibilityHidden(true)
         case .dailyClimb:
             PreAuthDailyClimbLeaderboard(metrics: metrics)
                 .frame(width: metrics.width(320), height: metrics.height(389), alignment: .top)
                 .offset(x: metrics.x(36), y: metrics.y(110))
         }
+    }
+}
+
+private struct PreAuthLandmarkCollage: View {
+    let metrics: PreAuthGuideMetrics
+
+    // Six bundled landmark assets fill seven Figma card slots; the repeat (Burj) hides in
+    // the 29pt sliver bleeding off the top-left edge, diagonally opposite its full card.
+    private static let topRowImages = [
+        "OnboardingLandmarkBurjCard",
+        "OnboardingLandmarkMachuCard",
+        "OnboardingLandmarkEmpireCard",
+        "OnboardingLandmarkEverestCard"
+    ]
+
+    private static let bottomRowImages = [
+        "OnboardingLandmarkStatueCard",
+        "OnboardingLandmarkEiffelCard",
+        "OnboardingLandmarkBurjCard"
+    ]
+
+    var body: some View {
+        ZStack {
+            row(images: Self.topRowImages)
+                .position(x: metrics.x(189.6), y: metrics.y(266.9))
+
+            row(images: Self.bottomRowImages)
+                .position(x: metrics.x(190.8), y: metrics.y(409.2))
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func row(images: [String]) -> some View {
+        HStack(spacing: metrics.width(10)) {
+            ForEach(images.indices, id: \.self) { index in
+                Image(images[index])
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: metrics.width(146), height: metrics.height(146))
+                    .clipShape(RoundedRectangle(cornerRadius: metrics.radius(24), style: .continuous))
+            }
+        }
+        .rotationEffect(.degrees(3.5))
     }
 }
 
@@ -924,8 +961,8 @@ private struct PreAuthGuideMetrics {
 
 private struct PreAuthGuideScreen: Identifiable {
     enum Kind {
+        case landmarkCollage
         case liveTracking
-        case airPods
         case dailyClimb
     }
 
@@ -936,14 +973,14 @@ private struct PreAuthGuideScreen: Identifiable {
 
     static let all: [PreAuthGuideScreen] = [
         PreAuthGuideScreen(
-            id: "realtime_climb",
-            kind: .liveTracking,
-            headline: "Track your climb in\nreal-time",
-            subtitle: "Connect your AirPods Pro or Apple Watch to track your climbs in realtime"
+            id: "summit_landmarks",
+            kind: .landmarkCollage,
+            headline: "Summit the worlds\nmost iconic landmarks",
+            subtitle: "Start small and make your way up to some of the tallest points on earth."
         ),
         PreAuthGuideScreen(
-            id: "airpods_accuracy",
-            kind: .airPods,
+            id: "real_time",
+            kind: .liveTracking,
             headline: "Track your climb in\nreal-time",
             subtitle: "Connect your AirPods Pro or Max to track your climbs in realtime"
         ),
@@ -960,4 +997,20 @@ private struct PreAuthGuideScreen: Identifiable {
     NavigationStack {
         PreAuthOnboardingValueCarouselScreen()
     }
+}
+
+#Preview("Guide — Summit Landmarks") {
+    PreAuthGuideScreenView(
+        screen: PreAuthGuideScreen.all[0],
+        onBack: {},
+        onContinue: {}
+    )
+}
+
+#Preview("Guide — Real-Time Tracking") {
+    PreAuthGuideScreenView(
+        screen: PreAuthGuideScreen.all[1],
+        onBack: {},
+        onContinue: {}
+    )
 }

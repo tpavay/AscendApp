@@ -12,6 +12,10 @@ final class FirebaseTelemetrySink: TelemetrySink, @unchecked Sendable {
         Analytics.setUserID(userID)
     }
 
+    func setUserProperty(_ name: String, value: String?) {
+        Analytics.setUserProperty(value, forName: name)
+    }
+
     func record(_ record: TelemetryRecord) {
         Analytics.logEvent(record.name, parameters: record.firebaseParameters)
     }
