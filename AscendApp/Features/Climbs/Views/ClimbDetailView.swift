@@ -1317,7 +1317,7 @@ struct ClimbDetailView: View {
     }
 
     private var isPrimaryActionEnabled: Bool {
-        viewModel.isActionEnabled && headphoneMotionService.readiness.canStartLiveClimb
+        viewModel.isActionEnabled
     }
 
     private var liveClimbHeadphoneHelpSheet: some View {
@@ -1422,7 +1422,7 @@ struct ClimbDetailView: View {
                     reason: .headphonesUnavailable
                 )
             )
-            actionErrorMessage = "Live climb attempts require compatible headphones."
+            actionErrorMessage = "Connect compatible headphones to start this live climb."
             return
         }
 

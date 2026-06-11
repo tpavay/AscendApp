@@ -122,6 +122,49 @@ struct ClimbServiceTests {
     }
 
     @Test
+    func liveClimbCompletionWithInterruptedTrackingRemainsLeaderboardEligible() throws {
+        let climb = makeClimb(id: "live-climb-interrupted-complete", requiredSteps: 1_000)
+        let service = ClimbService(catalogRepository: TestClimbCatalogRepository(climbs: [climb]))
+        let modelContext = try makeModelContext()
+        let climbStartedAt = Date(timeIntervalSince1970: 1_775_217_600)
+
+        modelContext.insert(ClimbAttempt(climbId: climb.id, startedAt: climbStartedAt))
+        try modelContext.save()
+
+        let trackingIntegrity = HeadphoneMotionTrackingIntegrity(
+            currentUnavailableDuration: 0,
+            totalUnavailableDuration: 18,
+            longestUnavailableDuration: 18,
+            interruptionCount: 1
+        )
+        let metadata = HeadphoneMotionWorkoutMetadata(
+            sampleCount: 500,
+            climbId: climb.id,
+            targetStepCount: climb.referenceStepCount,
+            stopReason: .targetReached,
+            trackingIntegrity: trackingIntegrity
+        )
+        let workout = Workout(
+            name: "Complete Interrupted Climb",
+            date: climbStartedAt.addingTimeInterval(60),
+            duration: 900,
+            steps: 1_000,
+            floors: 63,
+            stepsPerFloor: 16,
+            source: .headphoneMotion,
+            sourceMetadata: metadata.jsonString
+        )
+        modelContext.insert(workout)
+        try modelContext.save()
+
+        try service.apply(workouts: [workout], modelContext: modelContext)
+
+        let attempt = try #require(try modelContext.fetch(FetchDescriptor<ClimbAttempt>()).first)
+        #expect(attempt.status == .completed)
+        #expect(workout.participations.first?.leaderboardEligible == true)
+    }
+
+    @Test
     func laterWorkoutDoesNotAccumulateTowardPriorAttempt() throws {
         let climb = makeClimb(id: "restart-required-climb", requiredSteps: 1_000)
         let service = ClimbService(catalogRepository: TestClimbCatalogRepository(climbs: [climb]))

@@ -18,6 +18,25 @@ struct HeadphoneMotionSessionResult: Equatable, Sendable {
     let steps: Int
     let sampleCount: Int
     let stopReason: HeadphoneMotionSessionStopReason
+    let trackingIntegrity: HeadphoneMotionTrackingIntegrity
+
+    init(
+        startedAt: Date,
+        endedAt: Date,
+        duration: TimeInterval,
+        steps: Int,
+        sampleCount: Int,
+        stopReason: HeadphoneMotionSessionStopReason,
+        trackingIntegrity: HeadphoneMotionTrackingIntegrity = .verified
+    ) {
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.duration = duration
+        self.steps = steps
+        self.sampleCount = sampleCount
+        self.stopReason = stopReason
+        self.trackingIntegrity = trackingIntegrity
+    }
 
     var hasRecordedSteps: Bool {
         steps > 0
@@ -36,6 +55,9 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
     let stopReason: HeadphoneMotionSessionStopReason
     let splitIntervalSeconds: Int?
     let splitSteps: [Int]?
+    let trackingUnavailableDurationSeconds: TimeInterval?
+    let longestTrackingUnavailableDurationSeconds: TimeInterval?
+    let trackingInterruptionCount: Int?
 
     init(
         sampleCount: Int,
@@ -44,7 +66,8 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
         targetStepCount: Int?,
         climbTargetStepCount: Int? = nil,
         stopReason: HeadphoneMotionSessionStopReason,
-        splitCurve: LiveReplaySplitCurve? = nil
+        splitCurve: LiveReplaySplitCurve? = nil,
+        trackingIntegrity: HeadphoneMotionTrackingIntegrity = .verified
     ) {
         self.source = "headphone_motion"
         self.algorithmVersion = HeadphoneMotionStepDetector.algorithmVersion
@@ -57,6 +80,9 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
         self.stopReason = stopReason
         self.splitIntervalSeconds = splitCurve?.intervalSeconds
         self.splitSteps = splitCurve?.steps
+        self.trackingUnavailableDurationSeconds = trackingIntegrity.totalUnavailableDuration
+        self.longestTrackingUnavailableDurationSeconds = trackingIntegrity.longestUnavailableDuration
+        self.trackingInterruptionCount = trackingIntegrity.interruptionCount
     }
 
     var jsonString: String? {
