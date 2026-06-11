@@ -18,6 +18,17 @@ struct OnboardingValuePage: Identifiable {
         case fullBleed
     }
 
+    struct FullBleedHeroFrame {
+        let left: CGFloat
+        let top: CGFloat
+        let width: CGFloat
+        let height: CGFloat
+
+        static let progress = FullBleedHeroFrame(left: -37, top: -21, width: 464, height: 754)
+        static let landmarks = FullBleedHeroFrame(left: -1, top: -95, width: 390, height: 729)
+        static let `default` = FullBleedHeroFrame(left: 0, top: 0, width: 390, height: 580)
+    }
+
     let id: String
     let headline: String
     let subtitle: String
@@ -28,6 +39,7 @@ struct OnboardingValuePage: Identifiable {
     var heroXOffset: CGFloat
     var heroYOffset: CGFloat
     var heroRotation: Angle
+    var fullBleedHeroFrame: FullBleedHeroFrame
 
     init(
         id: String,
@@ -39,7 +51,8 @@ struct OnboardingValuePage: Identifiable {
         heroScale: CGFloat = 1,
         heroXOffset: CGFloat = 0,
         heroYOffset: CGFloat = 0,
-        heroRotation: Angle = .degrees(-1.5)
+        heroRotation: Angle = .degrees(-1.5),
+        fullBleedHeroFrame: FullBleedHeroFrame = .default
     ) {
         self.id = id
         self.headline = headline
@@ -51,5 +64,6 @@ struct OnboardingValuePage: Identifiable {
         self.heroXOffset = heroXOffset
         self.heroYOffset = heroYOffset
         self.heroRotation = heroRotation
+        self.fullBleedHeroFrame = fullBleedHeroFrame
     }
 }

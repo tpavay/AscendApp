@@ -13,6 +13,7 @@ struct AccountView: View {
     @Environment(\.dismiss) private var dismiss
     
     @State private var isShowingEditProfile = false
+    @State private var isShowingTermsOfService = false
     @State private var isShowingPrivacyPolicy = false
     @State private var isShowingSignOutConfirmation = false
     @State private var isShowingDeleteAccountConfirmation = false
@@ -60,6 +61,13 @@ struct AccountView: View {
         .sheet(isPresented: $isShowingPrivacyPolicy) {
             if let projectId = FirebaseApp.app()?.options.projectID,
                let url = URL(string: "https://\(projectId).web.app/privacy") {
+                SafariView(url: url)
+                    .ignoresSafeArea()
+            }
+        }
+        .sheet(isPresented: $isShowingTermsOfService) {
+            if let projectId = FirebaseApp.app()?.options.projectID,
+               let url = URL(string: "https://\(projectId).web.app/terms") {
                 SafariView(url: url)
                     .ignoresSafeArea()
             }
@@ -137,6 +145,13 @@ struct AccountView: View {
 
     private var supportOptions: [SettingsOption] {
         [
+            SettingsOption(
+                icon: .settingsTermsOfService,
+                title: "Terms of Service",
+                action: {
+                    isShowingTermsOfService = true
+                }
+            ),
             SettingsOption(
                 icon: .settingsPrivacyPolicy,
                 title: "Privacy Policy",

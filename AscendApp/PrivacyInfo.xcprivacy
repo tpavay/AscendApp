@@ -86,10 +86,24 @@
             </array>
         </dict>
 
-        <!-- Other Data Types — declared profile demographics: age, gender, weight, country/region -->
+        <!-- Other Data Types — declared profile demographics and onboarding first-climb preference -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeOtherDataTypes</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+
+        <!-- Coarse Location — user-selected profile city, region, and country for leaderboard/profile context -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeCoarseLocation</string>
             <key>NSPrivacyCollectedDataTypeLinked</key>
             <true/>
             <key>NSPrivacyCollectedDataTypeTracking</key>
@@ -275,6 +289,34 @@
                 <string>C617.1</string>
             </array>
 
+        </dict>
+
+        <!--
+          Disk Space — MapboxCommon / MapboxCoreMaps use disk-capacity APIs to
+          manage SDK-owned map tile caches and storage.
+          Reason E174.1: check available disk space before writing files.
+        -->
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryDiskSpace</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>E174.1</string>
+            </array>
+        </dict>
+
+        <!--
+          System Boot Time — MapboxCommon / MapboxCoreMaps use uptime APIs for
+          SDK timing, diagnostics, and cache/network coordination.
+          Reason 35F9.1: measure elapsed time inside the app process.
+        -->
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategorySystemBootTime</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>35F9.1</string>
+            </array>
         </dict>
     </array>
 </dict>

@@ -12,6 +12,7 @@ import SwiftData
 struct DebugToolsView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
+    @Environment(AuthenticationViewModel.self) private var authVM
     @State private var viewModel = DebugToolsViewModel()
     @State private var showSuccessAlert = false
     @State private var showErrorAlert = false
@@ -110,6 +111,30 @@ struct DebugToolsView: View {
                         description: "Choose the Home Live Climb card for screenshot setup",
                         icon: "photo.on.rectangle.angled",
                         iconColor: .accent
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
+                    ClimbMapboxPrototypeSurface()
+                } label: {
+                    inspectionRow(
+                        title: "Mapbox Prototype",
+                        description: "Render climb tokens on the contained Mapbox surface",
+                        icon: "map.fill",
+                        iconColor: .green
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
+                    JourneyPrototypeSurface()
+                } label: {
+                    inspectionRow(
+                        title: "Journey Prototype",
+                        description: "Test ordered climb circuits and MapKit route lines",
+                        icon: "point.topleft.down.curvedto.point.bottomright.up.fill",
+                        iconColor: .orange
                     )
                 }
                 .buttonStyle(.plain)
@@ -216,7 +241,11 @@ struct DebugToolsView: View {
                         isExecuting: viewModel.isExecuting(action),  // Check if THIS specific action is executing
                         onExecute: {
                             Task {
-                                await viewModel.executeAction(action, modelContext: modelContext)
+                                await viewModel.executeAction(
+                                    action,
+                                    modelContext: modelContext,
+                                    authVM: authVM
+                                )
                             }
                         }
                     )
@@ -280,6 +309,7 @@ struct DebugToolsView: View {
     NavigationStack {
         DebugToolsView()
     }
+    .environment(AuthenticationViewModel())
     .modelContainer(for: [Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self], inMemory: true)
 }
 #endif

@@ -14,6 +14,8 @@
 	<string>$(ASCEND_SUPERWALL_TEST_MODE)</string>
 	<key>AscendMixpanelToken</key>
 	<string>$(ASCEND_MIXPANEL_TOKEN)</string>
+	<key>MBXAccessToken</key>
+	<string>$(MAPBOX_ACCESS_TOKEN)</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

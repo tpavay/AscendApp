@@ -42,4 +42,68 @@ struct OnboardingAnalyticsEventTests {
         #expect(record.parameters["answer_id"] == .string("regular_stepper"))
         #expect(record.parameters["answer_index"] == .int(2))
     }
+
+    @Test
+    func authStartedUsesStableAuthContext() {
+        let record = OnboardingAnalyticsEvent.authStarted(provider: "apple").record
+
+        #expect(record.name == "onboarding_auth_started")
+        #expect(record.parameters["flow_id"] == .string("pre_auth_auth"))
+        #expect(record.parameters["step_id"] == .string("auth"))
+        #expect(record.parameters["provider"] == .string("apple"))
+    }
+
+    @Test
+    func notificationPermissionSelectedUsesStatusWithoutRawPermissionPayload() {
+        let context = OnboardingAnalyticsContext(
+            flowID: "post_auth_onboarding",
+            stepID: "notifications",
+            stepIndex: 5,
+            stepCount: 8
+        )
+
+        let record = OnboardingAnalyticsEvent.notificationPermissionSelected(
+            context: context,
+            status: "skipped"
+        ).record
+
+        #expect(record.name == "onboarding_notification_permission_selected")
+        #expect(record.parameters["step_id"] == .string("notifications"))
+        #expect(record.parameters["status"] == .string("skipped"))
+    }
+
+    @Test
+    func firstClimbSelectedIncludesRecommendationContext() {
+        let context = OnboardingAnalyticsContext(
+            flowID: "post_auth_onboarding",
+            stepID: "first_climb",
+            stepIndex: 7,
+            stepCount: 8
+        )
+
+        let record = OnboardingAnalyticsEvent.firstClimbSelected(
+            context: context,
+            climbID: "empire-state-building",
+            climbName: "Empire State Building"
+        ).record
+
+        #expect(record.name == "onboarding_first_climb_selected")
+        #expect(record.parameters["flow_id"] == .string("post_auth_onboarding"))
+        #expect(record.parameters["climb_id"] == .string("empire-state-building"))
+        #expect(record.parameters["climb_name"] == .string("Empire State Building"))
+    }
+
+    @Test
+    func onboardingPaywallReachedKeepsPlacementAndSource() {
+        let record = OnboardingAnalyticsEvent.paywallReached(
+            placement: "onboarding_paywall",
+            source: "post_auth_onboarding"
+        ).record
+
+        #expect(record.name == "onboarding_paywall_reached")
+        #expect(record.parameters["flow_id"] == .string("post_auth_onboarding"))
+        #expect(record.parameters["step_id"] == .string("paywall"))
+        #expect(record.parameters["placement"] == .string("onboarding_paywall"))
+        #expect(record.parameters["source"] == .string("post_auth_onboarding"))
+    }
 }

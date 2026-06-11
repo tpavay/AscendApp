@@ -50,11 +50,43 @@ struct PostAuthOnboardingStore {
             completedAt: now
         )
         save(snapshot, for: userId)
+        #if DEBUG
+        endDebugReplay(for: userId)
+        #endif
     }
+
+    #if DEBUG
+    func beginDebugReplay(for userId: String) {
+        let snapshot = PostAuthOnboardingSnapshot(
+            currentStage: .first,
+            completedStages: [],
+            isComplete: false,
+            startedAt: Date(),
+            completedAt: nil
+        )
+
+        save(snapshot, for: userId)
+        userDefaults.set(true, forKey: debugReplayStorageKey(for: userId))
+    }
+
+    func endDebugReplay(for userId: String) {
+        userDefaults.removeObject(forKey: debugReplayStorageKey(for: userId))
+    }
+
+    func isDebugReplayActive(for userId: String) -> Bool {
+        userDefaults.bool(forKey: debugReplayStorageKey(for: userId))
+    }
+    #endif
 
     private func storageKey(for userId: String) -> String {
         "postAuthOnboarding.v1.\(userId)"
     }
+
+    #if DEBUG
+    private func debugReplayStorageKey(for userId: String) -> String {
+        "postAuthOnboarding.debugReplay.v1.\(userId)"
+    }
+    #endif
 
     private func legacySnapshot(from data: Data) -> PostAuthOnboardingSnapshot? {
         guard let legacy = try? JSONDecoder().decode(LegacyPostAuthOnboardingSnapshot.self, from: data) else {

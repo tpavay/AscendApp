@@ -1,7 +1,15 @@
 import * as admin from "firebase-admin";
 
 export type TransactionalEmailProvider = "resend";
-export type EmailType = "waitlist_welcome";
+export type EmailType =
+  | "waitlist_welcome"
+  | "rating_positive_followup"
+  | "rating_negative_feedback"
+  | "onboarding_abandoned_before_paywall"
+  | "onboarding_abandoned_after_paywall"
+  | "first_climb_completed"
+  | "first_ascent_claimed"
+  | "leaderboard_first_place";
 export type EmailJobStatus = "queued" | "processing" | "sent" | "failed";
 
 export interface TransactionalEmailConfig {
@@ -39,7 +47,31 @@ export interface WaitlistWelcomePayload {
   source: string;
 }
 
-export type EmailJobPayload = WaitlistWelcomePayload;
+export interface EmptyEmailPayload {
+  appUrl?: string;
+}
+
+export interface FirstClimbCompletedPayload {
+  climbName?: string;
+  resultUrl: string;
+}
+
+export interface FirstAscentClaimedPayload {
+  climbName: string;
+  climbUrl: string;
+}
+
+export interface LeaderboardFirstPlacePayload {
+  leaderboardName: string;
+  leaderboardUrl: string;
+}
+
+export type EmailJobPayload =
+  | WaitlistWelcomePayload
+  | EmptyEmailPayload
+  | FirstClimbCompletedPayload
+  | FirstAscentClaimedPayload
+  | LeaderboardFirstPlacePayload;
 
 export interface EmailJobDocument {
   attemptCount: number;

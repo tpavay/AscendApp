@@ -39,7 +39,7 @@ struct OnboardingValueCarouselView: View {
                         OnboardingValueShowcaseChrome(
                             activePageIndex: selectedIndex,
                             pageCount: pages.count,
-                            buttonTitle: buttonTitle(for: selectedIndex),
+                            buttonTitle: "CONTINUE",
                             onContinue: continueFromCurrentPage
                         )
                     }
@@ -95,7 +95,8 @@ struct OnboardingValueCarouselView: View {
                 OnboardingValueFullBleedPageContent(
                     headline: page.headline,
                     subtitle: page.subtitle,
-                    heroImageName: page.heroImageName
+                    heroImageName: page.heroImageName,
+                    heroFrame: page.fullBleedHeroFrame
                 )
             case .framedScreenshot:
                 OnboardingValueShowcasePageContent(
@@ -108,10 +109,6 @@ struct OnboardingValueCarouselView: View {
         }
     }
 
-    private func buttonTitle(for index: Int) -> String {
-        index == pages.count - 1 ? "GET STARTED" : "CONTINUE"
-    }
-
     private func continueFromCurrentPage() {
         guard !pages.isEmpty else {
             onFinish()
@@ -122,7 +119,7 @@ struct OnboardingValueCarouselView: View {
         TelemetryManager.shared.track(
             OnboardingAnalyticsEvent.stepCompleted(
                 context: context,
-                actionID: selectedIndex == pages.count - 1 ? "get_started" : "continue"
+                actionID: "continue"
             )
         )
 
@@ -191,6 +188,12 @@ struct OnboardingValueCarouselView: View {
                 context: analyticsContext(for: page, index: selectedIndex)
             )
         )
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.screenViewed(
+                context: analyticsContext(for: page, index: selectedIndex),
+                property: page.id
+            )
+        )
     }
 
     private func analyticsContext(for page: OnboardingValuePage, index: Int) -> OnboardingAnalyticsContext {
@@ -207,8 +210,8 @@ struct OnboardingValueCarouselView: View {
     OnboardingValueCarouselPreviewHost()
 }
 
-#Preview("Onboarding Tracking Page") {
-    OnboardingValueTrackingPagePreviewHost()
+#Preview("Onboarding Landmark Page") {
+    OnboardingValueLandmarkPagePreviewHost()
 }
 
 private struct OnboardingValueCarouselPreviewHost: View {
@@ -225,8 +228,8 @@ private struct OnboardingValueCarouselPreviewHost: View {
     }
 }
 
-private struct OnboardingValueTrackingPagePreviewHost: View {
-    @State private var selectedIndex = 2
+private struct OnboardingValueLandmarkPagePreviewHost: View {
+    @State private var selectedIndex = 1
 
     var body: some View {
         OnboardingValueCarouselView(

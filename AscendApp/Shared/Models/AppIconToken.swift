@@ -30,6 +30,7 @@ enum AppIconToken: Hashable, Sendable {
     case settingsWeekStart
     case settingsIntegrations
     case settingsDebugTools
+    case settingsTermsOfService
     case settingsPrivacyPolicy
     case settingsContactUs
     case settingsDeleteAccount
@@ -90,6 +91,8 @@ enum AppIconToken: Hashable, Sendable {
             return .asset("ph-settings-integrations")
         case .settingsDebugTools:
             return .asset("ph-settings-debug-tools")
+        case .settingsTermsOfService:
+            return .systemSymbol("doc.text")
         case .settingsPrivacyPolicy:
             return .asset("ph-settings-privacy-policy")
         case .settingsContactUs:

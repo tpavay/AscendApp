@@ -1,5 +1,5 @@
 {
-  "originHash" : "9e19ca4b2ca1cf4ae2cc3dffce71efc0ee8ca2d8de9da942e864b5f1edba725c",
+  "originHash" : "02c81269ccc2895fedfbb1900aaab0f1fe483bc46fa0fa3d4142b7def2bc97cd",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -137,6 +137,33 @@
       }
     },
     {
+      "identity" : "mapbox-common-ios",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mapbox/mapbox-common-ios.git",
+      "state" : {
+        "revision" : "0903177afad61e293d420de4f0032a0d09a73f26",
+        "version" : "24.24.3"
+      }
+    },
+    {
+      "identity" : "mapbox-core-maps-ios",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mapbox/mapbox-core-maps-ios.git",
+      "state" : {
+        "revision" : "62e6c66055e66f34e0e80b75e9b8cd18a6bba7ec",
+        "version" : "11.24.3"
+      }
+    },
+    {
+      "identity" : "mapbox-maps-ios-binary",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mapbox/mapbox-maps-ios-binary.git",
+      "state" : {
+        "revision" : "8db9fc7e9a202714dacab5e7169845a87372c016",
+        "version" : "11.24.3"
+      }
+    },
+    {
       "identity" : "mixpanel-swift",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/mixpanel/mixpanel-swift",
@@ -206,6 +233,15 @@
       "state" : {
         "revision" : "102a647b573f60f73afdce5613a51d71349fe507",
         "version" : "1.30.0"
+      }
+    },
+    {
+      "identity" : "turf-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mapbox/turf-swift.git",
+      "state" : {
+        "revision" : "bf840e6b9529d105687840fe2c9dcd74197d46d1",
+        "version" : "4.0.0"
       }
     }
   ],

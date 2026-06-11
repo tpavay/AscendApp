@@ -83,13 +83,13 @@ struct OnboardingValueFullBleedPageContent: View {
     let headline: String
     let subtitle: String
     let heroImageName: String
+    var heroFrame: OnboardingValuePage.FullBleedHeroFrame = .default
 
     var body: some View {
         GeometryReader { geometry in
-            let layout = OnboardingValueShowcaseLayout(
-                size: geometry.size,
-                safeAreaInsets: geometry.safeAreaInsets
-            )
+            let scaleX = geometry.size.width / 390
+            let scaleY = geometry.size.height / 844
+            let typeScale = min(scaleX, scaleY)
 
             ZStack(alignment: .top) {
                 Color(red: 0x11 / 255, green: 0x11 / 255, blue: 0x11 / 255)
@@ -98,21 +98,49 @@ struct OnboardingValueFullBleedPageContent: View {
                 Image(heroImageName)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: geometry.size.width, height: layout.textSectionTop - layout.heroBottomGap, alignment: .center)
+                    .frame(width: heroFrame.width * scaleX, height: heroFrame.height * scaleY, alignment: .center)
                     .clipped()
+                    .position(
+                        x: (heroFrame.left + heroFrame.width / 2) * scaleX,
+                        y: (heroFrame.top + heroFrame.height / 2) * scaleY
+                    )
                     .allowsHitTesting(false)
 
-                OnboardingValueShowcaseTextSection(
-                    headline: headline,
-                    subtitle: subtitle,
-                    headlineSize: layout.headlineSize,
-                    subtitleSize: layout.subtitleSize,
-                    stackSpacing: layout.textStackSpacing
+                LinearGradient(
+                    colors: [
+                        .black.opacity(0),
+                        .black
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
                 )
-                .padding(.horizontal, layout.horizontalPadding)
-                .frame(height: layout.textSectionHeight, alignment: .top)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .padding(.bottom, layout.textSectionBottomPadding)
+                .frame(width: geometry.size.width, height: 281 * scaleY)
+                .position(x: geometry.size.width / 2, y: (562 + 140.5) * scaleY)
+                .allowsHitTesting(false)
+
+                VStack(spacing: 11 * scaleY) {
+                    Text(headline)
+                        .font(.montserratBold(size: 28 * typeScale))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(0)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.78)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(width: 340 * scaleX, height: 74 * scaleY, alignment: .center)
+
+                    Text(subtitle)
+                        .font(.montserratRegular(size: 14 * typeScale))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(2 * scaleY)
+                        .lineLimit(3)
+                        .minimumScaleFactor(0.82)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(width: 326 * scaleX, height: 44 * scaleY, alignment: .top)
+                }
+                .frame(width: 340 * scaleX, height: 129 * scaleY, alignment: .top)
+                .position(x: geometry.size.width / 2, y: (543 + 64.5) * scaleY)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
@@ -127,22 +155,20 @@ struct OnboardingValueShowcaseChrome: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let layout = OnboardingValueShowcaseLayout(
-                size: geometry.size,
-                safeAreaInsets: geometry.safeAreaInsets
-            )
+            let scaleX = geometry.size.width / 390
+            let scaleY = geometry.size.height / 844
 
             ZStack(alignment: .top) {
                 OnboardingValueShowcaseControls(
                     activePageIndex: activePageIndex,
                     pageCount: pageCount,
                     buttonTitle: buttonTitle,
-                    buttonHeight: layout.buttonHeight,
+                    buttonHeight: 56 * scaleY,
+                    controlGap: 22 * scaleY,
                     onContinue: onContinue
                 )
-                .padding(.horizontal, layout.horizontalPadding)
-                .padding(.bottom, layout.bottomPadding)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .frame(width: 334 * scaleX, height: 85 * scaleY, alignment: .top)
+                .position(x: geometry.size.width / 2, y: (683 + 42.5) * scaleY)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
@@ -161,7 +187,7 @@ struct OnboardingValueShowcaseButton: View {
         .buttonStyle(
             OnboardingPrimaryCTAButtonStyle(
                 height: height,
-                cornerRadius: 10,
+                cornerRadius: 12,
                 fontSize: 16,
                 tint: OnboardingValuePalette.lime,
                 shadowOpacity: 0
@@ -207,6 +233,7 @@ struct OnboardingValueShowcaseControls: View {
     let pageCount: Int
     let buttonTitle: String
     let buttonHeight: CGFloat
+    var controlGap: CGFloat = 10
     let onContinue: () -> Void
 
     var body: some View {
@@ -221,7 +248,7 @@ struct OnboardingValueShowcaseControls: View {
                 height: buttonHeight,
                 action: onContinue
             )
-            .padding(.top, 18)
+            .padding(.top, controlGap)
         }
     }
 }
@@ -235,7 +262,7 @@ struct OnboardingValueShowcaseCarouselDots: View {
             ForEach(0..<totalCount, id: \.self) { index in
                 Circle()
                     .fill(index == clampedActiveIndex ? OnboardingValuePalette.lime : Color.white.opacity(0.26))
-                    .frame(width: index == clampedActiveIndex ? 5 : 4, height: index == clampedActiveIndex ? 5 : 4)
+                    .frame(width: index == clampedActiveIndex ? 7 : 5, height: index == clampedActiveIndex ? 7 : 5)
             }
         }
         .animation(.easeInOut(duration: 0.2), value: clampedActiveIndex)
@@ -446,15 +473,19 @@ struct OnboardingValueShowcaseLayout {
     }
 
     var buttonHeight: CGFloat {
-        size.height < 740 ? 50 : 54
+        size.height < 740 ? 52 : 56
     }
 
     var bottomPadding: CGFloat {
-        max(safeAreaInsets.bottom + 22, 46)
+        max(safeAreaInsets.bottom, size.height * 34 / 844)
     }
 
     var textToControlsGap: CGFloat {
         size.height < 740 ? 14 : 16
+    }
+
+    var dotsToButtonGap: CGFloat {
+        size.height < 740 ? 8 : 10
     }
 
     var heroBottomGap: CGFloat {

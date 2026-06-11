@@ -27,6 +27,7 @@ enum ProfileIdentityFormatter {
         }
 
         if let location = locationText(
+            city: identity.locationCity,
             countryCode: identity.locationCountryCode,
             regionCode: identity.locationRegionCode
         ) {
@@ -62,11 +63,26 @@ enum ProfileIdentityFormatter {
         ].joined(separator: " · ")
     }
 
-    private static func locationText(countryCode: String?, regionCode: String?) -> String? {
+    private static func locationText(city: String?, countryCode: String?, regionCode: String?) -> String? {
+        if let city = city?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !city.isEmpty {
+            if let regionCode = regionCode?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !regionCode.isEmpty {
+                return "\(city), \(regionCode)"
+            }
+
+            if let countryCode,
+               let countryName = Locale.current.localizedString(forRegionCode: countryCode.uppercased()) {
+                return "\(city), \(countryName)"
+            }
+
+            return city
+        }
+
         guard let countryCode, !countryCode.isEmpty else { return nil }
 
         if countryCode.uppercased() == "US", let regionCode, !regionCode.isEmpty {
-            return usCityFallback(regionCode: regionCode) ?? regionCode.uppercased()
+            return regionCode.uppercased()
         }
 
         if let countryName = Locale.current.localizedString(forRegionCode: countryCode.uppercased()) {
@@ -77,21 +93,6 @@ enum ProfileIdentityFormatter {
         }
 
         return countryCode.uppercased()
-    }
-
-    private static func usCityFallback(regionCode: String) -> String? {
-        switch regionCode.uppercased() {
-        case "IL":
-            "Chicago, IL"
-        case "CA":
-            "California"
-        case "AZ":
-            "Phoenix, AZ"
-        case "TX":
-            "Houston, TX"
-        default:
-            nil
-        }
     }
 
     private static let monthDayYearFormatter: DateFormatter = {

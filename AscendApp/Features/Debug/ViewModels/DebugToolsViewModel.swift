@@ -24,6 +24,8 @@ class DebugToolsViewModel {
         static let queueAutoImportReview = "Queue Auto-Import Review"
         static let clearAutoImportSimulations = "Clear Auto-Import Simulations"
         static let resetPostAuthOnboarding = "Reset Post-Auth Onboarding"
+        static let replayPostAuthOnboarding = "Replay Onboarding Now"
+        static let replayFullOnboardingFromLanding = "Replay From Landing"
         static let completePostAuthOnboarding = "Complete Post-Auth Onboarding"
     }
 
@@ -48,14 +50,19 @@ class DebugToolsViewModel {
     private var onboardingSection: DebugSection {
         DebugSection(
             title: "Onboarding",
-            subtitle: "Reset the local post-auth onboarding state for the signed-in user",
+            subtitle: "Replay the onboarding funnel for the current account without creating a new user",
             actions: [
                 DebugAction(
-                    title: ActionTitle.resetPostAuthOnboarding,
-                    description: "Clears the saved post-auth onboarding snapshot so the current account starts at value screens again.",
-                    icon: "arrow.counterclockwise",
-                    iconColor: .orange,
-                    isDestructive: true
+                    title: ActionTitle.replayPostAuthOnboarding,
+                    description: "Starts the signed-in post-auth onboarding flow from the first profile screen and temporarily disables the remote-profile auto-skip.",
+                    icon: "play.circle.fill",
+                    iconColor: .accent
+                ),
+                DebugAction(
+                    title: ActionTitle.replayFullOnboardingFromLanding,
+                    description: "Sets the same replay flag, signs out, then lets you start from the landing screen and log back into this same account.",
+                    icon: "rectangle.portrait.and.arrow.right",
+                    iconColor: .orange
                 ),
                 DebugAction(
                     title: ActionTitle.completePostAuthOnboarding,
@@ -141,7 +148,11 @@ class DebugToolsViewModel {
 
     // MARK: - Action Execution
 
-    func executeAction(_ action: DebugAction, modelContext: ModelContext) async {
+    func executeAction(
+        _ action: DebugAction,
+        modelContext: ModelContext,
+        authVM: AuthenticationViewModel
+    ) async {
         executingActionId = action.id  // Set the specific action being executed
         errorMessage = nil
         successMessage = nil
@@ -161,6 +172,19 @@ class DebugToolsViewModel {
                 PostAuthOnboardingStore().reset(for: userId)
                 NotificationCenter.default.post(name: .postAuthOnboardingStateDidChange, object: nil)
                 successMessage = "Reset post-auth onboarding for this user."
+
+            case ActionTitle.replayPostAuthOnboarding:
+                let userId = try currentUserId()
+                PostAuthOnboardingStore().beginDebugReplay(for: userId)
+                NotificationCenter.default.post(name: .postAuthOnboardingStateDidChange, object: nil)
+                successMessage = "Started onboarding replay for this user."
+
+            case ActionTitle.replayFullOnboardingFromLanding:
+                let userId = try currentUserId()
+                PostAuthOnboardingStore().beginDebugReplay(for: userId)
+                NotificationCenter.default.post(name: .postAuthOnboardingStateDidChange, object: nil)
+                authVM.signOut()
+                successMessage = "Replay is ready. Sign back into this account from the landing screen."
 
             case ActionTitle.completePostAuthOnboarding:
                 let userId = try currentUserId()

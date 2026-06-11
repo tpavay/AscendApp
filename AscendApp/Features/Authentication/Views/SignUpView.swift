@@ -5,12 +5,13 @@ struct SignUpView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.dismiss) private var dismiss
     @State private var hasAttemptedInteractiveSignIn = false
+    @State private var isShowingInternalQA = false
 
     var body: some View {
         OnboardingScaffold(
             backAction: { dismiss() },
             background: {
-                Color.black
+                AuthStaircaseBackground()
             },
             content: { scaffoldLayout in
                 AuthLandingContent(
@@ -18,9 +19,9 @@ struct SignUpView: View {
                     errorMessage: hasAttemptedInteractiveSignIn ? authVM.errorMessage : nil,
                     googleIsLoading: authVM.authenticationState == .authenticatingWithGoogle,
                     appleIsLoading: authVM.authenticationState == .authenticatingWithApple,
-                    lastUsedProvider: authVM.lastUsedProvider,
                     showsInternalQA: InternalQASignInAvailability.isEnabled(projectID: FirebaseApp.app()?.options.projectID),
                     isDisabled: authVM.authenticationState.isAuthenticating,
+                    onInternalQA: { isShowingInternalQA = true },
                     onGoogle: signInWithGoogle,
                     onApple: signInWithApple
                 )
@@ -29,6 +30,9 @@ struct SignUpView: View {
         .onAppear {
             hasAttemptedInteractiveSignIn = false
             authVM.errorMessage = nil
+        }
+        .navigationDestination(isPresented: $isShowingInternalQA) {
+            InternalQASignInView()
         }
     }
 
@@ -47,6 +51,23 @@ struct SignUpView: View {
     }
 }
 
+private struct AuthStaircaseBackground: View {
+    var body: some View {
+        GeometryReader { geometry in
+            let scaleX = geometry.size.width / 390
+            let scaleY = geometry.size.height / 844
+
+            Image("AuthStaircaseBackground")
+                .resizable()
+                .scaledToFill()
+                .frame(width: 568 * scaleX, height: 844 * scaleY)
+                .clipped()
+                .position(x: 194 * scaleX, y: 421 * scaleY)
+        }
+        .ignoresSafeArea()
+    }
+}
+
 private struct AuthLandingLayout {
     private let scaffoldLayout: OnboardingScaffoldLayout
 
@@ -55,40 +76,14 @@ private struct AuthLandingLayout {
     }
 
     var size: CGSize { scaffoldLayout.size }
-    var safeAreaInsets: EdgeInsets { scaffoldLayout.safeAreaInsets }
 
     var isCompactHeight: Bool { size.height < 740 }
 
-    var horizontalPadding: CGFloat { isCompactHeight ? 24 : 28 }
+    var letterFontSize: CGFloat { isCompactHeight ? 27 : 30 }
+    var letterSpacing: CGFloat { isCompactHeight ? 4.5 : 5 }
+    var iconSize: CGFloat { isCompactHeight ? 40 : 44 }
+    var iconTrailingSpacing: CGFloat { isCompactHeight ? 4 : 5 }
 
-    /// Vertical position of the wordmark (top of A mark) as a proportion of the
-    /// total screen height. ~27% from the top mirrors the Figma placement.
-    var wordmarkTopPadding: CGFloat {
-        let ratio: CGFloat = isCompactHeight ? 0.22 : 0.27
-        return max(safeAreaInsets.top + 80, size.height * ratio)
-    }
-
-    var bottomPadding: CGFloat {
-        safeAreaInsets.bottom + (isCompactHeight ? 10 : 14)
-    }
-
-    // Wordmark sizing — matches Figma (A mark 56px, SCEND 30pt)
-    var letterFontSize: CGFloat { isCompactHeight ? 26 : 30 }
-    var letterSpacing: CGFloat { isCompactHeight ? 4 : 5 }
-    var iconSize: CGFloat { isCompactHeight ? 48 : 56 }
-    var iconTrailingSpacing: CGFloat { isCompactHeight ? 12 : 14 }
-
-    var accentLineTopSpacing: CGFloat { isCompactHeight ? 22 : 28 }
-    var accentLineWidth: CGFloat { 48 }
-    var accentLineHeight: CGFloat { 2 }
-
-    var buttonSpacing: CGFloat { isCompactHeight ? 10 : 12 }
-    var internalQATopSpacing: CGFloat { isCompactHeight ? 14 : 18 }
-    var buttonHeight: CGFloat { isCompactHeight ? 52 : 56 }
-    var buttonCornerRadius: CGFloat { 12 }
-    var buttonFontSize: CGFloat { isCompactHeight ? 16 : 17 }
-
-    var legalTopSpacing: CGFloat { isCompactHeight ? 14 : 18 }
     var legalFontSize: CGFloat { isCompactHeight ? 10 : 11 }
     var legalLineSpacing: CGFloat { 2 }
 }
@@ -98,111 +93,97 @@ private struct AuthLandingContent: View {
     let errorMessage: String?
     let googleIsLoading: Bool
     let appleIsLoading: Bool
-    let lastUsedProvider: AuthProviderKind?
     let showsInternalQA: Bool
     let isDisabled: Bool
+    let onInternalQA: () -> Void
     let onGoogle: () -> Void
     let onApple: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer()
-                .frame(height: layout.wordmarkTopPadding)
+        let scaleX = layout.size.width / 390
+        let scaleY = layout.size.height / 844
+        let typeScale = min(scaleX, scaleY)
 
+        ZStack(alignment: .topLeading) {
             AuthLandingBrand(layout: layout)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 5) {
+                    guard showsInternalQA else { return }
+                    onInternalQA()
+                }
+                .position(x: layout.size.width / 2, y: 422 * scaleY)
 
-            Rectangle()
-                .fill(Color.accentColor.opacity(0.7))
-                .frame(width: layout.accentLineWidth, height: layout.accentLineHeight)
-                .clipShape(Capsule())
-                .shadow(color: Color.accentColor.opacity(0.5), radius: 8, x: 0, y: 0)
-                .padding(.top, layout.accentLineTopSpacing)
-
-            Spacer()
-
-            VStack(spacing: layout.buttonSpacing) {
+            VStack(spacing: 15 * scaleY) {
                 AuthProviderButton(
-                    title: appleIsLoading ? "Signing In..." : "Continue with Apple",
+                    title: appleIsLoading ? "SIGNING IN..." : "CONTINUE WITH APPLE",
                     style: .apple,
                     isLoading: appleIsLoading,
                     isDisabled: isDisabled,
-                    height: layout.buttonHeight,
-                    cornerRadius: layout.buttonCornerRadius,
-                    fontSize: layout.buttonFontSize,
-                    accessoryTitle: lastUsedProvider == .apple ? "Last Used" : nil,
+                    height: 56 * scaleY,
+                    cornerRadius: 12 * typeScale,
+                    fontSize: 16 * typeScale,
+                    accessoryTitle: nil,
                     icon: {
                         Image(systemName: "apple.logo")
                             .resizable()
                             .scaledToFit()
                             .foregroundStyle(.black)
-                            .frame(width: 22, height: 22)
+                            .frame(width: 21 * typeScale, height: 21 * typeScale)
                     },
                     action: onApple
                 )
 
                 AuthProviderButton(
-                    title: googleIsLoading ? "Signing In..." : "Continue with Google",
+                    title: googleIsLoading ? "SIGNING IN..." : "CONTINUE WITH GOOGLE",
                     style: .google,
                     isLoading: googleIsLoading,
                     isDisabled: isDisabled,
-                    height: layout.buttonHeight,
-                    cornerRadius: layout.buttonCornerRadius,
-                    fontSize: layout.buttonFontSize,
-                    accessoryTitle: lastUsedProvider == .google ? "Last Used" : nil,
+                    height: 56 * scaleY,
+                    cornerRadius: 12 * typeScale,
+                    fontSize: 16 * typeScale,
+                    accessoryTitle: nil,
                     icon: {
                         Image("GoogleIcon")
                             .resizable()
                             .renderingMode(.original)
-                            .frame(width: 24, height: 24)
+                            .frame(width: 21 * typeScale, height: 21 * typeScale)
                     },
                     action: onGoogle
                 )
 
-                if showsInternalQA {
-                    NavigationLink {
-                        InternalQASignInView()
-                    } label: {
-                        Text("Internal QA Sign-In")
-                            .font(.montserratSemiBold(size: max(layout.buttonFontSize - 2, 14)))
-                            .foregroundStyle(.white.opacity(0.92))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.76)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: layout.buttonHeight)
-                            .background(
-                                RoundedRectangle(cornerRadius: layout.buttonCornerRadius, style: .continuous)
-                                    .fill(Color.black.opacity(0.36))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: layout.buttonCornerRadius, style: .continuous)
-                                            .stroke(Color.accentColor.opacity(0.44), lineWidth: 1)
-                                    )
-                            )
-                            .contentShape(RoundedRectangle(cornerRadius: layout.buttonCornerRadius, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isDisabled)
-                    .opacity(isDisabled ? 0.72 : 1)
-                    .padding(.top, layout.internalQATopSpacing - layout.buttonSpacing)
-                    .accessibilityLabel("Internal QA Sign-In")
-                }
+                AuthLegalText(layout: layout)
+                    .frame(width: 334 * scaleX)
             }
+            .frame(width: 334 * scaleX, alignment: .top)
+            .offset(x: 28 * scaleX, y: 603 * scaleY)
 
             if let errorMessage {
                 Text(errorMessage)
                     .font(.montserratMedium(size: 12))
                     .foregroundStyle(.red.opacity(0.95))
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, layout.buttonSpacing)
+                    .frame(width: 334 * scaleX)
+                    .offset(x: 28 * scaleX, y: 575 * scaleY)
                     .accessibilityLabel("Authentication error: \(errorMessage)")
             }
 
-            AuthLegalText(layout: layout)
-                .padding(.top, layout.legalTopSpacing)
-                .padding(.bottom, layout.bottomPadding)
+            authLoginText(fontSize: 13 * typeScale)
+                .multilineTextAlignment(.center)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .frame(width: 334 * scaleX, height: 20 * scaleY, alignment: .top)
+                .position(x: layout.size.width / 2, y: 788 * scaleY)
         }
-        .padding(.horizontal, layout.horizontalPadding)
         .frame(width: layout.size.width, height: layout.size.height)
+    }
+
+    private func authLoginText(fontSize: CGFloat) -> Text {
+        Text("Already have an account? ")
+            .foregroundStyle(.white)
+            .font(.montserratSemiBold(size: fontSize))
+        + Text("Log in")
+            .foregroundStyle(OnboardingValuePalette.lime)
+            .font(.montserratSemiBold(size: fontSize))
     }
 }
 
@@ -299,21 +280,12 @@ private struct AuthProviderButton<Icon: View>: View {
     @ViewBuilder let icon: () -> Icon
     let action: () -> Void
 
-    private let iconLeftPadding: CGFloat = 20
     private let badgeRightPadding: CGFloat = 14
 
     var body: some View {
         Button(action: action) {
             ZStack {
-                // Centered title — anchored to the full button width
-                Text(title)
-                    .font(.montserratSemiBold(size: fontSize))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.76)
-                    .foregroundStyle(style.foregroundColor)
-
-                // Left-anchored icon (or loading spinner)
-                HStack {
+                HStack(spacing: 10) {
                     if isLoading {
                         ProgressView()
                             .progressViewStyle(CircularProgressViewStyle(tint: style.loadingTint))
@@ -321,9 +293,14 @@ private struct AuthProviderButton<Icon: View>: View {
                     } else {
                         icon()
                     }
-                    Spacer(minLength: 0)
+
+                    Text(title)
+                        .font(.montserratBold(size: fontSize))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.76)
+                        .foregroundStyle(style.foregroundColor)
                 }
-                .padding(.leading, iconLeftPadding)
+                .frame(maxWidth: .infinity, alignment: .center)
 
                 // Right-anchored accessory badge (e.g. "LAST USED")
                 if let accessoryTitle, !isLoading {

@@ -1,0 +1,372 @@
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  --accent: #b7e600;
+  --accent-strong: #9bd328;
+  --surface: #0b0b0c;
+  --card: rgba(255, 255, 255, 0.07);
+  --card-strong: rgba(255, 255, 255, 0.12);
+  --border: rgba(255, 255, 255, 0.16);
+  --text: #ffffff;
+  --muted: rgba(255, 255, 255, 0.72);
+  --dim: rgba(255, 255, 255, 0.5);
+  --black: #050506;
+}
+
+html,
+body {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  background: var(--black);
+  color: var(--text);
+  font-family: Montserrat, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  display: grid;
+  place-items: center;
+}
+
+button,
+a {
+  font: inherit;
+}
+
+.paywall {
+  position: relative;
+  width: 100%;
+  min-height: 100svh;
+  overflow: hidden;
+  background: radial-gradient(circle at center top, rgba(183, 230, 0, 0.14), transparent 32%), #070708;
+}
+
+.paywall-inner {
+  position: relative;
+  z-index: 2;
+  width: min(100%, 430px);
+  min-height: 100svh;
+  margin: 0 auto;
+  padding: max(18px, env(safe-area-inset-top)) 20px max(16px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+}
+
+.hero {
+  width: 150px;
+  height: 166px;
+  margin: 0 auto 14px;
+  border-radius: 22px;
+  overflow: hidden;
+  position: relative;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.54);
+}
+
+.hero img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 43%;
+  display: block;
+}
+
+.hero::after,
+.offer-background::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.74)),
+    radial-gradient(circle at 66% 35%, rgba(183, 230, 0, 0.28), transparent 31%);
+  pointer-events: none;
+}
+
+.wordmark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 0 auto 20px;
+}
+
+.wordmark img {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+}
+
+.wordmark span {
+  font-size: 29px;
+  line-height: 1;
+  font-weight: 900;
+  letter-spacing: 8px;
+}
+
+.headline {
+  margin: 0 0 18px;
+  text-align: center;
+  font-size: 23px;
+  line-height: 1.08;
+  font-weight: 900;
+}
+
+.benefits {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+}
+
+.benefits li,
+.assurance {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.28;
+  font-weight: 700;
+}
+
+.benefits li::before,
+.assurance::before {
+  content: "";
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 12px rgba(183, 230, 0, 0.45);
+  clip-path: polygon(14% 52%, 36% 75%, 86% 25%, 76% 14%, 36% 55%, 24% 43%);
+}
+
+.plans {
+  display: grid;
+  gap: 9px;
+  margin-top: auto;
+}
+
+.plan {
+  position: relative;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 13px;
+  color: var(--text);
+  background: var(--card);
+  text-align: left;
+  appearance: none;
+}
+
+.plan.selected {
+  border-color: var(--accent);
+  background: rgba(183, 230, 0, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(183, 230, 0, 0.54);
+}
+
+.plan-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 3px;
+}
+
+.plan-name {
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.plan-price {
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.plan-subtitle {
+  color: var(--accent);
+  font-size: 10px;
+  line-height: 1.25;
+  font-weight: 800;
+}
+
+.trial-pill {
+  position: absolute;
+  right: 10px;
+  top: -10px;
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: var(--accent);
+  color: #111;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 1000;
+}
+
+.assurance {
+  justify-content: center;
+  margin: 14px 0 11px;
+  color: var(--text);
+  font-size: 11px;
+}
+
+.assurance.hidden {
+  visibility: hidden;
+}
+
+.cta {
+  width: 100%;
+  min-height: 58px;
+  border: 0;
+  border-radius: 13px;
+  background: var(--accent);
+  color: #070707;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  text-transform: uppercase;
+  font-size: 14px;
+  font-weight: 1000;
+  letter-spacing: 0;
+}
+
+.cta[hidden] {
+  display: none;
+}
+
+.footer-links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 14px;
+  color: var(--accent);
+}
+
+.footer-links button,
+.footer-links a {
+  border: 0;
+  background: transparent;
+  color: #fff;
+  padding: 3px 0;
+  text-decoration: none;
+  text-transform: uppercase;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.footer-links span {
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.offer-background {
+  position: absolute;
+  inset: 0;
+}
+
+.offer-background img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  filter: saturate(0.88) contrast(1.08);
+}
+
+.offer-background::after {
+  background:
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.7) 52%, rgba(0, 0, 0, 0.92)),
+    radial-gradient(circle at 73% 30%, rgba(183, 230, 0, 0.35), transparent 29%);
+}
+
+.offer .paywall-inner {
+  justify-content: flex-end;
+  padding-top: max(48px, env(safe-area-inset-top));
+}
+
+.offer .wordmark {
+  margin-top: auto;
+  margin-bottom: 132px;
+}
+
+.eyebrow {
+  margin: 0 0 9px;
+  text-align: center;
+  text-transform: uppercase;
+  font-size: 13px;
+  line-height: 1;
+  font-weight: 1000;
+  letter-spacing: 1px;
+}
+
+.offer-title {
+  margin: 0 0 70px;
+  text-align: center;
+  text-transform: uppercase;
+  font-size: clamp(44px, 15vw, 70px);
+  line-height: 0.93;
+  font-weight: 1000;
+}
+
+.offer-title strong {
+  display: block;
+  color: var(--accent);
+}
+
+.offer-detail {
+  margin: 0 0 16px;
+  text-align: center;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.45;
+  font-weight: 900;
+}
+
+.offer-detail strong {
+  display: block;
+  color: var(--accent);
+}
+
+@media (max-height: 760px) {
+  .hero {
+    width: 126px;
+    height: 138px;
+    margin-bottom: 10px;
+  }
+
+  .wordmark {
+    margin-bottom: 14px;
+  }
+
+  .headline {
+    margin-bottom: 13px;
+  }
+
+  .benefits {
+    gap: 7px;
+    margin-bottom: 13px;
+  }
+
+  .plan {
+    padding-block: 10px;
+  }
+
+  .cta {
+    min-height: 52px;
+  }
+
+  .offer .wordmark {
+    margin-bottom: 92px;
+  }
+
+  .offer-title {
+    margin-bottom: 48px;
+  }
+}

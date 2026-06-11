@@ -10,6 +10,42 @@ enum TodayClimbNotificationPermissionController {
     }
 
     @discardableResult
+    static func enablePreferenceOnly() async -> UNAuthorizationStatus {
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        LifecycleEventRecorder.shared.recordNotificationPermission(status: settings.authorizationStatus)
+
+        switch settings.authorizationStatus {
+        case .notDetermined:
+            _ = (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false
+            let updatedSettings = await center.notificationSettings()
+            LifecycleEventRecorder.shared.recordNotificationPermission(status: updatedSettings.authorizationStatus)
+
+            let isEnabled = allowsTodayClimbNotifications(updatedSettings.authorizationStatus)
+            TodayClimbNotificationPreferenceStore.isEnabled = isEnabled
+            if !isEnabled {
+                await TodayClimbNotificationScheduler.shared.cancelPendingTodayClimbNotifications()
+            }
+            return updatedSettings.authorizationStatus
+
+        case .authorized, .provisional, .ephemeral:
+            TodayClimbNotificationPreferenceStore.isEnabled = true
+            return settings.authorizationStatus
+
+        case .denied:
+            TodayClimbNotificationPreferenceStore.isEnabled = false
+            await TodayClimbNotificationScheduler.shared.cancelPendingTodayClimbNotifications()
+            openSystemNotificationSettings()
+            return settings.authorizationStatus
+
+        @unknown default:
+            TodayClimbNotificationPreferenceStore.isEnabled = false
+            await TodayClimbNotificationScheduler.shared.cancelPendingTodayClimbNotifications()
+            return settings.authorizationStatus
+        }
+    }
+
+    @discardableResult
     static func enable(
         availableClimbs: [Climb],
         completedClimbIds: Set<String>
@@ -66,5 +102,16 @@ enum TodayClimbNotificationPermissionController {
     static func openSystemNotificationSettings() {
         guard let url = URL(string: UIApplication.openNotificationSettingsURLString) else { return }
         UIApplication.shared.open(url)
+    }
+
+    private static func allowsTodayClimbNotifications(_ status: UNAuthorizationStatus) -> Bool {
+        switch status {
+        case .authorized, .provisional, .ephemeral:
+            return true
+        case .denied, .notDetermined:
+            return false
+        @unknown default:
+            return false
+        }
     }
 }

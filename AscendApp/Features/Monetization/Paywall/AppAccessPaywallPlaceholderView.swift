@@ -1,7 +1,10 @@
 import SwiftUI
 
 struct AppAccessPaywallPlaceholderView: View {
+    @Environment(MonetizationManager.self) private var monetizationManager
+
     let onRestore: () -> Void
+    @State private var didPresentPaywall = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -27,20 +30,20 @@ struct AppAccessPaywallPlaceholderView: View {
             }
 
             VStack(spacing: 12) {
-                Button(action: {}) {
-                    Text("Subscribe")
+                Button(action: presentPaywall) {
+                    Text(monetizationManager.isSuperwallConfigured ? "Continue" : "Paywall Unavailable")
                         .font(.montserratBold(size: 16))
-                        .foregroundStyle(.black.opacity(0.52))
+                        .foregroundStyle(.black.opacity(monetizationManager.isSuperwallConfigured ? 0.9 : 0.48))
                         .frame(maxWidth: .infinity)
                         .frame(height: 54)
                         .background(
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(Color.accentColor.opacity(0.52))
+                                .fill(Color.accentColor.opacity(monetizationManager.isSuperwallConfigured ? 1 : 0.52))
                         )
                 }
                 .buttonStyle(.plain)
-                .disabled(true)
-                .accessibilityHint("Superwall checkout will be connected in the next implementation step.")
+                .disabled(!monetizationManager.isSuperwallConfigured)
+                .accessibilityHint("Presents the Ascend subscription paywall.")
 
                 Button(action: onRestore) {
                     Text("Restore Purchases")
@@ -60,9 +63,30 @@ struct AppAccessPaywallPlaceholderView: View {
         }
         .padding(.horizontal, 28)
         .themedBackground()
+        .onAppear {
+            presentPaywall()
+        }
+    }
+
+    private func presentPaywall() {
+        guard monetizationManager.isSuperwallConfigured else { return }
+        guard !didPresentPaywall else {
+            monetizationManager.presentPaywall(
+                .onboardingPaywall,
+                params: ["source": "paywall_placeholder_retry"]
+            )
+            return
+        }
+
+        didPresentPaywall = true
+        monetizationManager.presentPaywall(
+            .onboardingPaywall,
+            params: ["source": "post_auth_onboarding"]
+        )
     }
 }
 
 #Preview {
     AppAccessPaywallPlaceholderView(onRestore: {})
+        .environment(MonetizationManager())
 }

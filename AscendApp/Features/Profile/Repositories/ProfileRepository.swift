@@ -77,11 +77,14 @@ final class ProfileRepository: Sendable {
         if let weightKg = identity.weightKg {
             data["weight_kg"] = weightKg
         }
+        if let city = identity.locationCity {
+            data["location_city"] = city
+        }
         if let country = identity.locationCountryCode {
             data["location_country"] = country.uppercased()
         }
         if let region = identity.locationRegionCode {
-            data["location_region"] = region.uppercased()
+            data["location_region"] = region
         }
         if let joinedAt = identity.joinedAt {
             data["joined_at"] = Timestamp(date: joinedAt)
@@ -176,6 +179,7 @@ final class ProfileRepository: Sendable {
             age: intValue(for: "age", in: data),
             gender: stringValue(for: "gender", in: data).flatMap(ProfileGender.init(rawValue:)),
             weightKg: doubleValue(for: "weight_kg", in: data),
+            locationCity: stringValue(for: "location_city", in: data),
             locationCountryCode: stringValue(for: "location_country", in: data),
             locationRegionCode: stringValue(for: "location_region", in: data),
             joinedAt: timestampValue(for: "joined_at", in: data)

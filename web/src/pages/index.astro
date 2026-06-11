@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
+import AppStoreBadge from '../components/AppStoreBadge.astro';
 ---
 <BaseLayout title="Ascend - Stair-Stepper Training App" description="Ascend is the iOS app made for the stair stepper: live climbs to race, best efforts to beat, routines to run, trends to track, and every reason to keep climbing.">
 
@@ -1130,13 +1131,8 @@ import BaseLayout from '../layouts/BaseLayout.astro';
           Ascend is the iOS app made for the stair stepper: live climbs to race, best efforts to beat, routines to run, trends to track, and every reason to keep climbing.
         </p>
 
-        <div class="hero-actions" id="heroWaitlist">
-          <form class="waitlist-form" id="heroForm">
-            <input type="email" placeholder="Enter your email" required id="heroEmail" autocomplete="email" inputmode="email" />
-            <button type="submit">Join Waitlist</button>
-          </form>
-          <div class="waitlist-success" id="heroSuccess" role="status" aria-live="polite">You're on the list! We'll be in touch.</div>
-          <div class="waitlist-error" id="heroError"></div>
+        <div class="hero-actions">
+          <AppStoreBadge />
         </div>
       </div>
     </div>
@@ -1282,12 +1278,24 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 
       <div class="faq-item">
         <button class="faq-question">
+          How does Ascend track my steps live?
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="faq-answer">
+          <div class="faq-answer-inner">
+            During a Live Climb, Ascend reads the motion in your AirPods or compatible headphones and runs a stair-stepper-tuned step algorithm in real time &mdash; your steps, pace, and rank update every second as you climb. It measures your actual movement, so the count stays accurate as long as you&rsquo;re climbing. Stop stepping and it stops counting, exactly as it should.
+          </div>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question">
           Can I import workouts?
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <div class="faq-answer">
           <div class="faq-answer-inner">
-            Yes. Ascend supports Apple Health import flows and Hevy-based workout import logic, with review states designed to keep the workout history clean and avoid duplicate records.
+            Yes. Ascend imports your stair-stepper workouts from Apple Health, with review states designed to keep your history clean and avoid duplicate records.
           </div>
         </div>
       </div>
@@ -1299,7 +1307,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         </button>
         <div class="faq-answer">
           <div class="faq-answer-inner">
-            Ascend is planned as freemium: core features available free at launch, with a future optional subscription for advanced features.
+            No &mdash; Ascend is a subscription. Start with a 7-day free trial on the yearly plan ($49.99/year), or go month-to-month at $9.99/month. Cancel anytime.
           </div>
         </div>
       </div>
@@ -1311,175 +1319,22 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         </button>
         <div class="faq-answer">
           <div class="faq-answer-inner">
-            Ascend is still in development. Join the waitlist to get launch updates and a note when the App Store release is ready.
+            Ascend is in active development and launching on the App Store soon. Check back here for the release.
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <section class="cta-section" id="ctaWaitlist">
+  <section class="cta-section" id="download">
     <h2>Track the stair stepper like the workout it is.</h2>
-    <p>Get launch updates and a note when Ascend is live on the App Store.</p>
+    <p>Ascend is coming to the App Store. Climb real landmarks, race the leaderboard, and make every step count.</p>
 
-    <form class="waitlist-form" id="ctaForm">
-      <input type="email" placeholder="Enter your email" required id="ctaEmail" autocomplete="email" inputmode="email" />
-      <button type="submit">Join Waitlist</button>
-    </form>
-    <div class="waitlist-success" id="ctaSuccess" role="status" aria-live="polite">You're on the list! We'll be in touch.</div>
-    <div class="waitlist-error" id="ctaError"></div>
+    <div class="cta-actions" style="margin-top: 28px;">
+      <AppStoreBadge />
+    </div>
   </section>
 
-  <script type="module">
-    const WAITLIST_ENDPOINT = '/api/join-waitlist';
-    const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-    function triggerWaitlistBurst(successEl) {
-      successEl.querySelectorAll('.waitlist-burst').forEach((el) => el.remove());
-
-      const burst = document.createElement('span');
-      burst.className = 'waitlist-burst';
-
-      for (let i = 0; i < 12; i++) {
-        const particle = document.createElement('span');
-        const angle = (Math.PI * 2 * i) / 12 + (Math.random() - 0.5) * 0.25;
-        const distance = 24 + Math.random() * 24;
-        const driftX = Math.cos(angle) * distance;
-        const driftY = Math.sin(angle) * distance;
-        const rotation = (Math.random() - 0.5) * 80;
-
-        particle.style.setProperty('--x', `${driftX.toFixed(2)}px`);
-        particle.style.setProperty('--y', `${driftY.toFixed(2)}px`);
-        particle.style.setProperty('--r', `${rotation.toFixed(0)}deg`);
-        particle.style.setProperty('--d', `${Math.round(Math.random() * 90)}ms`);
-        burst.appendChild(particle);
-      }
-
-      successEl.appendChild(burst);
-      window.setTimeout(() => burst.remove(), 900);
-    }
-
-    function showWaitlistSuccess(successEl, status) {
-      if (!successEl) return;
-
-      const isExisting = status === 'already_subscribed';
-      successEl.textContent = isExisting
-        ? "You're already on the list. We'll be in touch."
-        : "You're in. We'll send a confirmation email shortly.";
-
-      successEl.classList.remove('show', 'is-subscribed', 'is-existing');
-      void successEl.offsetWidth;
-      successEl.classList.add('show', isExisting ? 'is-existing' : 'is-subscribed');
-
-      if (!isExisting) {
-        triggerWaitlistBurst(successEl);
-      }
-    }
-
-    async function handleWaitlist(event, formId) {
-      event.preventDefault();
-
-      const waitlistRoot = document.getElementById(formId + 'Waitlist');
-      const emailInput = document.getElementById(formId + 'Email');
-      const form = document.getElementById(formId + 'Form');
-      const noteEl = waitlistRoot?.querySelector('.waitlist-note');
-      const successEl = document.getElementById(formId + 'Success');
-      const errorEl = document.getElementById(formId + 'Error');
-      const button = form?.querySelector('button');
-      const email = emailInput?.value.trim().toLowerCase();
-
-      if (!email || !button) return;
-
-      if (emailInput instanceof HTMLInputElement) {
-        emailInput.classList.remove('input-error');
-      }
-
-      const showError = (message, isValidation = false) => {
-        if (errorEl) {
-          errorEl.textContent = message;
-          errorEl.style.display = 'block';
-        }
-        if (noteEl instanceof HTMLElement) noteEl.style.display = '';
-        if (isValidation && emailInput instanceof HTMLInputElement) {
-          emailInput.classList.add('input-error');
-          emailInput.focus();
-        }
-      };
-
-      if (!EMAIL_PATTERN.test(email)) {
-        showError('Please enter a valid email address.', true);
-        return;
-      }
-
-      button.disabled = true;
-      button.textContent = 'Joining...';
-      if (errorEl) errorEl.style.display = 'none';
-
-      try {
-        const response = await fetch(WAITLIST_ENDPOINT, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            email: email,
-            source: 'landing_page'
-          })
-        });
-
-        let payload = null;
-        try {
-          payload = await response.json();
-        } catch {
-          payload = null;
-        }
-
-        if (!response.ok) {
-          if (payload?.error === 'invalid_email') {
-            showError('Please enter a valid email address.', true);
-            button.disabled = false;
-            button.textContent = 'Join Waitlist';
-            return;
-          }
-          if (payload?.error === 'rate_limited') {
-            showError("You've reached the signup limit for now. Please try again later.");
-            button.disabled = false;
-            button.textContent = 'Join Waitlist';
-            return;
-          }
-          throw new Error(typeof payload?.error === 'string' ? payload.error : 'waitlist_request_failed');
-        }
-
-        showWaitlistSuccess(successEl, payload?.status);
-
-        if (form) form.style.display = 'none';
-        if (noteEl instanceof HTMLElement) noteEl.style.display = 'none';
-      } catch (err) {
-        console.error('Waitlist error:', err);
-        showError('Something went wrong. Please try again or email pavayt@gmail.com.');
-        button.disabled = false;
-        button.textContent = 'Join Waitlist';
-      }
-    }
-
-    function clearWaitlistValidation(formId) {
-      const emailInput = document.getElementById(formId + 'Email');
-      const errorEl = document.getElementById(formId + 'Error');
-      if (!(emailInput instanceof HTMLInputElement)) return;
-
-      emailInput.addEventListener('input', () => {
-        emailInput.classList.remove('input-error');
-        if (errorEl instanceof HTMLElement && errorEl.style.display === 'block') {
-          errorEl.style.display = 'none';
-        }
-      });
-    }
-
-    document.getElementById('heroForm')?.addEventListener('submit', (e) => handleWaitlist(e, 'hero'));
-    document.getElementById('ctaForm')?.addEventListener('submit', (e) => handleWaitlist(e, 'cta'));
-    clearWaitlistValidation('hero');
-    clearWaitlistValidation('cta');
-  </script>
 
   <script>
     document.querySelectorAll('.faq-question').forEach(function(button) {

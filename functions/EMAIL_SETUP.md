@@ -50,11 +50,20 @@ npx firebase-tools deploy --only firestore:rules,firestore:indexes,functions
 
 ## Current behavior
 
-- `joinWaitlist` validates email input, rate limits by hashed requester IP, and enqueues a deterministic `waitlist_welcome` job.
-- The welcome email is sent in the background by the scheduled `processEmailJobs` worker.
+- `joinWaitlist` validates email input, rate limits by hashed requester IP, and subscribes the address to Beehiiv. Beehiiv owns broadcast/newsletter delivery and any Beehiiv-hosted welcome email.
+- The scheduled `processEmailJobs` worker sends queued transactional app emails.
 - `email_jobs` stores queue state, attempts, retry timing, and provider metadata.
 - Retryable provider failures are requeued automatically; permanent failures are marked on the job.
-- Existing waitlist rows created before this system are not backfilled automatically.
+
+## Lifecycle email automation
+
+- `recordLifecycleEvent` writes validated app lifecycle events under `users/{uid}/lifecycle_events`.
+- `onLifecycleEventEmailAutomation` listens for `rating_prompt_answered_v1`.
+- If the user answered `yes`, it queues `rating_positive_followup`.
+- If the user answered `no`, it queues `rating_negative_feedback`.
+- The job ID is deterministic from `rating-prompt-answer-email:{uid}`, so the prompt can only enqueue one follow-up email per user.
+- The automation skips the queue when `users/{uid}/communication_preferences/current.lifecycleEmailsEnabled` is explicitly `false`.
+- The scheduled `processEmailJobs` worker sends the queued email through Resend.
 
 ## Feedback notifications
 

@@ -1,7 +1,7 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 ---
-<BaseLayout title="Privacy Policy – Ascend" description="Privacy Policy for Ascend, the iOS stair-stepper workout tracker.">
+<BaseLayout title="Privacy Policy - Ascend" description="Privacy Policy for Ascend, the iOS stair-stepper workout tracker.">
 
   <style>
     .privacy-page {
@@ -92,87 +92,98 @@ import BaseLayout from '../layouts/BaseLayout.astro';
   <div class="privacy-page">
     <main>
       <h1>Privacy Policy</h1>
-      <p class="last-updated">Last updated: May 27, 2026</p>
+      <p class="last-updated">Last updated: June 10, 2026</p>
 
       <h2>Introduction</h2>
-      <p>Ascend ("we", "our", or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, and safeguard your information when you use our stairstepper workout tracking application.</p>
+      <p>Ascend ("we", "our", or "us") is a stair-stepper workout app for tracking climbs, workouts, leaderboards, achievements, and progress. This Privacy Policy explains what information we collect, how we use it, how we share it, and the choices you have.</p>
 
       <h2>Information We Collect</h2>
-      <p>We collect the following types of information:</p>
+      <p>Depending on how you use Ascend, we may collect the following information:</p>
       <ul>
-        <li><strong>Workout Data:</strong> Steps climbed, floors climbed, duration, heart rate, calories burned, Live Climb completion state, and other fitness metrics you log.</li>
-        <li><strong>Health Data:</strong> With your permission, we access HealthKit data including heart rate and workout information. This data is used solely to enhance your workout tracking experience and is never sold or shared with advertisers.</li>
-        <li><strong>Account Information:</strong> Email address, display name, age, gender, body weight, country/region, and joined date when you create or update your profile. Display name, profile photo, demographics, joined date, public profile statistics, achievements, and public workout summaries may appear on profiles and leaderboard-related surfaces.</li>
-        <li><strong>Photos and Videos:</strong> Media you optionally attach to your workouts, stored securely in the cloud.</li>
-        <li><strong>Account Identifiers:</strong> A unique account ID assigned when you sign up. This ID is associated with crash reports, app usage diagnostics, and server-side Live Climb community dedupe markers so we can investigate issues tied to a specific account if you contact support and show aggregate community counts without double-counting repeat completions.</li>
-        <li><strong>Feedback Submissions:</strong> When you submit in-app feedback, we collect the text you write along with your email address, device model, operating system version, and app version to help us reproduce and respond to issues.</li>
-        <li><strong>Purchase History:</strong> If you start a trial, subscribe, restore purchases, or interact with a paywall, we process purchase and subscription status information through RevenueCat and Superwall to unlock paid access, manage entitlements, measure paywall performance, and support subscriptions.</li>
-        <li><strong>Crash &amp; Diagnostic Data:</strong> We collect crash logs and non-fatal error reports through Firebase Crashlytics so we can find and fix bugs. These reports include device model, OS version, app version, and a stack trace of where the crash or error occurred. They are linked to your account identifier.</li>
-        <li><strong>Product Usage Analytics:</strong> In production builds we collect first-party analytics through Firebase Analytics — for example, which screens are visited and which features are used — to understand how the app is performing and where to improve it. This data is linked to your account identifier and is <strong>not</strong> shared with advertisers, ad networks, or data brokers, and is <strong>not</strong> used for cross-app or cross-site tracking. Ascend does not use the iOS advertising identifier (IDFA) and does not show the App Tracking Transparency prompt because we do not track you across other apps or websites.</li>
+        <li><strong>Account information:</strong> Your email address, authentication provider, user ID, display name, profile photo, joined date, and account settings.</li>
+        <li><strong>Profile and onboarding information:</strong> Display name, declared age, gender or division, body weight, city, region, country, stair-stepper experience, exercise baseline, goals, motivation, notification preference, and first-climb recommendation.</li>
+        <li><strong>Workout and fitness data:</strong> Steps, floors, duration, cadence, heart rate, calories, workout dates, Live Climb attempt state, climb completion state, personal records, leaderboard entries, achievements, and related workout metrics.</li>
+        <li><strong>Apple Health data:</strong> With your permission, Ascend reads supported workout and health data from Apple HealthKit, such as workouts, steps, heart rate, and active energy, to import or enrich your workout history.</li>
+        <li><strong>Photos, videos, notes, and feedback:</strong> Media and notes you attach to workouts, profile photos you upload, and feedback or support messages you send us.</li>
+        <li><strong>Purchase and subscription information:</strong> Trial, subscription, entitlement, restore-purchase, paywall interaction, and purchase-status information processed through Apple, RevenueCat, and Superwall.</li>
+        <li><strong>Product usage analytics:</strong> Screen views, onboarding funnel events, feature interactions, paywall events, and other first-party product analytics collected through Firebase Analytics and Mixpanel in non-debug builds.</li>
+        <li><strong>Diagnostics:</strong> Crash reports, performance data, non-fatal error logs, app version, operating system version, device model, and related debugging context collected through Firebase Crashlytics and app telemetry.</li>
+        <li><strong>City search and map context:</strong> Searches and selected city-level location information used to help you pick profile and leaderboard context. Ascend does not currently collect continuous background location for gym-level leaderboards.</li>
       </ul>
 
-      <h2>How We Use Your Information</h2>
-      <p>Your information is used to:</p>
+      <h2>How We Use Information</h2>
+      <p>We use information to operate and improve Ascend, including to:</p>
       <ul>
-        <li>Track and display your workout progress</li>
-        <li>Calculate personal records and statistics</li>
-        <li>Sync your data across devices via iCloud and Firebase</li>
-        <li>Provide leaderboard, profile, achievement, and aggregate community-count functionality</li>
-        <li>Process subscriptions, restore purchases, manage paid access, and measure onboarding/paywall performance</li>
-        <li>Improve the app experience</li>
-        <li>Send important service updates</li>
+        <li>Create and authenticate your account.</li>
+        <li>Track, store, sync, import, and display stair-stepper workouts.</li>
+        <li>Calculate climb progress, records, achievements, trends, and recommendations.</li>
+        <li>Operate leaderboards, public profile surfaces, First Ascent status, and community climb context.</li>
+        <li>Personalize onboarding, first-climb recommendations, app settings, and notifications.</li>
+        <li>Process subscriptions, trials, entitlements, paywalls, and restore-purchase flows.</li>
+        <li>Analyze onboarding conversion, product usage, app quality, and crash trends.</li>
+        <li>Respond to support requests and investigate bugs or abuse.</li>
+        <li>Comply with legal, security, and App Store obligations.</li>
       </ul>
+
+      <h2>Public and Shared Surfaces</h2>
+      <p>Ascend is built around competitive stair-stepper context. Some information may be visible to other users on profiles, leaderboards, climb history, and achievement surfaces. This may include your display name, profile photo, public profile statistics, city-level profile location, joined date, achievements, climb completions, leaderboard rankings, and public workout summaries. Your email address, authentication provider details, private account fields, and private workout backups are not meant for public display.</p>
 
       <h2>Apple HealthKit</h2>
-      <p>Ascend integrates with Apple HealthKit to read workout and health data that you choose to share with the app. In accordance with Apple's requirements:</p>
+      <p>Ascend uses Apple HealthKit only with your permission. HealthKit data is used to provide workout import, workout enrichment, and related app functionality.</p>
       <ul>
-        <li>HealthKit data is <strong>never</strong> used for advertising or marketing</li>
-        <li>HealthKit data is <strong>never</strong> sold to data brokers or third parties</li>
-        <li>HealthKit data is <strong>not</strong> shared with third parties except as needed to provide core app functionality</li>
-        <li>You can revoke HealthKit access at any time in Settings &gt; Health &gt; Data Access</li>
+        <li>We do not use HealthKit data for advertising, marketing, or cross-app tracking.</li>
+        <li>We do not sell HealthKit data.</li>
+        <li>We do not share HealthKit data with advertisers, data brokers, or ad networks.</li>
+        <li>We do not write data back to Apple Health unless a future feature clearly asks for permission and explains why.</li>
+        <li>You can revoke HealthKit access at any time in iOS Settings or in the Health app.</li>
       </ul>
 
-      <h2>Data Storage &amp; Security</h2>
-      <ul>
-        <li>Your workout data is stored locally on your device and synced to secure cloud servers (Firebase/Google Cloud).</li>
-        <li>Photos and videos are encrypted in transit and at rest.</li>
-        <li>We use industry-standard security measures to protect your data.</li>
-        <li>We do <strong>not</strong> sell your personal information to third parties.</li>
-      </ul>
+      <h2>Analytics, Tracking, and Advertising</h2>
+      <p>Ascend uses first-party analytics to understand whether onboarding, subscriptions, workouts, leaderboards, and core features are working. We use Firebase Analytics and Mixpanel for product analytics, Firebase Crashlytics for crash reporting, and Superwall and RevenueCat for subscription and paywall analytics.</p>
+      <p>Ascend does <strong>not</strong> sell personal information, does <strong>not</strong> use advertising networks, does <strong>not</strong> use the iOS advertising identifier (IDFA), and does <strong>not</strong> track you across other companies' apps or websites for targeted advertising. Because we do not perform App Tracking Transparency-style tracking, Ascend does not show the ATT prompt.</p>
 
       <h2>Third-Party Services</h2>
-      <p>Ascend integrates with the following third-party services:</p>
+      <p>Ascend uses service providers to run the app. These providers process information only for the services they provide to Ascend, subject to their own terms and privacy commitments.</p>
       <ul>
-        <li><strong>Apple HealthKit:</strong> To read health and workout data (with your explicit permission).</li>
-        <li><strong>Hevy:</strong> To optionally import workout data.</li>
-        <li><strong>Firebase (Google):</strong> For secure cloud storage, authentication, and analytics.</li>
-        <li><strong>RevenueCat:</strong> To process subscription status, purchase history, entitlement access, and restore purchases.</li>
-        <li><strong>Superwall:</strong> To present paywalls, measure onboarding and paywall conversion, and coordinate subscription-related paywall events.</li>
+        <li><strong>Apple:</strong> App Store, StoreKit, Sign in with Apple, Apple HealthKit, Apple Health, and Apple MapKit.</li>
+        <li><strong>Google Firebase:</strong> Authentication, Firestore, Storage, Cloud Functions, Analytics, Crashlytics, and Hosting.</li>
+        <li><strong>Google Sign-In:</strong> Optional account authentication.</li>
+        <li><strong>RevenueCat:</strong> Subscription status, entitlements, purchase history, and restore-purchase support.</li>
+        <li><strong>Superwall:</strong> Paywall presentation, paywall analytics, campaign logic, and subscription conversion measurement.</li>
+        <li><strong>Mixpanel:</strong> First-party product analytics and onboarding funnel measurement.</li>
       </ul>
-      <p>These services have their own privacy policies that govern their use of your data.</p>
 
-      <h2>Your Rights</h2>
-      <p>You have the right to:</p>
-      <ul>
-        <li>Access your personal data</li>
-        <li>Delete your account and all associated data</li>
-        <li>Revoke HealthKit permissions at any time</li>
-      </ul>
+      <h2>Data Storage and Security</h2>
+      <p>Ascend stores workout data locally on your device and uses Firebase/Google Cloud for backup, sync, authentication, media storage, and server-owned app functionality. We use reasonable technical and organizational safeguards, including encryption in transit and cloud-provider security controls. No system is perfectly secure, so you should use a strong account credential and keep your device protected.</p>
 
       <h2>Data Retention</h2>
-      <p>We retain your data for as long as your account is active. If you delete your account, your data will be permanently removed from our servers within 30 days.</p>
+      <p>We keep account and workout information for as long as your account is active or as needed to provide Ascend. If you delete your account, we delete or de-identify associated account data from active systems within a reasonable period, generally within 30 days, except where we need to retain limited records for security, fraud prevention, legal compliance, backup integrity, or transaction records.</p>
+
+      <h2>Your Choices</h2>
+      <ul>
+        <li><strong>Account data:</strong> You can update profile information in the app where supported.</li>
+        <li><strong>Account deletion:</strong> You can delete your account in the app. You may also contact us if you need help.</li>
+        <li><strong>HealthKit:</strong> You can grant or revoke HealthKit permissions in iOS Settings or the Health app.</li>
+        <li><strong>Notifications:</strong> You can enable or disable notifications in iOS Settings.</li>
+        <li><strong>Photos:</strong> You can control Photos access in iOS Settings.</li>
+        <li><strong>Subscriptions:</strong> You can manage App Store subscriptions through your Apple account subscription settings.</li>
+        <li><strong>Support requests:</strong> You can contact us to request access, correction, deletion, or export of personal information, subject to identity verification and applicable law.</li>
+      </ul>
 
       <h2>Children's Privacy</h2>
-      <p>Ascend is not intended for children under 13. We do not knowingly collect personal information from children under 13. If we learn that we have collected data from a child under 13, we will delete it promptly.</p>
+      <p>Ascend is not intended for children under 13, and the onboarding age range starts at 13. We do not knowingly collect personal information from children under 13. If we learn that we collected information from a child under 13, we will delete it as required by law.</p>
+
+      <h2>International Users</h2>
+      <p>Ascend is operated from the United States. If you use Ascend from outside the United States, your information may be processed in the United States and other countries where our service providers operate. Privacy laws may differ from those in your location.</p>
 
       <h2>Changes to This Policy</h2>
-      <p>We may update this Privacy Policy from time to time. We will notify you of any changes by posting the new Privacy Policy on this page and updating the "Last updated" date above.</p>
+      <p>We may update this Privacy Policy as Ascend changes. When we do, we will update the "Last updated" date above. If a change materially affects your rights or how we use your information, we will provide additional notice when appropriate.</p>
 
       <h2>Contact Us</h2>
-      <p>If you have questions about this Privacy Policy, please contact us at <a href="mailto:pavayt@gmail.com">pavayt@gmail.com</a>.</p>
+      <p>If you have questions about this Privacy Policy or your data, contact us at <a href="mailto:pavayt@gmail.com">pavayt@gmail.com</a>.</p>
 
       <hr class="divider" />
-      <p class="privacy-footer-note">Built by Tyler Pavay &middot; <a href="https://ascendstepper.com">ascendstepper.com</a></p>
+      <p class="privacy-footer-note">Built by Tyler Pavay &middot; <a href="https://ascendstepper.com">ascendstepper.com</a> &middot; <a href="/terms">Terms of Service</a></p>
     </main>
   </div>
 

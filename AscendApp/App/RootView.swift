@@ -16,6 +16,7 @@ struct RootView: View {
     @State private var importCoordinator = WorkoutImportCoordinator.shared
     @State private var postAuthOnboardingCoordinator = PostAuthOnboardingCoordinator()
     @State private var accountDataConflict: AccountDataOwnershipConflict?
+    @State private var profileCompletionCheckTask: Task<Void, Never>?
 
     var body: some View {
         Group {
@@ -123,11 +124,6 @@ struct RootView: View {
                         }
                     }
                 )
-                .onAppear {
-                    LifecycleEventRecorder.shared.recordPaywallReached(
-                        placement: SuperwallPlacement.appAccessGate.rawValue
-                    )
-                }
 
             case .mainApp:
                 MainTabView()
@@ -223,13 +219,60 @@ struct RootView: View {
 
     @MainActor
     private func completePostAuthOnboardingIfRemoteProfileExists() {
-        guard authVM.user != nil,
+        #if DEBUG
+        if let userId = authVM.user?.uid,
+           PostAuthOnboardingStore().isDebugReplayActive(for: userId) {
+            profileCompletionCheckTask?.cancel()
+            profileCompletionCheckTask = nil
+            return
+        }
+        #endif
+
+        guard let user = authVM.user,
               authVM.isProfileLoaded,
               authVM.hasRemoteDisplayName else {
+            profileCompletionCheckTask?.cancel()
+            profileCompletionCheckTask = nil
             return
         }
 
-        postAuthOnboardingCoordinator.markCurrentUserComplete()
+        profileCompletionCheckTask?.cancel()
+        profileCompletionCheckTask = Task { @MainActor in
+            let userData = try? await UserDataRepository.shared.getUserFromFirestore(userId: user.uid)
+            guard !Task.isCancelled,
+                  let userData,
+                  isCompletePostAuthProfile(userData) else {
+                return
+            }
+
+            postAuthOnboardingCoordinator.markCurrentUserComplete()
+        }
+    }
+
+    private func isCompletePostAuthProfile(_ userData: UserDisplayNameData) -> Bool {
+        guard let displayName = userData.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !displayName.isEmpty,
+              let age = userData.age,
+              (13...120).contains(age),
+              let genderRawValue = userData.gender,
+              ProfileGender(rawValue: genderRawValue) != nil,
+              let weightKg = userData.weightKg,
+              weightKg > 0,
+              weightKg <= 400,
+              let locationCity = userData.locationCity?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !locationCity.isEmpty,
+              locationCity.count <= 120,
+              let locationCountry = userData.locationCountry,
+              locationCountry.range(of: #"^[A-Z]{2}$"#, options: .regularExpression) != nil else {
+            return false
+        }
+
+        if let locationRegion = userData.locationRegion?.trimmingCharacters(in: .whitespacesAndNewlines),
+           locationRegion.count > 120 {
+            return false
+        }
+
+        return true
     }
 }
 
