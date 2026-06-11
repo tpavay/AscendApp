@@ -13,6 +13,12 @@ service cloud.firestore {
       return (value is int || value is float) && value >= 0;
     }
 
+    function isValidLocationProfileText(value) {
+      return value is string &&
+        value.size() > 0 &&
+        value.size() <= 120;
+    }
+
     function isValidTimeFrame(timeFrame) {
       return timeFrame in ["daily", "weekly", "monthly", "yearly", "all_time"];
     }
@@ -40,8 +46,10 @@ service cloud.firestore {
           "age",
           "gender",
           "weight_kg",
+          "location_city",
           "location_country",
           "location_region",
+          "onboarding_first_climb_id",
           "joined_at",
           "createdAt",
           "lastUpdated"
@@ -80,12 +88,17 @@ service cloud.firestore {
         (!request.resource.data.keys().hasAny(["weight_kg"]) ||
           (isNonNegativeNumber(request.resource.data.weight_kg) &&
             request.resource.data.weight_kg <= 400)) &&
+        (!request.resource.data.keys().hasAny(["location_city"]) ||
+          isValidLocationProfileText(request.resource.data.location_city)) &&
         (!request.resource.data.keys().hasAny(["location_country"]) ||
           (request.resource.data.location_country is string &&
             request.resource.data.location_country.matches("^[A-Z]{2}$"))) &&
         (!request.resource.data.keys().hasAny(["location_region"]) ||
-          (request.resource.data.location_region is string &&
-            request.resource.data.location_region.matches("^[A-Z0-9-]{1,8}$"))) &&
+          isValidLocationProfileText(request.resource.data.location_region)) &&
+        (!request.resource.data.keys().hasAny(["onboarding_first_climb_id"]) ||
+          (request.resource.data.onboarding_first_climb_id is string &&
+            request.resource.data.onboarding_first_climb_id.size() > 0 &&
+            request.resource.data.onboarding_first_climb_id.size() <= 160)) &&
         (!request.resource.data.keys().hasAny(["joined_at"]) ||
           request.resource.data.joined_at is timestamp) &&
         request.resource.data.createdAt is timestamp &&
@@ -113,6 +126,7 @@ service cloud.firestore {
           "age",
           "gender",
           "weight_kg",
+          "location_city",
           "location_country",
           "location_region",
           "joined_at",
@@ -145,12 +159,13 @@ service cloud.firestore {
         (!request.resource.data.keys().hasAny(["weight_kg"]) ||
           (isNonNegativeNumber(request.resource.data.weight_kg) &&
             request.resource.data.weight_kg <= 400)) &&
+        (!request.resource.data.keys().hasAny(["location_city"]) ||
+          isValidLocationProfileText(request.resource.data.location_city)) &&
         (!request.resource.data.keys().hasAny(["location_country"]) ||
           (request.resource.data.location_country is string &&
             request.resource.data.location_country.matches("^[A-Z]{2}$"))) &&
         (!request.resource.data.keys().hasAny(["location_region"]) ||
-          (request.resource.data.location_region is string &&
-            request.resource.data.location_region.matches("^[A-Z0-9-]{1,8}$"))) &&
+          isValidLocationProfileText(request.resource.data.location_region)) &&
         (!request.resource.data.keys().hasAny(["joined_at"]) ||
           request.resource.data.joined_at is timestamp) &&
         request.resource.data.lastUpdated is timestamp;

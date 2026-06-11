@@ -185,17 +185,35 @@ extension AuthenticationViewModel {
     func signInWithGoogle() async {
         authenticationState = .authenticatingWithGoogle
         errorMessage = nil
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.authStarted(provider: AuthProviderKind.google.rawValue)
+        )
 
         do {
             _ = try await authenticationService.signInWithGoogle()
             recordSuccessfulSignIn(provider: .google)
+            TelemetryManager.shared.track(
+                OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.google.rawValue)
+            )
             TelemetryManager.shared.log(.authInteractiveSignInSuccess)
         } catch {
             // Don't show error for user cancellation
             if error is CancellationError {
+                TelemetryManager.shared.track(
+                    OnboardingAnalyticsEvent.authFailed(
+                        provider: AuthProviderKind.google.rawValue,
+                        reason: "cancelled"
+                    )
+                )
                 // User canceled - just reset state without showing error
                 authenticationState = .unauthenticated
             } else {
+                TelemetryManager.shared.track(
+                    OnboardingAnalyticsEvent.authFailed(
+                        provider: AuthProviderKind.google.rawValue,
+                        reason: "failed"
+                    )
+                )
                 TelemetryManager.shared.log(.authSignInFailed)
                 TelemetryManager.shared.recordError(error, context: .auth, code: "google_sign_in_failed", additionalInfo: ["provider": "google"])
                 errorMessage = error.localizedDescription
@@ -227,12 +245,24 @@ extension AuthenticationViewModel {
 
         authenticationState = .authenticatingWithInternalQA
         errorMessage = nil
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.authStarted(provider: AuthProviderKind.internalQA.rawValue)
+        )
 
         do {
             _ = try await authenticationService.signInWithEmail(email: trimmedEmail, password: password)
             recordSuccessfulSignIn(provider: .internalQA)
+            TelemetryManager.shared.track(
+                OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.internalQA.rawValue)
+            )
             TelemetryManager.shared.log(.authInteractiveSignInSuccess)
         } catch {
+            TelemetryManager.shared.track(
+                OnboardingAnalyticsEvent.authFailed(
+                    provider: AuthProviderKind.internalQA.rawValue,
+                    reason: "failed"
+                )
+            )
             TelemetryManager.shared.log(.authSignInFailed)
             TelemetryManager.shared.recordError(
                 error,
@@ -248,17 +278,35 @@ extension AuthenticationViewModel {
     func signInWithApple() async {
         authenticationState = .authenticatingWithApple
         errorMessage = nil
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.authStarted(provider: AuthProviderKind.apple.rawValue)
+        )
 
         do {
             _ = try await authenticationService.signInWithApple()
             recordSuccessfulSignIn(provider: .apple)
+            TelemetryManager.shared.track(
+                OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.apple.rawValue)
+            )
             TelemetryManager.shared.log(.authInteractiveSignInSuccess)
         } catch {
             // Don't show error for user cancellation
             if error is CancellationError {
+                TelemetryManager.shared.track(
+                    OnboardingAnalyticsEvent.authFailed(
+                        provider: AuthProviderKind.apple.rawValue,
+                        reason: "cancelled"
+                    )
+                )
                 // User canceled - just reset state without showing error
                 authenticationState = .unauthenticated
             } else {
+                TelemetryManager.shared.track(
+                    OnboardingAnalyticsEvent.authFailed(
+                        provider: AuthProviderKind.apple.rawValue,
+                        reason: "failed"
+                    )
+                )
                 TelemetryManager.shared.log(.authSignInFailed)
                 TelemetryManager.shared.recordError(error, context: .auth, code: "apple_sign_in_failed", additionalInfo: ["provider": "apple"])
                 errorMessage = error.localizedDescription
@@ -320,8 +368,10 @@ extension AuthenticationViewModel {
             age: existingData?.age,
             gender: existingData?.gender,
             weightKg: existingData?.weightKg,
+            locationCity: existingData?.locationCity,
             locationCountry: existingData?.locationCountry,
             locationRegion: existingData?.locationRegion,
+            onboardingFirstClimbId: existingData?.onboardingFirstClimbId,
             joinedAt: existingData?.joinedAt ?? user.metadata.creationDate
         )
     }
@@ -514,6 +564,157 @@ extension AuthenticationViewModel {
         } catch {
             displayName = previousDisplayName
             errorMessage = "Failed to update profile: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    func updateOnboardingGender(_ gender: ProfileGender) async -> Bool {
+        errorMessage = nil
+
+        guard let user else {
+            errorMessage = "User not authenticated"
+            return false
+        }
+
+        do {
+            try await UserDataRepository.shared.updateOnboardingDemographics(
+                userId: user.uid,
+                email: user.email,
+                displayName: displayName,
+                gender: gender
+            )
+            return true
+        } catch {
+            errorMessage = "Failed to update profile: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    func updateOnboardingAge(_ age: Int) async -> Bool {
+        errorMessage = nil
+
+        guard let user else {
+            errorMessage = "User not authenticated"
+            return false
+        }
+
+        guard (13...120).contains(age) else {
+            errorMessage = "Enter an age from 13 to 120"
+            return false
+        }
+
+        do {
+            try await UserDataRepository.shared.updateOnboardingDemographics(
+                userId: user.uid,
+                email: user.email,
+                displayName: displayName,
+                age: age
+            )
+            return true
+        } catch {
+            errorMessage = "Failed to update profile: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    func updateOnboardingWeightKilograms(_ weightKg: Double) async -> Bool {
+        errorMessage = nil
+
+        guard let user else {
+            errorMessage = "User not authenticated"
+            return false
+        }
+
+        guard weightKg > 0, weightKg <= 400 else {
+            errorMessage = "Enter a valid body weight"
+            return false
+        }
+
+        do {
+            try await UserDataRepository.shared.updateOnboardingDemographics(
+                userId: user.uid,
+                email: user.email,
+                displayName: displayName,
+                weightKg: weightKg
+            )
+            return true
+        } catch {
+            errorMessage = "Failed to update profile: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    func updateOnboardingLocation(city: String, countryCode: String, region: String?) async -> Bool {
+        errorMessage = nil
+
+        guard let user else {
+            errorMessage = "User not authenticated"
+            return false
+        }
+
+        let normalizedCity = city.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedCountry = countryCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        let normalizedRegion = region?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !normalizedCity.isEmpty, normalizedCity.count <= 120 else {
+            errorMessage = "Choose a valid city"
+            return false
+        }
+
+        guard normalizedCountry.range(of: #"^[A-Z]{2}$"#, options: .regularExpression) != nil else {
+            errorMessage = "Choose a valid country"
+            return false
+        }
+
+        guard normalizedRegion?.count ?? 0 <= 120 else {
+            errorMessage = "Choose a valid region"
+            return false
+        }
+
+        do {
+            try await UserDataRepository.shared.updateOnboardingDemographics(
+                userId: user.uid,
+                email: user.email,
+                displayName: displayName,
+                locationCity: normalizedCity,
+                locationCountry: normalizedCountry,
+                locationRegion: normalizedRegion?.isEmpty == true ? nil : normalizedRegion
+            )
+            return true
+        } catch {
+            errorMessage = "Failed to update profile: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    func updateOnboardingFirstClimb(_ climbId: String) async -> Bool {
+        errorMessage = nil
+
+        guard let user else {
+            errorMessage = "User not authenticated"
+            return false
+        }
+
+        let normalizedClimbId = climbId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedClimbId.range(of: #"^[a-z0-9-]{1,160}$"#, options: .regularExpression) != nil else {
+            errorMessage = "Choose a valid first climb"
+            return false
+        }
+
+        do {
+            try await UserDataRepository.shared.updateOnboardingFirstClimb(
+                userId: user.uid,
+                email: user.email,
+                climbId: normalizedClimbId
+            )
+            return true
+        } catch {
+            errorMessage = "Failed to update first climb: \(error.localizedDescription)"
             return false
         }
     }

@@ -2,13 +2,27 @@ import Foundation
 
 enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
     case displayName
+    case gender
+    case age
+    case weight
+    case location
+    case notifications
+    case planLoading = "loading"
+    case firstClimb = "first_climb"
 
     static let flowID = "post_auth_onboarding"
-    static let plannedStepCount = 5
+    static let plannedStepCount = allCases.count
 
     static var allCases: [PostAuthOnboardingStage] {
         [
-            .displayName
+            .displayName,
+            .gender,
+            .age,
+            .weight,
+            .location,
+            .notifications,
+            .planLoading,
+            .firstClimb
         ]
     }
 
@@ -36,6 +50,10 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
             stepIndex: progressIndex,
             stepCount: Self.plannedStepCount
         )
+    }
+
+    var screenViewProperty: String {
+        rawValue
     }
 }
 

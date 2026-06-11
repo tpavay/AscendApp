@@ -65,6 +65,34 @@ final class MonetizationManager {
         LifecycleEventRecorder.shared.recordPaywallReached(
             placement: placement.rawValue
         )
+        trackPaywallReached(placement, params: params)
         paywallPresenter.register(placement: placement, params: params)
+    }
+
+    private func trackPaywallReached(_ placement: SuperwallPlacement, params: [String: Any]?) {
+        let source = params?["source"] as? String
+        var parameters: [String: TelemetryValue] = [
+            "placement": .string(placement.rawValue)
+        ]
+
+        if let source {
+            parameters["source"] = .string(source)
+        }
+
+        TelemetryManager.shared.track(
+            TelemetryRecord(
+                name: "paywall_reached",
+                parameters: parameters
+            )
+        )
+
+        guard placement == .onboardingPaywall else { return }
+
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.paywallReached(
+                placement: placement.rawValue,
+                source: source
+            )
+        )
     }
 }

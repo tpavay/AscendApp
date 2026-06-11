@@ -4,6 +4,8 @@ import type {TransactionalEmailConfig} from "./types";
 export const transactionalEmailConfig =
   defineSecret("TRANSACTIONAL_EMAIL_CONFIG");
 export const DEFAULT_MARKETING_WEBSITE_URL = "https://ascendstepper.com";
+export const DEFAULT_TRANSACTIONAL_REPLY_TO_EMAIL =
+  "support@ascendstepper.com";
 
 /**
  * Normalizes a public-facing HTTPS URL from config.
@@ -102,6 +104,24 @@ export function getMarketingWebsiteUrl(): string {
 export function getFeedbackNotificationEmail(): string {
   const config = getTransactionalEmailConfig();
   return config.feedbackNotificationEmail ?? config.replyTo ?? config.fromEmail;
+}
+
+/**
+ * Returns the email address used for customer reply CTAs.
+ * Falls back safely in test-only render paths where the secret is unavailable.
+ * @return {string} Reply-to email address
+ */
+export function getTransactionalReplyToEmail(): string {
+  if (!process.env.TRANSACTIONAL_EMAIL_CONFIG) {
+    return DEFAULT_TRANSACTIONAL_REPLY_TO_EMAIL;
+  }
+
+  try {
+    const config = getTransactionalEmailConfig();
+    return config.replyTo ?? config.fromEmail;
+  } catch {
+    return DEFAULT_TRANSACTIONAL_REPLY_TO_EMAIL;
+  }
 }
 
 /**

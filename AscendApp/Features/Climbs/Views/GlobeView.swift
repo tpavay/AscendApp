@@ -1,63 +1,22 @@
 import MapKit
 import SwiftUI
 
+/// The browse globe. A thin host that builds an engine-agnostic
+/// `AscendMapScene` from the view model and hands it to a map renderer. The
+/// renderer (`ClimbMapKitRenderer` today) owns all map-engine specifics, so
+/// switching engines later is a renderer swap — not a globe rewrite.
 struct GlobeView: View {
     @Bindable var viewModel: GlobeViewModel
     let onSelectClimb: (Climb) -> Void
 
     var body: some View {
-        mapView
-            .contentShape(Rectangle())
-    }
-
-    private var mapView: some View {
-        Map(position: cameraPositionBinding, interactionModes: .all) {
-            climbAnnotations
-        }
-        .mapStyle(.imagery(elevation: .realistic))
-        .mapControls {}
-        .onMapCameraChange(frequency: .continuous) { context in
-            viewModel.mapCameraDidChange(context)
-        }
-    }
-
-    private var cameraPositionBinding: Binding<MapCameraPosition> {
-        Binding(
-            get: { viewModel.cameraPosition },
-            set: { viewModel.cameraPosition = $0 }
+        ClimbMapKitRenderer(
+            scene: viewModel.mapScene,
+            cameraPosition: $viewModel.cameraPosition,
+            onSelect: onSelectClimb,
+            onCameraChange: { context in viewModel.mapCameraDidChange(context) }
         )
-    }
-
-    @MapContentBuilder
-    private var climbAnnotations: some MapContent {
-        ForEach(viewModel.visibleClimbs) { climb in
-            Annotation("", coordinate: climb.coordinate, anchor: .bottom) {
-                pinButton(for: climb)
-            }
-        }
-    }
-
-    private func pinButton(for climb: Climb) -> some View {
-        Button {
-            onSelectClimb(climb)
-        } label: {
-            ClimbPinView(
-                climb: climb,
-                isCompleted: viewModel.isCompleted(climb),
-                isHighlighted: viewModel.previewSummary?.climb.id == climb.id
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityLabel(for: climb))
-        .accessibilityHint(climb.isAvailable ? "Preview climb details" : "Preview coming soon climb")
-    }
-
-    private func accessibilityLabel(for climb: Climb) -> String {
-        if climb.isComingSoon {
-            return "Coming soon climb, \(climb.displayLocation)"
-        }
-
-        return "\(climb.name), \(climb.displayLocation)"
+        .contentShape(Rectangle())
     }
 }
 

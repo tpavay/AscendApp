@@ -18,6 +18,7 @@
 		9B1000022F22000000100002 /* SuperwallKit in Frameworks */ = {isa = PBXBuildFile; productRef = 9B1000062F22000000100006 /* SuperwallKit */; };
 		9B2000022F23000000100002 /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = 9B2000012F23000000100001 /* FirebaseFunctions */; };
 		9C3000012F2A000000100001 /* Mixpanel in Frameworks */ = {isa = PBXBuildFile; productRef = 9C3000032F2A000000100003 /* Mixpanel */; };
+		9D4000012F60000000100001 /* MapboxMaps in Frameworks */ = {isa = PBXBuildFile; productRef = 9D4000032F60000000100003 /* MapboxMaps */; };
 		A20000012F10000000000001 /* AscendLiveActivityWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A20000012F10000000000003 /* AscendLiveActivityWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -120,6 +121,7 @@
 				9B1000012F22000000100001 /* RevenueCat in Frameworks */,
 				9B1000022F22000000100002 /* SuperwallKit in Frameworks */,
 				9C3000012F2A000000100001 /* Mixpanel in Frameworks */,
+				9D4000012F60000000100001 /* MapboxMaps in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -211,6 +213,7 @@
 				9B1000052F22000000100005 /* RevenueCat */,
 				9B1000062F22000000100006 /* SuperwallKit */,
 				9C3000032F2A000000100003 /* Mixpanel */,
+				9D4000032F60000000100003 /* MapboxMaps */,
 			);
 			productName = AscendApp;
 			productReference = 9A5E4D822E2406F8008DE803 /* AscendApp.app */;
@@ -299,6 +302,7 @@
 				9B1000032F22000000100003 /* XCRemoteSwiftPackageReference "purchases-ios" */,
 				9B1000042F22000000100004 /* XCRemoteSwiftPackageReference "Superwall-iOS" */,
 				9C3000022F2A000000100002 /* XCRemoteSwiftPackageReference "mixpanel-swift" */,
+				9D4000022F60000000100002 /* XCRemoteSwiftPackageReference "mapbox-maps-ios-binary" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 9A5E4D832E2406F8008DE803 /* Products */;
@@ -469,7 +473,8 @@
 			buildSettings = {
 				ASCEND_REVENUECAT_API_KEY = appl_OuhVbQoKshaWOxkeVfELTpsvlHP;
 				ASCEND_REVENUECAT_TEST_API_KEY = "";
-				ASCEND_SUPERWALL_API_KEY = "";
+				ASCEND_MIXPANEL_TOKEN = 1cc8a5371d862051bc7a04427705b8dd;
+				ASCEND_SUPERWALL_API_KEY = pk_DGywY9Qw39wY_9glnLs8R;
 				ASCEND_SUPERWALL_TEST_MODE = NO;
 				ASCEND_USE_REVENUECAT_TEST_STORE = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconStaging;
@@ -643,7 +648,8 @@
 			buildSettings = {
 				ASCEND_REVENUECAT_API_KEY = appl_OuhVbQoKshaWOxkeVfELTpsvlHP;
 				ASCEND_REVENUECAT_TEST_API_KEY = "";
-				ASCEND_SUPERWALL_API_KEY = "";
+				ASCEND_MIXPANEL_TOKEN = 1cc8a5371d862051bc7a04427705b8dd;
+				ASCEND_SUPERWALL_API_KEY = pk_DGywY9Qw39wY_9glnLs8R;
 				ASCEND_SUPERWALL_TEST_MODE = YES;
 				ASCEND_USE_REVENUECAT_TEST_STORE = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconDev;
@@ -673,6 +679,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				MAPBOX_ACCESS_TOKEN = "";
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.dev;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -692,7 +699,8 @@
 			buildSettings = {
 				ASCEND_REVENUECAT_API_KEY = appl_OuhVbQoKshaWOxkeVfELTpsvlHP;
 				ASCEND_REVENUECAT_TEST_API_KEY = "";
-				ASCEND_SUPERWALL_API_KEY = "";
+				ASCEND_MIXPANEL_TOKEN = 1cc8a5371d862051bc7a04427705b8dd;
+				ASCEND_SUPERWALL_API_KEY = pk_DGywY9Qw39wY_9glnLs8R;
 				ASCEND_SUPERWALL_TEST_MODE = NO;
 				ASCEND_USE_REVENUECAT_TEST_STORE = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -980,6 +988,14 @@
 				minimumVersion = 6.3.0;
 			};
 		};
+		9D4000022F60000000100002 /* XCRemoteSwiftPackageReference "mapbox-maps-ios-binary" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mapbox/mapbox-maps-ios-binary.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 11.20.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1037,6 +1053,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 9C3000022F2A000000100002 /* XCRemoteSwiftPackageReference "mixpanel-swift" */;
 			productName = Mixpanel;
+		};
+		9D4000032F60000000100003 /* MapboxMaps */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9D4000022F60000000100002 /* XCRemoteSwiftPackageReference "mapbox-maps-ios-binary" */;
+			productName = MapboxMaps;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

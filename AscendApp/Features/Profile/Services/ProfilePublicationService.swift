@@ -20,6 +20,7 @@ enum ProfilePublicationService {
                 age: storedProfile?.age,
                 gender: storedProfile?.gender.flatMap(ProfileGender.init(rawValue:)),
                 weightKg: storedProfile?.weightKg,
+                locationCity: storedProfile?.locationCity,
                 locationCountryCode: storedProfile?.locationCountry,
                 locationRegionCode: storedProfile?.locationRegion,
                 joinedAt: storedProfile?.joinedAt ?? joinedAt

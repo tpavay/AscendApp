@@ -6,16 +6,23 @@ struct PostAuthOnboardingCoordinatorTests {
     @Test
     func postAuthStagesStartWithDisplayName() {
         #expect(PostAuthOnboardingStage.allCases == [
-            .displayName
+            .displayName,
+            .gender,
+            .age,
+            .weight,
+            .location,
+            .notifications,
+            .planLoading,
+            .firstClimb
         ])
         #expect(PostAuthOnboardingStage.first == .displayName)
         #expect(PostAuthOnboardingStage.flowID == "post_auth_onboarding")
-        #expect(PostAuthOnboardingStage.plannedStepCount == 5)
+        #expect(PostAuthOnboardingStage.plannedStepCount == 8)
     }
 
     @MainActor
     @Test
-    func completingDisplayNameCompletesPostAuthOnboarding() {
+    func completingDisplayNameAdvancesToGender() {
         let defaults = makeDefaults()
         let store = PostAuthOnboardingStore(userDefaults: defaults)
         let userId = "user-1"
@@ -24,8 +31,27 @@ struct PostAuthOnboardingCoordinatorTests {
         coordinator.resolve(userId: userId)
         coordinator.completeCurrentStage()
 
+        #expect(coordinator.phase == .onboarding(.gender))
+        #expect(!store.snapshot(for: userId).isComplete)
+        #expect(store.snapshot(for: userId).completedStages == [.displayName])
+    }
+
+    @MainActor
+    @Test
+    func completingAllStagesCompletesPostAuthOnboarding() {
+        let defaults = makeDefaults()
+        let store = PostAuthOnboardingStore(userDefaults: defaults)
+        let userId = "user-complete"
+
+        let coordinator = PostAuthOnboardingCoordinator(store: store)
+        coordinator.resolve(userId: userId)
+        for _ in PostAuthOnboardingStage.allCases {
+            coordinator.completeCurrentStage()
+        }
+
         #expect(coordinator.phase == .complete)
         #expect(store.snapshot(for: userId).isComplete)
+        #expect(store.snapshot(for: userId).completedStages == Set(PostAuthOnboardingStage.allCases))
     }
 
     @MainActor
@@ -57,7 +83,7 @@ struct PostAuthOnboardingCoordinatorTests {
 
     @MainActor
     @Test
-    func legacyRemovedStageSnapshotWithDisplayNameCompletedIsComplete() {
+    func legacyRemovedStageSnapshotWithDisplayNameCompletedResumesAtGender() {
         let defaults = makeDefaults()
         let store = PostAuthOnboardingStore(userDefaults: defaults)
         let userId = "user-3"
@@ -79,7 +105,8 @@ struct PostAuthOnboardingCoordinatorTests {
         let coordinator = PostAuthOnboardingCoordinator(store: store)
         coordinator.resolve(userId: userId)
 
-        #expect(coordinator.phase == .complete)
+        #expect(coordinator.phase == .onboarding(.gender))
+        #expect(!store.snapshot(for: userId).isComplete)
         #expect(store.snapshot(for: userId).completedStages == [.displayName])
     }
 

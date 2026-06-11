@@ -10,6 +10,7 @@ import * as admin from "firebase-admin";
 admin.initializeApp();
 
 export {processEmailJobs} from "./email/processor";
+export {onLifecycleEventEmailAutomation} from "./email/automation";
 export {onFeedbackCreated} from "./feedback";
 export {recordLifecycleEvent} from "./lifecycle";
 export {onWorkoutReplaySplitsWritten} from "./liveReplayLeaderboard";
