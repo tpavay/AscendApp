@@ -9,8 +9,11 @@ enum TodayClimbNotificationPermissionController {
         return settings.authorizationStatus
     }
 
+    /// Requests permission from the onboarding opt-in screen. Unlike `enable`, a prior
+    /// denial must never deep-link to system settings — leaving the app mid-onboarding
+    /// strands the flow.
     @discardableResult
-    static func enablePreferenceOnly() async -> UNAuthorizationStatus {
+    static func requestDuringOnboarding() async -> UNAuthorizationStatus {
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
         LifecycleEventRecorder.shared.recordNotificationPermission(status: settings.authorizationStatus)
@@ -35,7 +38,6 @@ enum TodayClimbNotificationPermissionController {
         case .denied:
             TodayClimbNotificationPreferenceStore.isEnabled = false
             await TodayClimbNotificationScheduler.shared.cancelPendingTodayClimbNotifications()
-            openSystemNotificationSettings()
             return settings.authorizationStatus
 
         @unknown default:

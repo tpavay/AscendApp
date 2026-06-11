@@ -32,6 +32,16 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
         }
     }
 
+    func setUserProperty(_ name: String, value: String?) {
+        guard let instance = configuredInstance() else { return }
+
+        if let value {
+            instance.registerSuperProperties([name: value])
+        } else {
+            instance.unregisterSuperProperty(name)
+        }
+    }
+
     func record(_ record: TelemetryRecord) {
         configuredInstance()?.track(
             event: record.name,

@@ -587,57 +587,63 @@ private struct PostAuthLocationScreen: View {
 
 private struct PostAuthNotificationScreen: View {
     let stage: PostAuthOnboardingStage
+    // Figma "26 Notifications" has no back affordance; onBack is retained for stage call-site symmetry.
     let onBack: () -> Void
     let onContinue: () -> Void
 
     @State private var isRequesting = false
 
     var body: some View {
-        PostAuthProfileQuestionShell(
-            stage: stage,
-            eyebrow: "FIRST ASCENT ALERTS",
-            headline: "Get first shot at\nnew climbs",
-            subtitle: "Turn on climb-drop alerts and get a head start when a new First Ascent opens.",
-            primaryTitle: isRequesting ? "REQUESTING..." : "ALLOW NOTIFICATIONS",
-            isContinueEnabled: !isRequesting,
-            onBack: onBack,
-            onContinue: requestNotifications
-        ) { metrics in
-            VStack(alignment: .leading, spacing: metrics.height(12)) {
-                PostAuthNotificationValueRow(
-                    title: "New climb drops",
-                    subtitle: "Know when a fresh landmark opens.",
-                    symbolName: "bell.badge.fill",
-                    metrics: metrics
-                )
+        GeometryReader { geometry in
+            let metrics = PostAuthProfileMetrics(size: geometry.size)
 
-                PostAuthNotificationValueRow(
-                    title: "First Ascent windows",
-                    subtitle: "Get the reminder before someone else claims it.",
-                    symbolName: "flag.checkered",
-                    metrics: metrics
-                )
+            ZStack(alignment: .topLeading) {
+                PostAuthProfilePalette.background
+                    .ignoresSafeArea()
 
-                PostAuthNotificationValueRow(
-                    title: "No feed noise",
-                    subtitle: "Ascend only uses this for climb moments.",
-                    symbolName: "speaker.slash.fill",
-                    metrics: metrics
-                )
+                Image("FirstAscentBadgeDetailed")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: metrics.width(303), height: metrics.height(303))
+                    .position(x: metrics.x(195.5), y: metrics.y(262.5))
+                    .accessibilityHidden(true)
+
+                VStack(spacing: metrics.height(16)) {
+                    Text("Never miss an\nAscent.")
+                        .font(.montserratBold(size: metrics.font(32)))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(0)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text("Get 24-hour notice before each climb drop. Be the first to ascend and earn a permanent spot on the leaderboard.")
+                        .font(.montserratRegular(size: metrics.font(14)))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(metrics.height(3))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(width: metrics.width(342))
+                .offset(x: metrics.x(24), y: metrics.y(507))
+
+                Button(action: requestNotifications) {
+                    Text("CONTINUE")
+                        .font(.montserratBold(size: metrics.font(16)))
+                        .foregroundStyle(.black.opacity(isRequesting ? 0.45 : 0.9))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(
+                            RoundedRectangle(cornerRadius: metrics.radius(12), style: .continuous)
+                                .fill(OnboardingValuePalette.lime.opacity(isRequesting ? 0.45 : 1))
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(isRequesting)
+                .frame(width: metrics.width(334), height: metrics.height(56))
+                .position(x: metrics.x(195), y: metrics.y(741))
             }
-            .frame(width: metrics.width(334), alignment: .topLeading)
-            .offset(x: metrics.x(28), y: metrics.y(345))
-
-            Button(action: skipNotifications) {
-                Text("SKIP FOR NOW")
-                    .font(.montserratBold(size: metrics.font(13)))
-                    .foregroundStyle(.white.opacity(isRequesting ? 0.34 : 0.68))
-                    .frame(width: metrics.width(334), height: metrics.height(40))
-            }
-            .buttonStyle(.plain)
-            .disabled(isRequesting)
-            .position(x: metrics.x(195), y: metrics.y(680))
+            .frame(width: geometry.size.width, height: geometry.size.height)
         }
+        .ignoresSafeArea()
     }
 
     private func requestNotifications() {
@@ -645,76 +651,21 @@ private struct PostAuthNotificationScreen: View {
 
         Task { @MainActor in
             isRequesting = true
-            _ = await TodayClimbNotificationPermissionController.enablePreferenceOnly()
+            let status = await TodayClimbNotificationPermissionController.requestDuringOnboarding()
             isRequesting = false
+
+            let isAllowed = switch status {
+            case .authorized, .provisional, .ephemeral: true
+            default: false
+            }
+
             TelemetryManager.shared.track(
                 OnboardingAnalyticsEvent.notificationPermissionSelected(
                     context: stage.analyticsContext,
-                    status: "enabled_preference"
+                    status: isAllowed ? "allow" : "decline"
                 )
             )
             onContinue()
-        }
-    }
-
-    private func skipNotifications() {
-        guard !isRequesting else { return }
-
-        Task { @MainActor in
-            isRequesting = true
-            await TodayClimbNotificationPermissionController.disable()
-            isRequesting = false
-            TelemetryManager.shared.track(
-                OnboardingAnalyticsEvent.notificationPermissionSelected(
-                    context: stage.analyticsContext,
-                    status: "skipped"
-                )
-            )
-            onContinue()
-        }
-    }
-}
-
-private struct PostAuthNotificationValueRow: View {
-    let title: String
-    let subtitle: String
-    let symbolName: String
-    let metrics: PostAuthProfileMetrics
-
-    var body: some View {
-        HStack(spacing: metrics.width(12)) {
-            ZStack {
-                Circle()
-                    .fill(OnboardingValuePalette.lime.opacity(0.16))
-                    .frame(width: metrics.width(38), height: metrics.height(38))
-
-                Image(systemName: symbolName)
-                    .font(.system(size: metrics.font(15), weight: .bold))
-                    .foregroundStyle(OnboardingValuePalette.lime)
-            }
-            .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: metrics.height(3)) {
-                Text(title)
-                    .font(.montserratBold(size: metrics.font(14)))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
-
-                Text(subtitle)
-                    .font(.montserratMedium(size: metrics.font(11)))
-                    .foregroundStyle(.white.opacity(0.5))
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(.horizontal, metrics.width(14))
-        .frame(width: metrics.width(334), height: metrics.height(64), alignment: .leading)
-        .background(PostAuthProfilePalette.fieldBackground)
-        .clipShape(RoundedRectangle(cornerRadius: metrics.radius(8), style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: metrics.radius(8), style: .continuous)
-                .stroke(.white.opacity(0.12), lineWidth: 1)
         }
     }
 }
@@ -1299,6 +1250,7 @@ private struct PostAuthFirstClimbRevealScreen: View {
             isSaving = false
 
             if didSave {
+                TelemetryManager.shared.setUserProperty("first_climb", value: firstClimb.id)
                 TelemetryManager.shared.track(
                     OnboardingAnalyticsEvent.firstClimbSelected(
                         context: stage.analyticsContext,

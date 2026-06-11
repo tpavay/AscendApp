@@ -112,6 +112,13 @@ final class TelemetryManager: @unchecked Sendable {
         sinks.forEach { $0.setUserID(nil) }
     }
 
+    func setUserProperty(_ name: String, value: String?) {
+        guard isCollectionEnabled else { return }
+        sinks
+            .filter { $0.supportedDestinations.contains(.analytics) }
+            .forEach { $0.setUserProperty(name, value: value) }
+    }
+
     // MARK: - Event Tracking
 
     func track(_ event: any TelemetryEvent) {
