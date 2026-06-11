@@ -10,6 +10,10 @@ struct LiveClimbSessionView: View {
     @State private var showingDiscardConfirmation = false
     @State private var countdownValue = 3
     @State private var hasStartedRecording = false
+    @State private var countdownRunID = 0
+    @State private var showingHeadphoneRequirement = false
+    @State private var headphoneMotionService = HeadphoneMotionReadinessService.shared
+    @State private var didTrackHeadphoneRequirement = false
 
     private let liveTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -29,7 +33,7 @@ struct LiveClimbSessionView: View {
                 .ignoresSafeArea()
 
             if let savedWorkout = viewModel.savedWorkout,
-               viewModel.phase == .saved(.completed) {
+               viewModel.shouldShowRankedCompletionSummary {
                 LiveClimbCompletionSummaryView(
                     climb: viewModel.mode.climb,
                     workout: savedWorkout,
@@ -44,6 +48,11 @@ struct LiveClimbSessionView: View {
                 if !hasStartedRecording && viewModel.phase == .idle {
                     LiveSessionCountdownOverlay(value: countdownValue)
                 }
+
+                if showingHeadphoneRequirement {
+                    headphoneRequiredOverlay
+                }
+
             }
         }
         .preferredColorScheme(.dark)
@@ -54,7 +63,7 @@ struct LiveClimbSessionView: View {
         .onDisappear {
             LiveClimbActivityCommandCenter.shared.unregister()
         }
-        .task {
+        .task(id: countdownRunID) {
             await runCountdownThenStart()
         }
         .onChange(of: viewModel.motionSession.targetReached) { _, reached in
@@ -94,6 +103,10 @@ struct LiveClimbSessionView: View {
     private var sessionContent: some View {
         VStack(spacing: 0) {
             topChrome
+
+            trackingStatusBanner
+                .padding(.horizontal, 20)
+                .padding(.top, 10)
 
             liveLeaderboardSection
                 .frame(maxHeight: .infinity)
@@ -174,6 +187,40 @@ struct LiveClimbSessionView: View {
             tint: .accent,
             effectiveColorScheme: .dark
         )
+    }
+
+    @ViewBuilder
+    private var trackingStatusBanner: some View {
+        if viewModel.shouldShowTrackingRecoveryStatus {
+            trackingBanner(
+                iconName: "airpodspro",
+                message: "Headphone tracking paused. Reconnect to keep counting steps."
+            )
+        }
+    }
+
+    private func trackingBanner(iconName: String, message: String) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: iconName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.accent)
+
+            Text(message)
+                .font(.montserratSemiBold(size: 12))
+                .foregroundStyle(.white.opacity(0.82))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.white.opacity(0.09))
+        )
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder
@@ -281,9 +328,25 @@ struct LiveClimbSessionView: View {
     }
 
     private func runCountdownThenStart() async {
-        guard !hasStartedRecording else { return }
+        guard !hasStartedRecording,
+              viewModel.phase == .idle else { return }
+
+        countdownValue = 3
+        headphoneMotionService.refresh()
+        guard headphoneMotionService.readiness.canStartLiveClimb else {
+            showHeadphoneRequirement()
+            return
+        }
+
+        showingHeadphoneRequirement = false
 
         for value in stride(from: 3, through: 1, by: -1) {
+            headphoneMotionService.refresh()
+            guard headphoneMotionService.readiness.canStartLiveClimb else {
+                showHeadphoneRequirement()
+                return
+            }
+
             countdownValue = value
             HapticsManager.shared.trigger(value == 1 ? .heavyImpact : .mediumImpact)
 
@@ -292,11 +355,51 @@ struct LiveClimbSessionView: View {
             } catch {
                 return
             }
+
+            headphoneMotionService.refresh()
+            guard headphoneMotionService.readiness.canStartLiveClimb else {
+                showHeadphoneRequirement()
+                return
+            }
+        }
+
+        headphoneMotionService.refresh()
+        guard headphoneMotionService.readiness.canStartLiveClimb else {
+            showHeadphoneRequirement()
+            return
         }
 
         hasStartedRecording = true
         viewModel.start(modelContext: modelContext)
         await viewModel.refreshReplayLeaderboardIfNeeded(force: true)
+    }
+
+    private func showHeadphoneRequirement() {
+        countdownValue = 3
+        showingHeadphoneRequirement = true
+
+        guard !didTrackHeadphoneRequirement else { return }
+        didTrackHeadphoneRequirement = true
+        TelemetryManager.shared.track(
+            LiveClimbAnalyticsEvent.detailStartBlocked(
+                climb: viewModel.mode.climb,
+                entryPoint: viewModel.analyticsEntryPoint,
+                reason: .headphonesUnavailable
+            )
+        )
+    }
+
+    private func retryHeadphoneCountdown() {
+        headphoneMotionService.refresh()
+        guard headphoneMotionService.readiness.canStartLiveClimb else {
+            showingHeadphoneRequirement = true
+            return
+        }
+
+        showingHeadphoneRequirement = false
+        didTrackHeadphoneRequirement = false
+        countdownValue = 3
+        countdownRunID += 1
     }
 
     private func registerLiveActivityControls() {
@@ -326,6 +429,80 @@ struct LiveClimbSessionView: View {
         case .abandoned:
             return "Attempt Ended"
         }
+    }
+
+    private var headphoneRequiredOverlay: some View {
+        liveClimbFullScreenOverlay(
+            iconName: "airpodspro",
+            title: "Headphones required",
+            message: "Connect compatible headphones to start this live climb.",
+            primaryTitle: "Try Again",
+            primaryAction: retryHeadphoneCountdown,
+            secondaryTitle: "Close",
+            secondaryAction: { dismiss() }
+        )
+    }
+
+    private func liveClimbFullScreenOverlay(
+        iconName: String,
+        title: String,
+        message: String,
+        primaryTitle: String,
+        primaryAction: @escaping () -> Void,
+        secondaryTitle: String,
+        secondaryAction: @escaping () -> Void
+    ) -> some View {
+        ZStack {
+            Color.black
+                .opacity(0.96)
+                .ignoresSafeArea()
+
+            VStack(spacing: 22) {
+                Image(systemName: iconName)
+                    .font(.system(size: 42, weight: .semibold))
+                    .foregroundStyle(.accent)
+                    .frame(width: 72, height: 72)
+                    .background(
+                        Circle()
+                            .fill(.white.opacity(0.08))
+                    )
+
+                VStack(spacing: 10) {
+                    Text(title)
+                        .font(.montserratBold(size: 28))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+
+                    Text(message)
+                        .font(.montserratMedium(size: 15))
+                        .foregroundStyle(.white.opacity(0.68))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                VStack(spacing: 10) {
+                    liveSessionButton(title: primaryTitle, action: primaryAction)
+
+                    Button(action: secondaryAction) {
+                        Text(secondaryTitle)
+                            .font(.montserratBold(size: 14))
+                            .foregroundStyle(.white.opacity(0.82))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 42)
+                            .background(
+                                Capsule()
+                                    .fill(.white.opacity(0.10))
+                            )
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.top, 2)
+            }
+            .padding(.horizontal, 30)
+            .frame(maxWidth: 420)
+        }
+        .accessibilityElement(children: .contain)
     }
 }
 

@@ -64,6 +64,10 @@ final class HeadphoneMotionSessionService {
     private var pauseStartedAt: Date?
     private var lastMotionUpdateAt: Date?
     private var lastMotionRecoveryAttemptAt: Date?
+    private var trackingUnavailableStartedAt: Date?
+    private var accumulatedTrackingUnavailableDuration: TimeInterval = 0
+    private var longestTrackingUnavailableDuration: TimeInterval = 0
+    private var trackingInterruptionCount = 0
 
     private(set) var isDeviceMotionAvailable = false
     private(set) var isConnected = false
@@ -73,6 +77,7 @@ final class HeadphoneMotionSessionService {
     private(set) var duration: TimeInterval = 0
     private(set) var currentAcceleration: HeadphoneMotionVector = .zero
     private(set) var targetReached = false
+    private(set) var trackingIntegrity: HeadphoneMotionTrackingIntegrity = .verified
     private var onStepSample: ((LiveClimbStepSample) -> Void)?
 
     init(motionManager: CMHeadphoneMotionManager = CMHeadphoneMotionManager()) {
@@ -130,6 +135,7 @@ final class HeadphoneMotionSessionService {
         pauseStartedAt = nil
         lastMotionUpdateAt = nil
         lastMotionRecoveryAttemptAt = nil
+        resetTrackingIntegrity()
         runner?.startRecording(startedAt: startedAt)
 
         startDurationTimer()
@@ -145,6 +151,7 @@ final class HeadphoneMotionSessionService {
         duration = activeDuration(at: pausedAt)
         pauseStartedAt = pausedAt
         lastMotionUpdateAt = nil
+        markTrackingAvailable(at: pausedAt)
         status = .paused
         durationTimer?.invalidate()
         durationTimer = nil
@@ -165,6 +172,9 @@ final class HeadphoneMotionSessionService {
         lastMotionUpdateAt = nil
         lastMotionRecoveryAttemptAt = nil
         status = isConnected ? .recording : .waitingForMotion
+        if status == .waitingForMotion {
+            markTrackingUnavailable(at: resumedAt)
+        }
         runner?.resumeRecording(resumedAt: resumedAt)
         startDurationTimer()
     }
@@ -176,6 +186,10 @@ final class HeadphoneMotionSessionService {
             throw HeadphoneMotionSessionError.notRecording
         }
 
+        let stoppedAt = Date()
+        refreshTrackingIntegrity(at: stoppedAt)
+        let finalTrackingIntegrity = trackingIntegrity
+
         status = .stopping
         durationTimer?.invalidate()
         durationTimer = nil
@@ -185,7 +199,7 @@ final class HeadphoneMotionSessionService {
                 throw HeadphoneMotionSessionError.notRecording
             }
 
-            let result = try await withCheckedThrowingContinuation { continuation in
+            let sessionResult = try await withCheckedThrowingContinuation { continuation in
                 runner.stopRecording(reason: reason) { result in
                     switch result {
                     case .success(let sessionResult):
@@ -195,6 +209,15 @@ final class HeadphoneMotionSessionService {
                     }
                 }
             }
+            let result = HeadphoneMotionSessionResult(
+                startedAt: sessionResult.startedAt,
+                endedAt: sessionResult.endedAt,
+                duration: sessionResult.duration,
+                steps: sessionResult.steps,
+                sampleCount: sessionResult.sampleCount,
+                stopReason: sessionResult.stopReason,
+                trackingIntegrity: finalTrackingIntegrity
+            )
             stepCount = result.steps
             sampleCount = result.sampleCount
             duration = result.duration
@@ -203,6 +226,7 @@ final class HeadphoneMotionSessionService {
             pauseStartedAt = nil
             lastMotionUpdateAt = nil
             lastMotionRecoveryAttemptAt = nil
+            trackingUnavailableStartedAt = nil
             status = .finished
             return result
         } catch {
@@ -220,18 +244,21 @@ final class HeadphoneMotionSessionService {
         } else if !connected, status == .recording {
             status = .waitingForMotion
             lastMotionUpdateAt = nil
+            markTrackingUnavailable(at: Date())
         }
     }
 
     private func handleSessionUpdate(_ update: HeadphoneMotionSessionUpdate) {
         guard !status.isPaused else { return }
 
+        let now = Date()
         isConnected = true
         if status == .waitingForMotion {
             status = .recording
         }
+        markTrackingAvailable(at: now)
 
-        lastMotionUpdateAt = Date()
+        lastMotionUpdateAt = now
         stepCount = update.stepCount
         sampleCount = update.sampleCount
         currentAcceleration = update.acceleration
@@ -254,6 +281,7 @@ final class HeadphoneMotionSessionService {
     private func handleSessionError(_ message: String) {
         status = .failed(message)
         isConnected = false
+        markTrackingUnavailable(at: Date())
     }
 
     private func startDurationTimer() {
@@ -263,6 +291,7 @@ final class HeadphoneMotionSessionService {
                 guard let self, self.status.isRecording else { return }
                 let now = Date()
                 self.duration = self.activeDuration(at: now)
+                self.refreshTrackingIntegrity(at: now)
                 self.restartStalledMotionIfNeeded(at: now)
             }
         }
@@ -277,6 +306,14 @@ final class HeadphoneMotionSessionService {
 
         let lastUpdateAt = lastMotionUpdateAt ?? recordingStartedAt
         guard now.timeIntervalSince(lastUpdateAt) >= 4 else { return }
+
+        if status == .waitingForMotion {
+            markTrackingUnavailable(at: now)
+        } else if status == .recording {
+            status = .waitingForMotion
+            isConnected = false
+            markTrackingUnavailable(at: now)
+        }
 
         if let lastMotionRecoveryAttemptAt,
            now.timeIntervalSince(lastMotionRecoveryAttemptAt) < 5 {
@@ -294,6 +331,59 @@ final class HeadphoneMotionSessionService {
 
         let currentPauseDuration = pauseStartedAt.map { date.timeIntervalSince($0) } ?? 0
         return max(0, date.timeIntervalSince(recordingStartedAt) - accumulatedPausedDuration - currentPauseDuration)
+    }
+
+    private func resetTrackingIntegrity() {
+        trackingUnavailableStartedAt = nil
+        accumulatedTrackingUnavailableDuration = 0
+        longestTrackingUnavailableDuration = 0
+        trackingInterruptionCount = 0
+        trackingIntegrity = .verified
+    }
+
+    private func markTrackingUnavailable(at date: Date) {
+        if trackingUnavailableStartedAt == nil {
+            trackingUnavailableStartedAt = date
+            trackingInterruptionCount += 1
+        }
+
+        refreshTrackingIntegrity(at: date)
+    }
+
+    private func markTrackingAvailable(at date: Date) {
+        if let trackingUnavailableStartedAt {
+            let unavailableDuration = max(date.timeIntervalSince(trackingUnavailableStartedAt), 0)
+            accumulatedTrackingUnavailableDuration += unavailableDuration
+            longestTrackingUnavailableDuration = max(
+                longestTrackingUnavailableDuration,
+                unavailableDuration
+            )
+            self.trackingUnavailableStartedAt = nil
+        }
+
+        refreshTrackingIntegrity(at: date)
+    }
+
+    private func refreshTrackingIntegrity(at date: Date) {
+        let currentUnavailableDuration = trackingUnavailableStartedAt.map {
+            max(date.timeIntervalSince($0), 0)
+        } ?? 0
+        let totalUnavailableDuration = accumulatedTrackingUnavailableDuration + currentUnavailableDuration
+        let longestUnavailableDuration = max(
+            longestTrackingUnavailableDuration,
+            currentUnavailableDuration
+        )
+
+        let updatedIntegrity = HeadphoneMotionTrackingIntegrity(
+            currentUnavailableDuration: currentUnavailableDuration,
+            totalUnavailableDuration: totalUnavailableDuration,
+            longestUnavailableDuration: longestUnavailableDuration,
+            interruptionCount: trackingInterruptionCount
+        )
+
+        if trackingIntegrity != updatedIntegrity {
+            trackingIntegrity = updatedIntegrity
+        }
     }
 }
 

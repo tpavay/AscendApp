@@ -203,6 +203,15 @@ final class LiveClimbSessionViewModel {
         phase == .recording && motionSession.status.isRecording
     }
 
+    var shouldShowRankedCompletionSummary: Bool {
+        guard case .saved(.completed) = phase else { return false }
+        return true
+    }
+
+    var shouldShowTrackingRecoveryStatus: Bool {
+        phase == .recording && motionSession.trackingIntegrity.shouldShowRecoveryStatus
+    }
+
     var isBusy: Bool {
         phase == .saving
     }
@@ -474,7 +483,8 @@ final class LiveClimbSessionViewModel {
             targetStepCount: targetRemainingSteps,
             climbTargetStepCount: mode.targetStepCount,
             stopReason: result.stopReason,
-            splitCurve: splitCurve
+            splitCurve: splitCurve,
+            trackingIntegrity: result.trackingIntegrity
         )
 
         let workout = Workout(
