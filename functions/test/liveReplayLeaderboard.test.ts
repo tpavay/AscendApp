@@ -99,14 +99,13 @@ test("builds First Ascent replay summary fields", () => {
   });
 });
 
-test("assigns first ascent holder finisher order one with seeded rows", () => {
+test("assigns next finisher after seeded completed rows", () => {
   assert.equal(
     liveReplayLeaderboardTestHooks.nextGlobalCompletionOrder({
       existingOrder: null,
-      hasFirstAscent: false,
       previousCompletedCount: 83,
     }),
-    1
+    84
   );
 });
 
@@ -114,11 +113,71 @@ test("assigns later finishers after existing completed count", () => {
   assert.equal(
     liveReplayLeaderboardTestHooks.nextGlobalCompletionOrder({
       existingOrder: null,
-      hasFirstAscent: true,
       previousCompletedCount: 84,
     }),
     85
   );
+});
+
+test("builds replay summary fields with coherent total climbers", () => {
+  const payload = liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload(
+    makeWorkoutDocument(),
+    {requireEligibleParticipation: true}
+  );
+  assert.ok(payload);
+
+  const write = liveReplayLeaderboardTestHooks.replaySummaryWrite({
+    payload,
+    completedCount: 84,
+  });
+
+  assert.deepEqual(write, {
+    bucketIntervalSeconds: 10,
+    completedCount: 84,
+    contextId: "empire-state-building",
+    contextType: "live_climb",
+    schemaVersion: 1,
+    targetStepCount: 2096,
+    totalClimbers: 84,
+  });
+});
+
+test("builds replay entry fields with context identity", () => {
+  const updatedAt = "server-timestamp";
+  const payload = liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload(
+    makeWorkoutDocument(),
+    {requireEligibleParticipation: true}
+  );
+  assert.ok(payload);
+
+  const write = liveReplayLeaderboardTestHooks.replayEntryWrite({
+    payload,
+    userId: "user-a",
+    entryId: "workout-a",
+    publicUser: {
+      avatarToken: "MC",
+      displayName: "Maya C.",
+      photoURL: null,
+    },
+    stepsAtBucket: 420,
+    updatedAt,
+  });
+
+  assert.deepEqual(write, {
+    avatarToken: "MC",
+    completionDurationSeconds: 738,
+    contextId: "empire-state-building",
+    contextType: "live_climb",
+    displayName: "Maya C.",
+    finalSteps: 2096,
+    photoURL: "",
+    schemaVersion: 1,
+    splitIntervalSeconds: 10,
+    stepsAtBucket: 420,
+    updatedAt,
+    userId: "user-a",
+    workoutId: "workout-a",
+  });
 });
 
 test("builds first finisher status with permanent completion order", () => {

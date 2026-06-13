@@ -13,7 +13,8 @@ struct LiveClimbCompletionSummaryView: View {
     @Query(sort: \BestEffortCacheEntry.sortKey) private var bestEffortCacheEntries: [BestEffortCacheEntry]
     @State private var showingShareSheet = false
     @State private var showingRatingEnjoymentPrompt = false
-    @State private var completionRank: LiveReplayCompletionRank?
+    @State private var completionFinisherStatus: LiveReplayFinisherStatus?
+    @State private var completionSummary: LiveReplayLeaderboardSummary?
     @State private var isLoadingCompletionRank = false
     @State private var didTrackSummaryViewed = false
 
@@ -104,7 +105,7 @@ struct LiveClimbCompletionSummaryView: View {
     private var rankingSection: some View {
         HStack(alignment: .center, spacing: 14) {
             VStack(alignment: .leading, spacing: 7) {
-                Text("GLOBAL RANK")
+                Text(rankingLabelText)
                     .font(.montserratBold(size: 10))
                     .foregroundStyle(.accent)
 
@@ -396,6 +397,10 @@ struct LiveClimbCompletionSummaryView: View {
         return "PENDING"
     }
 
+    private var rankingLabelText: String {
+        climb == nil ? "GLOBAL RANK" : "FINISHER ORDER"
+    }
+
     private var averageSPMText: String {
         guard averageSPMValue > 0 else { return "0" }
         return Int(averageSPMValue.rounded()).formatted()
@@ -445,11 +450,51 @@ struct LiveClimbCompletionSummaryView: View {
     }
 
     private var displayedRank: Int? {
-        completionRank?.rank ?? leaderboardRank
+        if climb == nil {
+            return leaderboardRank
+        }
+
+        return completionFinisherStatus?.globalCompletionOrder ??
+            localFinisherOrder ??
+            estimatedPendingFinisherOrder
     }
 
     private var displayedTotal: Int? {
-        completionRank?.completedCount ?? leaderboardTotal
+        if climb == nil {
+            return leaderboardTotal
+        }
+
+        let total = max(
+            completionSummary?.completedCount ?? 0,
+            leaderboardTotal ?? 0,
+            completionFinisherStatus?.globalCompletionOrder ?? 0,
+            localFinisherOrder ?? 0,
+            estimatedPendingFinisherOrder ?? 0
+        )
+
+        return total > 0 ? total : nil
+    }
+
+    private var localFinisherOrder: Int? {
+        guard let climb else { return nil }
+        return ClimbService.shared
+            .historySummary(for: climb, modelContext: modelContext)
+            .globalCompletionOrder
+    }
+
+    private var estimatedPendingFinisherOrder: Int? {
+        guard climb != nil,
+              completionFinisherStatus == nil,
+              localFinisherOrder == nil else {
+            return nil
+        }
+
+        let knownCompletedCount = max(
+            completionSummary?.completedCount ?? 0,
+            leaderboardTotal ?? 0
+        )
+
+        return knownCompletedCount > 0 ? knownCompletedCount + 1 : nil
     }
 
     private var maxSplitSPM: Double {
@@ -539,7 +584,7 @@ struct LiveClimbCompletionSummaryView: View {
 
     @MainActor
     private func loadCompletionRank() async {
-        guard completionRank == nil,
+        guard completionFinisherStatus == nil,
               !isLoadingCompletionRank,
               let climb else {
             return
@@ -555,14 +600,29 @@ struct LiveClimbCompletionSummaryView: View {
             targetSteps: climb.referenceStepCount
         )
 
+        async let fetchedSummary = LiveReplayLeaderboardService.shared.fetchSummary(context: context)
+        async let fetchedFinisherStatus = LiveReplayLeaderboardService.shared.fetchCurrentUserFinisherStatus(context: context)
+
         do {
-            completionRank = try await LiveReplayLeaderboardService.shared.fetchCompletionRank(
-                context: context,
-                completionDurationSeconds: workout.duration
-            )
+            completionSummary = try await fetchedSummary
         } catch {
 #if DEBUG
-            print("Live Climb summary rank fetch failed: \(error.localizedDescription)")
+            print("Live Climb summary count fetch failed: \(error.localizedDescription)")
+#endif
+        }
+
+        do {
+            if let finisherStatus = try await fetchedFinisherStatus {
+                completionFinisherStatus = finisherStatus
+                try? ClimbService.shared.mirrorFinisherStatus(
+                    finisherStatus,
+                    for: climb,
+                    modelContext: modelContext
+                )
+            }
+        } catch {
+#if DEBUG
+            print("Live Climb summary finisher fetch failed: \(error.localizedDescription)")
 #endif
         }
     }

@@ -46,7 +46,7 @@ struct IdentityHeroSection: View {
 
                     Text(ProfileIdentityFormatter.pullStatText(for: snapshot, mode: mode))
                         .font(.montserratSemiBold(size: 14))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Color.ascendAccent)
                         .lineLimit(1)
                         .minimumScaleFactor(0.62)
                 }

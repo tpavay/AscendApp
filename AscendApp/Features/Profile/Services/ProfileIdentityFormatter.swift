@@ -15,6 +15,10 @@ enum ProfileIdentityFormatter {
             parts.append(gender.compactProfileDisplay)
         }
 
+        if let heightCm = identity.heightCm, heightCm > 0 {
+            parts.append(measurementSystem.formatHeightCentimeters(heightCm))
+        }
+
         if let weightKg = identity.weightKg, weightKg > 0 {
             let weightValue: Double
             switch measurementSystem {

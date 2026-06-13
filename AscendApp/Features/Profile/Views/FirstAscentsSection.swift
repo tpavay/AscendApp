@@ -1,9 +1,6 @@
-import SwiftData
 import SwiftUI
 
 struct FirstAscentsSection: View {
-    @Environment(\.modelContext) private var modelContext
-
     let held: [ProfileFirstAscentSummary]
     let open: [ProfileFirstAscentSummary]
     let mode: ProfileViewMode
@@ -45,7 +42,7 @@ struct FirstAscentsSection: View {
 
             Text("\(held.count) CLAIMED")
                 .font(.montserratSemiBold(size: 11))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.ascendAccent)
                 .tracking(1.2)
         }
         .padding(.horizontal, 2)
@@ -54,7 +51,7 @@ struct FirstAscentsSection: View {
     @ViewBuilder
     private var emptyContent: some View {
         if open.isEmpty {
-            Text("Every First Ascent is taken. New climbs drop monthly - turn on notifications to get 24 hours' notice.")
+            Text("Every First Ascent is taken. Turn on notifications and be ready when new climbs open.")
                 .font(.montserratMedium(size: 13))
                 .foregroundStyle(ProfileVisualStyle.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -87,7 +84,7 @@ struct FirstAscentsSection: View {
             if !open.isEmpty {
                 Text("\(open.count) more First Ascents still open.")
                     .font(.montserratSemiBold(size: 12))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color.ascendAccent)
                     .padding(.top, 2)
             }
         }
@@ -116,12 +113,12 @@ struct FirstAscentsSection: View {
             if isOpen {
                 Text("Climb")
                     .font(.montserratBold(size: 11))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color.ascendAccent)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
                     .overlay {
                         RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .stroke(Color.accentColor, lineWidth: 1)
+                            .stroke(Color.ascendAccent, lineWidth: 1)
                     }
             }
         }
@@ -192,14 +189,8 @@ struct FirstAscentsSection: View {
         guard !isHandlingNotifications else { return }
         isHandlingNotifications = true
 
-        let availableClimbs = climbs.filter(\.isAvailable)
-        let completedClimbIds = ClimbService.shared.completedClimbIds(modelContext: modelContext)
-
         Task {
-            await TodayClimbNotificationPermissionController.enable(
-                availableClimbs: availableClimbs,
-                completedClimbIds: completedClimbIds
-            )
+            await ClimbDropNotificationPermissionController.enable()
             isHandlingNotifications = false
         }
     }

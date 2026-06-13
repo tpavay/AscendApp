@@ -9,7 +9,7 @@ struct ProfileActionButtonStyle: ButtonStyle {
             .frame(height: 46)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.accentColor.opacity(configuration.isPressed ? 0.72 : 1))
+                    .fill(Color.ascendAccent.opacity(configuration.isPressed ? 0.72 : 1))
             )
             .contentShape(Rectangle())
     }

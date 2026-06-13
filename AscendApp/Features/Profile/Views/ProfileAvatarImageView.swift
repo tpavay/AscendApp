@@ -17,7 +17,7 @@ struct ProfileAvatarImageView: View {
                     .overlay {
                         Image(systemName: "person.crop.circle.fill")
                             .font(.system(size: size * 0.62, weight: .semibold))
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(Color.ascendAccent)
                     }
             }
         }
@@ -25,7 +25,7 @@ struct ProfileAvatarImageView: View {
         .clipShape(Circle())
         .overlay {
             Circle()
-                .stroke(Color.accentColor.opacity(0.86), lineWidth: 2)
+                .stroke(Color.ascendAccent.opacity(0.86), lineWidth: 2)
         }
         .accessibilityHidden(true)
     }

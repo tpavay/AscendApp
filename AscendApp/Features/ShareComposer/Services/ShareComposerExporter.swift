@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreImage
+import CoreImage.CIFilterBuiltins
 import Photos
 import SwiftUI
 import UIKit
@@ -114,7 +115,13 @@ struct ShareComposerExporter {
               let overlayCI = CIImage(image: overlay) else {
             return nil
         }
-        return await Self.composeVideo(asset: asset, overlay: UncheckedCIImage(image: overlayCI))
+        return await Self.composeVideo(
+            asset: asset,
+            overlay: UncheckedCIImage(image: overlayCI),
+            backgroundScale: viewModel.backgroundScale,
+            backgroundOffset: viewModel.backgroundOffset,
+            backgroundFilter: viewModel.backgroundFilter
+        )
     }
 
     /// The asset's display (orientation-applied) size.
@@ -129,12 +136,36 @@ struct ShareComposerExporter {
         return (size.width > 0 && size.height > 0) ? size : natural
     }
 
-    nonisolated private static func composeVideo(asset: AVURLAsset, overlay: UncheckedCIImage) async -> URL? {
-        // Composite the static overlay over every frame. The source image is
-        // already display-oriented, so the same-size overlay lines up.
+    nonisolated private static func composeVideo(
+        asset: AVURLAsset,
+        overlay: UncheckedCIImage,
+        backgroundScale: CGFloat,
+        backgroundOffset: CGSize,
+        backgroundFilter: ShareBackgroundFilter
+    ) async -> URL? {
+        let safeScale = max(backgroundScale, 0.01)
+
         let videoComposition = AVVideoComposition(asset: asset) { request in
             let source = request.sourceImage
-            let composited = overlay.image.composited(over: source)
+            let extent = source.extent
+            let filteredSource = applyVideoColorFilter(backgroundFilter, to: source)
+                .cropped(to: extent)
+            let scaledWidth = extent.width * safeScale
+            let scaledHeight = extent.height * safeScale
+            let offsetX = backgroundOffset.width * extent.width
+            let offsetY = backgroundOffset.height * extent.height
+            let transform = CGAffineTransform(
+                a: safeScale,
+                b: 0,
+                c: 0,
+                d: safeScale,
+                tx: extent.minX + ((extent.width - scaledWidth) / 2) + offsetX,
+                ty: extent.minY + ((extent.height - scaledHeight) / 2) - offsetY
+            )
+            let transformedSource = filteredSource.transformed(by: transform)
+            let background = CIImage(color: .black).cropped(to: extent)
+            let compositedBackground = transformedSource.composited(over: background)
+            let composited = overlay.image.composited(over: compositedBackground)
             request.finish(with: composited.cropped(to: source.extent), context: nil)
         }
 
@@ -151,6 +182,54 @@ struct ShareComposerExporter {
             export.exportAsynchronously { continuation.resume() }
         }
         return export.status == .completed ? outURL : nil
+    }
+
+    nonisolated private static func applyVideoColorFilter(_ filter: ShareBackgroundFilter, to image: CIImage) -> CIImage {
+        switch filter {
+        case .original, .zoomBlur, .motionBlur, .fisheye:
+            return image
+        case .mono:
+            return colorControls(image, saturation: 0, contrast: 1.05)
+        case .noir:
+            return colorControls(image, saturation: 0, contrast: 1.4, brightness: -0.06)
+        case .vivid:
+            return colorControls(image, saturation: 1.55, contrast: 1.08)
+        case .fade:
+            return colorControls(image, saturation: 0.72, contrast: 0.88, brightness: 0.07)
+        case .warm:
+            return colorControls(colorMultiply(image, red: 1.0, green: 0.9, blue: 0.78), saturation: 1.1)
+        case .cool:
+            return colorControls(colorMultiply(image, red: 0.82, green: 0.9, blue: 1.0), saturation: 1.05)
+        }
+    }
+
+    nonisolated private static func colorControls(
+        _ image: CIImage,
+        saturation: Float,
+        contrast: Float = 1,
+        brightness: Float = 0
+    ) -> CIImage {
+        let filter = CIFilter.colorControls()
+        filter.inputImage = image
+        filter.saturation = saturation
+        filter.contrast = contrast
+        filter.brightness = brightness
+        return filter.outputImage ?? image
+    }
+
+    nonisolated private static func colorMultiply(
+        _ image: CIImage,
+        red: CGFloat,
+        green: CGFloat,
+        blue: CGFloat
+    ) -> CIImage {
+        let filter = CIFilter.colorMatrix()
+        filter.inputImage = image
+        filter.rVector = CIVector(x: red, y: 0, z: 0, w: 0)
+        filter.gVector = CIVector(x: 0, y: green, z: 0, w: 0)
+        filter.bVector = CIVector(x: 0, y: 0, z: blue, w: 0)
+        filter.aVector = CIVector(x: 0, y: 0, z: 0, w: 1)
+        return filter.outputImage ?? image
     }
 
     /// Saves an exported video file to Photos (add-only). See `writeToLibrary`

@@ -13,7 +13,7 @@ struct AppAccessPaywallPlaceholderView: View {
             VStack(alignment: .leading, spacing: 14) {
                 Image(systemName: "lock.fill")
                     .font(.system(size: 34, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color.ascendAccent)
                     .accessibilityHidden(true)
 
                 Text("Access Required")
@@ -38,7 +38,7 @@ struct AppAccessPaywallPlaceholderView: View {
                         .frame(height: 54)
                         .background(
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(Color.accentColor.opacity(monetizationManager.isSuperwallConfigured ? 1 : 0.52))
+                                .fill(Color.ascendAccent.opacity(monetizationManager.isSuperwallConfigured ? 1 : 0.52))
                         )
                 }
                 .buttonStyle(.plain)

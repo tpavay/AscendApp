@@ -47,7 +47,7 @@ struct ActiveStandingsSection: View {
 
                 Text(ProfileStandingSubtitleFormatter.subtitle(for: standing))
                     .font(.montserratSemiBold(size: 9))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color.ascendAccent)
                     .lineLimit(2)
                     .minimumScaleFactor(0.7)
                     .fixedSize(horizontal: false, vertical: true)

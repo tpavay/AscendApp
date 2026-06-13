@@ -7,6 +7,7 @@ struct ProfileUserIdentity: Equatable {
     var age: Int?
     var gender: ProfileGender?
     var weightKg: Double?
+    var heightCm: Double?
     var locationCity: String?
     var locationCountryCode: String?
     var locationRegionCode: String?
@@ -19,6 +20,7 @@ struct ProfileUserIdentity: Equatable {
         age: Int? = nil,
         gender: ProfileGender? = nil,
         weightKg: Double? = nil,
+        heightCm: Double? = nil,
         locationCity: String? = nil,
         locationCountryCode: String? = nil,
         locationRegionCode: String? = nil,
@@ -30,6 +32,7 @@ struct ProfileUserIdentity: Equatable {
         self.age = age
         self.gender = gender
         self.weightKg = weightKg
+        self.heightCm = heightCm
         self.locationCity = locationCity
         self.locationCountryCode = locationCountryCode
         self.locationRegionCode = locationRegionCode

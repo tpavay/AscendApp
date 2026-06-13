@@ -281,13 +281,12 @@ private struct PostAuthGenderScreen: View {
 
 private struct PostAuthAgeScreen: View {
     @Environment(AuthenticationViewModel.self) private var authVM
-    @FocusState private var isAgeFocused: Bool
 
     let stage: PostAuthOnboardingStage
     let onBack: () -> Void
     let onContinue: () -> Void
 
-    @State private var ageText = "32"
+    @State private var selectedAge = 32
     @State private var isSaving = false
 
     var body: some View {
@@ -296,22 +295,15 @@ private struct PostAuthAgeScreen: View {
             headline: "How old are you?",
             subtitle: "Age keeps leaderboard context honest",
             primaryTitle: isSaving ? "SAVING..." : "CONTINUE",
-            isContinueEnabled: validAge != nil && !isSaving,
+            isContinueEnabled: !isSaving,
             onBack: onBack,
             onContinue: saveAge
         ) { metrics in
-            VStack(spacing: metrics.height(7)) {
-                PostAuthNumberInputBox(
-                    text: $ageText,
-                    unit: nil,
-                    metrics: metrics,
-                    width: 118,
-                    keyboardType: .numberPad,
-                    focused: $isAgeFocused
+            VStack(spacing: metrics.height(12)) {
+                PostAuthAgeWheelPicker(
+                    selectedAge: $selectedAge,
+                    metrics: metrics
                 )
-                .onChange(of: ageText) { _, newValue in
-                    sanitizeIntegerInput(newValue, maxDigits: 3, target: $ageText)
-                }
 
                 Text("13 - 120")
                     .font(.montserratBold(size: metrics.font(8)))
@@ -328,22 +320,14 @@ private struct PostAuthAgeScreen: View {
             .frame(width: metrics.width(334), alignment: .center)
             .position(x: metrics.x(195), y: metrics.y(393))
         }
-        .keyboardDoneToolbar {
-            isAgeFocused = false
-        }
-    }
-
-    private var validAge: Int? {
-        guard let age = Int(ageText), (13...120).contains(age) else { return nil }
-        return age
     }
 
     private func saveAge() {
-        guard !isSaving, let validAge else { return }
+        guard !isSaving else { return }
 
         Task { @MainActor in
             isSaving = true
-            let didSave = await authVM.updateOnboardingAge(validAge)
+            let didSave = await authVM.updateOnboardingAge(selectedAge)
             isSaving = false
 
             if didSave {
@@ -356,41 +340,47 @@ private struct PostAuthAgeScreen: View {
 
 private struct PostAuthWeightScreen: View {
     @Environment(AuthenticationViewModel.self) private var authVM
-    @FocusState private var isWeightFocused: Bool
     @State private var settingsManager = SettingsManager.shared
 
     let stage: PostAuthOnboardingStage
     let onBack: () -> Void
     let onContinue: () -> Void
 
-    @State private var weightText = "185"
+    @State private var selectedWeight = SettingsManager.shared.measurementSystem == .imperial ? 185 : 84
+    @State private var selectedHeightInches = 70
     @State private var isSaving = false
 
     var body: some View {
         PostAuthProfileQuestionShell(
             stage: stage,
-            headline: "What is your body\nweight?",
-            subtitle: "Your weight helps determine your goals and outputs",
+            headline: "Add your body\nmetrics",
+            subtitle: "Used for profile context and future stats",
             primaryTitle: isSaving ? "SAVING..." : "CONTINUE",
-            isContinueEnabled: validWeightKilograms != nil && !isSaving,
+            isContinueEnabled: validWeightKilograms != nil && validHeightCentimeters != nil && !isSaving,
             onBack: onBack,
-            onContinue: saveWeight
+            onContinue: saveBodyMetrics
         ) { metrics in
-            VStack(spacing: metrics.height(7)) {
-                PostAuthNumberInputBox(
-                    text: $weightText,
-                    unit: settingsManager.measurementSystem.weightAbbreviation,
-                    metrics: metrics,
-                    width: 128,
-                    keyboardType: .numberPad,
-                    focused: $isWeightFocused
-                )
-                .onChange(of: weightText) { _, newValue in
-                    sanitizeIntegerInput(newValue, maxDigits: 3, target: $weightText)
+            VStack(spacing: metrics.height(12)) {
+                HStack(alignment: .top, spacing: metrics.width(12)) {
+                    PostAuthBodyMetricColumn(title: "HEIGHT", metrics: metrics) {
+                        PostAuthHeightWheelPicker(
+                            selectedHeightInches: $selectedHeightInches,
+                            measurementSystem: settingsManager.measurementSystem,
+                            metrics: metrics
+                        )
+                    }
+
+                    PostAuthBodyMetricColumn(title: "WEIGHT", metrics: metrics) {
+                        PostAuthWeightWheelPicker(
+                            selectedWeight: $selectedWeight,
+                            measurementSystem: settingsManager.measurementSystem,
+                            metrics: metrics
+                        )
+                    }
                 }
 
                 Button(action: toggleMeasurementSystem) {
-                    Text("Imperial / Metric")
+                    Text(settingsManager.measurementSystem == .imperial ? "Use metric" : "Use imperial")
                         .font(.montserratBold(size: metrics.font(8)))
                         .foregroundStyle(.white.opacity(0.54))
                 }
@@ -405,53 +395,55 @@ private struct PostAuthWeightScreen: View {
                 }
             }
             .frame(width: metrics.width(334), alignment: .center)
-            .position(x: metrics.x(195), y: metrics.y(394))
-        }
-        .keyboardDoneToolbar {
-            isWeightFocused = false
+            .position(x: metrics.x(195), y: metrics.y(410))
         }
     }
 
     private var validWeightKilograms: Double? {
-        guard let weight = Double(weightText), weight > 0 else { return nil }
-        let weightKg = settingsManager.measurementSystem.convertWeight(weight, to: .metric)
+        let weightKg = settingsManager.measurementSystem.convertWeight(Double(selectedWeight), to: .metric)
         guard weightKg > 0, weightKg <= 400 else { return nil }
         return weightKg
     }
 
-    private func saveWeight() {
-        guard !isSaving, let validWeightKilograms else { return }
+    private var validHeightCentimeters: Double? {
+        let heightCm = MeasurementSystem.imperial.convertHeight(Double(selectedHeightInches), to: .metric)
+        guard heightCm >= 90, heightCm <= 240 else { return nil }
+        return heightCm
+    }
+
+    private func saveBodyMetrics() {
+        guard !isSaving,
+              let validWeightKilograms,
+              let validHeightCentimeters else { return }
 
         Task { @MainActor in
             isSaving = true
-            let didSave = await authVM.updateOnboardingWeightKilograms(validWeightKilograms)
+            let didSave = await authVM.updateOnboardingBodyMetrics(
+                weightKg: validWeightKilograms,
+                heightCm: validHeightCentimeters
+            )
             isSaving = false
 
             if didSave {
-                trackPostAuthAnswer(stage: stage, questionID: "weight")
+                trackPostAuthAnswer(stage: stage, questionID: "body_metrics")
                 onContinue()
             }
         }
     }
 
     private func toggleMeasurementSystem() {
-        guard let currentValue = Double(weightText) else {
-            settingsManager.measurementSystem = settingsManager.measurementSystem == .imperial ? .metric : .imperial
-            weightText = settingsManager.measurementSystem == .imperial ? "185" : "84"
-            return
-        }
-
         let oldSystem = settingsManager.measurementSystem
         let newSystem: MeasurementSystem = oldSystem == .imperial ? .metric : .imperial
-        let convertedValue = oldSystem.convertWeight(currentValue, to: newSystem)
+        let convertedValue = oldSystem.convertWeight(Double(selectedWeight), to: newSystem)
         settingsManager.measurementSystem = newSystem
-        weightText = convertedValue.rounded().formatted(.number.precision(.fractionLength(0)))
+        selectedWeight = PostAuthWeightWheelPicker.clamp(Int(convertedValue.rounded()), to: newSystem)
     }
 }
 
 private struct PostAuthLocationScreen: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @StateObject private var citySearch = PostAuthCitySearchModel()
+    @StateObject private var currentLocation = PostAuthCurrentLocationResolver()
     @FocusState private var isSearchFocused: Bool
 
     let stage: PostAuthOnboardingStage
@@ -465,9 +457,9 @@ private struct PostAuthLocationScreen: View {
         PostAuthProfileQuestionShell(
             stage: stage,
             headline: "Where are you\nclimbing from?",
-            subtitle: "Pick your city for profile and leaderboard context",
+            subtitle: "Set your city for profile and leaderboard context. You can change this later in profile.",
             primaryTitle: isSaving ? "SAVING..." : "CONTINUE",
-            isContinueEnabled: isValidSelection && !isSaving && !citySearch.isResolving,
+            isContinueEnabled: isValidSelection && !isSaving && !citySearch.isResolving && !currentLocation.isResolving,
             onBack: onBack,
             onContinue: saveLocation
         ) { metrics in
@@ -479,63 +471,64 @@ private struct PostAuthLocationScreen: View {
                     focused: $isSearchFocused
                 )
 
-                if let selectedLocation {
-                    PostAuthSelectedCityRow(
-                        selection: selectedLocation,
-                        metrics: metrics
-                    )
-                } else if !citySearch.suggestions.isEmpty {
-                    VStack(spacing: metrics.height(8)) {
-                        ForEach(citySearch.suggestions) { suggestion in
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: metrics.height(8)) {
+                        if let selectedLocation {
+                            PostAuthSelectedCityRow(
+                                selection: selectedLocation,
+                                metrics: metrics
+                            )
+                        } else {
                             Button {
-                                selectSuggestion(suggestion)
+                                selectCurrentLocation()
                             } label: {
-                                PostAuthCitySuggestionRow(
-                                    suggestion: suggestion,
+                                PostAuthCurrentLocationRow(
+                                    isResolving: currentLocation.isResolving,
                                     metrics: metrics
                                 )
                             }
                             .buttonStyle(.plain)
-                            .disabled(citySearch.isResolving)
+                            .disabled(citySearch.isResolving || currentLocation.isResolving)
+
+                            if !citySearch.suggestions.isEmpty {
+                                ForEach(citySearch.suggestions) { suggestion in
+                                    Button {
+                                        selectSuggestion(suggestion)
+                                    } label: {
+                                        PostAuthCitySuggestionRow(
+                                            suggestion: suggestion,
+                                            metrics: metrics
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(citySearch.isResolving || currentLocation.isResolving)
+                                }
+                            } else if citySearch.query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 && !citySearch.isSearching {
+                                Text("Search for your city, then choose the matching result.")
+                                    .font(.montserratMedium(size: metrics.font(11)))
+                                    .foregroundStyle(.white.opacity(0.48))
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(width: metrics.width(334), alignment: .leading)
+                            }
+                        }
+
+                        if let message = citySearch.errorMessage ?? currentLocation.errorMessage ?? authVM.errorMessage {
+                            Text(message)
+                                .font(.montserratMedium(size: metrics.font(11)))
+                                .foregroundStyle(.red.opacity(0.9))
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(width: metrics.width(334), alignment: .leading)
                         }
                     }
-                } else if citySearch.query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 && !citySearch.isSearching {
-                    Text("Search for your city, then choose the matching result.")
-                        .font(.montserratMedium(size: metrics.font(11)))
-                        .foregroundStyle(.white.opacity(0.48))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(width: metrics.width(334), alignment: .leading)
                 }
-
-                Text("City, region, and country may appear near leaderboard and profile context.")
-                    .font(.montserratMedium(size: metrics.font(10)))
-                    .foregroundStyle(.white.opacity(0.44))
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(metrics.height(2))
-                    .frame(width: metrics.width(254), alignment: .center)
-                    .frame(minHeight: metrics.height(44), alignment: .center)
-                    .padding(.horizontal, metrics.width(20))
-                    .background(
-                        RoundedRectangle(cornerRadius: metrics.radius(8), style: .continuous)
-                            .fill(.white.opacity(0.03))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: metrics.radius(8), style: .continuous)
-                                    .stroke(.white.opacity(0.08), lineWidth: 1)
-                            }
-                    )
-                    .padding(.top, metrics.height(4))
-
-                if let message = citySearch.errorMessage ?? authVM.errorMessage {
-                    Text(message)
-                        .font(.montserratMedium(size: metrics.font(11)))
-                        .foregroundStyle(.red.opacity(0.9))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(width: metrics.width(334), alignment: .leading)
-                }
+                .frame(width: metrics.width(334), alignment: .top)
+                .frame(maxHeight: metrics.height(324), alignment: .top)
+                .scrollDismissesKeyboard(.interactively)
             }
             .frame(width: metrics.width(334), alignment: .topLeading)
             .offset(x: metrics.x(28), y: metrics.y(326))
             .onChange(of: citySearch.query) { _, newValue in
+                currentLocation.clearError()
                 guard let selectedLocation else { return }
                 if newValue != selectedLocation.profileDisplayText {
                     self.selectedLocation = nil
@@ -575,7 +568,7 @@ private struct PostAuthLocationScreen: View {
     }
 
     private func selectSuggestion(_ suggestion: PostAuthCitySearchSuggestion) {
-        guard !citySearch.isResolving else { return }
+        guard !citySearch.isResolving, !currentLocation.isResolving else { return }
 
         Task { @MainActor in
             guard let location = await citySearch.resolve(suggestion) else { return }
@@ -583,11 +576,21 @@ private struct PostAuthLocationScreen: View {
             isSearchFocused = false
         }
     }
+
+    private func selectCurrentLocation() {
+        guard !citySearch.isResolving, !currentLocation.isResolving else { return }
+
+        isSearchFocused = false
+        Task { @MainActor in
+            guard let location = await currentLocation.resolve() else { return }
+            selectedLocation = location
+            citySearch.setSelectedLocation(location)
+        }
+    }
 }
 
 private struct PostAuthNotificationScreen: View {
     let stage: PostAuthOnboardingStage
-    // Figma "26 Notifications" has no back affordance; onBack is retained for stage call-site symmetry.
     let onBack: () -> Void
     let onContinue: () -> Void
 
@@ -600,6 +603,12 @@ private struct PostAuthNotificationScreen: View {
             ZStack(alignment: .topLeading) {
                 PostAuthProfilePalette.background
                     .ignoresSafeArea()
+
+                OnboardingBackButton(action: onBack)
+                    .position(
+                        x: metrics.x(OnboardingChromeMetrics.backButtonLeadingPadding + OnboardingChromeMetrics.backButtonSize / 2),
+                        y: metrics.y(OnboardingChromeMetrics.backButtonTopPadding + OnboardingChromeMetrics.backButtonSize / 2)
+                    )
 
                 Image("FirstAscentBadgeDetailed")
                     .resizable()
@@ -616,7 +625,7 @@ private struct PostAuthNotificationScreen: View {
                         .lineSpacing(0)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    Text("Get 24-hour notice before each climb drop. Be the first to ascend and earn a permanent spot on the leaderboard.")
+                    Text("Get an Ascend alert when new climbs open. Be ready to claim the First Ascent before anyone else.")
                         .font(.montserratRegular(size: metrics.font(14)))
                         .foregroundStyle(.white.opacity(0.7))
                         .multilineTextAlignment(.center)
@@ -626,20 +635,34 @@ private struct PostAuthNotificationScreen: View {
                 .frame(width: metrics.width(342))
                 .offset(x: metrics.x(24), y: metrics.y(507))
 
-                Button(action: requestNotifications) {
-                    Text("CONTINUE")
-                        .font(.montserratBold(size: metrics.font(16)))
-                        .foregroundStyle(.black.opacity(isRequesting ? 0.45 : 0.9))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(
-                            RoundedRectangle(cornerRadius: metrics.radius(12), style: .continuous)
-                                .fill(OnboardingValuePalette.lime.opacity(isRequesting ? 0.45 : 1))
-                        )
+                VStack(spacing: metrics.height(14)) {
+                    Button(action: requestNotifications) {
+                        Text(isRequesting ? "ENABLING..." : "ENABLE NOTIFICATIONS")
+                            .font(.montserratBold(size: metrics.font(15)))
+                            .foregroundStyle(.black.opacity(isRequesting ? 0.45 : 0.9))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(
+                                RoundedRectangle(cornerRadius: metrics.radius(12), style: .continuous)
+                                    .fill(OnboardingValuePalette.lime.opacity(isRequesting ? 0.45 : 1))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isRequesting)
+                    .frame(width: metrics.width(334), height: metrics.height(56))
+
+                    Button(action: skipNotifications) {
+                        Text("Skip")
+                            .font(.montserratBold(size: metrics.font(12)))
+                            .foregroundStyle(.white.opacity(isRequesting ? 0.28 : 0.56))
+                            .frame(height: metrics.height(24))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isRequesting)
                 }
-                .buttonStyle(.plain)
-                .disabled(isRequesting)
-                .frame(width: metrics.width(334), height: metrics.height(56))
-                .position(x: metrics.x(195), y: metrics.y(741))
+                .frame(width: metrics.width(334), alignment: .center)
+                .position(x: metrics.x(195), y: metrics.y(725))
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
@@ -651,7 +674,7 @@ private struct PostAuthNotificationScreen: View {
 
         Task { @MainActor in
             isRequesting = true
-            let status = await TodayClimbNotificationPermissionController.requestDuringOnboarding()
+            let status = await ClimbDropNotificationPermissionController.requestDuringOnboarding()
             isRequesting = false
 
             let isAllowed = switch status {
@@ -663,6 +686,24 @@ private struct PostAuthNotificationScreen: View {
                 OnboardingAnalyticsEvent.notificationPermissionSelected(
                     context: stage.analyticsContext,
                     status: isAllowed ? "allow" : "decline"
+                )
+            )
+            onContinue()
+        }
+    }
+
+    private func skipNotifications() {
+        guard !isRequesting else { return }
+
+        Task { @MainActor in
+            isRequesting = true
+            await ClimbDropNotificationPermissionController.disable()
+            isRequesting = false
+
+            TelemetryManager.shared.track(
+                OnboardingAnalyticsEvent.notificationPermissionSelected(
+                    context: stage.analyticsContext,
+                    status: "skip"
                 )
             )
             onContinue()
@@ -1217,7 +1258,7 @@ private struct PostAuthFirstClimbRevealScreen: View {
                 }
 
                 Button(action: saveFirstClimb) {
-                    Text(isSaving ? "SAVING..." : "CONTINUE")
+                    Text(isSaving ? "SAVING..." : "VIEW CLIMB")
                         .font(.montserratBold(size: metrics.font(16)))
                         .foregroundStyle(.black.opacity(isSaving ? 0.45 : 0.9))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1250,6 +1291,9 @@ private struct PostAuthFirstClimbRevealScreen: View {
             isSaving = false
 
             if didSave {
+                if let userId = authVM.user?.uid {
+                    OnboardingFirstClimbHandoffStore().stage(climbId: firstClimb.id, for: userId)
+                }
                 TelemetryManager.shared.setUserProperty("first_climb", value: firstClimb.id)
                 TelemetryManager.shared.track(
                     OnboardingAnalyticsEvent.firstClimbSelected(
@@ -1457,40 +1501,168 @@ private struct PostAuthProfileOptionRow: View {
     }
 }
 
-private struct PostAuthNumberInputBox: View {
-    @Binding var text: String
-    let unit: String?
+private struct PostAuthBodyMetricColumn<Content: View>: View {
+    let title: String
     let metrics: PostAuthProfileMetrics
-    let width: CGFloat
-    let keyboardType: UIKeyboardType
-    let focused: FocusState<Bool>.Binding
+    let content: Content
+
+    init(
+        title: String,
+        metrics: PostAuthProfileMetrics,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.metrics = metrics
+        self.content = content()
+    }
 
     var body: some View {
-        HStack(alignment: .lastTextBaseline, spacing: metrics.width(4)) {
-            TextField("", text: $text)
-                .font(.montserratBold(size: metrics.font(38)))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-                .tint(OnboardingValuePalette.lime)
-                .keyboardType(keyboardType)
-                .focused(focused)
-                .frame(minWidth: metrics.width(unit == nil ? 80 : 64), alignment: .center)
+        VStack(spacing: metrics.height(8)) {
+            Text(title)
+                .font(.montserratBold(size: metrics.font(9)))
+                .foregroundStyle(.white.opacity(0.54))
+                .tracking(1.5)
+                .frame(maxWidth: .infinity)
 
-            if let unit {
-                Text(unit)
-                    .font(.montserratBold(size: metrics.font(14)))
-                    .foregroundStyle(OnboardingValuePalette.lime)
-                    .padding(.bottom, metrics.height(4))
-            }
+            content
         }
-        .padding(.horizontal, metrics.width(12))
-        .frame(width: metrics.width(width), height: metrics.height(64), alignment: .center)
-        .background(PostAuthProfilePalette.fieldBackground)
-        .clipShape(RoundedRectangle(cornerRadius: metrics.radius(8), style: .continuous))
-        .overlay {
+        .frame(width: metrics.width(156), alignment: .top)
+    }
+}
+
+private struct PostAuthAgeWheelPicker: View {
+    @Binding var selectedAge: Int
+    let metrics: PostAuthProfileMetrics
+
+    private let ageRange = Array(13...120)
+
+    var body: some View {
+        ZStack {
+            Picker("Age", selection: $selectedAge) {
+                ForEach(ageRange, id: \.self) { age in
+                    Text(age.formatted())
+                        .font(.montserratBold(size: metrics.font(34)))
+                        .foregroundStyle(.white)
+                        .monospacedDigit()
+                        .tag(age)
+                }
+            }
+            .pickerStyle(.wheel)
+            .labelsHidden()
+            .frame(width: metrics.width(142), height: metrics.height(150))
+            .clipped()
+            .colorScheme(.dark)
+
             RoundedRectangle(cornerRadius: metrics.radius(8), style: .continuous)
                 .stroke(OnboardingValuePalette.lime.opacity(0.9), lineWidth: 1)
+                .allowsHitTesting(false)
         }
+        .frame(width: metrics.width(150), height: metrics.height(156), alignment: .center)
+        .background(PostAuthProfilePalette.fieldBackground)
+        .clipShape(RoundedRectangle(cornerRadius: metrics.radius(8), style: .continuous))
+        .accessibilityLabel("Age")
+        .accessibilityValue("\(selectedAge)")
+    }
+}
+
+private struct PostAuthHeightWheelPicker: View {
+    @Binding var selectedHeightInches: Int
+    let measurementSystem: MeasurementSystem
+    let metrics: PostAuthProfileMetrics
+
+    private let heightRange = Array(36...94)
+
+    var body: some View {
+        ZStack {
+            Picker("Height", selection: $selectedHeightInches) {
+                ForEach(heightRange, id: \.self) { inches in
+                    Text(displayText(for: inches))
+                        .font(.montserratBold(size: metrics.font(24)))
+                        .foregroundStyle(.white)
+                        .monospacedDigit()
+                        .tag(inches)
+                }
+            }
+            .pickerStyle(.wheel)
+            .labelsHidden()
+            .frame(width: metrics.width(148), height: metrics.height(150))
+            .clipped()
+            .colorScheme(.dark)
+
+            RoundedRectangle(cornerRadius: metrics.radius(8), style: .continuous)
+                .stroke(OnboardingValuePalette.lime.opacity(0.9), lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+        .frame(width: metrics.width(156), height: metrics.height(156), alignment: .center)
+        .background(PostAuthProfilePalette.fieldBackground)
+        .clipShape(RoundedRectangle(cornerRadius: metrics.radius(8), style: .continuous))
+        .accessibilityLabel("Height")
+        .accessibilityValue(displayText(for: selectedHeightInches))
+    }
+
+    private func displayText(for inches: Int) -> String {
+        switch measurementSystem {
+        case .imperial:
+            return "\(inches / 12)'\(inches % 12)\""
+        case .metric:
+            let centimeters = MeasurementSystem.imperial.convertHeight(Double(inches), to: .metric)
+            return "\(Int(centimeters.rounded())) cm"
+        }
+    }
+}
+
+private struct PostAuthWeightWheelPicker: View {
+    @Binding var selectedWeight: Int
+    let measurementSystem: MeasurementSystem
+    let metrics: PostAuthProfileMetrics
+
+    var body: some View {
+        ZStack {
+            Picker("Weight", selection: $selectedWeight) {
+                ForEach(weightRange, id: \.self) { weight in
+                    Text(displayText(for: weight))
+                        .font(.montserratBold(size: metrics.font(24)))
+                        .foregroundStyle(.white)
+                        .monospacedDigit()
+                        .tag(weight)
+                }
+            }
+            .pickerStyle(.wheel)
+            .labelsHidden()
+            .frame(width: metrics.width(148), height: metrics.height(150))
+            .clipped()
+            .colorScheme(.dark)
+
+            RoundedRectangle(cornerRadius: metrics.radius(8), style: .continuous)
+                .stroke(OnboardingValuePalette.lime.opacity(0.9), lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+        .frame(width: metrics.width(156), height: metrics.height(156), alignment: .center)
+        .background(PostAuthProfilePalette.fieldBackground)
+        .clipShape(RoundedRectangle(cornerRadius: metrics.radius(8), style: .continuous))
+        .accessibilityLabel("Weight")
+        .accessibilityValue(displayText(for: selectedWeight))
+    }
+
+    private var weightRange: [Int] { Array(Self.range(for: measurementSystem)) }
+
+    private func displayText(for weight: Int) -> String {
+        "\(weight) \(measurementSystem.weightAbbreviation)"
+    }
+
+    /// Selectable weight bounds per measurement system, in that system's own unit.
+    static func range(for system: MeasurementSystem) -> ClosedRange<Int> {
+        switch system {
+        case .imperial: return 50...400
+        case .metric: return 25...200
+        }
+    }
+
+    /// Clamps a converted weight into the destination system's selectable range so the
+    /// wheel selection always matches an existing row after a unit toggle.
+    static func clamp(_ value: Int, to system: MeasurementSystem) -> Int {
+        let bounds = range(for: system)
+        return min(max(value, bounds.lowerBound), bounds.upperBound)
     }
 }
 
@@ -1536,6 +1708,45 @@ private struct PostAuthCitySearchField: View {
             RoundedRectangle(cornerRadius: metrics.radius(6), style: .continuous)
                 .stroke(focused.wrappedValue ? OnboardingValuePalette.lime.opacity(0.9) : .white.opacity(0.16), lineWidth: 1)
         }
+    }
+}
+
+private struct PostAuthCurrentLocationRow: View {
+    let isResolving: Bool
+    let metrics: PostAuthProfileMetrics
+
+    var body: some View {
+        HStack(spacing: metrics.width(12)) {
+            Image(systemName: "location.fill")
+                .font(.system(size: metrics.font(15), weight: .semibold))
+                .foregroundStyle(OnboardingValuePalette.lime)
+                .frame(width: metrics.width(20), height: metrics.height(20))
+
+            Text("Current location")
+                .font(.montserratBold(size: metrics.font(12)))
+                .foregroundStyle(.white.opacity(0.92))
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+
+            Spacer(minLength: 0)
+
+            if isResolving {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(OnboardingValuePalette.lime)
+                    .frame(width: metrics.width(18), height: metrics.height(18))
+            }
+        }
+        .padding(.horizontal, metrics.width(16))
+        .frame(width: metrics.width(334), height: metrics.height(52), alignment: .center)
+        .background(PostAuthProfilePalette.fieldBackground.opacity(0.84))
+        .clipShape(RoundedRectangle(cornerRadius: metrics.radius(6), style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: metrics.radius(6), style: .continuous)
+                .stroke(.white.opacity(0.12), lineWidth: 1)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Current location")
     }
 }
 
@@ -1653,17 +1864,6 @@ private struct PostAuthGenderOption: Identifiable {
         .init(id: .nonBinary, title: "Other", gender: .nonBinary),
         .init(id: .preferNotToSay, title: "Prefer not to say", gender: .preferNotToSay)
     ]
-}
-
-private func sanitizeIntegerInput(
-    _ value: String,
-    maxDigits: Int,
-    target: Binding<String>
-) {
-    let normalized = String(value.filter(\.isNumber).prefix(maxDigits))
-    if normalized != value {
-        target.wrappedValue = normalized
-    }
 }
 
 #Preview("Post-Auth Onboarding") {

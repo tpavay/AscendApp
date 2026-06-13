@@ -93,7 +93,7 @@ struct RoutineDetailView: View {
                     if routine.completionCount > 0 {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 17, weight: .medium))
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(Color.ascendAccent)
                             .accessibilityLabel("Completed \(routine.completionCount) time\(routine.completionCount == 1 ? "" : "s")")
                     }
                 }
@@ -134,7 +134,7 @@ struct RoutineDetailView: View {
                         .tracking(1.1)
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
-                        .foregroundStyle(index == selectedPage ? Color.accentColor : selectorInactiveTextColor)
+                        .foregroundStyle(index == selectedPage ? Color.ascendAccent : selectorInactiveTextColor)
                         .frame(maxWidth: .infinity)
                         .frame(height: 38)
                         .background {
@@ -143,7 +143,7 @@ struct RoutineDetailView: View {
                                     .fill(.white.opacity(0.07))
                                     .overlay(
                                         Capsule(style: .continuous)
-                                            .stroke(Color.accentColor.opacity(0.45), lineWidth: 1)
+                                            .stroke(Color.ascendAccent.opacity(0.45), lineWidth: 1)
                                     )
                             }
                         }
@@ -260,11 +260,15 @@ struct RoutineDetailView: View {
             rows: leaderboardViewModel.rows,
             completedCount: leaderboardViewModel.completedCount,
             isLoading: leaderboardViewModel.isLoading,
+            isLoadingMore: leaderboardViewModel.isLoadingMore,
             fetchFailed: leaderboardViewModel.fetchFailed,
             currentUserPhotoURL: currentUserPhotoURL,
             effectiveColorScheme: effectiveColorScheme,
             emptyTitle: "No completed times yet.",
-            emptyMessage: "Be the first to put a time on this routine."
+            emptyMessage: "Be the first to put a time on this routine.",
+            onRowAppear: { row in
+                leaderboardViewModel.loadMoreIfNeeded(currentRow: row)
+            }
         )
         .padding(.horizontal, 4)
         .padding(.vertical, 2)

@@ -46,7 +46,7 @@ struct TrendsSection: View {
     }
 
     private var changeColor: Color {
-        (trend.changePercent ?? 0) >= 0 ? Color.accentColor : ProfileVisualStyle.danger
+        (trend.changePercent ?? 0) >= 0 ? Color.ascendAccent : ProfileVisualStyle.danger
     }
 
     private var miniBars: some View {
@@ -62,7 +62,7 @@ struct TrendsSection: View {
         return VStack(spacing: 5) {
             Spacer(minLength: 0)
             RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .fill(label == "NOW" ? Color.accentColor : Color.white.opacity(0.22))
+                .fill(label == "NOW" ? Color.ascendAccent : Color.white.opacity(0.22))
                 .frame(width: 54, height: height)
             Text(label)
                 .font(.montserratBold(size: 9))

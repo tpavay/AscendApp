@@ -87,33 +87,64 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
 
     func fetchCompletionLeaderboard(
         context: LiveReplayLeaderboardContext,
-        limit: Int
+        limit: Int,
+        cursor: LiveReplayCompletionLeaderboardCursor?,
+        forceRefresh: Bool
     ) async throws -> LiveReplayCompletionLeaderboard {
         let resolvedLimit = max(limit, 1)
+        let startRank = cursor?.nextRank ?? 1
+        var query: Query = entriesCollection(context: context, bucketIndex: 0)
+            .order(by: "completionDurationSeconds", descending: false)
+            .order(by: FieldPath.documentID(), descending: false)
+
+        if let cursor {
+            query = query.start(after: [
+                cursor.completionDurationSeconds,
+                cursor.rowID
+            ])
+        }
+
+        query = query.limit(to: resolvedLimit)
+
+        let source: FirestoreSource = forceRefresh ? .server : .default
 
         async let summary = fetchSummary(context: context)
-        async let completedCount = countRows(context: context, bucketIndex: 0)
-        async let rowSnapshot = entriesCollection(context: context, bucketIndex: 0)
-            .order(by: "completionDurationSeconds", descending: false)
-            .limit(to: resolvedLimit)
-            .getDocuments(source: .server)
+        async let rowSnapshot = query.getDocuments(source: source)
 
         let resolvedSummary = try await summary
-        let resolvedCompletedCount = try await completedCount
+        let resolvedCompletedCount: Int
+        if cursor == nil {
+            resolvedCompletedCount = try await countRows(context: context, bucketIndex: 0)
+        } else {
+            resolvedCompletedCount = 0
+        }
+
+        let snapshot = try await rowSnapshot
         let currentUserId = Auth.auth().currentUser?.uid
-        let rows = try await rowSnapshot.documents.enumerated().compactMap { offset, document in
+        let rows = snapshot.documents.enumerated().compactMap { offset, document in
             parseCompletionRow(
                 id: document.documentID,
                 data: document.data(),
-                rank: offset + 1,
+                rank: startRank + offset,
                 currentUserId: currentUserId
             )
         }
+        let completedCount = max(
+            resolvedSummary.completedCount,
+            resolvedCompletedCount,
+            startRank + max(rows.count - 1, 0)
+        )
 
         return LiveReplayCompletionLeaderboard(
             rows: rows,
-            completedCount: max(resolvedSummary.completedCount, resolvedCompletedCount),
-            updatedAt: resolvedSummary.updatedAt
+            completedCount: completedCount,
+            updatedAt: resolvedSummary.updatedAt,
+            nextCursor: nextCompletionLeaderboardCursor(
+                documents: snapshot.documents,
+                rows: rows,
+                completedCount: completedCount,
+                pageSize: resolvedLimit
+            )
         )
     }
 
@@ -406,6 +437,31 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             isPersonalBest: row.isPersonalBest,
             completionDurationSeconds: row.completionDurationSeconds,
             userId: row.userId
+        )
+    }
+
+    private func nextCompletionLeaderboardCursor(
+        documents: [QueryDocumentSnapshot],
+        rows: [LiveReplayLeaderboardRow],
+        completedCount: Int,
+        pageSize: Int
+    ) -> LiveReplayCompletionLeaderboardCursor? {
+        guard documents.count >= pageSize,
+              !rows.isEmpty,
+              let lastDocument = documents.last,
+              let durationSeconds = doubleValue(
+                for: "completionDurationSeconds",
+                in: lastDocument.data()
+              ) ?? rows.last?.completionDurationSeconds,
+              let nextRank = rows.last?.rank.map({ $0 + 1 }),
+              nextRank <= completedCount else {
+            return nil
+        }
+
+        return LiveReplayCompletionLeaderboardCursor(
+            completionDurationSeconds: durationSeconds,
+            rowID: lastDocument.documentID,
+            nextRank: nextRank
         )
     }
 

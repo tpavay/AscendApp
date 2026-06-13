@@ -16,6 +16,7 @@ struct UserDisplayNameData: Sendable {
     let age: Int?
     let gender: String?
     let weightKg: Double?
+    let heightCm: Double?
     let locationCity: String?
     let locationCountry: String?
     let locationRegion: String?
@@ -41,6 +42,13 @@ struct UserDisplayNameData: Sendable {
             self.weightKg = weightKg.doubleValue
         } else {
             self.weightKg = nil
+        }
+        if let heightCm = data?["height_cm"] as? Double {
+            self.heightCm = heightCm
+        } else if let heightCm = data?["height_cm"] as? NSNumber {
+            self.heightCm = heightCm.doubleValue
+        } else {
+            self.heightCm = nil
         }
         self.locationCountry = data?["location_country"] as? String
         self.locationCity = data?["location_city"] as? String
@@ -125,6 +133,7 @@ final class UserDataRepository: Sendable {
         age: Int? = nil,
         gender: String? = nil,
         weightKg: Double? = nil,
+        heightCm: Double? = nil,
         locationCity: String? = nil,
         locationCountry: String? = nil,
         locationRegion: String? = nil,
@@ -170,6 +179,10 @@ final class UserDataRepository: Sendable {
 
             if let weightKg {
                 newData["weight_kg"] = weightKg
+            }
+
+            if let heightCm {
+                newData["height_cm"] = heightCm
             }
 
             if let locationCity {
@@ -248,6 +261,10 @@ final class UserDataRepository: Sendable {
 
             if let weightKg {
                 userData["weight_kg"] = weightKg
+            }
+
+            if let heightCm {
+                userData["height_cm"] = heightCm
             }
 
             if let locationCity {
@@ -333,6 +350,7 @@ final class UserDataRepository: Sendable {
                 age: existing?.age,
                 gender: existing?.gender.flatMap(ProfileGender.init(rawValue:)),
                 weightKg: existing?.weightKg,
+                heightCm: existing?.heightCm,
                 locationCity: existing?.locationCity,
                 locationCountryCode: existing?.locationCountry,
                 locationRegionCode: existing?.locationRegion,
@@ -381,6 +399,7 @@ final class UserDataRepository: Sendable {
                 age: age,
                 gender: gender,
                 weightKg: existing?.weightKg,
+                heightCm: existing?.heightCm,
                 locationCity: existing?.locationCity,
                 locationCountryCode: existing?.locationCountry,
                 locationRegionCode: existing?.locationRegion,
@@ -397,6 +416,7 @@ final class UserDataRepository: Sendable {
         age: Int? = nil,
         gender: ProfileGender? = nil,
         weightKg: Double? = nil,
+        heightCm: Double? = nil,
         locationCity: String? = nil,
         locationCountry: String? = nil,
         locationRegion: String? = nil
@@ -421,6 +441,9 @@ final class UserDataRepository: Sendable {
             if let weightKg {
                 data["weight_kg"] = weightKg
             }
+            if let heightCm {
+                data["height_cm"] = heightCm
+            }
             if let locationCity {
                 data["location_city"] = locationCity
             }
@@ -442,6 +465,7 @@ final class UserDataRepository: Sendable {
                 age: age,
                 gender: gender?.rawValue,
                 weightKg: weightKg,
+                heightCm: heightCm,
                 locationCity: locationCity,
                 locationCountry: locationCountry?.uppercased(),
                 locationRegion: locationRegion
@@ -459,6 +483,7 @@ final class UserDataRepository: Sendable {
                     age: age ?? existing?.age,
                     gender: gender ?? existing?.gender.flatMap(ProfileGender.init(rawValue:)),
                     weightKg: weightKg ?? existing?.weightKg,
+                    heightCm: heightCm ?? existing?.heightCm,
                     locationCity: locationCity ?? existing?.locationCity,
                     locationCountryCode: locationCountry?.uppercased() ?? existing?.locationCountry,
                     locationRegionCode: locationRegion ?? existing?.locationRegion,

@@ -667,11 +667,11 @@ private struct DatesFilterSheet: View {
             .padding(.vertical, 14)
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(isActive ? Color.accentColor.opacity(0.15) : (effectiveColorScheme == .dark ? Color.white.opacity(0.05) : Color.gray.opacity(0.08)))
+                    .fill(isActive ? Color.ascendAccent.opacity(0.15) : (effectiveColorScheme == .dark ? Color.white.opacity(0.05) : Color.gray.opacity(0.08)))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(isActive ? Color.accentColor : (effectiveColorScheme == .dark ? Color.white.opacity(0.12) : Color.gray.opacity(0.2)), lineWidth: 1)
+                    .stroke(isActive ? Color.ascendAccent : (effectiveColorScheme == .dark ? Color.white.opacity(0.12) : Color.gray.opacity(0.2)), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -905,7 +905,7 @@ private struct WorkoutFilterRangeSlider: View {
                     .offset(x: handleSize / 2)
 
                 Capsule()
-                    .fill(Color.accentColor)
+                    .fill(Color.ascendAccent)
                     .frame(width: max(upperPosition - lowerPosition, 2), height: 4)
                     .offset(x: lowerPosition)
 
@@ -924,7 +924,7 @@ private struct WorkoutFilterRangeSlider: View {
             .shadow(color: Color.black.opacity(0.2), radius: 4, x: 0, y: 2)
             .overlay(
                 Circle()
-                    .stroke(Color.accentColor, lineWidth: 2)
+                    .stroke(Color.ascendAccent, lineWidth: 2)
             )
             .position(x: position, y: handleSize / 2)
             .highPriorityGesture(

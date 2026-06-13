@@ -173,12 +173,16 @@ class AuthenticationViewModel {
 @MainActor
 extension AuthenticationViewModel {
     func signOut() {
-        do {
-            try authenticationService.signOut()
-            errorMessage = nil
-        }
-        catch {
-            errorMessage = error.localizedDescription
+        Task { @MainActor in
+            await PushNotificationService.shared.unregisterCurrentDevice()
+
+            do {
+                try authenticationService.signOut()
+                errorMessage = nil
+            }
+            catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -368,6 +372,7 @@ extension AuthenticationViewModel {
             age: existingData?.age,
             gender: existingData?.gender,
             weightKg: existingData?.weightKg,
+            heightCm: existingData?.heightCm,
             locationCity: existingData?.locationCity,
             locationCountry: existingData?.locationCountry,
             locationRegion: existingData?.locationRegion,
@@ -639,6 +644,40 @@ extension AuthenticationViewModel {
                 email: user.email,
                 displayName: displayName,
                 weightKg: weightKg
+            )
+            return true
+        } catch {
+            errorMessage = "Failed to update profile: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    func updateOnboardingBodyMetrics(weightKg: Double, heightCm: Double) async -> Bool {
+        errorMessage = nil
+
+        guard let user else {
+            errorMessage = "User not authenticated"
+            return false
+        }
+
+        guard weightKg > 0, weightKg <= 400 else {
+            errorMessage = "Enter a valid body weight"
+            return false
+        }
+
+        guard heightCm >= 90, heightCm <= 240 else {
+            errorMessage = "Enter a valid height"
+            return false
+        }
+
+        do {
+            try await UserDataRepository.shared.updateOnboardingDemographics(
+                userId: user.uid,
+                email: user.email,
+                displayName: displayName,
+                weightKg: weightKg,
+                heightCm: heightCm
             )
             return true
         } catch {

@@ -101,14 +101,15 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       <p>Depending on how you use Ascend, we may collect the following information:</p>
       <ul>
         <li><strong>Account information:</strong> Your email address, authentication provider, user ID, display name, profile photo, joined date, and account settings.</li>
-        <li><strong>Profile and onboarding information:</strong> Display name, declared age, gender or division, body weight, city, region, country, stair-stepper experience, exercise baseline, goals, motivation, notification preference, and first-climb recommendation.</li>
+        <li><strong>Profile and onboarding information:</strong> Display name, declared age, gender or division, body height, body weight, city, region, country, stair-stepper experience, exercise baseline, goals, motivation, notification preference, and first-climb recommendation.</li>
         <li><strong>Workout and fitness data:</strong> Steps, floors, duration, cadence, heart rate, calories, workout dates, Live Climb attempt state, climb completion state, personal records, leaderboard entries, achievements, and related workout metrics.</li>
         <li><strong>Apple Health data:</strong> With your permission, Ascend reads supported workout and health data from Apple HealthKit, such as workouts, steps, heart rate, and active energy, to import or enrich your workout history.</li>
         <li><strong>Photos, videos, notes, and feedback:</strong> Media and notes you attach to workouts, profile photos you upload, and feedback or support messages you send us.</li>
         <li><strong>Purchase and subscription information:</strong> Trial, subscription, entitlement, restore-purchase, paywall interaction, and purchase-status information processed through Apple, RevenueCat, and Superwall.</li>
         <li><strong>Product usage analytics:</strong> Screen views, onboarding funnel events, feature interactions, paywall events, and other first-party product analytics collected through Firebase Analytics and Mixpanel in non-debug builds.</li>
+        <li><strong>Notification data:</strong> Notification preferences, iOS notification permission state, and APNs/FCM push registration tokens used to send opted-in app notifications such as climb-drop alerts.</li>
         <li><strong>Diagnostics:</strong> Crash reports, performance data, non-fatal error logs, app version, operating system version, device model, and related debugging context collected through Firebase Crashlytics and app telemetry.</li>
-        <li><strong>City search and map context:</strong> Searches and selected city-level location information used to help you pick profile and leaderboard context. Ascend does not currently collect continuous background location for gym-level leaderboards.</li>
+        <li><strong>City search and map context:</strong> Searches and selected city-level location information used to help you pick profile and leaderboard context. If you choose current location during onboarding, Ascend uses it once to find your city, then saves only city, region, and country. Ascend does not collect continuous background location or gym-level location for leaderboards.</li>
       </ul>
 
       <h2>How We Use Information</h2>
@@ -164,7 +165,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         <li><strong>Account data:</strong> You can update profile information in the app where supported.</li>
         <li><strong>Account deletion:</strong> You can delete your account in the app. You may also contact us if you need help.</li>
         <li><strong>HealthKit:</strong> You can grant or revoke HealthKit permissions in iOS Settings or the Health app.</li>
-        <li><strong>Notifications:</strong> You can enable or disable notifications in iOS Settings.</li>
+        <li><strong>Notifications:</strong> You can enable or disable notification categories in Ascend where supported, and you can turn all notifications off in iOS Settings.</li>
         <li><strong>Photos:</strong> You can control Photos access in iOS Settings.</li>
         <li><strong>Subscriptions:</strong> You can manage App Store subscriptions through your Apple account subscription settings.</li>
         <li><strong>Support requests:</strong> You can contact us to request access, correction, deletion, or export of personal information, subject to identity verification and applicable law.</li>

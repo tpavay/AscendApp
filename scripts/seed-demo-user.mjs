@@ -144,6 +144,7 @@ function parseArgs(argv) {
     age: 32,
     gender: "prefer_not_to_say",
     weightKg: 81.6,
+    heightCm: 178,
     locationCountry: "US",
     locationRegion: null,
     joinedAt: null,
@@ -182,6 +183,12 @@ function parseArgs(argv) {
         break;
       case "--weight-lb":
         args.weightKg = poundsToKg(numberValue(requireValue(argv, ++index, value), value));
+        break;
+      case "--height-cm":
+        args.heightCm = numberValue(requireValue(argv, ++index, value), value);
+        break;
+      case "--height-in":
+        args.heightCm = inchesToCm(numberValue(requireValue(argv, ++index, value), value));
         break;
       case "--country":
         args.locationCountry = requireValue(argv, ++index, value).toUpperCase();
@@ -232,6 +239,7 @@ Options:
   --age <13-120>                     Defaults to 32.
   --gender <value>                   woman|man|non_binary|prefer_not_to_say.
   --weight-kg <kg> or --weight-lb <lb>
+  --height-cm <cm> or --height-in <in>
   --country <ISO-2> [--region <code>]
   --joined-at <ISO date>
   --scenario <full-showcase>         Currently only full-showcase is supported.
@@ -296,6 +304,9 @@ function validateArgs(args) {
   }
   if (!Number.isFinite(args.weightKg) || args.weightKg <= 0 || args.weightKg > 400) {
     throw new Error("--weight-kg/--weight-lb must be within a sane range");
+  }
+  if (!Number.isFinite(args.heightCm) || args.heightCm < 90 || args.heightCm > 240) {
+    throw new Error("--height-cm/--height-in must be within a sane range");
   }
   if (!/^[A-Z]{2}$/.test(args.locationCountry)) {
     throw new Error("--country must be an ISO-2 code, e.g. US");
@@ -433,6 +444,7 @@ function privateProfileData(user, args, joinedAt, hasExistingCreatedAt) {
     age: args.age,
     gender: args.gender,
     weight_kg: roundTo(args.weightKg, 1),
+    height_cm: roundTo(args.heightCm, 1),
     location_country: args.locationCountry,
     joined_at: Timestamp.fromDate(joinedAt),
     lastUpdated: FieldValue.serverTimestamp(),
@@ -456,6 +468,7 @@ function publicProfileData(user, args, joinedAt) {
     age: args.age,
     gender: args.gender,
     weight_kg: roundTo(args.weightKg, 1),
+    height_cm: roundTo(args.heightCm, 1),
     location_country: args.locationCountry,
     joined_at: Timestamp.fromDate(joinedAt),
     lastUpdated: FieldValue.serverTimestamp(),
@@ -820,6 +833,8 @@ function profileWorkoutData(workout) {
   if (workout.climb) {
     data.climbId = workout.climb.id;
     data.climbTier = workout.climb.tier ?? "common";
+    data.climbCompletionStatus = "completed";
+    data.climbCompletionDurationSeconds = Math.round(workout.durationSeconds);
   }
 
   return data;
@@ -830,10 +845,16 @@ function statsFor(workouts, firstAscentCount) {
   const maxSteps = Math.max(0, ...workouts.map((workout) => workout.steps));
   const maxDuration = Math.max(0, ...workouts.map((workout) => workout.durationSeconds));
   const maxSPM = Math.max(0, ...workouts.map((workout) => stepsPerMinute(workout.steps, workout.durationSeconds)));
+  const lifetimeTotalSteps = workouts.reduce((sum, workout) => sum + workout.steps, 0);
+  const lifetimeDurationSeconds = Math.round(workouts.reduce((sum, workout) => sum + workout.durationSeconds, 0));
 
   return {
     totalClimbsCompleted: climbWorkouts.length,
     totalFirstAscents: firstAscentCount,
+    lifetimeTotalSteps,
+    lifetimeDurationSeconds,
+    totalClimbs: workouts.length,
+    averageStepsPerMinute: lifetimeDurationSeconds > 0 ? lifetimeTotalSteps / (lifetimeDurationSeconds / 60) : 0,
     top1: 2,
     top3: 4,
     top10: 7,
@@ -851,6 +872,10 @@ function profileStatsData(stats) {
   return {
     total_climbs_completed: stats.totalClimbsCompleted,
     total_first_ascents: stats.totalFirstAscents,
+    lifetime_total_steps: stats.lifetimeTotalSteps,
+    lifetime_duration_seconds: stats.lifetimeDurationSeconds,
+    total_climbs: stats.totalClimbs,
+    average_steps_per_minute: stats.averageStepsPerMinute,
     top_1_weeks: stats.top1,
     top_3_weeks: stats.top3,
     top_10_weeks: stats.top10,
@@ -1232,6 +1257,10 @@ function trimmed(value) {
 
 function poundsToKg(value) {
   return roundTo(value * 0.453592, 1);
+}
+
+function inchesToCm(value) {
+  return roundTo(value * 2.54, 1);
 }
 
 function roundTo(value, places) {

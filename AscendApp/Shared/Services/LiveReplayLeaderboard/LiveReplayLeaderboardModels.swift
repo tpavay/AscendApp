@@ -83,25 +83,63 @@ struct LiveReplayFinisherStatus: Equatable, Sendable {
     }
 }
 
+struct LiveReplayCompletionLeaderboardCursor: Equatable, Sendable {
+    let completionDurationSeconds: TimeInterval
+    let rowID: String
+    let nextRank: Int
+
+    init(
+        completionDurationSeconds: TimeInterval,
+        rowID: String,
+        nextRank: Int
+    ) {
+        self.completionDurationSeconds = max(completionDurationSeconds, 0)
+        self.rowID = rowID.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.nextRank = max(nextRank, 1)
+    }
+}
+
 struct LiveReplayCompletionLeaderboard: Equatable, Sendable {
     let rows: [LiveReplayLeaderboardRow]
     let completedCount: Int
     let updatedAt: Date?
+    let nextCursor: LiveReplayCompletionLeaderboardCursor?
 
     init(
         rows: [LiveReplayLeaderboardRow],
         completedCount: Int,
-        updatedAt: Date?
+        updatedAt: Date?,
+        nextCursor: LiveReplayCompletionLeaderboardCursor? = nil
     ) {
         self.rows = rows
         self.completedCount = max(completedCount, rows.count, 0)
         self.updatedAt = updatedAt
+        self.nextCursor = nextCursor
+    }
+
+    var hasMoreRows: Bool {
+        nextCursor != nil
+    }
+
+    func appending(_ page: LiveReplayCompletionLeaderboard) -> LiveReplayCompletionLeaderboard {
+        var seenRowIDs = Set(rows.map(\.id))
+        let appendedRows = page.rows.filter { row in
+            seenRowIDs.insert(row.id).inserted
+        }
+
+        return LiveReplayCompletionLeaderboard(
+            rows: rows + appendedRows,
+            completedCount: max(completedCount, page.completedCount),
+            updatedAt: page.updatedAt ?? updatedAt,
+            nextCursor: page.nextCursor
+        )
     }
 
     static let empty = LiveReplayCompletionLeaderboard(
         rows: [],
         completedCount: 0,
-        updatedAt: nil
+        updatedAt: nil,
+        nextCursor: nil
     )
 }
 

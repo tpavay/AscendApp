@@ -27,6 +27,16 @@ struct LiveClimbSessionView: View {
         ))
     }
 
+    init(
+        justClimbGoal: JustClimbGoal,
+        analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown
+    ) {
+        _viewModel = State(initialValue: LiveClimbSessionViewModel(
+            justClimbGoal: justClimbGoal,
+            analyticsEntryPoint: analyticsEntryPoint
+        ))
+    }
+
     var body: some View {
         ZStack {
             Color.black
@@ -78,13 +88,22 @@ struct LiveClimbSessionView: View {
         .onReceive(liveTick) { _ in
             guard hasStartedRecording, viewModel.isActivelyRecording else { return }
             viewModel.recordLiveSplitSample()
+            if viewModel.durationGoalReached {
+                Task {
+                    await viewModel.finishAndSave(
+                        modelContext: modelContext,
+                        reason: .targetReached
+                    )
+                }
+                return
+            }
             Task {
                 await viewModel.refreshReplayLeaderboardIfNeeded()
                 await viewModel.updateLiveActivity()
             }
         }
         .confirmationDialog(
-            "Discard Live Climb?",
+            discardConfirmationTitle,
             isPresented: $showingDiscardConfirmation,
             titleVisibility: .visible
         ) {
@@ -124,6 +143,14 @@ struct LiveClimbSessionView: View {
         }
     }
 
+    private var discardConfirmationTitle: String {
+        viewModel.mode.isLandmarkClimb ? "Discard Live Climb?" : "Discard Just Climb?"
+    }
+
+    private var discardAccessibilityLabel: String {
+        viewModel.mode.isLandmarkClimb ? "Discard live climb" : "Discard Just Climb"
+    }
+
     private var topChrome: some View {
         HStack(spacing: 10) {
             OnboardingBackButton {
@@ -133,7 +160,7 @@ struct LiveClimbSessionView: View {
                     dismiss()
                 }
             }
-            .accessibilityLabel(viewModel.isRecording ? "Discard live climb" : "Close")
+            .accessibilityLabel(viewModel.isRecording ? discardAccessibilityLabel : "Close")
 
             sessionArtwork
                 .frame(width: 42, height: 42)
@@ -172,8 +199,18 @@ struct LiveClimbSessionView: View {
 
     @ViewBuilder
     private var sessionArtwork: some View {
-        ClimbArtworkView(climb: viewModel.mode.climb, variant: .thumb)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        if let climb = viewModel.mode.climb {
+            ClimbArtworkView(climb: climb, variant: .thumb)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        } else {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.accent)
+                .overlay {
+                    Image(systemName: "plus")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(.black)
+                }
+        }
     }
 
     private var liveLeaderboardSection: some View {
@@ -181,7 +218,7 @@ struct LiveClimbSessionView: View {
             rows: viewModel.leaderboardRows,
             progressScaleSteps: viewModel.leaderboardProgressScale,
             targetStepGoal: viewModel.mode.targetStepCount,
-            progress: viewModel.totalProgressFraction,
+            progress: viewModel.leaderboardCurrentProgressFraction,
             currentUserPhotoURL: currentUserPhotoURL,
             fetchFailed: viewModel.leaderboardFetchFailed,
             tint: .accent,
@@ -378,11 +415,12 @@ struct LiveClimbSessionView: View {
         countdownValue = 3
         showingHeadphoneRequirement = true
 
-        guard !didTrackHeadphoneRequirement else { return }
+        guard !didTrackHeadphoneRequirement,
+              let climb = viewModel.mode.climb else { return }
         didTrackHeadphoneRequirement = true
         TelemetryManager.shared.track(
             LiveClimbAnalyticsEvent.detailStartBlocked(
-                climb: viewModel.mode.climb,
+                climb: climb,
                 entryPoint: viewModel.analyticsEntryPoint,
                 reason: .headphonesUnavailable
             )
@@ -421,7 +459,7 @@ struct LiveClimbSessionView: View {
     private func savedTitle(for status: ClimbAttemptStatus) -> String {
         switch status {
         case .completed:
-            return "Climb Complete"
+            return viewModel.mode.isLandmarkClimb ? "Climb Complete" : "Session Complete"
         case .failed:
             return "Attempt Saved"
         case .active:
@@ -435,7 +473,9 @@ struct LiveClimbSessionView: View {
         liveClimbFullScreenOverlay(
             iconName: "airpodspro",
             title: "Headphones required",
-            message: "Connect compatible headphones to start this live climb.",
+            message: viewModel.mode.isLandmarkClimb
+                ? "Connect compatible headphones to start this live climb."
+                : "Connect compatible headphones to start climbing.",
             primaryTitle: "Try Again",
             primaryAction: retryHeadphoneCountdown,
             secondaryTitle: "Close",

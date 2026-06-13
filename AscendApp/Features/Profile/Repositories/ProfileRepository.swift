@@ -77,6 +77,9 @@ final class ProfileRepository: Sendable {
         if let weightKg = identity.weightKg {
             data["weight_kg"] = weightKg
         }
+        if let heightCm = identity.heightCm {
+            data["height_cm"] = heightCm
+        }
         if let city = identity.locationCity {
             data["location_city"] = city
         }
@@ -124,6 +127,10 @@ final class ProfileRepository: Sendable {
         try await statsDocument(userId: userId).setData([
             "total_climbs_completed": stats.totalClimbsCompleted,
             "total_first_ascents": stats.totalFirstAscents,
+            "lifetime_total_steps": stats.lifetimeTotalSteps,
+            "lifetime_duration_seconds": stats.lifetimeDurationSeconds,
+            "total_climbs": stats.totalClimbs,
+            "average_steps_per_minute": stats.averageStepsPerMinute,
             "top_1_weeks": stats.achievementCounts.top1,
             "top_3_weeks": stats.achievementCounts.top3,
             "top_10_weeks": stats.achievementCounts.top10,
@@ -179,6 +186,7 @@ final class ProfileRepository: Sendable {
             age: intValue(for: "age", in: data),
             gender: stringValue(for: "gender", in: data).flatMap(ProfileGender.init(rawValue:)),
             weightKg: doubleValue(for: "weight_kg", in: data),
+            heightCm: doubleValue(for: "height_cm", in: data),
             locationCity: stringValue(for: "location_city", in: data),
             locationCountryCode: stringValue(for: "location_country", in: data),
             locationRegionCode: stringValue(for: "location_region", in: data),
@@ -201,7 +209,11 @@ final class ProfileRepository: Sendable {
             bestStreakWeeks: intValue(for: "best_streak_weeks", in: data) ?? 0,
             prMostSteps: intValue(for: "pr_most_steps", in: data) ?? 0,
             prLongestClimbSeconds: intValue(for: "pr_longest_climb_seconds", in: data) ?? 0,
-            prHighestSPM: doubleValue(for: "pr_highest_spm", in: data) ?? 0
+            prHighestSPM: doubleValue(for: "pr_highest_spm", in: data) ?? 0,
+            lifetimeTotalSteps: intValue(for: "lifetime_total_steps", in: data) ?? 0,
+            lifetimeDurationSeconds: intValue(for: "lifetime_duration_seconds", in: data) ?? 0,
+            totalClimbs: intValue(for: "total_climbs", in: data) ?? 0,
+            averageStepsPerMinute: doubleValue(for: "average_steps_per_minute", in: data) ?? 0
         )
     }
 
@@ -244,7 +256,9 @@ final class ProfileRepository: Sendable {
             steps: intValue(for: "steps", in: data) ?? 0,
             source: source,
             climbId: nonEmptyStringValue(for: "climbId", in: data),
-            climbTier: nonEmptyStringValue(for: "climbTier", in: data).flatMap(ClimbTier.init(rawValue:))
+            climbTier: nonEmptyStringValue(for: "climbTier", in: data).flatMap(ClimbTier.init(rawValue:)),
+            climbCompletionStatus: nonEmptyStringValue(for: "climbCompletionStatus", in: data).flatMap(ClimbAttemptStatus.init(rawValue:)),
+            climbCompletionDurationSeconds: intValue(for: "climbCompletionDurationSeconds", in: data)
         )
     }
 
@@ -263,6 +277,12 @@ final class ProfileRepository: Sendable {
         }
         if let climbTier = summary.climbTier {
             data["climbTier"] = climbTier.rawValue
+        }
+        if let climbCompletionStatus = summary.climbCompletionStatus {
+            data["climbCompletionStatus"] = climbCompletionStatus.rawValue
+        }
+        if let climbCompletionDurationSeconds = summary.climbCompletionDurationSeconds {
+            data["climbCompletionDurationSeconds"] = climbCompletionDurationSeconds
         }
 
         return data

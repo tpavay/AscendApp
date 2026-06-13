@@ -437,11 +437,11 @@ private struct BestEffortDetailSegmentedControl: View {
             }
             .allowsHitTesting(false)
         }
-        .shadow(color: Color.accentColor.opacity(colorScheme == .dark ? 0.06 : 0.03), radius: 10, x: 0, y: 5)
+        .shadow(color: Color.ascendAccent.opacity(colorScheme == .dark ? 0.06 : 0.03), radius: 10, x: 0, y: 5)
     }
 
     private var selectedForeground: Color {
-        Color.accentColor
+        Color.ascendAccent
     }
 
     private var unselectedForeground: Color {
@@ -463,9 +463,9 @@ private struct BestEffortDetailSegmentedControl: View {
     private var selectedUnderline: LinearGradient {
         LinearGradient(
             colors: [
-                Color.accentColor.opacity(0.45),
-                Color.accentColor,
-                Color.accentColor.opacity(0.45)
+                Color.ascendAccent.opacity(0.45),
+                Color.ascendAccent,
+                Color.ascendAccent.opacity(0.45)
             ],
             startPoint: .leading,
             endPoint: .trailing
@@ -522,7 +522,7 @@ private struct BestEffortRecordHeroView: View {
                 if let comparisonText {
                     Text(comparisonText)
                         .font(.montserratBold(size: 12))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Color.ascendAccent)
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
                 }
@@ -531,7 +531,7 @@ private struct BestEffortRecordHeroView: View {
                     Text(recordDateText)
 
                     Circle()
-                        .fill(Color.accentColor)
+                        .fill(Color.ascendAccent)
                         .frame(width: 4, height: 4)
 
                     Text(effort.workout.name)

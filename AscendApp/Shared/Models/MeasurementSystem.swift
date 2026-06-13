@@ -128,4 +128,44 @@ enum MeasurementSystem: String, CaseIterable, Codable, Identifiable {
             : value.formatted(.number.precision(.fractionLength(1)))
         return "\(formatted) \(weightAbbreviation)"
     }
+
+    // MARK: - Height Units
+
+    var heightUnit: String {
+        switch self {
+        case .imperial: return "feet and inches"
+        case .metric: return "centimeters"
+        }
+    }
+
+    var heightAbbreviation: String {
+        switch self {
+        case .imperial: return "ft"
+        case .metric: return "cm"
+        }
+    }
+
+    func convertHeight(_ value: Double, to target: MeasurementSystem) -> Double {
+        if self == target { return value }
+        switch (self, target) {
+        case (.imperial, .metric):
+            return value * 2.54
+        case (.metric, .imperial):
+            return value / 2.54
+        default:
+            return value
+        }
+    }
+
+    func formatHeightCentimeters(_ centimeters: Double) -> String {
+        switch self {
+        case .imperial:
+            let totalInches = max(Int((MeasurementSystem.metric.convertHeight(centimeters, to: .imperial)).rounded()), 0)
+            let feet = totalInches / 12
+            let inches = totalInches % 12
+            return "\(feet)'\(inches)\""
+        case .metric:
+            return "\(Int(centimeters.rounded())) cm"
+        }
+    }
 }

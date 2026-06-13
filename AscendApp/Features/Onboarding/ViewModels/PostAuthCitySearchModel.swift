@@ -1,4 +1,5 @@
 import Combine
+@preconcurrency import CoreLocation
 import Foundation
 @preconcurrency import MapKit
 
@@ -29,7 +30,7 @@ struct PostAuthLocationSelection: Equatable, Sendable {
         return "\(city), \(countryName)"
     }
 
-    init?(placemark: MKPlacemark) {
+    init?(placemark: CLPlacemark) {
         guard let city = placemark.locality?.trimmedLocationText,
               !city.isEmpty,
               let countryCode = placemark.isoCountryCode?.trimmedLocationText.uppercased(),
@@ -46,6 +47,13 @@ struct PostAuthLocationSelection: Equatable, Sendable {
     }
 }
 
+private enum PostAuthCurrentLocationError: Error {
+    case servicesDisabled
+    case permissionDenied
+    case locationUnavailable
+    case cityUnavailable
+}
+
 struct PostAuthCitySearchSuggestion: Identifiable, Equatable, Sendable {
     let id: String
     let title: String
@@ -60,6 +68,149 @@ struct PostAuthCitySearchSuggestion: Identifiable, Equatable, Sendable {
     init(completion: MKLocalSearchCompletion) {
         let id = "\(completion.title)|\(completion.subtitle)"
         self.init(id: id, title: completion.title, subtitle: completion.subtitle)
+    }
+}
+
+@MainActor
+final class PostAuthCurrentLocationResolver: NSObject, ObservableObject {
+    @Published private(set) var isResolving = false
+    @Published private(set) var errorMessage: String?
+
+    private var manager: CLLocationManager?
+    private var geocoder: CLGeocoder?
+    private var authorizationContinuation: CheckedContinuation<CLAuthorizationStatus, Never>?
+    private var locationContinuation: CheckedContinuation<CLLocation, Error>?
+
+    func resolve() async -> PostAuthLocationSelection? {
+        guard !isResolving else { return nil }
+
+        isResolving = true
+        errorMessage = nil
+
+        defer {
+            cleanup()
+            isResolving = false
+        }
+
+        do {
+            guard CLLocationManager.locationServicesEnabled() else {
+                throw PostAuthCurrentLocationError.servicesDisabled
+            }
+
+            let manager = CLLocationManager()
+            manager.delegate = self
+            manager.desiredAccuracy = kCLLocationAccuracyThreeKilometers
+            manager.distanceFilter = kCLDistanceFilterNone
+            self.manager = manager
+
+            try await ensureAuthorized(manager)
+
+            let location = try await requestLocation(manager)
+            let selection = try await reverseGeocode(location)
+            return selection
+        } catch {
+            errorMessage = message(for: error)
+            return nil
+        }
+    }
+
+    func clearError() {
+        errorMessage = nil
+    }
+
+    private func ensureAuthorized(_ manager: CLLocationManager) async throws {
+        let status: CLAuthorizationStatus
+        switch manager.authorizationStatus {
+        case .notDetermined:
+            status = await requestAuthorization(manager)
+        default:
+            status = manager.authorizationStatus
+        }
+
+        guard status == .authorizedWhenInUse || status == .authorizedAlways else {
+            throw PostAuthCurrentLocationError.permissionDenied
+        }
+    }
+
+    private func requestAuthorization(_ manager: CLLocationManager) async -> CLAuthorizationStatus {
+        await withCheckedContinuation { continuation in
+            authorizationContinuation = continuation
+            manager.requestWhenInUseAuthorization()
+        }
+    }
+
+    private func requestLocation(_ manager: CLLocationManager) async throws -> CLLocation {
+        try await withCheckedThrowingContinuation { continuation in
+            locationContinuation = continuation
+            manager.requestLocation()
+        }
+    }
+
+    private func reverseGeocode(_ location: CLLocation) async throws -> PostAuthLocationSelection {
+        let geocoder = CLGeocoder()
+        self.geocoder = geocoder
+
+        let placemarks = try await geocoder.reverseGeocodeLocation(location)
+        if let selection = placemarks.lazy.compactMap({ PostAuthLocationSelection(placemark: $0) }).first {
+            return selection
+        }
+
+        throw PostAuthCurrentLocationError.cityUnavailable
+    }
+
+    private func cleanup() {
+        geocoder?.cancelGeocode()
+        geocoder = nil
+        manager?.delegate = nil
+        manager = nil
+        authorizationContinuation = nil
+        locationContinuation = nil
+    }
+
+    private func message(for error: Error) -> String {
+        switch error {
+        case PostAuthCurrentLocationError.servicesDisabled:
+            return "Turn on Location Services or search your city."
+        case PostAuthCurrentLocationError.permissionDenied:
+            return "Allow location access or search your city."
+        case PostAuthCurrentLocationError.locationUnavailable:
+            return "Current location failed. Search your city instead."
+        case PostAuthCurrentLocationError.cityUnavailable:
+            return "We couldn't find your city. Search it instead."
+        default:
+            return "Current location failed. Search your city instead."
+        }
+    }
+}
+
+extension PostAuthCurrentLocationResolver: @preconcurrency CLLocationManagerDelegate {
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        guard let continuation = authorizationContinuation else { return }
+
+        let status = manager.authorizationStatus
+        guard status != .notDetermined else { return }
+
+        authorizationContinuation = nil
+        continuation.resume(returning: status)
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let continuation = locationContinuation else { return }
+
+        locationContinuation = nil
+        guard let location = locations.last else {
+            continuation.resume(throwing: PostAuthCurrentLocationError.locationUnavailable)
+            return
+        }
+
+        continuation.resume(returning: location)
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        guard let continuation = locationContinuation else { return }
+
+        locationContinuation = nil
+        continuation.resume(throwing: PostAuthCurrentLocationError.locationUnavailable)
     }
 }
 

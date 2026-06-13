@@ -45,6 +45,78 @@ private struct AppleHealthWorkoutEnrichmentMatch {
     let sample: HealthKitWorkoutSample
 }
 
+final class AppleHealthEnrichmentRetryStore {
+    private let defaults: UserDefaults
+    private let key: String
+    private let minimumRetryInterval: TimeInterval
+    private let retryWindow: TimeInterval
+    private let now: () -> Date
+
+    init(
+        defaults: UserDefaults = .standard,
+        key: String = "appleHealth.enrichmentRetry.lastAttemptByWorkoutID",
+        minimumRetryInterval: TimeInterval = 10 * 60,
+        retryWindow: TimeInterval = 24 * 60 * 60,
+        now: @escaping () -> Date = Date.init
+    ) {
+        self.defaults = defaults
+        self.key = key
+        self.minimumRetryInterval = minimumRetryInterval
+        self.retryWindow = retryWindow
+        self.now = now
+    }
+
+    func isRetryDue(for workout: Workout) -> Bool {
+        let currentDate = now()
+        guard isWithinRetryWindow(workout, now: currentDate) else {
+            clear(workoutID: workout.id)
+            return false
+        }
+
+        let attempts = lastAttemptTimestamps()
+        guard let lastAttempt = attempts[workout.id.uuidString] else {
+            return true
+        }
+
+        return currentDate.timeIntervalSince1970 - lastAttempt >= minimumRetryInterval
+    }
+
+    func recordAttempt(for workouts: [Workout]) {
+        let currentDate = now()
+        var attempts = prunedLastAttemptTimestamps(now: currentDate)
+
+        for workout in workouts where isWithinRetryWindow(workout, now: currentDate) {
+            attempts[workout.id.uuidString] = currentDate.timeIntervalSince1970
+        }
+
+        defaults.set(attempts, forKey: key)
+    }
+
+    func clear(workoutID: UUID) {
+        var attempts = lastAttemptTimestamps()
+        attempts.removeValue(forKey: workoutID.uuidString)
+        defaults.set(attempts, forKey: key)
+    }
+
+    private func isWithinRetryWindow(_ workout: Workout, now currentDate: Date) -> Bool {
+        let endedAt = workout.date.addingTimeInterval(max(workout.duration, 1))
+        let secondsSinceEnd = currentDate.timeIntervalSince(endedAt)
+        return secondsSinceEnd >= -60 && secondsSinceEnd <= retryWindow
+    }
+
+    private func lastAttemptTimestamps() -> [String: TimeInterval] {
+        (defaults.dictionary(forKey: key) ?? [:]).compactMapValues { value in
+            value as? TimeInterval
+        }
+    }
+
+    private func prunedLastAttemptTimestamps(now currentDate: Date) -> [String: TimeInterval] {
+        lastAttemptTimestamps().filter { _, timestamp in
+            currentDate.timeIntervalSince1970 - timestamp <= retryWindow * 2
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class WorkoutImportCoordinator {
@@ -85,6 +157,7 @@ final class WorkoutImportCoordinator {
     private let settingsManager: SettingsManager
     private let reviewStateStore: WorkoutAutoImportReviewStateStore
     private let ignoredAppleHealthWorkoutStore: IgnoredAppleHealthWorkoutStore
+    private let enrichmentRetryStore: AppleHealthEnrichmentRetryStore
 
     private var modelContext: ModelContext?
     private var lastAutomaticCheckAt: Date?
@@ -99,7 +172,8 @@ final class WorkoutImportCoordinator {
         telemetry: TelemetryManager = .shared,
         settingsManager: SettingsManager = .shared,
         reviewStateStore: WorkoutAutoImportReviewStateStore = WorkoutAutoImportReviewStateStore(),
-        ignoredAppleHealthWorkoutStore: IgnoredAppleHealthWorkoutStore = IgnoredAppleHealthWorkoutStore()
+        ignoredAppleHealthWorkoutStore: IgnoredAppleHealthWorkoutStore = IgnoredAppleHealthWorkoutStore(),
+        enrichmentRetryStore: AppleHealthEnrichmentRetryStore = AppleHealthEnrichmentRetryStore()
     ) {
         self.authorizationController = authorizationController
         self.workoutReader = workoutReader
@@ -108,6 +182,7 @@ final class WorkoutImportCoordinator {
         self.settingsManager = settingsManager
         self.reviewStateStore = reviewStateStore
         self.ignoredAppleHealthWorkoutStore = ignoredAppleHealthWorkoutStore
+        self.enrichmentRetryStore = enrichmentRetryStore
         self.lastCheckAt = HealthKitSyncState.lastSuccessfulCheckAt
     }
 
@@ -397,8 +472,13 @@ final class WorkoutImportCoordinator {
         _ workout: Workout,
         modelContext: ModelContext
     ) async {
+        guard canAttemptAppleHealthEnrichment(workout) else { return }
+        let shouldUseRangeDiscovery = enrichmentRetryStore.isRetryDue(for: workout)
+        guard shouldUseRangeDiscovery || hasCachedAppleHealthEnrichmentSample(for: workout) else {
+            return
+        }
+
         await authorizationController.refreshAuthorizationRequestStatus()
-        _ = await performAppleHealthRefreshIfNeeded(trigger: .backgroundObserver)
 
         do {
             let existingIndex = try buildExistingWorkoutIndex(modelContext: modelContext)
@@ -534,22 +614,20 @@ final class WorkoutImportCoordinator {
     ) async throws -> [Workout] {
         guard authorizationController.connectionState == .connected else { return [] }
 
-        let ignoredAppleHealthWorkoutIDs = ignoredAppleHealthWorkoutStore.load()
-        let appleSamples = HealthKitSyncState.cachedWorkoutSamples
-            .filter { !ignoredAppleHealthWorkoutIDs.contains($0.externalRecordID) }
-            .filter { !isAppleHealthImported($0.externalRecordID, existingIndex: existingIndex) }
-
-        guard !appleSamples.isEmpty else { return [] }
-
         let eligibleWorkouts = existingIndex.allWorkouts.filter { workout in
             if let eligibleWorkoutIDs, !eligibleWorkoutIDs.contains(workout.id) {
                 return false
             }
 
-            return AppleHealthWorkoutEnrichmentPolicy.inAppSessionPolicies.contains { policy in
-                policy.isEligible(workout, hasAppleHealthLink: hasAppleHealthLink(workout))
-            }
+            return canAttemptAppleHealthEnrichment(workout)
         }
+        guard !eligibleWorkouts.isEmpty else { return [] }
+
+        let appleSamples = await appleHealthSamplesForEnrichment(
+            eligibleWorkouts: eligibleWorkouts,
+            existingIndex: existingIndex
+        )
+        guard !appleSamples.isEmpty else { return [] }
 
         let matches = resolveAppleHealthEnrichmentMatches(
             eligibleWorkouts: eligibleWorkouts,
@@ -575,6 +653,7 @@ final class WorkoutImportCoordinator {
             updatedWorkouts.append(match.workout)
             updates.append(.init(before: before, after: LeaderboardWorkoutSnapshot(workout: match.workout)))
             linkedAppleHealthIDs.insert(match.sample.externalRecordID)
+            enrichmentRetryStore.clear(workoutID: match.workout.id)
         }
 
         guard !updatedWorkouts.isEmpty else { return [] }
@@ -591,6 +670,61 @@ final class WorkoutImportCoordinator {
         }
 
         return updatedWorkouts
+    }
+
+    private func appleHealthSamplesForEnrichment(
+        eligibleWorkouts: [Workout],
+        existingIndex: ExistingWorkoutIndex
+    ) async -> [HealthKitWorkoutSample] {
+        let ignoredAppleHealthWorkoutIDs = ignoredAppleHealthWorkoutStore.load()
+        var samplesByID: [String: HealthKitWorkoutSample] = [:]
+        let retryableWorkouts = eligibleWorkouts.filter { workout in
+            enrichmentRetryStore.isRetryDue(for: workout)
+        }
+
+        func addIfEligible(_ sample: HealthKitWorkoutSample) {
+            guard !ignoredAppleHealthWorkoutIDs.contains(sample.externalRecordID),
+                  !isAppleHealthImported(sample.externalRecordID, existingIndex: existingIndex) else {
+                return
+            }
+
+            samplesByID[sample.externalRecordID] = sample
+        }
+
+        HealthKitSyncState.cachedWorkoutSamples.forEach(addIfEligible)
+
+        if let dateRange = appleHealthEnrichmentDiscoveryRange(for: retryableWorkouts) {
+            enrichmentRetryStore.recordAttempt(for: retryableWorkouts)
+            guard let discoveredSamples = try? await workoutReader.fetchStairStepperWorkouts(in: dateRange) else {
+                return samplesByID.values.sorted { lhs, rhs in
+                    lhs.startDate > rhs.startDate
+                }
+            }
+            HealthKitSyncState.updateCachedWorkoutSamples(
+                added: discoveredSamples,
+                deletedExternalRecordIDs: []
+            )
+            discoveredSamples.forEach(addIfEligible)
+        }
+
+        return samplesByID.values.sorted { lhs, rhs in
+            lhs.startDate > rhs.startDate
+        }
+    }
+
+    private func appleHealthEnrichmentDiscoveryRange(
+        for workouts: [Workout]
+    ) -> ClosedRange<Date>? {
+        let starts = workouts.map(\.date)
+        guard let earliestStart = starts.min(),
+              let latestStart = starts.max() else {
+            return nil
+        }
+
+        let startTolerance: TimeInterval = 15 * 60
+        let lowerBound = earliestStart.addingTimeInterval(-startTolerance)
+        let upperBound = latestStart.addingTimeInterval(startTolerance)
+        return lowerBound...upperBound
     }
 
     private func resolveAppleHealthEnrichmentMatches(
@@ -816,6 +950,34 @@ final class WorkoutImportCoordinator {
 
     private func hasAppleHealthLink(_ workout: Workout) -> Bool {
         workout.hasSourceLink(provider: .appleHealth) || workout.healthKitUUID != nil
+    }
+
+    private func canAttemptAppleHealthEnrichment(_ workout: Workout) -> Bool {
+        AppleHealthWorkoutEnrichmentPolicy.inAppSessionPolicies.contains { policy in
+            policy.isEligible(workout, hasAppleHealthLink: hasAppleHealthLink(workout))
+        } && needsAppleHealthEnrichment(workout)
+    }
+
+    private func needsAppleHealthEnrichment(_ workout: Workout) -> Bool {
+        workout.avgHeartRate == nil ||
+            workout.maxHeartRate == nil ||
+            workout.heartRateTimeSeries.isEmpty ||
+            workout.caloriesBurned == nil ||
+            workout.averageMETs == nil
+    }
+
+    private func hasCachedAppleHealthEnrichmentSample(for workout: Workout) -> Bool {
+        let ignoredAppleHealthWorkoutIDs = ignoredAppleHealthWorkoutStore.load()
+        return HealthKitSyncState.cachedWorkoutSamples.contains { sample in
+            guard !ignoredAppleHealthWorkoutIDs.contains(sample.externalRecordID) else {
+                return false
+            }
+
+            return AppleHealthWorkoutEnrichmentPolicy.inAppSessionPolicies.contains { policy in
+                policy.isEligible(workout, hasAppleHealthLink: hasAppleHealthLink(workout)) &&
+                    policy.matchScore(workout: workout, sample: sample) != nil
+            }
+        }
     }
 
     private func applyAppleHealthMetrics(

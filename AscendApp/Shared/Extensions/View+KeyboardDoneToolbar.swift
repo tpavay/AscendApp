@@ -106,7 +106,7 @@ struct KeyboardDoneAccessoryLabel: View {
     var body: some View {
         Text("Done")
             .font(.montserratSemiBold(size: 16))
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(Color.ascendAccent)
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
             .frame(minWidth: 64, minHeight: 44, alignment: .trailing)

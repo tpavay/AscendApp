@@ -39,7 +39,7 @@ struct RecordsSection: View {
                 } label: {
                     Text("MORE RECORDS")
                         .font(.montserratSemiBold(size: 11))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Color.ascendAccent)
                         .tracking(1.2)
                 }
                 .buttonStyle(.plain)

@@ -1,5 +1,5 @@
 import SwiftUI
 
 enum OnboardingValuePalette {
-    static let lime = Color.accentColor
+    static let lime = Color.ascendAccent
 }

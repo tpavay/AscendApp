@@ -107,7 +107,7 @@ struct WorkoutTrendBucketLineChartView: View {
                         x: .value("Month", bucket.startDate, unit: .month),
                         y: .value(title, value)
                     )
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color.ascendAccent)
                     .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
                     .interpolationMethod(.monotone)
 
@@ -115,7 +115,7 @@ struct WorkoutTrendBucketLineChartView: View {
                         x: .value("Month", bucket.startDate, unit: .month),
                         y: .value(title, value)
                     )
-                    .foregroundStyle(isSelected(bucket) ? Color.accentColor : (colorScheme == .dark ? .white : .black))
+                    .foregroundStyle(isSelected(bucket) ? Color.ascendAccent : (colorScheme == .dark ? .white : .black))
                     .symbolSize(isSelected(bucket) ? 80 : 40)
                 }
             }
@@ -123,7 +123,7 @@ struct WorkoutTrendBucketLineChartView: View {
             // Selection indicator
             if let bucket = selectedBucket, valueForBucket(bucket) != nil {
                 RuleMark(x: .value("Selected", bucket.startDate, unit: .month))
-                    .foregroundStyle(Color.accentColor.opacity(0.4))
+                    .foregroundStyle(Color.ascendAccent.opacity(0.4))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [5]))
                     .zIndex(-1)
             }
@@ -236,7 +236,7 @@ struct WorkoutTrendBucketLineChartView: View {
                 .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.accentColor.opacity(0.25), lineWidth: 1)
+                        .stroke(Color.ascendAccent.opacity(0.25), lineWidth: 1)
                 )
         )
     }

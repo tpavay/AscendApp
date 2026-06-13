@@ -48,6 +48,7 @@ struct RootView: View {
             // Resume any pending uploads from previous session
             await uploadManager.processPendingUploads(modelContext: modelContext)
             await bootstrapAuthenticatedLocalState()
+            await PushNotificationService.shared.synchronizeAuthenticatedDeviceIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             // Retry pending uploads when app comes to foreground (network may have restored)
@@ -56,6 +57,7 @@ struct RootView: View {
                 await monetizationManager.refreshEntitlements()
                 await uploadManager.processPendingUploads(modelContext: modelContext)
                 await bootstrapAuthenticatedLocalState()
+                await PushNotificationService.shared.synchronizeAuthenticatedDeviceIfNeeded()
             }
         }
         .onChange(of: authVM.user?.uid) { _, _ in
@@ -64,6 +66,7 @@ struct RootView: View {
                 completePostAuthOnboardingIfRemoteProfileExists()
                 await monetizationManager.refreshEntitlements()
                 await bootstrapAuthenticatedLocalState()
+                await PushNotificationService.shared.synchronizeAuthenticatedDeviceIfNeeded()
             }
         }
         .onChange(of: authVM.hasRemoteDisplayName) { _, _ in
@@ -287,7 +290,7 @@ private struct AccountDataConflictView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Image(systemName: "lock.trianglebadge.exclamationmark")
                     .font(.system(size: 34, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color.ascendAccent)
                     .accessibilityHidden(true)
 
                 Text("Account data mismatch")
@@ -311,7 +314,7 @@ private struct AccountDataConflictView: View {
                     .frame(height: 52)
                     .background(
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color.accentColor)
+                            .fill(Color.ascendAccent)
                     )
             }
             .buttonStyle(.plain)

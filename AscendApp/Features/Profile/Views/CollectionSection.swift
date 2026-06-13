@@ -110,7 +110,7 @@ private struct ClimbsCollectionView: View {
             Text("CLIMBS COLLECTION")
                 .font(.montserratSemiBold(size: 18))
                 .tracking(2.4)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.ascendAccent)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
                 .frame(maxWidth: .infinity)
@@ -121,7 +121,7 @@ private struct ClimbsCollectionView: View {
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Color.ascendAccent)
                         .frame(width: 48, height: 48)
                         .background(
                             Circle()
@@ -179,7 +179,7 @@ private struct ClimbsCollectionView: View {
                 Text("COMING SOON")
                     .font(.montserratSemiBold(size: 11))
                     .tracking(2.4)
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color.ascendAccent)
 
                 Text("More climbs are on the way")
                     .font(.montserratBold(size: 20))
@@ -215,12 +215,12 @@ private struct ClimbsCollectionView: View {
             } label: {
                 Text("Turn on notifications")
                     .font(.montserratBold(size: 20))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color.ascendAccent)
                     .frame(maxWidth: .infinity)
                     .frame(height: 46)
                     .overlay(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color.accentColor, lineWidth: 1.5)
+                            .stroke(Color.ascendAccent, lineWidth: 1.5)
                     )
             }
             .buttonStyle(.plain)
@@ -242,9 +242,7 @@ private struct ClimbsCollectionView: View {
         isHandlingNotifications = true
 
         Task {
-            await CollectionNotificationPermissionHandler.handleTurnOnNotifications(
-                collection: collection
-            )
+            await CollectionNotificationPermissionHandler.handleTurnOnNotifications()
             isHandlingNotifications = false
         }
     }
@@ -266,7 +264,7 @@ private struct CollectionProgressBar: View {
                     .fill(Color.white.opacity(0.08))
 
                 Capsule()
-                    .fill(Color.accentColor)
+                    .fill(Color.ascendAccent)
                     .frame(width: max(proxy.size.width * progress, progress > 0 ? 18 : 0))
             }
         }
@@ -328,11 +326,11 @@ private struct ViewAllClimbsCard: View {
 
             Image(systemName: "arrow.right")
                 .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.ascendAccent)
                 .frame(width: 38, height: 38)
                 .background(
                     Circle()
-                        .fill(Color.accentColor.opacity(0.14))
+                        .fill(Color.ascendAccent.opacity(0.14))
                 )
 
             VStack(alignment: .leading, spacing: 4) {
@@ -358,7 +356,7 @@ private struct ViewAllClimbsCard: View {
         .clipShape(RoundedRectangle(cornerRadius: CollectionCardStyle.profilePreview.cornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: CollectionCardStyle.profilePreview.cornerRadius, style: .continuous)
-                .stroke(Color.accentColor.opacity(0.72), lineWidth: 1)
+                .stroke(Color.ascendAccent.opacity(0.72), lineWidth: 1)
         )
         .contentShape(RoundedRectangle(cornerRadius: CollectionCardStyle.profilePreview.cornerRadius, style: .continuous))
     }
@@ -434,12 +432,12 @@ private struct CollectionCard: View {
     private var climbAction: some View {
         Text("Climb")
             .font(.montserratSemiBold(size: style.buttonFontSize))
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(Color.ascendAccent)
             .frame(maxWidth: .infinity)
             .frame(height: style.buttonHeight)
             .overlay(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .stroke(Color.accentColor, lineWidth: 1)
+                    .stroke(Color.ascendAccent, lineWidth: 1)
             )
     }
 }
@@ -535,7 +533,7 @@ private struct CollectionComingSoonDetailSheet: View {
 
                 Text("Coming soon · \(climb.continent)")
                     .font(.montserratSemiBold(size: 14))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color.ascendAccent)
 
                 Text("New First Ascent slot loading. Watch the globe and be ready.")
                     .font(.montserratMedium(size: 14))
@@ -553,17 +551,7 @@ private struct CollectionComingSoonDetailSheet: View {
 
 @MainActor
 private enum CollectionNotificationPermissionHandler {
-    static func handleTurnOnNotifications(collection: ProfileCollectionSummary) async {
-        let availableClimbs = collection.launchedCards.map(\.climb)
-        let completedClimbIds = Set(
-            collection.launchedCards.compactMap { item in
-                item.claimedAt == nil ? nil : item.climb.id
-            }
-        )
-
-        await TodayClimbNotificationPermissionController.enable(
-            availableClimbs: availableClimbs,
-            completedClimbIds: completedClimbIds
-        )
+    static func handleTurnOnNotifications() async {
+        await ClimbDropNotificationPermissionController.enable()
     }
 }

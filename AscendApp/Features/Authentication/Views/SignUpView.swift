@@ -17,6 +17,7 @@ struct SignUpView: View {
                 AuthLandingContent(
                     layout: AuthLandingLayout(scaffoldLayout: scaffoldLayout),
                     errorMessage: hasAttemptedInteractiveSignIn ? authVM.errorMessage : nil,
+                    lastUsedProvider: authVM.lastUsedProvider,
                     googleIsLoading: authVM.authenticationState == .authenticatingWithGoogle,
                     appleIsLoading: authVM.authenticationState == .authenticatingWithApple,
                     showsInternalQA: InternalQASignInAvailability.isEnabled(projectID: FirebaseApp.app()?.options.projectID),
@@ -91,6 +92,7 @@ private struct AuthLandingLayout {
 private struct AuthLandingContent: View {
     let layout: AuthLandingLayout
     let errorMessage: String?
+    let lastUsedProvider: AuthProviderKind?
     let googleIsLoading: Bool
     let appleIsLoading: Bool
     let showsInternalQA: Bool
@@ -122,7 +124,7 @@ private struct AuthLandingContent: View {
                     height: 56 * scaleY,
                     cornerRadius: 12 * typeScale,
                     fontSize: 16 * typeScale,
-                    accessoryTitle: nil,
+                    accessoryTitle: lastUsedProvider == .apple ? "LAST USED" : nil,
                     icon: {
                         Image(systemName: "apple.logo")
                             .resizable()
@@ -141,7 +143,7 @@ private struct AuthLandingContent: View {
                     height: 56 * scaleY,
                     cornerRadius: 12 * typeScale,
                     fontSize: 16 * typeScale,
-                    accessoryTitle: nil,
+                    accessoryTitle: lastUsedProvider == .google ? "LAST USED" : nil,
                     icon: {
                         Image("GoogleIcon")
                             .resizable()
@@ -166,24 +168,8 @@ private struct AuthLandingContent: View {
                     .offset(x: 28 * scaleX, y: 575 * scaleY)
                     .accessibilityLabel("Authentication error: \(errorMessage)")
             }
-
-            authLoginText(fontSize: 13 * typeScale)
-                .multilineTextAlignment(.center)
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
-                .frame(width: 334 * scaleX, height: 20 * scaleY, alignment: .top)
-                .position(x: layout.size.width / 2, y: 788 * scaleY)
         }
         .frame(width: layout.size.width, height: layout.size.height)
-    }
-
-    private func authLoginText(fontSize: CGFloat) -> Text {
-        Text("Already have an account? ")
-            .foregroundStyle(.white)
-            .font(.montserratSemiBold(size: fontSize))
-        + Text("Log in")
-            .foregroundStyle(OnboardingValuePalette.lime)
-            .font(.montserratSemiBold(size: fontSize))
     }
 }
 
@@ -224,21 +210,11 @@ private enum AuthProviderButtonStyle {
     }
 
     var accessoryForegroundColor: Color {
-        switch self {
-        case .google:
-            .white.opacity(0.78)
-        case .apple:
-            .black.opacity(0.7)
-        }
+        .black.opacity(0.88)
     }
 
     var accessoryBackgroundColor: Color {
-        switch self {
-        case .google:
-            .white.opacity(0.14)
-        case .apple:
-            Color.black.opacity(0.08)
-        }
+        OnboardingValuePalette.lime
     }
 
     func background(cornerRadius: CGFloat) -> some View {
@@ -280,8 +256,6 @@ private struct AuthProviderButton<Icon: View>: View {
     @ViewBuilder let icon: () -> Icon
     let action: () -> Void
 
-    private let badgeRightPadding: CGFloat = 14
-
     var body: some View {
         Button(action: action) {
             ZStack {
@@ -301,31 +275,32 @@ private struct AuthProviderButton<Icon: View>: View {
                         .foregroundStyle(style.foregroundColor)
                 }
                 .frame(maxWidth: .infinity, alignment: .center)
-
-                // Right-anchored accessory badge (e.g. "LAST USED")
-                if let accessoryTitle, !isLoading {
-                    HStack {
-                        Spacer(minLength: 0)
-                        Text(accessoryTitle.uppercased())
-                            .font(.montserratBold(size: 6.5))
-                            .tracking(0.25)
-                            .foregroundStyle(style.accessoryForegroundColor)
-                            .lineLimit(1)
-                            .padding(.horizontal, 5.5)
-                            .padding(.vertical, 2.5)
-                            .background(
-                                Capsule()
-                                    .fill(style.accessoryBackgroundColor)
-                            )
-                            .accessibilityHidden(true)
-                    }
-                    .padding(.trailing, badgeRightPadding)
-                }
             }
             .frame(maxWidth: .infinity)
             .frame(height: height)
             .background(style.background(cornerRadius: cornerRadius))
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(alignment: .topTrailing) {
+                if let accessoryTitle, !isLoading {
+                    Text(accessoryTitle.uppercased())
+                        .font(.montserratBold(size: max(fontSize * 0.42, 6.5)))
+                        .tracking(0.35)
+                        .foregroundStyle(style.accessoryForegroundColor)
+                        .lineLimit(1)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3.5)
+                        .background(
+                            Capsule()
+                                .fill(style.accessoryBackgroundColor)
+                        )
+                        .overlay(
+                            Capsule()
+                                .stroke(.black.opacity(0.12), lineWidth: 0.5)
+                        )
+                        .offset(x: -10, y: -8)
+                        .accessibilityHidden(true)
+                }
+            }
             .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -347,7 +322,7 @@ private struct AuthLegalText: View {
         Text(.init("By continuing, you agree to our [Terms](https://ascendstepper.com/terms) and [Privacy Policy](https://ascendstepper.com/privacy)."))
             .font(.montserratMedium(size: layout.legalFontSize))
             .foregroundStyle(Color.white.opacity(0.55))
-            .tint(Color.accentColor)
+            .tint(Color.ascendAccent)
             .multilineTextAlignment(.center)
             .lineSpacing(layout.legalLineSpacing)
             .frame(maxWidth: .infinity)

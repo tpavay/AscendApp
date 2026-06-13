@@ -18,7 +18,7 @@ struct KeyboardDismissButton: View {
         } label: {
             Text("Done")
                 .font(.montserratSemiBold(size: 16))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.ascendAccent)
         }
         .buttonStyle(.plain)
     }

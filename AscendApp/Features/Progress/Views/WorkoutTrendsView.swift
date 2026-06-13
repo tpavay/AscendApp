@@ -456,12 +456,12 @@ struct WorkoutTrendsView: View {
                 } label: {
                     Text(range.title)
                         .font(.montserratSemiBold(size: 13))
-                        .foregroundStyle(selectedRange == range ? Color.accentColor : .white.opacity(0.62))
+                        .foregroundStyle(selectedRange == range ? Color.ascendAccent : .white.opacity(0.62))
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
                         .background(
                             Capsule()
-                                .fill(selectedRange == range ? Color.accentColor.opacity(0.12) : .clear)
+                                .fill(selectedRange == range ? Color.ascendAccent.opacity(0.12) : .clear)
                         )
                 }
                 .buttonStyle(.plain)
@@ -686,7 +686,7 @@ struct WorkoutTrendsView: View {
             .overlay(alignment: .bottomTrailing) {
                 LinearGradient(
                     colors: [
-                        Color.accentColor.opacity(0.18),
+                        Color.ascendAccent.opacity(0.18),
                         .clear
                     ],
                     startPoint: .bottomTrailing,
@@ -712,7 +712,7 @@ struct WorkoutTrendsView: View {
             .overlay(alignment: .bottomTrailing) {
                 RadialGradient(
                     colors: [
-                        Color.accentColor.opacity(effectiveColorScheme == .dark ? 0.075 : 0.045),
+                        Color.ascendAccent.opacity(effectiveColorScheme == .dark ? 0.075 : 0.045),
                         .clear
                     ],
                     center: .bottomTrailing,
