@@ -9,25 +9,26 @@
  * Usage:
  *   node scripts/dev-db.mjs plan
  *   node scripts/dev-db.mjs seed --target profiles --project dev
+ *   node scripts/dev-db.mjs audit --target all --project staging
  *   node scripts/dev-db.mjs clear --target profiles,leaderboard --project dev
  *   node scripts/dev-db.mjs reset --target all --project dev
  *   node scripts/dev-db.mjs wipe --project dev --confirm-dev-wipe
- *   node scripts/dev-db.mjs hydrate-user --project dev --user <uid> --display-name "Tyler P." --age 27 --gender man --weight-lb 178 --country US --region IL
+ *   node scripts/dev-db.mjs hydrate-user --project dev --user <uid> --display-name "Tyler P." --age 27 --gender man --height-in 70 --weight-lb 178 --country US --region IL
  *   node scripts/dev-db.mjs seed-demo-user --project staging --email person@example.com
  */
 
 import {spawnSync} from "node:child_process";
-import {readFileSync} from "node:fs";
 import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {applicationDefault, initializeApp} from "firebase-admin/app";
 import {FieldValue, getFirestore, Timestamp} from "firebase-admin/firestore";
+import {
+  DEV_PROJECT_ID,
+  assertSeedableProject,
+  resolveProjectId as resolveFirebaseProjectId,
+} from "./seed/lib/environments.mjs";
 
-const DEV_PROJECT_ID = "ascend-f2e4f";
-const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
-const PRODUCTION_PROJECT_ID = "ascend-prod-9c8f2";
 const BATCH_TARGET_ORDER = ["profiles", "leaderboard", "live-replay", "routine-templates"];
-const ALLOWED_PROJECT_IDS = new Set([DEV_PROJECT_ID, STAGING_PROJECT_ID]);
 const VALID_GENDERS = new Set(["woman", "man", "non_binary", "prefer_not_to_say"]);
 const WIPE_COLLECTION_IDS = [
   "users",
@@ -53,7 +54,7 @@ const TARGETS = {
     script: "seed-test-users.mjs",
   },
   leaderboard: {
-    label: "Global leaderboard_stats test rows",
+    label: "Global leaderboard_stats rows for seeded profile users",
     script: "seed-leaderboard.mjs",
   },
   "live-replay": {
@@ -116,6 +117,7 @@ function parseArgs(argv) {
     age: null,
     gender: null,
     weightKg: null,
+    heightCm: null,
     locationCountry: null,
     locationRegion: null,
     joinedAt: null,
@@ -182,6 +184,12 @@ function parseArgs(argv) {
       case "--weight-lb":
         args.weightKg = poundsToKg(numberValue(requireValue(argv, ++index, value), value));
         break;
+      case "--height-cm":
+        args.heightCm = numberValue(requireValue(argv, ++index, value), value);
+        break;
+      case "--height-in":
+        args.heightCm = inchesToCm(numberValue(requireValue(argv, ++index, value), value));
+        break;
       case "--country":
         args.locationCountry = requireValue(argv, ++index, value).toUpperCase();
         break;
@@ -241,15 +249,17 @@ function printHelp() {
 Usage:
   node scripts/dev-db.mjs plan
   node scripts/dev-db.mjs seed --target profiles --project dev
+  node scripts/dev-db.mjs audit --target all --project staging
   node scripts/dev-db.mjs clear --target profiles,leaderboard --project dev
   node scripts/dev-db.mjs reset --target all --project dev
   node scripts/dev-db.mjs wipe --project dev --confirm-dev-wipe
-  node scripts/dev-db.mjs hydrate-user --project dev --user <uid> --display-name "Tyler P." --age 27 --gender man --weight-lb 178 --country US --region IL
+  node scripts/dev-db.mjs hydrate-user --project dev --user <uid> --display-name "Tyler P." --age 27 --gender man --height-in 70 --weight-lb 178 --country US --region IL
   node scripts/dev-db.mjs seed-demo-user --project staging --email person@example.com
 
 Commands:
   plan          Show available targets and examples.
   seed          Seed one or more targets.
+  audit         Read-only validation for one or more seeded targets.
   clear         Clear one or more targets.
   reset         Clear then seed one or more targets.
   wipe          Delete all reviewed top-level Firestore collections in dev only.
@@ -280,6 +290,7 @@ Options:
 
 hydrate-user fields:
   --user <uid> --display-name <name> --age <13-120> --gender <woman|man|non_binary|prefer_not_to_say>
+  --height-cm <cm> or --height-in <in>
   --weight-kg <kg> or --weight-lb <lb>
   --country <ISO-2> [--region <state/province>] [--joined-at <ISO date>]
   [--email <email>] [--first-name <name>] [--last-name <name>] [--photo-url <url>]
@@ -302,6 +313,11 @@ async function main() {
   const projectId = resolveProjectId(args.project);
   assertAllowedProject(projectId);
 
+  if (args.command === "audit") {
+    runAuditScript(projectId, args);
+    return;
+  }
+
   if (args.command === "wipe") {
     await wipeDevFirestore(projectId, args);
     return;
@@ -318,7 +334,7 @@ async function main() {
   }
 
   if (!["seed", "clear", "reset"].includes(args.command)) {
-    throw new Error("Command must be plan, seed, clear, reset, wipe, hydrate-user, seed-demo-user, or help");
+    throw new Error("Command must be plan, seed, audit, clear, reset, wipe, hydrate-user, seed-demo-user, or help");
   }
 
   const targets = resolveTargets(args.targets);
@@ -344,25 +360,21 @@ function printPlan() {
   }
   console.log("\nExamples:");
   console.log("  node scripts/dev-db.mjs reset --target all --project dev");
+  console.log("  node scripts/dev-db.mjs audit --target all --project staging");
   console.log("  node scripts/dev-db.mjs wipe --project dev --confirm-dev-wipe");
   console.log("  node scripts/dev-db.mjs seed --target profiles,live-replay --project dev --dry-run");
   console.log("  node scripts/dev-db.mjs seed --target routine-templates --project dev");
   console.log("  node scripts/dev-db.mjs clear --target leaderboard --project dev");
-  console.log("  node scripts/dev-db.mjs hydrate-user --project dev --user <uid> --display-name \"Tyler P.\" --age 27 --gender man --weight-lb 178 --country US --region IL");
+  console.log("  node scripts/dev-db.mjs hydrate-user --project dev --user <uid> --display-name \"Tyler P.\" --age 27 --gender man --height-in 70 --weight-lb 178 --country US --region IL");
   console.log("  node scripts/dev-db.mjs seed-demo-user --project staging --email person@example.com");
 }
 
 function resolveProjectId(projectOrAlias) {
-  const rc = JSON.parse(readFileSync(resolve(REPO_ROOT, ".firebaserc"), "utf-8"));
-  return rc.projects?.[projectOrAlias] ?? projectOrAlias;
+  return resolveFirebaseProjectId(projectOrAlias, REPO_ROOT);
 }
 
 function assertAllowedProject(projectId) {
-  if (projectId === PRODUCTION_PROJECT_ID || !ALLOWED_PROJECT_IDS.has(projectId)) {
-    throw new Error(
-      `Refusing to write ${projectId}. Only ${DEV_PROJECT_ID} and ${STAGING_PROJECT_ID} are allowed.`
-    );
-  }
+  assertSeedableProject(projectId);
 }
 
 function resolveTargets(rawTargets) {
@@ -449,6 +461,9 @@ function runDemoUserScript(projectId, args) {
   if (args.weightKg != null) {
     scriptArgs.push("--weight-kg", String(args.weightKg));
   }
+  if (args.heightCm != null) {
+    scriptArgs.push("--height-cm", String(args.heightCm));
+  }
   if (args.locationCountry) {
     scriptArgs.push("--country", args.locationCountry);
   }
@@ -476,6 +491,26 @@ function runDemoUserScript(projectId, args) {
 
   if (result.status !== 0) {
     throw new Error(`seed-demo-user.mjs seed failed with exit code ${result.status}`);
+  }
+}
+
+function runAuditScript(projectId, args) {
+  const scriptArgs = [
+    resolve(SCRIPT_DIR, "audit-seed-data.mjs"),
+    "--project",
+    projectId,
+    "--target",
+    args.targets.join(","),
+  ];
+
+  console.log(`\n> node audit-seed-data.mjs ${scriptArgs.slice(1).join(" ")}`);
+  const result = spawnSync(process.execPath, scriptArgs, {
+    cwd: SCRIPT_DIR,
+    stdio: "inherit",
+  });
+
+  if (result.status !== 0) {
+    throw new Error(`audit-seed-data.mjs failed with exit code ${result.status}`);
   }
 }
 
@@ -576,6 +611,7 @@ async function hydrateUser(projectId, args) {
     age: args.age,
     gender: args.gender,
     weight_kg: args.weightKg,
+    height_cm: args.heightCm,
     location_country: args.locationCountry,
     joined_at: Timestamp.fromDate(joinedAt),
     lastUpdated: serverTimestamp,
@@ -595,6 +631,7 @@ async function hydrateUser(projectId, args) {
     age: args.age,
     gender: args.gender,
     weight_kg: args.weightKg,
+    height_cm: args.heightCm,
     location_country: args.locationCountry,
     joined_at: Timestamp.fromDate(joinedAt),
     lastUpdated: serverTimestamp,
@@ -627,6 +664,9 @@ function validateHydrateUserArgs(args) {
   }
   if (args.weightKg == null || args.weightKg <= 0 || args.weightKg > 400) {
     throw new Error("hydrate-user requires --weight-kg or --weight-lb within a sane range");
+  }
+  if (args.heightCm == null || args.heightCm < 90 || args.heightCm > 240) {
+    throw new Error("hydrate-user requires --height-cm or --height-in within a sane range");
   }
   if (!args.locationCountry || !/^[A-Z]{2}$/.test(args.locationCountry)) {
     throw new Error("hydrate-user requires --country as an ISO-2 code, e.g. US");
@@ -695,6 +735,10 @@ function lastNameFromDisplayName(displayName) {
 
 function poundsToKg(value) {
   return Math.round(value * 0.453592 * 10) / 10;
+}
+
+function inchesToCm(value) {
+  return Math.round(value * 2.54 * 10) / 10;
 }
 
 main().catch((error) => {

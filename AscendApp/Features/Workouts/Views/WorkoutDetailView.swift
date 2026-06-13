@@ -102,6 +102,12 @@ struct WorkoutDetailView: View {
             }
             .task(id: workout.id) {
                 await loadLiveClimbCompletionRankIfNeeded()
+                await retryAppleHealthEnrichmentIfNeeded()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+                Task {
+                    await retryAppleHealthEnrichmentIfNeeded()
+                }
             }
             .onChange(of: showingEditWorkout) { _, isShowing in
                 if !isShowing && hasMedia {
@@ -721,6 +727,14 @@ struct WorkoutDetailView: View {
             print("Workout detail Live Climb rank fetch failed: \(error.localizedDescription)")
 #endif
         }
+    }
+
+    @MainActor
+    private func retryAppleHealthEnrichmentIfNeeded() async {
+        await WorkoutImportCoordinator.shared.enrichInAppWorkoutWithAppleHealthIfPossible(
+            workout,
+            modelContext: modelContext
+        )
     }
 
     private func deleteWorkout() async {

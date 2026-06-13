@@ -21,6 +21,10 @@ struct ProfileSnapshot {
         stats.totalClimbsCompleted
     }
 
+    var totalClimbs: Int {
+        stats.totalClimbs
+    }
+
     var totalFirstAscents: Int {
         stats.totalFirstAscents
     }

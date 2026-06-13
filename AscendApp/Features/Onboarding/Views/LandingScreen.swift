@@ -43,16 +43,6 @@ struct LandingScreen: View {
                     .frame(width: 334 * scaleX)
                     .position(x: centerX, y: 752 * scaleY)
 
-                    NavigationLink(destination: SignUpView()) {
-                        welcomeLoginText(typeScale: typeScale)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
-                            .frame(width: 334 * scaleX, height: 20 * scaleY, alignment: .top)
-                    }
-                    .buttonStyle(.plain)
-                    .position(x: centerX, y: 802 * scaleY)
-                    .accessibilityLabel("Already have an account? Log in")
                 }
             }
             .ignoresSafeArea()
@@ -73,17 +63,8 @@ struct LandingScreen: View {
             .font(.montserratSemiBold(size: 24 * typeScale))
     }
 
-    private func welcomeLoginText(typeScale: CGFloat) -> Text {
-        Text("Already have an account? ")
-            .foregroundStyle(Color.white.opacity(0.68))
-            .font(.montserratRegular(size: 13 * typeScale))
-        + Text("Log in")
-            .foregroundStyle(Color.accentColor)
-            .font(.montserratSemiBold(size: 13 * typeScale))
-    }
-
     private var brandAccentColor: Color {
-        Color.accentColor
+        Color.ascendAccent
     }
 }
 

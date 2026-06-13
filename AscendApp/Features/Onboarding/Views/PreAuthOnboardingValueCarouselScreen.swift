@@ -3,8 +3,6 @@ import SwiftUI
 struct PreAuthOnboardingValueCarouselScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedIndex = 0
-    @State private var isShowingSurvey = false
-    @State private var isShowingGuide = false
     @State private var isShowingSignUp = false
 
     var body: some View {
@@ -17,21 +15,11 @@ struct PreAuthOnboardingValueCarouselScreen: View {
                 OnboardingValueCarouselView(
                     selectedIndex: $selectedIndex,
                     pages: OnboardingValuePages.all,
-                    onFinish: { isShowingSurvey = true }
+                    onFinish: { isShowingSignUp = true }
                 )
                 .ignoresSafeArea()
             }
         )
-        .navigationDestination(isPresented: $isShowingSurvey) {
-            PreAuthOnboardingSurveyFlowScreen(
-                onFinish: { isShowingGuide = true }
-            )
-        }
-        .navigationDestination(isPresented: $isShowingGuide) {
-            PreAuthOnboardingGuideFlowScreen(
-                onFinish: { isShowingSignUp = true }
-            )
-        }
         .navigationDestination(isPresented: $isShowingSignUp) {
             SignUpView()
         }

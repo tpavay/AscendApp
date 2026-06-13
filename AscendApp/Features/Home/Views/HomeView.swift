@@ -18,7 +18,9 @@ struct HomeView: View {
     private let homeDashboard: HomeDashboardViewModel
     @State private var showingImportSheet = false
     @State private var showingClimbBrowse = false
+    @State private var showingJustClimbSetup = false
     @State private var selectedHomeClimb: Climb?
+    @State private var activeJustClimbGoal: JustClimbGoal?
     @State private var globeViewModel = GlobeViewModel()
     @AppStorage("firstLaunchDate") private var firstLaunchDate: Double = 0
     @State private var autoImportedReviewWorkout: Workout?
@@ -32,7 +34,7 @@ struct HomeView: View {
     }
 
     private var hasBlockingModalPresentation: Bool {
-        showingImportSheet
+        showingImportSheet || showingJustClimbSetup
     }
 
     private var greeting: String {
@@ -90,6 +92,8 @@ struct HomeView: View {
 
             ScrollView {
                 LazyVStack(spacing: 20) {
+                    justClimbButton
+
                     TodayHomeSectionView(
                         viewModel: globeViewModel,
                         onOpenClimb: { climb in
@@ -131,11 +135,25 @@ struct HomeView: View {
         .navigationDestination(item: $selectedHomeClimb) { climb in
             ClimbDetailView(climb: climb, analyticsEntryPoint: .homeDaily)
         }
+        .navigationDestination(item: $activeJustClimbGoal) { goal in
+            LiveClimbSessionView(
+                justClimbGoal: goal,
+                analyticsEntryPoint: .homeDaily
+            )
+        }
         .navigationDestination(isPresented: $showingClimbBrowse) {
             ClimbBrowseView(viewModel: globeViewModel, analyticsEntryPoint: .homeExplore)
         }
         .sheet(isPresented: $showingImportSheet) {
             WorkoutImportSheet()
+        }
+        .sheet(isPresented: $showingJustClimbSetup) {
+            JustClimbSetupSheet { goal in
+                activeJustClimbGoal = goal
+            }
+            .presentationDetents([.height(360), .medium])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(Color.black)
         }
         .sheet(item: $autoImportedReviewWorkout, onDismiss: {
             importCoordinator.dismissCurrentAutoImportedReview()
@@ -165,7 +183,6 @@ struct HomeView: View {
             refreshHomeDashboard(forceRank: true)
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
-            refreshTodayClimbNotifications()
 
             // Check for workouts from all sources on app launch
             await importCoordinator.refreshPendingImports(trigger: .homeEntry)
@@ -176,7 +193,6 @@ struct HomeView: View {
             refreshHomeDashboard()
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
-            refreshTodayClimbNotifications()
             Task {
                 await importCoordinator.refreshPendingImports(trigger: .homeEntry)
                 syncAutoImportedReviewPresentation()
@@ -192,18 +208,15 @@ struct HomeView: View {
         .onChange(of: authVM.user?.uid) { _, _ in
             refreshHomeDashboard(forceRank: true)
             refreshTodayClimbStake()
-            refreshTodayClimbNotifications()
         }
         .onReceive(NotificationCenter.default.publisher(for: .workoutsDidChange)) { _ in
             refreshHomeDashboard(forceRank: true)
-            refreshTodayClimbNotifications()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             // Check for new workouts when app comes to foreground (throttled to prevent spam)
             refreshHomeDashboard(forceRank: true)
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
-            refreshTodayClimbNotifications()
             Task {
                 await importCoordinator.refreshPendingImports(trigger: .automatic)
                 syncAutoImportedReviewPresentation()
@@ -214,17 +227,12 @@ struct HomeView: View {
             refreshHomeDashboard()
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
-            refreshTodayClimbNotifications()
         }
         .onReceive(NotificationCenter.default.publisher(for: .climbCatalogDidChange)) { _ in
             globeViewModel.reloadCatalog(modelContext: modelContext)
             refreshHomeDashboard()
             refreshLiveClimbCommunityStats()
             refreshTodayClimbStake()
-            refreshTodayClimbNotifications()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .todayClimbNotificationPreferenceDidChange)) { _ in
-            refreshTodayClimbNotifications()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
             // Reset throttling when app goes to background so next foreground check works
@@ -237,6 +245,52 @@ struct HomeView: View {
             openImportInbox()
         }
         .frame(width: 44, height: 44)
+    }
+
+    private var justClimbButton: some View {
+        Button {
+            showingJustClimbSetup = true
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "plus")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.black)
+                    .frame(width: 46, height: 46)
+                    .background(Circle().fill(Color.accent))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("JUST CLIMB")
+                        .font(.montserratBold(size: 18))
+                        .foregroundStyle(colorScheme == .dark ? .white : .black)
+                        .lineLimit(1)
+
+                    Text("Start open, set steps, or set time.")
+                        .font(.montserratMedium(size: 13))
+                        .foregroundStyle(colorScheme == .dark ? .white.opacity(0.58) : .black.opacity(0.55))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.up")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.52) : .black.opacity(0.44))
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 78)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(colorScheme == .dark ? .white.opacity(0.07) : .black.opacity(0.045))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(colorScheme == .dark ? .white.opacity(0.1) : .black.opacity(0.08), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Just Climb")
+        .accessibilityHint("Choose a goal and start a live tracked climb")
     }
 
     private func presentClimbBrowse() {
@@ -284,18 +338,6 @@ struct HomeView: View {
             await globeViewModel.refreshTodayClimbStake(
                 modelContext: modelContext,
                 currentUserId: authVM.user?.uid
-            )
-        }
-    }
-
-    private func refreshTodayClimbNotifications() {
-        let availableClimbs = globeViewModel.availableClimbs
-        let completedClimbIds = globeViewModel.completedClimbIds
-
-        Task {
-            await TodayClimbNotificationScheduler.shared.scheduleIfAuthorized(
-                availableClimbs: availableClimbs,
-                completedClimbIds: completedClimbIds
             )
         }
     }

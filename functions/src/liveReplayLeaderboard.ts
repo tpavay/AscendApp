@@ -11,7 +11,11 @@ const LIVE_CLIMB_COMMUNITY_GLOBAL_ID = "global";
 const LIVE_CLIMB_COMPLETED_USERS_COLLECTION = "completedUsers";
 const LIVE_CLIMB_CONTEXT_TYPE = "live_climb";
 const LIVE_CLIMB_TRACKING_MODE = "live_climb";
+const JUST_CLIMB_CONTEXT_TYPE = "just_climb";
+const JUST_CLIMB_GLOBAL_CONTEXT_ID = "global";
+const JUST_CLIMB_TRACKING_MODE = "just_climb";
 const TARGET_REACHED_STOP_REASON = "target_reached";
+const USER_STOPPED_REASON = "user_stopped";
 
 interface LiveReplayIndexPayload {
   contextKey: string;
@@ -47,6 +51,20 @@ interface FinisherStatusWriteInput {
   completedAt: unknown;
 }
 
+interface ReplaySummaryWriteInput {
+  payload: LiveReplayIndexPayload;
+  completedCount: number;
+}
+
+interface ReplayEntryWriteInput {
+  payload: LiveReplayIndexPayload;
+  userId: string;
+  entryId: string;
+  publicUser: PublicUserSnapshot;
+  stepsAtBucket: number;
+  updatedAt: unknown;
+}
+
 /**
  * Publishes saved live-attempt split checkpoints into read-only replay windows.
  */
@@ -59,52 +77,79 @@ export const onWorkoutReplaySplitsWritten = onDocumentWritten(
       Record<string, unknown> | undefined;
     const userId = event.params.userId;
     const workoutId = event.params.workoutId;
-    const beforeClimbPayload = parseLiveClimbReplayPayload(beforeData, {
+    const beforePayloads = replayPayloadsForWorkout(beforeData, {
       requireEligibleParticipation: false,
     });
-    const afterClimbPayload = parseLiveClimbReplayPayload(afterData, {
+    const afterPayloads = replayPayloadsForWorkout(afterData, {
       requireEligibleParticipation: true,
     });
 
     if (
-      !beforeClimbPayload &&
-      !afterClimbPayload
+      beforePayloads.length === 0 &&
+      afterPayloads.length === 0
     ) {
       return;
     }
 
-    const publicUser = afterClimbPayload ?
+    const publicUser = afterPayloads.length > 0 ?
       await publicUserSnapshot(userId) :
       null;
 
-    if (beforeClimbPayload) {
-      await deleteReplayEntriesForId(beforeClimbPayload, workoutId);
+    for (const payload of beforePayloads) {
+      await deleteReplayEntriesForId(payload, workoutId);
     }
 
-    if (afterClimbPayload && publicUser) {
-      await publishReplayEntries(
-        afterClimbPayload,
-        workoutId,
-        userId,
-        publicUser
-      );
+    if (publicUser) {
+      for (const payload of afterPayloads) {
+        await publishReplayEntries(
+          payload,
+          workoutId,
+          userId,
+          publicUser
+        );
+      }
     }
 
-    if (beforeClimbPayload) {
-      await deleteReplayEntriesForId(beforeClimbPayload, userId);
-      await deleteUserBestAttempt(beforeClimbPayload, userId);
+    for (const payload of beforePayloads) {
+      await deleteReplayEntriesForId(payload, userId);
+      await deleteUserBestAttempt(payload, userId);
     }
 
-    if (afterClimbPayload) {
-      await deleteReplayEntriesForId(afterClimbPayload, userId);
-      await deleteUserBestAttempt(afterClimbPayload, userId);
+    for (const payload of afterPayloads) {
+      await deleteReplayEntriesForId(payload, userId);
+      await deleteUserBestAttempt(payload, userId);
     }
 
-    if (beforeClimbPayload || afterClimbPayload) {
+    if (
+      beforePayloads.some(
+        (payload) => payload.contextType === LIVE_CLIMB_CONTEXT_TYPE
+      ) ||
+      afterPayloads.some(
+        (payload) => payload.contextType === LIVE_CLIMB_CONTEXT_TYPE
+      )
+    ) {
       await updateLiveClimbCommunityStats(userId);
     }
   }
 );
+
+/**
+ * Converts a workout backup into every replay context it should publish.
+ * Landmark Live Climbs publish both their per-climb context and the global
+ * Just Climb replay context. Open Just Climb sessions publish only globally.
+ * @param {Record<string, unknown> | undefined} data Raw workout data.
+ * @param {{requireEligibleParticipation: boolean}} options Parse options.
+ * @return {LiveReplayIndexPayload[]} Parsed replay payloads.
+ */
+function replayPayloadsForWorkout(
+  data: Record<string, unknown> | undefined,
+  options: {requireEligibleParticipation: boolean}
+): LiveReplayIndexPayload[] {
+  return [
+    parseLiveClimbReplayPayload(data, options),
+    parseJustClimbReplayPayload(data, options),
+  ].filter((payload): payload is LiveReplayIndexPayload => payload !== null);
+}
 
 /**
  * Converts a completed Live Climb backup into a per-climb replay payload.
@@ -137,6 +182,46 @@ function parseLiveClimbReplayPayload(
     parsed,
     LIVE_CLIMB_CONTEXT_TYPE,
     climbId
+  );
+}
+
+/**
+ * Converts either a completed landmark Live Climb or an open Just Climb session
+ * into the global Just Climb replay context.
+ * @param {Record<string, unknown> | undefined} data Raw workout data.
+ * @param {{requireEligibleParticipation: boolean}} options Parse options.
+ * @return {LiveReplayIndexPayload | null} Parsed replay payload, if valid.
+ */
+function parseJustClimbReplayPayload(
+  data: Record<string, unknown> | undefined,
+  options: {requireEligibleParticipation: boolean}
+): LiveReplayIndexPayload | null {
+  const parsed = parseReplayPayloadParts(data);
+  if (!parsed) {
+    return null;
+  }
+
+  if (options.requireEligibleParticipation) {
+    const isCompletedLandmarkLiveClimb = hasCompletedLiveClimbAttempt(parsed);
+    const isCompletedOpenJustClimb = hasCompletedJustClimbSession(parsed);
+    if (!isCompletedLandmarkLiveClimb && !isCompletedOpenJustClimb) {
+      return null;
+    }
+  }
+
+  const trackingMode = stringValue(parsed.metadata.trackingMode);
+  if (
+    trackingMode !== LIVE_CLIMB_TRACKING_MODE &&
+    trackingMode !== JUST_CLIMB_TRACKING_MODE
+  ) {
+    return null;
+  }
+
+  return replayPayload(
+    parsed,
+    JUST_CLIMB_CONTEXT_TYPE,
+    JUST_CLIMB_GLOBAL_CONTEXT_ID,
+    {targetStepCount: null}
   );
 }
 
@@ -234,6 +319,27 @@ function hasCompletedLiveClimbAttempt(
 }
 
 /**
+ * Returns whether a headphone-motion workout is a completed open Just Climb
+ * session that can be published into the global replay context.
+ * @param {ParsedReplayPayloadParts} parsed Parsed replay payload parts.
+ * @return {boolean} True when the row may be published publicly.
+ */
+function hasCompletedJustClimbSession(
+  parsed: ParsedReplayPayloadParts
+): boolean {
+  const trackingMode = stringValue(parsed.metadata.trackingMode);
+  const stopReason = stringValue(parsed.metadata.stopReason);
+
+  return trackingMode === JUST_CLIMB_TRACKING_MODE &&
+    parsed.finalSteps > 0 &&
+    parsed.finalDurationSeconds > 0 &&
+    (
+      stopReason === TARGET_REACHED_STOP_REASON ||
+      stopReason === USER_STOPPED_REASON
+    );
+}
+
+/**
  * Creates a context-specific replay payload from parsed common fields.
  * @param {ParsedReplayPayloadParts} parsed Common replay fields.
  * @param {string} contextType Replay context type.
@@ -244,7 +350,8 @@ function hasCompletedLiveClimbAttempt(
 function replayPayload(
   parsed: ParsedReplayPayloadParts,
   contextType: string,
-  contextId: string
+  contextId: string,
+  options: {targetStepCount?: number | null} = {}
 ): LiveReplayIndexPayload {
   const splitSteps = normalizeReplaySplitSteps({
     splitIntervalSeconds: parsed.splitIntervalSeconds,
@@ -261,7 +368,9 @@ function replayPayload(
     splitSteps,
     finalDurationSeconds: parsed.finalDurationSeconds,
     finalSteps: parsed.finalSteps,
-    targetStepCount: parsed.targetStepCount,
+    targetStepCount: options.targetStepCount !== undefined ?
+      options.targetStepCount :
+      parsed.targetStepCount,
   };
 }
 
@@ -361,24 +470,21 @@ async function publishReplayEntries(
       leaderboardData?.completedCount
     ) ?? 0;
     const hasFirstAscent = leaderboardHasFirstAscent(leaderboardData);
+    const canClaimFirstAscent = !hasFirstAscent && previousCompletedCount === 0;
     const globalCompletionOrder = nextGlobalCompletionOrder({
       existingOrder,
-      hasFirstAscent,
       previousCompletedCount,
     });
-    const summaryWrite: Record<string, unknown> = {
-      bucketIntervalSeconds: payload.splitIntervalSeconds,
-      completedCount: isNewFinisher ?
-        Math.max(previousCompletedCount + 1, globalCompletionOrder) :
-        Math.max(previousCompletedCount, globalCompletionOrder),
-      contextId: payload.contextId,
-      contextType: payload.contextType,
-      schemaVersion: 1,
-      targetStepCount: payload.targetStepCount,
-      updatedAt: now,
-    };
+    const completedCount = isNewFinisher ?
+      Math.max(previousCompletedCount + 1, globalCompletionOrder) :
+      Math.max(previousCompletedCount, globalCompletionOrder);
+    const summaryWrite = replaySummaryWrite({
+      payload,
+      completedCount,
+    });
+    summaryWrite.updatedAt = now;
 
-    if (!hasFirstAscent) {
+    if (canClaimFirstAscent) {
       Object.assign(
         summaryWrite,
         firstAscentWrite({
@@ -406,21 +512,63 @@ async function publishReplayEntries(
     );
 
     for (let index = 0; index < payload.splitSteps.length; index += 1) {
-      transaction.set(entryReference(payload, index, entryId), {
-        avatarToken: publicUser.avatarToken,
-        completionDurationSeconds: payload.finalDurationSeconds,
-        displayName: publicUser.displayName,
-        finalSteps: payload.finalSteps,
-        photoURL: publicUser.photoURL ?? "",
-        schemaVersion: 1,
-        splitIntervalSeconds: payload.splitIntervalSeconds,
-        stepsAtBucket: payload.splitSteps[index],
-        updatedAt: now,
-        userId,
-        workoutId: entryId,
-      });
+      transaction.set(
+        entryReference(payload, index, entryId),
+        replayEntryWrite({
+          payload,
+          userId,
+          entryId,
+          publicUser,
+          stepsAtBucket: payload.splitSteps[index],
+          updatedAt: now,
+        })
+      );
     }
   });
+}
+
+/**
+ * Builds the replay summary fields for a completed replay context.
+ * @param {ReplaySummaryWriteInput} input Summary write input.
+ * @return {Record<string, unknown>} Firestore fields to merge.
+ */
+function replaySummaryWrite(
+  input: ReplaySummaryWriteInput
+): Record<string, unknown> {
+  return {
+    bucketIntervalSeconds: input.payload.splitIntervalSeconds,
+    completedCount: input.completedCount,
+    contextId: input.payload.contextId,
+    contextType: input.payload.contextType,
+    schemaVersion: 1,
+    targetStepCount: input.payload.targetStepCount,
+    totalClimbers: input.completedCount,
+  };
+}
+
+/**
+ * Builds a public replay bucket entry for one split checkpoint.
+ * @param {ReplayEntryWriteInput} input Entry write input.
+ * @return {Record<string, unknown>} Firestore fields to write.
+ */
+function replayEntryWrite(
+  input: ReplayEntryWriteInput
+): Record<string, unknown> {
+  return {
+    avatarToken: input.publicUser.avatarToken,
+    completionDurationSeconds: input.payload.finalDurationSeconds,
+    contextId: input.payload.contextId,
+    contextType: input.payload.contextType,
+    displayName: input.publicUser.displayName,
+    finalSteps: input.payload.finalSteps,
+    photoURL: input.publicUser.photoURL ?? "",
+    schemaVersion: 1,
+    splitIntervalSeconds: input.payload.splitIntervalSeconds,
+    stepsAtBucket: input.stepsAtBucket,
+    updatedAt: input.updatedAt,
+    userId: input.userId,
+    workoutId: input.entryId,
+  };
 }
 
 /**
@@ -441,26 +589,17 @@ function leaderboardHasFirstAscent(
 
 /**
  * Resolves the permanent chronological finisher order for a user in a replay
- * context. Seeded synthetic rows may already populate completedCount while the
- * First Ascent is still open; the first real First Ascent holder must still be
- * finisher #1.
  * @param {object} input Completion order inputs.
  * @param {number | null} input.existingOrder Existing permanent order.
- * @param {boolean} input.hasFirstAscent Whether the context has a FA holder.
  * @param {number} input.previousCompletedCount Current summary completed count.
  * @return {number} Permanent global completion order.
  */
 function nextGlobalCompletionOrder(input: {
   existingOrder: number | null;
-  hasFirstAscent: boolean;
   previousCompletedCount: number;
 }): number {
   if (input.existingOrder !== null) {
     return input.existingOrder;
-  }
-
-  if (!input.hasFirstAscent) {
-    return 1;
   }
 
   return input.previousCompletedCount + 1;
@@ -827,4 +966,6 @@ export const liveReplayLeaderboardTestHooks = {
   leaderboardHasFirstAscent,
   nextGlobalCompletionOrder,
   parseLiveClimbReplayPayload,
+  replayEntryWrite,
+  replaySummaryWrite,
 };

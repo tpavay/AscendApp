@@ -8,6 +8,16 @@
 import SwiftUI
 
 extension Color {
+    static var ascendAccent: Color {
+        Color(
+            uiColor: UIColor(
+                named: "AccentColor",
+                in: .main,
+                compatibleWith: nil
+            ) ?? UIColor(red: 134 / 255, green: 211 / 255, blue: 10 / 255, alpha: 1)
+        )
+    }
+
     /// Initialize a Color from a hex string
     /// - Parameter hex: Hex string (with or without #, supports 3, 6, or 8 characters)
     init(hex: String) {

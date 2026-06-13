@@ -46,6 +46,7 @@ service cloud.firestore {
           "age",
           "gender",
           "weight_kg",
+          "height_cm",
           "location_city",
           "location_country",
           "location_region",
@@ -88,6 +89,10 @@ service cloud.firestore {
         (!request.resource.data.keys().hasAny(["weight_kg"]) ||
           (isNonNegativeNumber(request.resource.data.weight_kg) &&
             request.resource.data.weight_kg <= 400)) &&
+        (!request.resource.data.keys().hasAny(["height_cm"]) ||
+          (isNonNegativeNumber(request.resource.data.height_cm) &&
+            request.resource.data.height_cm >= 90 &&
+            request.resource.data.height_cm <= 240)) &&
         (!request.resource.data.keys().hasAny(["location_city"]) ||
           isValidLocationProfileText(request.resource.data.location_city)) &&
         (!request.resource.data.keys().hasAny(["location_country"]) ||
@@ -126,6 +131,7 @@ service cloud.firestore {
           "age",
           "gender",
           "weight_kg",
+          "height_cm",
           "location_city",
           "location_country",
           "location_region",
@@ -159,6 +165,10 @@ service cloud.firestore {
         (!request.resource.data.keys().hasAny(["weight_kg"]) ||
           (isNonNegativeNumber(request.resource.data.weight_kg) &&
             request.resource.data.weight_kg <= 400)) &&
+        (!request.resource.data.keys().hasAny(["height_cm"]) ||
+          (isNonNegativeNumber(request.resource.data.height_cm) &&
+            request.resource.data.height_cm >= 90 &&
+            request.resource.data.height_cm <= 240)) &&
         (!request.resource.data.keys().hasAny(["location_city"]) ||
           isValidLocationProfileText(request.resource.data.location_city)) &&
         (!request.resource.data.keys().hasAny(["location_country"]) ||
@@ -175,6 +185,10 @@ service cloud.firestore {
       return request.resource.data.keys().hasOnly([
           "total_climbs_completed",
           "total_first_ascents",
+          "lifetime_total_steps",
+          "lifetime_duration_seconds",
+          "total_climbs",
+          "average_steps_per_minute",
           "top_1_weeks",
           "top_3_weeks",
           "top_10_weeks",
@@ -190,6 +204,10 @@ service cloud.firestore {
         request.resource.data.keys().hasAll([
           "total_climbs_completed",
           "total_first_ascents",
+          "lifetime_total_steps",
+          "lifetime_duration_seconds",
+          "total_climbs",
+          "average_steps_per_minute",
           "top_1_weeks",
           "top_3_weeks",
           "top_10_weeks",
@@ -206,6 +224,13 @@ service cloud.firestore {
         request.resource.data.total_climbs_completed >= 0 &&
         request.resource.data.total_first_ascents is int &&
         request.resource.data.total_first_ascents >= 0 &&
+        request.resource.data.lifetime_total_steps is int &&
+        request.resource.data.lifetime_total_steps >= 0 &&
+        request.resource.data.lifetime_duration_seconds is int &&
+        request.resource.data.lifetime_duration_seconds >= 0 &&
+        request.resource.data.total_climbs is int &&
+        request.resource.data.total_climbs >= 0 &&
+        isNonNegativeNumber(request.resource.data.average_steps_per_minute) &&
         request.resource.data.top_1_weeks is int &&
         request.resource.data.top_1_weeks >= 0 &&
         request.resource.data.top_3_weeks is int &&
@@ -237,6 +262,8 @@ service cloud.firestore {
           "source",
           "climbId",
           "climbTier",
+          "climbCompletionStatus",
+          "climbCompletionDurationSeconds",
           "lastUpdated"
         ]) &&
         request.resource.data.keys().hasAll([
@@ -263,6 +290,12 @@ service cloud.firestore {
         (!request.resource.data.keys().hasAny(["climbTier"]) ||
           (request.resource.data.climbTier is string &&
             isValidClimbTier(request.resource.data.climbTier))) &&
+        (!request.resource.data.keys().hasAny(["climbCompletionStatus"]) ||
+          (request.resource.data.climbCompletionStatus is string &&
+            isValidClimbAttemptStatus(request.resource.data.climbCompletionStatus))) &&
+        (!request.resource.data.keys().hasAny(["climbCompletionDurationSeconds"]) ||
+          (request.resource.data.climbCompletionDurationSeconds is int &&
+            request.resource.data.climbCompletionDurationSeconds >= 0)) &&
         request.resource.data.lastUpdated is timestamp;
     }
 
@@ -338,6 +371,10 @@ service cloud.firestore {
         "hevy",
         "headphone_motion"
       ];
+    }
+
+    function isValidClimbAttemptStatus(status) {
+      return status in ["active", "completed", "failed", "abandoned"];
     }
 
     function isValidIntegrityLevel(level) {
@@ -847,6 +884,11 @@ service cloud.firestore {
       }
 
       match /communication_preferences/{docId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      match /notification_devices/{deviceId} {
         allow read: if isOwner(userId);
         allow write: if false;
       }

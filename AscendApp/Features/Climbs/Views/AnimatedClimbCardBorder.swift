@@ -43,19 +43,19 @@ struct AnimatedClimbCardBorder: ViewModifier {
     }
 
     private var shouldRotate: Bool {
-        animationStyle != .static && !reduceMotion
+        false
     }
 
     private var shouldPulseShadow: Bool {
-        animationStyle == .full && !reduceMotion
+        false
     }
 
     private var shouldShowMovingHighlight: Bool {
-        animationStyle == .full && !reduceMotion
+        false
     }
 
     private var shouldShowAmbientHighlight: Bool {
-        animationStyle == .ambient && !reduceMotion
+        false
     }
 
     private var rotationDuration: Double {

@@ -12,10 +12,12 @@ import SwiftData
 
 @main
 struct AscendApp: App {
+    @UIApplicationDelegateAdaptor(AscendAppDelegate.self) private var appDelegate
     @State private var authVM: AuthenticationViewModel
 
     init() {
         Self.configureFirebase()
+        PushNotificationService.shared.configure()
         TelemetryManager.shared.configure()
         TelemetryManager.shared.setAppMetadata()
         MonetizationManager.shared.configure()
@@ -32,6 +34,12 @@ struct AscendApp: App {
     var body: some Scene {
         WindowGroup {
             RootNavigationHost(authVM: authVM)
+                // Mixpanel's launch-time init breaks the catalog global accent
+                // (NSAccentColorName), so set the accent explicitly at the root —
+                // otherwise Color.accentColor resolves to system blue on some
+                // staging and release surfaces.
+                .tint(Color.ascendAccent)
+                .accentColor(Color.ascendAccent)
                 .preferredColorScheme(.dark)
                 .onOpenURL { url in
                     handleDeepLink(url: url)

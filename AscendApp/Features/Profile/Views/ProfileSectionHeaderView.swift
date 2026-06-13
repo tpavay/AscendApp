@@ -16,7 +16,7 @@ struct ProfileSectionHeaderView: View {
             if let trailing {
                 Text(trailing.uppercased())
                     .font(.montserratSemiBold(size: 11))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color.ascendAccent)
                     .tracking(1.2)
             }
         }

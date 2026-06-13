@@ -1,22 +1,18 @@
-import SwiftData
 import SwiftUI
 import UIKit
 import UserNotifications
 
 struct NotificationSettingsView: View {
-    @Environment(\.modelContext) private var modelContext
-
     @State private var authorizationStatus: UNAuthorizationStatus = .notDetermined
-    @State private var isTodayClimbDropEnabled = TodayClimbNotificationPreferenceStore.isEnabled
+    @State private var isClimbDropEnabled = ClimbDropNotificationPreferenceStore.isEnabled
     @State private var isUpdating = false
-    @State private var errorMessage: String?
 
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
                 ProfileSection(title: "Climb Drops") {
                     ProfileCardSurface {
-                        todayClimbDropRow
+                        climbDropRow
                     }
                 }
 
@@ -31,14 +27,6 @@ struct NotificationSettingsView: View {
                             }
                         }
                     }
-                }
-
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(.montserratRegular(size: 14))
-                        .foregroundStyle(.red.opacity(0.9))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
                 }
             }
             .padding(.horizontal, 20)
@@ -57,23 +45,23 @@ struct NotificationSettingsView: View {
                 await refreshAuthorizationStatus()
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .todayClimbNotificationPreferenceDidChange)) { _ in
-            isTodayClimbDropEnabled = TodayClimbNotificationPreferenceStore.isEnabled
+        .onReceive(NotificationCenter.default.publisher(for: .climbDropNotificationPreferenceDidChange)) { _ in
+            isClimbDropEnabled = ClimbDropNotificationPreferenceStore.isEnabled
         }
     }
 
-    private var todayClimbDropRow: some View {
+    private var climbDropRow: some View {
         HStack(spacing: 16) {
             AppIcon(token: .settingsNotifications, pointSize: 22, weight: .medium)
                 .foregroundStyle(.accent)
                 .frame(width: 28, height: 28)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("4 AM climb drop")
+                Text("New climb drops")
                     .font(.montserratSemiBold(size: 16))
                     .foregroundStyle(.white)
 
-                Text("One alert when today's climb changes.")
+                Text("Get an Ascend alert when new climbs open.")
                     .font(.montserratRegular(size: 13))
                     .foregroundStyle(.white.opacity(0.64))
                     .fixedSize(horizontal: false, vertical: true)
@@ -84,10 +72,10 @@ struct NotificationSettingsView: View {
             Toggle(
                 "",
                 isOn: Binding(
-                    get: { isTodayClimbDropEnabled },
+                    get: { isClimbDropEnabled },
                     set: { isEnabled in
                         Task {
-                            await setTodayClimbDropEnabled(isEnabled)
+                            await setClimbDropEnabled(isEnabled)
                         }
                     }
                 )
@@ -127,7 +115,7 @@ struct NotificationSettingsView: View {
 
     private var systemSettingsButton: some View {
         Button {
-            TodayClimbNotificationPermissionController.openSystemNotificationSettings()
+            ClimbDropNotificationPermissionController.openSystemNotificationSettings()
         } label: {
             HStack(spacing: 16) {
                 AppIcon(token: .settingsNotifications, pointSize: 22, weight: .medium)
@@ -192,45 +180,28 @@ struct NotificationSettingsView: View {
     }
 
     private func refreshAuthorizationStatus() async {
-        authorizationStatus = await TodayClimbNotificationPermissionController.authorizationStatus()
-        isTodayClimbDropEnabled = TodayClimbNotificationPreferenceStore.isEnabled
+        authorizationStatus = await ClimbDropNotificationPermissionController.authorizationStatus()
+        isClimbDropEnabled = ClimbDropNotificationPreferenceStore.isEnabled
 
-        if authorizationStatus == .denied && isTodayClimbDropEnabled {
-            await TodayClimbNotificationPermissionController.disable()
-            isTodayClimbDropEnabled = false
+        if authorizationStatus == .denied && isClimbDropEnabled {
+            await ClimbDropNotificationPermissionController.disable()
+            isClimbDropEnabled = false
         }
     }
 
-    private func setTodayClimbDropEnabled(_ isEnabled: Bool) async {
+    private func setClimbDropEnabled(_ isEnabled: Bool) async {
         guard !isUpdating else { return }
         isUpdating = true
-        errorMessage = nil
         defer { isUpdating = false }
 
         if isEnabled {
-            let input = notificationScheduleInput()
-            authorizationStatus = await TodayClimbNotificationPermissionController.enable(
-                availableClimbs: input.availableClimbs,
-                completedClimbIds: input.completedClimbIds
-            )
+            authorizationStatus = await ClimbDropNotificationPermissionController.enable()
         } else {
-            await TodayClimbNotificationPermissionController.disable()
-            authorizationStatus = await TodayClimbNotificationPermissionController.authorizationStatus()
+            await ClimbDropNotificationPermissionController.disable()
+            authorizationStatus = await ClimbDropNotificationPermissionController.authorizationStatus()
         }
 
-        isTodayClimbDropEnabled = TodayClimbNotificationPreferenceStore.isEnabled
-    }
-
-    private func notificationScheduleInput() -> (availableClimbs: [Climb], completedClimbIds: Set<String>) {
-        do {
-            return (
-                availableClimbs: try ClimbService.shared.loadAvailableClimbs(),
-                completedClimbIds: ClimbService.shared.completedClimbIds(modelContext: modelContext)
-            )
-        } catch {
-            errorMessage = "Notifications are on, but climbs could not be scheduled yet."
-            return (availableClimbs: [], completedClimbIds: [])
-        }
+        isClimbDropEnabled = ClimbDropNotificationPreferenceStore.isEnabled
     }
 }
 

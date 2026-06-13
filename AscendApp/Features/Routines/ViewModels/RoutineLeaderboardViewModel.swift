@@ -9,8 +9,11 @@ final class RoutineLeaderboardViewModel {
     private(set) var summary: LiveReplayLeaderboardSummary = .empty
     private(set) var completionLeaderboard: LiveReplayCompletionLeaderboard = .empty
     private(set) var isLoading = false
+    private(set) var isLoadingMore = false
     private(set) var fetchFailed = false
     private var hasLoaded = false
+    private let pageSize = 25
+    private let prefetchDistance = 5
 
     init(
         routine: Routine,
@@ -24,6 +27,10 @@ final class RoutineLeaderboardViewModel {
         completionLeaderboard.rows
     }
 
+    var hasMoreRows: Bool {
+        completionLeaderboard.hasMoreRows
+    }
+
     var completedCount: Int {
         max(summary.completedCount, completionLeaderboard.completedCount)
     }
@@ -35,6 +42,7 @@ final class RoutineLeaderboardViewModel {
         context = nextContext
         summary = .empty
         completionLeaderboard = .empty
+        isLoadingMore = false
         fetchFailed = false
         hasLoaded = false
     }
@@ -50,7 +58,9 @@ final class RoutineLeaderboardViewModel {
         async let fetchedSummary = leaderboardService.fetchSummary(context: currentContext)
         async let fetchedLeaderboard = leaderboardService.fetchCompletionLeaderboard(
             context: currentContext,
-            limit: 25
+            limit: pageSize,
+            cursor: nil,
+            forceRefresh: force
         )
 
         do {
@@ -69,5 +79,60 @@ final class RoutineLeaderboardViewModel {
 
         hasLoaded = true
         isLoading = false
+    }
+
+    func loadMoreIfNeeded(currentRow: LiveReplayLeaderboardRow) {
+        guard shouldLoadMore(afterAppearing: currentRow),
+              let cursor = completionLeaderboard.nextCursor else {
+            return
+        }
+
+        isLoadingMore = true
+        let currentContext = context
+
+        Task {
+            await loadMore(
+                context: currentContext,
+                cursor: cursor
+            )
+        }
+    }
+
+    private func loadMore(
+        context: LiveReplayLeaderboardContext,
+        cursor: LiveReplayCompletionLeaderboardCursor
+    ) async {
+        do {
+            let nextPage = try await leaderboardService.fetchCompletionLeaderboard(
+                context: context,
+                limit: pageSize,
+                cursor: cursor,
+                forceRefresh: false
+            )
+            completionLeaderboard = completionLeaderboard.appending(nextPage)
+            summary = LiveReplayLeaderboardSummary(
+                totalClimbers: max(summary.totalClimbers, completionLeaderboard.completedCount),
+                completedCount: max(summary.completedCount, completionLeaderboard.completedCount),
+                personalBestDurationSeconds: summary.personalBestDurationSeconds,
+                firstAscent: summary.firstAscent,
+                updatedAt: summary.updatedAt ?? completionLeaderboard.updatedAt
+            )
+        } catch {
+            fetchFailed = true
+        }
+
+        isLoadingMore = false
+    }
+
+    private func shouldLoadMore(afterAppearing row: LiveReplayLeaderboardRow) -> Bool {
+        guard !isLoading,
+              !isLoadingMore,
+              hasMoreRows,
+              let rowIndex = rows.firstIndex(where: { $0.id == row.id }) else {
+            return false
+        }
+
+        let thresholdIndex = max(rows.count - prefetchDistance, 0)
+        return rowIndex >= thresholdIndex
     }
 }

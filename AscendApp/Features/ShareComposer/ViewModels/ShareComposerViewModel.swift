@@ -248,6 +248,12 @@ final class ShareComposerViewModel {
         refreshProcessedBackground()
     }
 
+    func setFilter(_ filter: ShareBackgroundFilter) {
+        guard availableFilters.contains(filter) else { return }
+        backgroundFilter = filter
+        refreshProcessedBackground()
+    }
+
     /// Compute (and cache) the Core Image-processed background for geometric
     /// filters; color/original grades use the unprocessed photo + SwiftUI modifiers.
     private func refreshProcessedBackground() {

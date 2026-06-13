@@ -14,6 +14,12 @@ export {onLifecycleEventEmailAutomation} from "./email/automation";
 export {onFeedbackCreated} from "./feedback";
 export {recordLifecycleEvent} from "./lifecycle";
 export {onWorkoutReplaySplitsWritten} from "./liveReplayLeaderboard";
+export {
+  registerPushDevice,
+  sendClimbDropNotification,
+  unregisterPushDevice,
+  updatePushNotificationPreferences,
+} from "./pushNotifications";
 export {joinWaitlist} from "./waitlist";
 
 setGlobalOptions({maxInstances: 10});

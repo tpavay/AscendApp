@@ -664,7 +664,14 @@ function printPlan(seedPlan, args, avatarFileCount, avatarURLCount) {
 
 async function clearSeedPack(db, seedPlan, args) {
   const writer = bulkWriter(db);
-  const deleted = clearSeedEntriesFromPlan(db, writer, seedPlan);
+  let deleted = clearSeedEntriesFromPlan(db, writer, seedPlan);
+  const activeContextKeys = contextKeysForPlan(seedPlan);
+  deleted += await clearStaleSeedContexts(
+    db,
+    writer,
+    args.seedPackId,
+    activeContextKeys
+  );
 
   const now = FieldValue.serverTimestamp();
   for (const plan of seedPlan.climbPlans) {
@@ -689,6 +696,47 @@ async function clearSeedPack(db, seedPlan, args) {
   }, {merge: true});
 
   await writer.close();
+  return deleted;
+}
+
+function contextKeysForPlan(seedPlan) {
+  const keys = new Set(
+    seedPlan.climbPlans.map((plan) =>
+      contextKey(LIVE_CLIMB_CONTEXT_TYPE, plan.climb.id)
+    )
+  );
+  keys.add(contextKey(JUST_CLIMB_CONTEXT_TYPE, JUST_CLIMB_GLOBAL_CONTEXT_ID));
+  return keys;
+}
+
+async function clearStaleSeedContexts(db, writer, seedPackId, activeContextKeys) {
+  const snapshot = await db
+    .collection(LIVE_REPLAY_COLLECTION)
+    .where("seedPackId", "==", seedPackId)
+    .get();
+  let deleted = 0;
+
+  for (const document of snapshot.docs) {
+    if (activeContextKeys.has(document.id)) {
+      continue;
+    }
+
+    const splitBucketRefs = await document.ref.collection("splitBuckets").listDocuments();
+    for (const splitBucketRef of splitBucketRefs) {
+      const entries = await splitBucketRef
+        .collection("entries")
+        .where("seedPackId", "==", seedPackId)
+        .get();
+      for (const entry of entries.docs) {
+        writer.delete(entry.ref);
+        deleted += 1;
+      }
+    }
+
+    writer.delete(document.ref);
+    deleted += 1;
+  }
+
   return deleted;
 }
 

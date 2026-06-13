@@ -10,13 +10,19 @@ struct ComparisonBlock: View {
         case .viewerEmpty:
             messageCard(
                 title: "HOW YOU STACK UP",
-                message: "Climb a landmark to compare. You haven't done any of these yet.",
+                message: "You have no climbs to compare. Complete a climb to start competing.",
                 action: "Browse climbs"
+            )
+        case .otherEmpty:
+            messageCard(
+                title: "HOW YOU STACK UP",
+                message: "No public climbs yet. If you know this person, tell them to get on the stair stepper ASAP.",
+                action: ""
             )
         case .noSharedClimbs:
             messageCard(
                 title: "HOW YOU STACK UP",
-                message: "No shared climbs yet.",
+                message: "No shared landmarks yet. Finish one of their climbs to see how you stack up.",
                 action: "\(comparison.otherExclusiveCount) they've done · \(comparison.viewerExclusiveCount) you've done"
             )
         case .shared:
@@ -35,9 +41,15 @@ struct ComparisonBlock: View {
                         .font(.montserratMedium(size: 13))
                         .foregroundStyle(ProfileVisualStyle.secondaryText)
 
+                    if comparison.ties > 0 {
+                        Text("\(comparison.ties) tied")
+                            .font(.montserratMedium(size: 12))
+                            .foregroundStyle(ProfileVisualStyle.secondaryText)
+                    }
+
                     Text("\(comparison.otherExclusiveCount) climbs they've done you haven't")
                         .font(.montserratSemiBold(size: 12))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Color.ascendAccent)
 
                     Text("\(comparison.viewerExclusiveCount) climbs you've done they haven't")
                         .font(.montserratMedium(size: 12))
@@ -62,9 +74,11 @@ struct ComparisonBlock: View {
                     .foregroundStyle(ProfileVisualStyle.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text(action)
-                    .font(.montserratSemiBold(size: 12))
-                    .foregroundStyle(Color.accentColor)
+                if !action.isEmpty {
+                    Text(action)
+                        .font(.montserratSemiBold(size: 12))
+                        .foregroundStyle(Color.ascendAccent)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14)

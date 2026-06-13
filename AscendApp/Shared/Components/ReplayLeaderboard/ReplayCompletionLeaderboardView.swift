@@ -6,11 +6,37 @@ struct ReplayCompletionLeaderboardView: View {
     let rows: [LiveReplayLeaderboardRow]
     let completedCount: Int
     let isLoading: Bool
+    let isLoadingMore: Bool
     let fetchFailed: Bool
     let currentUserPhotoURL: URL?
     let effectiveColorScheme: ColorScheme
     let emptyTitle: String
     let emptyMessage: String
+    let onRowAppear: (LiveReplayLeaderboardRow) -> Void
+
+    init(
+        rows: [LiveReplayLeaderboardRow],
+        completedCount: Int,
+        isLoading: Bool,
+        isLoadingMore: Bool = false,
+        fetchFailed: Bool,
+        currentUserPhotoURL: URL?,
+        effectiveColorScheme: ColorScheme,
+        emptyTitle: String,
+        emptyMessage: String,
+        onRowAppear: @escaping (LiveReplayLeaderboardRow) -> Void = { _ in }
+    ) {
+        self.rows = rows
+        self.completedCount = completedCount
+        self.isLoading = isLoading
+        self.isLoadingMore = isLoadingMore
+        self.fetchFailed = fetchFailed
+        self.currentUserPhotoURL = currentUserPhotoURL
+        self.effectiveColorScheme = effectiveColorScheme
+        self.emptyTitle = emptyTitle
+        self.emptyMessage = emptyMessage
+        self.onRowAppear = onRowAppear
+    }
 
     private var visibleRows: [LiveReplayLeaderboardRow] {
         switch selectedFilter {
@@ -39,7 +65,14 @@ struct ReplayCompletionLeaderboardView: View {
                             currentUserPhotoURL: currentUserPhotoURL,
                             effectiveColorScheme: effectiveColorScheme
                         )
+                        .onAppear {
+                            onRowAppear(row)
+                        }
                     }
+                }
+
+                if isLoadingMore {
+                    loadingMoreState
                 }
             } else {
                 emptyState
@@ -107,6 +140,19 @@ struct ReplayCompletionLeaderboardView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 16)
+    }
+
+    private var loadingMoreState: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .tint(.accent)
+
+            Text("Loading more")
+                .font(.montserratSemiBold(size: 12))
+                .foregroundStyle(secondaryColor)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.vertical, 10)
     }
 
     private var emptyState: some View {

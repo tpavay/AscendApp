@@ -12,11 +12,14 @@ final class ClimbDetailViewModel {
     var completionLeaderboard: LiveReplayCompletionLeaderboard = .empty
     var personalFinisherStatus: LiveReplayFinisherStatus?
     var isLeaderboardLoading = false
+    var isLoadingMoreCompletionRows = false
     var leaderboardErrorMessage: String?
     var loadErrorMessage: String?
 
     private let climbService: ClimbService
     private let leaderboardService: LiveReplayLeaderboardServicing
+    private let completionLeaderboardPageSize = 25
+    private let completionLeaderboardPrefetchDistance = 5
 
     init(
         climb: Climb,
@@ -84,6 +87,10 @@ final class ClimbDetailViewModel {
         !completionLeaderboard.rows.isEmpty
     }
 
+    var hasMoreCompletionLeaderboardRows: Bool {
+        completionLeaderboard.hasMoreRows
+    }
+
     var completionLeaderboardRows: [LiveReplayLeaderboardRow] {
         completionLeaderboard.rows
     }
@@ -99,7 +106,19 @@ final class ClimbDetailViewModel {
 
     var personalFinisherOrder: Int? {
         personalFinisherStatus?.globalCompletionOrder ??
-            historySummary.globalCompletionOrder
+            historySummary.globalCompletionOrder ??
+            estimatedPendingPersonalFinisherOrder
+    }
+
+    private var estimatedPendingPersonalFinisherOrder: Int? {
+        guard historySummary.completionsCount > 0 else { return nil }
+
+        let knownCompletedCount = max(
+            leaderboardSummary.completedCount,
+            completionLeaderboard.completedCount
+        )
+
+        return knownCompletedCount + 1
     }
 
     var stripOrderText: String? {
@@ -122,11 +141,9 @@ final class ClimbDetailViewModel {
     }
 
     func refreshLeaderboardSummary(modelContext: ModelContext) async {
-        let context = LiveReplayLeaderboardContext.liveClimb(
-            climbId: climb.id,
-            targetSteps: climb.referenceStepCount
-        )
+        let context = leaderboardContext
         isLeaderboardLoading = true
+        isLoadingMoreCompletionRows = false
         leaderboardErrorMessage = nil
 
         async let fetchedSummary = leaderboardService.fetchSummary(context: context)
@@ -138,7 +155,9 @@ final class ClimbDetailViewModel {
         )
         async let fetchedCompletionLeaderboard = leaderboardService.fetchCompletionLeaderboard(
             context: context,
-            limit: 25
+            limit: completionLeaderboardPageSize,
+            cursor: nil,
+            forceRefresh: true
         )
         async let fetchedFinisherStatus = leaderboardService.fetchCurrentUserFinisherStatus(
             context: context
@@ -192,4 +211,70 @@ final class ClimbDetailViewModel {
         isLeaderboardLoading = false
     }
 
+    func loadMoreCompletionLeaderboardIfNeeded(currentRow: LiveReplayLeaderboardRow) {
+        guard shouldLoadMoreCompletionLeaderboard(afterAppearing: currentRow),
+              let cursor = completionLeaderboard.nextCursor else {
+            return
+        }
+
+        isLoadingMoreCompletionRows = true
+        let context = leaderboardContext
+
+        Task {
+            await loadMoreCompletionLeaderboard(
+                context: context,
+                cursor: cursor
+            )
+        }
+    }
+
+    private func loadMoreCompletionLeaderboard(
+        context: LiveReplayLeaderboardContext,
+        cursor: LiveReplayCompletionLeaderboardCursor
+    ) async {
+        do {
+            let nextPage = try await leaderboardService.fetchCompletionLeaderboard(
+                context: context,
+                limit: completionLeaderboardPageSize,
+                cursor: cursor,
+                forceRefresh: false
+            )
+            completionLeaderboard = completionLeaderboard.appending(nextPage)
+            leaderboardSummary = LiveReplayLeaderboardSummary(
+                totalClimbers: max(leaderboardSummary.totalClimbers, completionLeaderboard.completedCount),
+                completedCount: max(leaderboardSummary.completedCount, completionLeaderboard.completedCount),
+                personalBestDurationSeconds: leaderboardSummary.personalBestDurationSeconds,
+                firstAscent: leaderboardSummary.firstAscent,
+                updatedAt: leaderboardSummary.updatedAt ?? completionLeaderboard.updatedAt
+            )
+        } catch {
+            leaderboardErrorMessage = error.localizedDescription
+        }
+
+        isLoadingMoreCompletionRows = false
+    }
+
+    private func shouldLoadMoreCompletionLeaderboard(
+        afterAppearing row: LiveReplayLeaderboardRow
+    ) -> Bool {
+        guard !isLeaderboardLoading,
+              !isLoadingMoreCompletionRows,
+              hasMoreCompletionLeaderboardRows,
+              let rowIndex = completionLeaderboardRows.firstIndex(where: { $0.id == row.id }) else {
+            return false
+        }
+
+        let thresholdIndex = max(
+            completionLeaderboardRows.count - completionLeaderboardPrefetchDistance,
+            0
+        )
+        return rowIndex >= thresholdIndex
+    }
+
+    private var leaderboardContext: LiveReplayLeaderboardContext {
+        LiveReplayLeaderboardContext.liveClimb(
+            climbId: climb.id,
+            targetSteps: climb.referenceStepCount
+        )
+    }
 }

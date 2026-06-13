@@ -11,6 +11,7 @@ struct ShareComposerView: View {
 
     @State private var viewModel: ShareComposerViewModel
     @State private var showAddSheet = false
+    @State private var showFilterSheet = false
     @State private var showFontSheet = false
     @State private var showStructureSheet = false
     @State private var showRenameClimb = false
@@ -129,6 +130,20 @@ struct ShareComposerView: View {
                 }
             )
             .presentationDetents([.fraction(0.6), .large])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(Color(hex: "121212"))
+        }
+        .sheet(isPresented: $showFilterSheet) {
+            ShareBackgroundFilterSheet(
+                filters: viewModel.availableFilters,
+                current: viewModel.backgroundFilter,
+                onPick: { filter in
+                    HapticsManager.shared.trigger(.selection)
+                    viewModel.setFilter(filter)
+                    flashFilterName()
+                }
+            )
+            .presentationDetents([.height(300)])
             .presentationDragIndicator(.visible)
             .presentationBackground(Color(hex: "121212"))
         }
@@ -328,6 +343,11 @@ struct ShareComposerView: View {
                     viewModel.background = nil
                 }
                 Spacer()
+                circleButton(systemName: "camera.filters") {
+                    viewModel.deselect()
+                    HapticsManager.shared.trigger(.lightImpact)
+                    showFilterSheet = true
+                }
             }
             .padding(.horizontal, 12)
             .padding(.top, 52)
@@ -774,6 +794,89 @@ private struct ShareAddStatSheet: View {
             .font(.montserratSemiBold(size: 11))
             .tracking(2)
             .foregroundStyle(lime)
+    }
+}
+
+/// Detented background filter picker. This gives filters an explicit path after
+/// the background has been moved or scaled and canvas drags are reserved for pan.
+private struct ShareBackgroundFilterSheet: View {
+    let filters: [ShareBackgroundFilter]
+    let current: ShareBackgroundFilter
+    let onPick: (ShareBackgroundFilter) -> Void
+
+    private let lime = Color(red: 0.706, green: 0.8, blue: 0)
+    private let columns = [
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10)
+    ]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text("Background Filter")
+                .font(.montserratBold(size: 16))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.top, 20)
+                .padding(.bottom, 16)
+
+            LazyVGrid(columns: columns, spacing: 10) {
+                ForEach(filters) { filter in
+                    filterButton(filter)
+                }
+            }
+            .padding(.horizontal, 20)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private func filterButton(_ filter: ShareBackgroundFilter) -> some View {
+        let isOn = filter == current
+
+        return Button {
+            onPick(filter)
+        } label: {
+            VStack(spacing: 8) {
+                Image(systemName: filterIcon(filter))
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(isOn ? .black : .white)
+
+                Text(filter.displayName.uppercased())
+                    .font(.montserratSemiBold(size: 9))
+                    .tracking(1)
+                    .foregroundStyle(isOn ? .black.opacity(0.72) : Color.customGray)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 70)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(isOn ? lime : .white.opacity(0.05))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(isOn ? lime : .white.opacity(0.08), lineWidth: isOn ? 2 : 1)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func filterIcon(_ filter: ShareBackgroundFilter) -> String {
+        switch filter {
+        case .original: return "circle"
+        case .mono: return "circle.lefthalf.filled"
+        case .noir: return "moon.fill"
+        case .vivid: return "sun.max.fill"
+        case .fade: return "cloud.fill"
+        case .warm: return "thermometer.sun.fill"
+        case .cool: return "snowflake"
+        case .zoomBlur: return "camera.metering.matrix"
+        case .motionBlur: return "wind"
+        case .fisheye: return "circle.grid.cross"
+        }
     }
 }
 

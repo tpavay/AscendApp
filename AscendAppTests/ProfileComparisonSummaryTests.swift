@@ -27,6 +27,7 @@ struct ProfileComparisonSummaryTests {
         #expect(comparison.sharedClimbCount == 2)
         #expect(comparison.viewerWins == 1)
         #expect(comparison.otherUserWins == 1)
+        #expect(comparison.ties == 0)
     }
 
     private func snapshot(userId: String, workouts: [ProfileWorkoutSummary]) -> ProfileSnapshot {
@@ -39,9 +40,13 @@ struct ProfileComparisonSummaryTests {
                 mostCompletedClimbId: nil,
                 currentStreakWeeks: 0,
                 bestStreakWeeks: 0,
-                prMostSteps: 0,
-                prLongestClimbSeconds: 0,
-                prHighestSPM: 0
+            prMostSteps: 0,
+            prLongestClimbSeconds: 0,
+            prHighestSPM: 0,
+            lifetimeTotalSteps: workouts.reduce(0) { $0 + $1.steps },
+            lifetimeDurationSeconds: Int(workouts.reduce(0.0) { $0 + $1.durationSeconds }),
+            totalClimbs: workouts.count,
+            averageStepsPerMinute: 0
             ),
             standings: [],
             activityWorkouts: workouts,
@@ -70,7 +75,9 @@ struct ProfileComparisonSummaryTests {
             steps: 1_000,
             source: .headphoneMotion,
             climbId: climbId,
-            climbTier: .common
+            climbTier: .common,
+            climbCompletionStatus: .completed,
+            climbCompletionDurationSeconds: Int(duration)
         )
     }
 }

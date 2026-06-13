@@ -88,17 +88,12 @@ final class ProfileScreenViewModel {
             let standings = await loadedStandings
             let firstAscents = await firstAscentSummaries
             let achievementCounts = bundle.stats?.achievementCounts ?? ProfileAchievementCounts(records: bundle.achievements)
-            let stats = bundle.stats ?? ProfileStatsSnapshot(
-                totalClimbsCompleted: Set(bundle.workoutSummaries.compactMap(\.climbId)).count,
-                totalFirstAscents: firstAscents.held.count,
-                achievementCounts: achievementCounts,
-                mostCompletedClimbId: nil,
-                currentStreakWeeks: 0,
-                bestStreakWeeks: 0,
-                prMostSteps: bundle.workoutSummaries.map(\.steps).max() ?? 0,
-                prLongestClimbSeconds: Int((bundle.workoutSummaries.map(\.durationSeconds).max() ?? 0).rounded()),
-                prHighestSPM: bestSPM(from: bundle.workoutSummaries)
+            let fallbackStats = fallbackStatsSnapshot(
+                summaries: bundle.workoutSummaries,
+                firstAscentCount: firstAscents.held.count,
+                achievementCounts: achievementCounts
             )
+            let stats = mergedStats(remote: bundle.stats, fallback: fallbackStats)
             var identity = bundle.identity ?? seedIdentity
             if identity.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 identity.displayName = seedIdentity.displayName
@@ -174,11 +169,74 @@ final class ProfileScreenViewModel {
             age: storedProfile?.age,
             gender: storedProfile?.gender.flatMap(ProfileGender.init(rawValue:)),
             weightKg: storedProfile?.weightKg,
+            heightCm: storedProfile?.heightCm,
             locationCity: storedProfile?.locationCity,
             locationCountryCode: storedProfile?.locationCountry,
             locationRegionCode: storedProfile?.locationRegion,
             joinedAt: storedProfile?.joinedAt ?? joinedAt
         )
+    }
+
+    private func fallbackStatsSnapshot(
+        summaries: [ProfileWorkoutSummary],
+        firstAscentCount: Int,
+        achievementCounts: ProfileAchievementCounts
+    ) -> ProfileStatsSnapshot {
+        let lifetimeTotalSteps = summaries.reduce(0) { $0 + $1.steps }
+        let lifetimeDurationSeconds = Int(summaries.reduce(0.0) { $0 + $1.durationSeconds }.rounded())
+        let completedClimbIds = Set(summaries.filter(\.isCompletedClimb).compactMap(\.climbId))
+
+        return ProfileStatsSnapshot(
+            totalClimbsCompleted: completedClimbIds.count,
+            totalFirstAscents: firstAscentCount,
+            achievementCounts: achievementCounts,
+            mostCompletedClimbId: nil,
+            currentStreakWeeks: 0,
+            bestStreakWeeks: 0,
+            prMostSteps: summaries.map(\.steps).max() ?? 0,
+            prLongestClimbSeconds: Int((summaries.map(\.durationSeconds).max() ?? 0).rounded()),
+            prHighestSPM: bestSPM(from: summaries),
+            lifetimeTotalSteps: lifetimeTotalSteps,
+            lifetimeDurationSeconds: lifetimeDurationSeconds,
+            totalClimbs: summaries.count,
+            averageStepsPerMinute: lifetimeDurationSeconds > 0
+                ? Double(lifetimeTotalSteps) / (Double(lifetimeDurationSeconds) / 60.0)
+                : 0
+        )
+    }
+
+    private func mergedStats(
+        remote: ProfileStatsSnapshot?,
+        fallback: ProfileStatsSnapshot
+    ) -> ProfileStatsSnapshot {
+        guard var remote else { return fallback }
+
+        if remote.lifetimeTotalSteps == 0 && fallback.lifetimeTotalSteps > 0 {
+            remote.lifetimeTotalSteps = fallback.lifetimeTotalSteps
+        }
+        if remote.lifetimeDurationSeconds == 0 && fallback.lifetimeDurationSeconds > 0 {
+            remote.lifetimeDurationSeconds = fallback.lifetimeDurationSeconds
+        }
+        if remote.totalClimbs == 0 && fallback.totalClimbs > 0 {
+            remote.totalClimbs = fallback.totalClimbs
+        }
+        if remote.averageStepsPerMinute == 0 && fallback.averageStepsPerMinute > 0 {
+            remote.averageStepsPerMinute = fallback.averageStepsPerMinute
+        }
+        if remote.totalClimbsCompleted == 0 && fallback.totalClimbsCompleted > 0 {
+            remote.totalClimbsCompleted = fallback.totalClimbsCompleted
+        }
+        if remote.prMostSteps == 0 && fallback.prMostSteps > 0 {
+            remote.prMostSteps = fallback.prMostSteps
+        }
+        if remote.prLongestClimbSeconds == 0 && fallback.prLongestClimbSeconds > 0 {
+            remote.prLongestClimbSeconds = fallback.prLongestClimbSeconds
+        }
+        if remote.prHighestSPM == 0 && fallback.prHighestSPM > 0 {
+            remote.prHighestSPM = fallback.prHighestSPM
+        }
+
+        return remote
     }
 
     private func bestSPM(from summaries: [ProfileWorkoutSummary]) -> Double {

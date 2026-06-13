@@ -91,14 +91,14 @@ struct WorkoutTrendBarChartView: View {
                     x: .value("Month", bucket.startDate, unit: .month),
                     y: .value(title, valueForBucket(bucket))
                 )
-                .foregroundStyle(isSelected(bucket) ? Color.accentColor : Color.accentColor.opacity(0.85))
+                .foregroundStyle(isSelected(bucket) ? Color.ascendAccent : Color.ascendAccent.opacity(0.85))
                 .clipShape(.rect(cornerRadius: 4))
             }
 
             // Selection indicator
             if selectedDate != nil, let bucket = selectedBucket {
                 RuleMark(x: .value("Selected", bucket.startDate, unit: .month))
-                    .foregroundStyle(Color.accentColor.opacity(0.4))
+                    .foregroundStyle(Color.ascendAccent.opacity(0.4))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [5]))
                     .zIndex(-1)
             }
@@ -241,7 +241,7 @@ struct WorkoutTrendBarChartView: View {
                 .fill(colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.05))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.accentColor.opacity(0.25), lineWidth: 1)
+                        .stroke(Color.ascendAccent.opacity(0.25), lineWidth: 1)
                 )
         )
     }

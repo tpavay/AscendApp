@@ -16,7 +16,9 @@ protocol LiveReplayLeaderboardServicing: Sendable {
 
     func fetchCompletionLeaderboard(
         context: LiveReplayLeaderboardContext,
-        limit: Int
+        limit: Int,
+        cursor: LiveReplayCompletionLeaderboardCursor?,
+        forceRefresh: Bool
     ) async throws -> LiveReplayCompletionLeaderboard
 
     func refreshIfNeeded(
@@ -27,20 +29,54 @@ protocol LiveReplayLeaderboardServicing: Sendable {
     ) async throws -> LiveReplayLeaderboardWindow?
 }
 
+extension LiveReplayLeaderboardServicing {
+    func fetchCompletionLeaderboard(
+        context: LiveReplayLeaderboardContext,
+        limit: Int
+    ) async throws -> LiveReplayCompletionLeaderboard {
+        try await fetchCompletionLeaderboard(
+            context: context,
+            limit: limit,
+            cursor: nil,
+            forceRefresh: false
+        )
+    }
+
+    func fetchCompletionLeaderboard(
+        context: LiveReplayLeaderboardContext,
+        limit: Int,
+        cursor: LiveReplayCompletionLeaderboardCursor?
+    ) async throws -> LiveReplayCompletionLeaderboard {
+        try await fetchCompletionLeaderboard(
+            context: context,
+            limit: limit,
+            cursor: cursor,
+            forceRefresh: false
+        )
+    }
+}
+
 actor LiveReplayLeaderboardService: LiveReplayLeaderboardServicing {
     static let shared = LiveReplayLeaderboardService(
         repository: FirestoreLiveReplayLeaderboardRepository.shared
     )
+
+    private struct CompletionLeaderboardCache {
+        var leaderboard: LiveReplayCompletionLeaderboard
+        var fetchedAt: Date
+    }
 
     private let repository: LiveReplayLeaderboardRepository
     private let minFetchInterval: TimeInterval
     private let rowsAhead: Int
     private let rowsBehind: Int
     private let fetchTimeoutSeconds: Double
+    private let completionCacheTTL: TimeInterval
     private let now: @Sendable () -> Date
 
     private var lastFetchAtByContext: [String: Date] = [:]
     private var lastBucketByContext: [String: Int] = [:]
+    private var completionCacheByContext: [String: CompletionLeaderboardCache] = [:]
 
     init(
         repository: LiveReplayLeaderboardRepository,
@@ -48,6 +84,7 @@ actor LiveReplayLeaderboardService: LiveReplayLeaderboardServicing {
         rowsAhead: Int = 8,
         rowsBehind: Int = 8,
         fetchTimeoutSeconds: Double = 6,
+        completionCacheTTL: TimeInterval = 300,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.repository = repository
@@ -55,6 +92,7 @@ actor LiveReplayLeaderboardService: LiveReplayLeaderboardServicing {
         self.rowsAhead = max(rowsAhead, 0)
         self.rowsBehind = max(rowsBehind, 0)
         self.fetchTimeoutSeconds = max(fetchTimeoutSeconds, 1)
+        self.completionCacheTTL = max(completionCacheTTL, 0)
         self.now = now
     }
 
@@ -82,12 +120,43 @@ actor LiveReplayLeaderboardService: LiveReplayLeaderboardServicing {
 
     func fetchCompletionLeaderboard(
         context: LiveReplayLeaderboardContext,
-        limit: Int
+        limit: Int,
+        cursor: LiveReplayCompletionLeaderboardCursor?,
+        forceRefresh: Bool = false
     ) async throws -> LiveReplayCompletionLeaderboard {
-        try await repository.fetchCompletionLeaderboard(
+        let key = context.contextKey
+        let currentDate = now()
+
+        if cursor == nil,
+           !forceRefresh,
+           let cached = completionCacheByContext[key],
+           currentDate.timeIntervalSince(cached.fetchedAt) < completionCacheTTL,
+           cached.leaderboard.rows.count >= max(limit, 1) || !cached.leaderboard.hasMoreRows {
+            return cached.leaderboard
+        }
+
+        let page = try await repository.fetchCompletionLeaderboard(
             context: context,
-            limit: limit
+            limit: limit,
+            cursor: cursor,
+            forceRefresh: forceRefresh
         )
+
+        if cursor != nil {
+            let cachedLeaderboard = completionCacheByContext[key]?.leaderboard ?? .empty
+            let mergedLeaderboard = cachedLeaderboard.appending(page)
+            completionCacheByContext[key] = CompletionLeaderboardCache(
+                leaderboard: mergedLeaderboard,
+                fetchedAt: currentDate
+            )
+            return page
+        }
+
+        completionCacheByContext[key] = CompletionLeaderboardCache(
+            leaderboard: page,
+            fetchedAt: currentDate
+        )
+        return page
     }
 
     func refreshIfNeeded(

@@ -6,7 +6,7 @@ struct OnboardingPrimaryCTAButtonStyle: ButtonStyle {
     var height: CGFloat = 58
     var cornerRadius: CGFloat = 14
     var fontSize: CGFloat = 17
-    var tint: Color = Color.accentColor
+    var tint: Color = Color.ascendAccent
     var shadowOpacity: Double = 0
 
     func makeBody(configuration: Configuration) -> some View {

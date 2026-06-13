@@ -2,6 +2,7 @@ import Foundation
 
 enum LiveReplayLeaderboardContextType: String, Codable, Sendable {
     case liveClimb = "live_climb"
+    case justClimb = "just_climb"
     case routineTemplate = "routine_template"
     case routine = "routine"
 }
@@ -32,6 +33,18 @@ struct LiveReplayLeaderboardContext: Hashable, Codable, Sendable {
         LiveReplayLeaderboardContext(
             type: .liveClimb,
             id: climbId,
+            targetSteps: targetSteps,
+            bucketIntervalSeconds: bucketIntervalSeconds
+        )
+    }
+
+    static func justClimbGlobal(
+        targetSteps: Int = JustClimbGoal.defaultOpenStepScale,
+        bucketIntervalSeconds: Int = 10
+    ) -> LiveReplayLeaderboardContext {
+        LiveReplayLeaderboardContext(
+            type: .justClimb,
+            id: "global",
             targetSteps: targetSteps,
             bucketIntervalSeconds: bucketIntervalSeconds
         )

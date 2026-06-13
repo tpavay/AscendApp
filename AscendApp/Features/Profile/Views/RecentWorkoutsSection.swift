@@ -19,7 +19,7 @@ struct RecentWorkoutsSection: View {
                         if mode == .own {
                             Text("Open today's climb")
                                 .font(.montserratSemiBold(size: 12))
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(Color.ascendAccent)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -50,7 +50,7 @@ struct RecentWorkoutsSection: View {
                 } label: {
                     Text("VIEW ALL")
                         .font(.montserratSemiBold(size: 11))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Color.ascendAccent)
                         .tracking(1.2)
                 }
                 .buttonStyle(.plain)
@@ -68,7 +68,7 @@ struct RecentWorkoutsSection: View {
         let row = ProfileCardSurfaceView {
             HStack(spacing: 12) {
                 RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(summary.climbTier?.color ?? (summary.isLiveClimb ? Color.accentColor : Color.white.opacity(0.18)))
+                    .fill(summary.climbTier?.color ?? (summary.isLiveClimb ? Color.ascendAccent : Color.white.opacity(0.18)))
                     .frame(width: 4)
                     .padding(.vertical, 8)
 

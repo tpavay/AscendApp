@@ -2,9 +2,101 @@
 import SwiftData
 import SwiftUI
 
+enum ClimbDetailOnboardingCoachMode {
+    case firstClimb
+}
+
+private enum ClimbDetailCoachStep: Int, CaseIterable {
+    case start
+    case leaderboard
+    case browse
+
+    var title: String {
+        switch self {
+        case .start:
+            return "Start here"
+        case .leaderboard:
+            return "Race the board"
+        case .browse:
+            return "Pick your next climb"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .start:
+            return "When you are on the stair stepper, tap the climb button to start the live attempt."
+        case .leaderboard:
+            return "The leaderboard shows completed times for this landmark. Finish the climb to put your name on it."
+        case .browse:
+            return "Use the globe button anytime to browse every landmark and choose another climb."
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .start:
+            return "figure.stairs"
+        case .leaderboard:
+            return "list.number"
+        case .browse:
+            return "globe.americas.fill"
+        }
+    }
+
+    var primaryActionTitle: String {
+        self == .browse ? "DONE" : "NEXT"
+    }
+
+    var cardHeight: CGFloat {
+        switch self {
+        case .start:
+            return 236
+        case .leaderboard:
+            return 250
+        case .browse:
+            return 230
+        }
+    }
+
+    var spotlightCornerRadius: CGFloat {
+        switch self {
+        case .start:
+            return 22
+        case .leaderboard:
+            return 24
+        case .browse:
+            return 26
+        }
+    }
+
+    var spotlightPadding: CGFloat {
+        switch self {
+        case .start:
+            return 6
+        case .leaderboard:
+            return 4
+        case .browse:
+            return 8
+        }
+    }
+
+    var next: ClimbDetailCoachStep? {
+        switch self {
+        case .start:
+            return .leaderboard
+        case .leaderboard:
+            return .browse
+        case .browse:
+            return nil
+        }
+    }
+}
+
 struct ClimbDetailView: View {
     let showsBrowseBackButton: Bool
     let analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint
+    let onboardingCoach: ClimbDetailOnboardingCoachMode?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -23,14 +115,19 @@ struct ClimbDetailView: View {
     @State private var browseViewModel = GlobeViewModel()
     @State private var headphoneMotionService = HeadphoneMotionReadinessService.shared
     @State private var actionErrorMessage: String?
+    @State private var didStartOnboardingCoach = false
+    @State private var activeCoachStep: ClimbDetailCoachStep?
+    @State private var coachTargetFrames: [ClimbDetailCoachStep: CGRect] = [:]
 
     init(
         climb: Climb,
         showsBrowseBackButton: Bool = false,
-        analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown
+        analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown,
+        onboardingCoach: ClimbDetailOnboardingCoachMode? = nil
     ) {
         self.showsBrowseBackButton = showsBrowseBackButton
         self.analyticsEntryPoint = analyticsEntryPoint
+        self.onboardingCoach = onboardingCoach
         _viewModel = State(initialValue: ClimbDetailViewModel(climb: climb))
     }
 
@@ -91,6 +188,10 @@ struct ClimbDetailView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .background(coachTargetFrameReader(for: .browse))
+                .overlay {
+                    coachTargetCircleHighlight(for: .browse)
+                }
                 .accessibilityLabel("Browse climbs")
             }
         }
@@ -121,11 +222,20 @@ struct ClimbDetailView: View {
         } message: {
             Text(actionErrorMessage ?? "Something went wrong.")
         }
+        .overlay {
+            if let activeCoachStep {
+                GeometryReader { proxy in
+                    climbDetailCoachOverlay(step: activeCoachStep, proxy: proxy)
+                }
+                .ignoresSafeArea()
+            }
+        }
         .task {
             trackDetailViewedIfNeeded()
             headphoneMotionService.refresh()
             viewModel.refresh(modelContext: modelContext)
             await viewModel.refreshLeaderboardSummary(modelContext: modelContext)
+            startOnboardingCoachIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             headphoneMotionService.refresh()
@@ -141,6 +251,248 @@ struct ClimbDetailView: View {
             Task {
                 await viewModel.refreshLeaderboardSummary(modelContext: modelContext)
             }
+        }
+    }
+
+    private func startOnboardingCoachIfNeeded() {
+        guard onboardingCoach == .firstClimb, !didStartOnboardingCoach else { return }
+
+        didStartOnboardingCoach = true
+        selectedPage = 0
+        withAnimation(.easeInOut(duration: 0.22)) {
+            activeCoachStep = .start
+        }
+    }
+
+    private func climbDetailCoachOverlay(step: ClimbDetailCoachStep, proxy: GeometryProxy) -> some View {
+        let targetFrame = localCoachTargetFrame(for: step, in: proxy)
+        let spotlightFrame = coachSpotlightFrame(for: step, targetFrame: targetFrame, containerSize: proxy.size)
+        let cardWidth = min(proxy.size.width - 36, 366)
+        let cardPosition = coachCardPosition(
+            for: step,
+            targetFrame: targetFrame,
+            containerSize: proxy.size,
+            cardSize: CGSize(width: cardWidth, height: step.cardHeight)
+        )
+
+        return ZStack(alignment: .topLeading) {
+            ClimbDetailCoachScrim(
+                spotlightFrame: spotlightFrame,
+                cornerRadius: step.spotlightCornerRadius
+            )
+            .fill(Color.black.opacity(0.64), style: FillStyle(eoFill: true))
+            .ignoresSafeArea()
+
+            if let spotlightFrame {
+                RoundedRectangle(cornerRadius: step.spotlightCornerRadius, style: .continuous)
+                    .stroke(Color.accent.opacity(0.95), lineWidth: 2)
+                    .shadow(color: Color.accent.opacity(0.52), radius: 16, x: 0, y: 0)
+                    .frame(width: spotlightFrame.width, height: spotlightFrame.height)
+                    .position(x: spotlightFrame.midX, y: spotlightFrame.midY)
+                    .allowsHitTesting(false)
+            }
+
+            climbDetailCoachCard(step: step)
+                .frame(width: cardWidth, height: step.cardHeight, alignment: .topLeading)
+                .position(cardPosition)
+                .transition(.scale(scale: 0.98).combined(with: .opacity))
+        }
+        .animation(.easeInOut(duration: 0.22), value: step)
+    }
+
+    private func climbDetailCoachCard(step: ClimbDetailCoachStep) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .center, spacing: 12) {
+                Image(systemName: step.iconName)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.black)
+                    .frame(width: 40, height: 40)
+                    .background(Circle().fill(Color.accent))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(step.title)
+                        .font(.montserratBold(size: 20))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+
+                    Text("\(step.rawValue + 1) of \(ClimbDetailCoachStep.allCases.count)")
+                        .font(.montserratSemiBold(size: 11))
+                        .tracking(1.1)
+                        .foregroundStyle(Color.accent)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            Text(step.message)
+                .font(.montserratMedium(size: 14))
+                .foregroundStyle(.white.opacity(0.72))
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 12) {
+                Button(action: finishCoach) {
+                    Text("Skip")
+                        .font(.montserratBold(size: 13))
+                        .foregroundStyle(.white.opacity(0.58))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                }
+                .buttonStyle(.plain)
+
+                Button(action: advanceCoach) {
+                    Text(step.primaryActionTitle)
+                        .font(.montserratBold(size: 14))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(Color.accent)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color(hex: "151515"))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(.white.opacity(0.1), lineWidth: 1)
+                )
+        )
+        .shadow(color: .black.opacity(0.42), radius: 22, x: 0, y: 14)
+    }
+
+    private func localCoachTargetFrame(for step: ClimbDetailCoachStep, in proxy: GeometryProxy) -> CGRect? {
+        guard let frame = coachTargetFrames[step],
+              frame.width.isFinite,
+              frame.height.isFinite,
+              frame.width > 0,
+              frame.height > 0 else {
+            return nil
+        }
+
+        let rootFrame = proxy.frame(in: .global)
+        return frame.offsetBy(dx: -rootFrame.minX, dy: -rootFrame.minY)
+    }
+
+    private func coachSpotlightFrame(
+        for step: ClimbDetailCoachStep,
+        targetFrame: CGRect?,
+        containerSize: CGSize
+    ) -> CGRect? {
+        guard let targetFrame else { return nil }
+
+        let paddedFrame = targetFrame.insetBy(dx: -step.spotlightPadding, dy: -step.spotlightPadding)
+        let visibleBounds = CGRect(origin: .zero, size: containerSize)
+        guard paddedFrame.intersects(visibleBounds) else { return nil }
+
+        return paddedFrame
+    }
+
+    private func coachCardPosition(
+        for step: ClimbDetailCoachStep,
+        targetFrame: CGRect?,
+        containerSize: CGSize,
+        cardSize: CGSize
+    ) -> CGPoint {
+        let margin: CGFloat = 18
+        let gap: CGFloat = 18
+        let x = containerSize.width / 2
+        let fallbackY = containerSize.height - margin - cardSize.height / 2
+        guard let targetFrame else {
+            return CGPoint(x: x, y: fallbackY)
+        }
+
+        let bottomSpace = containerSize.height - targetFrame.maxY - margin
+        let topSpace = targetFrame.minY - margin
+        let minY = margin + cardSize.height / 2
+        let maxY = containerSize.height - margin - cardSize.height / 2
+
+        if bottomSpace >= cardSize.height + gap || bottomSpace >= topSpace {
+            let proposedY = targetFrame.maxY + gap + cardSize.height / 2
+            return CGPoint(x: x, y: min(max(proposedY, minY), maxY))
+        }
+
+        let proposedY = targetFrame.minY - gap - cardSize.height / 2
+        return CGPoint(x: x, y: min(max(proposedY, minY), maxY))
+    }
+
+    private func coachTargetFrameReader(for step: ClimbDetailCoachStep) -> some View {
+        ClimbDetailCoachTargetFrameReader { frame in
+            updateCoachTargetFrame(frame, for: step)
+        }
+    }
+
+    @ViewBuilder
+    private func coachTargetRoundedHighlight(
+        for step: ClimbDetailCoachStep,
+        cornerRadius: CGFloat
+    ) -> some View {
+        if activeCoachStep == step {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(Color.accent.opacity(0.96), lineWidth: 2.5)
+                .shadow(color: Color.accent.opacity(0.62), radius: 13, x: 0, y: 0)
+                .padding(-5)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+        }
+    }
+
+    @ViewBuilder
+    private func coachTargetCircleHighlight(for step: ClimbDetailCoachStep) -> some View {
+        if activeCoachStep == step {
+            Circle()
+                .stroke(Color.accent.opacity(0.96), lineWidth: 2.5)
+                .shadow(color: Color.accent.opacity(0.62), radius: 13, x: 0, y: 0)
+                .padding(-5)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+        }
+    }
+
+    private func updateCoachTargetFrame(_ frame: CGRect, for step: ClimbDetailCoachStep) {
+        guard frame.width.isFinite,
+              frame.height.isFinite,
+              frame.width > 0,
+              frame.height > 0 else { return }
+
+        guard coachTargetFrames[step] != frame else { return }
+
+        DispatchQueue.main.async {
+            coachTargetFrames[step] = frame
+        }
+    }
+
+    private func advanceCoach() {
+        guard let activeCoachStep else { return }
+
+        guard let next = activeCoachStep.next else {
+            finishCoach()
+            return
+        }
+
+        if next == .leaderboard {
+            selectedPage = 2
+        } else if next == .browse {
+            selectedPage = 0
+        }
+
+        withAnimation(.easeInOut(duration: 0.22)) {
+            self.activeCoachStep = next
+        }
+    }
+
+    private func finishCoach() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            activeCoachStep = nil
         }
     }
 
@@ -391,6 +743,16 @@ struct ClimbDetailView: View {
                         .contentShape(Capsule(style: .continuous))
                 }
                 .buttonStyle(.plain)
+                .background {
+                    if index == 2 {
+                        coachTargetFrameReader(for: .leaderboard)
+                    }
+                }
+                .overlay {
+                    if index == 2 {
+                        coachTargetRoundedHighlight(for: .leaderboard, cornerRadius: 22)
+                    }
+                }
                 .accessibilityLabel(Self.detailPageTitles[index].capitalized)
                 .accessibilityValue(index == selectedPage ? "Selected" : "")
             }
@@ -605,6 +967,13 @@ struct ClimbDetailView: View {
                 VStack(spacing: 8) {
                     ForEach(viewModel.completionLeaderboardRows) { row in
                         leaderboardRow(for: row)
+                            .onAppear {
+                                viewModel.loadMoreCompletionLeaderboardIfNeeded(currentRow: row)
+                            }
+                    }
+
+                    if viewModel.isLoadingMoreCompletionRows {
+                        leaderboardLoadingMoreState
                     }
                 }
             } else if !viewModel.shouldShowPersonalRankSummary {
@@ -650,6 +1019,19 @@ struct ClimbDetailView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 24)
+    }
+
+    private var leaderboardLoadingMoreState: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .tint(.accent)
+
+            Text("Loading more")
+                .font(.montserratSemiBold(size: 12))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.52) : .black.opacity(0.48))
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.vertical, 10)
     }
 
     private var leaderboardEmptyState: some View {
@@ -1294,6 +1676,10 @@ struct ClimbDetailView: View {
             }
             .buttonStyle(.plain)
             .disabled(!isPrimaryActionEnabled)
+            .background(coachTargetFrameReader(for: .start))
+            .overlay {
+                coachTargetRoundedHighlight(for: .start, cornerRadius: 22)
+            }
 
             Button {
                 showingHeadphoneHelp = true
@@ -1455,6 +1841,43 @@ struct ClimbDetailView: View {
         )
     }
 
+}
+
+private struct ClimbDetailCoachTargetFrameReader: View {
+    let onChange: (CGRect) -> Void
+
+    var body: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear {
+                    onChange(proxy.frame(in: .global))
+                }
+                .onChange(of: proxy.frame(in: .global)) { _, frame in
+                    onChange(frame)
+                }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct ClimbDetailCoachScrim: Shape {
+    let spotlightFrame: CGRect?
+    let cornerRadius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.addRect(rect)
+
+        if let spotlightFrame {
+            path.addRoundedRect(
+                in: spotlightFrame,
+                cornerSize: CGSize(width: cornerRadius, height: cornerRadius)
+            )
+        }
+
+        return path
+    }
 }
 
 private struct ClimbCommunityAvatar: Identifiable {

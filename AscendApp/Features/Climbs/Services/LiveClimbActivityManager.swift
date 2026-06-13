@@ -35,7 +35,7 @@ final class LiveClimbActivityManager {
     }
 
     func start(
-        climb: Climb,
+        climb: Climb?,
         sessionTitle: String,
         sessionSubtitle: String,
         targetSteps: Int,
@@ -53,7 +53,7 @@ final class LiveClimbActivityManager {
 
         let attributes = LiveClimbActivityAttributes(
             sessionID: UUID().uuidString,
-            climbID: climb.id,
+            climbID: climb?.id ?? "just-climb",
             climbName: sessionTitle,
             climbLocation: sessionSubtitle,
             targetSteps: max(targetSteps, 0)
@@ -85,13 +85,15 @@ final class LiveClimbActivityManager {
             return
         }
 
-        let photoRequest = LiveClimbActivityPhotoRequest(
-            climbID: climb.id,
-            imageSetVersion: climb.imageSetVersion
-        )
-        Task {
-            let photoURLString = await Self.resolvePhotoURLString(for: photoRequest)
-            await self.setPhotoURLString(photoURLString, sessionID: attributes.sessionID)
+        if let climb {
+            let photoRequest = LiveClimbActivityPhotoRequest(
+                climbID: climb.id,
+                imageSetVersion: climb.imageSetVersion
+            )
+            Task {
+                let photoURLString = await Self.resolvePhotoURLString(for: photoRequest)
+                await self.setPhotoURLString(photoURLString, sessionID: attributes.sessionID)
+            }
         }
     }
 

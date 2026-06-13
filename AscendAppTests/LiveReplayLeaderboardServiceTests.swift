@@ -98,6 +98,60 @@ struct LiveReplayLeaderboardServiceTests {
         #expect(status?.bestCompletionDurationSeconds == 872)
         #expect(await repository.fetchFinisherStatusCount == 1)
     }
+
+    @Test
+    func cachesCompletionLeaderboardFirstPageWithinTTL() async throws {
+        let repository = MockLiveReplayLeaderboardRepository()
+        let fixedDate = Date(timeIntervalSince1970: 1_777_777_777)
+        let service = LiveReplayLeaderboardService(
+            repository: repository,
+            completionCacheTTL: 300,
+            now: { fixedDate }
+        )
+        let context = LiveReplayLeaderboardContext.liveClimb(
+            climbId: "pyramid-giza",
+            targetSteps: 809
+        )
+
+        _ = try await service.fetchCompletionLeaderboard(
+            context: context,
+            limit: 25
+        )
+        _ = try await service.fetchCompletionLeaderboard(
+            context: context,
+            limit: 25
+        )
+
+        #expect(await repository.fetchCompletionLeaderboardCount == 1)
+    }
+
+    @Test
+    func forceRefreshBypassesCompletionLeaderboardCache() async throws {
+        let repository = MockLiveReplayLeaderboardRepository()
+        let fixedDate = Date(timeIntervalSince1970: 1_777_777_777)
+        let service = LiveReplayLeaderboardService(
+            repository: repository,
+            completionCacheTTL: 300,
+            now: { fixedDate }
+        )
+        let context = LiveReplayLeaderboardContext.liveClimb(
+            climbId: "pyramid-giza",
+            targetSteps: 809
+        )
+
+        _ = try await service.fetchCompletionLeaderboard(
+            context: context,
+            limit: 25
+        )
+        _ = try await service.fetchCompletionLeaderboard(
+            context: context,
+            limit: 25,
+            cursor: nil,
+            forceRefresh: true
+        )
+
+        #expect(await repository.fetchCompletionLeaderboardCount == 2)
+    }
 }
 
 private final class MutableDateProvider: @unchecked Sendable {
@@ -115,6 +169,7 @@ private final class MutableDateProvider: @unchecked Sendable {
 private actor MockLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepository {
     private(set) var fetchWindowCount = 0
     private(set) var fetchFinisherStatusCount = 0
+    private(set) var fetchCompletionLeaderboardCount = 0
 
     func fetchSummary(
         context: LiveReplayLeaderboardContext
@@ -153,9 +208,13 @@ private actor MockLiveReplayLeaderboardRepository: LiveReplayLeaderboardReposito
 
     func fetchCompletionLeaderboard(
         context: LiveReplayLeaderboardContext,
-        limit: Int
+        limit: Int,
+        cursor: LiveReplayCompletionLeaderboardCursor?,
+        forceRefresh: Bool
     ) async throws -> LiveReplayCompletionLeaderboard {
-        LiveReplayCompletionLeaderboard(
+        fetchCompletionLeaderboardCount += 1
+
+        return LiveReplayCompletionLeaderboard(
             rows: [
                 LiveReplayLeaderboardRow(
                     id: "attempt-a",

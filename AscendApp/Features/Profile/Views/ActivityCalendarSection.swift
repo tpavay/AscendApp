@@ -80,7 +80,7 @@ struct ActivityCalendarSection: View {
 
             Text(monthTitle)
                 .font(.montserratBold(size: 12))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.ascendAccent)
                 .tracking(1.2)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
@@ -108,7 +108,7 @@ struct ActivityCalendarSection: View {
         .labelStyle(.iconOnly)
         .buttonStyle(.plain)
         .font(.system(size: 18, weight: .bold))
-        .foregroundStyle(isEnabled ? Color.accentColor : ProfileVisualStyle.tertiaryText)
+        .foregroundStyle(isEnabled ? Color.ascendAccent : ProfileVisualStyle.tertiaryText)
         .frame(width: 28, height: 26)
         .contentShape(Rectangle())
         .disabled(!isEnabled)

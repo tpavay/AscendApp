@@ -16,7 +16,9 @@ protocol LiveReplayLeaderboardRepository: Sendable {
 
     func fetchCompletionLeaderboard(
         context: LiveReplayLeaderboardContext,
-        limit: Int
+        limit: Int,
+        cursor: LiveReplayCompletionLeaderboardCursor?,
+        forceRefresh: Bool
     ) async throws -> LiveReplayCompletionLeaderboard
 
     func fetchWindow(
@@ -26,4 +28,31 @@ protocol LiveReplayLeaderboardRepository: Sendable {
         rowsAhead: Int,
         rowsBehind: Int
     ) async throws -> LiveReplayLeaderboardWindow
+}
+
+extension LiveReplayLeaderboardRepository {
+    func fetchCompletionLeaderboard(
+        context: LiveReplayLeaderboardContext,
+        limit: Int
+    ) async throws -> LiveReplayCompletionLeaderboard {
+        try await fetchCompletionLeaderboard(
+            context: context,
+            limit: limit,
+            cursor: nil,
+            forceRefresh: false
+        )
+    }
+
+    func fetchCompletionLeaderboard(
+        context: LiveReplayLeaderboardContext,
+        limit: Int,
+        cursor: LiveReplayCompletionLeaderboardCursor?
+    ) async throws -> LiveReplayCompletionLeaderboard {
+        try await fetchCompletionLeaderboard(
+            context: context,
+            limit: limit,
+            cursor: cursor,
+            forceRefresh: false
+        )
+    }
 }

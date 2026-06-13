@@ -15,6 +15,7 @@ struct MainTabView: View {
     @Environment(NetworkConnectivityService.self) private var connectivityService
     @State private var themeManager = ThemeManager.shared
     @State private var tabRouter = TabRouter()
+    @State private var homeNavigationPath: [HomeNavigationDestination] = []
     @State private var homeDashboard = HomeDashboardViewModel()
     @State private var profileScreen = ProfileScreenViewModel()
     @State private var showBackOnlineBanner = false
@@ -24,6 +25,11 @@ struct MainTabView: View {
 
     // Easy configuration - just change this array to modify tabs
     private let tabs = TabItem.activeTabs
+
+    private enum HomeNavigationDestination: Hashable {
+        case onboardingFirstClimb(String)
+        case pushClimbDrop(String)
+    }
 
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: systemColorScheme)
@@ -48,13 +54,19 @@ struct MainTabView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             tabBar
         }
-        .accentColor(.accent)
+        .tint(Color.ascendAccent)
+        .accentColor(Color.ascendAccent)
         .environment(tabRouter)
         .task {
             rebuildBestEffortCacheIfNeeded()
+            consumePendingFirstClimbHandoffIfNeeded()
+            consumePendingPushDestinationIfNeeded()
         }
         .onChange(of: connectivityService.isConnected) { oldValue, newValue in
             handleConnectivityChange(from: oldValue, to: newValue)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .pushNotificationDestinationDidChange)) { _ in
+            consumePendingPushDestinationIfNeeded()
         }
         .themeAware()
         .animation(.smooth(duration: 0.2), value: connectivityService.isConnected)
@@ -65,8 +77,11 @@ struct MainTabView: View {
     private func tabContent(for tab: AppTab) -> some View {
         switch tab {
         case .home:
-            NavigationStack {
+            NavigationStack(path: $homeNavigationPath) {
                 HomeView(homeDashboard: homeDashboard)
+                    .navigationDestination(for: HomeNavigationDestination.self) { destination in
+                        homeDestination(for: destination)
+                    }
             }
             .id("HomeNavigationStack")
         case .training:
@@ -148,6 +163,57 @@ struct MainTabView: View {
             )
         } catch {
             print("Failed to rebuild Best Effort cache: \(error)")
+        }
+    }
+
+    @ViewBuilder
+    private func homeDestination(for destination: HomeNavigationDestination) -> some View {
+        switch destination {
+        case .onboardingFirstClimb(let climbId):
+            climbDetailDestination(for: climbId, analyticsEntryPoint: .homeDaily, onboardingCoach: .firstClimb)
+        case .pushClimbDrop(let climbId):
+            climbDetailDestination(for: climbId, analyticsEntryPoint: .homeExplore, onboardingCoach: nil)
+        }
+    }
+
+    @ViewBuilder
+    private func climbDetailDestination(
+        for climbId: String,
+        analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint,
+        onboardingCoach: ClimbDetailOnboardingCoachMode?
+    ) -> some View {
+        if let climb = try? ClimbService.shared.climb(for: climbId) {
+            ClimbDetailView(
+                climb: climb,
+                analyticsEntryPoint: analyticsEntryPoint,
+                onboardingCoach: onboardingCoach
+            )
+        } else {
+            Text("Climb unavailable")
+                .font(.montserratBold(size: 22))
+                .foregroundStyle(.white)
+                .themedBackground()
+        }
+    }
+
+    private func consumePendingFirstClimbHandoffIfNeeded() {
+        guard let userId = authVM.user?.uid else { return }
+        guard homeNavigationPath.isEmpty else { return }
+        guard let climbId = OnboardingFirstClimbHandoffStore().consume(for: userId) else { return }
+
+        tabRouter.selectedTab = .home
+        homeNavigationPath = [.onboardingFirstClimb(climbId)]
+    }
+
+    private func consumePendingPushDestinationIfNeeded() {
+        guard let destination = PushNotificationRouter.shared.consumePendingDestination() else { return }
+
+        switch destination {
+        case .climbDetail(let climbId):
+            if let climb = try? ClimbService.shared.climb(for: climbId) {
+                tabRouter.selectedTab = .home
+                homeNavigationPath = [.pushClimbDrop(climb.id)]
+            }
         }
     }
 

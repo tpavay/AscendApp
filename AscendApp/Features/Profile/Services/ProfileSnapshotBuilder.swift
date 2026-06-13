@@ -23,7 +23,11 @@ enum ProfileSnapshotBuilder {
             completedAttempts: completedAttempts,
             achievements: achievements
         )
-        let summaries = workoutSummaries(from: ownedWorkouts, climbs: climbs)
+        let summaries = workoutSummaries(
+            from: ownedWorkouts,
+            climbAttempts: climbAttempts,
+            climbs: climbs
+        )
         let records = recordSummary(
             workouts: ownedWorkouts,
             bestEffortCacheEntries: bestEffortCacheEntries
@@ -86,37 +90,52 @@ enum ProfileSnapshotBuilder {
         viewer: ProfileSnapshot,
         otherUser: ProfileSnapshot
     ) -> ProfileComparisonSummary {
-        let viewerClimbs = Set(viewer.activityWorkouts.compactMap(\.climbId))
-        let otherClimbs = Set(otherUser.activityWorkouts.compactMap(\.climbId))
+        let viewerClimbs = Set(viewer.activityWorkouts.filter(\.isCompletedClimb).compactMap(\.climbId))
+        let otherClimbs = Set(otherUser.activityWorkouts.filter(\.isCompletedClimb).compactMap(\.climbId))
 
-        if viewer.totalClimbsCompleted == 0 && otherUser.totalClimbsCompleted == 0 {
+        if otherUser.totalClimbs == 0 && otherUser.activityWorkouts.isEmpty {
+            return ProfileComparisonSummary(
+                state: .otherEmpty,
+                sharedClimbCount: 0,
+                viewerWins: 0,
+                otherUserWins: 0,
+                ties: 0,
+                viewerExclusiveCount: viewerClimbs.count,
+                otherExclusiveCount: 0
+            )
+        }
+
+        if viewerClimbs.isEmpty && otherClimbs.isEmpty {
             return ProfileComparisonSummary(
                 state: .hidden,
                 sharedClimbCount: 0,
                 viewerWins: 0,
                 otherUserWins: 0,
+                ties: 0,
                 viewerExclusiveCount: 0,
                 otherExclusiveCount: 0
             )
         }
 
-        if viewer.totalClimbsCompleted == 0 && otherUser.totalClimbsCompleted > 0 {
+        if viewerClimbs.isEmpty && !otherClimbs.isEmpty {
             return ProfileComparisonSummary(
                 state: .viewerEmpty,
                 sharedClimbCount: 0,
                 viewerWins: 0,
                 otherUserWins: 0,
+                ties: 0,
                 viewerExclusiveCount: 0,
                 otherExclusiveCount: otherClimbs.count
             )
         }
 
-        if viewer.totalClimbsCompleted > 0 && otherUser.totalClimbsCompleted == 0 {
+        if !viewerClimbs.isEmpty && otherClimbs.isEmpty {
             return ProfileComparisonSummary(
                 state: .hidden,
                 sharedClimbCount: 0,
                 viewerWins: 0,
                 otherUserWins: 0,
+                ties: 0,
                 viewerExclusiveCount: viewerClimbs.count,
                 otherExclusiveCount: 0
             )
@@ -124,10 +143,11 @@ enum ProfileSnapshotBuilder {
 
         let shared = viewerClimbs.intersection(otherClimbs)
         let state: ProfileComparisonSummary.State = shared.isEmpty ? .noSharedClimbs : .shared
-        let viewerBestDurations = bestDurationByClimb(viewer.activityWorkouts)
-        let otherBestDurations = bestDurationByClimb(otherUser.activityWorkouts)
+        let viewerBestDurations = bestCompletedDurationByClimb(viewer.activityWorkouts)
+        let otherBestDurations = bestCompletedDurationByClimb(otherUser.activityWorkouts)
         var viewerWins = 0
         var otherUserWins = 0
+        var ties = 0
 
         for climbId in shared {
             guard let viewerDuration = viewerBestDurations[climbId],
@@ -141,6 +161,8 @@ enum ProfileSnapshotBuilder {
                 viewerWins += 1
             } else if otherDuration < viewerDuration {
                 otherUserWins += 1
+            } else {
+                ties += 1
             }
         }
 
@@ -149,9 +171,58 @@ enum ProfileSnapshotBuilder {
             sharedClimbCount: shared.count,
             viewerWins: viewerWins,
             otherUserWins: otherUserWins,
+            ties: ties,
             viewerExclusiveCount: viewerClimbs.subtracting(otherClimbs).count,
             otherExclusiveCount: otherClimbs.subtracting(viewerClimbs).count
         )
+    }
+
+    static func headToHeadResults(
+        viewer: ProfileSnapshot,
+        otherUser: ProfileSnapshot,
+        climbs: [Climb]
+    ) -> [ProfileHeadToHeadClimbResult] {
+        let climbsByID = Dictionary(uniqueKeysWithValues: climbs.map { ($0.id, $0) })
+        let viewerBest = bestCompletedWorkoutByClimb(viewer.activityWorkouts)
+        let otherBest = bestCompletedWorkoutByClimb(otherUser.activityWorkouts)
+        let sharedClimbIDs = Set(viewerBest.keys).intersection(otherBest.keys)
+
+        return sharedClimbIDs.compactMap { climbId in
+            guard let viewerWorkout = viewerBest[climbId],
+                  let otherWorkout = otherBest[climbId],
+                  let viewerDuration = viewerWorkout.comparisonDurationSeconds,
+                  let otherDuration = otherWorkout.comparisonDurationSeconds,
+                  viewerDuration > 0,
+                  otherDuration > 0 else {
+                return nil
+            }
+
+            let climb = climbsByID[climbId]
+            let winner: ProfileHeadToHeadClimbResult.Winner
+            if viewerDuration < otherDuration {
+                winner = .viewer
+            } else if otherDuration < viewerDuration {
+                winner = .otherUser
+            } else {
+                winner = .tie
+            }
+
+            return ProfileHeadToHeadClimbResult(
+                id: climbId,
+                climbName: climb?.name ?? viewerWorkout.name,
+                stepCount: climb?.referenceStepCount ?? max(viewerWorkout.steps, otherWorkout.steps),
+                viewerDurationSeconds: viewerDuration,
+                otherUserDurationSeconds: otherDuration,
+                mostRecentAt: max(viewerWorkout.startedAt, otherWorkout.startedAt),
+                winner: winner
+            )
+        }
+        .sorted { lhs, rhs in
+            if lhs.mostRecentAt != rhs.mostRecentAt {
+                return lhs.mostRecentAt > rhs.mostRecentAt
+            }
+            return lhs.climbName < rhs.climbName
+        }
     }
 
     static func statsSnapshot(
@@ -163,6 +234,12 @@ enum ProfileSnapshotBuilder {
         let mostCompletedClimbId = Dictionary(grouping: completedAttempts, by: \.climbId)
             .max { lhs, rhs in lhs.value.count < rhs.value.count }?
             .key
+        let lifetimeTotalSteps = workouts.reduce(0) { $0 + $1.steps }
+        let lifetimeDurationSeconds = Int(workouts.reduce(0.0) { $0 + $1.duration }.rounded())
+        let totalClimbs = workouts.count
+        let averageStepsPerMinute = lifetimeDurationSeconds > 0
+            ? Double(lifetimeTotalSteps) / (Double(lifetimeDurationSeconds) / 60.0)
+            : 0
 
         return ProfileStatsSnapshot(
             totalClimbsCompleted: completedAttempts.count,
@@ -173,18 +250,26 @@ enum ProfileSnapshotBuilder {
             bestStreakWeeks: Workout.calculateLongestWeeklyStreak(from: workouts),
             prMostSteps: workouts.map(\.steps).max() ?? 0,
             prLongestClimbSeconds: Int((workouts.map(\.duration).max() ?? 0).rounded()),
-            prHighestSPM: workouts.compactMap(\.stepsPerMinute).max() ?? 0
+            prHighestSPM: workouts.compactMap(\.stepsPerMinute).max() ?? 0,
+            lifetimeTotalSteps: lifetimeTotalSteps,
+            lifetimeDurationSeconds: lifetimeDurationSeconds,
+            totalClimbs: totalClimbs,
+            averageStepsPerMinute: averageStepsPerMinute
         )
     }
 
     static func workoutSummaries(
         from workouts: [Workout],
+        climbAttempts: [ClimbAttempt],
         climbs: [Climb]
     ) -> [ProfileWorkoutSummary] {
         let climbsByID = Dictionary(uniqueKeysWithValues: climbs.map { ($0.id, $0) })
+        let attemptsByID = Dictionary(uniqueKeysWithValues: climbAttempts.map { ($0.id.uuidString, $0) })
 
         return workouts.map { workout in
-            let climbId = workout.participations.first { $0.contextType == .climbAttempt }?.contextId
+            let climbParticipation = workout.participations.first { $0.contextType == .climbAttempt }
+            let attempt = climbParticipation.flatMap { attemptsByID[$0.contextId] }
+            let climbId = attempt?.climbId
             let climb = climbId.flatMap { climbsByID[$0] }
             return ProfileWorkoutSummary(
                 id: workout.id.uuidString,
@@ -194,7 +279,9 @@ enum ProfileSnapshotBuilder {
                 steps: workout.steps,
                 source: workout.source,
                 climbId: climbId,
-                climbTier: climb?.tier
+                climbTier: climb?.tier,
+                climbCompletionStatus: attempt?.status,
+                climbCompletionDurationSeconds: attempt?.bestCompletionDurationSeconds ?? attempt?.accumulatedDurationSeconds
             )
         }
         .sorted { $0.startedAt > $1.startedAt }
@@ -294,7 +381,7 @@ enum ProfileSnapshotBuilder {
         let climbsByID = Dictionary(uniqueKeysWithValues: availableClimbs.map { ($0.id, $0) })
         var claimedAtByClimbID: [String: Date] = [:]
 
-        for workout in workoutSummaries {
+        for workout in workoutSummaries where workout.isCompletedClimb {
             guard let climbId = workout.climbId, climbsByID[climbId] != nil else { continue }
             if let existing = claimedAtByClimbID[climbId] {
                 claimedAtByClimbID[climbId] = min(existing, workout.startedAt)
@@ -564,14 +651,40 @@ enum ProfileSnapshotBuilder {
         return 0
     }
 
-    private static func bestDurationByClimb(_ workouts: [ProfileWorkoutSummary]) -> [String: TimeInterval] {
+    private static func bestCompletedDurationByClimb(_ workouts: [ProfileWorkoutSummary]) -> [String: TimeInterval] {
         workouts.reduce(into: [:]) { result, workout in
-            guard let climbId = workout.climbId, workout.durationSeconds > 0 else { return }
+            guard let climbId = workout.climbId,
+                  let duration = workout.comparisonDurationSeconds,
+                  duration > 0 else {
+                return
+            }
             if let existing = result[climbId] {
-                result[climbId] = min(existing, workout.durationSeconds)
+                result[climbId] = min(existing, duration)
             } else {
-                result[climbId] = workout.durationSeconds
+                result[climbId] = duration
             }
         }
+    }
+
+    private static func bestCompletedWorkoutByClimb(_ workouts: [ProfileWorkoutSummary]) -> [String: ProfileWorkoutSummary] {
+        var best: [String: ProfileWorkoutSummary] = [:]
+
+        for workout in workouts {
+            guard let climbId = workout.climbId,
+                  let duration = workout.comparisonDurationSeconds,
+                  duration > 0 else {
+                continue
+            }
+
+            if let existing = best[climbId],
+               let existingDuration = existing.comparisonDurationSeconds,
+               existingDuration <= duration {
+                continue
+            }
+
+            best[climbId] = workout
+        }
+
+        return best
     }
 }

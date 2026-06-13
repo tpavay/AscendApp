@@ -104,6 +104,33 @@ struct PostAuthOnboardingStore {
     }
 }
 
+struct OnboardingFirstClimbHandoffStore {
+    private let userDefaults: UserDefaults
+
+    init(userDefaults: UserDefaults = .standard) {
+        self.userDefaults = userDefaults
+    }
+
+    func stage(climbId: String, for userId: String) {
+        userDefaults.set(climbId, forKey: storageKey(for: userId))
+    }
+
+    func consume(for userId: String) -> String? {
+        let key = storageKey(for: userId)
+        guard let climbId = userDefaults.string(forKey: key),
+              !climbId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+
+        userDefaults.removeObject(forKey: key)
+        return climbId
+    }
+
+    private func storageKey(for userId: String) -> String {
+        "postAuthOnboarding.firstClimbHandoff.v1.\(userId)"
+    }
+}
+
 private struct LegacyPostAuthOnboardingSnapshot: Decodable {
     var currentStage: String
     var completedStages: Set<String>
