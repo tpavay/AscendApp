@@ -26,7 +26,7 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
         guard let instance = configuredInstance() else { return }
 
         if let userID {
-            instance.identify(distinctId: userID, usePeople: false)
+            instance.identify(distinctId: userID, usePeople: true)
         } else {
             instance.reset()
         }
@@ -36,28 +36,40 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
         guard let instance = configuredInstance() else { return }
 
         if let value {
+            instance.people.set(property: name, to: value)
             instance.registerSuperProperties([name: value])
         } else {
+            instance.people.unset(properties: [name])
             instance.unregisterSuperProperty(name)
         }
+
+        flushAfterDebugEvent(instance)
     }
 
     func record(_ record: TelemetryRecord) {
-        configuredInstance()?.track(
+        guard let instance = configuredInstance() else { return }
+
+        instance.track(
             event: record.name,
             properties: record.parameters.mixpanelProperties
         )
+
+        flushAfterDebugEvent(instance)
     }
 
     func record(screen: TelemetryScreen) {
+        guard let instance = configuredInstance() else { return }
+
         var properties = screen.parameters.mixpanelProperties
         properties["screen_name"] = screen.name
         properties["screen_class"] = screen.screenClass
 
-        configuredInstance()?.track(
+        instance.track(
             event: "screen_view",
             properties: properties
         )
+
+        flushAfterDebugEvent(instance)
     }
 
     private func configuredInstance() -> MixpanelInstance? {
@@ -72,10 +84,28 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
 
         let instance = Mixpanel.initialize(
             token: token,
-            trackAutomaticEvents: false
+            trackAutomaticEvents: false,
+            flushInterval: flushInterval
         )
+        #if DEBUG
+        instance.loggingEnabled = true
+        #endif
         self.instance = instance
         return instance
+    }
+
+    private var flushInterval: Double {
+        #if DEBUG
+        return 5
+        #else
+        return 60
+        #endif
+    }
+
+    private func flushAfterDebugEvent(_ instance: MixpanelInstance) {
+        #if DEBUG
+        instance.flush(performFullFlush: true)
+        #endif
     }
 }
 

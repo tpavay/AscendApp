@@ -78,12 +78,6 @@ private struct PreAuthOnboardingSurveyFlowScreen: View {
         let question = currentQuestion
         let context = analyticsContext(for: question, index: stepIndex)
         recordSelectedAnswers(for: question, context: context)
-        TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.stepCompleted(
-                context: context,
-                actionID: "continue"
-            )
-        )
 
         if stepIndex < questions.count - 1 {
             stepIndex += 1
@@ -127,16 +121,6 @@ private struct PreAuthOnboardingSurveyFlowScreen: View {
         guard !viewedQuestionIDs.contains(question.id) else { return }
 
         viewedQuestionIDs.insert(question.id)
-        let context = analyticsContext(for: question, index: stepIndex)
-        TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.stepViewed(context: context)
-        )
-        TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.screenViewed(
-                context: context,
-                property: question.id
-            )
-        )
     }
 
     private func recordSelectedAnswers(
@@ -144,17 +128,13 @@ private struct PreAuthOnboardingSurveyFlowScreen: View {
         context: OnboardingAnalyticsContext
     ) {
         let selectedOptionIDs = selectedAnswers[question.id, default: []]
-        for optionID in selectedOptionIDs.sorted() {
-            let answerIndex = question.options.firstIndex { $0.id == optionID }
-            TelemetryManager.shared.track(
-                OnboardingAnalyticsEvent.answerSelected(
-                    context: context,
-                    questionID: question.id,
-                    answerID: optionID,
-                    answerIndex: answerIndex
-                )
-            )
-        }
+        guard !selectedOptionIDs.isEmpty else { return }
+
+        trackOnboardingSurveyAnswer(
+            for: question,
+            context: context,
+            selectedOptionIDs: selectedOptionIDs
+        )
     }
 
     private func analyticsContext(
@@ -170,7 +150,34 @@ private struct PreAuthOnboardingSurveyFlowScreen: View {
     }
 }
 
-private struct PreAuthSurveyQuestionScreen: View {
+func trackOnboardingSurveyAnswer(
+    for question: PreAuthSurveyQuestion,
+    context: OnboardingAnalyticsContext,
+    selectedOptionIDs: Set<String>
+) {
+    guard !selectedOptionIDs.isEmpty else { return }
+
+    let sortedOptionIDs = selectedOptionIDs.sorted()
+    let answerID = sortedOptionIDs.joined(separator: ",")
+    let answerIndex = sortedOptionIDs.count == 1
+        ? question.options.firstIndex { $0.id == sortedOptionIDs[0] }
+        : nil
+
+    TelemetryManager.shared.track(
+        OnboardingAnalyticsEvent.questionAnswered(
+            context: context,
+            eventName: question.analyticsEventName,
+            questionID: question.id,
+            inputType: question.selectionMode.analyticsInputType,
+            selectionType: question.selectionMode.analyticsInputType,
+            answerID: answerID,
+            answerIndex: answerIndex,
+            properties: ["answer_count": .int(sortedOptionIDs.count)]
+        )
+    )
+}
+
+struct PreAuthSurveyQuestionScreen: View {
     let question: PreAuthSurveyQuestion
     let selectedOptionIDs: Set<String>
     let isContinueEnabled: Bool
@@ -224,7 +231,7 @@ private struct PreAuthSurveyQuestionScreen: View {
     }
 }
 
-private struct PreAuthSurveyScreenShell<Content: View>: View {
+struct PreAuthSurveyScreenShell<Content: View>: View {
     let progressFraction: CGFloat
     let onBack: () -> Void
     let primaryTitle: String
@@ -275,7 +282,7 @@ private struct PreAuthSurveyScreenShell<Content: View>: View {
     }
 }
 
-private struct PreAuthSurveyProgressBar: View {
+struct PreAuthSurveyProgressBar: View {
     let progress: CGFloat
 
     var body: some View {
@@ -299,7 +306,7 @@ private struct PreAuthSurveyProgressBar: View {
     }
 }
 
-private struct PreAuthSurveyOptionRow: View {
+struct PreAuthSurveyOptionRow: View {
     let title: String
     let isSelected: Bool
     let metrics: PreAuthSurveyMetrics
@@ -325,7 +332,7 @@ private struct PreAuthSurveyOptionRow: View {
     }
 }
 
-private struct PreAuthSurveyMetrics {
+struct PreAuthSurveyMetrics {
     let size: CGSize
 
     private var scaleX: CGFloat { size.width / 390 }
@@ -357,14 +364,23 @@ private struct PreAuthSurveyMetrics {
     }
 }
 
-private enum PreAuthSurveyPalette {
+enum PreAuthSurveyPalette {
     static let background = Color(red: 0x11 / 255, green: 0x11 / 255, blue: 0x11 / 255)
 }
 
-private struct PreAuthSurveyQuestion {
+struct PreAuthSurveyQuestion {
     enum SelectionMode {
         case single
         case multiple
+
+        var analyticsInputType: String {
+            switch self {
+            case .single:
+                return "single_select"
+            case .multiple:
+                return "multi_select"
+            }
+        }
     }
 
     let id: String
@@ -376,6 +392,26 @@ private struct PreAuthSurveyQuestion {
     let options: [PreAuthSurveyOption]
 
     static let figmaProgressFraction = CGFloat(21.0 / 169.0)
+
+    var analyticsEventName: String {
+        "\(id)_answered"
+    }
+
+    static func question(for id: String) -> PreAuthSurveyQuestion? {
+        all.first { $0.id == id }
+    }
+
+    func withProgressFraction(_ progressFraction: CGFloat) -> PreAuthSurveyQuestion {
+        PreAuthSurveyQuestion(
+            id: id,
+            eyebrow: eyebrow,
+            headline: headline,
+            headlineHeight: headlineHeight,
+            progressFraction: progressFraction,
+            selectionMode: selectionMode,
+            options: options
+        )
+    }
 
     static let all: [PreAuthSurveyQuestion] = [
         PreAuthSurveyQuestion(
@@ -452,7 +488,7 @@ private struct PreAuthSurveyQuestion {
     ]
 }
 
-private struct PreAuthSurveyOption {
+struct PreAuthSurveyOption {
     let id: String
     let title: String
 }
@@ -488,6 +524,10 @@ struct PreAuthOnboardingSurveyStore {
         } else {
             userDefaults.set(Array(optionIDs).sorted(), forKey: key)
         }
+    }
+
+    func optionIDs(for questionID: String) -> Set<String> {
+        Set(userDefaults.stringArray(forKey: storageKey(for: questionID)) ?? [])
     }
 
     private func firstAnswer(for questionID: String) -> String? {
@@ -545,12 +585,6 @@ private struct PreAuthOnboardingGuideFlowScreen: View {
     private func moveForward() {
         let screen = currentScreen
         let context = analyticsContext(for: screen, index: stepIndex)
-        TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.stepCompleted(
-                context: context,
-                actionID: "continue"
-            )
-        )
 
         if stepIndex < screens.count - 1 {
             stepIndex += 1
@@ -576,16 +610,6 @@ private struct PreAuthOnboardingGuideFlowScreen: View {
         guard !viewedScreenIDs.contains(screen.id) else { return }
 
         viewedScreenIDs.insert(screen.id)
-        let context = analyticsContext(for: screen, index: stepIndex)
-        TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.stepViewed(context: context)
-        )
-        TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.screenViewed(
-                context: context,
-                property: screen.id
-            )
-        )
     }
 
     private func analyticsContext(

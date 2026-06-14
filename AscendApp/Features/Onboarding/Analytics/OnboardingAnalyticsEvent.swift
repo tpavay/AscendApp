@@ -33,16 +33,23 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
     )
 
     case flowStarted(context: OnboardingAnalyticsContext)
-    case stepViewed(context: OnboardingAnalyticsContext)
-    case screenViewed(context: OnboardingAnalyticsContext, property: String)
-    case stepCompleted(context: OnboardingAnalyticsContext, actionID: String)
-    case backTapped(context: OnboardingAnalyticsContext)
-    case answerSelected(
+    case screenCompleted(
         context: OnboardingAnalyticsContext,
-        questionID: String,
-        answerID: String,
-        answerIndex: Int?
+        eventName: String,
+        inputType: String,
+        properties: [String: TelemetryValue]
     )
+    case questionAnswered(
+        context: OnboardingAnalyticsContext,
+        eventName: String,
+        questionID: String,
+        inputType: String,
+        selectionType: String?,
+        answerID: String,
+        answerIndex: Int?,
+        properties: [String: TelemetryValue]
+    )
+    case backTapped(context: OnboardingAnalyticsContext)
     case notificationPermissionSelected(context: OnboardingAnalyticsContext, status: String)
     case firstClimbSelected(context: OnboardingAnalyticsContext, climbID: String, climbName: String)
     case authStarted(provider: String)
@@ -58,54 +65,83 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
                 name: "onboarding_flow_started",
                 context: context
             )
-        case .stepViewed(let context):
+        case .screenCompleted(let context, let eventName, let inputType, let properties):
+            var parameters: [String: TelemetryValue] = [
+                "screen_id": .string(context.stepID),
+                "input_type": .string(inputType),
+                "completed": .bool(true)
+            ]
+
+            properties.forEach { parameters[$0.key] = $0.value }
+
             return makeRecord(
-                name: "onboarding_step_viewed",
-                context: context
-            )
-        case .screenViewed(let context, let property):
-            return makeRecord(
-                name: "screen_viewed",
+                name: eventName,
                 context: context,
-                parameters: ["property": .string(property)]
+                parameters: parameters
             )
-        case .stepCompleted(let context, let actionID):
+        case .questionAnswered(
+            let context,
+            let eventName,
+            let questionID,
+            let inputType,
+            let selectionType,
+            let answerID,
+            let answerIndex,
+            let properties
+        ):
+            var parameters: [String: TelemetryValue] = [
+                "question_id": .string(questionID),
+                "screen_id": .string(context.stepID),
+                "input_type": .string(inputType),
+                "answer_id": .string(answerID),
+                "has_answer": .bool(true)
+            ]
+
+            if let selectionType {
+                parameters["selection_type"] = .string(selectionType)
+            }
+
+            if let answerIndex {
+                parameters["answer_index"] = .int(answerIndex)
+            }
+
+            properties.forEach { parameters[$0.key] = $0.value }
+
             return makeRecord(
-                name: "onboarding_step_completed",
+                name: eventName,
                 context: context,
-                parameters: ["action_id": .string(actionID)]
+                parameters: parameters
             )
         case .backTapped(let context):
             return makeRecord(
                 name: "onboarding_back_tapped",
                 context: context
             )
-        case .answerSelected(let context, let questionID, let answerID, let answerIndex):
-            var parameters: [String: TelemetryValue] = [
-                "question_id": .string(questionID),
-                "answer_id": .string(answerID)
-            ]
-
-            if let answerIndex {
-                parameters["answer_index"] = .int(answerIndex)
-            }
-
-            return makeRecord(
-                name: "onboarding_answer_selected",
-                context: context,
-                parameters: parameters
-            )
         case .notificationPermissionSelected(let context, let status):
             return makeRecord(
-                name: "onboarding_notification_permission_selected",
+                name: "notifications_inputted",
                 context: context,
-                parameters: ["status": .string(status)]
+                parameters: [
+                    "question_id": .string("notifications"),
+                    "screen_id": .string(context.stepID),
+                    "input_type": .string("permission_prompt"),
+                    "selection_type": .string("single_select"),
+                    "answer_id": .string(status),
+                    "status": .string(status),
+                    "has_answer": .bool(true)
+                ]
             )
         case .firstClimbSelected(let context, let climbID, let climbName):
             return makeRecord(
-                name: "onboarding_first_climb_selected",
+                name: "first_climb_selected",
                 context: context,
                 parameters: [
+                    "question_id": .string("first_climb"),
+                    "screen_id": .string(context.stepID),
+                    "input_type": .string("single_select"),
+                    "selection_type": .string("single_select"),
+                    "answer_id": .string(climbID),
+                    "has_answer": .bool(true),
                     "climb_id": .string(climbID),
                     "climb_name": .string(climbName)
                 ]

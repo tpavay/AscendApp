@@ -5,6 +5,7 @@
 //  Created by Codex on 4/6/26.
 //
 
+import Foundation
 import Testing
 @testable import AscendApp
 
@@ -60,4 +61,87 @@ struct TelemetryManagerTests {
         #expect(analyticsSink.records.isEmpty)
         #expect(analyticsSink.screens.isEmpty)
     }
+
+    #if DEBUG
+    @Test
+    func debugLaunchArgumentPersistsCollectionEnabled() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let enabled = TelemetryManager.shouldEnableCollection(
+            arguments: ["AscendApp", "-TelemetryEnabled"],
+            environment: [:],
+            userDefaults: defaults
+        )
+        let persisted = TelemetryManager.shouldEnableCollection(
+            arguments: ["AscendApp"],
+            environment: [:],
+            userDefaults: defaults
+        )
+
+        #expect(enabled)
+        #expect(persisted)
+    }
+
+    @Test
+    func debugDisabledLaunchArgumentOverridesPersistedCollectionEnabled() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        _ = TelemetryManager.shouldEnableCollection(
+            arguments: ["AscendApp", "-TelemetryEnabled"],
+            environment: [:],
+            userDefaults: defaults
+        )
+
+        let disabled = TelemetryManager.shouldEnableCollection(
+            arguments: ["AscendApp", "-TelemetryDisabled"],
+            environment: [:],
+            userDefaults: defaults
+        )
+        let persisted = TelemetryManager.shouldEnableCollection(
+            arguments: ["AscendApp"],
+            environment: [:],
+            userDefaults: defaults
+        )
+
+        #expect(!disabled)
+        #expect(!persisted)
+    }
+
+    @Test
+    func debugEnvironmentVariableCanEnableCollection() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let enabled = TelemetryManager.shouldEnableCollection(
+            arguments: ["AscendApp"],
+            environment: ["ASC_DEBUG_TELEMETRY_ENABLED": "1"],
+            userDefaults: defaults
+        )
+
+        #expect(enabled)
+    }
+
+    @Test
+    func debugCollectionDefaultsOffWithoutOverride() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let enabled = TelemetryManager.shouldEnableCollection(
+            arguments: ["AscendApp"],
+            environment: [:],
+            userDefaults: defaults
+        )
+
+        #expect(!enabled)
+    }
+
+    private func makeDefaults() throws -> (UserDefaults, String) {
+        let suiteName = "TelemetryManagerTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        return (defaults, suiteName)
+    }
+    #endif
 }

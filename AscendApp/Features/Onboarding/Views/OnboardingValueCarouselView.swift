@@ -116,12 +116,6 @@ struct OnboardingValueCarouselView: View {
         }
 
         let context = analyticsContext(for: pages[selectedIndex], index: selectedIndex)
-        TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.stepCompleted(
-                context: context,
-                actionID: "continue"
-            )
-        )
 
         if selectedIndex < pages.count - 1 {
             selectedIndex += 1
@@ -183,17 +177,6 @@ struct OnboardingValueCarouselView: View {
         guard !viewedPageIDs.contains(page.id) else { return }
 
         viewedPageIDs.insert(page.id)
-        TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.stepViewed(
-                context: analyticsContext(for: page, index: selectedIndex)
-            )
-        )
-        TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.screenViewed(
-                context: analyticsContext(for: page, index: selectedIndex),
-                property: page.id
-            )
-        )
     }
 
     private func analyticsContext(for page: OnboardingValuePage, index: Int) -> OnboardingAnalyticsContext {
