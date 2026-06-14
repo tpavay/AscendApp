@@ -101,20 +101,6 @@
       ]
     },
     {
-      "collectionGroup": "entries",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "completionDurationSeconds",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "__name__",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
       "collectionGroup": "notification_devices",
       "queryScope": "COLLECTION",
       "fields": [
