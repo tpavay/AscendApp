@@ -7,6 +7,11 @@ struct PostAuthOnboardingCoordinatorTests {
     func postAuthStagesStartWithDisplayName() {
         #expect(PostAuthOnboardingStage.allCases == [
             .displayName,
+            .stairStepperBaseline,
+            .exerciseLevel,
+            .goal,
+            .motivation,
+            .plan,
             .gender,
             .age,
             .weight,
@@ -17,12 +22,12 @@ struct PostAuthOnboardingCoordinatorTests {
         ])
         #expect(PostAuthOnboardingStage.first == .displayName)
         #expect(PostAuthOnboardingStage.flowID == "post_auth_onboarding")
-        #expect(PostAuthOnboardingStage.plannedStepCount == 8)
+        #expect(PostAuthOnboardingStage.plannedStepCount == 13)
     }
 
     @MainActor
     @Test
-    func completingDisplayNameAdvancesToGender() {
+    func completingDisplayNameAdvancesToStairStepperBaseline() {
         let defaults = makeDefaults()
         let store = PostAuthOnboardingStore(userDefaults: defaults)
         let userId = "user-1"
@@ -31,7 +36,7 @@ struct PostAuthOnboardingCoordinatorTests {
         coordinator.resolve(userId: userId)
         coordinator.completeCurrentStage()
 
-        #expect(coordinator.phase == .onboarding(.gender))
+        #expect(coordinator.phase == .onboarding(.stairStepperBaseline))
         #expect(!store.snapshot(for: userId).isComplete)
         #expect(store.snapshot(for: userId).completedStages == [.displayName])
     }
@@ -83,7 +88,7 @@ struct PostAuthOnboardingCoordinatorTests {
 
     @MainActor
     @Test
-    func legacyRemovedStageSnapshotWithDisplayNameCompletedResumesAtGender() {
+    func legacyRemovedStageSnapshotWithDisplayNameCompletedResumesAtFirstSurveyQuestion() {
         let defaults = makeDefaults()
         let store = PostAuthOnboardingStore(userDefaults: defaults)
         let userId = "user-3"
@@ -105,7 +110,30 @@ struct PostAuthOnboardingCoordinatorTests {
         let coordinator = PostAuthOnboardingCoordinator(store: store)
         coordinator.resolve(userId: userId)
 
-        #expect(coordinator.phase == .onboarding(.gender))
+        #expect(coordinator.phase == .onboarding(.stairStepperBaseline))
+        #expect(!store.snapshot(for: userId).isComplete)
+        #expect(store.snapshot(for: userId).completedStages == [.displayName])
+    }
+
+    @MainActor
+    @Test
+    func snapshotWithCurrentStageAfterNewRequiredQuestionsReopensAtFirstMissingQuestion() {
+        let defaults = makeDefaults()
+        let store = PostAuthOnboardingStore(userDefaults: defaults)
+        let userId = "user-4"
+
+        let snapshot = PostAuthOnboardingSnapshot(
+            currentStage: .gender,
+            completedStages: [.displayName],
+            isComplete: false,
+            startedAt: Date(timeIntervalSince1970: 1000)
+        )
+        store.save(snapshot, for: userId)
+
+        let coordinator = PostAuthOnboardingCoordinator(store: store)
+        coordinator.resolve(userId: userId)
+
+        #expect(coordinator.phase == .onboarding(.stairStepperBaseline))
         #expect(!store.snapshot(for: userId).isComplete)
         #expect(store.snapshot(for: userId).completedStages == [.displayName])
     }

@@ -13,6 +13,12 @@ struct PostAuthOnboardingFlowView: View {
                     stage: stage,
                     onContinue: onContinue
                 )
+            case .stairStepperBaseline, .exerciseLevel, .goal, .motivation, .plan:
+                PostAuthSurveyQuestionStageScreen(
+                    stage: stage,
+                    onBack: onBack,
+                    onContinue: onContinue
+                )
             case .gender:
                 PostAuthGenderScreen(
                     stage: stage,
@@ -63,20 +69,90 @@ struct PostAuthOnboardingFlowView: View {
     }
 }
 
-private func trackPostAuthAnswer(
+private func trackPostAuthInput(
     stage: PostAuthOnboardingStage,
-    questionID: String,
-    answerID: String = "provided",
-    answerIndex: Int? = nil
+    properties: [String: TelemetryValue] = [:]
 ) {
     TelemetryManager.shared.track(
-        OnboardingAnalyticsEvent.answerSelected(
+        OnboardingAnalyticsEvent.screenCompleted(
             context: stage.analyticsContext,
-            questionID: questionID,
-            answerID: answerID,
-            answerIndex: answerIndex
+            eventName: stage.analyticsEventName,
+            inputType: stage.analyticsInputType,
+            properties: properties
         )
     )
+}
+
+private struct PostAuthSurveyQuestionStageScreen: View {
+    let stage: PostAuthOnboardingStage
+    let onBack: () -> Void
+    let onContinue: () -> Void
+
+    @State private var selectedOptionIDs: Set<String> = []
+
+    private let surveyStore = PreAuthOnboardingSurveyStore()
+
+    var body: some View {
+        PreAuthSurveyQuestionScreen(
+            question: question,
+            selectedOptionIDs: selectedOptionIDs,
+            isContinueEnabled: !selectedOptionIDs.isEmpty,
+            onSelect: selectAnswer,
+            onBack: onBack,
+            onContinue: continueFromQuestion
+        )
+        .onAppear {
+            loadSavedAnswerIfNeeded()
+        }
+    }
+
+    private var question: PreAuthSurveyQuestion {
+        guard let question = PreAuthSurveyQuestion.question(for: stage.rawValue) else {
+            preconditionFailure("Missing survey question for post-auth onboarding stage: \(stage.rawValue)")
+        }
+
+        return question.withProgressFraction(progressFraction)
+    }
+
+    private var progressFraction: CGFloat {
+        guard PostAuthOnboardingStage.plannedStepCount > 0 else { return 0 }
+        return CGFloat(stage.progressIndex + 1) / CGFloat(PostAuthOnboardingStage.plannedStepCount)
+    }
+
+    private func loadSavedAnswerIfNeeded() {
+        guard selectedOptionIDs.isEmpty else { return }
+        selectedOptionIDs = surveyStore.optionIDs(for: question.id)
+    }
+
+    private func selectAnswer(_ optionID: String) {
+        var optionIDs = selectedOptionIDs
+
+        switch question.selectionMode {
+        case .single:
+            optionIDs = [optionID]
+        case .multiple:
+            if optionIDs.contains(optionID) {
+                optionIDs.remove(optionID)
+            } else {
+                optionIDs.insert(optionID)
+            }
+        }
+
+        selectedOptionIDs = optionIDs
+        surveyStore.save(questionID: question.id, optionIDs: optionIDs)
+    }
+
+    private func continueFromQuestion() {
+        guard !selectedOptionIDs.isEmpty else { return }
+
+        surveyStore.save(questionID: question.id, optionIDs: selectedOptionIDs)
+        trackOnboardingSurveyAnswer(
+            for: question,
+            context: stage.analyticsContext,
+            selectedOptionIDs: selectedOptionIDs
+        )
+        onContinue()
+    }
 }
 
 private struct PostAuthDisplayNameScreen: View {
@@ -196,7 +272,8 @@ private struct PostAuthDisplayNameScreen: View {
             isSaving = false
 
             if didSave {
-                trackPostAuthAnswer(stage: stage, questionID: "display_name")
+                TelemetryManager.shared.setUserProperty("name_inputted", value: "true")
+                trackPostAuthInput(stage: stage)
                 onContinue()
             }
         }
@@ -272,7 +349,8 @@ private struct PostAuthGenderScreen: View {
             isSaving = false
 
             if didSave {
-                trackPostAuthAnswer(stage: stage, questionID: "division")
+                TelemetryManager.shared.setUserProperty("division_inputted", value: "true")
+                trackPostAuthInput(stage: stage)
                 onContinue()
             }
         }
@@ -331,7 +409,8 @@ private struct PostAuthAgeScreen: View {
             isSaving = false
 
             if didSave {
-                trackPostAuthAnswer(stage: stage, questionID: "age")
+                TelemetryManager.shared.setUserProperty("age_inputted", value: "true")
+                trackPostAuthInput(stage: stage)
                 onContinue()
             }
         }
@@ -425,7 +504,8 @@ private struct PostAuthWeightScreen: View {
             isSaving = false
 
             if didSave {
-                trackPostAuthAnswer(stage: stage, questionID: "body_metrics")
+                TelemetryManager.shared.setUserProperty("body_metrics_inputted", value: "true")
+                trackPostAuthInput(stage: stage)
                 onContinue()
             }
         }
@@ -561,7 +641,8 @@ private struct PostAuthLocationScreen: View {
             isSaving = false
 
             if didSave {
-                trackPostAuthAnswer(stage: stage, questionID: "location")
+                TelemetryManager.shared.setUserProperty("location_inputted", value: "true")
+                trackPostAuthInput(stage: stage)
                 onContinue()
             }
         }
@@ -688,6 +769,7 @@ private struct PostAuthNotificationScreen: View {
                     status: isAllowed ? "allow" : "decline"
                 )
             )
+            TelemetryManager.shared.setUserProperty("notifications_inputted", value: "true")
             onContinue()
         }
     }
@@ -706,6 +788,7 @@ private struct PostAuthNotificationScreen: View {
                     status: "skip"
                 )
             )
+            TelemetryManager.shared.setUserProperty("notifications_inputted", value: "true")
             onContinue()
         }
     }
@@ -847,6 +930,7 @@ private struct PostAuthPlanLoadingScreen: View {
         guard !Task.isCancelled else { return }
 
         guard await sleep(milliseconds: 700) else { return }
+        trackPostAuthInput(stage: stage)
         onContinue()
     }
 
@@ -1294,7 +1378,7 @@ private struct PostAuthFirstClimbRevealScreen: View {
                 if let userId = authVM.user?.uid {
                     OnboardingFirstClimbHandoffStore().stage(climbId: firstClimb.id, for: userId)
                 }
-                TelemetryManager.shared.setUserProperty("first_climb", value: firstClimb.id)
+                TelemetryManager.shared.setUserProperty("first_climb_selected", value: "true")
                 TelemetryManager.shared.track(
                     OnboardingAnalyticsEvent.firstClimbSelected(
                         context: stage.analyticsContext,

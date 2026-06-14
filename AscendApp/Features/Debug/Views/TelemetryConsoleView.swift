@@ -116,7 +116,7 @@ struct TelemetryConsoleView: View {
             Text(
                 store.isCollectionEnabled
                     ? "Analytics are product events, breadcrumbs are crash-tracing checkpoints, and screens are view opens. Tap the info icon on any row for a plain-English explanation."
-                    : "Telemetry is disabled for this run. Launch Debug with `-TelemetryEnabled` to populate this console."
+                    : "Telemetry is disabled for this run. Launch Debug once with `-TelemetryEnabled` or `ASC_DEBUG_TELEMETRY_ENABLED=1`; that setting sticks for later Debug launches."
             )
             .font(.montserratRegular(size: 14))
             .foregroundStyle(.secondary)
@@ -126,6 +126,17 @@ struct TelemetryConsoleView: View {
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
                     .foregroundStyle(foregroundColor.opacity(0.8))
             }
+
+            Button {
+                sendMixpanelProbe()
+            } label: {
+                Label("Send Mixpanel Probe", systemImage: "paperplane.fill")
+                    .font(.montserratSemiBold(size: 13))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .disabled(!store.isCollectionEnabled)
         }
         .padding(16)
         .background(
@@ -182,7 +193,7 @@ struct TelemetryConsoleView: View {
 
     private var emptyStateMessage: String {
         if !store.isCollectionEnabled {
-            return "Launch Debug with `-TelemetryEnabled`, then come back here after using the app."
+            return "Launch Debug once with `-TelemetryEnabled` or `ASC_DEBUG_TELEMETRY_ENABLED=1`, then restart and use the app."
         }
 
         switch selectedFilter {
@@ -340,6 +351,21 @@ struct TelemetryConsoleView: View {
         case .screen:
             return .blue
         }
+    }
+
+    private func sendMixpanelProbe() {
+        TelemetryManager.shared.track(
+            TelemetryRecord(
+                name: "debug_mixpanel_probe_sent",
+                parameters: [
+                    "probe_id": .string(UUID().uuidString),
+                    "source": .string("telemetry_console"),
+                    "sent_at_unix": .int(Int(Date().timeIntervalSince1970))
+                ],
+                destinations: [.analytics]
+            )
+        )
+        selectedFilter = .analytics
     }
 }
 #endif

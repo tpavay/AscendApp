@@ -33,7 +33,6 @@ final class PostAuthOnboardingCoordinator {
 
         phase = snapshot.isComplete ? .complete : .onboarding(snapshot.currentStage)
         recordLifecycleSnapshot(snapshot)
-        recordStepViewedIfNeeded(snapshot)
     }
 
     func completeCurrentStage() {
@@ -42,19 +41,12 @@ final class PostAuthOnboardingCoordinator {
 
         var snapshot = store.snapshot(for: userId)
         snapshot.completedStages.insert(stage)
-        TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.stepCompleted(
-                context: stage.analyticsContext,
-                actionID: "continue"
-            )
-        )
 
         if let nextStage = stage.next {
             snapshot.currentStage = nextStage
             store.save(snapshot, for: userId)
             phase = .onboarding(nextStage)
             recordLifecycleSnapshot(snapshot)
-            recordStepViewedIfNeeded(snapshot)
         } else {
             snapshot.isComplete = true
             snapshot.completedAt = Date()
@@ -98,7 +90,6 @@ final class PostAuthOnboardingCoordinator {
         store.save(snapshot, for: userId)
         phase = .onboarding(previousStage)
         recordLifecycleSnapshot(snapshot)
-        recordStepViewedIfNeeded(snapshot)
     }
 
     func resetCurrentUser() {
@@ -107,7 +98,6 @@ final class PostAuthOnboardingCoordinator {
         let snapshot = store.snapshot(for: userId)
         phase = .onboarding(.first)
         recordLifecycleSnapshot(snapshot)
-        recordStepViewedIfNeeded(snapshot)
         NotificationCenter.default.post(name: .postAuthOnboardingStateDidChange, object: nil)
     }
 
@@ -139,21 +129,6 @@ final class PostAuthOnboardingCoordinator {
         }
     }
 
-    private func recordStepViewedIfNeeded(_ snapshot: PostAuthOnboardingSnapshot) {
-        guard !snapshot.isComplete else { return }
-
-        let context = snapshot.currentStage.analyticsContext
-        TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.stepViewed(context: context)
-        )
-        TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.screenViewed(
-                context: context,
-                property: snapshot.currentStage.screenViewProperty
-            )
-        )
-    }
-
     private func normalized(_ snapshot: PostAuthOnboardingSnapshot) -> PostAuthOnboardingSnapshot {
         var normalizedSnapshot = snapshot
         normalizedSnapshot.completedStages = normalizedSnapshot.completedStages.intersection(Set(PostAuthOnboardingStage.allCases))
@@ -169,9 +144,18 @@ final class PostAuthOnboardingCoordinator {
             return normalizedSnapshot
         }
 
+        let hasIncompleteEarlierStage: Bool
+        if let currentIndex = PostAuthOnboardingStage.allCases.firstIndex(of: normalizedSnapshot.currentStage) {
+            let previousStages = PostAuthOnboardingStage.allCases[..<currentIndex]
+            hasIncompleteEarlierStage = previousStages.contains { !normalizedSnapshot.completedStages.contains($0) }
+        } else {
+            hasIncompleteEarlierStage = false
+        }
+
         if !PostAuthOnboardingStage.allCases.contains(normalizedSnapshot.currentStage) ||
             normalizedSnapshot.completedStages.contains(normalizedSnapshot.currentStage) ||
-            !normalizedSnapshot.completedStages.contains(.displayName) {
+            !normalizedSnapshot.completedStages.contains(.displayName) ||
+            hasIncompleteEarlierStage {
             normalizedSnapshot.currentStage = firstIncompleteStage(in: normalizedSnapshot)
         }
 

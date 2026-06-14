@@ -70,23 +70,56 @@ final class TelemetryManager: @unchecked Sendable {
         sinks.forEach { $0.setCollectionEnabled(enabled) }
     }
 
-    private static func shouldEnableCollection() -> Bool {
-        let args = ProcessInfo.processInfo.arguments
-
-        if args.contains("-TelemetryDisabled") {
+    static func shouldEnableCollection(
+        arguments: [String] = ProcessInfo.processInfo.arguments,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        userDefaults: UserDefaults = .standard
+    ) -> Bool {
+        if arguments.contains("-TelemetryDisabled") {
+            #if DEBUG
+            userDefaults.set(false, forKey: debugCollectionEnabledDefaultsKey)
+            #endif
             return false
         }
 
-        if args.contains("-TelemetryEnabled") {
+        if arguments.contains("-TelemetryEnabled") {
+            #if DEBUG
+            userDefaults.set(true, forKey: debugCollectionEnabledDefaultsKey)
+            #endif
             return true
         }
 
         #if DEBUG
+        if let environmentValue = environment["ASC_DEBUG_TELEMETRY_ENABLED"],
+           let enabled = debugBooleanValue(environmentValue) {
+            userDefaults.set(enabled, forKey: debugCollectionEnabledDefaultsKey)
+            return enabled
+        }
+
+        if userDefaults.object(forKey: debugCollectionEnabledDefaultsKey) != nil {
+            return userDefaults.bool(forKey: debugCollectionEnabledDefaultsKey)
+        }
+
         return false
         #else
         return true
         #endif
     }
+
+    #if DEBUG
+    private static let debugCollectionEnabledDefaultsKey = "debug.telemetry.collectionEnabled"
+
+    private static func debugBooleanValue(_ value: String) -> Bool? {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "on":
+            return true
+        case "0", "false", "no", "off":
+            return false
+        default:
+            return nil
+        }
+    }
+    #endif
 
     private static var appEnvironmentName: String {
         #if DEBUG

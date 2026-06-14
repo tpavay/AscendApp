@@ -86,7 +86,7 @@
             </array>
         </dict>
 
-        <!-- Other Data Types — declared profile demographics and onboarding first-climb preference -->
+        <!-- Other Data Types — onboarding survey choices, declared profile demographics, and onboarding first-climb preference -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeOtherDataTypes</string>
@@ -96,6 +96,7 @@
             <false/>
             <key>NSPrivacyCollectedDataTypePurposes</key>
             <array>
+                <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
                 <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
             </array>
         </dict>
