@@ -97,9 +97,9 @@ struct PostAuthOnboardingStore {
         return PostAuthOnboardingSnapshot(
             currentStage: .first,
             completedStages: hasCompletedDisplayName ? [.displayName] : [],
-            isComplete: hasCompletedDisplayName,
+            isComplete: false,
             startedAt: legacy.startedAt,
-            completedAt: hasCompletedDisplayName ? legacy.completedAt ?? Date() : nil
+            completedAt: nil
         )
     }
 }
