@@ -15,6 +15,7 @@ struct RootView: View {
     @Environment(MediaUploadManager.self) private var uploadManager
     @State private var importCoordinator = WorkoutImportCoordinator.shared
     @State private var postAuthOnboardingCoordinator = PostAuthOnboardingCoordinator()
+    @State private var tabRouter = TabRouter()
     @State private var accountDataConflict: AccountDataOwnershipConflict?
     @State private var profileCompletionCheckTask: Task<Void, Never>?
 
@@ -39,11 +40,13 @@ struct RootView: View {
                 authenticatedContent(for: .mainApp)
             }
         }
+        .environment(tabRouter)
         .animation(.easeInOut(duration: 0.25), value: rootRoute)
         .themeAware()
         .task {
             importCoordinator.configure(modelContext: modelContext)
             postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
+            advancePostAuthOnboardingPastDisplayNameIfAvailable()
             await monetizationManager.refreshEntitlements()
             // Resume any pending uploads from previous session
             await uploadManager.processPendingUploads(modelContext: modelContext)
@@ -63,6 +66,7 @@ struct RootView: View {
         .onChange(of: authVM.user?.uid) { _, _ in
             Task {
                 postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
+                advancePostAuthOnboardingPastDisplayNameIfAvailable()
                 completePostAuthOnboardingIfRemoteProfileExists()
                 await monetizationManager.refreshEntitlements()
                 await bootstrapAuthenticatedLocalState()
@@ -70,18 +74,21 @@ struct RootView: View {
             }
         }
         .onChange(of: authVM.hasRemoteDisplayName) { _, _ in
+            advancePostAuthOnboardingPastDisplayNameIfAvailable()
             completePostAuthOnboardingIfRemoteProfileExists()
         }
         .onChange(of: authVM.isProfileLoaded) { _, _ in
+            advancePostAuthOnboardingPastDisplayNameIfAvailable()
             completePostAuthOnboardingIfRemoteProfileExists()
         }
         .onReceive(NotificationCenter.default.publisher(for: .postAuthOnboardingStateDidChange)) { _ in
             postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid, force: true)
+            advancePostAuthOnboardingPastDisplayNameIfAvailable()
         }
     }
 
     private var rootRoute: AppRootRoute {
-        AppRootRouteResolver.resolve(
+        let resolvedRoute = AppRootRouteResolver.resolve(
             authenticationState: authVM.authenticationState,
             userId: authVM.user?.uid,
             postAuthOnboardingPhase: postAuthOnboardingCoordinator.phase,
@@ -89,6 +96,14 @@ struct RootView: View {
             requiredEntitlementID: monetizationManager.configuration.revenueCatEntitlementID,
             allowsUnentitledAppAccess: monetizationManager.configuration.allowsUnentitledAppAccess
         )
+
+        if case .onboarding(.displayName) = resolvedRoute,
+           authVM.user != nil,
+           !authVM.isProfileLoaded {
+            return .resolving
+        }
+
+        return resolvedRoute
     }
 
     @ViewBuilder
@@ -218,6 +233,20 @@ struct RootView: View {
         } catch {
             print("Authenticated bootstrap failed: \(error)")
         }
+    }
+
+    @MainActor
+    private func advancePostAuthOnboardingPastDisplayNameIfAvailable() {
+        guard authVM.user != nil,
+              authVM.isProfileLoaded,
+              hasUsableDisplayNameForPostAuthOnboarding else { return }
+
+        postAuthOnboardingCoordinator.completeDisplayNameIfNeeded()
+    }
+
+    private var hasUsableDisplayNameForPostAuthOnboarding: Bool {
+        authVM.hasRemoteDisplayName ||
+        !authVM.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     @MainActor

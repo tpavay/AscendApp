@@ -20,5 +20,6 @@ struct LeaderboardSyncPayload: Equatable, Sendable {
     let totalWorkouts: Int
     let totalDuration: Double
     let stepsPerMinute: Double
+    let profile: LeaderboardProfileSnapshot?
     let operation: Operation
 }

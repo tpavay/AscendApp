@@ -7,6 +7,7 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
     case goal
     case motivation
     case plan
+    case features
     case gender
     case age
     case weight
@@ -26,6 +27,7 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
             .goal,
             .motivation,
             .plan,
+            .features,
             .gender,
             .age,
             .weight,
@@ -62,37 +64,6 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
         )
     }
 
-    var analyticsEventName: String {
-        switch self {
-        case .displayName:
-            return "name_inputted"
-        case .stairStepperBaseline:
-            return "stair_stepper_baseline_answered"
-        case .exerciseLevel:
-            return "exercise_level_answered"
-        case .goal:
-            return "goal_answered"
-        case .motivation:
-            return "motivation_answered"
-        case .plan:
-            return "plan_answered"
-        case .gender:
-            return "division_inputted"
-        case .age:
-            return "age_inputted"
-        case .weight:
-            return "body_metrics_inputted"
-        case .location:
-            return "location_inputted"
-        case .notifications:
-            return "notifications_inputted"
-        case .planLoading:
-            return "plan_loaded"
-        case .firstClimb:
-            return "first_climb_selected"
-        }
-    }
-
     var analyticsInputType: String {
         switch self {
         case .displayName:
@@ -111,7 +82,7 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
             return "location"
         case .notifications:
             return "permission_prompt"
-        case .planLoading:
+        case .features, .planLoading:
             return "automatic"
         case .firstClimb:
             return "single_select"
@@ -126,7 +97,7 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
             return "multi_select"
         case .gender, .notifications, .firstClimb:
             return "single_select"
-        case .displayName, .age, .weight, .location, .planLoading:
+        case .displayName, .features, .age, .weight, .location, .planLoading:
             return nil
         }
     }

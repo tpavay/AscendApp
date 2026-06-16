@@ -55,12 +55,28 @@ final class PostAuthOnboardingCoordinator {
             store.endDebugReplay(for: userId)
             #endif
             SettingsManager.shared.hasCompletedBaseLevelOnboarding = true
+            OnboardingAnalyticsUserProperties.setOnboardingCompleted()
             phase = .complete
             recordLifecycleSnapshot(snapshot)
             TelemetryManager.shared.track(
                 OnboardingAnalyticsEvent.flowCompleted(context: stage.analyticsContext)
             )
         }
+    }
+
+    func completeDisplayNameIfNeeded() {
+        guard let userId = currentUserId,
+              case .onboarding(.displayName) = phase,
+              let nextStage = PostAuthOnboardingStage.displayName.next else { return }
+
+        var snapshot = store.snapshot(for: userId)
+        guard !snapshot.isComplete else { return }
+
+        snapshot.completedStages.insert(.displayName)
+        snapshot.currentStage = nextStage
+        store.save(snapshot, for: userId)
+        phase = .onboarding(nextStage)
+        recordLifecycleSnapshot(snapshot)
     }
 
     func moveBack() {
@@ -134,13 +150,8 @@ final class PostAuthOnboardingCoordinator {
         normalizedSnapshot.completedStages = normalizedSnapshot.completedStages.intersection(Set(PostAuthOnboardingStage.allCases))
 
         if snapshot.isComplete {
-            guard normalizedSnapshot.completedStages.isSuperset(of: Set(PostAuthOnboardingStage.allCases)) else {
-                normalizedSnapshot.isComplete = false
-                normalizedSnapshot.completedAt = nil
-                normalizedSnapshot.currentStage = firstIncompleteStage(in: normalizedSnapshot)
-                return normalizedSnapshot
-            }
-
+            normalizedSnapshot.completedStages.formUnion(Set(PostAuthOnboardingStage.allCases))
+            normalizedSnapshot.currentStage = .first
             return normalizedSnapshot
         }
 

@@ -313,6 +313,11 @@ service cloud.firestore {
           "totalWorkouts",
           "totalDuration",
           "stepsPerMinute",
+          "age",
+          "weight_kg",
+          "location_city",
+          "location_country",
+          "location_region",
           "lastUpdated"
         ]) &&
         request.resource.data.keys().hasAll([
@@ -355,6 +360,20 @@ service cloud.firestore {
         request.resource.data.totalWorkouts >= 0 &&
         isNonNegativeNumber(request.resource.data.totalDuration) &&
         isNonNegativeNumber(request.resource.data.stepsPerMinute) &&
+        (!request.resource.data.keys().hasAny(["age"]) ||
+          (request.resource.data.age is int &&
+            request.resource.data.age >= 13 &&
+            request.resource.data.age <= 120)) &&
+        (!request.resource.data.keys().hasAny(["weight_kg"]) ||
+          (isNonNegativeNumber(request.resource.data.weight_kg) &&
+            request.resource.data.weight_kg <= 400)) &&
+        (!request.resource.data.keys().hasAny(["location_city"]) ||
+          isValidLocationProfileText(request.resource.data.location_city)) &&
+        (!request.resource.data.keys().hasAny(["location_country"]) ||
+          (request.resource.data.location_country is string &&
+            request.resource.data.location_country.matches("^[A-Z]{2}$"))) &&
+        (!request.resource.data.keys().hasAny(["location_region"]) ||
+          isValidLocationProfileText(request.resource.data.location_region)) &&
         request.resource.data.lastUpdated is timestamp;
     }
 

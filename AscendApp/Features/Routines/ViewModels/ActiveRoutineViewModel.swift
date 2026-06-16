@@ -32,6 +32,8 @@ final class ActiveRoutineViewModel {
     private var lastWarningSecond: Int?
     @ObservationIgnored private var timerCancellable: AnyCancellable?
     private(set) var hasRecordedCompletion = false
+    private var hasTrackedSessionStart = false
+    private var hasTrackedSessionCompletion = false
 
     init(
         routine: Routine,
@@ -168,6 +170,8 @@ final class ActiveRoutineViewModel {
         lastCountdownHapticValue = 3
         lastWarningSecond = nil
         hasRecordedCompletion = false
+        hasTrackedSessionStart = false
+        hasTrackedSessionCompletion = false
         startTimer()
         HapticsManager.shared.trigger(.mediumImpact)
     }
@@ -215,6 +219,41 @@ final class ActiveRoutineViewModel {
         hasRecordedCompletion = true
     }
 
+    func trackLogWorkoutTapped(surface: WorkoutSessionAnalyticsEvent.RoutineSurface) {
+        TelemetryManager.shared.track(
+            WorkoutSessionAnalyticsEvent.routineLogTapped(
+                context: analyticsContext,
+                surface: surface,
+                durationSeconds: analyticsDurationSeconds,
+                estimatedSteps: estimatedCurrentSteps,
+                progressFraction: progress
+            )
+        )
+    }
+
+    func trackWorkoutSaved(_ workout: Workout) {
+        TelemetryManager.shared.track(
+            WorkoutSessionAnalyticsEvent.routineSaved(
+                context: analyticsContext,
+                durationSeconds: Int(workout.duration.rounded(.down)),
+                steps: workout.steps,
+                progressFraction: progress
+            )
+        )
+    }
+
+    func trackDiscard(surface: WorkoutSessionAnalyticsEvent.RoutineSurface) {
+        TelemetryManager.shared.track(
+            WorkoutSessionAnalyticsEvent.routineDiscarded(
+                context: analyticsContext,
+                surface: surface,
+                durationSeconds: analyticsDurationSeconds,
+                estimatedSteps: estimatedCurrentSteps,
+                progressFraction: progress
+            )
+        )
+    }
+
     func refreshReplayLeaderboardIfNeeded(force: Bool = false) async {
         guard phase == .active || phase == .complete else { return }
 
@@ -256,6 +295,7 @@ final class ActiveRoutineViewModel {
             sessionStartedAt = now
             self.countdownStartDate = nil
             lastTickDate = now
+            trackSessionStartIfNeeded()
             HapticsManager.shared.trigger(.heavyImpact)
         }
     }
@@ -313,7 +353,40 @@ final class ActiveRoutineViewModel {
         lastTickDate = nil
         lastWarningSecond = nil
         showCompletionSheet = true
+        trackSessionCompletionIfNeeded()
         HapticsManager.shared.trigger(.success)
+    }
+
+    private var analyticsContext: RoutineSessionAnalyticsContext {
+        RoutineSessionAnalyticsContext(
+            routine: routine,
+            targetSteps: targetStepGoal
+        )
+    }
+
+    private var analyticsDurationSeconds: Int {
+        Int(actualElapsed.rounded(.down))
+    }
+
+    private func trackSessionStartIfNeeded() {
+        guard !hasTrackedSessionStart else { return }
+        hasTrackedSessionStart = true
+        TelemetryManager.shared.track(
+            WorkoutSessionAnalyticsEvent.routineStarted(context: analyticsContext)
+        )
+    }
+
+    private func trackSessionCompletionIfNeeded() {
+        guard !hasTrackedSessionCompletion else { return }
+        hasTrackedSessionCompletion = true
+        TelemetryManager.shared.track(
+            WorkoutSessionAnalyticsEvent.routineCompleted(
+                context: analyticsContext,
+                durationSeconds: analyticsDurationSeconds,
+                estimatedSteps: estimatedCurrentSteps,
+                progressFraction: progress
+            )
+        )
     }
 
     private func startTimer() {

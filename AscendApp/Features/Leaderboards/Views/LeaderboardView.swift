@@ -19,7 +19,7 @@ struct LeaderboardView: View {
     @State private var scrollResetTrigger = 0
 
     private let lockedMetric: LeaderboardMetric?
-    private let selectableTimeFrames: [LeaderboardTimeFrame] = [.daily, .weekly, .monthly, .yearly, .allTime]
+    private let selectableTimeFrames: [LeaderboardTimeFrame] = [.weekly, .monthly, .yearly, .allTime]
 
     private enum ScrollTarget: Hashable {
         case top
@@ -115,6 +115,15 @@ struct LeaderboardView: View {
             resetScrollPosition()
             Task { await loadData() }
         }
+        .onChange(of: viewModel.selectedAgeGroup) { _, _ in
+            demographicFilterChanged()
+        }
+        .onChange(of: viewModel.selectedBodyWeightFilter) { _, _ in
+            demographicFilterChanged()
+        }
+        .onChange(of: viewModel.selectedLocationFilter) { _, _ in
+            demographicFilterChanged()
+        }
         .onChange(of: authVM.displayName) { _, _ in
             syncCurrentUserEntry()
         }
@@ -143,6 +152,8 @@ struct LeaderboardView: View {
             }
 
             timeFrameFilters
+
+            demographicFilters
         }
         .padding(.horizontal, 20)
     }
@@ -238,6 +249,150 @@ struct LeaderboardView: View {
         .scrollClipDisabled()
     }
 
+    private var demographicFilters: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ageFilterMenu
+                bodyWeightFilterMenu
+                locationFilterMenu
+
+                if viewModel.hasActiveDemographicFilters {
+                    Button {
+                        HapticsManager.shared.trigger(.selection)
+                        viewModel.clearDemographicFilters()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(primaryTextColor.opacity(0.72))
+                            .frame(width: 30, height: 30)
+                            .background(
+                                Circle()
+                                    .fill(colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.06))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear leaderboard filters")
+                }
+            }
+            .padding(.vertical, 1)
+        }
+        .scrollClipDisabled()
+    }
+
+    private var ageFilterMenu: some View {
+        Menu {
+            Button {
+                guard viewModel.selectedAgeGroup != nil else { return }
+                HapticsManager.shared.trigger(.selection)
+                viewModel.selectAgeGroup(nil)
+            } label: {
+                if viewModel.selectedAgeGroup == nil {
+                    Label("All ages", systemImage: "checkmark")
+                } else {
+                    Text("All ages")
+                }
+            }
+
+            ForEach(LeaderboardAgeGroup.allCases) { ageGroup in
+                Button {
+                    guard viewModel.selectedAgeGroup != ageGroup else { return }
+                    HapticsManager.shared.trigger(.selection)
+                    viewModel.selectAgeGroup(ageGroup)
+                } label: {
+                    if viewModel.selectedAgeGroup == ageGroup {
+                        Label(ageGroup.displayName, systemImage: "checkmark")
+                    } else {
+                        Text(ageGroup.displayName)
+                    }
+                }
+            }
+        } label: {
+            demographicFilterChip(
+                title: viewModel.ageFilterTitle,
+                isActive: viewModel.selectedAgeGroup != nil
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var bodyWeightFilterMenu: some View {
+        Menu {
+            ForEach(LeaderboardBodyWeightFilter.allCases) { filter in
+                Button {
+                    guard viewModel.selectedBodyWeightFilter != filter else { return }
+                    HapticsManager.shared.trigger(.selection)
+                    viewModel.selectBodyWeightFilter(filter)
+                } label: {
+                    if viewModel.selectedBodyWeightFilter == filter {
+                        Label(filter.displayName, systemImage: "checkmark")
+                    } else {
+                        Text(filter.displayName)
+                    }
+                }
+            }
+        } label: {
+            demographicFilterChip(
+                title: viewModel.bodyWeightFilterTitle,
+                isActive: viewModel.selectedBodyWeightFilter != .all
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var locationFilterMenu: some View {
+        Menu {
+            ForEach(viewModel.currentLocationFilterOptions) { filter in
+                Button {
+                    guard viewModel.selectedLocationFilter != filter else { return }
+                    HapticsManager.shared.trigger(.selection)
+                    viewModel.selectLocationFilter(filter)
+                } label: {
+                    let title = filter.displayName(currentUserProfile: viewModel.currentUserLocationProfile)
+                    if viewModel.selectedLocationFilter == filter {
+                        Label(title, systemImage: "checkmark")
+                    } else {
+                        Text(title)
+                    }
+                }
+            }
+        } label: {
+            demographicFilterChip(
+                title: viewModel.locationFilterTitle,
+                isActive: viewModel.selectedLocationFilter != .all
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func demographicFilterChip(title: String, isActive: Bool) -> some View {
+        HStack(spacing: 6) {
+            Text(title.uppercased())
+                .font(.montserratBold(size: 10))
+                .foregroundStyle(isActive ? .accent : primaryTextColor.opacity(0.74))
+                .lineLimit(1)
+
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(isActive ? .accent : primaryTextColor.opacity(0.54))
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 30)
+        .background(
+            Capsule()
+                .fill(isActive ? Color.accent.opacity(0.09) : Color.clear)
+        )
+        .overlay(
+            Capsule()
+                .stroke(
+                    isActive
+                        ? Color.accent
+                        : (colorScheme == .dark ? .white.opacity(0.16) : .black.opacity(0.14)),
+                    lineWidth: 1
+                )
+        )
+        .contentShape(Capsule())
+    }
+
     @ViewBuilder
     private var contentSection: some View {
         let entries = viewModel.displayedEntries
@@ -248,6 +403,8 @@ struct LeaderboardView: View {
                     offlineEmptyStateView
                 } else if let error = viewModel.errorMessage {
                     errorView(error)
+                } else if viewModel.hasActiveDemographicFilters {
+                    filteredEmptyStateView
                 } else {
                     emptyStateView
                 }
@@ -281,7 +438,8 @@ struct LeaderboardView: View {
             if let userEntry = state.pinnedUserEntry {
                 LeaderboardUserRowView(
                     entry: userEntry,
-                    metric: viewModel.selectedMetric
+                    metric: viewModel.selectedMetric,
+                    crownGapText: crownGapText(for: userEntry, podiumEntries: state.podiumEntries)
                 )
                 .padding(.top, 2)
             }
@@ -336,6 +494,49 @@ struct LeaderboardView: View {
 
     private func shouldPinUserRow(_ entry: LeaderboardEntry) -> Bool {
         entry.rank > 3
+    }
+
+    private func crownGapText(for userEntry: LeaderboardEntry, podiumEntries: [LeaderboardEntry]) -> String? {
+        guard let leader = podiumEntries.first(where: { $0.rank == 1 }),
+              leader.userId != userEntry.userId
+        else {
+            return nil
+        }
+
+        let gap = leader.value - userEntry.value
+        guard gap > 0 else { return nil }
+
+        return "\(formattedCrownGap(gap, for: viewModel.selectedMetric)) TO CROWN"
+    }
+
+    private func formattedCrownGap(_ gap: Double, for metric: LeaderboardMetric) -> String {
+        switch metric {
+        case .climb:
+            return "\(Int(gap.rounded(.up)).formatted(.number.grouping(.automatic))) STEPS"
+        case .workouts:
+            return "\(Int(gap.rounded(.up)).formatted(.number.grouping(.automatic))) WORKOUTS"
+        case .duration:
+            return formattedDurationGap(gap)
+        case .pace:
+            return "\(gap.formatted(.number.precision(.fractionLength(1)))) SPM"
+        }
+    }
+
+    private func formattedDurationGap(_ gap: Double) -> String {
+        let totalSeconds = Int(gap.rounded(.up))
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+
+        if hours > 0 {
+            return "\(hours):\(twoDigit(minutes)):\(twoDigit(seconds))"
+        }
+
+        return "\(minutes):\(twoDigit(seconds))"
+    }
+
+    private func twoDigit(_ value: Int) -> String {
+        value < 10 ? "0\(value)" : "\(value)"
     }
 
     private var shouldShowBlockingLoader: Bool {
@@ -409,6 +610,41 @@ struct LeaderboardView: View {
         .padding(.horizontal, 20)
     }
 
+    private var filteredEmptyStateView: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "line.3.horizontal.decrease.circle")
+                .font(.system(size: 36, weight: .semibold))
+                .foregroundStyle(.accent)
+
+            VStack(spacing: 5) {
+                Text(viewModel.filteredEmptyStateTitle)
+                    .font(.montserratBold(size: 20))
+                    .foregroundStyle(primaryTextColor)
+
+                Text(viewModel.filteredEmptyStateMessage)
+                    .font(.montserratRegular(size: 14))
+                    .foregroundStyle(primaryTextColor.opacity(0.66))
+                    .multilineTextAlignment(.center)
+            }
+
+            Button {
+                HapticsManager.shared.trigger(.selection)
+                viewModel.clearDemographicFilters()
+            } label: {
+                Text("Clear Filters")
+                    .font(.montserratBold(size: 13))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 18)
+                    .frame(height: 34)
+                    .background(Capsule().fill(Color.accent))
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 44)
+        .padding(.horizontal, 20)
+    }
+
     private var offlineEmptyStateView: some View {
         VStack(spacing: 12) {
             Image(systemName: "wifi.slash")
@@ -460,6 +696,11 @@ struct LeaderboardView: View {
 
     private func resetScrollPosition() {
         scrollResetTrigger &+= 1
+    }
+
+    private func demographicFilterChanged() {
+        resetScrollPosition()
+        Task { await loadData() }
     }
 
     private func syncCurrentUserEntry() {

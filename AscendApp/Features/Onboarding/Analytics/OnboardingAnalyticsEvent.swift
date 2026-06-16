@@ -33,15 +33,14 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
     )
 
     case flowStarted(context: OnboardingAnalyticsContext)
+    case screenViewed(context: OnboardingAnalyticsContext)
     case screenCompleted(
         context: OnboardingAnalyticsContext,
-        eventName: String,
         inputType: String,
         properties: [String: TelemetryValue]
     )
     case questionAnswered(
         context: OnboardingAnalyticsContext,
-        eventName: String,
         questionID: String,
         inputType: String,
         selectionType: String?,
@@ -65,7 +64,16 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
                 name: "onboarding_flow_started",
                 context: context
             )
-        case .screenCompleted(let context, let eventName, let inputType, let properties):
+        case .screenViewed(let context):
+            return makeRecord(
+                name: "onboarding_screen_viewed",
+                context: context,
+                parameters: [
+                    "screen_id": .string(context.stepID),
+                    "viewed": .bool(true)
+                ]
+            )
+        case .screenCompleted(let context, let inputType, let properties):
             var parameters: [String: TelemetryValue] = [
                 "screen_id": .string(context.stepID),
                 "input_type": .string(inputType),
@@ -75,13 +83,12 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
             properties.forEach { parameters[$0.key] = $0.value }
 
             return makeRecord(
-                name: eventName,
+                name: "onboarding_screen_completed",
                 context: context,
                 parameters: parameters
             )
         case .questionAnswered(
             let context,
-            let eventName,
             let questionID,
             let inputType,
             let selectionType,
@@ -108,7 +115,7 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
             properties.forEach { parameters[$0.key] = $0.value }
 
             return makeRecord(
-                name: eventName,
+                name: "onboarding_question_answered",
                 context: context,
                 parameters: parameters
             )
@@ -119,7 +126,7 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
             )
         case .notificationPermissionSelected(let context, let status):
             return makeRecord(
-                name: "notifications_inputted",
+                name: "onboarding_question_answered",
                 context: context,
                 parameters: [
                     "question_id": .string("notifications"),
@@ -133,7 +140,7 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
             )
         case .firstClimbSelected(let context, let climbID, let climbName):
             return makeRecord(
-                name: "first_climb_selected",
+                name: "onboarding_question_answered",
                 context: context,
                 parameters: [
                     "question_id": .string("first_climb"),

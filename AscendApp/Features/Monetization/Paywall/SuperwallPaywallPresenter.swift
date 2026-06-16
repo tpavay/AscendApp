@@ -21,6 +21,7 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
             purchaseController: purchaseController,
             options: options
         )
+        Superwall.shared.delegate = self
         purchaseController.syncSubscriptionStatus()
         isConfigured = true
     }
@@ -40,6 +41,96 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
         Superwall.shared.register(
             placement: placement.rawValue,
             params: params
+        )
+    }
+}
+
+extension SuperwallPaywallPresenter: SuperwallDelegate {
+    func didPresentPaywall(withInfo paywallInfo: PaywallInfo) {
+        TelemetryManager.shared.track(
+            PaywallAnalyticsEvent.shown(
+                context: PaywallAnalyticsContext(paywallInfo: paywallInfo)
+            )
+        )
+
+        recordLifecyclePaywallShownIfKnown(paywallInfo)
+    }
+
+    func didDismissPaywall(withInfo paywallInfo: PaywallInfo) {
+        TelemetryManager.shared.track(
+            PaywallAnalyticsEvent.dismissed(
+                context: PaywallAnalyticsContext(paywallInfo: paywallInfo)
+            )
+        )
+
+        recordLifecyclePaywallDismissedIfKnown(paywallInfo)
+    }
+
+    func handleSuperwallEvent(withInfo eventInfo: SuperwallEventInfo) {
+        switch eventInfo.event {
+        case .transactionStart(let product, let paywallInfo):
+            TelemetryManager.shared.track(
+                PaywallAnalyticsEvent.transactionStarted(
+                    context: PaywallAnalyticsContext(paywallInfo: paywallInfo),
+                    productID: product.productIdentifier
+                )
+            )
+
+        case .transactionComplete(_, let product, let transactionType, let paywallInfo):
+            TelemetryManager.shared.track(
+                PaywallAnalyticsEvent.transactionCompleted(
+                    context: PaywallAnalyticsContext(paywallInfo: paywallInfo),
+                    productID: product.productIdentifier,
+                    transactionType: transactionType.description
+                )
+            )
+
+        case .transactionFail(let error, let paywallInfo):
+            TelemetryManager.shared.track(
+                PaywallAnalyticsEvent.transactionFailed(
+                    context: PaywallAnalyticsContext(paywallInfo: paywallInfo),
+                    errorType: error.analyticsType,
+                    productID: error.analyticsProductID
+                )
+            )
+
+        case .transactionAbandon(let product, let paywallInfo):
+            TelemetryManager.shared.track(
+                PaywallAnalyticsEvent.transactionAbandoned(
+                    context: PaywallAnalyticsContext(paywallInfo: paywallInfo),
+                    productID: product.productIdentifier
+                )
+            )
+
+        case .transactionRestore(let restoreType, let paywallInfo):
+            TelemetryManager.shared.track(
+                PaywallAnalyticsEvent.restoreCompleted(
+                    context: PaywallAnalyticsContext(paywallInfo: paywallInfo),
+                    restoreType: restoreType.analyticsType
+                )
+            )
+
+        default:
+            break
+        }
+    }
+
+    private func recordLifecyclePaywallShownIfKnown(_ paywallInfo: PaywallInfo) {
+        let placement = paywallInfo.analyticsPlacement
+        guard SuperwallPlacement(rawValue: placement) != nil else { return }
+
+        LifecycleEventRecorder.shared.recordPaywallShown(
+            placement: placement
+        )
+    }
+
+    private func recordLifecyclePaywallDismissedIfKnown(_ paywallInfo: PaywallInfo) {
+        let placement = paywallInfo.analyticsPlacement
+        guard SuperwallPlacement(rawValue: placement) != nil else { return }
+
+        LifecycleEventRecorder.shared.recordPaywallDismissed(
+            placement: placement,
+            reason: String(describing: paywallInfo.closeReason)
         )
     }
 }

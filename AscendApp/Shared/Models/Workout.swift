@@ -350,6 +350,15 @@ class Workout {
             .sorted { $0.displayName < $1.displayName }
     }
 
+    var isInAppSensorWorkout: Bool {
+        switch source {
+        case .headphoneMotion:
+            return true
+        case .manual, .appleHealth, .garmin, .fitbit, .hevy:
+            return false
+        }
+    }
+
     var isLiveClimbAttemptWorkout: Bool {
         source == .headphoneMotion &&
             participations.contains { $0.contextType == .climbAttempt }

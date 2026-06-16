@@ -5,6 +5,8 @@ struct PostAuthOnboardingFlowView: View {
     let onBack: () -> Void
     let onContinue: () -> Void
 
+    @State private var viewedStageIDs: Set<PostAuthOnboardingStage> = []
+
     var body: some View {
         Group {
             switch stage {
@@ -15,6 +17,12 @@ struct PostAuthOnboardingFlowView: View {
                 )
             case .stairStepperBaseline, .exerciseLevel, .goal, .motivation, .plan:
                 PostAuthSurveyQuestionStageScreen(
+                    stage: stage,
+                    onBack: onBack,
+                    onContinue: onContinue
+                )
+            case .features:
+                PostAuthFeatureGuideStageScreen(
                     stage: stage,
                     onBack: onBack,
                     onContinue: onContinue
@@ -66,6 +74,20 @@ struct PostAuthOnboardingFlowView: View {
         .background(PostAuthProfilePalette.background)
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
+        .onAppear {
+            recordStageViewedIfNeeded(stage)
+        }
+        .onChange(of: stage) { _, newStage in
+            recordStageViewedIfNeeded(newStage)
+        }
+    }
+
+    private func recordStageViewedIfNeeded(_ stage: PostAuthOnboardingStage) {
+        guard !viewedStageIDs.contains(stage) else { return }
+        viewedStageIDs.insert(stage)
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.screenViewed(context: stage.analyticsContext)
+        )
     }
 }
 
@@ -76,7 +98,6 @@ private func trackPostAuthInput(
     TelemetryManager.shared.track(
         OnboardingAnalyticsEvent.screenCompleted(
             context: stage.analyticsContext,
-            eventName: stage.analyticsEventName,
             inputType: stage.analyticsInputType,
             properties: properties
         )
@@ -152,6 +173,22 @@ private struct PostAuthSurveyQuestionStageScreen: View {
             selectedOptionIDs: selectedOptionIDs
         )
         onContinue()
+    }
+}
+
+private struct PostAuthFeatureGuideStageScreen: View {
+    let stage: PostAuthOnboardingStage
+    let onBack: () -> Void
+    let onContinue: () -> Void
+
+    var body: some View {
+        OnboardingFeatureGuideFlowScreen(
+            flowID: "post_auth_features",
+            onBackFromFirstScreen: onBack
+        ) {
+            trackPostAuthInput(stage: stage)
+            onContinue()
+        }
     }
 }
 
@@ -273,6 +310,7 @@ private struct PostAuthDisplayNameScreen: View {
 
             if didSave {
                 TelemetryManager.shared.setUserProperty("name_inputted", value: "true")
+                OnboardingAnalyticsUserProperties.setDisplayNameProvided()
                 trackPostAuthInput(stage: stage)
                 onContinue()
             }
@@ -350,7 +388,11 @@ private struct PostAuthGenderScreen: View {
 
             if didSave {
                 TelemetryManager.shared.setUserProperty("division_inputted", value: "true")
-                trackPostAuthInput(stage: stage)
+                OnboardingAnalyticsUserProperties.setGender(selectedGender)
+                trackPostAuthInput(
+                    stage: stage,
+                    properties: ["profile_gender": .string(selectedGender.rawValue)]
+                )
                 onContinue()
             }
         }
@@ -410,7 +452,11 @@ private struct PostAuthAgeScreen: View {
 
             if didSave {
                 TelemetryManager.shared.setUserProperty("age_inputted", value: "true")
-                trackPostAuthInput(stage: stage)
+                OnboardingAnalyticsUserProperties.setAgeGroup(age: selectedAge)
+                trackPostAuthInput(
+                    stage: stage,
+                    properties: ["profile_age_group": .string(OnboardingAnalyticsUserProperties.ageGroupValue(for: selectedAge))]
+                )
                 onContinue()
             }
         }
@@ -505,7 +551,15 @@ private struct PostAuthWeightScreen: View {
 
             if didSave {
                 TelemetryManager.shared.setUserProperty("body_metrics_inputted", value: "true")
-                trackPostAuthInput(stage: stage)
+                OnboardingAnalyticsUserProperties.setWeightGroup(weightKg: validWeightKilograms)
+                trackPostAuthInput(
+                    stage: stage,
+                    properties: [
+                        "profile_weight_group": .string(
+                            OnboardingAnalyticsUserProperties.weightGroupValue(forWeightKg: validWeightKilograms)
+                        )
+                    ]
+                )
                 onContinue()
             }
         }
@@ -642,7 +696,11 @@ private struct PostAuthLocationScreen: View {
 
             if didSave {
                 TelemetryManager.shared.setUserProperty("location_inputted", value: "true")
-                trackPostAuthInput(stage: stage)
+                OnboardingAnalyticsUserProperties.setLocationCountry(selectedLocation.countryCode)
+                trackPostAuthInput(
+                    stage: stage,
+                    properties: ["profile_country": .string(selectedLocation.countryCode.uppercased())]
+                )
                 onContinue()
             }
         }
@@ -770,6 +828,7 @@ private struct PostAuthNotificationScreen: View {
                 )
             )
             TelemetryManager.shared.setUserProperty("notifications_inputted", value: "true")
+            OnboardingAnalyticsUserProperties.setNotificationChoice(isAllowed ? "allow" : "decline")
             onContinue()
         }
     }
@@ -789,6 +848,7 @@ private struct PostAuthNotificationScreen: View {
                 )
             )
             TelemetryManager.shared.setUserProperty("notifications_inputted", value: "true")
+            OnboardingAnalyticsUserProperties.setNotificationChoice("skip")
             onContinue()
         }
     }
@@ -1379,6 +1439,7 @@ private struct PostAuthFirstClimbRevealScreen: View {
                     OnboardingFirstClimbHandoffStore().stage(climbId: firstClimb.id, for: userId)
                 }
                 TelemetryManager.shared.setUserProperty("first_climb_selected", value: "true")
+                OnboardingAnalyticsUserProperties.setFirstClimb(firstClimb)
                 TelemetryManager.shared.track(
                     OnboardingAnalyticsEvent.firstClimbSelected(
                         context: stage.analyticsContext,

@@ -8,7 +8,7 @@ struct ShareBackgroundPickerView: View {
     /// Optional one-tap recap card (climb hero + auto-arranged stats).
     var recap: RecapPreview?
     let onPick: (ShareBackgroundSource) -> Void
-    var onPickRecap: (() -> Void)?
+    var onPickRecap: ((ShareRecapTemplate) -> Void)?
     let onClose: () -> Void
 
     @State private var selectedTab: Tab = .cameraRoll
@@ -19,9 +19,7 @@ struct ShareBackgroundPickerView: View {
 
     /// Data for the Recaps tab card (our pre-made climb card).
     struct RecapPreview {
-        let climb: Climb
-        let stats: [ResolvedShareStat]
-        let bestEffort: ResolvedShareStat?
+        let data: ShareRecapCardData
     }
 
     var body: some View {
@@ -146,25 +144,42 @@ struct ShareBackgroundPickerView: View {
         ScrollView {
             VStack(spacing: 12) {
                 if let recap, let onPickRecap {
-                    Button {
-                        HapticsManager.shared.trigger(.lightImpact)
-                        onPickRecap()
-                    } label: {
-                        // Color.clear gives the flexible card a concrete 9:16 box.
-                        Color.clear
-                            .aspectRatio(9.0 / 16.0, contentMode: .fit)
-                            .overlay {
-                                ShareRecapCard(climb: recap.climb, stats: recap.stats, bestEffort: recap.bestEffort)
-                            }
-                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .stroke(accent.opacity(0.5), lineWidth: 1.5)
-                            )
-                    }
-                    .buttonStyle(.plain)
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.flexible(), spacing: 14),
+                            GridItem(.flexible(), spacing: 14)
+                        ],
+                        spacing: 16
+                    ) {
+                        ForEach(ShareRecapTemplate.allCases) { template in
+                            Button {
+                                HapticsManager.shared.trigger(.lightImpact)
+                                onPickRecap(template)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    // Color.clear gives the flexible card a concrete 9:16 box.
+                                    Color.clear
+                                        .aspectRatio(9.0 / 16.0, contentMode: .fit)
+                                        .overlay {
+                                            ShareRecapCard(template: template, data: recap.data)
+                                        }
+                                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                                .stroke(accent.opacity(0.34), lineWidth: 1)
+                                        )
 
-                    Text("Your climb, ready to share — tap to use, then add anything on top.")
+                                    Text(template.title)
+                                        .font(.montserratSemiBold(size: 12))
+                                        .foregroundStyle(.white.opacity(0.86))
+                                        .lineLimit(1)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    Text("Pick a layout, then add stickers on top or save it as-is.")
                         .font(.montserratRegular(size: 12))
                         .foregroundStyle(Color.customGray)
                         .frame(maxWidth: .infinity, alignment: .leading)

@@ -1,7 +1,7 @@
 import Foundation
 
 enum ProfileTerminology {
-    static let topOneAchievementLabel = "TOP 1"
+    static let topOneAchievementLabel = "CHAMPION"
     static let topThreeAchievementLabel = "TOP 3"
     static let topTenAchievementLabel = "TOP 10"
     static let topHundredAchievementLabel = "TOP 100"

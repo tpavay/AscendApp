@@ -20,6 +20,7 @@ struct SignUpView: View {
                     lastUsedProvider: authVM.lastUsedProvider,
                     googleIsLoading: authVM.authenticationState == .authenticatingWithGoogle,
                     appleIsLoading: authVM.authenticationState == .authenticatingWithApple,
+                    internalQAIsLoading: authVM.authenticationState == .authenticatingWithInternalQA,
                     showsInternalQA: InternalQASignInAvailability.isEnabled(projectID: FirebaseApp.app()?.options.projectID),
                     isDisabled: authVM.authenticationState.isAuthenticating,
                     onInternalQA: { isShowingInternalQA = true },
@@ -95,6 +96,7 @@ private struct AuthLandingContent: View {
     let lastUsedProvider: AuthProviderKind?
     let googleIsLoading: Bool
     let appleIsLoading: Bool
+    let internalQAIsLoading: Bool
     let showsInternalQA: Bool
     let isDisabled: Bool
     let onInternalQA: () -> Void
@@ -153,6 +155,27 @@ private struct AuthLandingContent: View {
                     action: onGoogle
                 )
 
+                if showsInternalQA {
+                    AuthProviderButton(
+                        title: internalQAIsLoading ? "SIGNING IN..." : "INTERNAL QA SIGN IN",
+                        style: .internalQA,
+                        isLoading: internalQAIsLoading,
+                        isDisabled: isDisabled,
+                        height: 44 * scaleY,
+                        cornerRadius: 10 * typeScale,
+                        fontSize: 12.5 * typeScale,
+                        accessoryTitle: lastUsedProvider == .internalQA ? "LAST USED" : nil,
+                        icon: {
+                            Image(systemName: "key.fill")
+                                .resizable()
+                                .scaledToFit()
+                                .foregroundStyle(OnboardingValuePalette.lime)
+                                .frame(width: 16 * typeScale, height: 16 * typeScale)
+                        },
+                        action: onInternalQA
+                    )
+                }
+
                 AuthLegalText(layout: layout)
                     .frame(width: 334 * scaleX)
             }
@@ -190,6 +213,7 @@ private struct AuthLandingBrand: View {
 private enum AuthProviderButtonStyle {
     case google
     case apple
+    case internalQA
 
     var foregroundColor: Color {
         switch self {
@@ -197,6 +221,8 @@ private enum AuthProviderButtonStyle {
             .white.opacity(0.92)
         case .apple:
             .black
+        case .internalQA:
+            OnboardingValuePalette.lime
         }
     }
 
@@ -206,6 +232,8 @@ private enum AuthProviderButtonStyle {
             .white
         case .apple:
             .black
+        case .internalQA:
+            OnboardingValuePalette.lime
         }
     }
 
@@ -231,6 +259,8 @@ private enum AuthProviderButtonStyle {
             .white.opacity(0.08)
         case .apple:
             .white
+        case .internalQA:
+            .black.opacity(0.48)
         }
     }
 
@@ -240,6 +270,8 @@ private enum AuthProviderButtonStyle {
             .white.opacity(0.18)
         case .apple:
             .clear
+        case .internalQA:
+            OnboardingValuePalette.lime.opacity(0.55)
         }
     }
 }

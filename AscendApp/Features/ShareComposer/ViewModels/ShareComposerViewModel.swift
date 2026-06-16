@@ -91,7 +91,8 @@ final class ShareComposerViewModel {
             stepHeight: stepHeight,
             climbName: climbNameOverride ?? climbName,
             climbRank: climbRank,
-            climbRankTotal: climbRankTotal
+            climbRankTotal: climbRankTotal,
+            splitTargetSteps: climb?.referenceStepCount
         )
     }
 
@@ -119,6 +120,12 @@ final class ShareComposerViewModel {
         instance.statRefs.compactMap { resolved($0) }
     }
 
+    /// Structured split payload for the split sticker.
+    func resolvedSplits(for instance: ShareStickerInstance) -> ResolvedShareSplits? {
+        guard instance.kind == .splits, instance.extraStats.isEmpty else { return nil }
+        return resolver.resolveSplits()
+    }
+
     /// The sticker's primary resolved value (used for the font-preview sheet).
     func resolve(_ instance: ShareStickerInstance) -> ResolvedShareStat? {
         resolved(instance.primaryStatRef)
@@ -144,8 +151,12 @@ final class ShareComposerViewModel {
             return bestEffortStats.map { ShareStatRef(kind: .bestEffort, injectedStatKey: $0.label) }
         case .totals:
             return weeklyTotalStats.map { ShareStatRef(kind: .totals, injectedStatKey: $0.label) }
+        case .splits:
+            return [instance.primaryStatRef]
         default:
-            return resolver.availableKinds().map { ShareStatRef(kind: $0, injectedStatKey: nil) }
+            return resolver.availableKinds()
+                .filter(\.supportsComposite)
+                .map { ShareStatRef(kind: $0, injectedStatKey: nil) }
         }
     }
 
@@ -154,6 +165,7 @@ final class ShareComposerViewModel {
     func toggleStat(_ ref: ShareStatRef, for id: UUID) {
         guard let i = stickers.firstIndex(where: { $0.id == id }) else { return }
         var sticker = stickers[i]
+        guard sticker.kind.supportsComposite, ref.kind.supportsComposite else { return }
         if sticker.primaryStatRef == ref {
             guard !sticker.extraStats.isEmpty else { return } // never remove the last metric
             let promoted = sticker.extraStats.removeFirst()
@@ -355,6 +367,10 @@ final class ShareComposerViewModel {
         if trashRect(in: canvasSize).contains(center) {
             deleteSticker(id)
         }
+        cancelDragFeedback()
+    }
+
+    func cancelDragFeedback() {
         draggingID = nil
         isOverTrash = false
         verticalGuideX = nil

@@ -22,35 +22,47 @@ struct ClimbBrowseView: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            let sheetVisibleHeight = browseSheetDetent.height(
-                containerHeight: geometry.size.height,
-                topInset: geometry.safeAreaInsets.top,
-                bottomInset: geometry.safeAreaInsets.bottom
-            )
+        GeometryReader { safeAreaGeometry in
+            let safeAreaInsets = safeAreaGeometry.safeAreaInsets
 
-            ZStack {
-                GlobeView(
-                    viewModel: viewModel,
-                    onSelectClimb: { climb in
-                        selectGlobePin(climb)
-                    }
+            GeometryReader { geometry in
+                let topCoverageInset = max(0, geometry.frame(in: .global).minY)
+                let sheetVisibleHeight = browseSheetDetent.height(
+                    containerHeight: geometry.size.height,
+                    topCoverageInset: topCoverageInset,
+                    topInset: safeAreaInsets.top,
+                    bottomInset: safeAreaInsets.bottom
                 )
-                .ignoresSafeArea()
 
-                globeEdgeOverlays
+                ZStack {
+                    GlobeView(
+                        viewModel: viewModel,
+                        onSelectClimb: { climb in
+                            selectGlobePin(climb)
+                        }
+                    )
+                    .ignoresSafeArea()
 
-                if viewModel.visibleClimbs.isEmpty {
-                    catalogStateOverlay
+                    globeEdgeOverlays
+
+                    if viewModel.visibleClimbs.isEmpty {
+                        catalogStateOverlay
+                    }
+
+                    topChrome(topInset: safeAreaInsets.top)
+
+                    previewCardArea(sheetHeight: sheetVisibleHeight)
+                        .zIndex(2)
+
+                    browseDrawer(
+                        containerHeight: geometry.size.height,
+                        topCoverageInset: topCoverageInset,
+                        topInset: safeAreaInsets.top,
+                        bottomInset: safeAreaInsets.bottom
+                    )
+                        .zIndex(3)
                 }
-
-                topChrome
-
-                previewCardArea(sheetHeight: sheetVisibleHeight)
-                    .zIndex(2)
-
-                browseDrawer(in: geometry)
-                    .zIndex(3)
+                .ignoresSafeArea()
             }
         }
         .toolbarBackground(.clear, for: .navigationBar)
@@ -129,7 +141,7 @@ struct ClimbBrowseView: View {
 
     // MARK: - Header
 
-    private var topChrome: some View {
+    private func topChrome(topInset: CGFloat) -> some View {
         VStack(spacing: 0) {
             HStack {
                 globeControlButton(
@@ -144,8 +156,7 @@ struct ClimbBrowseView: View {
                 helpButton
             }
             .padding(.horizontal, 20)
-            .padding(.top, 10)
-            .safeAreaPadding(.top)
+            .padding(.top, topInset + 10)
 
             Spacer()
         }
@@ -187,17 +198,23 @@ struct ClimbBrowseView: View {
 
     // MARK: - Browse Drawer
 
-    private func browseDrawer(in geometry: GeometryProxy) -> some View {
+    private func browseDrawer(
+        containerHeight: CGFloat,
+        topCoverageInset: CGFloat,
+        topInset: CGFloat,
+        bottomInset: CGFloat
+    ) -> some View {
         ClimbBrowseDrawer(
             detent: $browseSheetDetent,
-            containerHeight: geometry.size.height,
-            topInset: geometry.safeAreaInsets.top,
-            bottomInset: geometry.safeAreaInsets.bottom,
+            containerHeight: containerHeight,
+            topCoverageInset: topCoverageInset,
+            topInset: topInset,
+            bottomInset: bottomInset,
             setDetent: { detent in
                 setBrowseSheetDetent(detent)
             }
         ) {
-            drawerContent(bottomInset: geometry.safeAreaInsets.bottom)
+            drawerContent(bottomInset: bottomInset)
         }
     }
 
@@ -666,6 +683,7 @@ private struct ClimbBrowseDrawer<Content: View>: View {
     @Binding var detent: BrowseSheetDetent
 
     let containerHeight: CGFloat
+    let topCoverageInset: CGFloat
     let topInset: CGFloat
     let bottomInset: CGFloat
     let setDetent: (BrowseSheetDetent) -> Void
@@ -677,6 +695,7 @@ private struct ClimbBrowseDrawer<Content: View>: View {
     init(
         detent: Binding<BrowseSheetDetent>,
         containerHeight: CGFloat,
+        topCoverageInset: CGFloat,
         topInset: CGFloat,
         bottomInset: CGFloat,
         setDetent: @escaping (BrowseSheetDetent) -> Void,
@@ -684,6 +703,7 @@ private struct ClimbBrowseDrawer<Content: View>: View {
     ) {
         self._detent = detent
         self.containerHeight = containerHeight
+        self.topCoverageInset = topCoverageInset
         self.topInset = topInset
         self.bottomInset = bottomInset
         self.setDetent = setDetent
@@ -711,7 +731,7 @@ private struct ClimbBrowseDrawer<Content: View>: View {
                     currentOffset = newOffset
                 }
             }
-            .ignoresSafeArea(.container, edges: .bottom)
+            .ignoresSafeArea(.container, edges: [.top, .bottom])
     }
 
     @ViewBuilder
@@ -727,6 +747,7 @@ private struct ClimbBrowseDrawer<Content: View>: View {
     private var drawerSurface: some View {
         VStack(spacing: 0) {
             drawerGrabber
+                .padding(.top, detent == .expanded ? topInset : 0)
             content
         }
     }
@@ -768,11 +789,13 @@ private struct ClimbBrowseDrawer<Content: View>: View {
     }
 
     private var drawerShape: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(
-            topLeadingRadius: 24,
+        let topCornerRadius: CGFloat = detent == .expanded ? 0 : 24
+
+        return UnevenRoundedRectangle(
+            topLeadingRadius: topCornerRadius,
             bottomLeadingRadius: 0,
             bottomTrailingRadius: 0,
-            topTrailingRadius: 24,
+            topTrailingRadius: topCornerRadius,
             style: .continuous
         )
     }
@@ -780,6 +803,7 @@ private struct ClimbBrowseDrawer<Content: View>: View {
     private var expandedHeight: CGFloat {
         BrowseSheetDetent.expanded.height(
             containerHeight: containerHeight,
+            topCoverageInset: topCoverageInset,
             topInset: topInset,
             bottomInset: bottomInset
         )
@@ -792,6 +816,7 @@ private struct ClimbBrowseDrawer<Content: View>: View {
     private var restingOffset: CGFloat {
         detent.offset(
             containerHeight: containerHeight,
+            topCoverageInset: topCoverageInset,
             topInset: topInset,
             bottomInset: bottomInset
         )
@@ -812,6 +837,7 @@ private struct ClimbBrowseDrawer<Content: View>: View {
                 let nextOffset = BrowseSheetDetent.clampedOffset(
                     baseOffset + value.translation.height,
                     containerHeight: containerHeight,
+                    topCoverageInset: topCoverageInset,
                     topInset: topInset,
                     bottomInset: bottomInset
                 )
@@ -833,14 +859,28 @@ private struct ClimbBrowseDrawer<Content: View>: View {
         let velocity = value.predictedEndTranslation.height - value.translation.height
         let velocityThreshold: CGFloat = 300
         let releaseOffset = currentOffset ?? restingOffset
+        let predictedOffset = BrowseSheetDetent.clampedOffset(
+            (dragStartOffset ?? restingOffset) + value.predictedEndTranslation.height,
+            containerHeight: containerHeight,
+            topCoverageInset: topCoverageInset,
+            topInset: topInset,
+            bottomInset: bottomInset
+        )
         let targetDetent: BrowseSheetDetent
 
-        if abs(velocity) > velocityThreshold {
-            targetDetent = velocity < 0 ? detent.nextUp : detent.nextDown
+        if velocity < -velocityThreshold ||
+            value.predictedEndTranslation.height < -80 ||
+            value.translation.height < -48 {
+            targetDetent = .expanded
+        } else if velocity > velocityThreshold ||
+            value.predictedEndTranslation.height > 80 ||
+            value.translation.height > 48 {
+            targetDetent = .compact
         } else {
             targetDetent = BrowseSheetDetent.nearest(
-                to: releaseOffset,
+                to: predictedOffset == restingOffset ? releaseOffset : predictedOffset,
                 containerHeight: containerHeight,
+                topCoverageInset: topCoverageInset,
                 topInset: topInset,
                 bottomInset: bottomInset
             )
@@ -855,6 +895,7 @@ private struct ClimbBrowseDrawer<Content: View>: View {
         withAnimation(sheetSpring) {
             currentOffset = targetDetent.offset(
                 containerHeight: containerHeight,
+                topCoverageInset: topCoverageInset,
                 topInset: topInset,
                 bottomInset: bottomInset
             )
@@ -871,32 +912,36 @@ private enum BrowseSheetDetent: Int, CaseIterable {
 
     func height(
         containerHeight: CGFloat,
+        topCoverageInset: CGFloat = 0,
         topInset: CGFloat,
         bottomInset: CGFloat
     ) -> CGFloat {
-        let maxHeight = max(320, containerHeight - topInset - 76)
+        let expandedHeight = max(320, containerHeight + topCoverageInset)
 
         switch self {
         case .compact:
-            return min(maxHeight, 86 + bottomInset)
+            return min(expandedHeight, 86 + bottomInset)
         case .medium:
-            return min(maxHeight, max(286 + bottomInset, containerHeight * 0.36))
+            return min(expandedHeight, max(286 + bottomInset, containerHeight * 0.36))
         case .expanded:
-            return maxHeight
+            return expandedHeight
         }
     }
 
     func offset(
         containerHeight: CGFloat,
+        topCoverageInset: CGFloat = 0,
         topInset: CGFloat,
         bottomInset: CGFloat
     ) -> CGFloat {
         BrowseSheetDetent.expanded.height(
             containerHeight: containerHeight,
+            topCoverageInset: topCoverageInset,
             topInset: topInset,
             bottomInset: bottomInset
         ) - height(
             containerHeight: containerHeight,
+            topCoverageInset: topCoverageInset,
             topInset: topInset,
             bottomInset: bottomInset
         )
@@ -905,6 +950,7 @@ private enum BrowseSheetDetent: Int, CaseIterable {
     static func clampedOffset(
         _ offset: CGFloat,
         containerHeight: CGFloat,
+        topCoverageInset: CGFloat = 0,
         topInset: CGFloat,
         bottomInset: CGFloat
     ) -> CGFloat {
@@ -913,12 +959,14 @@ private enum BrowseSheetDetent: Int, CaseIterable {
                 offset,
                 BrowseSheetDetent.expanded.offset(
                     containerHeight: containerHeight,
+                    topCoverageInset: topCoverageInset,
                     topInset: topInset,
                     bottomInset: bottomInset
                 )
             ),
             BrowseSheetDetent.compact.offset(
                 containerHeight: containerHeight,
+                topCoverageInset: topCoverageInset,
                 topInset: topInset,
                 bottomInset: bottomInset
             )
@@ -928,13 +976,15 @@ private enum BrowseSheetDetent: Int, CaseIterable {
     static func nearest(
         to offset: CGFloat,
         containerHeight: CGFloat,
+        topCoverageInset: CGFloat = 0,
         topInset: CGFloat,
         bottomInset: CGFloat
     ) -> BrowseSheetDetent {
-        allCases.min { lhs, rhs in
+        [BrowseSheetDetent.compact, BrowseSheetDetent.expanded].min { lhs, rhs in
             abs(
                 lhs.offset(
                     containerHeight: containerHeight,
+                    topCoverageInset: topCoverageInset,
                     topInset: topInset,
                     bottomInset: bottomInset
                 ) - offset
@@ -942,28 +992,25 @@ private enum BrowseSheetDetent: Int, CaseIterable {
             < abs(
                 rhs.offset(
                     containerHeight: containerHeight,
+                    topCoverageInset: topCoverageInset,
                     topInset: topInset,
                     bottomInset: bottomInset
                 ) - offset
             )
-        } ?? .medium
+        } ?? .compact
     }
 
     var nextUp: BrowseSheetDetent {
         switch self {
-        case .compact:
-            return .medium
-        case .medium, .expanded:
+        case .compact, .medium, .expanded:
             return .expanded
         }
     }
 
     var nextDown: BrowseSheetDetent {
         switch self {
-        case .compact, .medium:
+        case .compact, .medium, .expanded:
             return .compact
-        case .expanded:
-            return .medium
         }
     }
 }

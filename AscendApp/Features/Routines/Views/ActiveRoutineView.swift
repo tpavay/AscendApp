@@ -34,6 +34,7 @@ struct ActiveRoutineView: View {
         .onAppear {
             viewModel.startSession()
         }
+        .keepsScreenAwake(shouldKeepScreenAwake, reason: "Routine session")
         .onDisappear {
             viewModel.stopTimer()
         }
@@ -57,10 +58,12 @@ struct ActiveRoutineView: View {
         .alert("Stop Workout?", isPresented: $bindableViewModel.showStopConfirmation) {
             Button("Continue", role: .cancel) {}
             Button("Log Workout") {
+                bindableViewModel.trackLogWorkoutTapped(surface: .stopAlert)
                 bindableViewModel.shouldDismissAfterForm = true
                 bindableViewModel.showWorkoutForm = true
             }
             Button("Discard", role: .destructive) {
+                bindableViewModel.trackDiscard(surface: .stopAlert)
                 dismiss()
             }
         } message: {
@@ -259,6 +262,7 @@ struct ActiveRoutineView: View {
             duration: viewModel.actualElapsed,
             intervalCount: viewModel.intervals.count,
             onLogWorkout: {
+                viewModel.trackLogWorkoutTapped(surface: .completionSheet)
                 viewModel.showCompletionSheet = false
                 viewModel.shouldDismissAfterForm = true
                 Task { @MainActor in
@@ -267,6 +271,7 @@ struct ActiveRoutineView: View {
                 }
             },
             onDiscard: {
+                viewModel.trackDiscard(surface: .completionSheet)
                 dismiss()
             }
         )
@@ -278,7 +283,8 @@ struct ActiveRoutineView: View {
                 get: { viewModel.showWorkoutForm },
                 set: { viewModel.showWorkoutForm = $0 }
             ),
-            onWorkoutCompleted: { _ in
+            onWorkoutCompleted: { workout in
+                viewModel.trackWorkoutSaved(workout)
                 viewModel.showWorkoutForm = false
             },
             routinePrefill: RoutinePrefillData(
@@ -298,6 +304,15 @@ struct ActiveRoutineView: View {
 
     private var routineWorkoutStartedAt: Date {
         viewModel.sessionStartedAt ?? Date().addingTimeInterval(-max(viewModel.actualElapsed, 0))
+    }
+
+    private var shouldKeepScreenAwake: Bool {
+        switch viewModel.phase {
+        case .countdown, .active:
+            return true
+        case .complete:
+            return false
+        }
     }
 
     private var currentUserPhotoURL: URL? {

@@ -1,6 +1,6 @@
 import Foundation
 
-enum ClimbImageVariant: String {
+enum ClimbImageVariant: String, Hashable {
     case hero
     case card
     case thumb

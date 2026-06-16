@@ -461,13 +461,6 @@ final class WorkoutImportCoordinator {
         await syncAppleHealthAutomationServices()
     }
 
-    func enrichLiveClimbWorkoutWithAppleHealthIfPossible(
-        _ workout: Workout,
-        modelContext: ModelContext
-    ) async {
-        await enrichInAppWorkoutWithAppleHealthIfPossible(workout, modelContext: modelContext)
-    }
-
     func enrichInAppWorkoutWithAppleHealthIfPossible(
         _ workout: Workout,
         modelContext: ModelContext

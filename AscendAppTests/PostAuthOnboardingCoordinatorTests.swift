@@ -12,6 +12,7 @@ struct PostAuthOnboardingCoordinatorTests {
             .goal,
             .motivation,
             .plan,
+            .features,
             .gender,
             .age,
             .weight,
@@ -22,7 +23,7 @@ struct PostAuthOnboardingCoordinatorTests {
         ])
         #expect(PostAuthOnboardingStage.first == .displayName)
         #expect(PostAuthOnboardingStage.flowID == "post_auth_onboarding")
-        #expect(PostAuthOnboardingStage.plannedStepCount == 13)
+        #expect(PostAuthOnboardingStage.plannedStepCount == 14)
     }
 
     @MainActor
@@ -35,6 +36,22 @@ struct PostAuthOnboardingCoordinatorTests {
         let coordinator = PostAuthOnboardingCoordinator(store: store)
         coordinator.resolve(userId: userId)
         coordinator.completeCurrentStage()
+
+        #expect(coordinator.phase == .onboarding(.stairStepperBaseline))
+        #expect(!store.snapshot(for: userId).isComplete)
+        #expect(store.snapshot(for: userId).completedStages == [.displayName])
+    }
+
+    @MainActor
+    @Test
+    func existingDisplayNameCanAdvanceDirectlyToStairStepperBaseline() {
+        let defaults = makeDefaults()
+        let store = PostAuthOnboardingStore(userDefaults: defaults)
+        let userId = "user-with-name"
+
+        let coordinator = PostAuthOnboardingCoordinator(store: store)
+        coordinator.resolve(userId: userId)
+        coordinator.completeDisplayNameIfNeeded()
 
         #expect(coordinator.phase == .onboarding(.stairStepperBaseline))
         #expect(!store.snapshot(for: userId).isComplete)

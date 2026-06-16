@@ -13,7 +13,7 @@ struct AchievementsSection: View {
                 achievementCard(
                     label: ProfileTerminology.topOneAchievementLabel,
                     count: counts.top1,
-                    systemImage: "crown.fill",
+                    assetImage: "LeaderboardCrown",
                     tint: ProfileVisualStyle.gold,
                     productionAssetName: "AchievementTop1"
                 )
@@ -21,7 +21,7 @@ struct AchievementsSection: View {
                 achievementCard(
                     label: ProfileTerminology.topThreeAchievementLabel,
                     count: counts.top3,
-                    systemImage: "medal.fill",
+                    assetImage: "LeaderboardTop3",
                     tint: ProfileVisualStyle.silver,
                     productionAssetName: "AchievementTop3"
                 )
@@ -29,7 +29,7 @@ struct AchievementsSection: View {
                 achievementCard(
                     label: ProfileTerminology.topTenAchievementLabel,
                     count: counts.top10,
-                    systemImage: "star.circle.fill",
+                    assetImage: "LeaderboardTop10",
                     tint: ProfileVisualStyle.gold,
                     productionAssetName: "AchievementTop10"
                 )
@@ -37,7 +37,7 @@ struct AchievementsSection: View {
                 achievementCard(
                     label: ProfileTerminology.topHundredAchievementLabel,
                     count: counts.top100,
-                    systemImage: "star.fill",
+                    assetImage: "LeaderboardTop100",
                     tint: ProfileVisualStyle.secondaryText,
                     productionAssetName: "AchievementTop100"
                 )
@@ -53,18 +53,17 @@ struct AchievementsSection: View {
     private func achievementCard(
         label: String,
         count: Int,
-        systemImage: String,
+        assetImage: String?,
         tint: Color,
         productionAssetName: String
     ) -> some View {
         ProfileCardSurfaceView {
             HStack(spacing: 10) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 23, weight: .bold))
-                    .foregroundStyle(tint)
-                    .frame(width: 34, height: 34)
-                    .background(Circle().fill(tint.opacity(0.14)))
-                    .accessibilityIdentifier(productionAssetName)
+                achievementIcon(
+                    assetImage: assetImage,
+                    tint: tint,
+                    productionAssetName: productionAssetName
+                )
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(label)
@@ -84,5 +83,27 @@ struct AchievementsSection: View {
             .padding(12)
         }
         .accessibilityLabel("\(label), \(count)")
+    }
+
+    @ViewBuilder
+    private func achievementIcon(
+        assetImage: String?,
+        tint: Color,
+        productionAssetName: String
+    ) -> some View {
+        if let assetImage {
+            Image(assetImage)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 42, height: 42)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(tint.opacity(0.42), lineWidth: 1)
+                )
+                .shadow(color: tint.opacity(0.24), radius: 5, x: 0, y: 1)
+                .accessibilityHidden(true)
+                .accessibilityIdentifier(productionAssetName)
+        }
     }
 }

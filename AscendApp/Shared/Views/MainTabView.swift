@@ -13,8 +13,8 @@ struct MainTabView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(NetworkConnectivityService.self) private var connectivityService
+    @Environment(TabRouter.self) private var tabRouter
     @State private var themeManager = ThemeManager.shared
-    @State private var tabRouter = TabRouter()
     @State private var homeNavigationPath: [HomeNavigationDestination] = []
     @State private var homeDashboard = HomeDashboardViewModel()
     @State private var profileScreen = ProfileScreenViewModel()
@@ -36,6 +36,8 @@ struct MainTabView: View {
     }
 
     var body: some View {
+        @Bindable var tabRouter = tabRouter
+
         TabView(selection: $tabRouter.selectedTab) {
             ForEach(tabs) { tab in
                 if tab.identifier == tabRouter.selectedTab {
@@ -56,7 +58,6 @@ struct MainTabView: View {
         }
         .tint(Color.ascendAccent)
         .accentColor(Color.ascendAccent)
-        .environment(tabRouter)
         .task {
             rebuildBestEffortCacheIfNeeded()
             consumePendingFirstClimbHandoffIfNeeded()
@@ -248,6 +249,7 @@ struct MainTabView: View {
     MainTabView()
         .environment(AuthenticationViewModel())
         .environment(NetworkConnectivityService.shared)
+        .environment(TabRouter())
         .modelContainer(
             for: [
                 Workout.self,

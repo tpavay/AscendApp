@@ -135,7 +135,8 @@ final class HomeDashboardViewModel {
                 await leaderboardSessionCache.setDetailEntries(
                     reconciledStats,
                     for: .climb,
-                    timeFrame: .weekly
+                    timeFrame: .weekly,
+                    limit: 1_000
                 )
                 _ = applyRank(from: reconciledStats, localSnapshot: localSnapshot, alreadyReconciled: true)
                 lastRankRefreshAt = referenceDate
@@ -387,7 +388,12 @@ final class HomeDashboardViewModel {
                 totalWorkouts: totalWorkouts,
                 totalDuration: totalDuration,
                 stepsPerMinute: stepsPerMinute,
-                lastUpdated: max(existing?.lastUpdated ?? lastUpdated, lastUpdated)
+                lastUpdated: max(existing?.lastUpdated ?? lastUpdated, lastUpdated),
+                age: existing?.age,
+                weightKg: existing?.weightKg,
+                locationCity: existing?.locationCity,
+                locationCountry: existing?.locationCountry,
+                locationRegion: existing?.locationRegion
             )
         }
     }

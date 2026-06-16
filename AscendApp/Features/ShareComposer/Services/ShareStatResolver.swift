@@ -13,6 +13,7 @@ struct ShareStatResolver {
     var climbName: String?
     var climbRank: Int?
     var climbRankTotal: Int?
+    var splitTargetSteps: Int?
 
     var isClimb: Bool { climbName != nil }
 
@@ -75,13 +76,26 @@ struct ShareStatResolver {
                 : Self.decimal(weight, 1)
             return ResolvedShareStat(kind: kind, label: "ADDED", value: "\(formatted) \(measurementSystem.weightAbbreviation)")
 
+        case .splits:
+            guard let splits = resolveSplits() else { return nil }
+            return ResolvedShareStat(kind: kind, label: splits.label, value: splits.value)
+
         case .climbName:
             guard let climbName else { return nil }
-            return ResolvedShareStat(kind: kind, label: "CLIMB", value: climbName)
+            return ResolvedShareStat(kind: kind, label: "LANDMARK", value: climbName)
 
         case .climbRank:
             guard let climbRank, climbRank > 0 else { return nil }
-            return ResolvedShareStat(kind: kind, label: "FINISHER", value: "#\(climbRank)")
+            return ResolvedShareStat(kind: kind, label: "RANK", value: "#\(climbRank)")
+
+        case .climbRankWithTotal:
+            guard let climbRank, climbRank > 0,
+                  let climbRankTotal, climbRankTotal > 0 else { return nil }
+            return ResolvedShareStat(
+                kind: kind,
+                label: "RANK / TOTAL",
+                value: "#\(climbRank) / \(Self.integer(climbRankTotal))"
+            )
 
         case .bestEffort, .totals:
             // Injected stats: Best Effort comes from the Best Effort cache and
@@ -89,6 +103,53 @@ struct ShareStatResolver {
             // single Workout, so the view model supplies them.
             return nil
         }
+    }
+
+    /// Resolve live sampled progress into split rows for the share sticker.
+    /// Total-only/manual workouts do not get this even though split math could be
+    /// reconstructed, because splits should reflect recorded timeline data.
+    func resolveSplits() -> ResolvedShareSplits? {
+        guard let metadata = Self.recordedSplitMetadata(for: workout) else { return nil }
+
+        let targetSteps = max(
+            splitTargetSteps ?? metadata.climbTargetStepCount ?? metadata.targetStepCount ?? workout.steps,
+            workout.steps,
+            1
+        )
+        let splits = LiveClimbWorkoutSummaryData.paceSplits(
+            for: workout,
+            targetSteps: targetSteps
+        )
+        guard !splits.isEmpty else { return nil }
+
+        let minSPM = splits.map(\.stepsPerMinute).min() ?? 0
+        let maxSPM = max(splits.map(\.stepsPerMinute).max() ?? 0, 1)
+        let rows = splits.map { split in
+            ResolvedShareSplitRow(
+                index: split.index,
+                segmentText: "\(split.index + 1)",
+                rangeText: "\(Self.clockTime(split.startElapsedSeconds))-\(Self.clockTime(split.endElapsedSeconds))",
+                stepsText: Self.integer(split.steps),
+                spmText: "\(Int(split.stepsPerMinute.rounded()).formatted())",
+                heartRateText: averageHeartRateText(for: split),
+                progress: Self.normalizedSplitProgress(
+                    split.stepsPerMinute,
+                    minStepsPerMinute: minSPM,
+                    maxStepsPerMinute: maxSPM
+                )
+            )
+        }
+        let hasHeartRate = rows.contains { $0.heartRateText != nil }
+        let segmentText = "\(rows.count.formatted()) \(rows.count == 1 ? "SEGMENT" : "SEGMENTS")"
+        let averageText = workout.stepsPerMinute.map { "\(Int($0.rounded()).formatted()) SPM AVG" } ?? "SPM SPLITS"
+
+        return ResolvedShareSplits(
+            label: "SPLITS",
+            value: segmentText,
+            subtitle: "\(segmentText) · \(averageText)",
+            rows: rows,
+            hasHeartRate: hasHeartRate
+        )
     }
 
     // MARK: - Formatting
@@ -106,5 +167,56 @@ struct ShareStatResolver {
 
     private static func decimal(_ value: Double, _ places: Int) -> String {
         value.formatted(.number.precision(.fractionLength(places)))
+    }
+
+    private func averageHeartRateText(for split: LiveClimbPaceSplit) -> String? {
+        let samples = workout.heartRateTimeSeries.filter { sample in
+            let elapsed = sample.timestamp.timeIntervalSince(workout.date)
+            return elapsed >= TimeInterval(split.startElapsedSeconds) &&
+                elapsed <= TimeInterval(split.endElapsedSeconds) &&
+                sample.heartRate > 0
+        }
+        guard !samples.isEmpty else { return nil }
+
+        let average = Double(samples.reduce(0) { $0 + $1.heartRate }) / Double(samples.count)
+        return "\(Int(average.rounded()).formatted())"
+    }
+
+    private static func recordedSplitMetadata(for workout: Workout) -> HeadphoneMotionWorkoutMetadata? {
+        guard let metadata = LiveClimbWorkoutSummaryData.metadata(for: workout),
+              let intervalSeconds = metadata.splitIntervalSeconds,
+              intervalSeconds > 0,
+              let splitSteps = metadata.splitSteps,
+              splitSteps.count >= 2,
+              splitSteps.contains(where: { $0 > 0 }) else {
+            return nil
+        }
+
+        return metadata
+    }
+
+    private static func normalizedSplitProgress(
+        _ stepsPerMinute: Double,
+        minStepsPerMinute: Double,
+        maxStepsPerMinute: Double
+    ) -> Double {
+        guard maxStepsPerMinute > minStepsPerMinute else { return 1 }
+
+        let range = maxStepsPerMinute - minStepsPerMinute
+        let normalized = min(max((stepsPerMinute - minStepsPerMinute) / range, 0), 1)
+        return 0.25 + (normalized * 0.75)
+    }
+
+    private static func clockTime(_ seconds: Int) -> String {
+        let totalSeconds = max(seconds, 0)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+
+        if hours > 0 {
+            return "\(hours):\(minutes < 10 ? "0" : "")\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
+        }
+
+        return "\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
     }
 }
