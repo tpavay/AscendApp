@@ -44,6 +44,51 @@ struct FirestoreLeaderboardStats: Codable, Equatable, Sendable {
     let totalDuration: Double
     let stepsPerMinute: Double
     let lastUpdated: Date
+    let age: Int?
+    let weightKg: Double?
+    let locationCity: String?
+    let locationCountry: String?
+    let locationRegion: String?
+
+    init(
+        userId: String,
+        displayName: String,
+        photoURL: String? = nil,
+        timeFrame: String,
+        schemaVersion: Int,
+        periodKey: String,
+        periodStartAt: Date,
+        totalSteps: Int,
+        totalFloors: Int,
+        totalWorkouts: Int,
+        totalDuration: Double,
+        stepsPerMinute: Double,
+        lastUpdated: Date,
+        age: Int? = nil,
+        weightKg: Double? = nil,
+        locationCity: String? = nil,
+        locationCountry: String? = nil,
+        locationRegion: String? = nil
+    ) {
+        self.userId = userId
+        self.displayName = displayName
+        self.photoURL = photoURL
+        self.timeFrame = timeFrame
+        self.schemaVersion = schemaVersion
+        self.periodKey = periodKey
+        self.periodStartAt = periodStartAt
+        self.totalSteps = totalSteps
+        self.totalFloors = totalFloors
+        self.totalWorkouts = totalWorkouts
+        self.totalDuration = totalDuration
+        self.stepsPerMinute = stepsPerMinute
+        self.lastUpdated = lastUpdated
+        self.age = age
+        self.weightKg = weightKg
+        self.locationCity = locationCity
+        self.locationCountry = locationCountry
+        self.locationRegion = locationRegion
+    }
 
     func value(for metric: LeaderboardMetric) -> Double {
         switch metric {

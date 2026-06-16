@@ -101,7 +101,7 @@
             </array>
         </dict>
 
-        <!-- Coarse Location — profile city, region, and country selected by search or one-time current-location lookup -->
+        <!-- Coarse Location — profile city, region, and country selected by search or one-time current-location lookup; country is also used for first-party analytics segmentation -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeCoarseLocation</string>
@@ -111,6 +111,7 @@
             <false/>
             <key>NSPrivacyCollectedDataTypePurposes</key>
             <array>
+                <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
                 <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
             </array>
         </dict>
@@ -213,7 +214,7 @@
             </array>
         </dict>
 
-        <!-- Purchase History — RevenueCat and Superwall subscription/paywall SDKs -->
+        <!-- Purchase History — RevenueCat and Superwall subscription/paywall SDKs, including first-party purchase outcome analytics -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypePurchaseHistory</string>
@@ -223,6 +224,7 @@
             <false/>
             <key>NSPrivacyCollectedDataTypePurposes</key>
             <array>
+                <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
                 <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
             </array>
         </dict>

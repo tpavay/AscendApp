@@ -122,7 +122,8 @@ final class LeaderboardService {
     func prepareSyncPayloads(
         userId: String,
         displayName: String,
-        photoURL: URL?
+        photoURL: URL?,
+        profile: LeaderboardProfileSnapshot? = nil
     ) throws -> [LeaderboardSyncPayload] {
         let context = try requireContext()
         let predicate = #Predicate<LeaderboardStats> { stats in
@@ -154,6 +155,7 @@ final class LeaderboardService {
                 totalWorkouts: stats.totalWorkouts,
                 totalDuration: stats.totalDuration,
                 stepsPerMinute: stats.stepsPerMinute,
+                profile: profile,
                 operation: stats.hasActivity ? .upsert : .delete
             )
         }

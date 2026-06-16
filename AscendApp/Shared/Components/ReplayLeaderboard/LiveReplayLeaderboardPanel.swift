@@ -12,6 +12,7 @@ struct LiveReplayLeaderboardPanel: View {
     let fetchFailed: Bool
     let tint: Color
     let effectiveColorScheme: ColorScheme
+    var showsFilter: Bool = true
 
     private var visibleRows: [LiveReplayLeaderboardRow] {
         switch selectedFilter {
@@ -37,8 +38,10 @@ struct LiveReplayLeaderboardPanel: View {
             .padding(.horizontal, 4)
             .padding(.bottom, 10)
 
-            filterControl
-                .padding(.bottom, 12)
+            if showsFilter {
+                filterControl
+                    .padding(.bottom, 12)
+            }
 
             Rectangle()
                 .fill(.white.opacity(0.08))

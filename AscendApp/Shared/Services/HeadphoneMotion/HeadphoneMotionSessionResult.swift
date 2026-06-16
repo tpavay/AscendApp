@@ -11,6 +11,34 @@ enum HeadphoneMotionWorkoutTrackingMode: String, Codable, Sendable {
     case justClimb = "just_climb"
 }
 
+struct HeadphoneMotionStepCorrection: Codable, Equatable, Sendable {
+    let elapsedSeconds: Int
+    let detectedSteps: Int
+    let correctedSteps: Int
+    let deltaSteps: Int
+    let trackingGapDurationSeconds: TimeInterval
+    let totalUnavailableDurationSeconds: TimeInterval
+    let interruptionCount: Int
+
+    init(
+        elapsedSeconds: Int,
+        detectedSteps: Int,
+        correctedSteps: Int,
+        deltaSteps: Int,
+        trackingGapDurationSeconds: TimeInterval,
+        totalUnavailableDurationSeconds: TimeInterval,
+        interruptionCount: Int
+    ) {
+        self.elapsedSeconds = max(elapsedSeconds, 0)
+        self.detectedSteps = max(detectedSteps, 0)
+        self.correctedSteps = max(correctedSteps, 0)
+        self.deltaSteps = deltaSteps
+        self.trackingGapDurationSeconds = max(trackingGapDurationSeconds, 0)
+        self.totalUnavailableDurationSeconds = max(totalUnavailableDurationSeconds, 0)
+        self.interruptionCount = max(interruptionCount, 0)
+    }
+}
+
 struct HeadphoneMotionSessionResult: Equatable, Sendable {
     let startedAt: Date
     let endedAt: Date
@@ -19,6 +47,7 @@ struct HeadphoneMotionSessionResult: Equatable, Sendable {
     let sampleCount: Int
     let stopReason: HeadphoneMotionSessionStopReason
     let trackingIntegrity: HeadphoneMotionTrackingIntegrity
+    let stepCorrections: [HeadphoneMotionStepCorrection]
 
     init(
         startedAt: Date,
@@ -27,7 +56,8 @@ struct HeadphoneMotionSessionResult: Equatable, Sendable {
         steps: Int,
         sampleCount: Int,
         stopReason: HeadphoneMotionSessionStopReason,
-        trackingIntegrity: HeadphoneMotionTrackingIntegrity = .verified
+        trackingIntegrity: HeadphoneMotionTrackingIntegrity = .verified,
+        stepCorrections: [HeadphoneMotionStepCorrection] = []
     ) {
         self.startedAt = startedAt
         self.endedAt = endedAt
@@ -36,6 +66,7 @@ struct HeadphoneMotionSessionResult: Equatable, Sendable {
         self.sampleCount = sampleCount
         self.stopReason = stopReason
         self.trackingIntegrity = trackingIntegrity
+        self.stepCorrections = stepCorrections
     }
 
     var hasRecordedSteps: Bool {
@@ -59,6 +90,7 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
     let trackingUnavailableDurationSeconds: TimeInterval?
     let longestTrackingUnavailableDurationSeconds: TimeInterval?
     let trackingInterruptionCount: Int?
+    let stepCorrections: [HeadphoneMotionStepCorrection]?
 
     init(
         sampleCount: Int,
@@ -69,7 +101,8 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
         targetDurationSeconds: TimeInterval? = nil,
         stopReason: HeadphoneMotionSessionStopReason,
         splitCurve: LiveReplaySplitCurve? = nil,
-        trackingIntegrity: HeadphoneMotionTrackingIntegrity = .verified
+        trackingIntegrity: HeadphoneMotionTrackingIntegrity = .verified,
+        stepCorrections: [HeadphoneMotionStepCorrection] = []
     ) {
         self.source = "headphone_motion"
         self.algorithmVersion = HeadphoneMotionStepDetector.algorithmVersion
@@ -86,6 +119,7 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
         self.trackingUnavailableDurationSeconds = trackingIntegrity.totalUnavailableDuration
         self.longestTrackingUnavailableDurationSeconds = trackingIntegrity.longestUnavailableDuration
         self.trackingInterruptionCount = trackingIntegrity.interruptionCount
+        self.stepCorrections = stepCorrections.isEmpty ? nil : stepCorrections
     }
 
     var jsonString: String? {

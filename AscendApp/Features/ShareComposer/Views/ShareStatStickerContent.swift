@@ -22,6 +22,7 @@ struct ShareStatStickerContent: View {
     /// Default (white) keeps the signature lime label; a custom color goes
     /// monochrome (label adopts the chosen color).
     private var labelColor: Color { color.isWhite ? lime : color.color }
+    private var showsLabel: Bool { stat.kind != .climbName && !stat.label.isEmpty }
 
     var body: some View {
         styledContent
@@ -39,27 +40,33 @@ struct ShareStatStickerContent: View {
                 Text(stat.value)
                     .font(font.swiftUIFont(size: baseValueSize))
                     .foregroundStyle(valueColor)
-                Text(stat.label)
-                    .font(font.swiftUIFont(size: baseValueSize * 0.3))
-                    .tracking(2)
-                    .foregroundStyle(labelColor)
+                if showsLabel {
+                    Text(stat.label)
+                        .font(font.swiftUIFont(size: baseValueSize * 0.3))
+                        .tracking(2)
+                        .foregroundStyle(labelColor)
+                }
             }
         case .stacked:
             VStack(spacing: 1) {
-                Text(stat.label)
-                    .font(font.swiftUIFont(size: baseValueSize * 0.32))
-                    .tracking(1.5)
-                    .foregroundStyle(labelColor.opacity(0.9))
+                if showsLabel {
+                    Text(stat.label)
+                        .font(font.swiftUIFont(size: baseValueSize * 0.32))
+                        .tracking(1.5)
+                        .foregroundStyle(labelColor.opacity(0.9))
+                }
                 Text(stat.value)
                     .font(font.swiftUIFont(size: baseValueSize * 0.9))
                     .foregroundStyle(valueColor)
             }
         case .chip:
             HStack(spacing: 8) {
-                Text(stat.label)
-                    .font(font.swiftUIFont(size: baseValueSize * 0.34))
-                    .tracking(1)
-                    .foregroundStyle(labelColor)
+                if showsLabel {
+                    Text(stat.label)
+                        .font(font.swiftUIFont(size: baseValueSize * 0.34))
+                        .tracking(1)
+                        .foregroundStyle(labelColor)
+                }
                 Text(stat.value)
                     .font(font.swiftUIFont(size: baseValueSize * 0.38))
                     .foregroundStyle(valueColor)

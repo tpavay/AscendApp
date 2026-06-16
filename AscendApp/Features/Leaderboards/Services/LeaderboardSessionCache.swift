@@ -6,6 +6,7 @@ actor LeaderboardSessionCache {
     struct DetailKey: Hashable, Sendable {
         let timeFrame: LeaderboardTimeFrame
         let metric: LeaderboardMetric
+        let limit: Int
     }
 
     private var detailCache: [DetailKey: [FirestoreLeaderboardStats]] = [:]
@@ -13,17 +14,31 @@ actor LeaderboardSessionCache {
 
     func detailEntries(
         for metric: LeaderboardMetric,
-        timeFrame: LeaderboardTimeFrame
+        timeFrame: LeaderboardTimeFrame,
+        minimumLimit: Int = 100
     ) -> [FirestoreLeaderboardStats]? {
-        detailCache[DetailKey(timeFrame: timeFrame, metric: metric)]
+        detailCache
+            .filter {
+                $0.key.timeFrame == timeFrame &&
+                    $0.key.metric == metric &&
+                    $0.key.limit >= minimumLimit
+            }
+            .sorted { $0.key.limit < $1.key.limit }
+            .first?
+            .value
     }
 
     func setDetailEntries(
         _ entries: [FirestoreLeaderboardStats],
         for metric: LeaderboardMetric,
-        timeFrame: LeaderboardTimeFrame
+        timeFrame: LeaderboardTimeFrame,
+        limit: Int? = nil
     ) {
-        detailCache[DetailKey(timeFrame: timeFrame, metric: metric)] = entries
+        detailCache[DetailKey(
+            timeFrame: timeFrame,
+            metric: metric,
+            limit: limit ?? 100
+        )] = entries
     }
 
     func previewEntries(
@@ -66,7 +81,12 @@ actor LeaderboardSessionCache {
                     totalWorkouts: stat.totalWorkouts,
                     totalDuration: stat.totalDuration,
                     stepsPerMinute: stat.stepsPerMinute,
-                    lastUpdated: stat.lastUpdated
+                    lastUpdated: stat.lastUpdated,
+                    age: stat.age,
+                    weightKg: stat.weightKg,
+                    locationCity: stat.locationCity,
+                    locationCountry: stat.locationCountry,
+                    locationRegion: stat.locationRegion
                 )
             }
         }
@@ -88,7 +108,12 @@ actor LeaderboardSessionCache {
                         totalWorkouts: stat.totalWorkouts,
                         totalDuration: stat.totalDuration,
                         stepsPerMinute: stat.stepsPerMinute,
-                        lastUpdated: stat.lastUpdated
+                        lastUpdated: stat.lastUpdated,
+                        age: stat.age,
+                        weightKg: stat.weightKg,
+                        locationCity: stat.locationCity,
+                        locationCountry: stat.locationCountry,
+                        locationRegion: stat.locationRegion
                     )
                 }
                 return (metric, updatedStats)

@@ -19,9 +19,12 @@ enum ShareStatStickerKind: String, CaseIterable, Identifiable, Codable, Sendable
     case maxHeartRate
     case verticalClimb
     case addedWeight
+    // Structured timeline
+    case splits
     // Climb-specific
     case climbName
-    case climbRank       // "Nth finisher"
+    case climbRank       // "#1 rank"
+    case climbRankWithTotal // "#1 / 2,460 rank"
     // Derived achievement (resolved from the Best Effort cache, not the workout)
     case bestEffort
     // Aggregate (resolved from this-week totals across workouts, not one workout)
@@ -33,11 +36,27 @@ enum ShareStatStickerKind: String, CaseIterable, Identifiable, Codable, Sendable
     /// Live Climb completion.
     var isClimbOnly: Bool {
         switch self {
-        case .climbName, .climbRank:
+        case .climbName, .climbRank, .climbRankWithTotal:
             return true
         default:
             return false
         }
+    }
+
+    /// Structured stickers render their own multi-row content instead of the
+    /// normal single-stat/composite text styles.
+    var isStructured: Bool {
+        switch self {
+        case .splits:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Only simple scalar stats can be combined in the structure sheet.
+    var supportsComposite: Bool {
+        !isStructured
     }
 }
 
@@ -174,6 +193,8 @@ struct ShareStickerInstance: Identifiable, Equatable {
     var isComposite: Bool { !extraStats.isEmpty }
     /// True when this is a text sticker that includes the climb name (renameable).
     var containsClimbName: Bool { !isImage && statRefs.contains { $0.kind == .climbName } }
+    /// True when this sticker uses a structured renderer, such as split rows.
+    var isStructured: Bool { !isImage && kind.isStructured && extraStats.isEmpty }
 
     init(
         id: UUID = UUID(),
@@ -209,8 +230,30 @@ struct ShareStickerInstance: Identifiable, Equatable {
 /// A resolved, display-ready stat value (label + value) read from canonical data.
 struct ResolvedShareStat: Equatable {
     let kind: ShareStatStickerKind
-    /// Short uppercase label, e.g. "STEPS", "DURATION", "FINISHER".
+    /// Short uppercase label, e.g. "STEPS", "DURATION", "RANK".
     let label: String
     /// Formatted value, e.g. "2,096", "22:10", "#60".
     let value: String
+}
+
+/// Display-ready split rows for a structured share sticker.
+struct ResolvedShareSplits: Equatable {
+    let label: String
+    let value: String
+    let subtitle: String
+    let rows: [ResolvedShareSplitRow]
+    let hasHeartRate: Bool
+}
+
+struct ResolvedShareSplitRow: Identifiable, Equatable {
+    let index: Int
+    let segmentText: String
+    let rangeText: String
+    let stepsText: String
+    let spmText: String
+    let heartRateText: String?
+    /// 0...1 bar fill, already normalized for display.
+    let progress: Double
+
+    var id: Int { index }
 }

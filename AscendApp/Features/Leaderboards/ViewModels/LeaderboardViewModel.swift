@@ -8,6 +8,9 @@ import SwiftData
 final class LeaderboardViewModel {
     var selectedMetric: LeaderboardMetric = .climb
     var selectedTimeFrame: LeaderboardTimeFrame = .weekly
+    var selectedAgeGroup: LeaderboardAgeGroup?
+    var selectedBodyWeightFilter: LeaderboardBodyWeightFilter = .all
+    var selectedLocationFilter: LeaderboardLocationFilter = .all
     var leaderboardEntries: [LeaderboardEntry] = []
     var userEntry: LeaderboardEntry?
     var isLoading = false
@@ -19,8 +22,12 @@ final class LeaderboardViewModel {
     private let sessionCache: LeaderboardSessionCache
     private let pageSize = 25
     private let networkTimeoutSeconds = LeaderboardRefreshPolicy.networkTimeoutSeconds
+    private let defaultFetchLimit = 100
+    private let demographicFilterFetchLimit = 1_000
     private(set) var visibleEntryLimit = 25
     private var currentUserId: String?
+    private var currentUserProfile: LeaderboardProfileSnapshot?
+    private var rawLeaderboardStats: [FirestoreLeaderboardStats] = []
 
     init(sessionCache: LeaderboardSessionCache = .shared) {
         self.sessionCache = sessionCache
@@ -38,6 +45,44 @@ final class LeaderboardViewModel {
 
     var hasCachedEntries: Bool {
         !leaderboardEntries.isEmpty
+    }
+
+    var hasActiveDemographicFilters: Bool {
+        selectedAgeGroup != nil ||
+            selectedBodyWeightFilter != .all ||
+            selectedLocationFilter != .all
+    }
+
+    var ageFilterTitle: String {
+        selectedAgeGroup?.displayName ?? "Age"
+    }
+
+    var bodyWeightFilterTitle: String {
+        selectedBodyWeightFilter.shortDisplayName
+    }
+
+    var locationFilterTitle: String {
+        selectedLocationFilter == .all
+            ? selectedLocationFilter.shortDisplayName
+            : selectedLocationFilter.displayName(currentUserProfile: currentUserProfile)
+    }
+
+    var currentLocationFilterOptions: [LeaderboardLocationFilter] {
+        LeaderboardLocationFilter.allCases.filter {
+            $0.isAvailable(currentUserProfile: currentUserProfile)
+        }
+    }
+
+    var currentUserLocationProfile: LeaderboardProfileSnapshot? {
+        currentUserProfile
+    }
+
+    var filteredEmptyStateTitle: String {
+        "No climbers match."
+    }
+
+    var filteredEmptyStateMessage: String {
+        "Clear a filter."
     }
 
     func refreshLeaderboard(
@@ -111,16 +156,20 @@ final class LeaderboardViewModel {
         forceRefresh: Bool = false,
         isNetworkConnected: Bool? = nil
     ) async {
+        await loadCurrentUserProfileIfNeeded(userId: userId)
+
         isLoading = leaderboardEntries.isEmpty
         if forceRefresh {
             errorMessage = nil
             isOffline = false
         }
 
+        let fetchLimit = requiredFetchLimit
         if forceRefresh == false,
            let cachedStats = await sessionCache.detailEntries(
                 for: selectedMetric,
-                timeFrame: selectedTimeFrame
+                timeFrame: selectedTimeFrame,
+                minimumLimit: fetchLimit
            ) {
             apply(stats: reconcileCurrentUserStats(cachedStats, userId: userId), userId: userId)
             errorMessage = nil
@@ -134,14 +183,15 @@ final class LeaderboardViewModel {
                 let cacheStats = try await repository.fetchLeaderboard(
                     metric: selectedMetric,
                     timeFrame: selectedTimeFrame,
-                    limit: 100,
+                    limit: fetchLimit,
                     source: .cache
                 )
                 let reconciledStats = reconcileCurrentUserStats(cacheStats, userId: userId)
                 await sessionCache.setDetailEntries(
                     reconciledStats,
                     for: selectedMetric,
-                    timeFrame: selectedTimeFrame
+                    timeFrame: selectedTimeFrame,
+                    limit: fetchLimit
                 )
                 if cacheStats.isEmpty {
                     leaderboardEntries = []
@@ -168,7 +218,7 @@ final class LeaderboardViewModel {
                 try await self.repository.fetchLeaderboard(
                     metric: self.selectedMetric,
                     timeFrame: self.selectedTimeFrame,
-                    limit: 100,
+                    limit: fetchLimit,
                     source: source
                 )
             }
@@ -176,7 +226,8 @@ final class LeaderboardViewModel {
             await sessionCache.setDetailEntries(
                 reconciledStats,
                 for: selectedMetric,
-                timeFrame: selectedTimeFrame
+                timeFrame: selectedTimeFrame,
+                limit: fetchLimit
             )
             apply(stats: reconciledStats, userId: userId)
             errorMessage = nil
@@ -184,7 +235,8 @@ final class LeaderboardViewModel {
         } catch {
             if let cachedStats = await sessionCache.detailEntries(
                 for: selectedMetric,
-                timeFrame: selectedTimeFrame
+                timeFrame: selectedTimeFrame,
+                minimumLimit: fetchLimit
             ) {
                 let reconciledStats = reconcileCurrentUserStats(cachedStats, userId: userId)
                 if cachedStats.isEmpty {
@@ -203,14 +255,15 @@ final class LeaderboardViewModel {
                 let cacheStats = try await repository.fetchLeaderboard(
                     metric: selectedMetric,
                     timeFrame: selectedTimeFrame,
-                    limit: 100,
+                    limit: fetchLimit,
                     source: .cache
                 )
                 let reconciledStats = reconcileCurrentUserStats(cacheStats, userId: userId)
                 await sessionCache.setDetailEntries(
                     reconciledStats,
                     for: selectedMetric,
-                    timeFrame: selectedTimeFrame
+                    timeFrame: selectedTimeFrame,
+                    limit: fetchLimit
                 )
                 if cacheStats.isEmpty {
                     leaderboardEntries = []
@@ -234,6 +287,48 @@ final class LeaderboardViewModel {
         guard let lastVisible = displayedEntries.last, lastVisible.id == entry.id else { return }
         guard visibleEntryLimit < leaderboardEntries.count else { return }
         visibleEntryLimit = min(visibleEntryLimit + pageSize, leaderboardEntries.count)
+    }
+
+    func selectAgeGroup(_ ageGroup: LeaderboardAgeGroup?) {
+        guard selectedAgeGroup != ageGroup else { return }
+        selectedAgeGroup = ageGroup
+        trackDemographicFilterChanged(
+            type: .ageGroup,
+            selectedValue: ageGroup?.rawValue ?? "all"
+        )
+    }
+
+    func selectBodyWeightFilter(_ filter: LeaderboardBodyWeightFilter) {
+        guard selectedBodyWeightFilter != filter else { return }
+        selectedBodyWeightFilter = filter
+        trackDemographicFilterChanged(
+            type: .bodyWeight,
+            selectedValue: filter.rawValue
+        )
+    }
+
+    func selectLocationFilter(_ filter: LeaderboardLocationFilter) {
+        guard selectedLocationFilter != filter else { return }
+        selectedLocationFilter = filter
+        trackDemographicFilterChanged(
+            type: .location,
+            selectedValue: filter.rawValue
+        )
+    }
+
+    func clearDemographicFilters() {
+        let shouldTrackClear = hasActiveDemographicFilters
+        selectedAgeGroup = nil
+        selectedBodyWeightFilter = .all
+        selectedLocationFilter = .all
+        if shouldTrackClear {
+            TelemetryManager.shared.track(
+                LeaderboardAnalyticsEvent.demographicFiltersCleared(
+                    context: analyticsContext
+                )
+            )
+        }
+        reapplyCurrentStats()
     }
 
     func updateCurrentUserProfile(userId: String?, displayName: String, photoURL: URL?) {
@@ -275,7 +370,18 @@ final class LeaderboardViewModel {
     }
 
     private func apply(stats: [FirestoreLeaderboardStats], userId: String) {
-        let entries = stats.enumerated().map { index, stat in
+        rawLeaderboardStats = stats
+        reapplyCurrentStats(userId: userId)
+    }
+
+    private func reapplyCurrentStats() {
+        guard let currentUserId else { return }
+        reapplyCurrentStats(userId: currentUserId)
+    }
+
+    private func reapplyCurrentStats(userId: String) {
+        let filteredStats = filtered(rawLeaderboardStats)
+        let entries = filteredStats.enumerated().map { index, stat in
             let value = stat.value(for: selectedMetric)
             return LeaderboardEntry(
                 userId: stat.userId,
@@ -289,8 +395,31 @@ final class LeaderboardViewModel {
         }
 
         leaderboardEntries = entries
-        userEntry = entries.first(where: { $0.userId == userId }) ?? (try? placeholderEntry(for: userId))
+        userEntry = entries.first(where: { $0.userId == userId }) ??
+            (hasActiveDemographicFilters ? nil : (try? placeholderEntry(for: userId)))
         resetPagination()
+    }
+
+    private func filtered(_ stats: [FirestoreLeaderboardStats]) -> [FirestoreLeaderboardStats] {
+        stats.filter { stat in
+            if let selectedAgeGroup,
+               !selectedAgeGroup.contains(age: stat.age) {
+                return false
+            }
+
+            if !selectedBodyWeightFilter.contains(weightKg: stat.weightKg) {
+                return false
+            }
+
+            if !selectedLocationFilter.contains(
+                stats: stat,
+                currentUserProfile: currentUserProfile
+            ) {
+                return false
+            }
+
+            return true
+        }
     }
 
     private func placeholderEntry(for userId: String) throws -> LeaderboardEntry? {
@@ -319,10 +448,10 @@ final class LeaderboardViewModel {
         userId: String
     ) -> [FirestoreLeaderboardStats] {
         guard let localStats = try? service.getLocalStats(for: userId, timeFrame: selectedTimeFrame) else {
-            return stats
+            return applyCurrentUserProfile(to: stats, userId: userId)
         }
 
-        return LeaderboardCurrentUserReconciler.reconcileDetailStats(
+        let reconciled = LeaderboardCurrentUserReconciler.reconcileDetailStats(
             stats,
             metric: selectedMetric,
             userId: userId,
@@ -330,6 +459,78 @@ final class LeaderboardViewModel {
             displayName: userEntry?.displayName ?? "You",
             photoURL: userEntry?.photoURL
         )
+        return applyCurrentUserProfile(to: reconciled, userId: userId)
+    }
+
+    private func applyCurrentUserProfile(
+        to stats: [FirestoreLeaderboardStats],
+        userId: String
+    ) -> [FirestoreLeaderboardStats] {
+        guard let currentUserProfile else { return stats }
+
+        return stats.map { stat in
+            guard stat.userId == userId else { return stat }
+
+            return FirestoreLeaderboardStats(
+                userId: stat.userId,
+                displayName: stat.displayName,
+                photoURL: stat.photoURL,
+                timeFrame: stat.timeFrame,
+                schemaVersion: stat.schemaVersion,
+                periodKey: stat.periodKey,
+                periodStartAt: stat.periodStartAt,
+                totalSteps: stat.totalSteps,
+                totalFloors: stat.totalFloors,
+                totalWorkouts: stat.totalWorkouts,
+                totalDuration: stat.totalDuration,
+                stepsPerMinute: stat.stepsPerMinute,
+                lastUpdated: stat.lastUpdated,
+                age: currentUserProfile.age ?? stat.age,
+                weightKg: currentUserProfile.weightKg ?? stat.weightKg,
+                locationCity: currentUserProfile.locationCity ?? stat.locationCity,
+                locationCountry: currentUserProfile.locationCountry ?? stat.locationCountry,
+                locationRegion: currentUserProfile.locationRegion ?? stat.locationRegion
+            )
+        }
+    }
+
+    private var requiredFetchLimit: Int {
+        hasActiveDemographicFilters ? demographicFilterFetchLimit : defaultFetchLimit
+    }
+
+    private var analyticsContext: LeaderboardAnalyticsContext {
+        LeaderboardAnalyticsContext(
+            metric: selectedMetric,
+            timeFrame: selectedTimeFrame,
+            ageGroup: selectedAgeGroup,
+            bodyWeightFilter: selectedBodyWeightFilter,
+            locationFilter: selectedLocationFilter
+        )
+    }
+
+    private func trackDemographicFilterChanged(
+        type: LeaderboardAnalyticsEvent.FilterType,
+        selectedValue: String
+    ) {
+        TelemetryManager.shared.track(
+            LeaderboardAnalyticsEvent.demographicFilterChanged(
+                context: analyticsContext,
+                filterType: type,
+                selectedValue: selectedValue
+            )
+        )
+    }
+
+    private func loadCurrentUserProfileIfNeeded(userId: String) async {
+        guard currentUserProfile?.userId != userId else { return }
+
+        if let userData = try? await UserDataRepository.shared.getUserFromFirestore(userId: userId) {
+            currentUserProfile = LeaderboardProfileSnapshot(userId: userId, userData: userData)
+        }
+
+        if !selectedLocationFilter.isAvailable(currentUserProfile: currentUserProfile) {
+            selectedLocationFilter = .all
+        }
     }
 
     private func hasUnsyncedActivityForSelectedBoard(userId: String) -> Bool {

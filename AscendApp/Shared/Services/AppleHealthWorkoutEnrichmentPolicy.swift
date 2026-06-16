@@ -1,22 +1,18 @@
 import Foundation
 
 enum AppleHealthWorkoutEnrichmentPolicy: CaseIterable {
-    case liveClimb
-    case routine
+    case inAppSensorWorkout
 
     static let inAppSessionPolicies: [AppleHealthWorkoutEnrichmentPolicy] = [
-        .liveClimb,
-        .routine
+        .inAppSensorWorkout
     ]
 
     func isEligible(_ workout: Workout, hasAppleHealthLink: Bool) -> Bool {
         guard !hasAppleHealthLink else { return false }
 
         switch self {
-        case .liveClimb:
-            return workout.isLiveClimbAttemptWorkout
-        case .routine:
-            return workout.hasRoutineParticipation
+        case .inAppSensorWorkout:
+            return workout.isInAppSensorWorkout
         }
     }
 
@@ -50,28 +46,15 @@ enum AppleHealthWorkoutEnrichmentPolicy: CaseIterable {
 
     private var minimumOverlapRatio: Double {
         switch self {
-        case .liveClimb, .routine:
+        case .inAppSensorWorkout:
             return 0.70
         }
     }
 
     private var maximumStartDelta: TimeInterval {
         switch self {
-        case .liveClimb, .routine:
+        case .inAppSensorWorkout:
             return 15 * 60
-        }
-    }
-}
-
-private extension Workout {
-    var hasRoutineParticipation: Bool {
-        participations.contains { participation in
-            switch participation.contextType {
-            case .routine, .routineTemplate:
-                return true
-            case .climbAttempt, .challenge, .groupChallenge, .programSession, .achievement:
-                return false
-            }
         }
     }
 }

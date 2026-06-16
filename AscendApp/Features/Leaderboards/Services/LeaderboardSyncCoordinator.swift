@@ -130,11 +130,17 @@ actor LeaderboardSyncCoordinator {
     }
 
     private func prepareSyncPayloads(for request: Request) async throws -> [LeaderboardSyncPayload] {
-        try await MainActor.run {
+        let profile = try? await UserDataRepository.shared.getUserFromFirestore(userId: request.userId)
+        let leaderboardProfile = profile.map {
+            LeaderboardProfileSnapshot(userId: request.userId, userData: $0)
+        }
+
+        return try await MainActor.run {
             try LeaderboardService.shared.prepareSyncPayloads(
                 userId: request.userId,
                 displayName: request.displayName,
-                photoURL: request.photoURL
+                photoURL: request.photoURL,
+                profile: leaderboardProfile
             )
         }
     }

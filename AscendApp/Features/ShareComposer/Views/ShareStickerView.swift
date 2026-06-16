@@ -10,6 +10,8 @@ struct ShareStickerView: View {
     @Binding var instance: ShareStickerInstance
     /// Resolved metrics (one for a single sticker, several for a composite).
     let stats: [ResolvedShareStat]
+    /// Structured split rows for split stickers.
+    let splits: ResolvedShareSplits?
     let climb: Climb?
     let canvasSize: CGSize
     /// Proportional scale (canvasWidth / reference 390) so stickers render at the
@@ -27,6 +29,10 @@ struct ShareStickerView: View {
     let snapCenter: (CGPoint) -> CGPoint
     /// Final canvas-space center when the drag ends (for trash deletion).
     let onDragEnded: (CGPoint) -> Void
+    /// Clears drag-only chrome when a drag is superseded by pinch/rotate.
+    let onDragCancelled: () -> Void
+    /// Tells the canvas that this sticker currently owns touch interaction.
+    let onInteractionChanged: (Bool) -> Void
 
     @GestureState private var dragTranslation: CGSize = .zero
     @GestureState private var gestureScale: CGFloat = 1
@@ -34,9 +40,15 @@ struct ShareStickerView: View {
     /// Tracks whether rotation is currently inside a 90° snap zone, so the snap
     /// haptic fires once on entry rather than every frame.
     @State private var rotationSnapped = false
+    @State private var dragActive = false
+    @State private var scaleActive = false
+    @State private var rotationActive = false
 
     /// Capture window around each 90° multiple where rotation snaps (≈5°).
     private let rotationSnapThreshold = Double.pi / 36
+    private let editingHitSlop: CGFloat = 22
+
+    private var transformActive: Bool { scaleActive || rotationActive }
 
     private var baseCenter: CGPoint {
         CGPoint(x: instance.position.x * canvasSize.width,
@@ -44,21 +56,23 @@ struct ShareStickerView: View {
     }
 
     var body: some View {
-        let rawCenter = CGPoint(x: baseCenter.x + dragTranslation.width,
-                                y: baseCenter.y + dragTranslation.height)
+        let effectiveDrag = transformActive ? .zero : dragTranslation
+        let rawCenter = CGPoint(x: baseCenter.x + effectiveDrag.width,
+                                y: baseCenter.y + effectiveDrag.height)
         // Live magnetic snap: the sticker glues to the active guide line while
         // dragging (not just on release), giving the "sticky" feel.
         let displayCenter = snapCenter(rawCenter)
         // Live rotation snap to 0/90/180/270 so the user can feel alignment.
         let displayRotation = snappedAngle(instance.rotationRadians + gestureRotation.radians)
 
-        ShareStickerVisual(instance: instance, stats: stats, climb: climb)
-            .padding(10)
+        ShareStickerVisual(instance: instance, stats: stats, splits: splits, climb: climb)
+            .padding(editingHitSlop)
+            .contentShape(Rectangle())
             .scaleEffect(instance.scale * gestureScale * canvasScale * (isOverTrash ? 0.35 : 1))
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isOverTrash)
             .rotationEffect(.radians(displayRotation))
             .position(displayCenter)
-            .gesture(combinedGesture)
+            .highPriorityGesture(combinedGesture)
             .onTapGesture { onSelect() }
     }
 
@@ -79,33 +93,52 @@ struct ShareStickerView: View {
 
     private var combinedGesture: some Gesture {
         let drag = DragGesture()
-            .updating($dragTranslation) { value, state, _ in state = value.translation }
+            .updating($dragTranslation) { value, state, _ in
+                guard !transformActive else {
+                    state = .zero
+                    return
+                }
+                state = value.translation
+            }
             .onChanged { value in
+                guard !transformActive else {
+                    cancelDragIfNeeded()
+                    return
+                }
+                beginDrag()
                 onSelect()
                 let center = CGPoint(x: baseCenter.x + value.translation.width,
                                      y: baseCenter.y + value.translation.height)
                 onDragChanged(center)
             }
             .onEnded { value in
+                guard dragActive, !transformActive else {
+                    cancelDragIfNeeded()
+                    return
+                }
                 let raw = CGPoint(x: baseCenter.x + value.translation.width,
                                   y: baseCenter.y + value.translation.height)
                 let snapped = snapCenter(raw)
                 instance.position = CGPoint(x: snapped.x / canvasSize.width,
                                             y: snapped.y / canvasSize.height)
                 onDragEnded(snapped)
+                dragActive = false
+                syncInteractionState()
             }
 
         let magnify = MagnifyGesture()
             .updating($gestureScale) { value, state, _ in state = value.magnification }
-            .onChanged { _ in onSelect() }
+            .onChanged { _ in beginScale() }
             .onEnded { value in
                 instance.scale = max(0.3, min(instance.scale * value.magnification, 6))
+                scaleActive = false
+                syncInteractionState()
             }
 
         let rotate = RotateGesture()
             .updating($gestureRotation) { value, state, _ in state = value.rotation }
             .onChanged { value in
-                onSelect()
+                beginRotation()
                 let live = instance.rotationRadians + value.rotation.radians
                 let near = isNearRotationSnap(live)
                 if near && !rotationSnapped { HapticsManager.shared.trigger(.lightImpact) }
@@ -114,8 +147,42 @@ struct ShareStickerView: View {
             .onEnded { value in
                 rotationSnapped = false
                 instance.rotationRadians = snappedAngle(instance.rotationRadians + value.rotation.radians)
+                rotationActive = false
+                syncInteractionState()
             }
 
         return drag.simultaneously(with: magnify).simultaneously(with: rotate)
+    }
+
+    private func beginDrag() {
+        if !dragActive {
+            dragActive = true
+            onInteractionChanged(true)
+        }
+    }
+
+    private func beginScale() {
+        onSelect()
+        scaleActive = true
+        cancelDragIfNeeded()
+        onInteractionChanged(true)
+    }
+
+    private func beginRotation() {
+        onSelect()
+        rotationActive = true
+        cancelDragIfNeeded()
+        onInteractionChanged(true)
+    }
+
+    private func cancelDragIfNeeded() {
+        guard dragActive else { return }
+        dragActive = false
+        onDragCancelled()
+        syncInteractionState()
+    }
+
+    private func syncInteractionState() {
+        onInteractionChanged(dragActive || scaleActive || rotationActive)
     }
 }

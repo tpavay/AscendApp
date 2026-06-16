@@ -121,6 +121,11 @@ private struct PreAuthOnboardingSurveyFlowScreen: View {
         guard !viewedQuestionIDs.contains(question.id) else { return }
 
         viewedQuestionIDs.insert(question.id)
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.screenViewed(
+                context: analyticsContext(for: question, index: stepIndex)
+            )
+        )
     }
 
     private func recordSelectedAnswers(
@@ -166,7 +171,6 @@ func trackOnboardingSurveyAnswer(
     TelemetryManager.shared.track(
         OnboardingAnalyticsEvent.questionAnswered(
             context: context,
-            eventName: question.analyticsEventName,
             questionID: question.id,
             inputType: question.selectionMode.analyticsInputType,
             selectionType: question.selectionMode.analyticsInputType,
@@ -174,6 +178,10 @@ func trackOnboardingSurveyAnswer(
             answerIndex: answerIndex,
             properties: ["answer_count": .int(sortedOptionIDs.count)]
         )
+    )
+    OnboardingAnalyticsUserProperties.setSurveyAnswer(
+        questionID: question.id,
+        selectedOptionIDs: selectedOptionIDs
     )
 }
 
@@ -393,10 +401,6 @@ struct PreAuthSurveyQuestion {
 
     static let figmaProgressFraction = CGFloat(21.0 / 169.0)
 
-    var analyticsEventName: String {
-        "\(id)_answered"
-    }
-
     static func question(for id: String) -> PreAuthSurveyQuestion? {
         all.first { $0.id == id }
     }
@@ -539,15 +543,27 @@ struct PreAuthOnboardingSurveyStore {
     }
 }
 
-private struct PreAuthOnboardingGuideFlowScreen: View {
+struct OnboardingFeatureGuideFlowScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var stepIndex = 0
     @State private var didRecordFlowStart = false
     @State private var viewedScreenIDs: Set<String> = []
 
+    let flowID: String
+    let onBackFromFirstScreen: (() -> Void)?
     let onFinish: () -> Void
 
     private let screens = PreAuthGuideScreen.all
+
+    init(
+        flowID: String = "onboarding_features",
+        onBackFromFirstScreen: (() -> Void)? = nil,
+        onFinish: @escaping () -> Void
+    ) {
+        self.flowID = flowID
+        self.onBackFromFirstScreen = onBackFromFirstScreen
+        self.onFinish = onFinish
+    }
 
     var body: some View {
         PreAuthGuideScreenView(
@@ -576,7 +592,11 @@ private struct PreAuthOnboardingGuideFlowScreen: View {
         )
 
         if stepIndex == 0 {
-            dismiss()
+            if let onBackFromFirstScreen {
+                onBackFromFirstScreen()
+            } else {
+                dismiss()
+            }
         } else {
             stepIndex -= 1
         }
@@ -610,6 +630,11 @@ private struct PreAuthOnboardingGuideFlowScreen: View {
         guard !viewedScreenIDs.contains(screen.id) else { return }
 
         viewedScreenIDs.insert(screen.id)
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.screenViewed(
+                context: analyticsContext(for: screen, index: stepIndex)
+            )
+        )
     }
 
     private func analyticsContext(
@@ -617,7 +642,7 @@ private struct PreAuthOnboardingGuideFlowScreen: View {
         index: Int
     ) -> OnboardingAnalyticsContext {
         OnboardingAnalyticsContext(
-            flowID: "pre_auth_guide",
+            flowID: flowID,
             stepID: screen.id,
             stepIndex: index,
             stepCount: screens.count
@@ -987,20 +1012,20 @@ private struct PreAuthGuideScreen: Identifiable {
         PreAuthGuideScreen(
             id: "summit_landmarks",
             kind: .landmarkCollage,
-            headline: "Summit the worlds\nmost iconic landmarks",
+            headline: "Summit the world's\nmost iconic landmarks",
             subtitle: "Start small and make your way up to some of the tallest points on earth."
         ),
         PreAuthGuideScreen(
             id: "real_time",
             kind: .liveTracking,
-            headline: "Track your climb in\nreal-time",
-            subtitle: "Connect your AirPods Pro or Max to track your climbs in realtime"
+            headline: "Track your climb in\nreal time",
+            subtitle: "Connect your AirPods Pro or Max to track your climbs in real time."
         ),
         PreAuthGuideScreen(
             id: "daily_climbs",
             kind: .dailyClimb,
             headline: "Compete live in daily\nclimbs",
-            subtitle: "Join the climb of the day to complete with others for the top spot."
+            subtitle: "Join the climb of the day to compete with others for the top spot."
         )
     ]
 }

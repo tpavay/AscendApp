@@ -18,8 +18,12 @@ struct ShareComposerView: View {
     @State private var renameText = ""
     @State private var exportingAction: ExportAction?
     @State private var toast: String?
+    @State private var applyingRecap = false
     /// Transient filter name shown briefly after a swipe.
     @State private var filterFlash: String?
+    /// While a sticker gesture is active, background pan/zoom is ignored so
+    /// multi-touch sticker edits never fall through to the backing photo.
+    @State private var activeStickerGestureID: UUID?
     /// Live background pinch/drag deltas (committed to the view model on end).
     @GestureState private var bgZoomLive: CGFloat = 1
     @GestureState private var bgPanLive: CGSize = .zero
@@ -32,6 +36,7 @@ struct ShareComposerView: View {
     private let presets: [ShareComposerPreset]
     private let shareTitle: String
     private let accent = Color(red: 0.706, green: 0.8, blue: 0)
+    private static let storyAspectRatio: CGFloat = 9.0 / 16.0
 
     init(
         workout: Workout,
@@ -67,17 +72,37 @@ struct ShareComposerView: View {
 
     /// Data for the picker's Recaps tab (only when sharing a climb).
     private var recapPreview: ShareBackgroundPickerView.RecapPreview? {
-        guard let climb = viewModel.climb else { return nil }
-        return .init(climb: climb, stats: viewModel.recapStats(), bestEffort: viewModel.bestEffortStats.first)
+        guard let recapCardData else { return nil }
+        return .init(data: recapCardData)
     }
 
-    /// Bake the recap card to an image and use it as the background (the climb
-    /// artwork is already warm from the Recaps tab preview, so the render
-    /// captures it). The user can then add stickers on top or save as-is.
-    private func applyRecap() {
-        guard let climb = viewModel.climb else { return }
-        let card = ShareRecapCard(climb: climb, stats: viewModel.recapStats(), bestEffort: viewModel.bestEffortStats.first)
-        if let image = exporter.renderRecap(card) {
+    private var recapCardData: ShareRecapCardData? {
+        guard let climb = viewModel.climb else { return nil }
+        let splitSticker = ShareStickerInstance(kind: .splits)
+        return ShareRecapCardData(
+            climb: climb,
+            stats: viewModel.climbStats(),
+            bestEffort: viewModel.bestEffortStats.first,
+            weeklyTotals: viewModel.weeklyTotalStats,
+            splits: viewModel.resolvedSplits(for: splitSticker),
+            rank: viewModel.climbRank,
+            rankTotal: viewModel.climbRankTotal
+        )
+    }
+
+    /// Bake the selected recap template to an image and use it as the background.
+    /// The user can then add stickers on top or save as-is.
+    private func applyRecap(_ template: ShareRecapTemplate) {
+        guard !applyingRecap else { return }
+        applyingRecap = true
+
+        Task { @MainActor in
+            defer { applyingRecap = false }
+            guard let recapCardData,
+                  let image = await exporter.renderRecap(template: template, data: recapCardData) else {
+                toast = "Could not build recap"
+                return
+            }
             viewModel.resetForNewBackground(.photo(image))
         }
     }
@@ -99,11 +124,30 @@ struct ShareComposerView: View {
                             showAddSheet = true
                         }
                     },
-                    onPickRecap: viewModel.climb != nil ? { applyRecap() } : nil,
+                    onPickRecap: viewModel.climb != nil ? { template in applyRecap(template) } : nil,
                     onClose: { dismiss() }
                 )
             } else {
                 composer
+            }
+
+            if applyingRecap {
+                Color.black.opacity(0.62)
+                    .ignoresSafeArea()
+
+                VStack(spacing: 14) {
+                    ProgressView()
+                        .tint(accent)
+                    Text("Building recap")
+                        .font(.montserratSemiBold(size: 14))
+                        .foregroundStyle(.white.opacity(0.9))
+                }
+                .padding(24)
+                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(.white.opacity(0.12), lineWidth: 1)
+                )
             }
         }
         .sheet(isPresented: $showAddSheet) {
@@ -211,7 +255,7 @@ struct ShareComposerView: View {
     /// image, matching the Aura layout.
     private var canvasRegion: some View {
         GeometryReader { geo in
-            let canvasSize = geo.size
+            let canvasSize = Self.fittedStoryCanvasSize(in: geo.size)
             let canvasScale = canvasSize.width / 390
 
             ZStack {
@@ -254,10 +298,13 @@ struct ShareComposerView: View {
 
                 // Stickers
                 ForEach(Array(viewModel.stickers.enumerated()), id: \.element.id) { index, sticker in
-                    if sticker.isImage || !viewModel.resolvedStats(for: sticker).isEmpty {
+                    let stats = viewModel.resolvedStats(for: sticker)
+                    let splits = viewModel.resolvedSplits(for: sticker)
+                    if sticker.isImage || splits != nil || !stats.isEmpty {
                         ShareStickerView(
                             instance: $viewModel.stickers[index],
-                            stats: viewModel.resolvedStats(for: sticker),
+                            stats: stats,
+                            splits: splits,
                             climb: viewModel.climb,
                             canvasSize: canvasSize,
                             canvasScale: canvasScale,
@@ -272,6 +319,16 @@ struct ShareComposerView: View {
                             },
                             onDragEnded: { center in
                                 viewModel.handleDragEnded(id: sticker.id, center: center, canvasSize: canvasSize)
+                            },
+                            onDragCancelled: {
+                                viewModel.cancelDragFeedback()
+                            },
+                            onInteractionChanged: { isActive in
+                                if isActive {
+                                    activeStickerGestureID = sticker.id
+                                } else if activeStickerGestureID == sticker.id {
+                                    activeStickerGestureID = nil
+                                }
                             }
                         )
                     }
@@ -313,8 +370,20 @@ struct ShareComposerView: View {
                 }
             }
             .frame(width: canvasSize.width, height: canvasSize.height)
+            .position(x: geo.size.width / 2, y: geo.size.height / 2)
             .clipped()
         }
+    }
+
+    private static func fittedStoryCanvasSize(in container: CGSize) -> CGSize {
+        guard container.width > 0, container.height > 0 else { return .zero }
+
+        let widthFromHeight = container.height * storyAspectRatio
+        if widthFromHeight <= container.width {
+            return CGSize(width: widthFromHeight, height: container.height)
+        }
+
+        return CGSize(width: container.width, height: container.width / storyAspectRatio)
     }
 
     private func trashZone(in canvasSize: CGSize) -> some View {
@@ -367,9 +436,11 @@ struct ShareComposerView: View {
         if let index = selectedIndex, !viewModel.stickers[index].isImage {
             VStack(spacing: 14) {
                 // Structure: arrange multiple metrics (row / grid / column) + toggle which show.
-                railButton(systemName: "square.grid.2x2") {
-                    HapticsManager.shared.trigger(.lightImpact)
-                    showStructureSheet = true
+                if viewModel.stickers[index].kind.supportsComposite {
+                    railButton(systemName: "square.grid.2x2") {
+                        HapticsManager.shared.trigger(.lightImpact)
+                        showStructureSheet = true
+                    }
                 }
 
                 // Rename — only when the sticker includes the climb name.
@@ -381,9 +452,11 @@ struct ShareComposerView: View {
                     }
                 }
 
-                railButton(systemName: "textformat.size") {
-                    HapticsManager.shared.trigger(.lightImpact)
-                    viewModel.stickers[index].style = viewModel.stickers[index].style.next()
+                if !viewModel.stickers[index].isStructured {
+                    railButton(systemName: "textformat.size") {
+                        HapticsManager.shared.trigger(.lightImpact)
+                        viewModel.stickers[index].style = viewModel.stickers[index].style.next()
+                    }
                 }
                 railButton(systemName: "character") { showFontSheet = true }
 
@@ -481,12 +554,28 @@ struct ShareComposerView: View {
     /// (at fit-scale) a horizontal swipe cycles the filter.
     private func backgroundGesture(canvasSize: CGSize) -> some Gesture {
         let zoom = MagnifyGesture()
-            .updating($bgZoomLive) { value, state, _ in state = value.magnification }
-            .onEnded { value in viewModel.commitBackgroundZoom(value.magnification) }
+            .updating($bgZoomLive) { value, state, _ in
+                guard activeStickerGestureID == nil else {
+                    state = 1
+                    return
+                }
+                state = value.magnification
+            }
+            .onEnded { value in
+                guard activeStickerGestureID == nil else { return }
+                viewModel.commitBackgroundZoom(value.magnification)
+            }
 
         let pan = DragGesture(minimumDistance: 20)
-            .updating($bgPanLive) { value, state, _ in state = value.translation }
+            .updating($bgPanLive) { value, state, _ in
+                guard activeStickerGestureID == nil else {
+                    state = .zero
+                    return
+                }
+                state = value.translation
+            }
             .onEnded { value in
+                guard activeStickerGestureID == nil else { return }
                 if viewModel.backgroundIsManipulated {
                     viewModel.commitBackgroundPan(
                         dxFraction: value.translation.width / canvasSize.width,

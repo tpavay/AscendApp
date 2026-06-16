@@ -46,11 +46,34 @@ final class RevenueCatPurchaseController: PurchaseController {
 
             let storeProduct = RevenueCat.StoreProduct(sk2Product: sk2Product)
             let result = try await Purchases.shared.purchase(product: storeProduct)
+            let outcome = result.userCancelled ? "cancelled" : "purchased"
+
+            TelemetryManager.shared.track(
+                PaywallAnalyticsEvent.purchaseControllerCompleted(
+                    productID: product.productIdentifier,
+                    outcome: outcome
+                )
+            )
 
             return result.userCancelled ? .cancelled : .purchased
         } catch let error as ErrorCode {
+            let outcome = error == .paymentPendingError ? "pending" : "failed"
+            TelemetryManager.shared.track(
+                PaywallAnalyticsEvent.purchaseControllerCompleted(
+                    productID: product.productIdentifier,
+                    outcome: outcome
+                )
+            )
+
             return error == .paymentPendingError ? .pending : .failed(error)
         } catch {
+            TelemetryManager.shared.track(
+                PaywallAnalyticsEvent.purchaseControllerCompleted(
+                    productID: product.productIdentifier,
+                    outcome: "failed"
+                )
+            )
+
             return .failed(error)
         }
     }
@@ -59,8 +82,14 @@ final class RevenueCatPurchaseController: PurchaseController {
     func restorePurchases() async -> RestorationResult {
         do {
             _ = try await Purchases.shared.restorePurchases()
+            TelemetryManager.shared.track(
+                PaywallAnalyticsEvent.restoreControllerCompleted(outcome: "restored")
+            )
             return .restored
         } catch {
+            TelemetryManager.shared.track(
+                PaywallAnalyticsEvent.restoreControllerCompleted(outcome: "failed")
+            )
             return .failed(error)
         }
     }

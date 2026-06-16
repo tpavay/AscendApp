@@ -8,6 +8,12 @@ struct ShareExportCanvas: View {
     let size: CGSize
     /// Poster frame substituted for a video background at export time.
     var backgroundOverride: UIImage?
+    /// Preset climb backgrounds include a readability gradient in the live
+    /// canvas; keep that same treatment when export supplies a preloaded image.
+    var backgroundOverrideIncludesClimbGradient: Bool = false
+    /// Preloaded climb artwork for image stickers. `ImageRenderer` does not
+    /// wait for async view tasks, so export must avoid cache-cold placeholders.
+    var climbArtworkOverrides: [ClimbImageVariant: UIImage] = [:]
     /// When true, render only the stickers + wordmark on a transparent canvas
     /// (used as the overlay composited onto a video).
     var overlayOnly: Bool = false
@@ -22,11 +28,15 @@ struct ShareExportCanvas: View {
             }
 
             ForEach(viewModel.stickers) { sticker in
-                if sticker.isImage || !viewModel.resolvedStats(for: sticker).isEmpty {
+                let stats = viewModel.resolvedStats(for: sticker)
+                let splits = viewModel.resolvedSplits(for: sticker)
+                if sticker.isImage || splits != nil || !stats.isEmpty {
                     ShareStickerVisual(
                         instance: sticker,
-                        stats: viewModel.resolvedStats(for: sticker),
-                        climb: viewModel.climb
+                        stats: stats,
+                        splits: splits,
+                        climb: viewModel.climb,
+                        climbArtworkOverrides: climbArtworkOverrides
                     )
                         .scaleEffect(sticker.scale * canvasScale)
                         .rotationEffect(.radians(sticker.rotationRadians))
@@ -56,9 +66,19 @@ struct ShareExportCanvas: View {
         let offY = viewModel.backgroundOffset.height * size.height
 
         if let backgroundOverride {
-            Image(uiImage: backgroundOverride)
-                .resizable()
-                .scaledToFill()
+            ZStack {
+                Image(uiImage: backgroundOverride)
+                    .resizable()
+                    .scaledToFill()
+
+                if backgroundOverrideIncludesClimbGradient {
+                    LinearGradient(
+                        colors: [.black.opacity(0.15), .clear, .black.opacity(0.5)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+            }
                 .frame(width: size.width, height: size.height)
                 .shareBackgroundFilter(viewModel.backgroundFilter)
                 .scaleEffect(scale)

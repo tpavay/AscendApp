@@ -14,6 +14,8 @@ struct LiveClimbSessionView: View {
     @State private var showingHeadphoneRequirement = false
     @State private var headphoneMotionService = HeadphoneMotionReadinessService.shared
     @State private var didTrackHeadphoneRequirement = false
+    @State private var stepSyncValue = ""
+    @State private var selectedTab: LiveClimbSessionTab = .justMe
 
     private let liveTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -63,9 +65,13 @@ struct LiveClimbSessionView: View {
                     headphoneRequiredOverlay
                 }
 
+                if let stepSyncPrompt = viewModel.stepSyncPrompt {
+                    stepSyncOverlay(prompt: stepSyncPrompt)
+                }
             }
         }
         .preferredColorScheme(.dark)
+        .keepsScreenAwake(shouldKeepScreenAwake, reason: "Live climb tracking")
         .navigationBarBackButtonHidden(true)
         .onAppear {
             registerLiveActivityControls()
@@ -75,6 +81,26 @@ struct LiveClimbSessionView: View {
         }
         .task(id: countdownRunID) {
             await runCountdownThenStart()
+        }
+        .task(id: viewModel.stepSyncConfirmation?.id) {
+            guard viewModel.stepSyncConfirmation != nil else { return }
+
+            do {
+                try await Task.sleep(for: .seconds(3))
+            } catch {
+                return
+            }
+
+            viewModel.dismissStepSyncConfirmation()
+        }
+        .onChange(of: viewModel.stepSyncPrompt?.id) { _, _ in
+            stepSyncValue = viewModel.stepSyncPrompt.map { String($0.detectedSteps) } ?? ""
+        }
+        .onChange(of: stepSyncValue) { _, newValue in
+            let filteredValue = newValue.filter(\.isNumber)
+            if filteredValue != newValue {
+                stepSyncValue = filteredValue
+            }
         }
         .onChange(of: viewModel.motionSession.targetReached) { _, reached in
             guard reached, hasStartedRecording else { return }
@@ -88,6 +114,7 @@ struct LiveClimbSessionView: View {
         .onReceive(liveTick) { _ in
             guard hasStartedRecording, viewModel.isActivelyRecording else { return }
             viewModel.recordLiveSplitSample()
+            viewModel.evaluateStepSyncPrompt()
             if viewModel.durationGoalReached {
                 Task {
                     await viewModel.finishAndSave(
@@ -147,6 +174,17 @@ struct LiveClimbSessionView: View {
         viewModel.mode.isLandmarkClimb ? "Discard Live Climb?" : "Discard Just Climb?"
     }
 
+    private var shouldKeepScreenAwake: Bool {
+        guard !showingHeadphoneRequirement else { return false }
+
+        switch viewModel.phase {
+        case .idle, .recording, .saving:
+            return true
+        case .saved, .failed:
+            return false
+        }
+    }
+
     private var discardAccessibilityLabel: String {
         viewModel.mode.isLandmarkClimb ? "Discard live climb" : "Discard Just Climb"
     }
@@ -180,18 +218,20 @@ struct LiveClimbSessionView: View {
 
             Spacer(minLength: 0)
 
-            Text(clockTime(viewModel.displayedDuration))
-                .font(.montserratBold(size: 13))
-                .monospacedDigit()
-                .foregroundStyle(.white)
-                .contentTransition(.numericText())
-                .lineLimit(1)
-                .padding(.horizontal, 12)
-                .frame(height: 38)
-                .background(
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .fill(.white.opacity(0.10))
-                )
+            if !(viewModel.isRecording && selectedTab == .justMe) {
+                Text(viewModel.elapsedClock)
+                    .font(.montserratBold(size: 13))
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+                    .contentTransition(.numericText())
+                    .lineLimit(1)
+                    .padding(.horizontal, 12)
+                    .frame(height: 38)
+                    .background(
+                        RoundedRectangle(cornerRadius: 13, style: .continuous)
+                            .fill(.white.opacity(0.10))
+                    )
+            }
         }
         .padding(.horizontal, 20)
         .padding(.top, 14)
@@ -214,6 +254,23 @@ struct LiveClimbSessionView: View {
     }
 
     private var liveLeaderboardSection: some View {
+        VStack(spacing: 14) {
+            if viewModel.isRecording {
+                LiveClimbSessionTabBar(selection: $selectedTab)
+            }
+
+            Group {
+                if viewModel.isRecording && selectedTab == .justMe {
+                    LiveClimbJustMeView(viewModel: viewModel)
+                } else {
+                    leaderboardPanel
+                }
+            }
+            .frame(maxHeight: .infinity)
+        }
+    }
+
+    private var leaderboardPanel: some View {
         LiveReplayLeaderboardPanel(
             rows: viewModel.leaderboardRows,
             progressScaleSteps: viewModel.leaderboardProgressScale,
@@ -222,25 +279,33 @@ struct LiveClimbSessionView: View {
             currentUserPhotoURL: currentUserPhotoURL,
             fetchFailed: viewModel.leaderboardFetchFailed,
             tint: .accent,
-            effectiveColorScheme: .dark
+            effectiveColorScheme: .dark,
+            showsFilter: false
         )
     }
 
     @ViewBuilder
     private var trackingStatusBanner: some View {
-        if viewModel.shouldShowTrackingRecoveryStatus {
+        if let confirmation = viewModel.stepSyncConfirmation {
+            trackingBanner(
+                iconName: "checkmark.circle.fill",
+                message: "Synced with machine. Continuing from \(confirmation.correctedSteps.formatted()) steps.",
+                tint: .accent
+            )
+        } else if viewModel.shouldShowTrackingRecoveryStatus {
             trackingBanner(
                 iconName: "airpodspro",
-                message: "Headphone tracking paused. Reconnect to keep counting steps."
+                message: "Headphone tracking paused. Reconnect to keep counting steps.",
+                tint: .accent
             )
         }
     }
 
-    private func trackingBanner(iconName: String, message: String) -> some View {
+    private func trackingBanner(iconName: String, message: String, tint: Color) -> some View {
         HStack(spacing: 9) {
             Image(systemName: iconName)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.accent)
+                .foregroundStyle(tint)
 
             Text(message)
                 .font(.montserratSemiBold(size: 12))
@@ -342,17 +407,8 @@ struct LiveClimbSessionView: View {
         .buttonStyle(.plain)
     }
 
-    private func clockTime(_ interval: TimeInterval) -> String {
-        let totalSeconds = max(Int(interval.rounded(.down)), 0)
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        let seconds = totalSeconds % 60
-
-        if hours > 0 {
-            return "\(hours):\(minutes < 10 ? "0" : "")\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
-        }
-
-        return "\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
+    private var stepSyncInputSteps: Int? {
+        Int(stepSyncValue)
     }
 
     private var currentUserPhotoURL: URL? {
@@ -481,6 +537,96 @@ struct LiveClimbSessionView: View {
             secondaryTitle: "Close",
             secondaryAction: { dismiss() }
         )
+    }
+
+    private func stepSyncOverlay(prompt: LiveStepSyncPrompt) -> some View {
+        ZStack {
+            Color.black
+                .opacity(0.58)
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("We detected a gap.")
+                            .font(.montserratBold(size: 24))
+                            .foregroundStyle(.white)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Text("Enter the step count currently showing on your stair stepper.")
+                            .font(.montserratMedium(size: 14))
+                            .foregroundStyle(.white.opacity(0.68))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    HStack(spacing: 10) {
+                        TextField("0", text: $stepSyncValue)
+                            .keyboardType(.numberPad)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.montserratBold(size: 34))
+                            .foregroundStyle(.white)
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+
+                        Text("steps")
+                            .font(.montserratSemiBold(size: 14))
+                            .foregroundStyle(.white.opacity(0.52))
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(height: 72)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(.white.opacity(0.08))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(.white.opacity(0.14), lineWidth: 1)
+                    )
+                    .accessibilityLabel("Current machine steps")
+
+                    VStack(spacing: 10) {
+                        liveSessionButton(title: "Sync Current") {
+                            guard let steps = stepSyncInputSteps else { return }
+                            viewModel.syncCurrentMachineSteps(steps)
+                        }
+                        .disabled(stepSyncInputSteps == nil)
+                        .opacity(stepSyncInputSteps == nil ? 0.55 : 1)
+
+                        Button {
+                            viewModel.skipStepSyncPrompt()
+                        } label: {
+                            Text("Skip")
+                                .font(.montserratBold(size: 14))
+                                .foregroundStyle(.white.opacity(0.78))
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 42)
+                                .background(
+                                    Capsule()
+                                        .fill(.white.opacity(0.10))
+                                )
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(22)
+                .frame(maxWidth: 352)
+                .background(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .fill(Color(red: 0.07, green: 0.07, blue: 0.07))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .stroke(.white.opacity(0.12), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.42), radius: 22, x: 0, y: 14)
+            }
+            .padding(.horizontal, 22)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityHint("Ascend tracked \(prompt.detectedSteps) steps before the gap.")
     }
 
     private func liveClimbFullScreenOverlay(

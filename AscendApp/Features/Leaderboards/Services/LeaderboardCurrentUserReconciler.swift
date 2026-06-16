@@ -71,7 +71,12 @@ enum LeaderboardCurrentUserReconciler {
                 totalWorkouts: localStats.totalWorkouts,
                 totalDuration: localStats.totalDuration,
                 stepsPerMinute: localStats.stepsPerMinute,
-                lastUpdated: max(existing.lastUpdated, localStats.lastUpdated)
+                lastUpdated: max(existing.lastUpdated, localStats.lastUpdated),
+                age: existing.age,
+                weightKg: existing.weightKg,
+                locationCity: existing.locationCity,
+                locationCountry: existing.locationCountry,
+                locationRegion: existing.locationRegion
             )
         } else {
             resolved.append(

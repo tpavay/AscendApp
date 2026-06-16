@@ -15,18 +15,30 @@ import UIKit
 struct ShareComposerExporter {
     /// Story-format export resolution.
     static let exportSize = CGSize(width: 1080, height: 1920)
+    private let climbImageRepository: any ClimbImageRepository
+
+    init(climbImageRepository: any ClimbImageRepository = FirebaseClimbImageRepository.shared) {
+        self.climbImageRepository = climbImageRepository
+    }
 
     /// Compose the final still image (background + stickers).
     func renderImage(viewModel: ShareComposerViewModel) async -> UIImage? {
-        var posterOverride: UIImage?
+        var backgroundOverride: UIImage?
+        var backgroundOverrideIncludesClimbGradient = false
         if case .video(let url) = viewModel.background {
-            posterOverride = await Self.posterFrame(for: url, targetSize: Self.exportSize)
+            backgroundOverride = await Self.posterFrame(for: url, targetSize: Self.exportSize)
+        } else if case .preset(.climbImage(let climb, let variant)) = viewModel.background {
+            backgroundOverride = await loadClimbArtwork(for: climb, variant: variant)
+            backgroundOverrideIncludesClimbGradient = backgroundOverride != nil
         }
+        let climbArtworkOverrides = await climbArtworkOverrides(for: viewModel)
 
         let canvas = ShareExportCanvas(
             viewModel: viewModel,
             size: Self.exportSize,
-            backgroundOverride: posterOverride
+            backgroundOverride: backgroundOverride,
+            backgroundOverrideIncludesClimbGradient: backgroundOverrideIncludesClimbGradient,
+            climbArtworkOverrides: climbArtworkOverrides
         )
         let renderer = ImageRenderer(content: canvas)
         renderer.scale = 1
@@ -41,8 +53,17 @@ struct ShareComposerExporter {
 
     /// Render just the sticker/wordmark overlay (transparent background) at the
     /// given size — used as the layer composited onto a video.
-    func renderOverlay(viewModel: ShareComposerViewModel, size: CGSize) -> UIImage? {
-        let canvas = ShareExportCanvas(viewModel: viewModel, size: size, overlayOnly: true)
+    func renderOverlay(
+        viewModel: ShareComposerViewModel,
+        size: CGSize,
+        climbArtworkOverrides: [ClimbImageVariant: UIImage] = [:]
+    ) -> UIImage? {
+        let canvas = ShareExportCanvas(
+            viewModel: viewModel,
+            size: size,
+            climbArtworkOverrides: climbArtworkOverrides,
+            overlayOnly: true
+        )
         let renderer = ImageRenderer(content: canvas)
         renderer.scale = 1
         renderer.isOpaque = false
@@ -50,10 +71,12 @@ struct ShareComposerExporter {
     }
 
     /// Bake a recap card (climb artwork + laid-out stats) to a full-resolution
-    /// image, used as a ready-made background. The climb artwork must already be
-    /// in memory (the Recaps tab renders the same card first, warming the cache)
-    /// so this synchronous render captures it.
-    func renderRecap(_ card: ShareRecapCard) -> UIImage? {
+    /// image, used as a ready-made background. Preload the climb artwork before
+    /// rendering so ImageRenderer snapshots the real asset, not the async
+    /// placeholder.
+    func renderRecap(template: ShareRecapTemplate, data: ShareRecapCardData) async -> UIImage? {
+        let artwork = await loadClimbArtwork(for: data.climb, variant: .hero)
+        let card = ShareRecapCard(template: template, data: data, climbArtworkOverride: artwork)
         let sized = card.frame(width: Self.exportSize.width, height: Self.exportSize.height)
         let renderer = ImageRenderer(content: sized)
         renderer.scale = 1
@@ -109,9 +132,14 @@ struct ShareComposerExporter {
         guard case .video(let url) = viewModel.background else { return nil }
         let asset = AVURLAsset(url: url)
         guard let renderSize = await Self.videoRenderSize(asset) else { return nil }
+        let climbArtworkOverrides = await climbArtworkOverrides(for: viewModel)
 
         // Render the overlay at the video's display size so it aligns 1:1.
-        guard let overlay = renderOverlay(viewModel: viewModel, size: renderSize),
+        guard let overlay = renderOverlay(
+            viewModel: viewModel,
+            size: renderSize,
+            climbArtworkOverrides: climbArtworkOverrides
+        ),
               let overlayCI = CIImage(image: overlay) else {
             return nil
         }
@@ -121,6 +149,26 @@ struct ShareComposerExporter {
             backgroundScale: viewModel.backgroundScale,
             backgroundOffset: viewModel.backgroundOffset,
             backgroundFilter: viewModel.backgroundFilter
+        )
+    }
+
+    private func climbArtworkOverrides(for viewModel: ShareComposerViewModel) async -> [ClimbImageVariant: UIImage] {
+        guard let climb = viewModel.climb else { return [:] }
+        let variants = Set(viewModel.stickers.compactMap(\.climbImageVariant))
+        guard !variants.isEmpty else { return [:] }
+
+        var overrides: [ClimbImageVariant: UIImage] = [:]
+        for variant in variants {
+            overrides[variant] = await loadClimbArtwork(for: climb, variant: variant)
+        }
+        return overrides
+    }
+
+    private func loadClimbArtwork(for climb: Climb, variant: ClimbImageVariant) async -> UIImage? {
+        await ClimbArtworkView.loadImage(
+            for: climb,
+            variant: variant,
+            imageRepository: climbImageRepository
         )
     }
 

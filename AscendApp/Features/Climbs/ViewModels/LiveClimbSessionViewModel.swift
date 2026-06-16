@@ -22,6 +22,18 @@ enum LiveClimbSessionError: LocalizedError {
     }
 }
 
+struct LiveStepSyncPrompt: Identifiable, Equatable {
+    let id = UUID()
+    let detectedSteps: Int
+    let gapDuration: TimeInterval
+    let interruptionCount: Int
+}
+
+struct LiveStepSyncConfirmation: Identifiable, Equatable {
+    let id = UUID()
+    let correctedSteps: Int
+}
+
 enum LiveClimbSessionMode: Equatable {
     case liveClimb(Climb)
     case justClimb(JustClimbGoal)
@@ -145,12 +157,17 @@ final class LiveClimbSessionViewModel {
     private(set) var leaderboardSummary: LiveReplayLeaderboardSummary = .empty
     private(set) var leaderboardWindow: LiveReplayLeaderboardWindow?
     private(set) var leaderboardFetchFailed = false
+    private(set) var stepSyncPrompt: LiveStepSyncPrompt?
+    private(set) var stepSyncConfirmation: LiveStepSyncConfirmation?
 
     private var hasSavedSession = false
     private var stepTimelineRecorder: LiveClimbStepTimelineRecorder
     private var isLeaderboardRefreshInFlight = false
     private var lastExhaustedLeaderboardWindowRefreshAt: Date?
     private var lastPeriodicLeaderboardWindowRefreshAt: Date?
+    private var promptedStepSyncInterruptionCounts: Set<Int> = []
+    private var skippedStepSyncInterruptionCounts: Set<Int> = []
+    private let stepSyncPromptMinimumGapDuration: TimeInterval = 20
 
     init(
         climb: Climb,
@@ -255,6 +272,19 @@ final class LiveClimbSessionViewModel {
         return Int((Double(totalRecordedSteps) / (displayedDuration / 60)).rounded())
     }
 
+    var elapsedClock: String {
+        let totalSeconds = max(Int(displayedDuration.rounded(.down)), 0)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+
+        if hours > 0 {
+            return "\(hours):\(minutes < 10 ? "0" : "")\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
+        }
+
+        return "\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
+    }
+
     var replayContext: LiveReplayLeaderboardContext {
         mode.replayContext(progressScaleSteps: leaderboardProgressScale)
     }
@@ -298,6 +328,14 @@ final class LiveClimbSessionViewModel {
 
     var leaderboardUpdatedElapsedSeconds: Int? {
         leaderboardWindow?.bucketElapsedSeconds
+    }
+
+    var currentLeaderboardRank: Int? {
+        leaderboardRows.first(where: \.isCurrentUser)?.rank ?? leaderboardWindow?.currentUserRank
+    }
+
+    var currentRankDisplay: String {
+        currentLeaderboardRank.map { "#\($0)" } ?? "—"
     }
 
     var completionLeaderboardRank: Int? {
@@ -350,6 +388,10 @@ final class LiveClimbSessionViewModel {
 
         do {
             stepTimelineRecorder.reset()
+            stepSyncPrompt = nil
+            stepSyncConfirmation = nil
+            promptedStepSyncInterruptionCounts.removeAll(keepingCapacity: true)
+            skippedStepSyncInterruptionCounts.removeAll(keepingCapacity: true)
             stepTimelineRecorder.record(
                 elapsedSeconds: 0,
                 cumulativeSteps: 0,
@@ -358,11 +400,21 @@ final class LiveClimbSessionViewModel {
             try motionSession.startRecording(targetStepCount: targetRemainingSteps)
             backgroundSessionService.start()
             phase = .recording
-            if let climb = mode.climb {
+            switch mode {
+            case .liveClimb(let climb):
                 TelemetryManager.shared.track(
                     LiveClimbAnalyticsEvent.attemptStarted(
                         climb: climb,
                         entryPoint: analyticsEntryPoint
+                    )
+                )
+            case .justClimb(let goal):
+                TelemetryManager.shared.track(
+                    WorkoutSessionAnalyticsEvent.justClimbStarted(
+                        context: JustClimbAnalyticsContext(
+                            goal: goal,
+                            entryPoint: analyticsEntryPoint
+                        )
                     )
                 )
             }
@@ -385,6 +437,7 @@ final class LiveClimbSessionViewModel {
         }
 
         phase = .saving
+        stepSyncPrompt = nil
         await updateLiveActivity(status: .saving, force: true)
         defer {
             backgroundSessionService.stop()
@@ -421,11 +474,24 @@ final class LiveClimbSessionViewModel {
     }
 
     func discard(modelContext: ModelContext) async {
-        if let climb = mode.climb {
+        switch mode {
+        case .liveClimb(let climb):
             TelemetryManager.shared.track(
                 LiveClimbAnalyticsEvent.attemptDiscarded(
                     climb: climb,
                     entryPoint: analyticsEntryPoint,
+                    progressFraction: totalProgressFraction
+                )
+            )
+        case .justClimb(let goal):
+            TelemetryManager.shared.track(
+                WorkoutSessionAnalyticsEvent.justClimbDiscarded(
+                    context: JustClimbAnalyticsContext(
+                        goal: goal,
+                        entryPoint: analyticsEntryPoint
+                    ),
+                    durationSeconds: Int(displayedDuration.rounded(.down)),
+                    steps: totalRecordedSteps,
                     progressFraction: totalProgressFraction
                 )
             )
@@ -437,6 +503,61 @@ final class LiveClimbSessionViewModel {
         backgroundSessionService.stop()
 
         await liveActivityManager.end(status: .ended)
+    }
+
+    func evaluateStepSyncPrompt() {
+        guard phase == .recording,
+              stepSyncPrompt == nil,
+              motionSession.sampleCount > 0 else {
+            return
+        }
+
+        let trackingIntegrity = motionSession.trackingIntegrity
+        guard trackingIntegrity.currentUnavailableDuration >= stepSyncPromptMinimumGapDuration,
+              trackingIntegrity.interruptionCount > 0,
+              !promptedStepSyncInterruptionCounts.contains(trackingIntegrity.interruptionCount),
+              !skippedStepSyncInterruptionCounts.contains(trackingIntegrity.interruptionCount) else {
+            return
+        }
+
+        promptedStepSyncInterruptionCounts.insert(trackingIntegrity.interruptionCount)
+        stepSyncPrompt = LiveStepSyncPrompt(
+            detectedSteps: motionSession.stepCount,
+            gapDuration: trackingIntegrity.currentUnavailableDuration,
+            interruptionCount: trackingIntegrity.interruptionCount
+        )
+    }
+
+    func syncCurrentMachineSteps(_ correctedSteps: Int) {
+        guard let prompt = stepSyncPrompt else { return }
+
+        guard let correction = motionSession.applyStepCorrection(
+            correctedSteps: correctedSteps,
+            trackingGapDuration: prompt.gapDuration
+        ) else {
+            stepSyncPrompt = nil
+            return
+        }
+
+        _ = stepTimelineRecorder.recordCorrection(correction)
+        stepSyncPrompt = nil
+        stepSyncConfirmation = LiveStepSyncConfirmation(correctedSteps: correction.correctedSteps)
+
+        Task { [weak self] in
+            await self?.refreshReplayLeaderboardIfNeeded(force: true)
+            await self?.updateLiveActivity(force: true)
+        }
+    }
+
+    func skipStepSyncPrompt() {
+        if let prompt = stepSyncPrompt {
+            skippedStepSyncInterruptionCounts.insert(prompt.interruptionCount)
+        }
+        stepSyncPrompt = nil
+    }
+
+    func dismissStepSyncConfirmation() {
+        stepSyncConfirmation = nil
     }
 
     func recordLiveSplitSample() {
@@ -586,7 +707,7 @@ final class LiveClimbSessionViewModel {
     }
 
     private var liveActivityRank: Int? {
-        leaderboardRows.first(where: \.isCurrentUser)?.rank ?? leaderboardWindow?.currentUserRank
+        currentLeaderboardRank
     }
 
     private var liveActivityProgress: Double {
@@ -616,7 +737,8 @@ final class LiveClimbSessionViewModel {
             targetDurationSeconds: mode.targetDuration,
             stopReason: result.stopReason,
             splitCurve: splitCurve,
-            trackingIntegrity: result.trackingIntegrity
+            trackingIntegrity: result.trackingIntegrity,
+            stepCorrections: result.stepCorrections
         )
 
         let workout = Workout(
@@ -644,13 +766,11 @@ final class LiveClimbSessionViewModel {
             newWorkouts: [workout],
             changedWorkouts: [workout]
         )
-        if mode.isLandmarkClimb {
-            Task { @MainActor in
-                await WorkoutImportCoordinator.shared.enrichLiveClimbWorkoutWithAppleHealthIfPossible(
-                    workout,
-                    modelContext: modelContext
-                )
-            }
+        Task { @MainActor in
+            await WorkoutImportCoordinator.shared.enrichInAppWorkoutWithAppleHealthIfPossible(
+                workout,
+                modelContext: modelContext
+            )
         }
 
         return workout
@@ -672,8 +792,27 @@ final class LiveClimbSessionViewModel {
         result: HeadphoneMotionSessionResult,
         status: ClimbAttemptStatus
     ) {
-        guard let climb = mode.climb else { return }
         let durationSeconds = Int(result.duration.rounded(.down))
+
+        if case .justClimb(let goal) = mode {
+            TelemetryManager.shared.track(
+                WorkoutSessionAnalyticsEvent.justClimbSaved(
+                    context: JustClimbAnalyticsContext(
+                        goal: goal,
+                        entryPoint: analyticsEntryPoint
+                    ),
+                    durationSeconds: durationSeconds,
+                    steps: result.steps,
+                    progressFraction: totalProgressFraction,
+                    stopReason: result.stopReason.rawValue,
+                    correctionCount: result.stepCorrections.count,
+                    trackingUnavailableSeconds: Int(result.trackingIntegrity.totalUnavailableDuration.rounded(.down))
+                )
+            )
+            return
+        }
+
+        guard let climb = mode.climb else { return }
 
         switch status {
         case .completed:

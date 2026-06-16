@@ -15,7 +15,7 @@ final class LeaderboardRepository: Sendable {
         let docRef = db.collection("leaderboard_stats")
             .document(documentID(userId: payload.userId, timeFrame: payload.timeFrame))
 
-        try await docRef.setData([
+        var data: [String: Any] = [
             "userId": payload.userId,
             "displayName": payload.displayName,
             "photoURL": payload.photoURL?.absoluteString ?? "",
@@ -29,7 +29,17 @@ final class LeaderboardRepository: Sendable {
             "totalDuration": payload.totalDuration,
             "stepsPerMinute": payload.stepsPerMinute,
             "lastUpdated": FieldValue.serverTimestamp()
-        ], merge: true)
+        ]
+
+        if let profile = payload.profile {
+            setOptional(profile.age, for: "age", in: &data)
+            setOptional(profile.weightKg, for: "weight_kg", in: &data)
+            setOptional(profile.locationCity, for: "location_city", in: &data)
+            setOptional(profile.locationCountry, for: "location_country", in: &data)
+            setOptional(profile.locationRegion, for: "location_region", in: &data)
+        }
+
+        try await docRef.setData(data, merge: true)
     }
 
     func deleteStats(userId: String, timeFrame: LeaderboardTimeFrame) async throws {
@@ -175,8 +185,21 @@ final class LeaderboardRepository: Sendable {
             totalWorkouts: totalWorkouts,
             totalDuration: totalDuration,
             stepsPerMinute: stepsPerMinute,
-            lastUpdated: lastUpdated
+            lastUpdated: lastUpdated,
+            age: intValue(for: "age", in: data),
+            weightKg: doubleValue(for: "weight_kg", in: data),
+            locationCity: data["location_city"] as? String,
+            locationCountry: data["location_country"] as? String,
+            locationRegion: data["location_region"] as? String
         )
+    }
+
+    private func setOptional(_ value: Any?, for key: String, in data: inout [String: Any]) {
+        if let value {
+            data[key] = value
+        } else {
+            data[key] = FieldValue.delete()
+        }
     }
 
     private func intValue(for key: String, in data: [String: Any]) -> Int? {

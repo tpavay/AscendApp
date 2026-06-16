@@ -10,6 +10,7 @@ struct LeaderboardUserRowView: View {
 
     let entry: LeaderboardEntry
     let metric: LeaderboardMetric
+    var crownGapText: String? = nil
 
     private var rowFill: Color {
         colorScheme == .dark ? Color.white.opacity(0.055) : Color.black.opacity(0.045)
@@ -48,6 +49,23 @@ struct LeaderboardUserRowView: View {
                     .foregroundStyle(primaryTextColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.74)
+
+                if let crownGapText {
+                    HStack(spacing: 5) {
+                        Image("LeaderboardCrown")
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 16, height: 16)
+                            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                            .accessibilityHidden(true)
+
+                        Text(crownGapText)
+                            .font(.montserratBold(size: 9))
+                            .foregroundStyle(Color.accent)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                    }
+                }
             }
 
             Spacer(minLength: 8)
@@ -60,7 +78,7 @@ struct LeaderboardUserRowView: View {
         }
         .padding(.leading, 20)
         .padding(.trailing, 14)
-        .frame(height: 64)
+        .frame(height: crownGapText == nil ? 64 : 72)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(rowFill)
@@ -77,7 +95,15 @@ struct LeaderboardUserRowView: View {
         )
         .padding(.horizontal, 20)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Your rank \(entry.rank), \(entry.displayName), \(entry.formattedValue) \(metric.displayName)")
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var accessibilityLabel: String {
+        let base = "Your rank \(entry.rank), \(entry.displayName), \(entry.formattedValue) \(metric.displayName)"
+        guard let crownGapText else {
+            return base
+        }
+        return "\(base), \(crownGapText)"
     }
 
     @ViewBuilder
@@ -137,7 +163,8 @@ struct LeaderboardUserRowView: View {
             formattedValue: "15,872,211",
             isCurrentUser: true
         ),
-        metric: .climb
+        metric: .climb,
+        crownGapText: "1,204 STEPS TO CROWN"
     )
     .background(Color.black)
 }

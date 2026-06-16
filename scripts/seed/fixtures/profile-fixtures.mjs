@@ -99,6 +99,10 @@ export const PROFILE_FIELD_SETS = {
     "totalWorkouts",
     "totalDuration",
     "stepsPerMinute",
+    "age",
+    "weight_kg",
+    "location_country",
+    "location_region",
     "lastUpdated",
   ]),
 };
@@ -408,6 +412,10 @@ function leaderboardDataForPersona(persona, stats, timeFrame, now, Timestamp, Fi
     totalWorkouts,
     totalDuration: totalSteps > 0 ? totalSteps / stepsPerMinute * 60 : 0,
     stepsPerMinute,
+    age: persona.age,
+    weight_kg: poundsToKg(persona.weightLb),
+    location_country: persona.country,
+    location_region: persona.region,
     lastUpdated: FieldValue.serverTimestamp(),
   };
 }
