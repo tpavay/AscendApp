@@ -7,7 +7,8 @@ struct LiveClimbSessionView: View {
     @Environment(\.modelContext) private var modelContext
 
     @State private var viewModel: LiveClimbSessionViewModel
-    @State private var showingDiscardConfirmation = false
+    @State private var showingZeroStepEndOptions = false
+    @State private var showingProgressEndOptions = false
     @State private var countdownValue = 3
     @State private var hasStartedRecording = false
     @State private var countdownRunID = 0
@@ -16,6 +17,7 @@ struct LiveClimbSessionView: View {
     @State private var didTrackHeadphoneRequirement = false
     @State private var stepSyncValue = ""
     @State private var selectedTab: LiveClimbSessionTab = .justMe
+    @State private var liveActivityControlRegistrationID = UUID().uuidString
 
     private let liveTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -37,6 +39,10 @@ struct LiveClimbSessionView: View {
             justClimbGoal: justClimbGoal,
             analyticsEntryPoint: analyticsEntryPoint
         ))
+    }
+
+    init(viewModel: LiveClimbSessionViewModel) {
+        _viewModel = State(initialValue: viewModel)
     }
 
     var body: some View {
@@ -68,16 +74,26 @@ struct LiveClimbSessionView: View {
                 if let stepSyncPrompt = viewModel.stepSyncPrompt {
                     stepSyncOverlay(prompt: stepSyncPrompt)
                 }
+
+                if showingZeroStepEndOptions || showingProgressEndOptions {
+                    endAttemptOverlay
+                }
             }
         }
         .preferredColorScheme(.dark)
         .keepsScreenAwake(shouldKeepScreenAwake, reason: "Live climb tracking")
         .navigationBarBackButtonHidden(true)
         .onAppear {
+            if viewModel.phase != .idle {
+                hasStartedRecording = true
+            }
             registerLiveActivityControls()
         }
         .onDisappear {
-            LiveClimbActivityCommandCenter.shared.unregister()
+            LiveClimbActivityCommandCenter.shared.unregister(
+                sessionID: viewModel.liveActivitySessionID,
+                registrationID: liveActivityControlRegistrationID
+            )
         }
         .task(id: countdownRunID) {
             await runCountdownThenStart()
@@ -105,10 +121,7 @@ struct LiveClimbSessionView: View {
         .onChange(of: viewModel.motionSession.targetReached) { _, reached in
             guard reached, hasStartedRecording else { return }
             Task {
-                await viewModel.finishAndSave(
-                    modelContext: modelContext,
-                    reason: .targetReached
-                )
+                await finishIfStepsRecorded(reason: .targetReached)
             }
         }
         .onReceive(liveTick) { _ in
@@ -117,10 +130,7 @@ struct LiveClimbSessionView: View {
             viewModel.evaluateStepSyncPrompt()
             if viewModel.durationGoalReached {
                 Task {
-                    await viewModel.finishAndSave(
-                        modelContext: modelContext,
-                        reason: .targetReached
-                    )
+                    await finishIfStepsRecorded(reason: .targetReached)
                 }
                 return
             }
@@ -128,21 +138,6 @@ struct LiveClimbSessionView: View {
                 await viewModel.refreshReplayLeaderboardIfNeeded()
                 await viewModel.updateLiveActivity()
             }
-        }
-        .confirmationDialog(
-            discardConfirmationTitle,
-            isPresented: $showingDiscardConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Discard Attempt", role: .destructive) {
-                Task {
-                    await viewModel.discard(modelContext: modelContext)
-                    dismiss()
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(viewModel.discardMessage)
         }
     }
 
@@ -170,10 +165,6 @@ struct LiveClimbSessionView: View {
         }
     }
 
-    private var discardConfirmationTitle: String {
-        viewModel.mode.isLandmarkClimb ? "Discard Live Climb?" : "Discard Just Climb?"
-    }
-
     private var shouldKeepScreenAwake: Bool {
         guard !showingHeadphoneRequirement else { return false }
 
@@ -185,20 +176,14 @@ struct LiveClimbSessionView: View {
         }
     }
 
-    private var discardAccessibilityLabel: String {
-        viewModel.mode.isLandmarkClimb ? "Discard live climb" : "Discard Just Climb"
-    }
-
     private var topChrome: some View {
         HStack(spacing: 10) {
-            OnboardingBackButton {
-                if viewModel.isRecording {
-                    showingDiscardConfirmation = true
-                } else {
+            if !hasStartedRecording {
+                OnboardingBackButton {
                     dismiss()
                 }
+                .accessibilityLabel("Close")
             }
-            .accessibilityLabel(viewModel.isRecording ? discardAccessibilityLabel : "Close")
 
             sessionArtwork
                 .frame(width: 42, height: 42)
@@ -356,14 +341,7 @@ struct LiveClimbSessionView: View {
                     .frame(height: 1)
 
             case .recording:
-                liveSessionButton(title: "End attempt") {
-                    Task {
-                        await viewModel.finishAndSave(
-                            modelContext: modelContext,
-                            reason: .userStopped
-                        )
-                    }
-                }
+                endAttemptButton
 
             case .saving:
                 ProgressView()
@@ -391,6 +369,79 @@ struct LiveClimbSessionView: View {
         }
     }
 
+    private var endAttemptButton: some View {
+        liveSessionButton(title: "End attempt") {
+            presentEndAttemptOptions()
+        }
+    }
+
+    private var endAttemptOverlay: some View {
+        ZStack {
+            Color.black
+                .opacity(0.64)
+                .ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(endAttemptTitle)
+                        .font(.montserratBold(size: 24))
+                        .foregroundStyle(.white)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text(endAttemptMessage)
+                        .font(.montserratMedium(size: 15))
+                        .foregroundStyle(.white.opacity(0.68))
+                        .lineSpacing(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                VStack(spacing: 10) {
+                    if showingProgressEndOptions {
+                        endAttemptOverlayButton(
+                            title: "Save progress",
+                            style: .primary
+                        ) {
+                            Task {
+                                await finishAndSave(reason: .userStopped)
+                            }
+                        }
+                    }
+
+                    endAttemptOverlayButton(
+                        title: "Keep climbing",
+                        style: .secondary
+                    ) {
+                        dismissEndAttemptOptions()
+                    }
+
+                    endAttemptOverlayButton(
+                        title: "Discard attempt",
+                        style: .destructive
+                    ) {
+                        Task {
+                            await discardAndDismiss()
+                        }
+                    }
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: 350)
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(Color(red: 0.07, green: 0.08, blue: 0.07))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(Color.accent.opacity(0.26), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.48), radius: 30, x: 0, y: 18)
+            .padding(.horizontal, 24)
+        }
+        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+        .zIndex(30)
+        .accessibilityElement(children: .contain)
+    }
+
     private func liveSessionButton(title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
@@ -409,6 +460,27 @@ struct LiveClimbSessionView: View {
 
     private var stepSyncInputSteps: Int? {
         Int(stepSyncValue)
+    }
+
+    private var endAttemptTitle: String {
+        if showingZeroStepEndOptions {
+            return "No Steps Recorded"
+        }
+
+        return viewModel.mode.isLandmarkClimb ? "End Attempt?" : "End Session?"
+    }
+
+    private var endAttemptMessage: String {
+        if showingZeroStepEndOptions {
+            return viewModel.mode.isLandmarkClimb
+                ? "No steps have been recorded for this climb. Keep climbing or discard the attempt."
+                : "No steps have been recorded for this session. Keep climbing or discard it."
+        }
+
+        let steps = viewModel.totalRecordedSteps.formatted()
+        return viewModel.mode.isLandmarkClimb
+            ? "\(steps) steps recorded. Save this progress or discard the attempt."
+            : "\(steps) steps recorded. Save this session or discard it."
     }
 
     private var currentUserPhotoURL: URL? {
@@ -497,7 +569,10 @@ struct LiveClimbSessionView: View {
     }
 
     private func registerLiveActivityControls() {
-        LiveClimbActivityCommandCenter.shared.register { command in
+        LiveClimbActivityCommandCenter.shared.register(
+            sessionID: viewModel.liveActivitySessionID,
+            registrationID: liveActivityControlRegistrationID
+        ) { command in
             await handleLiveActivityCommand(command)
         }
     }
@@ -505,11 +580,73 @@ struct LiveClimbSessionView: View {
     private func handleLiveActivityCommand(_ command: LiveClimbActivityCommand) async {
         switch command {
         case .stop:
-            await viewModel.finishAndSave(
-                modelContext: modelContext,
-                reason: .userStopped
-            )
+            await finishIfStepsRecorded(reason: .userStopped)
         }
+    }
+
+    private func presentEndAttemptOptions() {
+        withAnimation(.smooth(duration: 0.18)) {
+            if viewModel.totalRecordedSteps > 0 {
+                showingProgressEndOptions = true
+            } else {
+                showingZeroStepEndOptions = true
+            }
+        }
+    }
+
+    private func finishIfStepsRecorded(reason: HeadphoneMotionSessionStopReason) async {
+        guard viewModel.totalRecordedSteps > 0 else {
+            return
+        }
+
+        await finishAndSave(reason: reason)
+    }
+
+    private func finishAndSave(reason: HeadphoneMotionSessionStopReason) async {
+        dismissEndAttemptOptions(animated: false)
+        await viewModel.finishAndSave(
+            modelContext: modelContext,
+            reason: reason
+        )
+    }
+
+    private func discardAndDismiss() async {
+        dismissEndAttemptOptions(animated: false)
+        await viewModel.discard(modelContext: modelContext)
+        dismiss()
+    }
+
+    private func dismissEndAttemptOptions(animated: Bool = true) {
+        let updates = {
+            showingZeroStepEndOptions = false
+            showingProgressEndOptions = false
+        }
+
+        if animated {
+            withAnimation(.smooth(duration: 0.16), updates)
+        } else {
+            updates()
+        }
+    }
+
+    private func endAttemptOverlayButton(
+        title: String,
+        style: EndAttemptOverlayButtonStyle,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.montserratBold(size: 15))
+                .foregroundStyle(style.foregroundStyle)
+                .frame(maxWidth: .infinity)
+                .frame(height: 46)
+                .background(
+                    Capsule()
+                        .fill(style.backgroundStyle)
+                )
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     private func savedTitle(for status: ClimbAttemptStatus) -> String {

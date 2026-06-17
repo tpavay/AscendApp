@@ -10,6 +10,9 @@ struct ClimbBrowseView: View {
     @State private var selectedDetailEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown
     @State private var showingHelpSheet = false
     @State private var browseSheetDetent: BrowseSheetDetent = .medium
+    @State private var selectedStepTier: ClimbTier?
+    @State private var isSearchMode = false
+    @State private var searchFocusTask: Task<Void, Never>?
     @State private var didTrackBrowseOpened = false
     @FocusState private var isSearchFocused: Bool
 
@@ -42,6 +45,7 @@ struct ClimbBrowseView: View {
                         }
                     )
                     .ignoresSafeArea()
+                    .offset(y: globeVerticalOffset(sheetHeight: sheetVisibleHeight))
 
                     globeEdgeOverlays
 
@@ -54,15 +58,27 @@ struct ClimbBrowseView: View {
                     previewCardArea(sheetHeight: sheetVisibleHeight)
                         .zIndex(2)
 
-                    browseDrawer(
-                        containerHeight: geometry.size.height,
-                        topCoverageInset: topCoverageInset,
-                        topInset: safeAreaInsets.top,
-                        bottomInset: safeAreaInsets.bottom
-                    )
+                    if !isSearchMode {
+                        browseDrawer(
+                            containerHeight: geometry.size.height,
+                            topCoverageInset: topCoverageInset,
+                            topInset: safeAreaInsets.top,
+                            bottomInset: safeAreaInsets.bottom
+                        )
                         .zIndex(3)
+                    }
+
+                    if isSearchMode {
+                        searchOverlay(
+                            topInset: safeAreaInsets.top,
+                            bottomInset: safeAreaInsets.bottom
+                        )
+                        .zIndex(4)
+                        .transition(.opacity)
+                    }
                 }
                 .ignoresSafeArea()
+                .ignoresSafeArea(.keyboard)
             }
         }
         .toolbarBackground(.clear, for: .navigationBar)
@@ -91,22 +107,17 @@ struct ClimbBrowseView: View {
         .onReceive(NotificationCenter.default.publisher(for: .climbCatalogDidChange)) { _ in
             viewModel.reloadCatalog(modelContext: modelContext)
         }
-        .onChange(of: isSearchFocused) { _, isFocused in
-            guard isFocused else { return }
-            if viewModel.previewSummary != nil {
-                viewModel.dismissPreview()
-            }
-            setBrowseSheetDetent(.expanded, dismissKeyboard: false)
+        .onDisappear {
+            searchFocusTask?.cancel()
         }
-        .onChange(of: viewModel.searchQuery) { _, query in
-            guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-            if viewModel.previewSummary != nil {
-                viewModel.dismissPreview()
-            }
-            setBrowseSheetDetent(.expanded, dismissKeyboard: false)
-        }
-        .keyboardDoneToolbar {
-            isSearchFocused = false
+    }
+
+    private func globeVerticalOffset(sheetHeight: CGFloat) -> CGFloat {
+        switch browseSheetDetent {
+        case .compact:
+            return 0
+        case .medium, .expanded:
+            return -min(max(sheetHeight * 0.25, 64), 96)
         }
     }
 
@@ -214,13 +225,39 @@ struct ClimbBrowseView: View {
                 setBrowseSheetDetent(detent)
             }
         ) {
-            drawerContent(bottomInset: bottomInset)
+            browseModeContent(bottomInset: bottomInset)
         }
     }
 
-    private func drawerContent(bottomInset: CGFloat) -> some View {
+    private func browseModeContent(bottomInset: CGFloat) -> some View {
         VStack(spacing: 14) {
-            searchField
+            searchLauncher
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 22) {
+                    browseSectionsContent
+                }
+                .padding(.bottom, bottomInset + 22)
+            }
+            .scrollDisabled(browseSheetDetent != .expanded)
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private func searchOverlay(topInset: CGFloat, bottomInset: CGFloat) -> some View {
+        VStack(spacing: 16) {
+            HStack(spacing: 10) {
+                searchField
+
+                Button("Cancel") {
+                    exitSearchMode(clearQuery: true)
+                }
+                .font(.montserratSemiBold(size: 14))
+                .foregroundStyle(.accent)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+            }
+            .padding(.top, topInset + 12)
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 22) {
@@ -232,9 +269,50 @@ struct ClimbBrowseView: View {
                 }
                 .padding(.bottom, bottomInset + 22)
             }
-            .scrollDisabled(browseSheetDetent != .expanded)
+            .scrollDismissesKeyboard(.interactively)
         }
         .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color.black)
+        .ignoresSafeArea(.container, edges: [.top, .bottom])
+        .ignoresSafeArea(.keyboard)
+    }
+
+    private var searchLauncher: some View {
+        Button {
+            enterSearchMode()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.58))
+
+                Text("Search climbs")
+                    .font(.montserratMedium(size: 14))
+                    .foregroundStyle(.white.opacity(0.48))
+
+                Spacer(minLength: 0)
+
+                if viewModel.isRefreshingCatalog {
+                    ProgressView()
+                        .tint(.white.opacity(0.76))
+                        .scaleEffect(0.78)
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 46)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(.white.opacity(0.1), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(viewModel.availableClimbs.isEmpty)
+        .accessibilityLabel("Search climbs")
     }
 
     private var searchField: some View {
@@ -248,9 +326,11 @@ struct ClimbBrowseView: View {
                 .foregroundStyle(.white)
                 .textInputAutocapitalization(.words)
                 .autocorrectionDisabled()
-                .submitLabel(.search)
+                .submitLabel(.done)
                 .focused($isSearchFocused)
-                .onSubmit(openFirstSearchResult)
+                .onSubmit {
+                    isSearchFocused = false
+                }
 
             if !viewModel.searchQuery.isEmpty {
                 Button {
@@ -325,6 +405,7 @@ struct ClimbBrowseView: View {
                 todaysClimbSection(dailyRecommendedClimb)
             }
 
+            stepRangeSection
             allClimbsSection
 
             if !viewModel.comingSoonClimbs.isEmpty {
@@ -369,10 +450,27 @@ struct ClimbBrowseView: View {
 
     private var allClimbsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader("All Climbs (\(allClimbs.count))")
+            HStack {
+                sectionHeader(allClimbsTitle)
+
+                Spacer(minLength: 0)
+
+                if selectedStepTier != nil {
+                    Button {
+                        withAnimation(.smooth(duration: 0.18)) {
+                            selectedStepTier = nil
+                        }
+                    } label: {
+                        Text("Clear")
+                            .font(.montserratBold(size: 11))
+                            .foregroundStyle(.accent)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
 
             VStack(spacing: 8) {
-                ForEach(allClimbs) { climb in
+                ForEach(displayedClimbs) { climb in
                     climbResultRow(
                         for: climb,
                         source: .browseAll,
@@ -381,6 +479,72 @@ struct ClimbBrowseView: View {
                 }
             }
         }
+    }
+
+    private var stepRangeSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeader("Browse by Steps")
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(stepRangeBuckets, id: \.tier) { bucket in
+                        stepRangeTile(
+                            tier: bucket.tier,
+                            count: bucket.count
+                        )
+                    }
+                }
+                .padding(.trailing, 2)
+            }
+        }
+    }
+
+    private func stepRangeTile(tier: ClimbTier, count: Int) -> some View {
+        let isSelected = selectedStepTier == tier
+
+        return Button {
+            withAnimation(.smooth(duration: 0.18)) {
+                selectedStepTier = isSelected ? nil : tier
+            }
+            setBrowseSheetDetent(.expanded)
+        } label: {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(tier.color)
+                        .frame(width: 8, height: 8)
+
+                    Text(tier.displayName.uppercased())
+                        .font(.montserratBold(size: 11))
+                        .tracking(0.8)
+                        .foregroundStyle(isSelected ? .black : .white)
+                        .lineLimit(1)
+                }
+
+                Text(tier.stepRangeDescription)
+                    .font(.montserratSemiBold(size: 12))
+                    .foregroundStyle(isSelected ? .black.opacity(0.72) : .white.opacity(0.78))
+                    .lineLimit(1)
+
+                Text("\(count) \(count == 1 ? "climb" : "climbs")")
+                    .font(.montserratMedium(size: 11))
+                    .foregroundStyle(isSelected ? .black.opacity(0.55) : .white.opacity(0.48))
+                    .lineLimit(1)
+            }
+            .padding(12)
+            .frame(width: 152, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected ? Color.accent : .white.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(isSelected ? Color.accent : tier.color.opacity(0.26), lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(tier.displayName), \(tier.stepRangeDescription), \(count) climbs")
     }
 
     private func todaysClimbSection(_ climb: Climb) -> some View {
@@ -586,6 +750,7 @@ struct ClimbBrowseView: View {
     // MARK: - Actions
 
     private func selectGlobePin(_ climb: Climb) {
+        exitSearchMode(clearQuery: true, targetDetent: .compact)
         isSearchFocused = false
         viewModel.clearSearch()
         viewModel.selectPreview(climb, modelContext: modelContext)
@@ -601,7 +766,7 @@ struct ClimbBrowseView: View {
     ) {
         guard climb.isAvailable else { return }
 
-        isSearchFocused = false
+        exitSearchMode(clearQuery: false, targetDetent: .medium)
         viewModel.previewSummary = nil
         viewModel.userDidInteract()
         selectedDetailEntryPoint = source
@@ -617,7 +782,7 @@ struct ClimbBrowseView: View {
     private func openPreviewClimb(_ climb: Climb) {
         guard climb.isAvailable else { return }
 
-        isSearchFocused = false
+        exitSearchMode(clearQuery: false, targetDetent: .medium)
         viewModel.userDidInteract()
         selectedDetailEntryPoint = .browsePreview
         TelemetryManager.shared.track(
@@ -627,11 +792,6 @@ struct ClimbBrowseView: View {
             )
         )
         selectedDetailClimb = climb
-    }
-
-    private func openFirstSearchResult() {
-        guard let firstResult = viewModel.searchSuggestions.first else { return }
-        openClimbFromDrawer(firstResult, source: .browseSearch)
     }
 
     private func trackBrowseOpenedIfNeeded() {
@@ -662,6 +822,46 @@ struct ClimbBrowseView: View {
         viewModel.userDidInteract()
     }
 
+    private func enterSearchMode() {
+        searchFocusTask?.cancel()
+
+        if viewModel.previewSummary != nil {
+            viewModel.dismissPreview()
+        }
+
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.84)) {
+            isSearchMode = true
+        }
+        viewModel.userDidInteract()
+
+        searchFocusTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(260))
+            guard !Task.isCancelled, isSearchMode else { return }
+            isSearchFocused = true
+        }
+    }
+
+    private func exitSearchMode(
+        clearQuery: Bool,
+        targetDetent: BrowseSheetDetent = .medium
+    ) {
+        searchFocusTask?.cancel()
+        searchFocusTask = nil
+        isSearchFocused = false
+
+        if clearQuery {
+            viewModel.clearSearch()
+        }
+
+        guard isSearchMode else { return }
+
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.84)) {
+            isSearchMode = false
+            browseSheetDetent = targetDetent
+        }
+        viewModel.userDidInteract()
+    }
+
 
     // MARK: - Section Data
 
@@ -675,6 +875,35 @@ struct ClimbBrowseView: View {
                 return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
             }
             return lhs.referenceStepCount < rhs.referenceStepCount
+        }
+    }
+
+    private var displayedClimbs: [Climb] {
+        guard let selectedStepTier else {
+            return allClimbs
+        }
+
+        return allClimbs.filter {
+            ClimbTier(steps: $0.referenceStepCount) == selectedStepTier
+        }
+    }
+
+    private var allClimbsTitle: String {
+        if let selectedStepTier {
+            return "\(selectedStepTier.stepRangeDescription) (\(displayedClimbs.count))"
+        }
+
+        return "All Climbs (\(allClimbs.count))"
+    }
+
+    private var stepRangeBuckets: [(tier: ClimbTier, count: Int)] {
+        ClimbTier.allCases.compactMap { tier in
+            let count = allClimbs.filter {
+                ClimbTier(steps: $0.referenceStepCount) == tier
+            }.count
+
+            guard count > 0 else { return nil }
+            return (tier, count)
         }
     }
 }
@@ -747,9 +976,13 @@ private struct ClimbBrowseDrawer<Content: View>: View {
     private var drawerSurface: some View {
         VStack(spacing: 0) {
             drawerGrabber
-                .padding(.top, detent == .expanded ? topInset : 0)
+                .padding(.top, detent == .expanded ? expandedTopPadding : 0)
             content
         }
+    }
+
+    private var expandedTopPadding: CGFloat {
+        max(8, topInset - 24)
     }
 
     @ViewBuilder
@@ -810,7 +1043,7 @@ private struct ClimbBrowseDrawer<Content: View>: View {
     }
 
     private var activeOffset: CGFloat {
-        currentOffset ?? restingOffset
+        return currentOffset ?? restingOffset
     }
 
     private var restingOffset: CGFloat {
@@ -875,7 +1108,7 @@ private struct ClimbBrowseDrawer<Content: View>: View {
         } else if velocity > velocityThreshold ||
             value.predictedEndTranslation.height > 80 ||
             value.translation.height > 48 {
-            targetDetent = .compact
+            targetDetent = .medium
         } else {
             targetDetent = BrowseSheetDetent.nearest(
                 to: predictedOffset == restingOffset ? releaseOffset : predictedOffset,
@@ -980,7 +1213,7 @@ private enum BrowseSheetDetent: Int, CaseIterable {
         topInset: CGFloat,
         bottomInset: CGFloat
     ) -> BrowseSheetDetent {
-        [BrowseSheetDetent.compact, BrowseSheetDetent.expanded].min { lhs, rhs in
+        [BrowseSheetDetent.medium, BrowseSheetDetent.expanded].min { lhs, rhs in
             abs(
                 lhs.offset(
                     containerHeight: containerHeight,
@@ -997,7 +1230,7 @@ private enum BrowseSheetDetent: Int, CaseIterable {
                     bottomInset: bottomInset
                 ) - offset
             )
-        } ?? .compact
+        } ?? .medium
     }
 
     var nextUp: BrowseSheetDetent {
@@ -1010,7 +1243,7 @@ private enum BrowseSheetDetent: Int, CaseIterable {
     var nextDown: BrowseSheetDetent {
         switch self {
         case .compact, .medium, .expanded:
-            return .compact
+            return .medium
         }
     }
 }

@@ -23,6 +23,8 @@ import {
   currentPeriod,
   expectedLeaderboardDocIds,
   expectedProfileUserIds,
+  leaderboardDocId,
+  legacyLeaderboardDocIds,
   PROFILE_SEED_PERSONAS,
   statsFromWorkoutDocuments,
   validateDocumentKeys,
@@ -224,8 +226,12 @@ async function auditLeaderboard(db, catalog, failures) {
     if (data.userId && !expectedProfileUserIds().includes(data.userId)) {
       failures.push(`${path} points at non-profile fixture user ${data.userId}`);
     }
-    if (data.userId && writeItem.ref.id !== `${data.userId}_${data.timeFrame}`) {
-      failures.push(`${path} id does not match userId/timeFrame`);
+    if (
+      data.userId &&
+      data.periodKey &&
+      writeItem.ref.id !== leaderboardDocId(data.userId, data.timeFrame, data.periodKey)
+    ) {
+      failures.push(`${path} id does not match timeFrame/period/userId`);
     }
     if (data.schemaVersion !== 2) {
       failures.push(`${path} schemaVersion must be 2`);
@@ -264,6 +270,13 @@ async function auditLeaderboard(db, catalog, failures) {
       if (snapshot.exists) {
         failures.push(`leaderboard_stats/${docId} is legacy orphan leaderboard data; clear/reseed leaderboard`);
       }
+    }
+  }
+
+  for (const docId of legacyLeaderboardDocIds()) {
+    const snapshot = await db.collection("leaderboard_stats").doc(docId).get();
+    if (snapshot.exists) {
+      failures.push(`leaderboard_stats/${docId} is legacy profile leaderboard data; clear/reseed leaderboard`);
     }
   }
 

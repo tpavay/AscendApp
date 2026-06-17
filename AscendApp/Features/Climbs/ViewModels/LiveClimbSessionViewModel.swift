@@ -144,6 +144,7 @@ final class LiveClimbSessionViewModel {
     let mode: LiveClimbSessionMode
     let motionSession: HeadphoneMotionSessionService
     let analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint
+    let liveActivitySessionID = UUID().uuidString
 
     private let climbService: ClimbService
     private let settingsManager: SettingsManager
@@ -419,6 +420,7 @@ final class LiveClimbSessionViewModel {
                 )
             }
             recordLiveSplitSample()
+            LiveClimbSessionCoordinator.shared.setActive(self)
             Task { [weak self] in
                 await self?.beginLiveActivity()
             }
@@ -467,9 +469,11 @@ final class LiveClimbSessionViewModel {
             trackSavedAttempt(result: result, status: savedStatus)
             phase = .saved(savedStatus)
             await liveActivityManager.end(status: .finished)
+            LiveClimbSessionCoordinator.shared.clearIfActive(sessionID: liveActivitySessionID)
         } catch {
             phase = .failed(error.localizedDescription)
             await liveActivityManager.end(status: .failed)
+            LiveClimbSessionCoordinator.shared.clearIfActive(sessionID: liveActivitySessionID)
         }
     }
 
@@ -503,6 +507,7 @@ final class LiveClimbSessionViewModel {
         backgroundSessionService.stop()
 
         await liveActivityManager.end(status: .ended)
+        LiveClimbSessionCoordinator.shared.clearIfActive(sessionID: liveActivitySessionID)
     }
 
     func evaluateStepSyncPrompt() {
@@ -678,6 +683,7 @@ final class LiveClimbSessionViewModel {
     private func beginLiveActivity() async {
         await liveActivityManager.start(
             climb: mode.climb,
+            sessionID: liveActivitySessionID,
             sessionTitle: mode.title,
             sessionSubtitle: mode.subtitle,
             targetSteps: mode.targetStepCount ?? 0,

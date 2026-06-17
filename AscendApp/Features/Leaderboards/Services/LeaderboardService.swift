@@ -191,18 +191,14 @@ final class LeaderboardService {
         case .delete:
             try await repository.deleteStats(
                 userId: payload.userId,
-                timeFrame: payload.timeFrame
+                timeFrame: payload.timeFrame,
+                periodKey: payload.periodKey
             )
         }
     }
 
     func deleteLegacyRemoteStats(userId: String) async throws {
-        try await repository.deleteLegacyStats(
-            userId: userId,
-            keepingDocumentIDs: Set(LeaderboardTimeFrame.allCases.map {
-                repository.documentID(userId: userId, timeFrame: $0)
-            })
-        )
+        try await repository.deleteLegacyStats(userId: userId)
     }
 
     func updateProfilePictureURL(userId: String, photoURL: URL?) async throws {
@@ -227,6 +223,11 @@ final class LeaderboardService {
             displayName: displayName,
             photoURL: nil
         )
+    }
+
+    func updateBodyWeight(userId: String, weightKg: Double) async throws {
+        try await repository.updateBodyWeight(userId: userId, weightKg: weightKg)
+        await LeaderboardSessionCache.shared.invalidateAll()
     }
 
     private func aggregate(

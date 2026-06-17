@@ -6,7 +6,7 @@ import SwiftUI
 @MainActor
 @Observable
 final class GlobeViewModel {
-    var cameraPosition: MapCameraPosition = .camera(GlobeViewModel.defaultCamera)
+    var cameraPosition: MapCameraPosition = GlobeViewModel.defaultOverviewPosition
     var visibleClimbs: [Climb] = []
     var lastCompletedSummary: CompletedClimbSummary?
     var homeCardState: ClimbHomeCardState = .neverClimbed(totalClimbs: 0)
@@ -216,7 +216,7 @@ final class GlobeViewModel {
 
     func dismissPreview() {
         previewSummary = nil
-        setCamera(latitude: currentLatitude, longitude: currentLongitude, distance: overviewCameraDistance)
+        setOverviewCamera()
         userDidInteract()
     }
 
@@ -282,7 +282,12 @@ final class GlobeViewModel {
     func resetOverviewCamera() {
         currentLatitude = GlobeViewModel.defaultLatitude
         currentLongitude = GlobeViewModel.defaultLongitude
-        setCamera(latitude: currentLatitude, longitude: currentLongitude, distance: overviewCameraDistance)
+        setOverviewCamera()
+    }
+
+    private func setOverviewCamera() {
+        suppressCameraInteraction = true
+        cameraPosition = GlobeViewModel.defaultOverviewPosition
     }
 
     private func setCamera(latitude: Double, longitude: Double, distance: CLLocationDistance, pitch: CGFloat = 0) {
@@ -458,9 +463,15 @@ final class GlobeViewModel {
     private static let dailyRecommendationDayDefaultsKey = "liveClimbDailyRecommendationDay"
     private static let dailyRecommendationClimbDefaultsKey = "liveClimbDailyRecommendationClimbId"
 
-    private static let defaultLatitude = 18.0
-    private static let defaultLongitude = 8.0
+    private static let defaultLatitude = 8.0
+    private static let defaultLongitude = -76.0
     private static let defaultOverviewCameraDistance: CLLocationDistance = 28_000_000
+    private static let defaultOverviewPosition = MapCameraPosition.region(
+        MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: defaultLatitude, longitude: defaultLongitude),
+            span: MKCoordinateSpan(latitudeDelta: 138, longitudeDelta: 150)
+        )
+    )
 
     private static func makeCamera(latitude: Double, longitude: Double, distance: CLLocationDistance) -> MapCamera {
         MapCamera(

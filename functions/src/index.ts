@@ -13,6 +13,7 @@ export {processEmailJobs} from "./email/processor";
 export {onLifecycleEventEmailAutomation} from "./email/automation";
 export {onFeedbackCreated} from "./feedback";
 export {recordLifecycleEvent} from "./lifecycle";
+export {finalizeLeaderboardAchievements} from "./leaderboardAchievements";
 export {onWorkoutReplaySplitsWritten} from "./liveReplayLeaderboard";
 export {
   registerPushDevice,

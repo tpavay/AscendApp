@@ -29,22 +29,92 @@ enum ProfileAchievementType: String, CaseIterable {
             .top100
         }
     }
+
+    var timeFrame: LeaderboardTimeFrame? {
+        switch self {
+        case .firstAscent:
+            nil
+        case .weeklyTop1, .weeklyTop3, .weeklyTop10, .weeklyTop100:
+            .weekly
+        case .monthlyTop1, .monthlyTop3, .monthlyTop10, .monthlyTop100:
+            .monthly
+        case .yearlyTop1, .yearlyTop3, .yearlyTop10, .yearlyTop100:
+            .yearly
+        }
+    }
 }
 
-enum ProfileAchievementRankBand {
+enum ProfileAchievementRankBand: String, Identifiable {
     case top1
     case top3
     case top10
     case top100
+
+    var id: String { rawValue }
+
+    var threshold: Int {
+        switch self {
+        case .top1:
+            1
+        case .top3:
+            3
+        case .top10:
+            10
+        case .top100:
+            100
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .top1:
+            ProfileTerminology.topOneAchievementLabel
+        case .top3:
+            ProfileTerminology.topThreeAchievementLabel
+        case .top10:
+            ProfileTerminology.topTenAchievementLabel
+        case .top100:
+            ProfileTerminology.topHundredAchievementLabel
+        }
+    }
+}
+
+enum ProfileAchievementScope: String {
+    case global
+    case climb
+}
+
+enum ProfileAchievementMetric: String {
+    case steps
+    case completionTime = "completion_time"
 }
 
 struct ProfileAchievementRecord: Identifiable, Equatable {
     let id: String
     let type: ProfileAchievementType
+    let scope: ProfileAchievementScope
+    let metric: ProfileAchievementMetric?
     let climbId: String?
     let periodKey: String?
+    let periodStartAt: Date?
+    let periodEndAt: Date?
     let earnedAt: Date
     let rank: Int?
+    let value: Int?
+    let valueUnit: String?
+
+    var rankBand: ProfileAchievementRankBand? {
+        type.rankBand
+    }
+
+    var timeFrame: LeaderboardTimeFrame? {
+        type.timeFrame
+    }
+
+    func countsToward(_ band: ProfileAchievementRankBand) -> Bool {
+        guard let rankBand else { return false }
+        return rankBand.threshold <= band.threshold
+    }
 }
 
 struct ProfileAchievementCounts: Equatable {

@@ -53,6 +53,7 @@ enum ProfilePublicationService {
                 climbAttempts: attempts,
                 bestEffortCacheEntries: cacheEntries,
                 achievements: achievementCounts,
+                achievementRecords: achievements,
                 standings: [],
                 climbs: climbs,
                 fitnessLevel: SettingsManager.shared.fitnessLevel

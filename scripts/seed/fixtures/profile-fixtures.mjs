@@ -173,8 +173,21 @@ export function expectedProfileUserIds() {
 
 export function expectedLeaderboardDocIds() {
   return PROFILE_SEED_PERSONAS.flatMap((persona) =>
+    LEADERBOARD_TIME_FRAMES.map((timeFrame) => {
+      const period = currentPeriod(timeFrame);
+      return leaderboardDocId(persona.id, timeFrame, period.key);
+    })
+  );
+}
+
+export function legacyLeaderboardDocIds() {
+  return PROFILE_SEED_PERSONAS.flatMap((persona) =>
     LEADERBOARD_TIME_FRAMES.map((timeFrame) => `${persona.id}_${timeFrame}`)
   );
+}
+
+export function leaderboardDocId(userId, timeFrame, periodKey) {
+  return `${timeFrame}_${periodKey}_${userId}`;
 }
 
 export function validateSeedWrite(writeItem) {
@@ -386,7 +399,10 @@ function leaderboardWritesForPersona(db, persona, stats, now, Timestamp, FieldVa
   return LEADERBOARD_TIME_FRAMES
     .map((timeFrame) => leaderboardDataForPersona(persona, stats, timeFrame, now, Timestamp, FieldValue, avatarURLs))
     .filter((data) => data.totalSteps > 0)
-    .map((data) => write(db.collection("leaderboard_stats").doc(`${persona.id}_${data.timeFrame}`), data, "leaderboardStats"));
+    .map((data) => {
+      const docId = leaderboardDocId(persona.id, data.timeFrame, data.periodKey);
+      return write(db.collection("leaderboard_stats").doc(docId), data, "leaderboardStats");
+    });
 }
 
 function leaderboardDataForPersona(persona, stats, timeFrame, now, Timestamp, FieldValue, avatarURLs) {
@@ -465,11 +481,19 @@ function buildAchievements(persona, now, Timestamp) {
 
 function addAchievements(items, persona, type, count, now, Timestamp) {
   for (let index = 0; index < Math.max(count, 0); index += 1) {
+    const periodStartAt = daysFromNow(-7 * (index + 2), now);
+    const periodEndAt = daysFromNow(-7 * (index + 1), now);
     items.push({
       id: `${persona.id}_${type}_${index}`,
       data: {
         type,
+        scope: "global",
+        metric: "steps",
+        value: Math.max(300, Math.round((persona.weeklySteps ?? 12000) - index * 175)),
+        valueUnit: "steps",
         periodKey: `2026-W${String(20 - (index % 10)).padStart(2, "0")}`,
+        periodStartAt: Timestamp.fromDate(periodStartAt),
+        periodEndAt: Timestamp.fromDate(periodEndAt),
         earnedAt: Timestamp.fromDate(daysFromNow(-7 * (index + 1), now)),
         rank: rankForType(type),
         source: PROFILE_SEED_SOURCE,

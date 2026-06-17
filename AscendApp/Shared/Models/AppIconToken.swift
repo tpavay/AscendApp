@@ -24,6 +24,8 @@ enum AppIconToken: Hashable, Sendable {
     case mapPinFill
     case globeHemisphereWest
     case mountains
+    case infinity
+    case clipboardText
 
     case settingsEditProfile
     case settingsMeasurementSystem
@@ -80,6 +82,10 @@ enum AppIconToken: Hashable, Sendable {
             return .asset("ph-globe-hemisphere-west")
         case .mountains:
             return .asset("ph-mountains")
+        case .infinity:
+            return .asset("ph-infinity")
+        case .clipboardText:
+            return .asset("ph-clipboard-text")
 
         case .settingsEditProfile:
             return .asset("ph-settings-edit-profile")

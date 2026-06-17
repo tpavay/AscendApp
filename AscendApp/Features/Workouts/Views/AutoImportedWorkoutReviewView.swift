@@ -150,7 +150,7 @@ struct AutoImportedWorkoutReviewView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .themedBackground()
-            .navigationTitle("Review Workout")
+            .navigationTitle("Review Import")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -205,9 +205,9 @@ struct AutoImportedWorkoutReviewView: View {
         }
         .sheet(isPresented: $showingDeleteConfirmation) {
             ConfirmationView(
-                title: "Delete Workout",
-                message: "Delete \"\(effectiveName)\" from Ascend? This Apple Health workout will not auto-import again.",
-                confirmButtonText: "Delete",
+                title: "Remove Import",
+                message: "Remove \"\(effectiveName)\" from Ascend? This Apple Health workout will not auto-import again.",
+                confirmButtonText: "Remove",
                 isDestructive: true,
                 isLoading: isDeleting,
                 onCancel: {
@@ -289,7 +289,7 @@ struct AutoImportedWorkoutReviewView: View {
             Button(role: .destructive) {
                 showingDeleteConfirmation = true
             } label: {
-                Text("Delete Workout")
+                Text("Remove Import")
             }
             .appSheetButtonStyle(tone: .destructive)
             .disabled(isSaving || isDeleting)

@@ -15,6 +15,7 @@ final class LiveClimbActivityManager {
 
     func start(
         climb: Climb,
+        sessionID: String,
         steps: Int,
         rank: Int?,
         rankTotal: Int,
@@ -23,6 +24,7 @@ final class LiveClimbActivityManager {
     ) async {
         await start(
             climb: climb,
+            sessionID: sessionID,
             sessionTitle: climb.name,
             sessionSubtitle: climb.displayLocation,
             targetSteps: climb.referenceStepCount,
@@ -36,6 +38,7 @@ final class LiveClimbActivityManager {
 
     func start(
         climb: Climb?,
+        sessionID: String,
         sessionTitle: String,
         sessionSubtitle: String,
         targetSteps: Int,
@@ -52,7 +55,7 @@ final class LiveClimbActivityManager {
         await endExistingActivities()
 
         let attributes = LiveClimbActivityAttributes(
-            sessionID: UUID().uuidString,
+            sessionID: sessionID,
             climbID: climb?.id ?? "just-climb",
             climbName: sessionTitle,
             climbLocation: sessionSubtitle,

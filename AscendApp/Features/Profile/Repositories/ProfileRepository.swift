@@ -230,10 +230,19 @@ final class ProfileRepository: Sendable {
         return ProfileAchievementRecord(
             id: id,
             type: type,
+            scope: nonEmptyStringValue(for: "scope", in: data)
+                .flatMap(ProfileAchievementScope.init(rawValue:)) ??
+                (type == .firstAscent ? .climb : .global),
+            metric: nonEmptyStringValue(for: "metric", in: data)
+                .flatMap(ProfileAchievementMetric.init(rawValue:)),
             climbId: nonEmptyStringValue(for: "climbId", in: data),
             periodKey: nonEmptyStringValue(for: "periodKey", in: data),
+            periodStartAt: timestampValue(for: "periodStartAt", in: data),
+            periodEndAt: timestampValue(for: "periodEndAt", in: data),
             earnedAt: earnedAt,
-            rank: intValue(for: "rank", in: data)
+            rank: intValue(for: "rank", in: data),
+            value: intValue(for: "value", in: data),
+            valueUnit: nonEmptyStringValue(for: "valueUnit", in: data)
         )
     }
 

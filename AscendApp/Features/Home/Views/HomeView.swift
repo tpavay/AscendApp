@@ -17,8 +17,10 @@ struct HomeView: View {
     @State private var importCoordinator = WorkoutImportCoordinator.shared
     private let homeDashboard: HomeDashboardViewModel
     @State private var showingImportSheet = false
+    @State private var showingStartActionSheet = false
     @State private var showingClimbBrowse = false
     @State private var showingJustClimbSetup = false
+    @State private var pendingStartAction: HomeStartAction?
     @State private var selectedHomeClimb: Climb?
     @State private var activeJustClimbGoal: JustClimbGoal?
     @State private var globeViewModel = GlobeViewModel()
@@ -34,7 +36,7 @@ struct HomeView: View {
     }
 
     private var hasBlockingModalPresentation: Bool {
-        showingImportSheet || showingJustClimbSetup
+        showingImportSheet || showingStartActionSheet || showingJustClimbSetup
     }
 
     private var greeting: String {
@@ -81,6 +83,7 @@ struct HomeView: View {
 
                 Spacer()
 
+                startHeaderButton
                 importBell
                 .onChange(of: importCoordinator.attentionCount) { oldValue, newValue in
                     print("🔄 HomeView detected count change from \(oldValue) to \(newValue)")
@@ -92,8 +95,6 @@ struct HomeView: View {
 
             ScrollView {
                 LazyVStack(spacing: 20) {
-                    justClimbButton
-
                     TodayHomeSectionView(
                         viewModel: globeViewModel,
                         onOpenClimb: { climb in
@@ -146,6 +147,15 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showingImportSheet) {
             WorkoutImportSheet()
+        }
+        .sheet(isPresented: $showingStartActionSheet, onDismiss: {
+            consumePendingStartAction()
+        }) {
+            HomeStartActionSheet { action in
+                pendingStartAction = action
+                showingStartActionSheet = false
+            }
+            .appSheetStyle(.fitted())
         }
         .sheet(isPresented: $showingJustClimbSetup) {
             JustClimbSetupSheet { goal in
@@ -247,50 +257,23 @@ struct HomeView: View {
         .frame(width: 44, height: 44)
     }
 
-    private var justClimbButton: some View {
+    private var startHeaderButton: some View {
         Button {
-            showingJustClimbSetup = true
+            showingStartActionSheet = true
         } label: {
-            HStack(spacing: 14) {
-                Image(systemName: "plus")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.black)
-                    .frame(width: 46, height: 46)
-                    .background(Circle().fill(Color.accent))
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("JUST CLIMB")
-                        .font(.montserratBold(size: 18))
-                        .foregroundStyle(colorScheme == .dark ? .white : .black)
-                        .lineLimit(1)
-
-                    Text("Start open, set steps, or set time.")
-                        .font(.montserratMedium(size: 13))
-                        .foregroundStyle(colorScheme == .dark ? .white.opacity(0.58) : .black.opacity(0.55))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.82)
-                }
-
-                Spacer(minLength: 0)
-
-                Image(systemName: "chevron.up")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.52) : .black.opacity(0.44))
-            }
-            .padding(.horizontal, 16)
-            .frame(height: 78)
+            Image(systemName: "plus")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(.black)
+                .frame(width: 44, height: 44)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(colorScheme == .dark ? .white.opacity(0.07) : .black.opacity(0.045))
+                Circle()
+                    .fill(Color.accent)
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(colorScheme == .dark ? .white.opacity(0.1) : .black.opacity(0.08), lineWidth: 1)
-            )
+            .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Just Climb")
-        .accessibilityHint("Choose a goal and start a live tracked climb")
+        .accessibilityLabel("Start")
+        .accessibilityHint("Open climb actions")
     }
 
     private func presentClimbBrowse() {
@@ -301,6 +284,20 @@ struct HomeView: View {
         )
         globeViewModel.prepareForBrowseEntry()
         showingClimbBrowse = true
+    }
+
+    private func consumePendingStartAction() {
+        guard let action = pendingStartAction else { return }
+        pendingStartAction = nil
+
+        switch action {
+        case .justClimb:
+            showingJustClimbSetup = true
+        case .browseClimbs:
+            presentClimbBrowse()
+        case .routines:
+            tabRouter.selectedTab = .training
+        }
     }
 
     private func openImportInbox() {

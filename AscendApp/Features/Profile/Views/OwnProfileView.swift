@@ -3,6 +3,7 @@ import SwiftUI
 
 struct OwnProfileView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
+    @Environment(\.modelContext) private var modelContext
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
     @Query(sort: \ClimbAttempt.startedAt, order: .reverse) private var climbAttempts: [ClimbAttempt]
     @Query(sort: \BestEffortCacheEntry.sortKey) private var bestEffortCacheEntries: [BestEffortCacheEntry]
@@ -58,6 +59,7 @@ struct OwnProfileView: View {
             climbAttempts: climbAttempts,
             bestEffortCacheEntries: bestEffortCacheEntries,
             achievements: viewModel.achievements,
+            achievementRecords: viewModel.achievementRecords,
             standings: viewModel.standings,
             climbs: climbs,
             fitnessLevel: settingsManager.fitnessLevel
@@ -83,40 +85,47 @@ struct OwnProfileView: View {
             LazyVStack(alignment: .leading, spacing: 16) {
                 IdentityHeroSection(
                     snapshot: snapshot,
-                    mode: .own,
-                    measurementSystem: settingsManager.measurementSystem
+                    mode: .own
                 )
 
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 22) {
+                    ProfileLifetimeStatsRow(
+                        climbs: workouts.count,
+                        steps: snapshot.stats.lifetimeTotalSteps,
+                        durationSeconds: snapshot.stats.lifetimeDurationSeconds,
+                        averageStepsPerMinute: snapshot.stats.averageStepsPerMinute
+                    )
+
+                    CollectionSection(
+                        collection: snapshot.collection,
+                        mode: .own,
+                        showsHeader: false
+                    )
+
+                    ProfileWeeklyStepsChart(workouts: snapshot.activityWorkouts)
+
                     if snapshot.hasActiveRank {
                         ActiveStandingsSection(standings: snapshot.standings)
                     }
+
+                    PrestigeSection(
+                        held: snapshot.firstAscentsHeld,
+                        open: snapshot.openFirstAscents,
+                        achievements: snapshot.achievements,
+                        achievementRecords: snapshot.achievementRecords,
+                        mode: .own
+                    )
+
+                    RecordBookSection(
+                        records: snapshot.records,
+                        workouts: workouts
+                    )
 
                     ActivityCalendarSection(
                         workouts: snapshot.activityWorkouts,
                         currentStreakWeeks: snapshot.stats.currentStreakWeeks,
                         bestStreakWeeks: snapshot.stats.bestStreakWeeks,
                         mode: .own
-                    )
-
-                    CollectionSection(collection: snapshot.collection, mode: .own)
-                    AchievementsSection(counts: snapshot.achievements, mode: .own)
-                    FirstAscentsSection(
-                        held: snapshot.firstAscentsHeld,
-                        open: snapshot.openFirstAscents,
-                        mode: .own,
-                        climbs: climbs
-                    )
-                    RecordsSection(
-                        records: snapshot.records,
-                        totalClimbsCompleted: snapshot.totalClimbsCompleted,
-                        workouts: workouts
-                    )
-                    TrendsSection(trend: snapshot.trends)
-                    RecentWorkoutsSection(
-                        workouts: snapshot.recentWorkouts,
-                        mode: .own,
-                        localWorkouts: workouts
                     )
                 }
                 .padding(.horizontal, 16)
@@ -134,6 +143,7 @@ struct OwnProfileView: View {
                 photoURL: authVM.displayPhotoURL,
                 joinedAt: authVM.user?.metadata.creationDate,
                 climbs: climbs,
+                modelContext: modelContext,
                 taskKey: supportTaskKey
             )
         }

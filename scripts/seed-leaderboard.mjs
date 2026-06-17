@@ -25,6 +25,7 @@ import {
 import {
   buildLeaderboardSeedWrites,
   expectedLeaderboardDocIds,
+  legacyLeaderboardDocIds,
   PROFILE_SEED_PERSONAS,
 } from "./seed/fixtures/profile-fixtures.mjs";
 
@@ -137,6 +138,9 @@ async function loadSeededProfilePhotoURLs(db) {
 
 async function leaderboardRefsToClear(db) {
   const refs = expectedLeaderboardDocIds().map((docId) => db.collection(COLLECTION).doc(docId));
+  legacyLeaderboardDocIds().forEach((docId) => {
+    refs.push(db.collection(COLLECTION).doc(docId));
+  });
 
   for (const userId of LEGACY_TEST_USER_IDS) {
     LEGACY_TIME_FRAMES.forEach((timeFrame) => {

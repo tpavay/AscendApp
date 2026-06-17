@@ -351,7 +351,9 @@ service cloud.firestore {
         ) &&
         request.resource.data.periodStartAt is timestamp &&
         docId ==
-          request.auth.uid + "_" + request.resource.data.timeFrame &&
+          request.resource.data.timeFrame + "_" +
+          request.resource.data.periodKey + "_" +
+          request.auth.uid &&
         request.resource.data.totalSteps is int &&
         request.resource.data.totalSteps >= 0 &&
         request.resource.data.totalFloors is int &&
@@ -962,6 +964,10 @@ service cloud.firestore {
         request.resource.data.userId == resource.data.userId &&
         request.resource.data.timeFrame == resource.data.timeFrame;
       allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    match /leaderboard_periods/{docId} {
+      allow read, write: if false;
     }
 
     // Remote routine templates are content-managed and server-owned.

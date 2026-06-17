@@ -4,6 +4,7 @@ import SwiftUI
 struct OtherUserProfileView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     @Query(sort: \Workout.date, order: .reverse) private var viewerWorkouts: [Workout]
     @Query(sort: \ClimbAttempt.startedAt, order: .reverse) private var viewerClimbAttempts: [ClimbAttempt]
     @Query(sort: \BestEffortCacheEntry.sortKey) private var viewerBestEffortCacheEntries: [BestEffortCacheEntry]
@@ -65,6 +66,7 @@ struct OtherUserProfileView: View {
             climbAttempts: viewerClimbAttempts,
             bestEffortCacheEntries: viewerBestEffortCacheEntries,
             achievements: viewModel.achievements,
+            achievementRecords: viewModel.achievementRecords,
             standings: viewModel.standings,
             climbs: climbs,
             fitnessLevel: settingsManager.fitnessLevel
@@ -76,6 +78,7 @@ struct OtherUserProfileView: View {
             identity: seedIdentity,
             stats: .empty,
             achievements: .zero,
+            achievementRecords: [],
             standings: [],
             workoutSummaries: [],
             firstAscentsHeld: [],
@@ -154,6 +157,7 @@ struct OtherUserProfileView: View {
                     photoURL: authVM.displayPhotoURL,
                     joinedAt: user.metadata.creationDate,
                     climbs: climbs,
+                    modelContext: modelContext,
                     taskKey: "comparison-own-\(taskKey)"
                 )
             }

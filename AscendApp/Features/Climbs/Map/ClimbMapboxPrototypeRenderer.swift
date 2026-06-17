@@ -12,8 +12,8 @@ struct ClimbMapboxPrototypeRenderer: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var viewport: Viewport = .camera(
-        center: CLLocationCoordinate2D(latitude: 18.0, longitude: 8.0),
-        zoom: 1.35,
+        center: CLLocationCoordinate2D(latitude: 39.0, longitude: -98.0),
+        zoom: 1.1,
         bearing: 0,
         pitch: 0
     )

@@ -1,16 +1,46 @@
 import Foundation
 @preconcurrency import FirebaseFirestore
+import SwiftData
 
+@MainActor
 final class ProfileStandingService: Sendable {
     static let shared = ProfileStandingService()
 
     private let repository: LeaderboardRepository
+    private let leaderboardService: LeaderboardService
 
-    init(repository: LeaderboardRepository = .shared) {
+    init(
+        repository: LeaderboardRepository = .shared,
+        leaderboardService: LeaderboardService = .shared
+    ) {
         self.repository = repository
+        self.leaderboardService = leaderboardService
     }
 
     func loadStandings(userId: String) async -> [ProfileStanding] {
+        await loadStandings(userId: userId, localContext: nil)
+    }
+
+    func loadOwnStandings(
+        userId: String,
+        displayName: String,
+        photoURL: URL?,
+        modelContext: ModelContext
+    ) async -> [ProfileStanding] {
+        leaderboardService.configure(modelContext: modelContext)
+        return await loadStandings(
+            userId: userId,
+            localContext: LocalStandingContext(
+                displayName: displayName,
+                photoURL: photoURL
+            )
+        )
+    }
+
+    private func loadStandings(
+        userId: String,
+        localContext: LocalStandingContext?
+    ) async -> [ProfileStanding] {
         var standings: [ProfileStanding] = []
 
         for timeFrame in [LeaderboardTimeFrame.weekly, .monthly, .yearly] {
@@ -21,23 +51,72 @@ final class ProfileStandingService: Sendable {
                     limit: 1_000,
                     source: .default
                 )
-                standings.append(standing(for: userId, timeFrame: timeFrame, stats: stats))
-            } catch {
-                standings.append(
-                    ProfileStanding(
-                        timeFrame: timeFrame,
-                        rank: nil,
-                        value: 0,
-                        leaderValue: nil,
-                        previousRankValue: nil,
-                        totalClimbers: 0,
-                        tiedForFirst: false
-                    )
+                let resolvedStats = reconciledStats(
+                    stats,
+                    userId: userId,
+                    timeFrame: timeFrame,
+                    localContext: localContext
                 )
+                standings.append(standing(for: userId, timeFrame: timeFrame, stats: resolvedStats))
+            } catch {
+                standings.append(fallbackStanding(for: userId, timeFrame: timeFrame, localContext: localContext))
             }
         }
 
         return standings
+    }
+
+    private func reconciledStats(
+        _ stats: [FirestoreLeaderboardStats],
+        userId: String,
+        timeFrame: LeaderboardTimeFrame,
+        localContext: LocalStandingContext?
+    ) -> [FirestoreLeaderboardStats] {
+        guard
+            let localContext,
+            let localStats = try? leaderboardService.getLocalStats(for: userId, timeFrame: timeFrame)
+        else {
+            return stats
+        }
+
+        return LeaderboardCurrentUserReconciler.reconcileDetailStats(
+            stats,
+            metric: .climb,
+            userId: userId,
+            localStats: localStats,
+            displayName: localContext.displayName,
+            photoURL: localContext.photoURL
+        )
+    }
+
+    private func fallbackStanding(
+        for userId: String,
+        timeFrame: LeaderboardTimeFrame,
+        localContext: LocalStandingContext?
+    ) -> ProfileStanding {
+        if let localContext,
+           let localStats = try? leaderboardService.getLocalStats(for: userId, timeFrame: timeFrame),
+           localStats.hasActivity {
+            let localOnlyStats = LeaderboardCurrentUserReconciler.reconcileDetailStats(
+                [],
+                metric: .climb,
+                userId: userId,
+                localStats: localStats,
+                displayName: localContext.displayName,
+                photoURL: localContext.photoURL
+            )
+            return standing(for: userId, timeFrame: timeFrame, stats: localOnlyStats)
+        }
+
+        return ProfileStanding(
+            timeFrame: timeFrame,
+            rank: nil,
+            value: 0,
+            leaderValue: nil,
+            previousRankValue: nil,
+            totalClimbers: 0,
+            tiedForFirst: false
+        )
     }
 
     private func standing(
@@ -133,5 +212,10 @@ final class ProfileStandingService: Sendable {
     private func stepDelta(from value: Double, to targetValue: Double?) -> Int? {
         guard let targetValue else { return nil }
         return max(Int((targetValue - value).rounded()), 0)
+    }
+
+    private struct LocalStandingContext {
+        let displayName: String
+        let photoURL: URL?
     }
 }
