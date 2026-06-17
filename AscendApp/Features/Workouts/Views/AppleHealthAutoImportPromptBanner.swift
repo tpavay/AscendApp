@@ -35,11 +35,11 @@ struct AppleHealthAutoImportPromptBanner: View {
                     .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("Auto-import Apple Health workouts")
+                    Text("Auto-import new workouts")
                         .font(.montserratSemiBold(size: 16))
                         .foregroundStyle(primaryTextColor)
 
-                    Text("Ascend can automatically import new Apple Health stair workouts and keep them ready for quick review.")
+                    Text("New Apple Health stair-stepper workouts can save automatically in Ascend. Review the latest one once to fix steps, notes, or media.")
                         .font(.montserratRegular(size: 13))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -47,7 +47,7 @@ struct AppleHealthAutoImportPromptBanner: View {
             }
 
             HStack(spacing: 10) {
-                Button("Dismiss", action: onDismiss)
+                Button("Not Now", action: onDismiss)
                     .appSheetButtonStyle(tone: .secondary)
                     .disabled(isEnabling)
 

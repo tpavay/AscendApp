@@ -75,6 +75,17 @@ struct LiveClimbActivityAttributes: ActivityAttributes {
     var climbName: String
     var climbLocation: String
     var targetSteps: Int
+
+    var deepLinkURL: URL? {
+        var components = URLComponents()
+        components.scheme = "ascendapp"
+        components.host = "live-climb"
+        components.queryItems = [
+            URLQueryItem(name: "sessionID", value: sessionID),
+            URLQueryItem(name: "climbID", value: climbID)
+        ]
+        return components.url
+    }
 }
 
 enum LiveClimbActivityStatus: String, Codable, Hashable, Sendable {

@@ -1,11 +1,13 @@
 import Foundation
 import Observation
+import SwiftData
 
 @MainActor
 @Observable
 final class ProfileScreenViewModel {
     var standings: [ProfileStanding] = []
     var achievements: ProfileAchievementCounts = .zero
+    var achievementRecords: [ProfileAchievementRecord] = []
     var firstAscentsHeld: [ProfileFirstAscentSummary] = []
     var openFirstAscents: [ProfileFirstAscentSummary] = []
     var ownIdentity: ProfileUserIdentity?
@@ -36,6 +38,7 @@ final class ProfileScreenViewModel {
         photoURL: URL?,
         joinedAt: Date?,
         climbs: [Climb],
+        modelContext: ModelContext,
         taskKey: String,
         forceRefresh: Bool = false
     ) async {
@@ -50,15 +53,21 @@ final class ProfileScreenViewModel {
             joinedAt: joinedAt
         )
 
-        async let loadedStandings = standingService.loadStandings(userId: userId)
-        async let loadedAchievements = loadAchievementCounts(userId: userId)
+        async let loadedAchievements = loadAchievements(userId: userId)
         async let firstAscentSummaries = firstAscentService.loadFirstAscentSummaries(
             userId: userId,
             climbs: climbs
         )
 
-        standings = await loadedStandings
-        achievements = await loadedAchievements
+        standings = await standingService.loadOwnStandings(
+            userId: userId,
+            displayName: ownIdentity?.displayName ?? displayName,
+            photoURL: ownIdentity?.photoURL ?? photoURL,
+            modelContext: modelContext
+        )
+        let loadedAchievementSnapshot = await loadedAchievements
+        achievementRecords = loadedAchievementSnapshot.records
+        achievements = loadedAchievementSnapshot.counts
         let summaries = await firstAscentSummaries
         firstAscentsHeld = summaries.held
         openFirstAscents = summaries.open
@@ -87,7 +96,9 @@ final class ProfileScreenViewModel {
             let bundle = try await remoteBundle
             let standings = await loadedStandings
             let firstAscents = await firstAscentSummaries
-            let achievementCounts = bundle.stats?.achievementCounts ?? ProfileAchievementCounts(records: bundle.achievements)
+            let achievementCounts = bundle.achievements.isEmpty
+                ? (bundle.stats?.achievementCounts ?? .zero)
+                : ProfileAchievementCounts(records: bundle.achievements)
             let fallbackStats = fallbackStatsSnapshot(
                 summaries: bundle.workoutSummaries,
                 firstAscentCount: firstAscents.held.count,
@@ -103,6 +114,7 @@ final class ProfileScreenViewModel {
                 identity: identity,
                 stats: stats,
                 achievements: achievementCounts,
+                achievementRecords: bundle.achievements,
                 standings: standings,
                 workoutSummaries: bundle.workoutSummaries,
                 firstAscentsHeld: firstAscents.held,
@@ -121,6 +133,7 @@ final class ProfileScreenViewModel {
                 identity: seedIdentity,
                 stats: .empty,
                 achievements: .zero,
+                achievementRecords: [],
                 standings: [],
                 workoutSummaries: [],
                 firstAscentsHeld: [],
@@ -133,17 +146,19 @@ final class ProfileScreenViewModel {
         isLoading = false
     }
 
-    private func loadAchievementCounts(userId: String) async -> ProfileAchievementCounts {
+    private func loadAchievements(
+        userId: String
+    ) async -> (records: [ProfileAchievementRecord], counts: ProfileAchievementCounts) {
         do {
-            let stats = try await profileRepository.fetchStats(userId: userId)
-            if let stats {
-                return stats.achievementCounts
+            let records = try await profileRepository.fetchAchievements(userId: userId)
+            if !records.isEmpty {
+                return (records, ProfileAchievementCounts(records: records))
             }
 
-            let records = try await profileRepository.fetchAchievements(userId: userId)
-            return ProfileAchievementCounts(records: records)
+            let stats = try await profileRepository.fetchStats(userId: userId)
+            return ([], stats?.achievementCounts ?? .zero)
         } catch {
-            return .zero
+            return ([], .zero)
         }
     }
 

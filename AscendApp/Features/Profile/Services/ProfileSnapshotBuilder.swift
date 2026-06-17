@@ -8,6 +8,7 @@ enum ProfileSnapshotBuilder {
         climbAttempts: [ClimbAttempt],
         bestEffortCacheEntries: [BestEffortCacheEntry],
         achievements: ProfileAchievementCounts,
+        achievementRecords: [ProfileAchievementRecord] = [],
         standings: [ProfileStanding],
         climbs: [Climb],
         fitnessLevel: FitnessLevel,
@@ -44,6 +45,7 @@ enum ProfileSnapshotBuilder {
                 fitnessLevel: fitnessLevel
             ),
             achievements: achievements,
+            achievementRecords: achievementRecords,
             firstAscentsHeld: firstAscentsHeld(
                 completedAttempts: completedAttempts,
                 climbs: climbs
@@ -59,6 +61,7 @@ enum ProfileSnapshotBuilder {
         identity: ProfileUserIdentity,
         stats: ProfileStatsSnapshot,
         achievements: ProfileAchievementCounts,
+        achievementRecords: [ProfileAchievementRecord] = [],
         standings: [ProfileStanding],
         workoutSummaries: [ProfileWorkoutSummary],
         firstAscentsHeld: [ProfileFirstAscentSummary],
@@ -78,6 +81,7 @@ enum ProfileSnapshotBuilder {
                 climbs: climbs
             ),
             achievements: achievements,
+            achievementRecords: achievementRecords,
             firstAscentsHeld: firstAscentsHeld,
             openFirstAscents: openFirstAscents,
             records: remoteRecordSummary(stats: stats),

@@ -3,13 +3,9 @@ import SwiftUI
 struct IdentityHeroSection: View {
     let snapshot: ProfileSnapshot
     let mode: ProfileViewMode
-    let measurementSystem: MeasurementSystem
 
-    private var demographicsLine: String? {
-        ProfileIdentityFormatter.demographicsLine(
-            for: snapshot.identity,
-            measurementSystem: measurementSystem
-        )
+    private var locationLine: String? {
+        ProfileIdentityFormatter.locationLine(for: snapshot.identity)
     }
 
     private var joinedText: String? {
@@ -17,50 +13,44 @@ struct IdentityHeroSection: View {
     }
 
     var body: some View {
-        ProfileCardSurfaceView {
-            HStack(spacing: 18) {
-                avatar
+        HStack(spacing: 18) {
+            avatar
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(snapshot.identity.displayName)
-                        .font(.montserratBold(size: 28))
-                        .foregroundStyle(.white)
+            VStack(alignment: .leading, spacing: 5) {
+                if let joinedText {
+                    Text(joinedText)
+                        .font(.montserratMedium(size: 11))
+                        .foregroundStyle(.white.opacity(0.5))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.62)
-                        .padding(.trailing, 42)
-
-                    if let demographicsLine {
-                        Text(demographicsLine)
-                            .font(.montserratRegular(size: 14))
-                            .foregroundStyle(.white.opacity(0.78))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.72)
-                    }
-
-                    if let joinedText {
-                        Text(joinedText)
-                            .font(.montserratMedium(size: 14))
-                            .foregroundStyle(.white.opacity(0.62))
-                            .lineLimit(1)
-                    }
-
-                    Text(ProfileIdentityFormatter.pullStatText(for: snapshot, mode: mode))
-                        .font(.montserratSemiBold(size: 14))
-                        .foregroundStyle(Color.ascendAccent)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.62)
+                        .minimumScaleFactor(0.8)
                 }
 
-                Spacer(minLength: 0)
+                Text(snapshot.identity.displayName)
+                    .font(.montserratBold(size: 28))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.62)
+                    .padding(.trailing, 42)
+
+                if let locationLine {
+                    Text(locationLine)
+                        .font(.montserratRegular(size: 14))
+                        .foregroundStyle(.white.opacity(0.78))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                }
             }
-            .padding(18)
-        }
-        .overlay(alignment: .topTrailing) {
-            profileActionButton
-                .padding(14)
+
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
-        .padding(.bottom, 10)
+        .padding(.top, 10)
+        .padding(.bottom, 4)
+        .overlay(alignment: .topTrailing) {
+            profileActionButton
+                .padding(.trailing, 10)
+                .padding(.top, 4)
+        }
         .background(ProfileVisualStyle.background)
     }
 

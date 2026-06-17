@@ -200,6 +200,11 @@ struct EditProfileView: View {
         [
             SettingsOption(
                 icon: .settingsMeasurementSystem,
+                title: "Body Metrics",
+                destination: BodyMetricsEditorView()
+            ),
+            SettingsOption(
+                icon: .settingsMeasurementSystem,
                 title: "Measurement System",
                 destination: MeasurementSystemSelectionView()
             ),

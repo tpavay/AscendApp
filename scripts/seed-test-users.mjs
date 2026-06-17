@@ -27,6 +27,7 @@ import {
   buildProfileSeedWrites,
   expectedLeaderboardDocIds,
   expectedProfileUserIds,
+  legacyLeaderboardDocIds,
   PROFILE_SEED_PACK_ID,
   PROFILE_SEED_PERSONAS,
 } from "./seed/fixtures/profile-fixtures.mjs";
@@ -196,6 +197,9 @@ async function seedDocumentRefs(db) {
   }
 
   expectedLeaderboardDocIds().forEach((docId) => {
+    refs.push(db.collection("leaderboard_stats").doc(docId));
+  });
+  legacyLeaderboardDocIds().forEach((docId) => {
     refs.push(db.collection("leaderboard_stats").doc(docId));
   });
 

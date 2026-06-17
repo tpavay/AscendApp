@@ -222,10 +222,10 @@ struct WorkoutImportSheet: View {
 
     private var emptyStateMessage: String {
         if shouldShowAppleHealthSetupCard {
-            return "Connect Apple Health above to import existing workouts and optionally auto-import new ones."
+            return "Connect Apple Health above to import past stair-stepper sessions and auto-save new ones."
         }
 
-        return "All your Apple Health workouts are already imported."
+        return "Apple Health is caught up. New workouts will appear here when there is something to import."
     }
 
     private var appleHealthSetupCard: some View {
@@ -284,7 +284,7 @@ struct WorkoutImportSheet: View {
     private var appleHealthSetupTitle: String {
         switch appleHealthConnectionState {
         case .neverConnected:
-            return "Import Apple Health workouts"
+            return "Connect Apple Health"
         case .revoked:
             return "Reconnect Apple Health"
         case .connected, .unavailable:
@@ -306,7 +306,7 @@ struct WorkoutImportSheet: View {
     private var appleHealthSetupMessage: String {
         switch appleHealthConnectionState {
         case .neverConnected:
-            return "Connect Apple Health to import your existing stairstepper workouts and automatically import new ones when you finish them."
+            return "Import past stair-stepper workouts. New Apple Health stair-stepper workouts will save automatically in Ascend after you finish them."
         case .revoked:
             return "Re-enable workout access in the Health app to bring Apple Health workouts into Ascend again."
         case .connected, .unavailable:
@@ -317,7 +317,7 @@ struct WorkoutImportSheet: View {
     private var appleHealthSetupSecondaryLine: String {
         switch appleHealthConnectionState {
         case .neverConnected:
-            return "Turn off auto-import anytime in Settings > Edit Profile > Integrations > Apple Health."
+            return "Turn auto-import off anytime in Settings > Edit Profile > Integrations > Apple Health."
         case .revoked, .connected, .unavailable:
             return ""
         }
@@ -342,7 +342,7 @@ struct WorkoutImportSheet: View {
         VStack(spacing: 0) {
             VStack(spacing: 10) {
                 HStack {
-                    Text("\(candidateCount) NEW WORKOUTS")
+                    Text("\(candidateCount) READY TO IMPORT")
                         .font(.montserratSemiBold(size: 12))
                         .foregroundStyle(.secondary)
 
@@ -616,7 +616,7 @@ struct WorkoutImportSheet: View {
     }
 
     private var defaultAutoImportStatusMessage: String {
-        "New Apple Health workouts will auto-import by default. You can change this anytime in Settings > Edit Profile > Integrations > Apple Health."
+        "New Apple Health stair-stepper workouts will save automatically. Ascend will show the latest one once so you can fix steps, notes, or media."
     }
 
     private func presentSetupAlert(_ message: String) {

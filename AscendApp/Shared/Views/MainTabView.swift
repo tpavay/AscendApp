@@ -29,6 +29,7 @@ struct MainTabView: View {
     private enum HomeNavigationDestination: Hashable {
         case onboardingFirstClimb(String)
         case pushClimbDrop(String)
+        case liveActivitySession(String, String?)
     }
 
     private var effectiveColorScheme: ColorScheme {
@@ -62,12 +63,16 @@ struct MainTabView: View {
             rebuildBestEffortCacheIfNeeded()
             consumePendingFirstClimbHandoffIfNeeded()
             consumePendingPushDestinationIfNeeded()
+            consumePendingLiveActivityRouteIfNeeded()
         }
         .onChange(of: connectivityService.isConnected) { oldValue, newValue in
             handleConnectivityChange(from: oldValue, to: newValue)
         }
         .onReceive(NotificationCenter.default.publisher(for: .pushNotificationDestinationDidChange)) { _ in
             consumePendingPushDestinationIfNeeded()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .liveClimbActivityRouteDidChange)) { _ in
+            consumePendingLiveActivityRouteIfNeeded()
         }
         .themeAware()
         .animation(.smooth(duration: 0.2), value: connectivityService.isConnected)
@@ -174,6 +179,8 @@ struct MainTabView: View {
             climbDetailDestination(for: climbId, analyticsEntryPoint: .homeDaily, onboardingCoach: .firstClimb)
         case .pushClimbDrop(let climbId):
             climbDetailDestination(for: climbId, analyticsEntryPoint: .homeExplore, onboardingCoach: nil)
+        case .liveActivitySession(let sessionID, let climbID):
+            liveActivityDestination(sessionID: sessionID, climbID: climbID)
         }
     }
 
@@ -215,6 +222,29 @@ struct MainTabView: View {
                 tabRouter.selectedTab = .home
                 homeNavigationPath = [.pushClimbDrop(climb.id)]
             }
+        }
+    }
+
+    private func consumePendingLiveActivityRouteIfNeeded() {
+        guard let route = LiveClimbActivityRouter.shared.consumePendingRoute() else { return }
+
+        tabRouter.selectedTab = .home
+        homeNavigationPath = [.liveActivitySession(route.sessionID, route.climbID)]
+    }
+
+    @ViewBuilder
+    private func liveActivityDestination(sessionID: String, climbID: String?) -> some View {
+        if let viewModel = LiveClimbSessionCoordinator.shared.activeViewModel(sessionID: sessionID) {
+            LiveClimbSessionView(viewModel: viewModel)
+        } else if let climbID,
+                  climbID != "just-climb",
+                  let climb = try? ClimbService.shared.climb(for: climbID) {
+            ClimbDetailView(climb: climb, analyticsEntryPoint: .homeExplore)
+        } else {
+            Text("Live climb unavailable")
+                .font(.montserratBold(size: 22))
+                .foregroundStyle(.white)
+                .themedBackground()
         }
     }
 

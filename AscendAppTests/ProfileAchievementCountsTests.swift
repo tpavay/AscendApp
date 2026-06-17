@@ -9,10 +9,16 @@ struct ProfileAchievementCountsTests {
             ProfileAchievementRecord(
                 id: "top1",
                 type: .weeklyTop1,
+                scope: .global,
+                metric: .steps,
                 climbId: nil,
                 periodKey: "2026-W21",
+                periodStartAt: nil,
+                periodEndAt: nil,
                 earnedAt: Date(),
-                rank: 1
+                rank: 1,
+                value: 12_000,
+                valueUnit: "steps"
             )
         ]
 
@@ -30,10 +36,16 @@ struct ProfileAchievementCountsTests {
             ProfileAchievementRecord(
                 id: "top3",
                 type: .monthlyTop3,
+                scope: .global,
+                metric: .steps,
                 climbId: nil,
                 periodKey: "2026-05",
+                periodStartAt: nil,
+                periodEndAt: nil,
                 earnedAt: Date(),
-                rank: 3
+                rank: 3,
+                value: 32_000,
+                valueUnit: "steps"
             )
         ]
 

@@ -7,6 +7,7 @@ struct ProfileSnapshot {
     var activityWorkouts: [ProfileWorkoutSummary]
     var collection: ProfileCollectionSummary
     var achievements: ProfileAchievementCounts
+    var achievementRecords: [ProfileAchievementRecord]
     var firstAscentsHeld: [ProfileFirstAscentSummary]
     var openFirstAscents: [ProfileFirstAscentSummary]
     var records: ProfileRecordSummary

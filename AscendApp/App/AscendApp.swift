@@ -52,9 +52,14 @@ struct AscendApp: App {
         .modelContainer(createModelContainer())
     }
 
+    @MainActor
     private func handleDeepLink(url: URL) {
         // Let Google Sign-In handle its redirect URL
         if GIDSignIn.sharedInstance.handle(url) {
+            return
+        }
+
+        if LiveClimbActivityRouter.shared.route(from: url) {
             return
         }
     }

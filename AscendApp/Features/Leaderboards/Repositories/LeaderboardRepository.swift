@@ -7,13 +7,21 @@ final class LeaderboardRepository: Sendable {
 
     private init() {}
 
-    func documentID(userId: String, timeFrame: LeaderboardTimeFrame) -> String {
-        "\(userId)_\(timeFrame.rawValue)"
+    func documentID(userId: String, timeFrame: LeaderboardTimeFrame, periodKey: String) -> String {
+        "\(timeFrame.rawValue)_\(periodKey)_\(userId)"
+    }
+
+    func documentID(userId: String, timeFrame: LeaderboardTimeFrame, period: LeaderboardPeriod) -> String {
+        documentID(userId: userId, timeFrame: timeFrame, periodKey: period.key)
+    }
+
+    func currentDocumentID(userId: String, timeFrame: LeaderboardTimeFrame) -> String {
+        documentID(userId: userId, timeFrame: timeFrame, period: timeFrame.currentPeriod())
     }
 
     func upsertStats(_ payload: LeaderboardSyncPayload) async throws {
         let docRef = db.collection("leaderboard_stats")
-            .document(documentID(userId: payload.userId, timeFrame: payload.timeFrame))
+            .document(documentID(userId: payload.userId, timeFrame: payload.timeFrame, periodKey: payload.periodKey))
 
         var data: [String: Any] = [
             "userId": payload.userId,
@@ -42,18 +50,19 @@ final class LeaderboardRepository: Sendable {
         try await docRef.setData(data, merge: true)
     }
 
-    func deleteStats(userId: String, timeFrame: LeaderboardTimeFrame) async throws {
+    func deleteStats(userId: String, timeFrame: LeaderboardTimeFrame, periodKey: String) async throws {
         let docRef = db.collection("leaderboard_stats")
-            .document(documentID(userId: userId, timeFrame: timeFrame))
+            .document(documentID(userId: userId, timeFrame: timeFrame, periodKey: periodKey))
         try await docRef.delete()
     }
 
-    func deleteLegacyStats(userId: String, keepingDocumentIDs: Set<String>) async throws {
+    func deleteLegacyStats(userId: String) async throws {
         let snapshot = try await db.collection("leaderboard_stats")
             .whereField("userId", isEqualTo: userId)
             .getDocuments()
 
-        for document in snapshot.documents where keepingDocumentIDs.contains(document.documentID) == false {
+        let legacyDocumentIDs = Set(LeaderboardTimeFrame.allCases.map { "\(userId)_\($0.rawValue)" })
+        for document in snapshot.documents where legacyDocumentIDs.contains(document.documentID) {
             try await document.reference.delete()
         }
     }
@@ -88,16 +97,33 @@ final class LeaderboardRepository: Sendable {
             .limit(to: max(limit, 0))
 
         let snapshot = try await query.getDocuments(source: source)
-        var stats: [FirestoreLeaderboardStats] = []
+        var statsByUserId: [String: FirestoreLeaderboardStats] = [:]
+        var canonicalUserIds = Set<String>()
 
         for document in snapshot.documents {
             let data = document.data()
             guard let stat = parseStat(data) else { continue }
             guard stat.periodStartAt == period.startAt else { continue }
-            stats.append(stat)
+            let canonicalID = documentID(userId: stat.userId, timeFrame: timeFrame, periodKey: stat.periodKey)
+            let isCanonical = document.documentID == canonicalID
+
+            if let existing = statsByUserId[stat.userId] {
+                let existingIsCanonical = canonicalUserIds.contains(stat.userId)
+                if isCanonical && !existingIsCanonical {
+                    statsByUserId[stat.userId] = stat
+                    canonicalUserIds.insert(stat.userId)
+                } else if isCanonical == existingIsCanonical && stat.lastUpdated > existing.lastUpdated {
+                    statsByUserId[stat.userId] = stat
+                }
+            } else {
+                statsByUserId[stat.userId] = stat
+                if isCanonical {
+                    canonicalUserIds.insert(stat.userId)
+                }
+            }
         }
 
-        stats.sort {
+        let stats = statsByUserId.values.sorted {
             let lhs = $0.value(for: metric)
             let rhs = $1.value(for: metric)
             if lhs != rhs { return lhs > rhs }
@@ -146,6 +172,19 @@ final class LeaderboardRepository: Sendable {
         for document in snapshot.documents {
             try await document.reference.updateData([
                 "displayName": displayName,
+                "lastUpdated": FieldValue.serverTimestamp()
+            ])
+        }
+    }
+
+    func updateBodyWeight(userId: String, weightKg: Double) async throws {
+        let snapshot = try await db.collection("leaderboard_stats")
+            .whereField("userId", isEqualTo: userId)
+            .getDocuments()
+
+        for document in snapshot.documents {
+            try await document.reference.updateData([
+                "weight_kg": weightKg,
                 "lastUpdated": FieldValue.serverTimestamp()
             ])
         }

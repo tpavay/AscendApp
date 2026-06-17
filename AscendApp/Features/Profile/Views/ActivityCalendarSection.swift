@@ -14,7 +14,7 @@ struct ActivityCalendarSection: View {
         let monthData = calendarMonthData
 
         VStack(alignment: .leading, spacing: 12) {
-            ProfileSectionHeaderView(title: "Activity")
+            activityHeader
 
             HStack(alignment: .top, spacing: 12) {
                 calendarGrid(monthData)
@@ -34,6 +34,31 @@ struct ActivityCalendarSection: View {
                     .padding(.horizontal, 2)
             }
         }
+    }
+
+    private var activityHeader: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("ACTIVITY")
+                .font(.montserratBold(size: 16))
+                .foregroundStyle(.white)
+                .tracking(1.4)
+
+            Spacer()
+
+            if mode == .own {
+                NavigationLink {
+                    WorkoutListView(embedsInNavigationStack: false, showsBackButton: true)
+                } label: {
+                    Text("TIMELINE")
+                        .font(.montserratSemiBold(size: 11))
+                        .foregroundStyle(Color.ascendAccent)
+                        .tracking(1.2)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("View workout timeline")
+            }
+        }
+        .padding(.horizontal, 2)
     }
 
     private func calendarGrid(_ monthData: ProfileCalendarMonthData) -> some View {

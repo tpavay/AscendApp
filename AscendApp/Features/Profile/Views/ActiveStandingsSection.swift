@@ -39,13 +39,9 @@ struct ActiveStandingsSection: View {
                     .tracking(1.1)
                     .lineLimit(1)
 
-                Text(standing.rank.map { "#\($0)" } ?? "-")
-                    .font(.montserratBold(size: 30))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.68)
+                rankValue(standing)
 
-                Text(ProfileStandingSubtitleFormatter.subtitle(for: standing))
+                Text(subtitle(for: standing))
                     .font(.montserratSemiBold(size: 9))
                     .foregroundStyle(Color.ascendAccent)
                     .lineLimit(2)
@@ -55,5 +51,29 @@ struct ActiveStandingsSection: View {
             .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
             .padding(10)
         }
+    }
+
+    @ViewBuilder
+    private func rankValue(_ standing: ProfileStanding) -> some View {
+        if let rank = standing.rank {
+            Text("#\(rank)")
+                .font(.montserratBold(size: 30))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.68)
+                .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+        } else {
+            Text("Unranked")
+                .font(.montserratBold(size: 16))
+                .foregroundStyle(ProfileVisualStyle.tertiaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+        }
+    }
+
+    private func subtitle(for standing: ProfileStanding) -> String {
+        guard standing.hasRank else { return "Climb to claim a spot" }
+        return ProfileStandingSubtitleFormatter.subtitle(for: standing)
     }
 }

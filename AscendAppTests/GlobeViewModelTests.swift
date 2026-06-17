@@ -85,16 +85,17 @@ struct GlobeViewModelTests {
         viewModel.selectPreview(climb, modelContext: modelContext)
         viewModel.prepareForBrowseEntry()
 
-        let camera = try #require(viewModel.cameraPosition.camera)
+        let region = try #require(viewModel.cameraPosition.region)
         #expect(viewModel.searchQuery.isEmpty)
         #expect(viewModel.previewSummary == nil)
-        #expect(camera.distance == 28_000_000)
-        #expect(camera.centerCoordinate.latitude == 18.0)
-        #expect(camera.centerCoordinate.longitude == 8.0)
+        #expect(region.center.latitude == 8.0)
+        #expect(region.center.longitude == -76.0)
+        #expect(region.span.latitudeDelta == 138.0)
+        #expect(region.span.longitudeDelta == 150.0)
     }
 
     @Test
-    func dismissPreviewRestoresOverviewZoomAtCurrentCenter() throws {
+    func dismissPreviewRestoresDefaultOverview() throws {
         let climb = makeClimb(
             id: "gateway-arch",
             latitude: 38.6247,
@@ -111,11 +112,12 @@ struct GlobeViewModelTests {
         viewModel.mapCameraDidChange(latitude: 12.34, longitude: 56.78)
         viewModel.dismissPreview()
 
-        let camera = try #require(viewModel.cameraPosition.camera)
+        let region = try #require(viewModel.cameraPosition.region)
         #expect(viewModel.previewSummary == nil)
-        #expect(camera.distance == 28_000_000)
-        #expect(camera.centerCoordinate.latitude == 12.34)
-        #expect(camera.centerCoordinate.longitude == 56.78)
+        #expect(region.center.latitude == 8.0)
+        #expect(region.center.longitude == -76.0)
+        #expect(region.span.latitudeDelta == 138.0)
+        #expect(region.span.longitudeDelta == 150.0)
     }
 
     @Test

@@ -14,6 +14,7 @@ struct LiveClimbActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: LiveClimbActivityAttributes.self) { context in
             LiveClimbLockScreenView(context: context)
+                .widgetURL(context.attributes.deepLinkURL)
                 .activityBackgroundTint(.black)
                 .activitySystemActionForegroundColor(.ascendAccent)
         } dynamicIsland: { context in
@@ -47,6 +48,7 @@ struct LiveClimbActivityWidget: Widget {
                 )
             }
             .keylineTint(.ascendAccent)
+            .widgetURL(context.attributes.deepLinkURL)
         }
     }
 }

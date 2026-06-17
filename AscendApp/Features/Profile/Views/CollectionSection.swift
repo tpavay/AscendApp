@@ -5,6 +5,7 @@ import UserNotifications
 struct CollectionSection: View {
     let collection: ProfileCollectionSummary
     let mode: ProfileViewMode
+    var showsHeader: Bool = true
 
     private var previewCards: [ProfileCollectionCardItem] {
         Array(collection.previewCards.prefix(3))
@@ -13,11 +14,13 @@ struct CollectionSection: View {
     var body: some View {
         if collection.catalogCount > 0, !previewCards.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                ProfileSectionHeaderView(
-                    title: "Climbs Collection",
-                    trailing: "\(collection.collectedCount) of \(collection.catalogCount)"
-                )
-                .accessibilityLabel("\(collection.collectedCount) of \(collection.catalogCount) climbs collected")
+                if showsHeader {
+                    ProfileSectionHeaderView(
+                        title: "Climbs Collection",
+                        trailing: "\(collection.collectedCount) of \(collection.catalogCount)"
+                    )
+                    .accessibilityLabel("\(collection.collectedCount) of \(collection.catalogCount) climbs collected")
+                }
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: 10) {
@@ -36,11 +39,14 @@ struct CollectionSection: View {
                         NavigationLink {
                             ClimbsCollectionView(collection: collection, mode: mode)
                         } label: {
-                            ViewAllClimbsCard(catalogCount: collection.catalogCount)
+                            ViewAllClimbsCard(
+                                collectedCount: collection.collectedCount,
+                                catalogCount: collection.catalogCount
+                            )
                                 .frame(width: CollectionCardStyle.profilePreview.cardWidth)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("View all climbs")
+                        .accessibilityLabel("View climbs collection, \(collection.collectedCount) of \(collection.catalogCount) collected")
                     }
                     .padding(.vertical, 1)
                     .padding(.trailing, 2)
@@ -283,23 +289,26 @@ private struct CollectionCardStyle {
     let buttonFontSize: CGFloat
     let buttonHeight: CGFloat
     let badgeSize: CGFloat
+    let showsAction: Bool
 
     var cardHeight: CGFloat {
-        artworkHeight + nameHeight + buttonHeight + (spacing * 2) + (cardPadding * 2)
+        let actionHeight = showsAction ? buttonHeight + spacing : 0
+        return artworkHeight + nameHeight + actionHeight + spacing + (cardPadding * 2)
     }
 
     static let profilePreview = CollectionCardStyle(
-        cardWidth: 154,
-        artworkHeight: 138,
-        cardPadding: 7,
-        spacing: 7,
-        cornerRadius: 9,
-        artworkCornerRadius: 7,
-        nameFontSize: 11,
-        nameHeight: 28,
-        buttonFontSize: 13,
-        buttonHeight: 32,
-        badgeSize: 26
+        cardWidth: 104,
+        artworkHeight: 92,
+        cardPadding: 6,
+        spacing: 6,
+        cornerRadius: 8,
+        artworkCornerRadius: 6,
+        nameFontSize: 10,
+        nameHeight: 24,
+        buttonFontSize: 11,
+        buttonHeight: 28,
+        badgeSize: 20,
+        showsAction: false
     )
 
     static let grid = CollectionCardStyle(
@@ -313,38 +322,43 @@ private struct CollectionCardStyle {
         nameHeight: 30,
         buttonFontSize: 13,
         buttonHeight: 32,
-        badgeSize: 26
+        badgeSize: 26,
+        showsAction: true
     )
 }
 
 private struct ViewAllClimbsCard: View {
+    let collectedCount: Int
     let catalogCount: Int
+
+    private var remaining: Int { max(catalogCount - collectedCount, 0) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Spacer(minLength: 0)
 
-            Image(systemName: "arrow.right")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(Color.ascendAccent)
-                .frame(width: 38, height: 38)
-                .background(
-                    Circle()
-                        .fill(Color.ascendAccent.opacity(0.14))
-                )
+            Text("\(collectedCount) / \(catalogCount)")
+                .font(.montserratBold(size: 20))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("View all climbs")
-                    .font(.montserratBold(size: 16))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.82)
+            CollectionProgressBar(
+                collectedCount: collectedCount,
+                catalogCount: catalogCount
+            )
+            .frame(height: 8)
 
-                Text("\(catalogCount) climbs")
-                    .font(.montserratSemiBold(size: 11))
-                    .tracking(0.6)
-                    .foregroundStyle(ProfileVisualStyle.secondaryText)
+            HStack(spacing: 5) {
+                Text(remaining > 0 ? "\(remaining) to claim" : "Collection complete")
+                    .font(.montserratSemiBold(size: 13))
+                    .foregroundStyle(Color.ascendAccent)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Image(systemName: "chevron.forward")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Color.ascendAccent)
             }
 
             Spacer(minLength: 0)
@@ -393,7 +407,9 @@ private struct CollectionCard: View {
                 .frame(height: style.nameHeight)
                 .frame(maxWidth: .infinity)
 
-            climbAction
+            if style.showsAction {
+                climbAction
+            }
         }
         .padding(style.cardPadding)
         .frame(maxWidth: .infinity)
@@ -430,9 +446,11 @@ private struct CollectionCard: View {
     }
 
     private var climbAction: some View {
-        Text("Climb")
+        Text(isClaimed ? "Climb Again" : "Climb")
             .font(.montserratSemiBold(size: style.buttonFontSize))
             .foregroundStyle(Color.ascendAccent)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
             .frame(maxWidth: .infinity)
             .frame(height: style.buttonHeight)
             .overlay(

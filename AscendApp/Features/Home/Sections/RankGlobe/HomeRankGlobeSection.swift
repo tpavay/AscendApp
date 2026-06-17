@@ -25,6 +25,16 @@ struct HomeRankGlobeSection: View {
     }
 }
 
+/// Subtle trailing disclosure cue that signals the rank / globe tiles navigate on tap.
+private struct CardDisclosureChevron: View {
+    var body: some View {
+        Image(systemName: "chevron.forward")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.35))
+            .accessibilityHidden(true)
+    }
+}
+
 private struct HomeRankCard: View {
     let summary: HomeWeeklyRankSummary?
     let isLoading: Bool
@@ -33,12 +43,18 @@ private struct HomeRankCard: View {
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("WEEKLY RANK · STEPS")
-                    .font(.montserratSemiBold(size: 10))
-                    .tracking(1.2)
-                    .foregroundStyle(Color.accent)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
+                HStack(spacing: 4) {
+                    Text("WEEKLY RANK · STEPS")
+                        .font(.montserratSemiBold(size: 10))
+                        .tracking(1.2)
+                        .foregroundStyle(Color.accent)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+
+                    Spacer(minLength: 4)
+
+                    CardDisclosureChevron()
+                }
 
                 Text(summary.map { "#\($0.rank)" } ?? "—")
                     .font(.montserratBold(size: 34))
@@ -97,10 +113,16 @@ private struct HomeMyGlobeCard: View {
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("MY GLOBE")
-                    .font(.montserratSemiBold(size: 10))
-                    .tracking(1.2)
-                    .foregroundStyle(Color.accent)
+                HStack(spacing: 4) {
+                    Text("MY GLOBE")
+                        .font(.montserratSemiBold(size: 10))
+                        .tracking(1.2)
+                        .foregroundStyle(Color.accent)
+
+                    Spacer(minLength: 4)
+
+                    CardDisclosureChevron()
+                }
 
                 Text("\(count) / \(resolvedTotal)")
                     .font(.montserratBold(size: 34))
@@ -110,7 +132,7 @@ private struct HomeMyGlobeCard: View {
                     .allowsTightening(true)
                     .layoutPriority(2)
 
-                Text("climbs collected")
+                Text(subtitle)
                     .font(.montserratMedium(size: 10))
                     .foregroundStyle(.white.opacity(0.55))
                     .lineLimit(1)
@@ -129,6 +151,14 @@ private struct HomeMyGlobeCard: View {
 
     private var resolvedTotal: Int {
         max(total, count)
+    }
+
+    /// Frames the collection as a gap to close — a dare, not a description.
+    /// Falls back to the neutral descriptor until the catalog total has loaded.
+    private var subtitle: String {
+        guard resolvedTotal > 0 else { return "climbs collected" }
+        let remaining = resolvedTotal - count
+        return remaining > 0 ? "\(remaining) to claim" : "All claimed"
     }
 
     private var cardBackground: some View {

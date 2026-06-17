@@ -392,7 +392,7 @@ async function buildSeedPlan(db, catalog, authUser, args) {
     const totals = leaderboardTotals(workouts, timeFrame);
     const period = currentPeriod(timeFrame, now);
     writes.push([
-      db.collection("leaderboard_stats").doc(`${user.uid}_${timeFrame}`),
+      db.collection("leaderboard_stats").doc(leaderboardDocId(user.uid, timeFrame, period.key)),
       leaderboardStatsData(user, timeFrame, period, totals),
     ]);
   }
@@ -905,6 +905,7 @@ function achievementRecords(uid, now, firstAscentClimbId) {
     records.unshift({
       id: deterministicId(`${uid}:achievement:first_ascent:${firstAscentClimbId}`),
       type: "first_ascent",
+      scope: "climb",
       climbId: firstAscentClimbId,
       earnedAt: Timestamp.fromDate(daysAgo(now, 0)),
       rank: 1,
@@ -915,12 +916,42 @@ function achievementRecords(uid, now, firstAscentClimbId) {
 }
 
 function achievement(uid, type, periodKey, rank, earnedAt) {
+  const period = achievementPeriod(type, periodKey, earnedAt);
   return {
     id: deterministicId(`${uid}:achievement:${type}:${periodKey}`),
     type,
+    scope: "global",
+    metric: "steps",
+    value: Math.max(1200, 54000 - rank * 950),
+    valueUnit: "steps",
     periodKey,
+    periodStartAt: Timestamp.fromDate(period.startAt),
+    periodEndAt: Timestamp.fromDate(period.endAt),
     earnedAt: Timestamp.fromDate(earnedAt),
     rank,
+  };
+}
+
+function achievementPeriod(type, periodKey, earnedAt) {
+  if (type.startsWith("monthly_")) {
+    const [year, month] = periodKey.split("-M").map((value) => Number(value));
+    return {
+      startAt: utcDate(year, month - 1, 1),
+      endAt: utcDate(year, month, 1),
+    };
+  }
+
+  if (type.startsWith("yearly_")) {
+    const year = Number(periodKey);
+    return {
+      startAt: utcDate(year, 0, 1),
+      endAt: utcDate(year + 1, 0, 1),
+    };
+  }
+
+  return {
+    startAt: daysAgo(earnedAt, 7),
+    endAt: earnedAt,
   };
 }
 
@@ -972,6 +1003,10 @@ function leaderboardStatsData(user, timeFrame, period, totals) {
     stepsPerMinute: totals.stepsPerMinute,
     lastUpdated: FieldValue.serverTimestamp(),
   };
+}
+
+function leaderboardDocId(userId, timeFrame, periodKey) {
+  return `${timeFrame}_${periodKey}_${userId}`;
 }
 
 function currentPeriod(timeFrame, date = new Date()) {
