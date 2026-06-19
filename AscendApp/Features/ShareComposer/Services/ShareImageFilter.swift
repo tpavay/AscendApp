@@ -12,7 +12,7 @@ import UIKit
 enum ShareImageFilter {
     /// One GPU-backed context, reused across renders (creating a context is the
     /// expensive part). `CIContext` is safe to use concurrently for rendering.
-    nonisolated(unsafe) private static let context = CIContext(options: [.useSoftwareRenderer: false])
+    private static let context = CIContext(options: [.useSoftwareRenderer: false])
 
     nonisolated static func apply(_ filter: ShareBackgroundFilter, to image: UIImage) -> UIImage? {
         guard filter.isGeometric, let cgInput = image.cgImage else { return nil }

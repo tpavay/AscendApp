@@ -104,6 +104,18 @@ struct DebugToolsView: View {
                 .buttonStyle(.plain)
 
                 NavigationLink {
+                    DiagnosticsLogView()
+                } label: {
+                    inspectionRow(
+                        title: "Diagnostics Log",
+                        description: "Inspect persistent lifecycle and live-session breadcrumbs",
+                        icon: "stethoscope",
+                        iconColor: .orange
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
                     LiveClimbScreenshotPickerView()
                 } label: {
                     inspectionRow(

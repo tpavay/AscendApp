@@ -116,7 +116,7 @@
             </array>
         </dict>
 
-        <!-- Health & Fitness — HealthKit reads, workout metrics, Live Climb completion state -->
+        <!-- Health & Fitness — HealthKit reads, workout metrics, Live Climb completion and rank state -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeHealth</string>
@@ -156,7 +156,7 @@
             </array>
         </dict>
 
-        <!-- User ID — Firebase Auth UID, server-side Live Climb community dedupe markers -->
+        <!-- User ID — Firebase Auth UID, server-side Live Climb community rank and dedupe records -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeUserID</string>

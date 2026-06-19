@@ -4,6 +4,7 @@ enum HomeStartAction: CaseIterable, Hashable {
     case justClimb
     case browseClimbs
     case routines
+    case manualWorkout
 
     var title: String {
         switch self {
@@ -13,6 +14,8 @@ enum HomeStartAction: CaseIterable, Hashable {
             return "Race a Landmark"
         case .routines:
             return "Run a Routine"
+        case .manualWorkout:
+            return "Log Manual Workout"
         }
     }
 
@@ -24,6 +27,8 @@ enum HomeStartAction: CaseIterable, Hashable {
             return "Choose by step count, then chase the leaderboard."
         case .routines:
             return "Follow structured intervals on the stair stepper."
+        case .manualWorkout:
+            return "Enter steps and time from a finished session."
         }
     }
 
@@ -35,6 +40,8 @@ enum HomeStartAction: CaseIterable, Hashable {
             return .globeHemisphereWest
         case .routines:
             return .clipboardText
+        case .manualWorkout:
+            return .manualWorkout
         }
     }
 }

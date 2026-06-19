@@ -21,9 +21,9 @@ final class SharePhotoLibrary {
 
     /// PhotoKit's image manager is thread-safe and its request callbacks fire on
     /// background queues, so the loading methods below are `nonisolated`. The
-    /// manager is therefore accessed off the main actor — `nonisolated(unsafe)`
-    /// is safe because `PHCachingImageManager` is itself thread-safe.
-    nonisolated(unsafe) private let imageManager = PHCachingImageManager()
+    /// manager is therefore accessed off the main actor. This is safe because
+    /// `PHCachingImageManager` is itself thread-safe.
+    private let imageManager = PHCachingImageManager()
 
     /// Non-Sendable values ferried across a Photos callback boundary.
     private struct SendableImage: @unchecked Sendable { let image: UIImage? }

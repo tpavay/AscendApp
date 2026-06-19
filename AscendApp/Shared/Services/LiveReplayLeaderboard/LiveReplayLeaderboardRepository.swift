@@ -10,6 +10,19 @@ protocol LiveReplayLeaderboardRepository: Sendable {
         completionDurationSeconds: TimeInterval
     ) async throws -> LiveReplayCompletionRank
 
+    func fetchCompletionRankSnapshot(
+        context: LiveReplayLeaderboardContext,
+        workoutId: String
+    ) async throws -> LiveReplayCompletionRankSnapshot?
+
+    func fetchPublishStatus(
+        workoutId: String
+    ) async throws -> LiveReplayPublishStatus?
+
+    func fetchCurrentUserBestCompletion(
+        context: LiveReplayLeaderboardContext
+    ) async throws -> LiveReplayCurrentUserCompletion?
+
     func fetchCurrentUserFinisherStatus(
         context: LiveReplayLeaderboardContext
     ) async throws -> LiveReplayFinisherStatus?

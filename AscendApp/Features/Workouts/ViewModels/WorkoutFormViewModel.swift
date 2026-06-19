@@ -236,7 +236,7 @@ class WorkoutFormViewModel {
                     context: .storage,
                     code: "media_upload_queue_failed"
                 )
-                print("Media upload queue failed: \(error)")
+                debugLog("Media upload queue failed: \(error)")
             }
         }
     }

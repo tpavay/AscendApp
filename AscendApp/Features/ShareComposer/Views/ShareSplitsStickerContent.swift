@@ -171,10 +171,7 @@ struct ShareSplitsStickerContent: View {
 
 #Preview {
     ZStack {
-        Image("WorkoutSharePosterBackground")
-            .resizable()
-            .scaledToFill()
-            .ignoresSafeArea()
+        Color.black.ignoresSafeArea()
 
         ShareSplitsStickerContent(
             splits: ResolvedShareSplits(

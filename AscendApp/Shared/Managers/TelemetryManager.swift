@@ -203,6 +203,7 @@ final class TelemetryManager: @unchecked Sendable {
         case buildConfig = "build_config"
         case appVersion = "app_version"
         case buildNumber = "build_number"
+        case lastDiagnosticEvent = "last_diagnostic_event"
     }
 
     func set(_ key: Key, value: Bool) {

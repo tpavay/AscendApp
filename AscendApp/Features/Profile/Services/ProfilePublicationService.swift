@@ -66,7 +66,7 @@ enum ProfilePublicationService {
                 summaries: Array(snapshot.activityWorkouts.prefix(60))
             )
         } catch {
-            print("Profile publication failed: \(error)")
+            debugLog("Profile publication failed: \(error)")
         }
     }
 }

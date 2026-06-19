@@ -20,9 +20,12 @@ struct HomeView: View {
     @State private var showingStartActionSheet = false
     @State private var showingClimbBrowse = false
     @State private var showingJustClimbSetup = false
+    @State private var showingManualWorkoutForm = false
+    @State private var showingCompletedWorkoutShare = false
     @State private var pendingStartAction: HomeStartAction?
     @State private var selectedHomeClimb: Climb?
     @State private var activeJustClimbGoal: JustClimbGoal?
+    @State private var completedWorkout: Workout?
     @State private var globeViewModel = GlobeViewModel()
     @AppStorage("firstLaunchDate") private var firstLaunchDate: Double = 0
     @State private var autoImportedReviewWorkout: Workout?
@@ -36,7 +39,11 @@ struct HomeView: View {
     }
 
     private var hasBlockingModalPresentation: Bool {
-        showingImportSheet || showingStartActionSheet || showingJustClimbSetup
+        showingImportSheet ||
+        showingStartActionSheet ||
+        showingJustClimbSetup ||
+        showingManualWorkoutForm ||
+        showingCompletedWorkoutShare
     }
 
     private var greeting: String {
@@ -86,7 +93,7 @@ struct HomeView: View {
                 startHeaderButton
                 importBell
                 .onChange(of: importCoordinator.attentionCount) { oldValue, newValue in
-                    print("🔄 HomeView detected count change from \(oldValue) to \(newValue)")
+                    debugLog("🔄 HomeView detected count change from \(oldValue) to \(newValue)")
                     syncAutoImportedReviewPresentation()
                 }
             }
@@ -164,6 +171,18 @@ struct HomeView: View {
             .presentationDetents([.height(360), .medium])
             .presentationDragIndicator(.visible)
             .presentationBackground(Color.black)
+        }
+        .sheet(isPresented: $showingManualWorkoutForm) {
+            WorkoutFormView(
+                showingWorkoutForm: $showingManualWorkoutForm,
+                onWorkoutCompleted: handleManualWorkoutCompleted
+            )
+            .interactiveDismissDisabled()
+        }
+        .fullScreenCover(isPresented: $showingCompletedWorkoutShare) {
+            if let completedWorkout {
+                ShareComposerView(workout: completedWorkout)
+            }
         }
         .sheet(item: $autoImportedReviewWorkout, onDismiss: {
             importCoordinator.dismissCurrentAutoImportedReview()
@@ -297,6 +316,18 @@ struct HomeView: View {
             presentClimbBrowse()
         case .routines:
             tabRouter.selectedTab = .training
+        case .manualWorkout:
+            showingManualWorkoutForm = true
+        }
+    }
+
+    private func handleManualWorkoutCompleted(_ workout: Workout) {
+        completedWorkout = workout
+        showingManualWorkoutForm = false
+
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            showingCompletedWorkoutShare = true
         }
     }
 

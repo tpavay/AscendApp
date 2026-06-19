@@ -687,20 +687,22 @@ async function addReplayWrites(db, writes, user, liveContexts, args) {
     const contextKey = replayContextKey(context.contextType, context.contextId);
     const leaderboardRef = db.collection("live_replay_leaderboards").doc(contextKey);
     const finisherRef = leaderboardRef.collection("finishers").doc(user.uid);
-    const [summarySnapshot, finisherSnapshot] = await Promise.all([
-      leaderboardRef.get(),
+    const bucketZeroEntriesRef = leaderboardRef.collection("splitBuckets").doc("0").collection("entries");
+    const [finisherSnapshot, bucketZeroSnapshot] = await Promise.all([
       finisherRef.get(),
+      bucketZeroEntriesRef.get(),
     ]);
-    const summary = summarySnapshot.data() ?? {};
-    const existingCompletedCount = nonNegativeInteger(summary.completedCount) ?? 0;
-    const existingTotalClimbers = nonNegativeInteger(summary.totalClimbers) ?? 0;
-    const existingFinisher = finisherSnapshot.exists;
-    const finisherOrder = Math.max(context.finisherOrder ?? 1, 1);
-    const completedCount = Math.max(
-      existingCompletedCount + (existingFinisher ? 0 : 1),
-      finisherOrder
+    const hasExistingCompletionRow = bucketZeroSnapshot.docs.some(
+      (document) => document.id === context.workoutId
     );
-    const totalClimbers = Math.max(existingTotalClimbers + (existingFinisher ? 0 : 1), completedCount);
+    const completedCount = bucketZeroSnapshot.size + (hasExistingCompletionRow ? 0 : 1);
+    const existingFinisher = finisherSnapshot.exists;
+    const existingFinisherOrder = nonNegativeInteger(
+      finisherSnapshot.data()?.globalCompletionOrder
+    );
+    const finisherOrder = existingFinisher && existingFinisherOrder && existingFinisherOrder <= completedCount ?
+      existingFinisherOrder :
+      completedCount;
     const forceFirstAscent = args.seedFirstAscent &&
       context.contextType === "live_climb" &&
       context.contextId === args.firstAscentClimbId;
@@ -712,7 +714,7 @@ async function addReplayWrites(db, writes, user, liveContexts, args) {
       contextType: context.contextType,
       schemaVersion: REPLAY_SCHEMA_VERSION,
       targetStepCount: context.targetSteps,
-      totalClimbers,
+      totalClimbers: completedCount,
       updatedAt: FieldValue.serverTimestamp(),
     };
 

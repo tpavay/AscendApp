@@ -60,6 +60,9 @@ final class HeadphoneMotionSessionService {
     private var targetStepCount: Int?
     private var runner: HeadphoneMotionSessionRunner?
     private var recordingStartedAt: Date?
+    private var originalRecordingStartedAt: Date?
+    private var resumedBaseDuration: TimeInterval = 0
+    private var resumedBaseSampleCount = 0
     private var accumulatedPausedDuration: TimeInterval = 0
     private var pauseStartedAt: Date?
     private var lastMotionUpdateAt: Date?
@@ -81,7 +84,12 @@ final class HeadphoneMotionSessionService {
     private(set) var currentAcceleration: HeadphoneMotionVector = .zero
     private(set) var targetReached = false
     private(set) var trackingIntegrity: HeadphoneMotionTrackingIntegrity = .verified
+    private(set) var lastResolvedTrackingGap: HeadphoneMotionResolvedTrackingGap?
     private var onStepSample: ((LiveClimbStepSample) -> Void)?
+
+    var stepCorrectionsSnapshot: [HeadphoneMotionStepCorrection] {
+        stepCorrections
+    }
 
     init(motionManager: CMHeadphoneMotionManager = CMHeadphoneMotionManager()) {
         self.runner = HeadphoneMotionSessionRunner(
@@ -113,7 +121,10 @@ final class HeadphoneMotionSessionService {
         onStepSample = handler
     }
 
-    func startRecording(targetStepCount: Int? = nil) throws {
+    func startRecording(
+        targetStepCount: Int? = nil,
+        resumeState: HeadphoneMotionSessionResumeState? = nil
+    ) throws {
         guard !status.isRecording, !status.isPaused else {
             throw HeadphoneMotionSessionError.alreadyRecording
         }
@@ -125,23 +136,34 @@ final class HeadphoneMotionSessionService {
         }
 
         self.targetStepCount = targetStepCount
+        let initialSteps = resumeState?.steps ?? 0
+        let initialDuration = resumeState?.duration ?? 0
+        let initialSampleCount = resumeState?.sampleCount ?? 0
         status = .waitingForMotion
         rawStepCount = 0
-        stepCorrectionOffset = 0
-        stepCorrections = []
-        stepCount = 0
-        sampleCount = 0
-        duration = 0
+        stepCorrectionOffset = initialSteps
+        stepCorrections = resumeState?.stepCorrections ?? []
+        stepCount = initialSteps
+        sampleCount = initialSampleCount
+        duration = initialDuration
         currentAcceleration = .zero
-        targetReached = false
+        targetReached = targetStepCount.map { initialSteps >= $0 } ?? false
+        lastResolvedTrackingGap = nil
 
         let startedAt = Date()
         recordingStartedAt = startedAt
+        originalRecordingStartedAt = resumeState?.startedAt ?? startedAt
+        resumedBaseDuration = initialDuration
+        resumedBaseSampleCount = initialSampleCount
         accumulatedPausedDuration = 0
         pauseStartedAt = nil
         lastMotionUpdateAt = nil
         lastMotionRecoveryAttemptAt = nil
-        resetTrackingIntegrity()
+        if let trackingIntegrity = resumeState?.trackingIntegrity {
+            restoreTrackingIntegrity(trackingIntegrity)
+        } else {
+            resetTrackingIntegrity()
+        }
         runner?.startRecording(startedAt: startedAt)
 
         startDurationTimer()
@@ -216,12 +238,13 @@ final class HeadphoneMotionSessionService {
                 }
             }
             let finalSteps = correctedStepCount(rawSteps: sessionResult.steps)
+            let finalSampleCount = resumedBaseSampleCount + sessionResult.sampleCount
             let result = HeadphoneMotionSessionResult(
-                startedAt: sessionResult.startedAt,
-                endedAt: sessionResult.endedAt,
-                duration: sessionResult.duration,
+                startedAt: originalRecordingStartedAt ?? sessionResult.startedAt,
+                endedAt: stoppedAt,
+                duration: activeDuration(at: stoppedAt),
                 steps: finalSteps,
-                sampleCount: sessionResult.sampleCount,
+                sampleCount: finalSampleCount,
                 stopReason: sessionResult.stopReason,
                 trackingIntegrity: finalTrackingIntegrity,
                 stepCorrections: stepCorrections
@@ -233,11 +256,15 @@ final class HeadphoneMotionSessionService {
             stepCorrectionOffset = 0
             stepCorrections = []
             recordingStartedAt = nil
+            originalRecordingStartedAt = nil
+            resumedBaseDuration = 0
+            resumedBaseSampleCount = 0
             accumulatedPausedDuration = 0
             pauseStartedAt = nil
             lastMotionUpdateAt = nil
             lastMotionRecoveryAttemptAt = nil
             trackingUnavailableStartedAt = nil
+            lastResolvedTrackingGap = nil
             status = .finished
             return result
         } catch {
@@ -266,7 +293,9 @@ final class HeadphoneMotionSessionService {
             detectedSteps: detectedSteps,
             correctedSteps: normalizedCorrectedSteps,
             deltaSteps: deltaSteps,
-            trackingGapDurationSeconds: trackingGapDuration ?? trackingIntegrity.currentUnavailableDuration,
+            trackingGapDurationSeconds: trackingGapDuration ??
+                lastResolvedTrackingGap?.duration ??
+                trackingIntegrity.currentUnavailableDuration,
             totalUnavailableDurationSeconds: trackingIntegrity.totalUnavailableDuration,
             interruptionCount: trackingIntegrity.interruptionCount
         )
@@ -307,7 +336,7 @@ final class HeadphoneMotionSessionService {
         rawStepCount = update.stepCount
         let correctedSteps = correctedStepCount(rawSteps: update.stepCount)
         stepCount = correctedSteps
-        sampleCount = update.sampleCount
+        sampleCount = resumedBaseSampleCount + update.sampleCount
         currentAcceleration = update.acceleration
         if update.didDetectStep {
             onStepSample?(
@@ -377,7 +406,10 @@ final class HeadphoneMotionSessionService {
         }
 
         let currentPauseDuration = pauseStartedAt.map { date.timeIntervalSince($0) } ?? 0
-        return max(0, date.timeIntervalSince(recordingStartedAt) - accumulatedPausedDuration - currentPauseDuration)
+        return max(
+            0,
+            resumedBaseDuration + date.timeIntervalSince(recordingStartedAt) - accumulatedPausedDuration - currentPauseDuration
+        )
     }
 
     private func correctedStepCount(rawSteps: Int) -> Int {
@@ -390,6 +422,23 @@ final class HeadphoneMotionSessionService {
         longestTrackingUnavailableDuration = 0
         trackingInterruptionCount = 0
         trackingIntegrity = .verified
+        lastResolvedTrackingGap = nil
+    }
+
+    private func restoreTrackingIntegrity(_ integrity: HeadphoneMotionTrackingIntegrity) {
+        if integrity.isCurrentlyUnavailable {
+            trackingUnavailableStartedAt = Date().addingTimeInterval(-integrity.currentUnavailableDuration)
+            accumulatedTrackingUnavailableDuration = max(
+                integrity.totalUnavailableDuration - integrity.currentUnavailableDuration,
+                0
+            )
+        } else {
+            trackingUnavailableStartedAt = nil
+            accumulatedTrackingUnavailableDuration = integrity.totalUnavailableDuration
+        }
+        longestTrackingUnavailableDuration = integrity.longestUnavailableDuration
+        trackingInterruptionCount = integrity.interruptionCount
+        trackingIntegrity = integrity
     }
 
     private func markTrackingUnavailable(at date: Date) {
@@ -408,6 +457,10 @@ final class HeadphoneMotionSessionService {
             longestTrackingUnavailableDuration = max(
                 longestTrackingUnavailableDuration,
                 unavailableDuration
+            )
+            lastResolvedTrackingGap = HeadphoneMotionResolvedTrackingGap(
+                duration: unavailableDuration,
+                interruptionCount: trackingInterruptionCount
             )
             self.trackingUnavailableStartedAt = nil
         }

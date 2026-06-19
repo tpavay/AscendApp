@@ -6,14 +6,16 @@
 //
 
 import SwiftUI
-import Observation
 
 @MainActor
-@Observable
 final class ThemeManager {
     static let shared = ThemeManager()
 
     private init() {}
+
+    var preferredColorScheme: ColorScheme {
+        .dark
+    }
 
     func effectiveColorScheme(for _: ColorScheme) -> ColorScheme {
         .dark

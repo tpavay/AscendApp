@@ -84,9 +84,9 @@ struct NotificationBellView: View {
         .onAppear {
             syncHighlightAnimation()
             if pendingImports > 0 {
-                print("🔔 NotificationBellView showing badge: \(pendingImports)")
+                debugLog("🔔 NotificationBellView showing badge: \(pendingImports)")
             } else {
-                print("🔔 NotificationBellView no badge - count: \(pendingImports)")
+                debugLog("🔔 NotificationBellView no badge - count: \(pendingImports)")
             }
         }
         .onChange(of: isHighlighted) { _, _ in
@@ -109,19 +109,19 @@ struct NotificationBellView: View {
 #Preview {
     VStack(spacing: 20) {
         NotificationBellView(pendingImports: 0) {
-            print("Bell tapped - no badge")
+            debugLog("Bell tapped - no badge")
         }
         
         NotificationBellView(pendingImports: 3) {
-            print("Bell tapped - 3 imports")
+            debugLog("Bell tapped - 3 imports")
         }
         
         NotificationBellView(pendingImports: 99) {
-            print("Bell tapped - 99 imports")
+            debugLog("Bell tapped - 99 imports")
         }
         
         NotificationBellView(pendingImports: 150) {
-            print("Bell tapped - 150 imports")
+            debugLog("Bell tapped - 150 imports")
         }
     }
     .padding()

@@ -111,7 +111,7 @@ final class UserDataRepository: Sendable {
                 return displayName
             }
         } catch {
-            print("Error fetching user from Firestore: \(error)")
+            debugLog("Error fetching user from Firestore: \(error)")
             TelemetryManager.shared.recordError(error, context: .firestore, code: "user_fetch_failed")
         }
 
@@ -315,7 +315,7 @@ final class UserDataRepository: Sendable {
                 return profilePictureURL
             }
         } catch {
-            print("Error fetching profile picture URL from Firestore: \(error)")
+            debugLog("Error fetching profile picture URL from Firestore: \(error)")
             TelemetryManager.shared.recordError(error, context: .firestore, code: "profile_picture_fetch_failed")
         }
 

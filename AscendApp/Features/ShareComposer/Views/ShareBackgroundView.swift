@@ -33,6 +33,11 @@ struct ShareBackgroundView: View {
                 .resizable()
                 .scaledToFill()
 
+        case .recap(let image):
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+
         case .video(let url):
             if isStatic {
                 // Export path composites video frames elsewhere; show black here.

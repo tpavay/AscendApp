@@ -85,7 +85,7 @@ test('users cannot write demographics into another users profile', async () => {
 
 test('owner can write daily leaderboard stats', async () => {
   const context = testEnv.authenticatedContext(userId);
-  const statsRef = doc(context.firestore(), `leaderboard_stats/${userId}_daily`);
+  const statsRef = doc(context.firestore(), `leaderboard_stats/daily_2026-04-10_${userId}`);
 
   await assertSucceeds(setDoc(statsRef, makeLeaderboardDocument({
     timeFrame: 'daily',
@@ -96,7 +96,7 @@ test('owner can write daily leaderboard stats', async () => {
 
 test('daily leaderboard stats require a daily period key', async () => {
   const context = testEnv.authenticatedContext(userId);
-  const statsRef = doc(context.firestore(), `leaderboard_stats/${userId}_daily`);
+  const statsRef = doc(context.firestore(), `leaderboard_stats/daily_2026-W15_${userId}`);
 
   await assertFails(setDoc(statsRef, makeLeaderboardDocument({
     timeFrame: 'daily',
@@ -293,6 +293,17 @@ test('signed-in users can read server-published live replay leaderboard windows'
       completionDurationSeconds: 872,
       updatedAt: new Date('2026-05-04T12:00:00.000Z'),
     });
+    await setDoc(doc(db, `live_replay_leaderboards/${contextKey}/completionSnapshots/attempt-1`), {
+      userId: otherUserId,
+      workoutId: 'attempt-1',
+      rank: 12,
+      completedCount: 247,
+      completionDurationSeconds: 872,
+      rankedAt: new Date('2026-05-04T12:00:00.000Z'),
+      rankingMetric: 'completionDurationSeconds',
+      tiePolicy: 'competition_rank_equal_durations_share_rank',
+      schemaVersion: 1,
+    });
   });
 
   const context = testEnv.authenticatedContext(userId);
@@ -300,6 +311,10 @@ test('signed-in users can read server-published live replay leaderboard windows'
   await assertSucceeds(getDoc(doc(
     context.firestore(),
     `live_replay_leaderboards/${contextKey}/splitBuckets/60/entries/attempt-1`
+  )));
+  await assertSucceeds(getDoc(doc(
+    context.firestore(),
+    `live_replay_leaderboards/${contextKey}/completionSnapshots/attempt-1`
   )));
 });
 
@@ -345,6 +360,51 @@ test('clients cannot write live replay leaderboard indexes', async () => {
     rank: 1,
     updatedAt: new Date('2026-05-04T12:00:00.000Z'),
   }));
+
+  await assertFails(setDoc(doc(
+    context.firestore(),
+    `live_replay_leaderboards/${contextKey}/completionSnapshots/${workoutId}`
+  ), {
+    userId,
+    workoutId,
+    rank: 1,
+    completedCount: 1,
+    completionDurationSeconds: 872,
+    rankedAt: new Date('2026-05-04T12:00:00.000Z'),
+    rankingMetric: 'completionDurationSeconds',
+    tiePolicy: 'competition_rank_equal_durations_share_rank',
+    schemaVersion: 1,
+  }));
+});
+
+test('owner can read server-owned live climb publish status', async () => {
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await setDoc(
+      doc(adminContext.firestore(), `users/${userId}/liveClimbPublishStatuses/${workoutId}`),
+      makeLiveClimbPublishStatusDocument()
+    );
+  });
+
+  const ownerContext = testEnv.authenticatedContext(userId);
+  const otherContext = testEnv.authenticatedContext(otherUserId);
+
+  await assertSucceeds(getDoc(doc(
+    ownerContext.firestore(),
+    `users/${userId}/liveClimbPublishStatuses/${workoutId}`
+  )));
+  await assertFails(getDoc(doc(
+    otherContext.firestore(),
+    `users/${userId}/liveClimbPublishStatuses/${workoutId}`
+  )));
+});
+
+test('clients cannot write live climb publish statuses', async () => {
+  const context = testEnv.authenticatedContext(userId);
+
+  await assertFails(setDoc(
+    doc(context.firestore(), `users/${userId}/liveClimbPublishStatuses/${workoutId}`),
+    makeLiveClimbPublishStatusDocument()
+  ));
 });
 
 function makeWorkoutDocument(overrides = {}) {
@@ -393,6 +453,27 @@ function makeLeaderboardDocument(overrides = {}) {
     totalDuration: 1800,
     stepsPerMinute: 40,
     lastUpdated: new Date('2026-04-10T07:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+function makeLiveClimbPublishStatusDocument(overrides = {}) {
+  return {
+    userId,
+    workoutId,
+    climbId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    state: 'published',
+    rankAtCompletion: 1,
+    completedCountAtCompletion: 1,
+    finisherOrder: 1,
+    completionDurationSeconds: 872,
+    startedAt: new Date('2026-05-04T12:00:00.000Z'),
+    completedAt: new Date('2026-05-04T12:14:32.000Z'),
+    lastAttemptedAt: new Date('2026-05-04T12:14:33.000Z'),
+    lastPublishedAt: new Date('2026-05-04T12:14:34.000Z'),
+    lastErrorMessage: '',
+    retryCount: 0,
+    schemaVersion: 1,
     ...overrides,
   };
 }

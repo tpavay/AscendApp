@@ -4,6 +4,7 @@ struct WorkoutCompleteView: View {
     let routineName: String
     let duration: TimeInterval
     let intervalCount: Int
+    var primaryActionTitle = "Log Workout"
     var onLogWorkout: () -> Void
     var onDiscard: () -> Void
 
@@ -40,7 +41,7 @@ struct WorkoutCompleteView: View {
 
                 VStack(spacing: Metrics.actionSpacing) {
                     Button(action: onLogWorkout) {
-                        Text("Log Workout")
+                        Text(primaryActionTitle)
                             .font(.montserratSemiBold(size: Metrics.primaryActionFontSize))
                             .foregroundStyle(.black)
                             .frame(maxWidth: .infinity)

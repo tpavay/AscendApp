@@ -233,7 +233,7 @@ struct WorkoutPhotosSection: View {
             let photoService = PhotoService()
             try await photoService.deletePhotos([photo])
         } catch {
-            print("Failed to delete photo from Firebase: \(error)")
+            debugLog("Failed to delete photo from Firebase: \(error)")
             return
         }
 

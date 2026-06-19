@@ -7,14 +7,13 @@
 
 import SwiftUI
 import SwiftData
+import UIKit
 
 struct MainTabView: View {
-    @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(NetworkConnectivityService.self) private var connectivityService
-    @Environment(TabRouter.self) private var tabRouter
-    @State private var themeManager = ThemeManager.shared
+    private let tabRouter: TabRouter
     @State private var homeNavigationPath: [HomeNavigationDestination] = []
     @State private var homeDashboard = HomeDashboardViewModel()
     @State private var profileScreen = ProfileScreenViewModel()
@@ -22,9 +21,14 @@ struct MainTabView: View {
     @State private var onlineBannerTask: Task<Void, Never>?
     @State private var showOfflineHighlight = false
     @State private var offlineHighlightTask: Task<Void, Never>?
+    @State private var recoveryDraft: ActiveHeadphoneWorkoutDraft?
 
     // Easy configuration - just change this array to modify tabs
     private let tabs = TabItem.activeTabs
+
+    init(tabRouter: TabRouter = TabRouter()) {
+        self.tabRouter = tabRouter
+    }
 
     private enum HomeNavigationDestination: Hashable {
         case onboardingFirstClimb(String)
@@ -32,9 +36,7 @@ struct MainTabView: View {
         case liveActivitySession(String, String?)
     }
 
-    private var effectiveColorScheme: ColorScheme {
-        themeManager.effectiveColorScheme(for: systemColorScheme)
-    }
+    private var effectiveColorScheme: ColorScheme { .dark }
 
     var body: some View {
         @Bindable var tabRouter = tabRouter
@@ -59,11 +61,14 @@ struct MainTabView: View {
         }
         .tint(Color.ascendAccent)
         .accentColor(Color.ascendAccent)
+        .preferredColorScheme(.dark)
+        .environment(tabRouter)
         .task {
             rebuildBestEffortCacheIfNeeded()
             consumePendingFirstClimbHandoffIfNeeded()
             consumePendingPushDestinationIfNeeded()
             consumePendingLiveActivityRouteIfNeeded()
+            await presentActiveHeadphoneRecoveryIfNeeded()
         }
         .onChange(of: connectivityService.isConnected) { oldValue, newValue in
             handleConnectivityChange(from: oldValue, to: newValue)
@@ -74,7 +79,27 @@ struct MainTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: .liveClimbActivityRouteDidChange)) { _ in
             consumePendingLiveActivityRouteIfNeeded()
         }
-        .themeAware()
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            Task {
+                await presentActiveHeadphoneRecoveryIfNeeded()
+            }
+        }
+        .fullScreenCover(
+            isPresented: Binding(
+                get: { recoveryDraft != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        recoveryDraft = nil
+                    }
+                }
+            )
+        ) {
+            if let recoveryDraft {
+                ActiveHeadphoneWorkoutRecoveryView(draft: recoveryDraft) {
+                    self.recoveryDraft = nil
+                }
+            }
+        }
         .animation(.smooth(duration: 0.2), value: connectivityService.isConnected)
         .animation(.smooth(duration: 0.2), value: showBackOnlineBanner)
     }
@@ -95,16 +120,6 @@ struct MainTabView: View {
                 RoutinesView(presentation: .tab)
             }
             .id("TrainingNavigationStack")
-        case .workouts:
-            NavigationStack {
-                WorkoutListView()
-            }
-            .id("WorkoutsNavigationStack")
-        case .progress:
-            NavigationStack {
-                ProgressTabView()
-            }
-            .id("ProgressNavigationStack")
         case .leaderboard:
             NavigationStack {
                 LeaderboardView()
@@ -115,11 +130,6 @@ struct MainTabView: View {
                 ProfileView(viewModel: profileScreen)
             }
             .id("ProfileNavigationStack")
-        case .settings:
-            NavigationStack {
-                AccountView()
-            }
-            .id("SettingsNavigationStack")
         }
     }
 
@@ -168,7 +178,7 @@ struct MainTabView: View {
                 userId: authVM.user?.uid
             )
         } catch {
-            print("Failed to rebuild Best Effort cache: \(error)")
+            debugLog("Failed to rebuild Best Effort cache: \(error)")
         }
     }
 
@@ -232,19 +242,73 @@ struct MainTabView: View {
         homeNavigationPath = [.liveActivitySession(route.sessionID, route.climbID)]
     }
 
+    private func presentActiveHeadphoneRecoveryIfNeeded() async {
+        guard recoveryDraft == nil,
+              !LiveClimbSessionCoordinator.shared.hasActiveSession,
+              !ActiveHeadphoneWorkoutRuntimeRegistry.shared.hasActiveSession else { return }
+
+        do {
+            let draft = try ActiveHeadphoneWorkoutDraftStore().activeDraft(in: modelContext)
+            if let draft {
+                await LiveClimbBackgroundSessionService.shared.recoverActiveWorkoutSessionIfAvailable()
+                AppDiagnosticsRecorder.shared.record(
+                    "active_headphone_recovery_presented",
+                    level: .warning,
+                    details: draft.diagnosticDetails
+                )
+            }
+            recoveryDraft = draft
+        } catch {
+            AppDiagnosticsRecorder.shared.record(
+                "active_headphone_recovery_lookup_failed",
+                level: .error,
+                details: ["error": error.localizedDescription]
+            )
+#if DEBUG
+            debugLog("Active headphone recovery lookup failed: \(error.localizedDescription)")
+#endif
+        }
+    }
+
     @ViewBuilder
     private func liveActivityDestination(sessionID: String, climbID: String?) -> some View {
         if let viewModel = LiveClimbSessionCoordinator.shared.activeViewModel(sessionID: sessionID) {
             LiveClimbSessionView(viewModel: viewModel)
+        } else if let draft = try? ActiveHeadphoneWorkoutDraftStore().draft(
+            sessionID: sessionID,
+            in: modelContext
+        ) {
+            ActiveHeadphoneWorkoutRecoveryView(draft: draft) {
+                homeNavigationPath = []
+            }
+            .task {
+                await LiveClimbBackgroundSessionService.shared.recoverActiveWorkoutSessionIfAvailable()
+                AppDiagnosticsRecorder.shared.record(
+                    "live_activity_opened_recovery_draft",
+                    level: .warning,
+                    details: draft.diagnosticDetails
+                )
+            }
         } else if let climbID,
                   climbID != "just-climb",
                   let climb = try? ClimbService.shared.climb(for: climbID) {
-            ClimbDetailView(climb: climb, analyticsEntryPoint: .homeExplore)
+            StaleLiveClimbActivityRouteView(
+                sessionID: sessionID,
+                title: "This live climb stopped.",
+                action: "Open \(climb.name).",
+                buttonTitle: "Open climb"
+            ) {
+                homeNavigationPath = [.pushClimbDrop(climb.id)]
+            }
         } else {
-            Text("Live climb unavailable")
-                .font(.montserratBold(size: 22))
-                .foregroundStyle(.white)
-                .themedBackground()
+            StaleLiveClimbActivityRouteView(
+                sessionID: sessionID,
+                title: "This session stopped.",
+                action: "Start another climb.",
+                buttonTitle: "Back home"
+            ) {
+                homeNavigationPath = []
+            }
         }
     }
 
@@ -275,6 +339,52 @@ struct MainTabView: View {
 
 }
 
+private struct StaleLiveClimbActivityRouteView: View {
+    let sessionID: String
+    let title: String
+    let action: String
+    let buttonTitle: String
+    let onPrimaryAction: () -> Void
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "figure.stair.stepper")
+                .font(.system(size: 42, weight: .semibold))
+                .foregroundStyle(Color.ascendAccent)
+
+            VStack(spacing: 8) {
+                Text(title)
+                    .font(.montserratBold(size: 24))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+
+                Text(action)
+                    .font(.montserratMedium(size: 15))
+                    .foregroundStyle(.white.opacity(0.66))
+                    .multilineTextAlignment(.center)
+            }
+
+            Button(action: onPrimaryAction) {
+                Text(buttonTitle)
+                    .font(.montserratBold(size: 15))
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(Color.ascendAccent)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .padding(.top, 6)
+        }
+        .padding(.horizontal, 28)
+        .frame(maxWidth: 420)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .themedBackground()
+        .task {
+            await LiveClimbActivityManager.shared.end(sessionID: sessionID, status: .failed)
+        }
+    }
+}
+
 #Preview {
     MainTabView()
         .environment(AuthenticationViewModel())
@@ -285,6 +395,7 @@ struct MainTabView: View {
                 Workout.self,
                 WorkoutSourceLink.self,
                 WorkoutParticipation.self,
+                ActiveHeadphoneWorkoutDraft.self,
                 ClimbAttempt.self,
                 BestEffortCacheEntry.self,
                 BestEffortCacheMetadata.self,

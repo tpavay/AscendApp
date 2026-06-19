@@ -44,6 +44,10 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.25), value: rootRoute)
         .themeAware()
         .task {
+            AppDiagnosticsRecorder.shared.record(
+                "app_root_task_started",
+                details: ["route": rootRoute.diagnosticName]
+            )
             importCoordinator.configure(modelContext: modelContext)
             postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
             advancePostAuthOnboardingPastDisplayNameIfAvailable()
@@ -54,6 +58,10 @@ struct RootView: View {
             await PushNotificationService.shared.synchronizeAuthenticatedDeviceIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            AppDiagnosticsRecorder.shared.record(
+                "app_will_enter_foreground",
+                details: ["route": rootRoute.diagnosticName]
+            )
             // Retry pending uploads when app comes to foreground (network may have restored)
             Task {
                 importCoordinator.configure(modelContext: modelContext)
@@ -63,7 +71,27 @@ struct RootView: View {
                 await PushNotificationService.shared.synchronizeAuthenticatedDeviceIfNeeded()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            AppDiagnosticsRecorder.shared.record(
+                "app_did_enter_background",
+                details: ["route": rootRoute.diagnosticName]
+            )
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willTerminateNotification)) { _ in
+            AppDiagnosticsRecorder.shared.record(
+                "app_will_terminate",
+                level: .warning,
+                details: ["route": rootRoute.diagnosticName]
+            )
+        }
         .onChange(of: authVM.user?.uid) { _, _ in
+            AppDiagnosticsRecorder.shared.record(
+                "auth_user_changed",
+                details: [
+                    "has_user": authVM.user == nil ? "false" : "true",
+                    "route": rootRoute.diagnosticName
+                ]
+            )
             Task {
                 postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
                 advancePostAuthOnboardingPastDisplayNameIfAvailable()
@@ -144,7 +172,7 @@ struct RootView: View {
                 )
 
             case .mainApp:
-                MainTabView()
+                MainTabView(tabRouter: tabRouter)
             }
         }
     }
@@ -181,7 +209,7 @@ struct RootView: View {
                     currentUserId: currentUserId
                 )
             } catch {
-                print("Workout hydration failed: \(error)")
+                debugLog("Workout hydration failed: \(error)")
             }
 
             await WorkoutSyncCoordinator.shared.processPendingWorkouts(
@@ -231,7 +259,7 @@ struct RootView: View {
                 joinedAt: user.metadata.creationDate
             )
         } catch {
-            print("Authenticated bootstrap failed: \(error)")
+            debugLog("Authenticated bootstrap failed: \(error)")
         }
     }
 
@@ -353,6 +381,27 @@ private struct AccountDataConflictView: View {
         }
         .padding(.horizontal, 28)
         .themedBackground()
+    }
+}
+
+private extension AppRootRoute {
+    var diagnosticName: String {
+        switch self {
+        case .signedOut:
+            return "signed_out"
+        case .signingIn:
+            return "signing_in"
+        case .restoringSession:
+            return "restoring_session"
+        case .resolving:
+            return "resolving"
+        case .onboarding:
+            return "onboarding"
+        case .paywall:
+            return "paywall"
+        case .mainApp:
+            return "main_app"
+        }
     }
 }
 

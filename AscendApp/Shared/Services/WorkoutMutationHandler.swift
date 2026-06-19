@@ -92,7 +92,7 @@ final class WorkoutMutationHandler {
         do {
             try BestEffortCacheStore.rebuild(modelContext: modelContext, userId: userId)
         } catch {
-            print("Failed to rebuild Best Effort cache after workout mutation: \(error)")
+            debugLog("Failed to rebuild Best Effort cache after workout mutation: \(error)")
         }
     }
 }

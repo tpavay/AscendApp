@@ -13,6 +13,8 @@ struct LiveClimbCompletionSummaryView: View {
     @Query(sort: \BestEffortCacheEntry.sortKey) private var bestEffortCacheEntries: [BestEffortCacheEntry]
     @State private var showingShareSheet = false
     @State private var showingRatingEnjoymentPrompt = false
+    @State private var resultSyncStore = LiveClimbPublicResultSyncStore.shared
+    @State private var completionRankSnapshot: LiveReplayCompletionRankSnapshot?
     @State private var completionFinisherStatus: LiveReplayFinisherStatus?
     @State private var completionSummary: LiveReplayLeaderboardSummary?
     @State private var isLoadingCompletionRank = false
@@ -44,14 +46,22 @@ struct LiveClimbCompletionSummaryView: View {
                     achievementCard
                     paceSplitsCard
                     paceTrendCard
+                }
+                .padding(.horizontal, 22)
+                .padding(.top, 14)
+                .padding(.bottom, 24)
+            }
+            .scrollIndicators(.hidden)
+            .safeAreaInset(edge: .bottom) {
+                VStack(spacing: 8) {
                     shareButton
                     doneButton
                 }
                 .padding(.horizontal, 22)
-                .padding(.top, 14)
-                .padding(.bottom, 28)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+                .background(Color.black)
             }
-            .scrollIndicators(.hidden)
         }
         .background(Color.black.ignoresSafeArea())
         .preferredColorScheme(.dark)
@@ -74,9 +84,9 @@ struct LiveClimbCompletionSummaryView: View {
         } message: {
             Text("If Ascend made this climb better, leave a quick rating.")
         }
-        .task {
-            trackSummaryViewedIfNeeded()
+        .task(id: workout.id) {
             await loadCompletionRank()
+            trackSummaryViewedIfNeeded()
         }
     }
 
@@ -136,6 +146,19 @@ struct LiveClimbCompletionSummaryView: View {
                     .foregroundStyle(.white.opacity(0.46))
                     .lineLimit(1)
                     .minimumScaleFactor(0.74)
+
+                if publicResultStatus?.canRetry == true {
+                    Button {
+                        retryRankSync()
+                    } label: {
+                        Text("Retry sync")
+                            .font(.montserratBold(size: 10))
+                            .foregroundStyle(.accent)
+                            .underline()
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 1)
+                }
             }
 
             Spacer(minLength: 0)
@@ -251,15 +274,13 @@ struct LiveClimbCompletionSummaryView: View {
                 }
             }
 
-            LiveClimbPaceTrendChart(
-                splits: paceSplits,
-                averageStepsPerMinute: averageSPMValue
+            AscendTrendChart(
+                values: paceSplits.map(\.stepsPerMinute),
+                highlightsLastPoint: true
             )
-            .frame(height: 118)
+            .frame(height: 132)
             .accessibilityHidden(true)
         }
-        .padding(16)
-        .background(summaryCardBackground)
     }
 
     private var shareButton: some View {
@@ -362,43 +383,58 @@ struct LiveClimbCompletionSummaryView: View {
     }
 
     private var rankingValueText: String {
-        if isLoadingCompletionRank && displayedRank == nil {
-            return "Ranking..."
-        }
-
         if let displayedRank {
             return displayedRank.ordinalText
         }
 
-        return "Pending"
+        switch publicResultStatus?.phase {
+        case .savedOnDevice:
+            return "Saved"
+        case .syncFailedRetry:
+            return "Sync failed"
+        case .syncingRanking:
+            return "Syncing"
+        case .pending, .published, nil:
+            return "Pending"
+        }
     }
 
     private var rankingDetailText: String {
-        if isLoadingCompletionRank && displayedRank == nil {
-            return "CHECKING COMPLETED ATTEMPTS"
-        }
-
         if displayedRank != nil {
             return climb == nil ? "WORKOUT COMPLETE" : "LIVE CLIMB COMPLETE"
         }
 
-        return "RANKING UPDATES AFTER SYNC"
+        switch publicResultStatus?.phase {
+        case .savedOnDevice:
+            return "RESULT SAVED ON DEVICE"
+        case .syncFailedRetry:
+            return "SYNC YOUR RESULT TO RANK"
+        case .syncingRanking:
+            return "SYNCING RANKING"
+        case .pending, .published, nil:
+            return "RANKING PENDING"
+        }
     }
 
     private var rankingStatusText: String {
-        if isLoadingCompletionRank && displayedRank == nil {
-            return "CHECKING"
-        }
-
         if displayedRank != nil {
             return "COMPLETE"
         }
 
-        return "PENDING"
+        switch publicResultStatus?.phase {
+        case .savedOnDevice:
+            return "SAVED"
+        case .syncFailedRetry:
+            return "FAILED"
+        case .syncingRanking:
+            return "SYNCING"
+        case .pending, .published, nil:
+            return "PENDING"
+        }
     }
 
     private var rankingLabelText: String {
-        climb == nil ? "GLOBAL RANK" : "FINISHER ORDER"
+        climb == nil ? "GLOBAL RANK" : "CLIMB RANK"
     }
 
     private var averageSPMText: String {
@@ -449,14 +485,18 @@ struct LiveClimbCompletionSummaryView: View {
         return "\(climb?.name ?? "Live Climb") saved to history"
     }
 
+    private var publicResultStatus: LiveClimbPublicResultSyncStatus? {
+        resultSyncStore.status(for: workout.id)
+    }
+
     private var displayedRank: Int? {
         if climb == nil {
             return leaderboardRank
         }
 
-        return completionFinisherStatus?.globalCompletionOrder ??
-            localFinisherOrder ??
-            estimatedPendingFinisherOrder
+        return publicResultStatus?.rankSnapshot?.rank ??
+            publicResultStatus?.publishStatus?.rankAtCompletion ??
+            completionRankSnapshot?.rank
     }
 
     private var displayedTotal: Int? {
@@ -464,37 +504,21 @@ struct LiveClimbCompletionSummaryView: View {
             return leaderboardTotal
         }
 
+        if let snapshotTotal = completionRankSnapshot?.completedCount {
+            return snapshotTotal
+        }
+
+        if let statusTotal = publicResultStatus?.rankSnapshot?.completedCount ??
+            publicResultStatus?.publishStatus?.completedCountAtCompletion {
+            return statusTotal
+        }
+
         let total = max(
             completionSummary?.completedCount ?? 0,
-            leaderboardTotal ?? 0,
-            completionFinisherStatus?.globalCompletionOrder ?? 0,
-            localFinisherOrder ?? 0,
-            estimatedPendingFinisherOrder ?? 0
+            publicResultStatus?.phase == .published ? (leaderboardTotal ?? 0) : 0
         )
 
         return total > 0 ? total : nil
-    }
-
-    private var localFinisherOrder: Int? {
-        guard let climb else { return nil }
-        return ClimbService.shared
-            .historySummary(for: climb, modelContext: modelContext)
-            .globalCompletionOrder
-    }
-
-    private var estimatedPendingFinisherOrder: Int? {
-        guard climb != nil,
-              completionFinisherStatus == nil,
-              localFinisherOrder == nil else {
-            return nil
-        }
-
-        let knownCompletedCount = max(
-            completionSummary?.completedCount ?? 0,
-            leaderboardTotal ?? 0
-        )
-
-        return knownCompletedCount > 0 ? knownCompletedCount + 1 : nil
     }
 
     private var maxSplitSPM: Double {
@@ -584,8 +608,7 @@ struct LiveClimbCompletionSummaryView: View {
 
     @MainActor
     private func loadCompletionRank() async {
-        guard completionFinisherStatus == nil,
-              !isLoadingCompletionRank,
+        guard !isLoadingCompletionRank,
               let climb else {
             return
         }
@@ -599,15 +622,28 @@ struct LiveClimbCompletionSummaryView: View {
             climbId: climb.id,
             targetSteps: climb.referenceStepCount
         )
+        let workoutId = workout.id.uuidString
 
         async let fetchedSummary = LiveReplayLeaderboardService.shared.fetchSummary(context: context)
+        async let fetchedCompletionRankSnapshot = LiveReplayLeaderboardService.shared.fetchCompletionRankSnapshot(
+            context: context,
+            workoutId: workoutId
+        )
         async let fetchedFinisherStatus = LiveReplayLeaderboardService.shared.fetchCurrentUserFinisherStatus(context: context)
 
         do {
             completionSummary = try await fetchedSummary
         } catch {
 #if DEBUG
-            print("Live Climb summary count fetch failed: \(error.localizedDescription)")
+            debugLog("Live Climb summary count fetch failed: \(error.localizedDescription)")
+#endif
+        }
+
+        do {
+            completionRankSnapshot = try await fetchedCompletionRankSnapshot
+        } catch {
+#if DEBUG
+            debugLog("Live Climb summary rank snapshot fetch failed: \(error.localizedDescription)")
 #endif
         }
 
@@ -622,166 +658,31 @@ struct LiveClimbCompletionSummaryView: View {
             }
         } catch {
 #if DEBUG
-            print("Live Climb summary finisher fetch failed: \(error.localizedDescription)")
+            debugLog("Live Climb summary finisher fetch failed: \(error.localizedDescription)")
 #endif
         }
-    }
-}
 
-private struct LiveClimbPaceTrendChart: View {
-    let splits: [LiveClimbPaceSplit]
-    let averageStepsPerMinute: Double
-
-    private var values: [Double] {
-        splits.map(\.stepsPerMinute)
-    }
-
-    private var axisBounds: (min: Double, max: Double) {
-        let allValues = values + [averageStepsPerMinute].filter { $0 > 0 }
-        guard let minValue = allValues.min(),
-              let maxValue = allValues.max() else {
-            return (0, 10)
+        await resultSyncStore.refreshUntilRankPublished(
+            workout: workout,
+            climb: climb
+        )
+        if let rankSnapshot = resultSyncStore.status(for: workout.id)?.rankSnapshot {
+            completionRankSnapshot = rankSnapshot
         }
-
-        let spread = max(maxValue - minValue, 1)
-        let padding = max(spread * 0.34, 4)
-        let lower = max(0, floor((minValue - padding) / 5) * 5)
-        let upper = ceil((maxValue + padding) / 5) * 5
-
-        if upper <= lower {
-            return (lower, lower + 10)
-        }
-
-        return (lower, upper)
     }
 
-    var body: some View {
-        GeometryReader { proxy in
-            let plotRect = CGRect(
-                x: 30,
-                y: 8,
-                width: max(proxy.size.width - 30, 1),
-                height: max(proxy.size.height - 18, 1)
+    private func retryRankSync() {
+        guard let climb else { return }
+
+        Task { @MainActor in
+            await resultSyncStore.retrySync(
+                workout: workout,
+                climb: climb,
+                modelContext: modelContext
             )
-            let points = points(in: plotRect)
-            let averageY = yPosition(for: averageStepsPerMinute, in: plotRect)
-            let bounds = axisBounds
-
-            ZStack(alignment: .topLeading) {
-                axisLabel(Int(bounds.max).formatted())
-                    .position(x: 13, y: plotRect.minY)
-
-                axisLabel(Int(bounds.min).formatted())
-                    .position(x: 13, y: plotRect.maxY)
-
-                Path { path in
-                    path.move(to: CGPoint(x: plotRect.minX, y: averageY))
-                    path.addLine(to: CGPoint(x: plotRect.maxX, y: averageY))
-                }
-                .stroke(
-                    .white.opacity(0.13),
-                    style: StrokeStyle(lineWidth: 1, dash: [4, 5])
-                )
-
-                Text("AVG \(Int(averageStepsPerMinute.rounded()).formatted())")
-                    .font(.montserratBold(size: 8))
-                    .foregroundStyle(.white.opacity(0.46))
-                    .padding(.horizontal, 3)
-                    .background(Color(hex: "17191B"))
-                    .position(
-                        x: plotRect.minX + 34,
-                        y: max(plotRect.minY + 10, averageY - 10)
-                    )
-
-                areaPath(points: points, plotRect: plotRect)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.accent.opacity(0.2),
-                                Color.accent.opacity(0.02)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-
-                linePath(points: points)
-                    .stroke(
-                        Color.accent,
-                        style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
-                    )
-
-                ForEach(Array(points.enumerated()), id: \.offset) { _, point in
-                    Circle()
-                        .fill(Color.accent)
-                        .frame(width: 5, height: 5)
-                        .position(point)
-                }
+            if let rankSnapshot = resultSyncStore.status(for: workout.id)?.rankSnapshot {
+                completionRankSnapshot = rankSnapshot
             }
-        }
-    }
-
-    private func axisLabel(_ text: String) -> some View {
-        Text(text)
-            .font(.montserratMedium(size: 9))
-            .foregroundStyle(.white.opacity(0.42))
-            .monospacedDigit()
-    }
-
-    private func points(in plotRect: CGRect) -> [CGPoint] {
-        guard !values.isEmpty else { return [] }
-        guard values.count > 1 else {
-            return [
-                CGPoint(
-                    x: plotRect.midX,
-                    y: yPosition(for: values[0], in: plotRect)
-                )
-            ]
-        }
-
-        let xStep = plotRect.width / CGFloat(values.count - 1)
-        return values.enumerated().map { index, value in
-            CGPoint(
-                x: plotRect.minX + CGFloat(index) * xStep,
-                y: yPosition(for: value, in: plotRect)
-            )
-        }
-    }
-
-    private func yPosition(for value: Double, in plotRect: CGRect) -> CGFloat {
-        let bounds = axisBounds
-        let range = max(bounds.max - bounds.min, 1)
-        let normalizedValue = min(max((value - bounds.min) / range, 0), 1)
-        return plotRect.maxY - CGFloat(normalizedValue) * plotRect.height
-    }
-
-    private func linePath(points: [CGPoint]) -> Path {
-        Path { path in
-            guard let firstPoint = points.first else { return }
-            path.move(to: firstPoint)
-
-            for point in points.dropFirst() {
-                path.addLine(to: point)
-            }
-        }
-    }
-
-    private func areaPath(points: [CGPoint], plotRect: CGRect) -> Path {
-        Path { path in
-            guard let firstPoint = points.first,
-                  let lastPoint = points.last else {
-                return
-            }
-
-            path.move(to: CGPoint(x: firstPoint.x, y: plotRect.maxY))
-            path.addLine(to: firstPoint)
-
-            for point in points.dropFirst() {
-                path.addLine(to: point)
-            }
-
-            path.addLine(to: CGPoint(x: lastPoint.x, y: plotRect.maxY))
-            path.closeSubpath()
         }
     }
 }
@@ -822,12 +723,14 @@ private struct LiveClimbPaceSplitRow: View {
                             .font(.montserratBold(size: 20))
                             .foregroundStyle(.white)
                             .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
 
                         Text("SPM")
                             .font(.montserratBold(size: 8))
                             .foregroundStyle(.white.opacity(0.5))
                     }
-                    .frame(width: 54, alignment: .trailing)
+                    .frame(width: 64, alignment: .trailing)
                 }
 
                 GeometryReader { proxy in

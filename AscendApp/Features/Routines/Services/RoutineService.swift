@@ -55,17 +55,6 @@ final class RoutineService {
         return try modelContext.fetch(descriptor)
     }
 
-    /// Fetches routines in a specific folder
-    func getRoutinesInFolder(_ folderId: UUID?) throws -> [Routine] {
-        let descriptor = FetchDescriptor<Routine>(
-            predicate: #Predicate {
-                !$0.isArchived && $0.folderId == folderId
-            },
-            sortBy: [SortDescriptor(\.order), SortDescriptor(\.name)]
-        )
-        return try modelContext.fetch(descriptor)
-    }
-
     /// Fetches a single routine by ID
     func getRoutine(by id: UUID) throws -> Routine? {
         let descriptor = FetchDescriptor<Routine>(
@@ -153,70 +142,6 @@ final class RoutineService {
     /// Permanently deletes a routine
     func deleteRoutine(_ routine: Routine) throws {
         modelContext.delete(routine)
-        try modelContext.save()
-    }
-
-    // MARK: - Folder Operations
-
-    /// Fetches all folders
-    func getAllFolders() throws -> [RoutineFolder] {
-        let descriptor = FetchDescriptor<RoutineFolder>(
-            sortBy: [SortDescriptor(\.order)]
-        )
-        return try modelContext.fetch(descriptor)
-    }
-
-    /// Creates a new folder
-    @discardableResult
-    func createFolder(name: String, colorHex: String? = nil) throws -> RoutineFolder {
-        let folders = try getAllFolders()
-        let folder = RoutineFolder(
-            name: name,
-            colorHex: colorHex,
-            order: folders.count
-        )
-        modelContext.insert(folder)
-        try modelContext.save()
-        return folder
-    }
-
-    /// Moves a routine to a folder
-    func moveRoutineToFolder(_ routine: Routine, folderId: UUID?) throws {
-        routine.folderId = folderId
-        routine.updatedAt = Date()
-        try modelContext.save()
-    }
-
-    /// Deletes a folder
-    func deleteFolder(_ folder: RoutineFolder) throws {
-        // Move all routines in this folder to no folder
-        let routinesInFolder = try getRoutinesInFolder(folder.id)
-        for routine in routinesInFolder {
-            routine.folderId = nil
-        }
-        modelContext.delete(folder)
-        try modelContext.save()
-    }
-
-    /// Renames a folder
-    func renameFolder(_ folder: RoutineFolder, newName: String) throws {
-        folder.name = newName
-        try modelContext.save()
-    }
-
-    /// Saves the order of folders
-    func saveFolderOrder(_ folders: [RoutineFolder]) throws {
-        for (index, folder) in folders.enumerated() {
-            folder.order = index
-        }
-        try modelContext.save()
-    }
-
-    /// Saves the order of routines within a folder
-    func saveRoutineOrder(_ routines: [Routine]) throws {
-        for (index, routine) in routines.enumerated() {
-            routine.order = index
-        }
         try modelContext.save()
     }
 

@@ -551,7 +551,7 @@ struct RoutineDetailView: View {
         do {
             isSavedToMyRoutines = try service.toggleSavedCopy(for: routine)
         } catch {
-            print("Failed to toggle saved state for routine: \(error)")
+            debugLog("Failed to toggle saved state for routine: \(error)")
         }
     }
 

@@ -7,6 +7,7 @@
 
 import SwiftData
 import SwiftUI
+import UIKit
 
 struct WorkoutDetailView: View {
     let workout: Workout
@@ -28,6 +29,7 @@ struct WorkoutDetailView: View {
     @State private var showingLiveClimbSummaryPreview = false
     @State private var liveClimbCompletionRank: LiveReplayCompletionRank?
     @State private var isLoadingLiveClimbRank = false
+    @State private var copyConfirmationText: String?
 
     // Media layout state
     @State private var sheetPosition: SheetPosition = .middle
@@ -147,6 +149,9 @@ struct WorkoutDetailView: View {
                 FullScreenPhotoView(photo: photo) {
                     selectedPhoto = nil
                 }
+            }
+            .overlay(alignment: .top) {
+                copyConfirmationOverlay
             }
         }
     }
@@ -468,6 +473,10 @@ struct WorkoutDetailView: View {
             Label("Share", systemImage: "square.and.arrow.up")
         }
 
+        Button(action: copyWorkoutText) {
+            Label("Copy Workout Text", systemImage: "doc.on.doc")
+        }
+
         if canOpenLiveClimbSummary {
             Button {
                 showingLiveClimbSummaryPreview = true
@@ -675,6 +684,24 @@ struct WorkoutDetailView: View {
         .efforts(for: workout)
     }
 
+    private var primaryBestEffort: RankedBestEffort? {
+        workoutBestEfforts.first
+    }
+
+    @ViewBuilder
+    private var copyConfirmationOverlay: some View {
+        if let copyConfirmationText {
+            Text(copyConfirmationText)
+                .font(.montserratSemiBold(size: 14))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
+                .background(Capsule().fill(.black.opacity(0.82)))
+                .padding(.top, 72)
+                .transition(.opacity.combined(with: .scale))
+        }
+    }
+
     // MARK: - Formatting
 
     private func formatWorkoutDateTime() -> String {
@@ -698,6 +725,32 @@ struct WorkoutDetailView: View {
     }
 
     // MARK: - Actions
+
+    private func copyWorkoutText() {
+        UIPasteboard.general.string = workoutShareText(
+            for: workout,
+            measurementSystem: settingsManager.measurementSystem,
+            stepHeight: settingsManager.stepHeight,
+            bestEffort: primaryBestEffort
+        )
+        HapticsManager.shared.trigger(.success)
+        showCopyConfirmation("Workout text copied")
+    }
+
+    private func showCopyConfirmation(_ text: String) {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            copyConfirmationText = text
+        }
+
+        Task {
+            try? await Task.sleep(for: .milliseconds(1600))
+            withAnimation(.easeOut(duration: 0.3)) {
+                if copyConfirmationText == text {
+                    copyConfirmationText = nil
+                }
+            }
+        }
+    }
 
     @MainActor
     private func loadLiveClimbCompletionRankIfNeeded() async {
@@ -724,7 +777,7 @@ struct WorkoutDetailView: View {
             )
         } catch {
 #if DEBUG
-            print("Workout detail Live Climb rank fetch failed: \(error.localizedDescription)")
+            debugLog("Workout detail Live Climb rank fetch failed: \(error.localizedDescription)")
 #endif
         }
     }
@@ -758,7 +811,7 @@ struct WorkoutDetailView: View {
             do {
                 try await photoService.deletePhotos(workout.photos)
             } catch let error as PhotoDeletionError {
-                print("❌ Failed to delete photos: \(error)")
+                debugLog("❌ Failed to delete photos: \(error)")
                 await MainActor.run {
                     isDeleting = false
                     showingDeleteConfirmation = false
@@ -775,7 +828,7 @@ struct WorkoutDetailView: View {
                 }
                 return
             } catch {
-                print("❌ Failed to delete photos from Firebase: \(error)")
+                debugLog("❌ Failed to delete photos from Firebase: \(error)")
                 await MainActor.run {
                     isDeleting = false
                     showingDeleteConfirmation = false
@@ -797,7 +850,7 @@ struct WorkoutDetailView: View {
                 modelContext: modelContext
             )
         } catch {
-            print("❌ Error queueing remote workout deletion: \(error)")
+            debugLog("❌ Error queueing remote workout deletion: \(error)")
             await MainActor.run {
                 isDeleting = false
                 showingDeleteConfirmation = false
@@ -836,7 +889,7 @@ struct WorkoutDetailView: View {
                 dismiss()
             }
         } catch {
-            print("❌ Error deleting workout: \(error)")
+            debugLog("❌ Error deleting workout: \(error)")
 
             if shouldProcessRemoteDeletion, let remoteSyncUserId {
                 Task { @MainActor in
@@ -855,144 +908,6 @@ struct WorkoutDetailView: View {
                 HapticsManager.shared.trigger(.error)
             }
         }
-    }
-}
-
-private struct LiveClimbSummaryLinkRow: View {
-    let climb: Climb?
-    let effectiveColorScheme: ColorScheme
-    let onViewSummary: () -> Void
-
-    var body: some View {
-        Button(action: onViewSummary) {
-            HStack(spacing: 14) {
-                leadingArtwork
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(climb?.name ?? "Live Climb Summary")
-                        .font(.montserratSemiBold(size: 15))
-                        .foregroundStyle(primaryTextColor)
-                        .lineLimit(1)
-
-                    Text("View saved summary")
-                        .font(.montserratMedium(size: 12))
-                        .foregroundStyle(secondaryTextColor)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity, minHeight: 68, alignment: .leading)
-            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .background(cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(borderColor, lineWidth: 1)
-        )
-        .accessibilityLabel("View Live Climb summary")
-        .accessibilityHint("Opens the saved Live Climb summary for this workout.")
-    }
-
-    @ViewBuilder
-    private var leadingArtwork: some View {
-        if let climb {
-            ClimbArtworkView(climb: climb, variant: .thumb)
-                .frame(width: 38, height: 38)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(.white.opacity(effectiveColorScheme == .dark ? 0.10 : 0.08), lineWidth: 1)
-                )
-        } else {
-            AppIcon(token: .mountains, pointSize: 20, weight: .medium)
-                .foregroundStyle(primaryTextColor.opacity(0.74))
-                .frame(width: 38, height: 38)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(effectiveColorScheme == .dark ? .white.opacity(0.07) : .black.opacity(0.05))
-                )
-        }
-    }
-
-    private var primaryTextColor: Color {
-        effectiveColorScheme == .dark ? .white : .black
-    }
-
-    private var secondaryTextColor: Color {
-        effectiveColorScheme == .dark ? .white.opacity(0.52) : .black.opacity(0.48)
-    }
-
-    private var cardBackground: Color {
-        effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06)
-    }
-
-    private var borderColor: Color {
-        effectiveColorScheme == .dark ? .white.opacity(0.10) : .black.opacity(0.08)
-    }
-}
-
-private struct LiveClimbSummaryPreviewUnavailableView: View {
-    let onDismiss: () -> Void
-
-    var body: some View {
-        VStack(spacing: 18) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 34, weight: .bold))
-                .foregroundStyle(.accent)
-
-            VStack(spacing: 8) {
-                Text("Summary unavailable")
-                    .font(.montserratBold(size: 22))
-                    .foregroundStyle(.white)
-
-                Text("This workout has Live Climb metadata, but its climb could not be loaded.")
-                    .font(.montserratMedium(size: 14))
-                    .foregroundStyle(.white.opacity(0.62))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 28)
-            }
-
-            Button(action: onDismiss) {
-                Text("Done")
-                    .font(.montserratBold(size: 15))
-                    .foregroundStyle(.black)
-                    .frame(width: 160, height: 48)
-                    .background(Capsule().fill(Color.accent))
-            }
-            .buttonStyle(.plain)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black.ignoresSafeArea())
-        .preferredColorScheme(.dark)
-    }
-}
-
-// MARK: - Delete Confirmation
-
-struct SingleWorkoutDeleteConfirmationView: View {
-    let workout: Workout
-    let isLoading: Bool
-    let isCancelling: Bool
-    let onConfirm: () -> Void
-    let onCancel: () -> Void
-
-    var body: some View {
-        ConfirmationView(
-            title: "Delete Workout",
-            message: "Are you sure you want to delete \"\(workout.name)\"? This action cannot be undone.",
-            confirmButtonText: "Delete",
-            isDestructive: true,
-            isLoading: isLoading,
-            isCancelling: isCancelling,
-            onCancel: onCancel,
-            onConfirm: onConfirm
-        )
-        .appSheetStyle(.destructiveConfirmation)
     }
 }
 

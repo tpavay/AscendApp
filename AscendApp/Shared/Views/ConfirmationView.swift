@@ -108,8 +108,8 @@ struct ConfirmationView: View {
         message: "Are you sure you want to delete this item? This action cannot be undone.",
         confirmButtonText: "Delete",
         isDestructive: true,
-        onCancel: { print("Cancelled") },
-        onConfirm: { print("Confirmed") }
+        onCancel: { debugLog("Cancelled") },
+        onConfirm: { debugLog("Confirmed") }
     )
 }
 
@@ -119,8 +119,8 @@ struct ConfirmationView: View {
         message: "Do you want to save your changes?",
         confirmButtonText: "Save",
         isDestructive: false,
-        onCancel: { print("Cancelled") },
-        onConfirm: { print("Saved") }
+        onCancel: { debugLog("Cancelled") },
+        onConfirm: { debugLog("Saved") }
     )
 }
 
@@ -129,7 +129,7 @@ struct ConfirmationView: View {
         title: "Confirm Action",
         confirmButtonText: "Continue",
         isDestructive: false,
-        onCancel: { print("Cancelled") },
-        onConfirm: { print("Confirmed") }
+        onCancel: { debugLog("Cancelled") },
+        onConfirm: { debugLog("Confirmed") }
     )
 }

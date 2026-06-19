@@ -77,8 +77,11 @@ struct ShareComposerExporter {
     func renderRecap(template: ShareRecapTemplate, data: ShareRecapCardData) async -> UIImage? {
         let artwork = await loadClimbArtwork(for: data.climb, variant: .hero)
         let card = ShareRecapCard(template: template, data: data, climbArtworkOverride: artwork)
-        let sized = card.frame(width: Self.exportSize.width, height: Self.exportSize.height)
+        let sized = card
+            .frame(width: Self.exportSize.width, height: Self.exportSize.height)
+            .clipped()
         let renderer = ImageRenderer(content: sized)
+        renderer.proposedSize = ProposedViewSize(Self.exportSize)
         renderer.scale = 1
         renderer.isOpaque = true
         return renderer.uiImage
@@ -193,28 +196,14 @@ struct ShareComposerExporter {
     ) async -> URL? {
         let safeScale = max(backgroundScale, 0.01)
 
-        let videoComposition = AVVideoComposition(asset: asset) { request in
-            let source = request.sourceImage
-            let extent = source.extent
-            let filteredSource = applyVideoColorFilter(backgroundFilter, to: source)
-                .cropped(to: extent)
-            let scaledWidth = extent.width * safeScale
-            let scaledHeight = extent.height * safeScale
-            let offsetX = backgroundOffset.width * extent.width
-            let offsetY = backgroundOffset.height * extent.height
-            let transform = CGAffineTransform(
-                a: safeScale,
-                b: 0,
-                c: 0,
-                d: safeScale,
-                tx: extent.minX + ((extent.width - scaledWidth) / 2) + offsetX,
-                ty: extent.minY + ((extent.height - scaledHeight) / 2) - offsetY
-            )
-            let transformedSource = filteredSource.transformed(by: transform)
-            let background = CIImage(color: .black).cropped(to: extent)
-            let compositedBackground = transformedSource.composited(over: background)
-            let composited = overlay.image.composited(over: compositedBackground)
-            request.finish(with: composited.cropped(to: source.extent), context: nil)
+        guard let videoComposition = await videoComposition(
+            for: asset,
+            overlay: overlay,
+            safeScale: safeScale,
+            backgroundOffset: backgroundOffset,
+            backgroundFilter: backgroundFilter
+        ) else {
+            return nil
         }
 
         guard let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality) else {
@@ -223,13 +212,49 @@ struct ShareComposerExporter {
         let outURL = FileManager.default.temporaryDirectory
             .appending(path: "ascend-share-\(UUID().uuidString).mov")
         export.videoComposition = videoComposition
-        export.outputURL = outURL
-        export.outputFileType = .mov
 
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            export.exportAsynchronously { continuation.resume() }
+        do {
+            try await export.export(to: outURL, as: .mov)
+            return outURL
+        } catch {
+            return nil
         }
-        return export.status == .completed ? outURL : nil
+    }
+
+    nonisolated private static func videoComposition(
+        for asset: AVAsset,
+        overlay: UncheckedCIImage,
+        safeScale: CGFloat,
+        backgroundOffset: CGSize,
+        backgroundFilter: ShareBackgroundFilter
+    ) async -> AVVideoComposition? {
+        await withCheckedContinuation { continuation in
+            AVVideoComposition.videoComposition(with: asset) { request in
+                let source = request.sourceImage
+                let extent = source.extent
+                let filteredSource = applyVideoColorFilter(backgroundFilter, to: source)
+                    .cropped(to: extent)
+                let scaledWidth = extent.width * safeScale
+                let scaledHeight = extent.height * safeScale
+                let offsetX = backgroundOffset.width * extent.width
+                let offsetY = backgroundOffset.height * extent.height
+                let transform = CGAffineTransform(
+                    a: safeScale,
+                    b: 0,
+                    c: 0,
+                    d: safeScale,
+                    tx: extent.minX + ((extent.width - scaledWidth) / 2) + offsetX,
+                    ty: extent.minY + ((extent.height - scaledHeight) / 2) - offsetY
+                )
+                let transformedSource = filteredSource.transformed(by: transform)
+                let background = CIImage(color: .black).cropped(to: extent)
+                let compositedBackground = transformedSource.composited(over: background)
+                let composited = overlay.image.composited(over: compositedBackground)
+                request.finish(with: composited.cropped(to: source.extent), context: nil)
+            } completionHandler: { videoComposition, _ in
+                continuation.resume(returning: videoComposition)
+            }
+        }
     }
 
     nonisolated private static func applyVideoColorFilter(_ filter: ShareBackgroundFilter, to image: CIImage) -> CIImage {

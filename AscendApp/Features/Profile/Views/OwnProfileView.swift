@@ -11,6 +11,9 @@ struct OwnProfileView: View {
     private let viewModel: ProfileScreenViewModel
     @State private var settingsManager = SettingsManager.shared
     @State private var catalogRevision = 0
+    @State private var selectedSegment: OwnProfileSegment = .overview
+    @State private var themeManager = ThemeManager.shared
+    @Environment(\.colorScheme) private var colorScheme
 
     init(viewModel: ProfileScreenViewModel = ProfileScreenViewModel()) {
         self.viewModel = viewModel
@@ -81,58 +84,26 @@ struct OwnProfileView: View {
     var body: some View {
         let snapshot = snapshot
 
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 16) {
-                IdentityHeroSection(
-                    snapshot: snapshot,
-                    mode: .own
-                )
+        VStack(spacing: 0) {
+            IdentityHeroSection(
+                snapshot: snapshot,
+                mode: .own
+            )
 
-                VStack(alignment: .leading, spacing: 22) {
-                    ProfileLifetimeStatsRow(
-                        climbs: workouts.count,
-                        steps: snapshot.stats.lifetimeTotalSteps,
-                        durationSeconds: snapshot.stats.lifetimeDurationSeconds,
-                        averageStepsPerMinute: snapshot.stats.averageStepsPerMinute
-                    )
-
-                    CollectionSection(
-                        collection: snapshot.collection,
-                        mode: .own,
-                        showsHeader: false
-                    )
-
-                    ProfileWeeklyStepsChart(workouts: snapshot.activityWorkouts)
-
-                    if snapshot.hasActiveRank {
-                        ActiveStandingsSection(standings: snapshot.standings)
-                    }
-
-                    PrestigeSection(
-                        held: snapshot.firstAscentsHeld,
-                        open: snapshot.openFirstAscents,
-                        achievements: snapshot.achievements,
-                        achievementRecords: snapshot.achievementRecords,
-                        mode: .own
-                    )
-
-                    RecordBookSection(
-                        records: snapshot.records,
-                        workouts: workouts
-                    )
-
-                    ActivityCalendarSection(
-                        workouts: snapshot.activityWorkouts,
-                        currentStreakWeeks: snapshot.stats.currentStreakWeeks,
-                        bestStreakWeeks: snapshot.stats.bestStreakWeeks,
-                        mode: .own
-                    )
-                }
+            ProfileSegmentToggle(selection: $selectedSegment)
                 .padding(.horizontal, 16)
-                .padding(.bottom, 118)
+                .padding(.top, 18)
+
+            Group {
+                switch selectedSegment {
+                case .overview:
+                    overviewContent(snapshot)
+                case .activity:
+                    activityContent
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .scrollIndicators(.hidden)
         .background(ProfileVisualStyle.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .task(id: supportTaskKey) {
@@ -150,5 +121,90 @@ struct OwnProfileView: View {
         .onReceive(NotificationCenter.default.publisher(for: .climbCatalogDidChange)) { _ in
             catalogRevision += 1
         }
+    }
+
+    private func overviewContent(_ snapshot: ProfileSnapshot) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                ProfileLifetimeStatsRow(
+                    climbs: workouts.count,
+                    steps: snapshot.stats.lifetimeTotalSteps,
+                    durationSeconds: snapshot.stats.lifetimeDurationSeconds,
+                    averageStepsPerMinute: snapshot.stats.averageStepsPerMinute
+                )
+
+                CollectionSection(
+                    collection: snapshot.collection,
+                    mode: .own,
+                    showsHeader: false
+                )
+
+                ProfileWeeklyStepsChart(workouts: snapshot.activityWorkouts)
+
+                if snapshot.hasActiveRank {
+                    ActiveStandingsSection(standings: snapshot.standings)
+                }
+
+                PrestigeSection(
+                    held: snapshot.firstAscentsHeld,
+                    open: snapshot.openFirstAscents,
+                    achievements: snapshot.achievements,
+                    achievementRecords: snapshot.achievementRecords,
+                    mode: .own
+                )
+
+                RecordBookSection(
+                    records: snapshot.records,
+                    workouts: workouts
+                )
+
+                ActivityCalendarSection(
+                    workouts: snapshot.activityWorkouts,
+                    currentStreakWeeks: snapshot.stats.currentStreakWeeks,
+                    bestStreakWeeks: snapshot.stats.bestStreakWeeks,
+                    mode: .own
+                )
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 18)
+            .padding(.bottom, 118)
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    @ViewBuilder
+    private var activityContent: some View {
+        if workouts.isEmpty {
+            activityEmptyState
+        } else {
+            WorkoutResultsListView(
+                filteredWorkouts: workouts,
+                allWorkouts: workouts,
+                isInDeleteMode: false,
+                effectiveColorScheme: themeManager.effectiveColorScheme(for: colorScheme),
+                selectedWorkouts: [],
+                toggleSelection: { _ in }
+            )
+        }
+    }
+
+    private var activityEmptyState: some View {
+        VStack(spacing: 10) {
+            Spacer(minLength: 0)
+
+            Text("Nothing logged yet.")
+                .font(.montserratBold(size: 19))
+                .foregroundStyle(.white)
+
+            Text("Climb a landmark — your first session lands here.")
+                .font(.montserratRegular(size: 14))
+                .foregroundStyle(ProfileVisualStyle.secondaryText)
+                .multilineTextAlignment(.center)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 36)
+        .padding(.bottom, 90)
     }
 }

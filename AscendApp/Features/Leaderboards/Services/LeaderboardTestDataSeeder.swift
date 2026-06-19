@@ -23,7 +23,7 @@ final class LeaderboardTestDataSeeder {
         let displayName = user.displayName ?? "Test User"
         let photoURL = user.photoURL?.absoluteString ?? ""
 
-        print("Seeding leaderboard data for \(displayName) (\(userId))...")
+        debugLog("Seeding leaderboard data for \(displayName) (\(userId))...")
 
         for timeFrame in LeaderboardTimeFrame.allCases {
             let period = timeFrame.currentPeriod()
@@ -49,7 +49,7 @@ final class LeaderboardTestDataSeeder {
             ], merge: true)
         }
 
-        print("Seeded \(LeaderboardTimeFrame.allCases.count) entries for \(displayName)")
+        debugLog("Seeded \(LeaderboardTimeFrame.allCases.count) entries for \(displayName)")
     }
 
     func clearTestData() async throws {
@@ -58,7 +58,7 @@ final class LeaderboardTestDataSeeder {
         }
 
         let userId = user.uid
-        print("Clearing seeded leaderboard data for \(userId)...")
+        debugLog("Clearing seeded leaderboard data for \(userId)...")
 
         for timeFrame in LeaderboardTimeFrame.allCases {
             let docId = "\(userId)_\(timeFrame.rawValue)"
@@ -67,7 +67,7 @@ final class LeaderboardTestDataSeeder {
             try await docRef.delete()
         }
 
-        print("Cleared seeded data for \(userId)")
+        debugLog("Cleared seeded data for \(userId)")
     }
 
     private func generateRandomStats(

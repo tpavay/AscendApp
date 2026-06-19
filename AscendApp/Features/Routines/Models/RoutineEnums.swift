@@ -160,18 +160,3 @@ enum RoutineSource: String, Codable, Sendable {
         }
     }
 }
-
-/// Completion status of a routine-based workout
-enum RoutineCompletionStatus: String, Codable, Sendable {
-    case completed
-    case stoppedEarly
-
-    var displayName: String {
-        switch self {
-        case .completed:
-            return "Completed"
-        case .stoppedEarly:
-            return "Stopped Early"
-        }
-    }
-}
