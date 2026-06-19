@@ -15,6 +15,7 @@ struct LiveClimbCompletionSummaryView: View {
     @State private var showingRatingEnjoymentPrompt = false
     @State private var resultSyncStore = LiveClimbPublicResultSyncStore.shared
     @State private var completionRankSnapshot: LiveReplayCompletionRankSnapshot?
+    @State private var computedCompletionRank: LiveReplayCompletionRank?
     @State private var completionFinisherStatus: LiveReplayFinisherStatus?
     @State private var completionSummary: LiveReplayLeaderboardSummary?
     @State private var isLoadingCompletionRank = false
@@ -163,16 +164,18 @@ struct LiveClimbCompletionSummaryView: View {
 
             Spacer(minLength: 0)
 
-            VStack(alignment: .trailing, spacing: 5) {
-                Text("STATUS")
-                    .font(.montserratBold(size: 8))
-                    .foregroundStyle(.white.opacity(0.42))
+            if showsRankingStatusColumn {
+                VStack(alignment: .trailing, spacing: 5) {
+                    Text("STATUS")
+                        .font(.montserratBold(size: 8))
+                        .foregroundStyle(.white.opacity(0.42))
 
-                Text(rankingStatusText)
-                    .font(.montserratBold(size: 11))
-                    .foregroundStyle(.white.opacity(0.72))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
+                    Text(rankingStatusText)
+                        .font(.montserratBold(size: 11))
+                        .foregroundStyle(.white.opacity(0.72))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                }
             }
         }
         .padding(16)
@@ -395,11 +398,15 @@ struct LiveClimbCompletionSummaryView: View {
         case .syncingRanking:
             return "Syncing"
         case .pending, .published, nil:
-            return "Pending"
+            return "Checking"
         }
     }
 
     private var rankingDetailText: String {
+        if isUsingComputedRankFallback {
+            return "CURRENT LEADERBOARD RANK"
+        }
+
         if displayedRank != nil {
             return climb == nil ? "WORKOUT COMPLETE" : "LIVE CLIMB COMPLETE"
         }
@@ -412,11 +419,15 @@ struct LiveClimbCompletionSummaryView: View {
         case .syncingRanking:
             return "SYNCING RANKING"
         case .pending, .published, nil:
-            return "RANKING PENDING"
+            return "LOOKING FOR YOUR RANK"
         }
     }
 
     private var rankingStatusText: String {
+        if isUsingComputedRankFallback {
+            return "CURRENT"
+        }
+
         if displayedRank != nil {
             return "COMPLETE"
         }
@@ -429,12 +440,19 @@ struct LiveClimbCompletionSummaryView: View {
         case .syncingRanking:
             return "SYNCING"
         case .pending, .published, nil:
-            return "PENDING"
+            return "LOADING"
         }
     }
 
     private var rankingLabelText: String {
         climb == nil ? "GLOBAL RANK" : "CLIMB RANK"
+    }
+
+    private var showsRankingStatusColumn: Bool {
+        displayedRank != nil ||
+            publicResultStatus?.phase == .savedOnDevice ||
+            publicResultStatus?.phase == .syncFailedRetry ||
+            publicResultStatus?.phase == .syncingRanking
     }
 
     private var averageSPMText: String {
@@ -496,7 +514,8 @@ struct LiveClimbCompletionSummaryView: View {
 
         return publicResultStatus?.rankSnapshot?.rank ??
             publicResultStatus?.publishStatus?.rankAtCompletion ??
-            completionRankSnapshot?.rank
+            completionRankSnapshot?.rank ??
+            computedCompletionRank?.rank
     }
 
     private var displayedTotal: Int? {
@@ -513,12 +532,23 @@ struct LiveClimbCompletionSummaryView: View {
             return statusTotal
         }
 
+        if let computedTotal = computedCompletionRank?.completedCount {
+            return computedTotal
+        }
+
         let total = max(
             completionSummary?.completedCount ?? 0,
             publicResultStatus?.phase == .published ? (leaderboardTotal ?? 0) : 0
         )
 
         return total > 0 ? total : nil
+    }
+
+    private var isUsingComputedRankFallback: Bool {
+        computedCompletionRank != nil &&
+            publicResultStatus?.rankSnapshot == nil &&
+            publicResultStatus?.publishStatus?.rankAtCompletion == nil &&
+            completionRankSnapshot == nil
     }
 
     private var maxSplitSPM: Double {
@@ -617,6 +647,7 @@ struct LiveClimbCompletionSummaryView: View {
         defer {
             isLoadingCompletionRank = false
         }
+        computedCompletionRank = nil
 
         let context = LiveReplayLeaderboardContext.liveClimb(
             climbId: climb.id,
@@ -668,6 +699,21 @@ struct LiveClimbCompletionSummaryView: View {
         )
         if let rankSnapshot = resultSyncStore.status(for: workout.id)?.rankSnapshot {
             completionRankSnapshot = rankSnapshot
+            computedCompletionRank = nil
+            return
+        }
+
+        if displayedRank == nil {
+            do {
+                computedCompletionRank = try await LiveReplayLeaderboardService.shared.fetchCompletionRank(
+                    context: context,
+                    completionDurationSeconds: workout.duration
+                )
+            } catch {
+#if DEBUG
+                debugLog("Live Climb summary computed rank fallback failed: \(error.localizedDescription)")
+#endif
+            }
         }
     }
 
@@ -682,6 +728,7 @@ struct LiveClimbCompletionSummaryView: View {
             )
             if let rankSnapshot = resultSyncStore.status(for: workout.id)?.rankSnapshot {
                 completionRankSnapshot = rankSnapshot
+                computedCompletionRank = nil
             }
         }
     }
