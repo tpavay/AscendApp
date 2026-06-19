@@ -83,7 +83,7 @@ final class LiveClimbActivityManager {
             lastUpdateAt = Date()
         } catch {
 #if DEBUG
-            print("Live Climb Live Activity start failed: \(error.localizedDescription)")
+            debugLog("Live Climb Live Activity start failed: \(error.localizedDescription)")
 #endif
             return
         }
@@ -156,6 +156,36 @@ final class LiveClimbActivityManager {
         currentAttributes = nil
         lastState = nil
         lastUpdateAt = nil
+    }
+
+    func end(sessionID: String, status: LiveClimbActivityStatus = .ended) async {
+        if currentAttributes?.sessionID == sessionID {
+            await end(status: status)
+            return
+        }
+
+        guard let activity = Activity<LiveClimbActivityAttributes>.activities.first(where: {
+            $0.attributes.sessionID == sessionID
+        }) else {
+            return
+        }
+
+        let state = activity.content.state
+        let finalState = LiveClimbActivityAttributes.ContentState(
+            steps: state.steps,
+            rank: state.rank,
+            rankTotal: state.rankTotal,
+            durationSeconds: state.durationSeconds,
+            progress: state.progress,
+            status: status,
+            climbPhotoURLString: state.climbPhotoURLString,
+            updatedAt: Date()
+        )
+
+        await activity.end(
+            ActivityContent(state: finalState, staleDate: nil),
+            dismissalPolicy: .immediate
+        )
     }
 
     private func setPhotoURLString(_ photoURLString: String?, sessionID: String) async {

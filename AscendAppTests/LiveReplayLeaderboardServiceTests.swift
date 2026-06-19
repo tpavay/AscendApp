@@ -100,6 +100,56 @@ struct LiveReplayLeaderboardServiceTests {
     }
 
     @Test
+    func fetchesCurrentUserBestCompletion() async throws {
+        let repository = MockLiveReplayLeaderboardRepository()
+        let service = LiveReplayLeaderboardService(repository: repository)
+        let context = LiveReplayLeaderboardContext.liveClimb(
+            climbId: "pyramid-giza",
+            targetSteps: 809
+        )
+
+        let completion = try await service.fetchCurrentUserBestCompletion(context: context)
+
+        #expect(completion?.rank == 12)
+        #expect(completion?.completedCount == 89)
+        #expect(completion?.workoutId == "workout-best")
+        #expect(await repository.fetchCurrentUserBestCompletionCount == 1)
+    }
+
+    @Test
+    func fetchesPublishStatus() async throws {
+        let repository = MockLiveReplayLeaderboardRepository()
+        let service = LiveReplayLeaderboardService(repository: repository)
+
+        let status = try await service.fetchPublishStatus(workoutId: "workout-a")
+
+        #expect(status?.state == .published)
+        #expect(status?.rankAtCompletion == 18)
+        #expect(status?.completedCountAtCompletion == 62)
+        #expect(await repository.fetchPublishStatusCount == 1)
+    }
+
+    @Test
+    func fetchesCompletionRankSnapshot() async throws {
+        let repository = MockLiveReplayLeaderboardRepository()
+        let service = LiveReplayLeaderboardService(repository: repository)
+        let context = LiveReplayLeaderboardContext.liveClimb(
+            climbId: "pyramid-giza",
+            targetSteps: 809
+        )
+
+        let snapshot = try await service.fetchCompletionRankSnapshot(
+            context: context,
+            workoutId: "workout-a"
+        )
+
+        #expect(snapshot?.rank == 18)
+        #expect(snapshot?.completedCount == 62)
+        #expect(snapshot?.workoutId == "workout-a")
+        #expect(await repository.fetchCompletionRankSnapshotCount == 1)
+    }
+
+    @Test
     func cachesCompletionLeaderboardFirstPageWithinTTL() async throws {
         let repository = MockLiveReplayLeaderboardRepository()
         let fixedDate = Date(timeIntervalSince1970: 1_777_777_777)
@@ -169,6 +219,9 @@ private final class MutableDateProvider: @unchecked Sendable {
 private actor MockLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepository {
     private(set) var fetchWindowCount = 0
     private(set) var fetchFinisherStatusCount = 0
+    private(set) var fetchCurrentUserBestCompletionCount = 0
+    private(set) var fetchPublishStatusCount = 0
+    private(set) var fetchCompletionRankSnapshotCount = 0
     private(set) var fetchCompletionLeaderboardCount = 0
 
     func fetchSummary(
@@ -189,6 +242,58 @@ private actor MockLiveReplayLeaderboardRepository: LiveReplayLeaderboardReposito
         LiveReplayCompletionRank(
             rank: 12,
             completedCount: 89,
+            updatedAt: Date(timeIntervalSince1970: 1_777_777_700)
+        )
+    }
+
+    func fetchCompletionRankSnapshot(
+        context: LiveReplayLeaderboardContext,
+        workoutId: String
+    ) async throws -> LiveReplayCompletionRankSnapshot? {
+        fetchCompletionRankSnapshotCount += 1
+
+        return LiveReplayCompletionRankSnapshot(
+            workoutId: workoutId,
+            rank: 18,
+            completedCount: 62,
+            completionDurationSeconds: 872,
+            rankedAt: Date(timeIntervalSince1970: 1_777_777_650),
+            rankingMetric: "completionDurationSeconds",
+            tiePolicy: "competition_rank_equal_durations_share_rank"
+        )
+    }
+
+    func fetchPublishStatus(
+        workoutId: String
+    ) async throws -> LiveReplayPublishStatus? {
+        fetchPublishStatusCount += 1
+
+        return LiveReplayPublishStatus(
+            state: .published,
+            workoutId: workoutId,
+            userId: "user-a",
+            contextType: "live_climb",
+            contextId: "pyramid-giza",
+            rankAtCompletion: 18,
+            completedCountAtCompletion: 62,
+            finisherOrder: 47,
+            lastErrorCode: nil,
+            lastErrorMessageSafe: nil,
+            updatedAt: Date(timeIntervalSince1970: 1_777_777_700),
+            publishedAt: Date(timeIntervalSince1970: 1_777_777_700)
+        )
+    }
+
+    func fetchCurrentUserBestCompletion(
+        context: LiveReplayLeaderboardContext
+    ) async throws -> LiveReplayCurrentUserCompletion? {
+        fetchCurrentUserBestCompletionCount += 1
+
+        return LiveReplayCurrentUserCompletion(
+            rank: 12,
+            completedCount: 89,
+            completionDurationSeconds: 872,
+            workoutId: "workout-best",
             updatedAt: Date(timeIntervalSince1970: 1_777_777_700)
         )
     }

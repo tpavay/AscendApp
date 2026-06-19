@@ -26,7 +26,7 @@ struct DeletePhotoConfirmationView: View {
 
 #Preview {
     DeletePhotoConfirmationView(
-        onDelete: { print("Photo deleted") },
-        onCancel: { print("Cancelled") }
+        onDelete: { debugLog("Photo deleted") },
+        onCancel: { debugLog("Cancelled") }
     )
 }

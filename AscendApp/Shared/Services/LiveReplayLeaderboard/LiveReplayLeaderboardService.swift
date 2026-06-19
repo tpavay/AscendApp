@@ -10,6 +10,19 @@ protocol LiveReplayLeaderboardServicing: Sendable {
         completionDurationSeconds: TimeInterval
     ) async throws -> LiveReplayCompletionRank
 
+    func fetchCompletionRankSnapshot(
+        context: LiveReplayLeaderboardContext,
+        workoutId: String
+    ) async throws -> LiveReplayCompletionRankSnapshot?
+
+    func fetchPublishStatus(
+        workoutId: String
+    ) async throws -> LiveReplayPublishStatus?
+
+    func fetchCurrentUserBestCompletion(
+        context: LiveReplayLeaderboardContext
+    ) async throws -> LiveReplayCurrentUserCompletion?
+
     func fetchCurrentUserFinisherStatus(
         context: LiveReplayLeaderboardContext
     ) async throws -> LiveReplayFinisherStatus?
@@ -110,6 +123,28 @@ actor LiveReplayLeaderboardService: LiveReplayLeaderboardServicing {
             context: context,
             completionDurationSeconds: completionDurationSeconds
         )
+    }
+
+    func fetchCompletionRankSnapshot(
+        context: LiveReplayLeaderboardContext,
+        workoutId: String
+    ) async throws -> LiveReplayCompletionRankSnapshot? {
+        try await repository.fetchCompletionRankSnapshot(
+            context: context,
+            workoutId: workoutId
+        )
+    }
+
+    func fetchPublishStatus(
+        workoutId: String
+    ) async throws -> LiveReplayPublishStatus? {
+        try await repository.fetchPublishStatus(workoutId: workoutId)
+    }
+
+    func fetchCurrentUserBestCompletion(
+        context: LiveReplayLeaderboardContext
+    ) async throws -> LiveReplayCurrentUserCompletion? {
+        try await repository.fetchCurrentUserBestCompletion(context: context)
     }
 
     func fetchCurrentUserFinisherStatus(

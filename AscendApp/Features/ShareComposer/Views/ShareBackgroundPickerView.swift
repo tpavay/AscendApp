@@ -157,12 +157,7 @@ struct ShareBackgroundPickerView: View {
                                 onPickRecap(template)
                             } label: {
                                 VStack(alignment: .leading, spacing: 8) {
-                                    // Color.clear gives the flexible card a concrete 9:16 box.
-                                    Color.clear
-                                        .aspectRatio(9.0 / 16.0, contentMode: .fit)
-                                        .overlay {
-                                            ShareRecapCard(template: template, data: recap.data)
-                                        }
+                                    ShareRecapThumbnail(template: template, data: recap.data)
                                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -188,5 +183,23 @@ struct ShareBackgroundPickerView: View {
             .padding(.horizontal, 24)
             .padding(.top, 16)
         }
+    }
+}
+
+private struct ShareRecapThumbnail: View {
+    let template: ShareRecapTemplate
+    let data: ShareRecapCardData
+
+    var body: some View {
+        Color.black
+            .aspectRatio(ShareRecapCard.aspectRatio, contentMode: .fit)
+            .overlay {
+                GeometryReader { proxy in
+                    ShareRecapCard(template: template, data: data)
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .clipped()
+                }
+            }
+            .frame(maxWidth: .infinity)
     }
 }

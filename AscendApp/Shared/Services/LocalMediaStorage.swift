@@ -101,10 +101,10 @@ enum LocalMediaStorage {
             for file in files where !validFilenames.contains(file) {
                 do {
                     try FileManager.default.removeItem(at: directory.appendingPathComponent(file))
-                    print("[LocalMediaStorage] Deleted orphan file: \(file)")
+                    debugLog("[LocalMediaStorage] Deleted orphan file: \(file)")
                 } catch {
                     // Log error but don't block - orphan will be cleaned up next time
-                    print("[LocalMediaStorage] Failed to delete orphan file \(file): \(error.localizedDescription)")
+                    debugLog("[LocalMediaStorage] Failed to delete orphan file \(file): \(error.localizedDescription)")
                 }
             }
         }.value

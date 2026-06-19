@@ -331,10 +331,10 @@ struct WorkoutFormView: View {
     private func saveWorkout() async {
         do {
             let workout = try await viewModel.saveWorkout(to: modelContext)
-            print("✅ Successfully saved workout with \(workout.photos.count) photos")
+            debugLog("✅ Successfully saved workout with \(workout.photos.count) photos")
             onWorkoutCompleted(workout)
         } catch {
-            print("❌ Error saving workout: \(error)")
+            debugLog("❌ Error saving workout: \(error)")
             // Error is already set in viewModel
         }
     }

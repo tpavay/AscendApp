@@ -259,6 +259,6 @@ private struct FullScreenVideoPlayer: UIViewControllerRepresentable {
     FullScreenPhotoView(
         photo: Photo(url: URL(string: "https://picsum.photos/400/600")!)
     ) {
-        print("Dismissed")
+        debugLog("Dismissed")
     }
 }

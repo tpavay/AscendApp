@@ -103,8 +103,8 @@ struct ClimbDetailView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
     @State private var viewModel: ClimbDetailViewModel
+    @State private var resultSyncStore = LiveClimbPublicResultSyncStore.shared
     @State private var selectedPage = 0
-    @State private var detailPageHeights: [Int: CGFloat] = [:]
     @State private var showingBrowseClimbs = false
     @State private var showingFlyover = false
     @State private var showingLiveClimbSession = false
@@ -235,6 +235,7 @@ struct ClimbDetailView: View {
             headphoneMotionService.refresh()
             viewModel.refresh(modelContext: modelContext)
             await viewModel.refreshLeaderboardSummary(modelContext: modelContext)
+            await refreshPublicResultSyncStatusIfNeeded()
             startOnboardingCoachIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
@@ -244,12 +245,14 @@ struct ClimbDetailView: View {
             viewModel.refresh(modelContext: modelContext)
             Task {
                 await viewModel.refreshLeaderboardSummary(modelContext: modelContext)
+                await refreshPublicResultSyncStatusIfNeeded()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .climbCatalogDidChange)) { _ in
             viewModel.refresh(modelContext: modelContext)
             Task {
                 await viewModel.refreshLeaderboardSummary(modelContext: modelContext)
+                await refreshPublicResultSyncStatusIfNeeded()
             }
         }
     }
@@ -261,6 +264,29 @@ struct ClimbDetailView: View {
         selectedPage = 0
         withAnimation(.easeInOut(duration: 0.22)) {
             activeCoachStep = .start
+        }
+    }
+
+    private func refreshPublicResultSyncStatusIfNeeded() async {
+        guard let workout = viewModel.publicResultSyncWorkout else { return }
+
+        await resultSyncStore.refreshUntilRankPublished(
+            workout: workout,
+            climb: viewModel.climb,
+            maxAttempts: 2
+        )
+    }
+
+    private func retryPublicResultSync() {
+        guard let workout = viewModel.publicResultSyncWorkout else { return }
+
+        Task { @MainActor in
+            await resultSyncStore.retrySync(
+                workout: workout,
+                climb: viewModel.climb,
+                modelContext: modelContext
+            )
+            await viewModel.refreshLeaderboardSummary(modelContext: modelContext)
         }
     }
 
@@ -582,10 +608,11 @@ struct ClimbDetailView: View {
                         .frame(width: 48)
                         .overlay {
                             Text(stripOrderText)
-                                .font(.montserratBold(size: 13))
+                                .font(.montserratBold(size: 12))
                                 .foregroundStyle(.white)
                                 .rotationEffect(.degrees(-90))
                                 .lineLimit(1)
+                                .minimumScaleFactor(0.74)
                         }
 
                     Spacer(minLength: 0)
@@ -722,9 +749,7 @@ struct ClimbDetailView: View {
         HStack(spacing: 4) {
             ForEach(Self.detailPageTitles.indices, id: \.self) { index in
                 Button {
-                    withAnimation(.smooth(duration: 0.25)) {
-                        selectedPage = index
-                    }
+                    selectedPage = index
                 } label: {
                     Text(Self.detailPageTitles[index])
                         .font(.montserratBold(size: 11))
@@ -779,44 +804,8 @@ struct ClimbDetailView: View {
     }
 
     private var detailPages: some View {
-        ZStack(alignment: .topLeading) {
-            selectedDetailPageMeasurer
-
-            TabView(selection: $selectedPage) {
-                ForEach(0..<3, id: \.self) { pageIndex in
-                    detailPageContent(for: pageIndex)
-                        .tag(pageIndex)
-                }
-            }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            .frame(height: detailPageHeight)
-        }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .clipped()
-        .onPreferenceChange(ClimbDetailPageHeightPreferenceKey.self) { heights in
-            detailPageHeights.merge(heights) { _, newValue in newValue }
-        }
-        .animation(.smooth(duration: 0.25), value: detailPageHeight)
-    }
-
-    private var selectedDetailPageMeasurer: some View {
         detailPageContent(for: selectedPage)
-            .fixedSize(horizontal: false, vertical: true)
-            .background(
-                GeometryReader { geometry in
-                    Color.clear.preference(
-                        key: ClimbDetailPageHeightPreferenceKey.self,
-                        value: [selectedPage: geometry.size.height]
-                    )
-                }
-            )
-            .hidden()
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-    }
-
-    private var detailPageHeight: CGFloat {
-        detailPageHeights[selectedPage] ?? detailPageHeights.values.max() ?? 320
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder
@@ -901,6 +890,10 @@ struct ClimbDetailView: View {
                 communityStatsRow
             }
 
+            if viewModel.hasCompletionHistory {
+                overviewCompletionStatusRow
+            }
+
             primaryActionRow
         }
         .padding(.horizontal, 4)
@@ -945,23 +938,19 @@ struct ClimbDetailView: View {
 
     private var leaderboardPage: some View {
         VStack(alignment: .leading, spacing: 18) {
-            if viewModel.completionLeaderboardCompletedCount > 0 {
-                Text("\(viewModel.completionLeaderboardCompletedCount.formatted()) completed")
-                    .font(.montserratSemiBold(size: 13))
-                    .foregroundStyle(.accent)
-                    .monospacedDigit()
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-
             if let firstAscent = viewModel.leaderboardSummary.firstAscent {
                 firstAscentSummary(firstAscent)
+            }
+
+            if let status = visibleLeaderboardPublicResultSyncStatus {
+                publicResultSyncStatusRow(for: status)
             }
 
             if viewModel.shouldShowPersonalRankSummary {
                 personalLeaderboardRankSummary
             }
 
-            if viewModel.isLeaderboardLoading && !viewModel.hasCompletionLeaderboardRows {
+            if shouldShowLeaderboardLoadingState {
                 leaderboardLoadingState
             } else if viewModel.hasCompletionLeaderboardRows {
                 VStack(spacing: 8) {
@@ -1004,7 +993,6 @@ struct ClimbDetailView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.78)
         }
-        .padding(.top, -8)
         .accessibilityElement(children: .combine)
     }
 
@@ -1050,8 +1038,8 @@ struct ClimbDetailView: View {
 
     @ViewBuilder
     private var personalLeaderboardRankSummary: some View {
-        if let personalFinisherOrder = viewModel.personalFinisherOrder,
-           let bestCompletionDurationSeconds = viewModel.historySummary.bestCompletionDurationSeconds {
+        if let personalCurrentCompletionRank = viewModel.personalCurrentCompletionRank,
+           let bestCompletionDurationSeconds = viewModel.personalBestCompletionDurationSeconds {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Your best")
@@ -1059,7 +1047,7 @@ struct ClimbDetailView: View {
                         .tracking(1.0)
                         .foregroundStyle(Color.customGray)
 
-                    Text(DurationFormatter.format(duration: TimeInterval(bestCompletionDurationSeconds)))
+                    Text(DurationFormatter.format(duration: bestCompletionDurationSeconds))
                         .font(.montserratBold(size: 20))
                         .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                         .monospacedDigit()
@@ -1068,12 +1056,12 @@ struct ClimbDetailView: View {
                 Spacer(minLength: 0)
 
                 VStack(alignment: .trailing, spacing: 4) {
-                    Text("#\(personalFinisherOrder.formatted())")
+                    Text("#\(personalCurrentCompletionRank.rank.formatted())")
                         .font(.montserratBold(size: 20))
                         .foregroundStyle(.accent)
                         .monospacedDigit()
 
-                    Text("of \(viewModel.communityCompletedCount.formatted())")
+                    Text("of \(personalCurrentCompletionRank.completedCount.formatted())")
                         .font(.montserratSemiBold(size: 12))
                         .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.58) : .black.opacity(0.5))
                         .monospacedDigit()
@@ -1397,6 +1385,117 @@ struct ClimbDetailView: View {
             return "First Ascent open. The first finisher claims it forever."
         }
         return "\(viewModel.communityCompletedCount) completed"
+    }
+
+    private var overviewCompletionStatusRow: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.accent)
+
+            Text("Completed")
+                .font(.montserratSemiBold(size: 13))
+                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.84) : .black.opacity(0.76))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func publicResultSyncStatusRow(
+        for status: LiveClimbPublicResultSyncStatus
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(publicResultSyncTitle(for: status))
+                .font(.montserratSemiBold(size: 13))
+                .foregroundStyle(publicResultSyncColor(for: status))
+
+            if status.canRetry {
+                Button {
+                    retryPublicResultSync()
+                } label: {
+                    Text("Retry sync")
+                        .font(.montserratSemiBold(size: 13))
+                        .foregroundStyle(.accent)
+                        .underline()
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var latestPublicResultSyncStatus: LiveClimbPublicResultSyncStatus? {
+        guard let workout = viewModel.publicResultSyncWorkout,
+              let status = resultSyncStore.status(for: workout.id),
+              !status.isPublished else {
+            return nil
+        }
+
+        return status
+    }
+
+    private var visibleLeaderboardPublicResultSyncStatus: LiveClimbPublicResultSyncStatus? {
+        guard let status = latestPublicResultSyncStatus else { return nil }
+
+        switch status.phase {
+        case .pending, .syncingRanking:
+            return nil
+        case .savedOnDevice, .syncFailedRetry:
+            return status
+        case .published:
+            return nil
+        }
+    }
+
+    private var shouldShowLeaderboardLoadingState: Bool {
+        guard !viewModel.hasCompletionLeaderboardRows else { return false }
+
+        if viewModel.isLeaderboardLoading {
+            return true
+        }
+
+        guard !viewModel.shouldShowPersonalRankSummary,
+              let status = latestPublicResultSyncStatus else {
+            return false
+        }
+
+        switch status.phase {
+        case .pending, .syncingRanking:
+            return true
+        case .savedOnDevice, .syncFailedRetry, .published:
+            return false
+        }
+    }
+
+    private func publicResultSyncTitle(
+        for status: LiveClimbPublicResultSyncStatus
+    ) -> String {
+        switch status.phase {
+        case .pending:
+            return ""
+        case .savedOnDevice:
+            return "Saved on device"
+        case .syncingRanking:
+            return "Syncing ranking"
+        case .syncFailedRetry:
+            return "Sync failed."
+        case .published:
+            return ""
+        }
+    }
+
+    private func publicResultSyncColor(
+        for status: LiveClimbPublicResultSyncStatus
+    ) -> Color {
+        switch status.phase {
+        case .syncFailedRetry:
+            return .red.opacity(0.82)
+        case .savedOnDevice:
+            return effectiveColorScheme == .dark ? .white.opacity(0.58) : .black.opacity(0.5)
+        case .pending, .syncingRanking, .published:
+            return .accent
+        }
     }
 
     private var visibleCommunityAvatars: [ClimbCommunityAvatar] {
@@ -1897,14 +1996,6 @@ private struct HistoryMetric: Identifiable {
     let id: String
     let value: String
     let label: String
-}
-
-private struct ClimbDetailPageHeightPreferenceKey: PreferenceKey {
-    static let defaultValue: [Int: CGFloat] = [:]
-
-    static func reduce(value: inout [Int: CGFloat], nextValue: () -> [Int: CGFloat]) {
-        value.merge(nextValue()) { _, newValue in newValue }
-    }
 }
 
 private struct ClimbCommunityAvatarView: View {

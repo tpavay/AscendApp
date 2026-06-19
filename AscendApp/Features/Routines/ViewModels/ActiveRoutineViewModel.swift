@@ -1,5 +1,7 @@
 import Combine
 import Foundation
+import SwiftData
+import UIKit
 
 @MainActor
 @Observable
@@ -10,6 +12,9 @@ final class ActiveRoutineViewModel {
 
     private let replayContext: LiveReplayLeaderboardContext
     private let leaderboardService: LiveReplayLeaderboardServicing
+    private let motionSession: HeadphoneMotionSessionService
+    private let backgroundSessionService: LiveClimbBackgroundSessionService
+    private let draftStore: ActiveHeadphoneWorkoutDraftStore
 
     var phase: ActiveRoutinePhase = .countdown
     var countdownValue = 3
@@ -23,27 +28,48 @@ final class ActiveRoutineViewModel {
     var showCompletionSheet = false
     var showWorkoutForm = false
     var shouldDismissAfterForm = false
+    var errorMessage: String?
     private(set) var leaderboardWindow: LiveReplayLeaderboardWindow?
     private(set) var leaderboardFetchFailed = false
+    private(set) var recordedResult: HeadphoneMotionSessionResult?
+    private(set) var savedWorkout: Workout?
+    private(set) var stepSyncPrompt: RoutineStepSyncPrompt?
+    private(set) var stepSyncConfirmation: RoutineStepSyncConfirmation?
 
     private var countdownStartDate: Date?
     private var lastTickDate: Date?
     private var lastCountdownHapticValue: Int?
     private var lastWarningSecond: Int?
     @ObservationIgnored private var timerCancellable: AnyCancellable?
+    private var modelContext: ModelContext?
     private(set) var hasRecordedCompletion = false
     private var hasTrackedSessionStart = false
     private var hasTrackedSessionCompletion = false
+    private var stepTimelineRecorder = LiveClimbStepTimelineRecorder(intervalSeconds: 10)
+    private var activeDraft: ActiveHeadphoneWorkoutDraft?
+    private var lastDraftCheckpointAt: Date?
+    private let draftCheckpointInterval: TimeInterval = 2
+    private var promptedStepSyncInterruptionCounts: Set<Int> = []
+    private var skippedStepSyncInterruptionCounts: Set<Int> = []
+    private let stepSyncPromptMinimumGapDuration: TimeInterval = 20
 
     init(
         routine: Routine,
-        leaderboardService: LiveReplayLeaderboardServicing = LiveReplayLeaderboardService.shared
+        leaderboardService: LiveReplayLeaderboardServicing = LiveReplayLeaderboardService.shared,
+        motionSession: HeadphoneMotionSessionService = HeadphoneMotionSessionService(),
+        backgroundSessionService: LiveClimbBackgroundSessionService = .shared,
+        draftStore: ActiveHeadphoneWorkoutDraftStore = ActiveHeadphoneWorkoutDraftStore(),
+        recoveredDraft: ActiveHeadphoneWorkoutDraft? = nil
     ) {
         self.routine = routine
         intervals = routine.intervals
         totalDuration = routine.totalDuration
         replayContext = RoutineReplayLeaderboardContextBuilder.context(for: routine)
         self.leaderboardService = leaderboardService
+        self.motionSession = motionSession
+        self.backgroundSessionService = backgroundSessionService
+        self.draftStore = draftStore
+        self.activeDraft = recoveredDraft
     }
 
     var currentInterval: RoutineInterval? {
@@ -95,23 +121,12 @@ final class ActiveRoutineViewModel {
         replayContext.targetSteps
     }
 
-    var estimatedCurrentSteps: Int {
-        let estimatedSteps = intervals.indices.reduce(0.0) { total, index in
-            let interval = intervals[index]
-            let intervalElapsed: TimeInterval
+    var currentSteps: Int {
+        recordedResult?.steps ?? motionSession.stepCount
+    }
 
-            if index < currentIntervalIndex {
-                intervalElapsed = interval.duration
-            } else if index == currentIntervalIndex {
-                intervalElapsed = min(max(elapsedInInterval, 0), interval.duration)
-            } else {
-                intervalElapsed = 0
-            }
-
-            return total + (Double(interval.mappedStepsPerMinute) * intervalElapsed / 60)
-        }
-
-        return max(Int(estimatedSteps.rounded()), 0)
+    var shouldShowTrackingRecoveryStatus: Bool {
+        phase == .active && motionSession.trackingIntegrity.shouldShowRecoveryStatus
     }
 
     var leaderboardRows: [LiveReplayLeaderboardRow] {
@@ -119,25 +134,25 @@ final class ActiveRoutineViewModel {
             return [
                 LiveReplayLeaderboardRow.currentUser(
                     rank: nil,
-                    steps: estimatedCurrentSteps
+                    steps: currentSteps
                 )
             ]
         }
 
         return leaderboardWindow.locallyRankedRows(
-            currentSteps: estimatedCurrentSteps,
+            currentSteps: currentSteps,
             currentElapsedSeconds: Int(timelineElapsed.rounded(.down))
         )
     }
 
     var leaderboardProgressScale: Int {
         let fetchedMaxSteps = leaderboardWindow?.rows.map(\.finalSteps).max() ?? 0
-        return max(max(targetStepGoal, fetchedMaxSteps), estimatedCurrentSteps)
+        return max(max(targetStepGoal, fetchedMaxSteps), currentSteps)
     }
 
     var leaderboardCurrentProgressFraction: Double {
         guard leaderboardProgressScale > 0 else { return 0 }
-        return min(max(Double(estimatedCurrentSteps) / Double(leaderboardProgressScale), 0), 1)
+        return min(max(Double(currentSteps) / Double(leaderboardProgressScale), 0), 1)
     }
 
     var currentIntervalPositionText: String {
@@ -150,21 +165,53 @@ final class ActiveRoutineViewModel {
         remainingInInterval <= 3 && remainingInInterval > 0
     }
 
-    func startSession() {
+    func startSession(modelContext: ModelContext) {
+        AppDiagnosticsRecorder.shared.record(
+            "routine_headphone_session_start_requested",
+            details: [
+                "routine_id": routine.id.uuidString,
+                "resumed_from_draft": activeDraft == nil ? "false" : "true"
+            ]
+        )
         stopTimer()
+        self.modelContext = modelContext
         phase = .countdown
         countdownValue = 3
-        currentIntervalIndex = 0
-        elapsedInInterval = 0
-        actualElapsed = 0
-        timelineElapsed = 0
-        sessionStartedAt = nil
+        if let activeDraft {
+            restoreTimeline(to: activeDraft.durationSeconds)
+            actualElapsed = activeDraft.durationSeconds
+            sessionStartedAt = activeDraft.startedAt
+            recordedResult = nil
+            savedWorkout = nil
+            if let splitCurve = activeDraft.splitCurve {
+                stepTimelineRecorder.restore(curve: splitCurve)
+            }
+        } else {
+            currentIntervalIndex = 0
+            elapsedInInterval = 0
+            actualElapsed = 0
+            timelineElapsed = 0
+            sessionStartedAt = nil
+            recordedResult = nil
+            savedWorkout = nil
+            stepTimelineRecorder.reset()
+            stepTimelineRecorder.record(
+                elapsedSeconds: 0,
+                cumulativeSteps: 0,
+                source: .headphoneMotion
+            )
+        }
         isPaused = false
         showCompletionSheet = false
         showWorkoutForm = false
         shouldDismissAfterForm = false
+        errorMessage = nil
         leaderboardWindow = nil
         leaderboardFetchFailed = false
+        stepSyncPrompt = nil
+        stepSyncConfirmation = nil
+        promptedStepSyncInterruptionCounts.removeAll(keepingCapacity: true)
+        skippedStepSyncInterruptionCounts.removeAll(keepingCapacity: true)
         countdownStartDate = Date()
         lastTickDate = nil
         lastCountdownHapticValue = 3
@@ -187,7 +234,7 @@ final class ActiveRoutineViewModel {
             updateCountdown(at: now)
         case .active:
             updateActiveSession(at: now)
-        case .complete:
+        case .finishing, .saving, .complete, .failed:
             break
         }
     }
@@ -195,6 +242,15 @@ final class ActiveRoutineViewModel {
     func togglePause() {
         isPaused.toggle()
         lastTickDate = nil
+        do {
+            if isPaused {
+                try motionSession.pauseRecording()
+            } else {
+                try motionSession.resumeRecording()
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
         HapticsManager.shared.trigger(.mediumImpact)
     }
 
@@ -211,6 +267,7 @@ final class ActiveRoutineViewModel {
         if currentIntervalIndex >= intervals.count {
             completeWorkout()
         } else {
+            checkpointDraft(force: true)
             HapticsManager.shared.trigger(.heavyImpact)
         }
     }
@@ -225,7 +282,7 @@ final class ActiveRoutineViewModel {
                 context: analyticsContext,
                 surface: surface,
                 durationSeconds: analyticsDurationSeconds,
-                estimatedSteps: estimatedCurrentSteps,
+                steps: currentSteps,
                 progressFraction: progress
             )
         )
@@ -248,10 +305,63 @@ final class ActiveRoutineViewModel {
                 context: analyticsContext,
                 surface: surface,
                 durationSeconds: analyticsDurationSeconds,
-                estimatedSteps: estimatedCurrentSteps,
+                steps: currentSteps,
                 progressFraction: progress
             )
         )
+    }
+
+    func evaluateStepSyncPrompt() {
+        guard phase == .active,
+              stepSyncPrompt == nil,
+              motionSession.sampleCount > 0,
+              !motionSession.trackingIntegrity.isCurrentlyUnavailable,
+              let resolvedGap = motionSession.lastResolvedTrackingGap,
+              resolvedGap.duration >= stepSyncPromptMinimumGapDuration,
+              resolvedGap.interruptionCount > 0,
+              !promptedStepSyncInterruptionCounts.contains(resolvedGap.interruptionCount),
+              !skippedStepSyncInterruptionCounts.contains(resolvedGap.interruptionCount) else {
+            return
+        }
+
+        promptedStepSyncInterruptionCounts.insert(resolvedGap.interruptionCount)
+        stepSyncPrompt = RoutineStepSyncPrompt(
+            detectedSteps: motionSession.stepCount,
+            gapDuration: resolvedGap.duration,
+            interruptionCount: resolvedGap.interruptionCount
+        )
+    }
+
+    func syncCurrentMachineSteps(_ correctedSteps: Int) {
+        guard let prompt = stepSyncPrompt else { return }
+
+        guard let correction = motionSession.applyStepCorrection(
+            correctedSteps: correctedSteps,
+            trackingGapDuration: prompt.gapDuration
+        ) else {
+            stepSyncPrompt = nil
+            return
+        }
+
+        _ = stepTimelineRecorder.recordCorrection(correction)
+        stepSyncPrompt = nil
+        stepSyncConfirmation = RoutineStepSyncConfirmation(correctedSteps: correction.correctedSteps)
+        checkpointDraft(force: true)
+
+        Task { [weak self] in
+            await self?.refreshReplayLeaderboardIfNeeded(force: true)
+        }
+    }
+
+    func skipStepSyncPrompt() {
+        if let prompt = stepSyncPrompt {
+            skippedStepSyncInterruptionCounts.insert(prompt.interruptionCount)
+        }
+        stepSyncPrompt = nil
+    }
+
+    func dismissStepSyncConfirmation() {
+        stepSyncConfirmation = nil
     }
 
     func refreshReplayLeaderboardIfNeeded(force: Bool = false) async {
@@ -261,7 +371,7 @@ final class ActiveRoutineViewModel {
             let window = try await leaderboardService.refreshIfNeeded(
                 context: replayContext,
                 elapsedSeconds: Int(timelineElapsed.rounded(.down)),
-                currentSteps: estimatedCurrentSteps,
+                currentSteps: currentSteps,
                 force: force
             )
 
@@ -273,6 +383,129 @@ final class ActiveRoutineViewModel {
         } catch {
             leaderboardFetchFailed = true
         }
+    }
+
+    func saveRecordedWorkout(
+        modelContext: ModelContext,
+        reason: HeadphoneMotionSessionStopReason = .userStopped
+    ) async throws -> Workout {
+        guard phase != .saving else {
+            if let savedWorkout { return savedWorkout }
+            throw ActiveRoutineSessionError.saveInProgress
+        }
+
+        if recordedResult == nil {
+            await finishRecording(reason: reason, showCompletion: false)
+        }
+
+        guard let result = recordedResult else {
+            throw ActiveRoutineSessionError.noRecordedResult
+        }
+        guard result.hasRecordedSteps else {
+            throw ActiveRoutineSessionError.noStepsRecorded
+        }
+
+        phase = .saving
+        errorMessage = nil
+
+        let splitCurve = stepTimelineRecorder.curve
+        let metadata = HeadphoneMotionWorkoutMetadata(
+            sampleCount: result.sampleCount,
+            trackingMode: .routine,
+            climbId: nil,
+            routineId: routine.id.uuidString,
+            routineTemplateId: routine.templateId,
+            targetStepCount: targetStepGoal,
+            targetDurationSeconds: totalDuration,
+            stopReason: result.stopReason,
+            splitCurve: splitCurve,
+            trackingIntegrity: result.trackingIntegrity,
+            stepCorrections: result.stepCorrections
+        )
+        let workout = Workout(
+            name: routine.name,
+            date: result.startedAt,
+            duration: max(result.duration, 1),
+            steps: result.steps,
+            floors: Workout.stepsToFloors(result.steps),
+            stepsPerFloor: Workout.defaultStepsPerFloor,
+            source: .headphoneMotion,
+            deviceModel: UIDevice.current.model,
+            sourceMetadata: metadata.jsonString,
+            weightConfiguration: routine.defaultWeightConfiguration
+        )
+
+        modelContext.insert(workout)
+        try modelContext.save()
+        try WorkoutParticipationService.addRoutineParticipationIfNeeded(
+            for: workout,
+            attribution: RoutineWorkoutAttribution(
+                routineId: routine.id,
+                routineSource: routine.source,
+                templateId: routine.templateId
+            ),
+            userId: workout.ownerUserId,
+            modelContext: modelContext
+        )
+        try modelContext.save()
+        try WorkoutMutationHandler.shared.workoutsDidChange(
+            modelContext: modelContext,
+            mutation: .created([LeaderboardWorkoutSnapshot(workout: workout)]),
+            newWorkouts: [workout],
+            changedWorkouts: [workout]
+        )
+
+        Task { @MainActor in
+            await WorkoutImportCoordinator.shared.enrichInAppWorkoutWithAppleHealthIfPossible(
+                workout,
+                modelContext: modelContext
+            )
+        }
+
+        savedWorkout = workout
+        phase = .complete
+        clearDraft(modelContext: modelContext)
+        trackWorkoutSaved(workout)
+        AppDiagnosticsRecorder.shared.record(
+            "routine_headphone_session_saved",
+            details: [
+                "routine_id": routine.id.uuidString,
+                "steps": String(workout.steps),
+                "duration_seconds": String(Int(workout.duration.rounded(.down)))
+            ]
+        )
+        return workout
+    }
+
+    func discard(modelContext: ModelContext) async {
+        if motionSession.status.isRecording || motionSession.status.isPaused {
+            _ = try? await motionSession.stopRecording(reason: .discarded)
+        }
+        AppDiagnosticsRecorder.shared.record(
+            "routine_headphone_session_discarded",
+            details: [
+                "routine_id": routine.id.uuidString,
+                "steps": String(currentSteps),
+                "duration_seconds": String(Int(actualElapsed.rounded(.down)))
+            ]
+        )
+        backgroundSessionService.stop()
+        clearDraft(modelContext: modelContext)
+    }
+
+    func checkpointForLifecycleChange() {
+        guard phase == .active || phase == .finishing else { return }
+
+        recordLiveSplitSample()
+        checkpointDraft(force: true)
+        AppDiagnosticsRecorder.shared.record(
+            "routine_headphone_session_lifecycle_checkpoint",
+            details: [
+                "routine_id": routine.id.uuidString,
+                "steps": String(currentSteps),
+                "duration_seconds": String(Int(actualElapsed.rounded(.down)))
+            ]
+        )
     }
 
     private func updateCountdown(at now: Date) {
@@ -291,8 +524,17 @@ final class ActiveRoutineViewModel {
         }
 
         if elapsed >= 3 {
+            do {
+                try beginHeadphoneRecordingIfNeeded(startedAt: now)
+            } catch {
+                phase = .failed(error.localizedDescription)
+                errorMessage = error.localizedDescription
+                stopTimer()
+                return
+            }
+
             phase = .active
-            sessionStartedAt = now
+            sessionStartedAt = activeDraft?.startedAt ?? now
             self.countdownStartDate = nil
             lastTickDate = now
             trackSessionStartIfNeeded()
@@ -317,8 +559,11 @@ final class ActiveRoutineViewModel {
         guard delta > 0 else { return }
 
         elapsedInInterval += delta
-        actualElapsed += delta
+        actualElapsed = motionSession.duration
         timelineElapsed += delta
+        recordLiveSplitSample()
+        checkpointDraft()
+        evaluateStepSyncPrompt()
 
         triggerEndOfIntervalWarningsIfNeeded()
 
@@ -348,13 +593,258 @@ final class ActiveRoutineViewModel {
 
     private func completeWorkout() {
         stopTimer()
-        phase = .complete
+        phase = .finishing
         isPaused = false
         lastTickDate = nil
         lastWarningSecond = nil
-        showCompletionSheet = true
-        trackSessionCompletionIfNeeded()
-        HapticsManager.shared.trigger(.success)
+        Task { @MainActor in
+            await finishRecording(reason: .targetReached, showCompletion: true)
+        }
+    }
+
+    private func beginHeadphoneRecordingIfNeeded(startedAt: Date) throws {
+        guard !motionSession.status.isRecording else { return }
+        guard let modelContext else {
+            throw ActiveRoutineSessionError.missingModelContext
+        }
+
+        let preexistingDraft = activeDraft
+        AppDiagnosticsRecorder.shared.record(
+            "routine_headphone_recording_start_requested",
+            details: [
+                "routine_id": routine.id.uuidString,
+                "resumed_from_draft": preexistingDraft == nil ? "false" : "true"
+            ]
+        )
+        do {
+            let draft = try prepareDraftIfNeeded(startedAt: startedAt, modelContext: modelContext)
+            try motionSession.startRecording(resumeState: draft?.resumeState)
+            backgroundSessionService.start(at: draft?.startedAt ?? startedAt)
+            recordLiveSplitSample()
+            checkpointDraft(force: true)
+            AppDiagnosticsRecorder.shared.record(
+                "routine_headphone_recording_started",
+                details: draft?.diagnosticDetails ?? ["routine_id": routine.id.uuidString]
+            )
+        } catch {
+            if preexistingDraft == nil,
+               let activeDraft,
+               activeDraft.steps == 0 {
+                ActiveHeadphoneWorkoutRuntimeRegistry.shared.markInactive(activeDraft)
+                try? draftStore.delete(activeDraft, in: modelContext)
+                self.activeDraft = nil
+            }
+            AppDiagnosticsRecorder.shared.record(
+                "routine_headphone_recording_start_failed",
+                level: .error,
+                details: [
+                    "routine_id": routine.id.uuidString,
+                    "error": error.localizedDescription
+                ]
+            )
+            throw error
+        }
+    }
+
+    private func prepareDraftIfNeeded(
+        startedAt: Date,
+        modelContext: ModelContext
+    ) throws -> ActiveHeadphoneWorkoutDraft? {
+        if let activeDraft {
+            draftStore.setActiveDraftID(activeDraft.id)
+            ActiveHeadphoneWorkoutRuntimeRegistry.shared.markActive(activeDraft)
+            return activeDraft
+        }
+
+        let draft = ActiveHeadphoneWorkoutDraft(
+            sessionID: UUID().uuidString,
+            kind: .routine,
+            startedAt: startedAt,
+            title: routine.name,
+            subtitle: routine.totalDurationFormatted,
+            workoutName: routine.name,
+            targetStepCount: targetStepGoal,
+            targetDurationSeconds: totalDuration,
+            routineId: routine.id,
+            routineSource: routine.source,
+            routineTemplateId: routine.templateId,
+            routineDifficulty: routine.difficulty,
+            routineIntervalCount: routine.intervalCount,
+            routineWeightConfiguration: routine.defaultWeightConfiguration
+        )
+        try draftStore.insert(draft, in: modelContext)
+        activeDraft = draft
+        ActiveHeadphoneWorkoutRuntimeRegistry.shared.markActive(draft)
+        return draft
+    }
+
+    private func finishRecording(
+        reason: HeadphoneMotionSessionStopReason,
+        showCompletion: Bool
+    ) async {
+        guard recordedResult == nil else {
+            if showCompletion {
+                phase = .complete
+                showCompletionSheet = true
+                trackSessionCompletionIfNeeded()
+                HapticsManager.shared.trigger(.success)
+            }
+            return
+        }
+
+        do {
+            let result: HeadphoneMotionSessionResult
+            if motionSession.status.isRecording || motionSession.status.isPaused {
+                result = try await motionSession.stopRecording(reason: reason)
+            } else if let activeDraft {
+                result = HeadphoneMotionSessionResult(
+                    startedAt: activeDraft.startedAt,
+                    endedAt: activeDraft.lastCheckpointAt,
+                    duration: activeDraft.durationSeconds,
+                    steps: activeDraft.steps,
+                    sampleCount: activeDraft.sampleCount,
+                    stopReason: reason,
+                    trackingIntegrity: activeDraft.trackingIntegrity,
+                    stepCorrections: activeDraft.stepCorrections
+                )
+            } else {
+                throw ActiveRoutineSessionError.noRecordedResult
+            }
+
+            let finalSplitCurve = stepTimelineRecorder.record(
+                elapsedSeconds: Int(result.duration.rounded(.down)),
+                cumulativeSteps: result.steps,
+                source: .headphoneMotion
+            )
+            recordedResult = result
+            actualElapsed = result.duration
+            checkpointDraft(
+                splitCurve: finalSplitCurve,
+                result: result,
+                status: .stopped,
+                force: true
+            )
+            backgroundSessionService.stop()
+            phase = .complete
+
+            if showCompletion {
+                showCompletionSheet = true
+                trackSessionCompletionIfNeeded()
+                HapticsManager.shared.trigger(.success)
+            }
+            AppDiagnosticsRecorder.shared.record(
+                "routine_headphone_recording_finished",
+                details: [
+                    "routine_id": routine.id.uuidString,
+                    "reason": reason.rawValue,
+                    "steps": String(result.steps),
+                    "duration_seconds": String(Int(result.duration.rounded(.down)))
+                ]
+            )
+        } catch {
+            backgroundSessionService.stop()
+            phase = .failed(error.localizedDescription)
+            errorMessage = error.localizedDescription
+            AppDiagnosticsRecorder.shared.record(
+                "routine_headphone_recording_finish_failed",
+                level: .error,
+                details: [
+                    "routine_id": routine.id.uuidString,
+                    "reason": reason.rawValue,
+                    "error": error.localizedDescription
+                ]
+            )
+        }
+    }
+
+    private func recordLiveSplitSample() {
+        guard phase == .active || phase == .finishing else { return }
+
+        _ = stepTimelineRecorder.record(
+            elapsedSeconds: Int(motionSession.duration.rounded(.down)),
+            cumulativeSteps: motionSession.stepCount,
+            source: .headphoneMotion
+        )
+    }
+
+    private func checkpointDraft(
+        splitCurve: LiveReplaySplitCurve? = nil,
+        result: HeadphoneMotionSessionResult? = nil,
+        status: ActiveHeadphoneWorkoutDraftStatus = .recording,
+        force: Bool = false
+    ) {
+        guard let modelContext,
+              let activeDraft else { return }
+
+        let now = Date()
+        if !force,
+           let lastDraftCheckpointAt,
+           now.timeIntervalSince(lastDraftCheckpointAt) < draftCheckpointInterval {
+            return
+        }
+
+        activeDraft.applyCheckpoint(
+            steps: result?.steps ?? currentSteps,
+            durationSeconds: result?.duration ?? motionSession.duration,
+            sampleCount: result?.sampleCount ?? motionSession.sampleCount,
+            splitCurve: splitCurve ?? stepTimelineRecorder.curve,
+            trackingIntegrity: result?.trackingIntegrity ?? motionSession.trackingIntegrity,
+            stepCorrections: result?.stepCorrections ?? motionSession.stepCorrectionsSnapshot,
+            status: status,
+            checkpointedAt: now
+        )
+
+        do {
+            try modelContext.save()
+            lastDraftCheckpointAt = now
+        } catch {
+#if DEBUG
+            debugLog("Routine draft checkpoint failed: \(error.localizedDescription)")
+#endif
+        }
+    }
+
+    private func clearDraft(modelContext: ModelContext) {
+        guard let activeDraft else {
+            draftStore.clearActiveDraftID()
+            return
+        }
+
+        ActiveHeadphoneWorkoutRuntimeRegistry.shared.markInactive(activeDraft)
+        do {
+            try draftStore.delete(activeDraft, in: modelContext)
+        } catch {
+#if DEBUG
+            debugLog("Routine draft cleanup failed: \(error.localizedDescription)")
+#endif
+            draftStore.clearActiveDraftID(activeDraft.id)
+        }
+        self.activeDraft = nil
+        lastDraftCheckpointAt = nil
+    }
+
+    private func restoreTimeline(to elapsed: TimeInterval) {
+        let clampedElapsed = min(max(elapsed, 0), totalDuration)
+        timelineElapsed = clampedElapsed
+        currentIntervalIndex = 0
+        elapsedInInterval = 0
+
+        var remainingElapsed = clampedElapsed
+        for (index, interval) in intervals.enumerated() {
+            if remainingElapsed >= interval.duration {
+                currentIntervalIndex = index + 1
+                remainingElapsed -= interval.duration
+            } else {
+                currentIntervalIndex = index
+                elapsedInInterval = remainingElapsed
+                break
+            }
+        }
+
+        if currentIntervalIndex >= intervals.count {
+            currentIntervalIndex = intervals.count
+            elapsedInInterval = 0
+        }
     }
 
     private var analyticsContext: RoutineSessionAnalyticsContext {
@@ -383,7 +873,7 @@ final class ActiveRoutineViewModel {
             WorkoutSessionAnalyticsEvent.routineCompleted(
                 context: analyticsContext,
                 durationSeconds: analyticsDurationSeconds,
-                estimatedSteps: estimatedCurrentSteps,
+                steps: currentSteps,
                 progressFraction: progress
             )
         )
@@ -408,5 +898,40 @@ final class ActiveRoutineViewModel {
 enum ActiveRoutinePhase: Equatable {
     case countdown
     case active
+    case finishing
+    case saving
     case complete
+    case failed(String)
+}
+
+enum ActiveRoutineSessionError: LocalizedError {
+    case missingModelContext
+    case noRecordedResult
+    case noStepsRecorded
+    case saveInProgress
+
+    var errorDescription: String? {
+        switch self {
+        case .missingModelContext:
+            return "Routine tracking is not ready yet."
+        case .noRecordedResult:
+            return "No routine tracking result was recorded."
+        case .noStepsRecorded:
+            return "No steps were recorded for this routine."
+        case .saveInProgress:
+            return "This routine is already saving."
+        }
+    }
+}
+
+struct RoutineStepSyncPrompt: Identifiable, Equatable {
+    let id = UUID()
+    let detectedSteps: Int
+    let gapDuration: TimeInterval
+    let interruptionCount: Int
+}
+
+struct RoutineStepSyncConfirmation: Identifiable, Equatable {
+    let id = UUID()
+    let correctedSteps: Int
 }

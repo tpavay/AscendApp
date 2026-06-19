@@ -47,6 +47,24 @@ enum LiveClimbSessionMode: Equatable {
         }
     }
 
+    var justClimbGoal: JustClimbGoal? {
+        switch self {
+        case .liveClimb:
+            return nil
+        case .justClimb(let goal):
+            return goal
+        }
+    }
+
+    var draftKind: ActiveHeadphoneWorkoutDraftKind {
+        switch self {
+        case .liveClimb:
+            return .liveClimb
+        case .justClimb:
+            return .justClimb
+        }
+    }
+
     var title: String {
         switch self {
         case .liveClimb(let climb):
@@ -144,13 +162,14 @@ final class LiveClimbSessionViewModel {
     let mode: LiveClimbSessionMode
     let motionSession: HeadphoneMotionSessionService
     let analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint
-    let liveActivitySessionID = UUID().uuidString
+    let liveActivitySessionID: String
 
     private let climbService: ClimbService
     private let settingsManager: SettingsManager
     private let leaderboardService: LiveReplayLeaderboardServicing
     private let liveActivityManager: LiveClimbActivityManager
     private let backgroundSessionService: LiveClimbBackgroundSessionService
+    private let draftStore: ActiveHeadphoneWorkoutDraftStore
 
     private(set) var phase: LiveClimbSessionPhase = .idle
     private(set) var recordedResult: HeadphoneMotionSessionResult?
@@ -169,6 +188,9 @@ final class LiveClimbSessionViewModel {
     private var promptedStepSyncInterruptionCounts: Set<Int> = []
     private var skippedStepSyncInterruptionCounts: Set<Int> = []
     private let stepSyncPromptMinimumGapDuration: TimeInterval = 20
+    private var activeDraft: ActiveHeadphoneWorkoutDraft?
+    private var lastDraftCheckpointAt: Date?
+    private let draftCheckpointInterval: TimeInterval = 2
 
     init(
         climb: Climb,
@@ -178,16 +200,22 @@ final class LiveClimbSessionViewModel {
         settingsManager: SettingsManager = .shared,
         leaderboardService: LiveReplayLeaderboardServicing = LiveReplayLeaderboardService.shared,
         liveActivityManager: LiveClimbActivityManager = .shared,
-        backgroundSessionService: LiveClimbBackgroundSessionService = LiveClimbBackgroundSessionService()
+        backgroundSessionService: LiveClimbBackgroundSessionService = .shared,
+        draftStore: ActiveHeadphoneWorkoutDraftStore = ActiveHeadphoneWorkoutDraftStore(),
+        liveActivitySessionID: String = UUID().uuidString,
+        recoveredDraft: ActiveHeadphoneWorkoutDraft? = nil
     ) {
         self.mode = .liveClimb(climb)
         self.analyticsEntryPoint = analyticsEntryPoint
+        self.liveActivitySessionID = liveActivitySessionID
         self.motionSession = motionSession
         self.climbService = climbService
         self.settingsManager = settingsManager
         self.leaderboardService = leaderboardService
         self.liveActivityManager = liveActivityManager
         self.backgroundSessionService = backgroundSessionService
+        self.draftStore = draftStore
+        self.activeDraft = recoveredDraft
         self.stepTimelineRecorder = LiveClimbStepTimelineRecorder(intervalSeconds: 10)
         self.motionSession.setStepSampleHandler { [weak self] sample in
             self?.recordLiveStepSample(sample)
@@ -202,16 +230,22 @@ final class LiveClimbSessionViewModel {
         settingsManager: SettingsManager = .shared,
         leaderboardService: LiveReplayLeaderboardServicing = LiveReplayLeaderboardService.shared,
         liveActivityManager: LiveClimbActivityManager = .shared,
-        backgroundSessionService: LiveClimbBackgroundSessionService = LiveClimbBackgroundSessionService()
+        backgroundSessionService: LiveClimbBackgroundSessionService = .shared,
+        draftStore: ActiveHeadphoneWorkoutDraftStore = ActiveHeadphoneWorkoutDraftStore(),
+        liveActivitySessionID: String = UUID().uuidString,
+        recoveredDraft: ActiveHeadphoneWorkoutDraft? = nil
     ) {
         self.mode = .justClimb(justClimbGoal)
         self.analyticsEntryPoint = analyticsEntryPoint
+        self.liveActivitySessionID = liveActivitySessionID
         self.motionSession = motionSession
         self.climbService = climbService
         self.settingsManager = settingsManager
         self.leaderboardService = leaderboardService
         self.liveActivityManager = liveActivityManager
         self.backgroundSessionService = backgroundSessionService
+        self.draftStore = draftStore
+        self.activeDraft = recoveredDraft
         self.stepTimelineRecorder = LiveClimbStepTimelineRecorder(intervalSeconds: 10)
         self.motionSession.setStepSampleHandler { [weak self] sample in
             self?.recordLiveStepSample(sample)
@@ -387,20 +421,46 @@ final class LiveClimbSessionViewModel {
     func start(modelContext: ModelContext) {
         guard phase == .idle else { return }
 
+        let preexistingDraft = activeDraft
+        AppDiagnosticsRecorder.shared.record(
+            "headphone_session_start_requested",
+            details: [
+                "kind": mode.draftKind.rawValue,
+                "session_id": liveActivitySessionID,
+                "resumed_from_draft": preexistingDraft == nil ? "false" : "true"
+            ]
+        )
         do {
             stepTimelineRecorder.reset()
+            if let splitCurve = activeDraft?.splitCurve {
+                stepTimelineRecorder.restore(curve: splitCurve)
+            }
             stepSyncPrompt = nil
             stepSyncConfirmation = nil
             promptedStepSyncInterruptionCounts.removeAll(keepingCapacity: true)
             skippedStepSyncInterruptionCounts.removeAll(keepingCapacity: true)
-            stepTimelineRecorder.record(
-                elapsedSeconds: 0,
-                cumulativeSteps: 0,
-                source: .headphoneMotion
+            if activeDraft == nil {
+                stepTimelineRecorder.record(
+                    elapsedSeconds: 0,
+                    cumulativeSteps: 0,
+                    source: .headphoneMotion
+                )
+            }
+
+            let draft = try prepareDraftIfNeeded(modelContext: modelContext)
+            try motionSession.startRecording(
+                targetStepCount: targetRemainingSteps,
+                resumeState: draft?.resumeState
             )
-            try motionSession.startRecording(targetStepCount: targetRemainingSteps)
-            backgroundSessionService.start()
+            backgroundSessionService.start(at: draft?.startedAt ?? Date())
             phase = .recording
+            AppDiagnosticsRecorder.shared.record(
+                "headphone_session_recording_started",
+                details: draft?.diagnosticDetails ?? [
+                    "kind": mode.draftKind.rawValue,
+                    "session_id": liveActivitySessionID
+                ]
+            )
             switch mode {
             case .liveClimb(let climb):
                 TelemetryManager.shared.track(
@@ -420,12 +480,30 @@ final class LiveClimbSessionViewModel {
                 )
             }
             recordLiveSplitSample()
+            checkpointDraft(modelContext: modelContext, force: true)
             LiveClimbSessionCoordinator.shared.setActive(self)
             Task { [weak self] in
                 await self?.beginLiveActivity()
             }
         } catch {
+            if preexistingDraft == nil,
+               let activeDraft,
+               activeDraft.status == .recording,
+               activeDraft.steps == 0 {
+                ActiveHeadphoneWorkoutRuntimeRegistry.shared.markInactive(activeDraft)
+                try? draftStore.delete(activeDraft, in: modelContext)
+                self.activeDraft = nil
+            }
             phase = .failed(error.localizedDescription)
+            AppDiagnosticsRecorder.shared.record(
+                "headphone_session_start_failed",
+                level: .error,
+                details: [
+                    "kind": mode.draftKind.rawValue,
+                    "session_id": liveActivitySessionID,
+                    "error": error.localizedDescription
+                ]
+            )
         }
     }
 
@@ -440,6 +518,14 @@ final class LiveClimbSessionViewModel {
 
         phase = .saving
         stepSyncPrompt = nil
+        AppDiagnosticsRecorder.shared.record(
+            "headphone_session_finish_requested",
+            details: [
+                "kind": mode.draftKind.rawValue,
+                "session_id": liveActivitySessionID,
+                "reason": reason.rawValue
+            ]
+        )
         await updateLiveActivity(status: .saving, force: true)
         defer {
             backgroundSessionService.stop()
@@ -456,6 +542,13 @@ final class LiveClimbSessionViewModel {
                 cumulativeSteps: result.steps,
                 source: .headphoneMotion
             )
+            checkpointDraft(
+                modelContext: modelContext,
+                splitCurve: finalSplitCurve,
+                result: result,
+                status: .stopped,
+                force: true
+            )
             let workout = try saveWorkout(
                 from: result,
                 splitCurve: finalSplitCurve,
@@ -468,10 +561,30 @@ final class LiveClimbSessionViewModel {
             let savedStatus = savedAttemptStatus(modelContext: modelContext)
             trackSavedAttempt(result: result, status: savedStatus)
             phase = .saved(savedStatus)
+            clearDraft(modelContext: modelContext)
+            AppDiagnosticsRecorder.shared.record(
+                "headphone_session_saved",
+                details: [
+                    "kind": mode.draftKind.rawValue,
+                    "session_id": liveActivitySessionID,
+                    "steps": String(result.steps),
+                    "duration_seconds": String(Int(result.duration.rounded(.down))),
+                    "status": savedStatus.rawValue
+                ]
+            )
             await liveActivityManager.end(status: .finished)
             LiveClimbSessionCoordinator.shared.clearIfActive(sessionID: liveActivitySessionID)
         } catch {
             phase = .failed(error.localizedDescription)
+            AppDiagnosticsRecorder.shared.record(
+                "headphone_session_save_failed",
+                level: .error,
+                details: [
+                    "kind": mode.draftKind.rawValue,
+                    "session_id": liveActivitySessionID,
+                    "error": error.localizedDescription
+                ]
+            )
             await liveActivityManager.end(status: .failed)
             LiveClimbSessionCoordinator.shared.clearIfActive(sessionID: liveActivitySessionID)
         }
@@ -504,7 +617,17 @@ final class LiveClimbSessionViewModel {
         if motionSession.status.isRecording {
             _ = try? await motionSession.stopRecording(reason: .discarded)
         }
+        AppDiagnosticsRecorder.shared.record(
+            "headphone_session_discarded",
+            details: [
+                "kind": mode.draftKind.rawValue,
+                "session_id": liveActivitySessionID,
+                "steps": String(totalRecordedSteps),
+                "duration_seconds": String(Int(displayedDuration.rounded(.down)))
+            ]
+        )
         backgroundSessionService.stop()
+        clearDraft(modelContext: modelContext)
 
         await liveActivityManager.end(status: .ended)
         LiveClimbSessionCoordinator.shared.clearIfActive(sessionID: liveActivitySessionID)
@@ -517,19 +640,20 @@ final class LiveClimbSessionViewModel {
             return
         }
 
-        let trackingIntegrity = motionSession.trackingIntegrity
-        guard trackingIntegrity.currentUnavailableDuration >= stepSyncPromptMinimumGapDuration,
-              trackingIntegrity.interruptionCount > 0,
-              !promptedStepSyncInterruptionCounts.contains(trackingIntegrity.interruptionCount),
-              !skippedStepSyncInterruptionCounts.contains(trackingIntegrity.interruptionCount) else {
+        guard !motionSession.trackingIntegrity.isCurrentlyUnavailable,
+              let resolvedGap = motionSession.lastResolvedTrackingGap,
+              resolvedGap.duration >= stepSyncPromptMinimumGapDuration,
+              resolvedGap.interruptionCount > 0,
+              !promptedStepSyncInterruptionCounts.contains(resolvedGap.interruptionCount),
+              !skippedStepSyncInterruptionCounts.contains(resolvedGap.interruptionCount) else {
             return
         }
 
-        promptedStepSyncInterruptionCounts.insert(trackingIntegrity.interruptionCount)
+        promptedStepSyncInterruptionCounts.insert(resolvedGap.interruptionCount)
         stepSyncPrompt = LiveStepSyncPrompt(
             detectedSteps: motionSession.stepCount,
-            gapDuration: trackingIntegrity.currentUnavailableDuration,
-            interruptionCount: trackingIntegrity.interruptionCount
+            gapDuration: resolvedGap.duration,
+            interruptionCount: resolvedGap.interruptionCount
         )
     }
 
@@ -565,7 +689,7 @@ final class LiveClimbSessionViewModel {
         stepSyncConfirmation = nil
     }
 
-    func recordLiveSplitSample() {
+    func recordLiveSplitSample(modelContext: ModelContext? = nil) {
         guard phase == .recording,
               motionSession.status.isRecording else { return }
 
@@ -573,6 +697,34 @@ final class LiveClimbSessionViewModel {
             elapsedSeconds: Int(motionSession.duration.rounded(.down)),
             cumulativeSteps: motionSession.stepCount,
             source: .headphoneMotion
+        )
+        if let modelContext {
+            checkpointDraft(modelContext: modelContext)
+        }
+    }
+
+    func checkpointForLifecycleChange(modelContext: ModelContext) {
+        guard phase == .recording,
+              motionSession.status.isRecording else { return }
+
+        let curve = stepTimelineRecorder.record(
+            elapsedSeconds: Int(motionSession.duration.rounded(.down)),
+            cumulativeSteps: motionSession.stepCount,
+            source: .headphoneMotion
+        )
+        checkpointDraft(
+            modelContext: modelContext,
+            splitCurve: curve,
+            force: true
+        )
+        AppDiagnosticsRecorder.shared.record(
+            "headphone_session_lifecycle_checkpoint",
+            details: [
+                "kind": mode.draftKind.rawValue,
+                "session_id": liveActivitySessionID,
+                "steps": String(totalRecordedSteps),
+                "duration_seconds": String(Int(displayedDuration.rounded(.down)))
+            ]
         )
     }
 
@@ -619,7 +771,7 @@ final class LiveClimbSessionViewModel {
                 leaderboardWindow = window
 #if DEBUG
                 let duration = Date().timeIntervalSince(refreshStartedAt)
-                print(
+                debugLog(
                     "Live replay leaderboard fetched \(replayContext.contextKey) " +
                     "bucket=\(window.bucketIndex) rank=\(window.currentUserRank ?? -1) " +
                     "rows=\(window.rows.count) force=\(forceFreshWindow) " +
@@ -628,7 +780,7 @@ final class LiveClimbSessionViewModel {
 #endif
             } else {
 #if DEBUG
-                print(
+                debugLog(
                     "Live replay leaderboard skipped \(replayContext.contextKey) " +
                     "force=\(forceFreshWindow) steps=\(totalRecordedSteps)"
                 )
@@ -638,7 +790,7 @@ final class LiveClimbSessionViewModel {
             leaderboardFetchFailed = false
         } catch {
 #if DEBUG
-            print("Live replay leaderboard fetch failed for \(replayContext.contextKey): \(error.localizedDescription)")
+            debugLog("Live replay leaderboard fetch failed for \(replayContext.contextKey): \(error.localizedDescription)")
 #endif
             leaderboardFetchFailed = true
         }
@@ -648,6 +800,87 @@ final class LiveClimbSessionViewModel {
 
     func updateLiveActivity(force: Bool = false) async {
         await updateLiveActivity(status: nil, force: force)
+    }
+
+    private func prepareDraftIfNeeded(modelContext: ModelContext) throws -> ActiveHeadphoneWorkoutDraft? {
+        if let activeDraft {
+            draftStore.setActiveDraftID(activeDraft.id)
+            ActiveHeadphoneWorkoutRuntimeRegistry.shared.markActive(activeDraft)
+            return activeDraft
+        }
+
+        let draft = ActiveHeadphoneWorkoutDraft(
+            sessionID: liveActivitySessionID,
+            kind: mode.draftKind,
+            title: mode.title,
+            subtitle: mode.subtitle,
+            workoutName: mode.workoutName,
+            targetStepCount: mode.targetStepCount,
+            targetDurationSeconds: mode.targetDuration,
+            climbId: mode.climb?.id,
+            justClimbGoalKind: mode.justClimbGoal?.kind,
+            justClimbDurationMinutes: mode.justClimbGoal?.durationMinutes,
+            justClimbStepCount: mode.justClimbGoal?.stepCount
+        )
+        try draftStore.insert(draft, in: modelContext)
+        activeDraft = draft
+        ActiveHeadphoneWorkoutRuntimeRegistry.shared.markActive(draft)
+        return draft
+    }
+
+    private func checkpointDraft(
+        modelContext: ModelContext,
+        splitCurve: LiveReplaySplitCurve? = nil,
+        result: HeadphoneMotionSessionResult? = nil,
+        status: ActiveHeadphoneWorkoutDraftStatus = .recording,
+        force: Bool = false
+    ) {
+        guard let activeDraft else { return }
+
+        let now = Date()
+        if !force,
+           let lastDraftCheckpointAt,
+           now.timeIntervalSince(lastDraftCheckpointAt) < draftCheckpointInterval {
+            return
+        }
+
+        activeDraft.applyCheckpoint(
+            steps: result?.steps ?? totalRecordedSteps,
+            durationSeconds: result?.duration ?? displayedDuration,
+            sampleCount: result?.sampleCount ?? motionSession.sampleCount,
+            splitCurve: splitCurve ?? stepTimelineRecorder.curve,
+            trackingIntegrity: result?.trackingIntegrity ?? motionSession.trackingIntegrity,
+            stepCorrections: result?.stepCorrections ?? motionSession.stepCorrectionsSnapshot,
+            status: status,
+            checkpointedAt: now
+        )
+        do {
+            try modelContext.save()
+            lastDraftCheckpointAt = now
+        } catch {
+#if DEBUG
+            debugLog("Active headphone draft checkpoint failed: \(error.localizedDescription)")
+#endif
+        }
+    }
+
+    private func clearDraft(modelContext: ModelContext) {
+        guard let activeDraft else {
+            draftStore.clearActiveDraftID()
+            return
+        }
+
+        ActiveHeadphoneWorkoutRuntimeRegistry.shared.markInactive(activeDraft)
+        do {
+            try draftStore.delete(activeDraft, in: modelContext)
+        } catch {
+#if DEBUG
+            debugLog("Active headphone draft cleanup failed: \(error.localizedDescription)")
+#endif
+            draftStore.clearActiveDraftID(activeDraft.id)
+        }
+        self.activeDraft = nil
+        lastDraftCheckpointAt = nil
     }
 
     private func shouldForceFreshLeaderboardWindowRefresh(now: Date) -> Bool {

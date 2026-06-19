@@ -20,6 +20,10 @@ final class LiveClimbSessionCoordinator {
         return activeViewModel
     }
 
+    var hasActiveSession: Bool {
+        activeViewModel != nil
+    }
+
     func clearIfActive(sessionID: String) {
         guard activeViewModel?.liveActivitySessionID == sessionID else { return }
         activeViewModel = nil

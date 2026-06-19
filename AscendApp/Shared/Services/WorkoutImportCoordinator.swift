@@ -28,10 +28,6 @@ struct ImportBatchResult {
     var failedCount: Int { failedCandidateIDs.count }
 }
 
-protocol WorkoutDataProviding {
-    func refreshCandidates(existingIndex: WorkoutImportCoordinator.ExistingWorkoutIndex) async throws -> [ImportedWorkoutCandidate]
-}
-
 private struct AppleHealthWorkoutEnrichmentCandidatePair {
     let policy: AppleHealthWorkoutEnrichmentPolicy
     let workout: Workout
@@ -1147,7 +1143,7 @@ final class WorkoutImportCoordinator {
     func debugQueueSimulatedAutoImportedReview(modelContext: ModelContext) async throws -> Workout {
         let workout = try await debugCreateSimulatedAppleHealthWorkout(modelContext: modelContext)
         currentAutoImportedReviewWorkoutID = nil
-        print("DEBUG auto-import queued review workout: \(workout.id.uuidString)")
+        debugLog("DEBUG auto-import queued review workout: \(workout.id.uuidString)")
         return workout
     }
 
@@ -1164,7 +1160,7 @@ final class WorkoutImportCoordinator {
         try recalculateDerivedData(modelContext: modelContext)
         try pruneAutoImportedReviewState(modelContext: modelContext)
 
-        print("DEBUG auto-import cleared simulated workouts: \(workouts.count)")
+        debugLog("DEBUG auto-import cleared simulated workouts: \(workouts.count)")
         return workouts.count
     }
 

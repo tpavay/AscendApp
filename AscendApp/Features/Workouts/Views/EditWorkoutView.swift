@@ -232,57 +232,24 @@ struct EditWorkoutView: View {
     }
     
     private var permanentHeader: some View {
-        VStack(spacing: 0) {
-            HStack {
-                if let cancelActionTitle {
-                    Button(cancelActionTitle) {
-                        cleanupVideoFiles()
-                        onCancel?()
-                        showingEditWorkout = false
-                    }
-                    .font(.montserratRegular)
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                    .frame(minWidth: 80, alignment: .leading)
-                } else {
-                    Color.clear
-                        .frame(width: 80, height: 1)
+        EditWorkoutPermanentHeader(
+            title: title,
+            primaryActionTitle: primaryActionTitle,
+            cancelActionTitle: cancelActionTitle,
+            effectiveColorScheme: effectiveColorScheme,
+            isFormValid: isFormValid,
+            isSaving: isSaving,
+            onCancel: {
+                cleanupVideoFiles()
+                onCancel?()
+                showingEditWorkout = false
+            },
+            onSave: {
+                Task {
+                    await updateWorkout()
                 }
-
-                Spacer()
-
-                Text(title)
-                    .font(.montserratSemiBold(size: 18))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                Spacer()
-
-                Button(action: {
-                    Task {
-                        await updateWorkout()
-                    }
-                }) {
-                    if isSaving {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                            .progressViewStyle(CircularProgressViewStyle(tint: .accent))
-                    } else {
-                        Text(primaryActionTitle)
-                    }
-                }
-                .font(.montserratSemiBold)
-                .foregroundStyle(isFormValid ? .accent : .gray)
-                .disabled(!isFormValid)
-                .frame(minWidth: 80)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 16)
-            .background(effectiveColorScheme == .dark ? .black : .white)
-
-            Divider()
-                .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
-        }
-        .background(effectiveColorScheme == .dark ? .black : .white)
+        )
     }
     
     private var scrollContent: some View {
@@ -713,14 +680,14 @@ struct EditWorkoutView: View {
     
     @MainActor
     private func updateWorkout() async {
-        print("🔍 Update workout called")
-        print("🔍 Form valid: \(isFormValid)")
+        debugLog("🔍 Update workout called")
+        debugLog("🔍 Form valid: \(isFormValid)")
         
         guard !isSaving else { return }
         guard isFormValid else { return }
         guard let minutes = Int(durationMinutes),
               let seconds = Int(durationSeconds) else {
-            print("❌ Guard failed - invalid number conversion")
+            debugLog("❌ Guard failed - invalid number conversion")
             return
         }
         
@@ -780,7 +747,7 @@ struct EditWorkoutView: View {
             }
             
             try modelContext.save()
-            print("✅ Successfully updated workout with \(workout.photos.count) photos")
+            debugLog("✅ Successfully updated workout with \(workout.photos.count) photos")
 
             // Refresh derived workout data and leaderboard stats after edit.
             try WorkoutMutationHandler.shared.workoutsDidChange(
@@ -812,7 +779,7 @@ struct EditWorkoutView: View {
             }
             // Clean up temp video files on failure
             cleanupVideoFiles()
-            print("❌ Error updating workout: \(error)")
+            debugLog("❌ Error updating workout: \(error)")
             updateErrorMessage = error.userFriendlyMessage
         }
 

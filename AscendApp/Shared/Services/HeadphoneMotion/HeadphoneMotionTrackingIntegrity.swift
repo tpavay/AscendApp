@@ -1,6 +1,6 @@
 import Foundation
 
-struct HeadphoneMotionTrackingIntegrity: Equatable, Sendable {
+struct HeadphoneMotionTrackingIntegrity: Codable, Equatable, Sendable {
     static let recoveryStatusDelay: TimeInterval = 3
 
     static let verified = HeadphoneMotionTrackingIntegrity(

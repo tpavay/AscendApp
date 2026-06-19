@@ -6,9 +6,11 @@ import {
 } from "./liveReplaySplitNormalization.js";
 
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
+const COMPLETION_SNAPSHOTS_COLLECTION = "completionSnapshots";
 const LIVE_CLIMB_COMMUNITY_STATS_COLLECTION = "live_climb_community_stats";
 const LIVE_CLIMB_COMMUNITY_GLOBAL_ID = "global";
 const LIVE_CLIMB_COMPLETED_USERS_COLLECTION = "completedUsers";
+const LIVE_CLIMB_PUBLISH_STATUSES_COLLECTION = "liveClimbPublishStatuses";
 const LIVE_CLIMB_CONTEXT_TYPE = "live_climb";
 const LIVE_CLIMB_TRACKING_MODE = "live_climb";
 const JUST_CLIMB_CONTEXT_TYPE = "just_climb";
@@ -65,11 +67,37 @@ interface ReplayEntryWriteInput {
   updatedAt: unknown;
 }
 
+interface CompletionRankSnapshotWriteInput {
+  payload: LiveReplayIndexPayload;
+  userId: string;
+  entryId: string;
+  rank: number;
+  completedCount: number;
+  rankedAt: unknown;
+}
+
+interface LiveClimbPublishStatusWriteInput {
+  payload: LiveReplayIndexPayload;
+  userId: string;
+  entryId: string;
+  updatedAt: unknown;
+}
+
+interface LiveClimbPublishStatusPublishedInput
+  extends LiveClimbPublishStatusWriteInput {
+  rankAtCompletion: number;
+  completedCountAtCompletion: number;
+  finisherOrder: number;
+}
+
 /**
  * Publishes saved live-attempt split checkpoints into read-only replay windows.
  */
 export const onWorkoutReplaySplitsWritten = onDocumentWritten(
-  "users/{userId}/workouts/{workoutId}",
+  {
+    document: "users/{userId}/workouts/{workoutId}",
+    retry: true,
+  },
   async (event) => {
     const beforeData = event.data?.before.data() as
       Record<string, unknown> | undefined;
@@ -91,44 +119,63 @@ export const onWorkoutReplaySplitsWritten = onDocumentWritten(
       return;
     }
 
-    const publicUser = afterPayloads.length > 0 ?
-      await publicUserSnapshot(userId) :
-      null;
+    await writeLiveClimbPublishStatusesPublishing(
+      afterPayloads,
+      userId,
+      workoutId
+    );
 
-    for (const payload of beforePayloads) {
-      await deleteReplayEntriesForId(payload, workoutId);
-    }
+    try {
+      const publicUser = afterPayloads.length > 0 ?
+        await publicUserSnapshot(userId) :
+        null;
 
-    if (publicUser) {
-      for (const payload of afterPayloads) {
-        await publishReplayEntries(
-          payload,
-          workoutId,
-          userId,
-          publicUser
-        );
+      for (const payload of beforePayloads) {
+        await deleteReplayEntriesForId(payload, workoutId);
+        if (shouldDeleteCompletionRankSnapshot(payload, afterPayloads)) {
+          await deleteCompletionRankSnapshot(payload, workoutId);
+        }
       }
-    }
 
-    for (const payload of beforePayloads) {
-      await deleteReplayEntriesForId(payload, userId);
-      await deleteUserBestAttempt(payload, userId);
-    }
+      if (publicUser) {
+        for (const payload of afterPayloads) {
+          await publishReplayEntries(
+            payload,
+            workoutId,
+            userId,
+            publicUser
+          );
+        }
+      }
 
-    for (const payload of afterPayloads) {
-      await deleteReplayEntriesForId(payload, userId);
-      await deleteUserBestAttempt(payload, userId);
-    }
+      for (const payload of beforePayloads) {
+        await deleteReplayEntriesForId(payload, userId);
+        await deleteUserBestAttempt(payload, userId);
+      }
 
-    if (
-      beforePayloads.some(
-        (payload) => payload.contextType === LIVE_CLIMB_CONTEXT_TYPE
-      ) ||
-      afterPayloads.some(
-        (payload) => payload.contextType === LIVE_CLIMB_CONTEXT_TYPE
-      )
-    ) {
-      await updateLiveClimbCommunityStats(userId);
+      for (const payload of afterPayloads) {
+        await deleteReplayEntriesForId(payload, userId);
+        await deleteUserBestAttempt(payload, userId);
+      }
+
+      if (
+        beforePayloads.some(
+          (payload) => payload.contextType === LIVE_CLIMB_CONTEXT_TYPE
+        ) ||
+        afterPayloads.some(
+          (payload) => payload.contextType === LIVE_CLIMB_CONTEXT_TYPE
+        )
+      ) {
+        await updateLiveClimbCommunityStats(userId);
+      }
+    } catch (error) {
+      await writeLiveClimbPublishStatusesFailed(
+        afterPayloads,
+        userId,
+        workoutId,
+        error
+      );
+      throw error;
     }
   }
 );
@@ -456,10 +503,14 @@ async function publishReplayEntries(
     .collection(LIVE_REPLAY_COLLECTION)
     .doc(payload.contextKey);
   const finisherRef = finisherReference(payload, userId);
+  const completionSnapshotRef = completionSnapshotReference(payload, entryId);
+  const publishStatusRef = liveClimbPublishStatusReference(userId, entryId);
+  const completionRank = await completionRankForPayload(payload);
 
   await db.runTransaction(async (transaction) => {
     const leaderboardSnapshot = await transaction.get(leaderboardRef);
     const finisherSnapshot = await transaction.get(finisherRef);
+    const completionSnapshot = await transaction.get(completionSnapshotRef);
     const leaderboardData = leaderboardSnapshot.data();
     const existingFinisherData = finisherSnapshot.data();
     const existingOrder = positiveIntegerValue(
@@ -511,6 +562,36 @@ async function publishReplayEntries(
       {merge: true}
     );
 
+    if (!completionSnapshot.exists) {
+      transaction.set(
+        completionSnapshotRef,
+        completionRankSnapshotWrite({
+          payload,
+          userId,
+          entryId,
+          rank: Math.min(completionRank, completedCount),
+          completedCount,
+          rankedAt: now,
+        })
+      );
+    }
+
+    if (payload.contextType === LIVE_CLIMB_CONTEXT_TYPE) {
+      transaction.set(
+        publishStatusRef,
+        liveClimbPublishStatusPublishedWrite({
+          payload,
+          userId,
+          entryId,
+          updatedAt: now,
+          rankAtCompletion: Math.min(completionRank, completedCount),
+          completedCountAtCompletion: completedCount,
+          finisherOrder: globalCompletionOrder,
+        }),
+        {merge: true}
+      );
+    }
+
     for (let index = 0; index < payload.splitSteps.length; index += 1) {
       transaction.set(
         entryReference(payload, index, entryId),
@@ -525,6 +606,209 @@ async function publishReplayEntries(
       );
     }
   });
+}
+
+/**
+ * Calculates the performance rank for this completed attempt at publish time.
+ * Rank is competition-style: equal durations share the same rank.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @return {Promise<number>} Rank among faster completed attempts plus one.
+ */
+async function completionRankForPayload(
+  payload: LiveReplayIndexPayload
+): Promise<number> {
+  const snapshot = await entriesCollectionReference(payload, 0)
+    .where("completionDurationSeconds", "<", payload.finalDurationSeconds)
+    .count()
+    .get();
+  return snapshot.data().count + 1;
+}
+
+/**
+ * Deletes the immutable completion-rank snapshot for a removed attempt.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @param {string} entryId Public row document ID.
+ */
+async function deleteCompletionRankSnapshot(
+  payload: LiveReplayIndexPayload,
+  entryId: string
+): Promise<void> {
+  await completionSnapshotReference(payload, entryId).delete();
+}
+
+/**
+ * Keeps immutable rank-at-completion snapshots stable across ordinary
+ * workout republishes. A snapshot is removed only when the workout no longer
+ * belongs to that same replay leaderboard context.
+ * @param {LiveReplayIndexPayload} beforePayload Existing replay context.
+ * @param {LiveReplayIndexPayload[]} afterPayloads New replay contexts.
+ * @return {boolean} Whether to delete the old snapshot.
+ */
+function shouldDeleteCompletionRankSnapshot(
+  beforePayload: LiveReplayIndexPayload,
+  afterPayloads: LiveReplayIndexPayload[]
+): boolean {
+  return !afterPayloads.some(
+    (afterPayload) => afterPayload.contextKey === beforePayload.contextKey
+  );
+}
+
+/**
+ * Marks eligible Live Climb results as currently publishing.
+ * @param {LiveReplayIndexPayload[]} payloads Parsed replay payloads.
+ * @param {string} userId Owner user ID.
+ * @param {string} entryId Workout/public row ID.
+ */
+async function writeLiveClimbPublishStatusesPublishing(
+  payloads: LiveReplayIndexPayload[],
+  userId: string,
+  entryId: string
+): Promise<void> {
+  const writes = payloads
+    .filter((payload) => payload.contextType === LIVE_CLIMB_CONTEXT_TYPE)
+    .map((payload) => liveClimbPublishStatusReference(userId, entryId).set(
+      liveClimbPublishStatusPublishingWrite({
+        payload,
+        userId,
+        entryId,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }),
+      {merge: true}
+    ));
+
+  await Promise.all(writes);
+}
+
+/**
+ * Marks eligible Live Climb result publishes as retryable failures.
+ * @param {LiveReplayIndexPayload[]} payloads Parsed replay payloads.
+ * @param {string} userId Owner user ID.
+ * @param {string} entryId Workout/public row ID.
+ * @param {unknown} error Publish error.
+ */
+async function writeLiveClimbPublishStatusesFailed(
+  payloads: LiveReplayIndexPayload[],
+  userId: string,
+  entryId: string,
+  error: unknown
+): Promise<void> {
+  const writes = payloads
+    .filter((payload) => payload.contextType === LIVE_CLIMB_CONTEXT_TYPE)
+    .map((payload) => liveClimbPublishStatusReference(userId, entryId).set(
+      liveClimbPublishStatusFailedWrite({
+        payload,
+        userId,
+        entryId,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, error),
+      {merge: true}
+    ));
+
+  await Promise.all(writes);
+}
+
+/**
+ * Builds the common live-climb publish status fields.
+ * @param {LiveClimbPublishStatusWriteInput} input Status write input.
+ * @return {Record<string, unknown>} Common Firestore fields.
+ */
+function liveClimbPublishStatusBaseWrite(
+  input: LiveClimbPublishStatusWriteInput
+): Record<string, unknown> {
+  return {
+    attemptDurationSeconds: input.payload.finalDurationSeconds,
+    attemptSteps: input.payload.finalSteps,
+    climbId: input.payload.contextId,
+    contextId: input.payload.contextId,
+    contextKey: input.payload.contextKey,
+    contextType: input.payload.contextType,
+    schemaVersion: 1,
+    targetStepCount: input.payload.targetStepCount ?? 0,
+    updatedAt: input.updatedAt,
+    userId: input.userId,
+    workoutId: input.entryId,
+  };
+}
+
+/**
+ * Builds a live-climb publish status for in-flight server publishing.
+ * @param {LiveClimbPublishStatusWriteInput} input Status write input.
+ * @return {Record<string, unknown>} Firestore fields.
+ */
+function liveClimbPublishStatusPublishingWrite(
+  input: LiveClimbPublishStatusWriteInput
+): Record<string, unknown> {
+  return {
+    ...liveClimbPublishStatusBaseWrite(input),
+    lastErrorCode: admin.firestore.FieldValue.delete(),
+    lastErrorMessageSafe: admin.firestore.FieldValue.delete(),
+    state: "publishing",
+  };
+}
+
+/**
+ * Builds a live-climb publish status for a committed public result.
+ * @param {LiveClimbPublishStatusPublishedInput} input Status write input.
+ * @return {Record<string, unknown>} Firestore fields.
+ */
+function liveClimbPublishStatusPublishedWrite(
+  input: LiveClimbPublishStatusPublishedInput
+): Record<string, unknown> {
+  return {
+    ...liveClimbPublishStatusBaseWrite(input),
+    completedCountAtCompletion: input.completedCountAtCompletion,
+    finisherOrder: input.finisherOrder,
+    lastErrorCode: admin.firestore.FieldValue.delete(),
+    lastErrorMessageSafe: admin.firestore.FieldValue.delete(),
+    publishedAt: input.updatedAt,
+    rankAtCompletion: input.rankAtCompletion,
+    rankSnapshotId: input.entryId,
+    state: "published",
+  };
+}
+
+/**
+ * Builds a live-climb publish status for a retryable server failure.
+ * @param {LiveClimbPublishStatusWriteInput} input Status write input.
+ * @param {unknown} error Publish error.
+ * @return {Record<string, unknown>} Firestore fields.
+ */
+function liveClimbPublishStatusFailedWrite(
+  input: LiveClimbPublishStatusWriteInput,
+  error: unknown
+): Record<string, unknown> {
+  return {
+    ...liveClimbPublishStatusBaseWrite(input),
+    lastErrorCode: safeErrorCode(error),
+    lastErrorMessageSafe: "Leaderboard sync failed.",
+    retryCount: admin.firestore.FieldValue.increment(1),
+    state: "failed_retryable",
+  };
+}
+
+/**
+ * Builds an immutable rank-at-completion snapshot for a saved attempt.
+ * @param {CompletionRankSnapshotWriteInput} input Snapshot write input.
+ * @return {Record<string, unknown>} Firestore fields to write.
+ */
+function completionRankSnapshotWrite(
+  input: CompletionRankSnapshotWriteInput
+): Record<string, unknown> {
+  return {
+    completedCount: input.completedCount,
+    completionDurationSeconds: input.payload.finalDurationSeconds,
+    contextId: input.payload.contextId,
+    contextType: input.payload.contextType,
+    finalSteps: input.payload.finalSteps,
+    rank: input.rank,
+    rankedAt: input.rankedAt,
+    rankingMetric: "completionDurationSeconds",
+    schemaVersion: 1,
+    targetStepCount: input.payload.targetStepCount ?? 0,
+    tiePolicy: "competition_rank_equal_durations_share_rank",
+    userId: input.userId,
+    workoutId: input.entryId,
+  };
 }
 
 /**
@@ -756,6 +1040,40 @@ function userBestAttemptReference(
 }
 
 /**
+ * Rank-at-completion snapshot document reference for a saved attempt.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @param {string} entryId Public row document ID.
+ * @return {FirebaseFirestore.DocumentReference} Snapshot document reference.
+ */
+function completionSnapshotReference(
+  payload: LiveReplayIndexPayload,
+  entryId: string
+): FirebaseFirestore.DocumentReference {
+  return admin.firestore()
+    .collection(LIVE_REPLAY_COLLECTION)
+    .doc(payload.contextKey)
+    .collection(COMPLETION_SNAPSHOTS_COLLECTION)
+    .doc(entryId);
+}
+
+/**
+ * Per-user live climb publish status document reference.
+ * @param {string} userId Owner user ID.
+ * @param {string} entryId Workout/public row document ID.
+ * @return {FirebaseFirestore.DocumentReference} Publish status reference.
+ */
+function liveClimbPublishStatusReference(
+  userId: string,
+  entryId: string
+): FirebaseFirestore.DocumentReference {
+  return admin.firestore()
+    .collection("users")
+    .doc(userId)
+    .collection(LIVE_CLIMB_PUBLISH_STATUSES_COLLECTION)
+    .doc(entryId);
+}
+
+/**
  * Global community stats document for catalog Live Climb completion counts.
  * @return {FirebaseFirestore.DocumentReference} Stats document reference.
  */
@@ -778,13 +1096,25 @@ function entryReference(
   bucketIndex: number,
   entryId: string
 ): FirebaseFirestore.DocumentReference {
+  return entriesCollectionReference(payload, bucketIndex).doc(entryId);
+}
+
+/**
+ * Bucket entries collection reference for a replay payload.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @param {number} bucketIndex Split bucket index.
+ * @return {FirebaseFirestore.CollectionReference} Entries collection reference.
+ */
+function entriesCollectionReference(
+  payload: LiveReplayIndexPayload,
+  bucketIndex: number
+): FirebaseFirestore.CollectionReference {
   return admin.firestore()
     .collection(LIVE_REPLAY_COLLECTION)
     .doc(payload.contextKey)
     .collection("splitBuckets")
     .doc(String(bucketIndex))
-    .collection("entries")
-    .doc(entryId);
+    .collection("entries");
 }
 
 /**
@@ -891,6 +1221,19 @@ function urlStringValue(value: unknown): string | null {
 }
 
 /**
+ * Returns a low-cardinality safe error code for status documents.
+ * @param {unknown} error Raw error.
+ * @return {string} Safe error code.
+ */
+function safeErrorCode(error: unknown): string {
+  if (error instanceof Error && error.name.trim().length > 0) {
+    return error.name.slice(0, 64);
+  }
+
+  return "unknown";
+}
+
+/**
  * Returns a non-negative finite number.
  * @param {unknown} value Raw value.
  * @return {number | null} Parsed number, if valid.
@@ -961,11 +1304,16 @@ function integerArrayValue(value: unknown): number[] | null {
 }
 
 export const liveReplayLeaderboardTestHooks = {
+  completionRankSnapshotWrite,
   finisherStatusWrite,
   firstAscentWrite,
   leaderboardHasFirstAscent,
+  liveClimbPublishStatusFailedWrite,
+  liveClimbPublishStatusPublishedWrite,
+  liveClimbPublishStatusPublishingWrite,
   nextGlobalCompletionOrder,
   parseLiveClimbReplayPayload,
   replayEntryWrite,
   replaySummaryWrite,
+  shouldDeleteCompletionRankSnapshot,
 };

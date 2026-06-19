@@ -10,9 +10,13 @@ final class ClimbDetailViewModel {
     var leaderboardSummary: LiveReplayLeaderboardSummary = .empty
     var leaderboardPreviewRows: [LiveReplayLeaderboardRow] = []
     var completionLeaderboard: LiveReplayCompletionLeaderboard = .empty
+    var currentUserBestCompletion: LiveReplayCurrentUserCompletion?
+    var personalCurrentCompletionRank: LiveReplayCompletionRank?
     var personalFinisherStatus: LiveReplayFinisherStatus?
+    var publicResultSyncWorkout: Workout?
     var isLeaderboardLoading = false
     var isLoadingMoreCompletionRows = false
+    var hasLoadedCompletionLeaderboard = false
     var leaderboardErrorMessage: String?
     var loadErrorMessage: String?
 
@@ -65,10 +69,8 @@ final class ClimbDetailViewModel {
 
     var communityCompletedCount: Int {
         max(
-            leaderboardSummary.completedCount,
-            completionLeaderboard.completedCount,
-            personalFinisherOrder ?? 0,
-            hasCompletionHistory ? 1 : 0
+            remoteCompletedCount,
+            personalCurrentCompletionRank?.completedCount ?? 0
         )
     }
 
@@ -96,35 +98,48 @@ final class ClimbDetailViewModel {
     }
 
     var completionLeaderboardCompletedCount: Int {
-        max(completionLeaderboard.completedCount, leaderboardSummary.completedCount, personalFinisherOrder ?? 0)
+        max(
+            remoteCompletedCount,
+            personalCurrentCompletionRank?.completedCount ?? 0
+        )
     }
 
     var shouldShowPersonalRankSummary: Bool {
-        guard personalFinisherOrder != nil else { return false }
+        guard personalCurrentCompletionRank != nil else { return false }
         return communityCompletedCount > 0
+    }
+
+    var personalBestCompletionDurationSeconds: TimeInterval? {
+        currentUserBestCompletion?.completionDurationSeconds ??
+            personalFinisherStatus?.bestCompletionDurationSeconds ??
+            historySummary.bestCompletionDurationSeconds.map(TimeInterval.init)
     }
 
     var personalFinisherOrder: Int? {
         personalFinisherStatus?.globalCompletionOrder ??
-            historySummary.globalCompletionOrder ??
-            estimatedPendingPersonalFinisherOrder
+            historySummary.globalCompletionOrder
     }
 
-    private var estimatedPendingPersonalFinisherOrder: Int? {
-        guard historySummary.completionsCount > 0 else { return nil }
+    private var remoteCompletedCount: Int {
+        if hasLoadedCompletionLeaderboard {
+            return completionLeaderboard.completedCount
+        }
 
-        let knownCompletedCount = max(
+        return max(
             leaderboardSummary.completedCount,
             completionLeaderboard.completedCount
         )
-
-        return knownCompletedCount + 1
     }
 
     var stripOrderText: String? {
-        let order = personalFinisherOrder
-        guard let order else { return nil }
-        return "#\(order)"
+        guard communityCompletedCount > 0 else { return nil }
+
+        if let order = personalFinisherOrder,
+           order <= communityCompletedCount {
+            return "#\(order.formatted())/\(communityCompletedCount.formatted())"
+        }
+
+        return "--/\(communityCompletedCount.formatted())"
     }
 
     func refresh(modelContext: ModelContext) {
@@ -133,9 +148,11 @@ final class ClimbDetailViewModel {
                 climb = refreshedClimb
             }
             historySummary = climbService.historySummary(for: climb, modelContext: modelContext)
+            publicResultSyncWorkout = latestCompletedWorkout(for: climb, modelContext: modelContext)
             loadErrorMessage = nil
         } catch {
             historySummary = .empty(for: climb)
+            publicResultSyncWorkout = nil
             loadErrorMessage = error.localizedDescription
         }
     }
@@ -162,6 +179,9 @@ final class ClimbDetailViewModel {
         async let fetchedFinisherStatus = leaderboardService.fetchCurrentUserFinisherStatus(
             context: context
         )
+        async let fetchedCurrentUserBestCompletion = leaderboardService.fetchCurrentUserBestCompletion(
+            context: context
+        )
 
         do {
             leaderboardSummary = try await fetchedSummary
@@ -179,15 +199,17 @@ final class ClimbDetailViewModel {
         do {
             let leaderboard = try await fetchedCompletionLeaderboard
             completionLeaderboard = leaderboard
+            hasLoadedCompletionLeaderboard = true
             leaderboardSummary = LiveReplayLeaderboardSummary(
                 totalClimbers: max(leaderboardSummary.totalClimbers, leaderboard.completedCount),
-                completedCount: max(leaderboardSummary.completedCount, leaderboard.completedCount),
+                completedCount: leaderboard.completedCount,
                 personalBestDurationSeconds: leaderboardSummary.personalBestDurationSeconds,
                 firstAscent: leaderboardSummary.firstAscent,
                 updatedAt: leaderboardSummary.updatedAt ?? leaderboard.updatedAt
             )
         } catch {
             completionLeaderboard = .empty
+            hasLoadedCompletionLeaderboard = false
             leaderboardErrorMessage = error.localizedDescription
         }
 
@@ -203,9 +225,27 @@ final class ClimbDetailViewModel {
                     for: climb,
                     modelContext: modelContext
                 )
+            } else {
+                personalFinisherStatus = nil
             }
         } catch {
             personalFinisherStatus = nil
+        }
+
+        do {
+            currentUserBestCompletion = try await fetchedCurrentUserBestCompletion
+        } catch {
+            currentUserBestCompletion = nil
+        }
+
+        if let currentUserBestCompletion {
+            personalCurrentCompletionRank = LiveReplayCompletionRank(
+                rank: currentUserBestCompletion.rank,
+                completedCount: currentUserBestCompletion.completedCount,
+                updatedAt: currentUserBestCompletion.updatedAt
+            )
+        } else {
+            personalCurrentCompletionRank = nil
         }
 
         isLeaderboardLoading = false
@@ -240,9 +280,10 @@ final class ClimbDetailViewModel {
                 forceRefresh: false
             )
             completionLeaderboard = completionLeaderboard.appending(nextPage)
+            hasLoadedCompletionLeaderboard = true
             leaderboardSummary = LiveReplayLeaderboardSummary(
                 totalClimbers: max(leaderboardSummary.totalClimbers, completionLeaderboard.completedCount),
-                completedCount: max(leaderboardSummary.completedCount, completionLeaderboard.completedCount),
+                completedCount: completionLeaderboard.completedCount,
                 personalBestDurationSeconds: leaderboardSummary.personalBestDurationSeconds,
                 firstAscent: leaderboardSummary.firstAscent,
                 updatedAt: leaderboardSummary.updatedAt ?? completionLeaderboard.updatedAt
@@ -276,5 +317,36 @@ final class ClimbDetailViewModel {
             climbId: climb.id,
             targetSteps: climb.referenceStepCount
         )
+    }
+
+    private func latestCompletedWorkout(
+        for climb: Climb,
+        modelContext: ModelContext
+    ) -> Workout? {
+        let completedStatus = ClimbAttemptStatus.completed.rawValue
+        let attemptsDescriptor = FetchDescriptor<ClimbAttempt>(
+            predicate: #Predicate<ClimbAttempt> { attempt in
+                attempt.climbId == climb.id && attempt.statusRawValue == completedStatus
+            },
+            sortBy: [SortDescriptor(\ClimbAttempt.completedAt, order: .reverse)]
+        )
+
+        guard let attempts = try? modelContext.fetch(attemptsDescriptor),
+              !attempts.isEmpty,
+              let workouts = try? modelContext.fetch(FetchDescriptor<Workout>()) else {
+            return nil
+        }
+
+        let workoutsById = Dictionary(uniqueKeysWithValues: workouts.map { ($0.id.uuidString, $0) })
+
+        for attempt in attempts {
+            for workoutId in attempt.appliedWorkoutIds.reversed() {
+                if let workout = workoutsById[workoutId] {
+                    return workout
+                }
+            }
+        }
+
+        return nil
     }
 }

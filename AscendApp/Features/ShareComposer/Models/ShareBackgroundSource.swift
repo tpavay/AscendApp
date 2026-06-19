@@ -6,6 +6,9 @@ import UIKit
 enum ShareBackgroundSource: Identifiable {
     /// A still image chosen from the user's Camera Roll.
     case photo(UIImage)
+    /// A generated 9:16 recap poster. Unlike arbitrary photos, this must not be
+    /// aspect-fill cropped when it is used as the canvas background.
+    case recap(UIImage)
     /// A looping video chosen from the user's Camera Roll. (Export support is a
     /// fast-follow; editing/preview works in V1.)
     case video(URL)
@@ -16,6 +19,8 @@ enum ShareBackgroundSource: Identifiable {
         switch self {
         case .photo:
             return "photo"
+        case .recap:
+            return "recap"
         case .video(let url):
             return "video-\(url.absoluteString)"
         case .preset(let preset):

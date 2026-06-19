@@ -38,25 +38,12 @@ struct ActivityCalendarSection: View {
 
     private var activityHeader: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text("ACTIVITY")
+            Text("CONSISTENCY")
                 .font(.montserratBold(size: 16))
                 .foregroundStyle(.white)
                 .tracking(1.4)
 
             Spacer()
-
-            if mode == .own {
-                NavigationLink {
-                    WorkoutListView(embedsInNavigationStack: false, showsBackButton: true)
-                } label: {
-                    Text("TIMELINE")
-                        .font(.montserratSemiBold(size: 11))
-                        .foregroundStyle(Color.ascendAccent)
-                        .tracking(1.2)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("View workout timeline")
-            }
         }
         .padding(.horizontal, 2)
     }

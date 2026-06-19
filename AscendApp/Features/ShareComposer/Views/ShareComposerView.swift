@@ -103,7 +103,7 @@ struct ShareComposerView: View {
                 toast = "Could not build recap"
                 return
             }
-            viewModel.resetForNewBackground(.photo(image))
+            viewModel.resetForNewBackground(.recap(image))
         }
     }
 

@@ -9,13 +9,18 @@ struct ActiveRoutineView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel: ActiveRoutineViewModel
+    @State private var stepSyncValue = ""
 
     private let leaderboardTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
-    init(routine: Routine) {
+    init(routine: Routine, recoveredDraft: ActiveHeadphoneWorkoutDraft? = nil) {
         self.routine = routine
-        _viewModel = State(initialValue: ActiveRoutineViewModel(routine: routine))
+        _viewModel = State(initialValue: ActiveRoutineViewModel(
+            routine: routine,
+            recoveredDraft: recoveredDraft
+        ))
     }
 
     var body: some View {
@@ -27,12 +32,18 @@ struct ActiveRoutineView: View {
             switch viewModel.phase {
             case .countdown:
                 LiveSessionCountdownOverlay(value: viewModel.countdownValue)
-            case .active, .complete:
+            case .active, .complete, .finishing, .saving:
                 activeWorkoutView
+            case .failed(let message):
+                failedView(message: message)
+            }
+
+            if let stepSyncPrompt = viewModel.stepSyncPrompt {
+                stepSyncOverlay(prompt: stepSyncPrompt)
             }
         }
         .onAppear {
-            viewModel.startSession()
+            viewModel.startSession(modelContext: modelContext)
         }
         .keepsScreenAwake(shouldKeepScreenAwake, reason: "Routine session")
         .onDisappear {
@@ -43,11 +54,35 @@ struct ActiveRoutineView: View {
                 recordCompletionIfNeeded()
             }
         }
+        .task(id: viewModel.stepSyncConfirmation?.id) {
+            guard viewModel.stepSyncConfirmation != nil else { return }
+
+            do {
+                try await Task.sleep(for: .seconds(3))
+            } catch {
+                return
+            }
+
+            viewModel.dismissStepSyncConfirmation()
+        }
+        .onChange(of: viewModel.stepSyncPrompt?.id) { _, _ in
+            stepSyncValue = viewModel.stepSyncPrompt.map { String($0.detectedSteps) } ?? ""
+        }
+        .onChange(of: stepSyncValue) { _, newValue in
+            let filteredValue = newValue.filter(\.isNumber)
+            if filteredValue != newValue {
+                stepSyncValue = filteredValue
+            }
+        }
         .onChange(of: viewModel.phase) { _, phase in
             guard phase == .active else { return }
             Task {
                 await viewModel.refreshReplayLeaderboardIfNeeded(force: true)
             }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .inactive || phase == .background else { return }
+            viewModel.checkpointForLifecycleChange()
         }
         .onReceive(leaderboardTick) { _ in
             guard viewModel.phase == .active else { return }
@@ -57,14 +92,18 @@ struct ActiveRoutineView: View {
         }
         .alert("Stop Workout?", isPresented: $bindableViewModel.showStopConfirmation) {
             Button("Continue", role: .cancel) {}
-            Button("Log Workout") {
+            Button("Save Attempt") {
                 bindableViewModel.trackLogWorkoutTapped(surface: .stopAlert)
-                bindableViewModel.shouldDismissAfterForm = true
-                bindableViewModel.showWorkoutForm = true
+                Task {
+                    await saveRoutineAndDismiss()
+                }
             }
             Button("Discard", role: .destructive) {
                 bindableViewModel.trackDiscard(surface: .stopAlert)
-                dismiss()
+                Task {
+                    await viewModel.discard(modelContext: modelContext)
+                    dismiss()
+                }
             }
         } message: {
             Text("Would you like to log your progress before leaving this routine?")
@@ -72,18 +111,15 @@ struct ActiveRoutineView: View {
         .sheet(isPresented: $bindableViewModel.showCompletionSheet) {
             completionSheet
         }
-        .sheet(isPresented: $bindableViewModel.showWorkoutForm, onDismiss: {
-            if viewModel.shouldDismissAfterForm {
-                dismiss()
-            }
-        }) {
-            workoutFormSheet
-        }
     }
 
     private var activeWorkoutView: some View {
         VStack(spacing: 0) {
             topChrome
+
+            trackingStatusBanner
+                .padding(.horizontal, Layout.horizontalPadding)
+                .padding(.top, 10)
 
             routineTimeline
                 .padding(.horizontal, Layout.horizontalPadding)
@@ -144,10 +180,51 @@ struct ActiveRoutineView: View {
         .padding(.top, Layout.topChromeTopPadding)
     }
 
+    @ViewBuilder
+    private var trackingStatusBanner: some View {
+        if let confirmation = viewModel.stepSyncConfirmation {
+            trackingBanner(
+                iconName: "checkmark.circle.fill",
+                message: "Synced with machine. Continuing from \(confirmation.correctedSteps.formatted()) steps.",
+                tint: Color.ascendAccent
+            )
+        } else if viewModel.shouldShowTrackingRecoveryStatus {
+            trackingBanner(
+                iconName: "airpodspro",
+                message: "Headphone tracking paused. Reconnect to keep counting steps.",
+                tint: Color.ascendAccent
+            )
+        }
+    }
+
+    private func trackingBanner(iconName: String, message: String, tint: Color) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: iconName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(tint)
+
+            Text(message)
+                .font(.montserratSemiBold(size: 12))
+                .foregroundStyle(.white.opacity(0.82))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.white.opacity(0.09))
+        )
+        .accessibilityElement(children: .combine)
+    }
+
     private var routineTimeline: some View {
         SegmentedProgressBar(
             intervals: viewModel.intervals,
-            elapsedLabel: "\(viewModel.estimatedCurrentSteps.formatted()) est steps",
+            elapsedLabel: "\(viewModel.currentSteps.formatted()) steps",
             totalLabel: "\(viewModel.targetStepGoal.formatted()) target",
             elapsedTime: viewModel.timelineElapsed
         )
@@ -261,20 +338,163 @@ struct ActiveRoutineView: View {
             routineName: routine.name,
             duration: viewModel.actualElapsed,
             intervalCount: viewModel.intervals.count,
+            primaryActionTitle: "Save Workout",
             onLogWorkout: {
                 viewModel.trackLogWorkoutTapped(surface: .completionSheet)
-                viewModel.showCompletionSheet = false
-                viewModel.shouldDismissAfterForm = true
                 Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(250))
-                    viewModel.showWorkoutForm = true
+                    await saveRoutineAndDismiss()
                 }
             },
             onDiscard: {
                 viewModel.trackDiscard(surface: .completionSheet)
-                dismiss()
+                Task {
+                    await viewModel.discard(modelContext: modelContext)
+                    dismiss()
+                }
             }
         )
+    }
+
+    private func failedView(message: String) -> some View {
+        VStack(spacing: 18) {
+            Image(systemName: "airpodspro")
+                .font(.system(size: 42, weight: .semibold))
+                .foregroundStyle(Color.ascendAccent)
+
+            VStack(spacing: 8) {
+                Text("Tracking stopped")
+                    .font(.montserratBold(size: 26))
+                    .foregroundStyle(.white)
+
+                Text(message)
+                    .font(.montserratMedium(size: 15))
+                    .foregroundStyle(.white.opacity(0.68))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Button {
+                dismiss()
+            } label: {
+                Text("Close")
+                    .font(.montserratBold(size: 15))
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(Color.ascendAccent)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 4)
+        }
+        .padding(.horizontal, 28)
+        .frame(maxWidth: 420)
+    }
+
+    private func stepSyncOverlay(prompt: RoutineStepSyncPrompt) -> some View {
+        ZStack {
+            Color.black
+                .opacity(0.58)
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("We detected a gap.")
+                            .font(.montserratBold(size: 24))
+                            .foregroundStyle(.white)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Text("Enter the step count currently showing on your stair stepper.")
+                            .font(.montserratMedium(size: 14))
+                            .foregroundStyle(.white.opacity(0.68))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    HStack(spacing: 10) {
+                        TextField("0", text: $stepSyncValue)
+                            .keyboardType(.numberPad)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.montserratBold(size: 34))
+                            .foregroundStyle(.white)
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+
+                        Text("steps")
+                            .font(.montserratSemiBold(size: 14))
+                            .foregroundStyle(.white.opacity(0.52))
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(height: 72)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(.white.opacity(0.08))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(.white.opacity(0.14), lineWidth: 1)
+                    )
+                    .accessibilityLabel("Current machine steps")
+
+                    VStack(spacing: 10) {
+                        Button {
+                            guard let steps = stepSyncInputSteps else { return }
+                            viewModel.syncCurrentMachineSteps(steps)
+                        } label: {
+                            Text("Sync Current")
+                                .font(.montserratBold(size: 15))
+                                .foregroundStyle(.black)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 46)
+                                .background(
+                                    Capsule()
+                                        .fill(Color.ascendAccent)
+                                )
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(stepSyncInputSteps == nil)
+                        .opacity(stepSyncInputSteps == nil ? 0.55 : 1)
+
+                        Button {
+                            viewModel.skipStepSyncPrompt()
+                        } label: {
+                            Text("Skip")
+                                .font(.montserratBold(size: 14))
+                                .foregroundStyle(.white.opacity(0.78))
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 42)
+                                .background(
+                                    Capsule()
+                                        .fill(.white.opacity(0.10))
+                                )
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(22)
+                .frame(maxWidth: 352)
+                .background(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .fill(Color(red: 0.07, green: 0.07, blue: 0.07))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .stroke(.white.opacity(0.12), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.42), radius: 22, x: 0, y: 14)
+            }
+            .padding(.horizontal, 22)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityHint("Ascend tracked \(prompt.detectedSteps) steps before the gap.")
+    }
+
+    private var stepSyncInputSteps: Int? {
+        Int(stepSyncValue)
     }
 
     private var workoutFormSheet: some View {
@@ -310,7 +530,9 @@ struct ActiveRoutineView: View {
         switch viewModel.phase {
         case .countdown, .active:
             return true
-        case .complete:
+        case .finishing, .saving:
+            return true
+        case .complete, .failed(_):
             return false
         }
     }
@@ -330,6 +552,19 @@ struct ActiveRoutineView: View {
         routine.lastCompletedAt = Date()
         try? modelContext.save()
         viewModel.markCompletionRecorded()
+    }
+
+    private func saveRoutineAndDismiss() async {
+        do {
+            _ = try await viewModel.saveRecordedWorkout(
+                modelContext: modelContext,
+                reason: .userStopped
+            )
+            viewModel.showCompletionSheet = false
+            dismiss()
+        } catch {
+            viewModel.errorMessage = error.localizedDescription
+        }
     }
 }
 

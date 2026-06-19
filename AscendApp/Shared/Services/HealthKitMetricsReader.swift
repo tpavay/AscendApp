@@ -294,7 +294,7 @@ private extension HealthKitMetricsReader {
             .mapValues(\.count)
         let importedSource = importedFromSeries ? "quantitySeries" : "parentSamples"
 
-        print(
+        debugLog(
             """
             [HK-HR-IMPORT] workout=\(workout.uuid.uuidString) name=\(workout.workoutActivityType.rawValue) \
             range=\(Self.debugDate(dateRange.lowerBound))...\(Self.debugDate(dateRange.upperBound)) \
@@ -306,7 +306,7 @@ private extension HealthKitMetricsReader {
         )
 
         if !seriesPoints.errors.isEmpty {
-            print("[HK-HR-IMPORT] seriesErrors=\(seriesPoints.errors.joined(separator: " | "))")
+            debugLog("[HK-HR-IMPORT] seriesErrors=\(seriesPoints.errors.joined(separator: " | "))")
         }
 
         logParentSamples(parentSamples, unit: unit, seriesCountsByParentId: groupedSeriesCounts)
@@ -321,14 +321,14 @@ private extension HealthKitMetricsReader {
         let indexes = Self.diagnosticIndexes(totalCount: samples.count)
         for index in indexes {
             if index == -1 {
-                print("[HK-HR-IMPORT] parentSamples omitted middle count=\(max(samples.count - 18, 0))")
+                debugLog("[HK-HR-IMPORT] parentSamples omitted middle count=\(max(samples.count - 18, 0))")
                 continue
             }
 
             let sample = samples[index]
             let heartRate = Int(sample.quantity.doubleValue(for: unit))
             let childCount = seriesCountsByParentId[sample.uuid.uuidString] ?? 0
-            print(
+            debugLog(
                 """
                 [HK-HR-IMPORT] parent[\(index)] uuid=\(sample.uuid.uuidString) bpm=\(heartRate) \
                 count=\(sample.count) childQuantities=\(childCount) \
@@ -345,7 +345,7 @@ private extension HealthKitMetricsReader {
 
         let rates = points.map(\.heartRate)
         let parentIds = Set(points.compactMap(\.parentSampleId))
-        print(
+        debugLog(
             """
             [HK-HR-IMPORT] seriesSummary count=\(points.count) parentIds=\(parentIds.count) \
             first=\(Self.debugDate(points[0].timestamp)):\(points[0].heartRate) \

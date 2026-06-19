@@ -52,6 +52,12 @@ struct LiveReplayFirstAscent: Equatable, Sendable {
     }
 }
 
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
+    }
+}
+
 struct LiveReplayCompletionRank: Equatable, Sendable {
     let rank: Int
     let completedCount: Int
@@ -61,6 +67,56 @@ struct LiveReplayCompletionRank: Equatable, Sendable {
         self.rank = max(rank, 1)
         self.completedCount = max(completedCount, 1)
         self.updatedAt = updatedAt
+    }
+}
+
+struct LiveReplayCurrentUserCompletion: Equatable, Sendable {
+    let rank: Int
+    let completedCount: Int
+    let completionDurationSeconds: TimeInterval
+    let workoutId: String
+    let updatedAt: Date?
+
+    init(
+        rank: Int,
+        completedCount: Int,
+        completionDurationSeconds: TimeInterval,
+        workoutId: String,
+        updatedAt: Date?
+    ) {
+        self.rank = max(rank, 1)
+        self.completedCount = max(completedCount, 1)
+        self.completionDurationSeconds = max(completionDurationSeconds, 0)
+        self.workoutId = workoutId.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.updatedAt = updatedAt
+    }
+}
+
+struct LiveReplayCompletionRankSnapshot: Equatable, Sendable {
+    let workoutId: String
+    let rank: Int
+    let completedCount: Int
+    let completionDurationSeconds: TimeInterval
+    let rankedAt: Date?
+    let rankingMetric: String
+    let tiePolicy: String
+
+    init(
+        workoutId: String,
+        rank: Int,
+        completedCount: Int,
+        completionDurationSeconds: TimeInterval,
+        rankedAt: Date?,
+        rankingMetric: String,
+        tiePolicy: String
+    ) {
+        self.workoutId = workoutId.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.rank = max(rank, 1)
+        self.completedCount = max(completedCount, 1)
+        self.completionDurationSeconds = max(completionDurationSeconds, 0)
+        self.rankedAt = rankedAt
+        self.rankingMetric = rankingMetric.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.tiePolicy = tiePolicy.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -80,6 +136,55 @@ struct LiveReplayFinisherStatus: Equatable, Sendable {
         self.firstCompletedAt = firstCompletedAt
         self.bestCompletionDurationSeconds = bestCompletionDurationSeconds
         self.updatedAt = updatedAt
+    }
+}
+
+enum LiveReplayPublishState: String, Sendable {
+    case publishing
+    case published
+    case failedRetryable = "failed_retryable"
+}
+
+struct LiveReplayPublishStatus: Equatable, Sendable {
+    let state: LiveReplayPublishState
+    let workoutId: String
+    let userId: String?
+    let contextType: String
+    let contextId: String
+    let rankAtCompletion: Int?
+    let completedCountAtCompletion: Int?
+    let finisherOrder: Int?
+    let lastErrorCode: String?
+    let lastErrorMessageSafe: String?
+    let updatedAt: Date?
+    let publishedAt: Date?
+
+    init(
+        state: LiveReplayPublishState,
+        workoutId: String,
+        userId: String?,
+        contextType: String,
+        contextId: String,
+        rankAtCompletion: Int?,
+        completedCountAtCompletion: Int?,
+        finisherOrder: Int?,
+        lastErrorCode: String?,
+        lastErrorMessageSafe: String?,
+        updatedAt: Date?,
+        publishedAt: Date?
+    ) {
+        self.state = state
+        self.workoutId = workoutId.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.userId = userId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.contextType = contextType.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.contextId = contextId.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.rankAtCompletion = rankAtCompletion.map { max($0, 1) }
+        self.completedCountAtCompletion = completedCountAtCompletion.map { max($0, 1) }
+        self.finisherOrder = finisherOrder.map { max($0, 1) }
+        self.lastErrorCode = lastErrorCode?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.lastErrorMessageSafe = lastErrorMessageSafe?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.updatedAt = updatedAt
+        self.publishedAt = publishedAt
     }
 }
 

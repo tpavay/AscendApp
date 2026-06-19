@@ -926,6 +926,11 @@ service cloud.firestore {
         allow delete: if isOwner(userId);
       }
 
+      match /liveClimbPublishStatuses/{workoutId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
       match /public_profile/{docId} {
         allow read: if isSignedIn() && docId == "current";
         allow create, update: if isOwner(userId) &&
@@ -995,6 +1000,11 @@ service cloud.firestore {
       }
 
       match /finishers/{userId} {
+        allow read: if isSignedIn();
+        allow write: if false;
+      }
+
+      match /completionSnapshots/{workoutId} {
         allow read: if isSignedIn();
         allow write: if false;
       }

@@ -355,7 +355,7 @@ final class MediaUploadManager {
 
             } catch {
                 lastError = error
-                print("[MediaUploadManager] Upload attempt \(attempt + 1) failed for \(upload.localFileName): \(error.localizedDescription)")
+                debugLog("[MediaUploadManager] Upload attempt \(attempt + 1) failed for \(upload.localFileName): \(error.localizedDescription)")
 
                 if Task.isCancelled { return false }
 
@@ -378,9 +378,9 @@ final class MediaUploadManager {
                 code: upload.isVideo ? "video_upload_failed" : "photo_upload_failed",
                 additionalInfo: ["media_type": upload.mediaType]
             )
-            print("[MediaUploadManager] Upload failed after \(maxRetries) attempts for \(upload.localFileName): \(lastError.localizedDescription)")
+            debugLog("[MediaUploadManager] Upload failed after \(maxRetries) attempts for \(upload.localFileName): \(lastError.localizedDescription)")
         } else {
-            print("[MediaUploadManager] Upload failed after \(maxRetries) attempts for \(upload.localFileName): Unknown error")
+            debugLog("[MediaUploadManager] Upload failed after \(maxRetries) attempts for \(upload.localFileName): Unknown error")
         }
         try? modelContext.save()
         return false
@@ -405,7 +405,7 @@ final class MediaUploadManager {
         do {
             try modelContext.save()
         } catch {
-            print("[MediaUploadManager] Failed to mark workout \(workoutId) pending for remote sync: \(error.localizedDescription)")
+            debugLog("[MediaUploadManager] Failed to mark workout \(workoutId) pending for remote sync: \(error.localizedDescription)")
             return
         }
 

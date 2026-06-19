@@ -5,6 +5,7 @@ import SwiftUI
 struct LiveClimbSessionView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var viewModel: LiveClimbSessionViewModel
     @State private var showingZeroStepEndOptions = false
@@ -124,9 +125,13 @@ struct LiveClimbSessionView: View {
                 await finishIfStepsRecorded(reason: .targetReached)
             }
         }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .inactive || phase == .background else { return }
+            viewModel.checkpointForLifecycleChange(modelContext: modelContext)
+        }
         .onReceive(liveTick) { _ in
             guard hasStartedRecording, viewModel.isActivelyRecording else { return }
-            viewModel.recordLiveSplitSample()
+            viewModel.recordLiveSplitSample(modelContext: modelContext)
             viewModel.evaluateStepSyncPrompt()
             if viewModel.durationGoalReached {
                 Task {

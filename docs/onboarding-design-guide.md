@@ -640,6 +640,326 @@ Pricing display:
 - Avoid weekly in V1 unless the pricing strategy is locked.
 - If trial extension depends on climb completion, explain the rule in one tappable info row, not in dense legal copy.
 
+## App Workflow Map
+
+Use this as the organizing layer for product planning. The numbered onboarding screens above are the entry ramp; the workflows below are the actual app loops those screens should prepare the user to enter.
+
+### 1. Acquisition And Account Entry
+
+User goal: understand the promise, trust the product, and create an account.
+
+Primary path:
+1. Welcome
+2. Value carousel
+3. Survey transition
+4. Auth
+
+App surfaces:
+- `LandingScreen`
+- `OnboardingValueCarouselView`
+- `SignUpView`
+- `AuthenticationViewModel`
+
+State and data:
+- Anonymous pre-auth state until provider sign-in.
+- Firebase Auth owns identity after Apple / Google / email sign-in.
+- Onboarding progress stays local per Firebase `uid` until remote onboarding state is intentionally added.
+
+Success condition:
+- User reaches authenticated onboarding without feeling like they entered a generic fitness app.
+
+Design principle:
+- Keep time to first value short. The value shown before auth is not a tutorial; it is proof that the app turns stair stepping into rank, First Ascents, and landmark completion.
+
+### 2. Competitive Setup And First-Climb Routing
+
+User goal: give enough context for Ascend to place them on a strong first climb.
+
+Primary path:
+1. Baseline qualifier
+2. Problem mirror
+3. Motivation
+4. Frequency
+5. Session length
+6. Goal segmentation
+7. Mirror moment
+8. Calculation
+9. Smart first-climb reveal
+
+App surfaces:
+- `PostAuthOnboardingFlowView`
+- `OnboardingFirstClimbHandoffStore`
+- `MainTabView` climb-detail handoff
+
+State and data:
+- Survey answers are product personalization inputs, not a permanent training model unless explicitly promoted into profile schema.
+- Smart first-climb recommendation should route to Climb Detail, not directly into a live attempt.
+- Do not invent a fake rank, fake user count, or fake leaderboard field.
+
+Success condition:
+- User lands on a real climb detail screen with a clear target and a reason to start.
+
+Design principle:
+- Use progressive disclosure. Ask only what is needed to route the first competitive action; delay deeper stats, filters, and settings until the user has climbed.
+
+### 3. Live Climb Attempt
+
+User goal: start a landmark attempt and watch their real effort progress against the field.
+
+Primary path:
+1. Climb Detail
+2. Start Live Climb
+3. Headphone-motion tracking
+4. Live replay race field
+5. Target reached or user stops
+
+App surfaces:
+- `ClimbDetailView`
+- Live climb session views and view models
+- Headphone motion / step tracking services
+- Live replay leaderboard services
+
+State and data:
+- Live Climb completions require live sensor data from the live attempt flow.
+- Manual entries, imports, and routines cannot complete a Live Climb or enter its leaderboard.
+- Step tracking diagnostics should be collectable from this workflow because this is where algorithm quality matters.
+
+Success condition:
+- User understands where they are on the climb, who they are chasing, and whether they finished.
+
+Design principle:
+- Intent mirroring matters here: the UI should reflect the user's effort in real time, not explain the algorithm.
+
+### 4. Completion, Public Result Sync, And Leaderboard
+
+User goal: see what they earned, then see where the result sits in the public field.
+
+Primary path:
+1. Completion Summary
+2. Local workout saved
+3. Public result publish
+4. Immutable rank-at-completion snapshot
+5. Dynamic per-climb leaderboard
+6. Retry sync if publication fails
+
+App surfaces:
+- `LiveClimbCompletionSummaryView`
+- `LiveClimbPublicResultSyncStore`
+- `ClimbDetailView` leaderboard tab
+- `LiveReplayLeaderboardService`
+- `onWorkoutReplaySplitsWritten`
+
+State and data:
+- Summary metrics come from the local workout immediately.
+- Rank-at-completion comes from the server snapshot and should not be faked locally.
+- The per-climb leaderboard is dynamic and can change as new attempts publish.
+- The user's finisher order is permanent; its denominator grows as more users complete the climb.
+- Sync status is shared by workout id so retrying from one surface updates the others.
+
+Success condition:
+- The user never sees contradictory rank/count numbers between summary, climb card, and leaderboard.
+
+Design principle:
+- Treat publication failure as recoverable state. Show the saved workout, make rank status clear, and offer a small underlined `Retry sync` action only where it matters.
+
+### 5. Workout History And Personal Progress
+
+User goal: see that every stair session counted and improved the record book.
+
+Primary path:
+1. Workout saved or imported
+2. Workout Detail
+3. Best Efforts recalculated
+4. Progress / trends updated
+5. Profile activity reflects the session
+
+App surfaces:
+- `WorkoutDetailView`
+- `WorkoutListView`
+- `BestEffortCacheEntry`
+- Progress and profile sections
+
+State and data:
+- `Workout` is the canonical activity.
+- Best Efforts are derived from workouts, never authored directly.
+- Edits, deletes, imports, and live completions must all trigger derived-data repair.
+
+Success condition:
+- A user can trust that history, records, and profile totals agree.
+
+Design principle:
+- This is value replay. Use it to reinforce the work the user already did, not to introduce a separate dashboard-first product.
+
+### 6. Routines
+
+User goal: run an interval-based stair session when they want structure instead of a landmark target.
+
+Primary path:
+1. Browse routines
+2. Routine detail
+3. Start routine
+4. Complete intervals or end early
+5. Save workout
+6. Routine result / history
+
+App surfaces:
+- Routine browse, detail, active session, and result surfaces
+- Shared workout mutation pipeline
+
+State and data:
+- Routines are a first-class peer to climbs.
+- Routine completions come only from the live routine flow.
+- Routine workouts still produce canonical workouts and personal progress, but they do not complete Live Climbs.
+
+Success condition:
+- The user gets guided structure without confusing routines with landmark competition.
+
+Design principle:
+- Keep the distinction simple: climbs are fixed destinations; routines are guided interval sessions.
+
+### 7. Import And Enrichment
+
+User goal: bring in stair-stepper work from Apple Health without corrupting Live Climb integrity.
+
+Primary path:
+1. Connect Apple Health
+2. Auto-import starts from activation timestamp
+3. Latest unseen import review
+4. Save or clean up imported workout
+5. Silent enrichment for matching Live Climbs
+
+App surfaces:
+- Import flow
+- `WorkoutImportCoordinator`
+- HealthKit integration services
+- Workout review/edit surfaces
+
+State and data:
+- External imports are read-only from the source platform.
+- Apple Health workouts that enrich existing Live Climbs do not enter the manual review queue.
+- Imported workouts can contribute to logs and personal records, but not Live Climb leaderboard completions.
+
+Success condition:
+- The user's history becomes more complete without weakening leaderboard trust.
+
+Design principle:
+- Permission requests should be served at the point of value. Ask for Health access when the user is trying to import or enrich workouts, not as generic onboarding setup.
+
+### 8. Profile, Collection, And Prestige
+
+User goal: see identity, claimed climbs, First Ascents, records, and standing in one durable place.
+
+Primary path:
+1. Own Profile
+2. Identity and lifetime stats
+3. Collection preview
+4. Active standings
+5. First Ascents and achievements
+6. Records and trends
+7. Recent workouts
+
+App surfaces:
+- `OwnProfileView`
+- `OtherUserProfileView`
+- Collection, standings, achievements, records, trends, and activity sections
+
+State and data:
+- Own profile can show activation empty states.
+- Other-user profile hides empty sections unless comparison needs explanation.
+- Public profile reads must use public-safe documents and mirrors, never private workout backups.
+
+Success condition:
+- The profile feels like a competitive record, not a social feed.
+
+Design principle:
+- Prestige is a retention loop. First Ascents, active standings, and records should be more prominent than generic activity recap.
+
+### 9. Share Composer
+
+User goal: turn a climb or workout result into a composed share asset.
+
+Primary path:
+1. Open share from summary or workout detail
+2. Pick background or preset
+3. Add stat stickers
+4. Arrange stickers
+5. Export or share
+
+App surfaces:
+- Share composer
+- Background picker
+- Sticker editor
+- Photo/video export pipeline
+
+State and data:
+- Stickers read from canonical workout and climb result data.
+- Backgrounds and stats stay independent.
+- The composer never becomes the source of truth for metrics.
+
+Success condition:
+- Sharing converts pride into growth without adding a social network.
+
+Design principle:
+- Make the proud moment portable. The best share prompt happens after a real completion, record, rank, or First Ascent claim.
+
+### 10. Monetization And Access
+
+User goal: understand what the subscription unlocks and start climbing.
+
+Primary path:
+1. Paywall priming
+2. Hard paywall
+3. Purchase or restore
+4. Entitlement resolves
+5. App access
+
+App surfaces:
+- Superwall paywall placement
+- RevenueCat entitlement service
+- App access gate
+- Restore purchase path
+
+State and data:
+- Superwall owns paywall presentation and onboarding-step conversion analytics.
+- RevenueCat owns purchases, restore, and entitlement truth.
+- Paywall copy should sell the field: climbs, leaderboards, First Ascent windows, records, and history sync.
+
+Success condition:
+- The paywall feels like the next step into the competitive field, not a generic blocker.
+
+Design principle:
+- Show after commitment and value preview. The user should understand what they are about to enter before being asked to pay.
+
+### 11. Reliability, Analytics, And Diagnostics
+
+User goal: have the app recover from failures without losing climb work.
+
+Primary path:
+1. Local-first save
+2. Sync coordinator processes remote work
+3. Publication / backup succeeds
+4. Shared status updates UI
+5. Retry handles recoverable failure
+6. Crash/error analytics capture failure context
+
+App surfaces:
+- Connectivity indicator
+- Public result sync status
+- Workout sync coordinator
+- Firebase Analytics / Crashlytics
+- Debug/export tooling
+
+State and data:
+- Local save and public publication are separate states.
+- Online does not guarantee success; failed requests need shared categorization and retry mechanics.
+- Step-tracking diagnostics should be structured so an AI agent can inspect climb attempts, sensor samples, algorithm version, device, and error state.
+
+Success condition:
+- A user can finish a climb on a bad connection, keep the workout, retry publication, and never see contradictory leaderboard state.
+
+Design principle:
+- Reliability is part of the product experience. When ranking is the app's core promise, sync state must be explicit, centralized, and testable.
+
 ## Component Specs
 
 ### Answer Option Row
@@ -767,24 +1087,15 @@ Current local assets already support the direction:
 
 Current SwiftUI scaffolds already match much of this:
 - `LandingScreen`
-- `OnboardingValueShowcaseScreen`
-- `OnboardingQuestionScaffold`
+- `OnboardingValueCarouselView`
+- `OnboardingValueShowcaseChrome`
 - `OnboardingPrimaryCTAButtonStyle`
 - `AscendWordmark`
 
-One implementation issue to fix when building the carousel:
-- `OnboardingValueCarouselView.continueFromCurrentPage()` currently calls `onFinish()` directly. It should advance to the next page until the final page, then finish.
+Build order:
+- Use the workflow build plan below as the source of truth. It keeps onboarding, profile setup, paywall, Live Climb activation, and retention work grouped around coherent app states instead of isolated screens.
 
-Recommended next build order:
-1. Fix the value carousel CTA progression.
-2. Update value carousel copy to match the locked 4-screen value set.
-3. Add the pre-auth survey screens using `OnboardingQuestionScaffold`.
-4. Add the calculation/loading and first-climb reveal.
-5. Expand post-auth onboarding beyond display name to demographics.
-6. Add value reveal and notification opt-in.
-7. Hand off paywall layout to Superwall using this structure.
-
-## Pattern Mapping
+## Reference Pattern Mapping
 
 | Phase | Reference Pattern | Ascend Version |
 |---|---|---|
@@ -799,37 +1110,161 @@ Recommended next build order:
 | Social proof | Puff testimonials and user count | Launch-wave scarcity now; real users/testimonials later |
 | Paywall | Puff testimonial plus benefits plus plan selector | First Ascent/leaderboard visual plus yearly trial plan |
 
-## V1 Test Plan
+## Workflow Build Plan
 
-Ship this first:
+Build in workflow order, not screen order. Each workflow should leave the app in a coherent, testable state before moving to the next one.
+
+### Phase 1 — Account Entry And First Value
+
+Ship:
+- Welcome.
 - Value carousel with 4 screens.
-- Pre-auth baseline and goals.
-- Loading/reveal.
-- Required post-auth profile.
-- Notification opt-in.
-- Hard paywall with yearly highlighted.
+- Auth entry.
+- Carousel CTA progression fix.
 
-Instrument:
-- Screen view per onboarding screen.
+Verify:
+- New user can move from first launch to authenticated root.
+- Returning user skips completed onboarding.
+- Interrupted onboarding resumes at the correct stage.
+
+### Phase 2 — Competitive Setup
+
+Ship:
+- Survey transition.
+- Baseline, motivation, volume, session size, and goal questions.
+- Calculation/loading screen.
+- Smart first-climb reveal.
+- First-climb handoff to Climb Detail.
+
+Verify:
+- First-climb recommendation never routes straight into a live attempt.
+- No fake leaderboard users, ranks, or completion counts appear.
+- Survey answers are stored only where intentionally modeled.
+
+### Phase 3 — Required Profile And Permission Serve
+
+Ship:
+- Display name.
+- Gender, age, weight, and location capture.
+- Value reveal.
+- Notification opt-in framed around First Ascent drops.
+
+Verify:
+- Profile fields match `ProfileGender` raw values and age bounds.
+- Firestore rules allow only the intended profile fields.
+- Native notification prompt is served after the in-app value frame, not before.
+
+### Phase 4 — Monetization Gate
+
+Ship:
+- Superwall paywall layout using this structure.
+- Yearly highlighted plan.
+- Restore path.
+- RevenueCat entitlement resolution.
+
+Verify:
+- Paywall appears after setup/value preview.
+- Entitlement state gates app access consistently.
+- Restore works for returning subscribers.
+
+### Phase 5 — Core App Activation
+
+Ship:
+- Climb Detail handoff from onboarding.
+- Start Live Climb path.
+- Completion Summary.
+- Public result sync status.
+- Per-climb leaderboard consistency.
+
+Verify:
+- A completed Live Climb saves locally before public publication.
+- Rank-at-completion uses the server snapshot.
+- Retry sync updates all relevant screens through one shared state source.
+
+### Phase 6 — Retention Loops
+
+Ship:
+- Workout history.
+- Best Efforts / records.
+- Profile collection and prestige sections.
+- Share composer entry from real results.
+
+Verify:
+- Workout mutations repair derived data.
+- Profile counts agree with workout history and public leaderboard state.
+- Share stickers read canonical result data, not copied metrics.
+
+## Workflow Analytics Plan
+
+Track analytics by workflow so the dashboard can answer where the app is losing users and where the core loop is breaking.
+
+### Account Entry
+- Screen view per welcome/value/auth screen.
 - CTA tap per screen.
-- Question answer buckets, no raw PII in analytics.
-- Auth start and auth complete.
-- Demographics completion.
-- Notification prompt accepted/declined.
-- Paywall shown.
+- Auth provider selected.
+- Auth completed.
+- Auth failed with provider and safe error category.
+
+### Competitive Setup
+- Survey started.
+- Question answered with bucketed answer values, no raw PII.
+- Survey completed.
+- Smart first climb generated with recommendation tier and climb id.
+- First-climb detail opened.
+
+### Profile And Permissions
+- Display name completed.
+- Demographics completed by field, no raw PII in analytics.
+- Notification pre-prompt shown.
+- Native notification prompt accepted or declined.
+
+### Monetization
+- Paywall shown with placement and variant.
+- Plan selected.
 - Trial started.
 - Purchase completed.
+- Purchase failed with safe error category.
+- Restore started and completed.
 
-First A/B tests after launch:
-1. Welcome headline:
-   - `Race the world up real landmarks.`
-   - `The stair stepper finally has a field.`
-2. Calculation reveal:
-   - Smart first climb reveal
-   - Leaderboard-ready profile reveal
-3. Social proof:
-   - Launch-wave scarcity
-   - Early tester quote
-4. Paywall headline:
-   - `Unlock The Field`
-   - `Start Climbing For Rank`
+### Live Climb Activation
+- Live Climb started.
+- Target climb id and tier.
+- Attempt completed, abandoned, or failed.
+- Completion Summary viewed.
+- Step-tracking algorithm version.
+- Device model, OS version, and sensor path.
+
+### Public Result Sync
+- Workout saved locally.
+- Remote workout backup started, succeeded, or failed.
+- Public leaderboard publish started, succeeded, or failed.
+- Retry sync tapped.
+- Retry sync succeeded or failed.
+- Rank snapshot created with rank bucket and completed-count bucket.
+
+### Retention And Growth
+- Workout Detail viewed.
+- Best Effort earned.
+- Profile viewed.
+- Collection card tapped.
+- Share composer opened.
+- Share exported.
+- Share target selected when available.
+
+### First A/B Tests After Launch
+
+Welcome headline:
+- `Race the world up real landmarks.`
+- `The stair stepper finally has a field.`
+
+Calculation reveal:
+- Smart first climb reveal.
+- Leaderboard-ready profile reveal.
+
+Social proof:
+- Launch-wave scarcity.
+- Early tester quote.
+
+Paywall headline:
+- `Unlock The Field`
+- `Start Climbing For Rank`

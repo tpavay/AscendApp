@@ -5,13 +5,9 @@ enum ShareRecapTemplate: String, CaseIterable, Identifiable {
     case summitPoster
     case splitsPoster
     case raceBibResult
-    case crownChase
     case glassHUD
-    case wrappedData
-    case blueprintClimb
     case officialFinish
     case bestEffortStamp
-    case weeklyRecap
 
     var id: String { rawValue }
 
@@ -20,13 +16,9 @@ enum ShareRecapTemplate: String, CaseIterable, Identifiable {
         case .summitPoster: return "Summit Poster"
         case .splitsPoster: return "Splits Poster"
         case .raceBibResult: return "Race Bib"
-        case .crownChase: return "Crown Chase"
         case .glassHUD: return "Glass HUD"
-        case .wrappedData: return "Wrapped Data"
-        case .blueprintClimb: return "Blueprint"
         case .officialFinish: return "Official Finish"
         case .bestEffortStamp: return "Best Effort"
-        case .weeklyRecap: return "Weekly Recap"
         }
     }
 }
@@ -75,18 +67,12 @@ struct ShareRecapCardData {
         if ordered.count >= 3 { return Array(ordered.prefix(3)) }
         return Array((ordered + stats).uniquedByLabel().prefix(3))
     }
-
-    var weeklyDisplayStats: [ResolvedShareStat] {
-        if !weeklyTotals.isEmpty { return weeklyTotals }
-        return [
-            ResolvedShareStat(kind: .totals, label: "STEPS THIS WEEK", value: stepsText),
-            ResolvedShareStat(kind: .totals, label: "TIME THIS WEEK", value: durationText),
-            ResolvedShareStat(kind: .totals, label: "VERTICAL THIS WEEK", value: verticalText)
-        ]
-    }
 }
 
 struct ShareRecapCard: View {
+    static let aspectRatio: CGFloat = 9.0 / 16.0
+    private static let designSize = CGSize(width: 390, height: 390 / aspectRatio)
+
     let template: ShareRecapTemplate
     let data: ShareRecapCardData
     var climbArtworkOverride: UIImage?
@@ -103,38 +89,47 @@ struct ShareRecapCard: View {
 
     var body: some View {
         GeometryReader { geo in
-            let s = geo.size.width / 390
+            let scale = min(
+                geo.size.width / Self.designSize.width,
+                geo.size.height / Self.designSize.height
+            )
 
             ZStack {
-                switch template {
-                case .summitPoster:
-                    summitPoster(scale: s)
-                case .splitsPoster:
-                    splitsPoster(scale: s)
-                case .raceBibResult:
-                    raceBibResult(scale: s)
-                case .crownChase:
-                    crownChase(scale: s)
-                case .glassHUD:
-                    glassHUD(scale: s)
-                case .wrappedData:
-                    wrappedData(scale: s)
-                case .blueprintClimb:
-                    blueprintClimb(scale: s)
-                case .officialFinish:
-                    officialFinish(scale: s)
-                case .bestEffortStamp:
-                    bestEffortStamp(scale: s)
-                case .weeklyRecap:
-                    weeklyRecap(scale: s)
-                }
+                templateContent(scale: 1)
+                    .frame(width: Self.designSize.width, height: Self.designSize.height)
+                    .scaleEffect(scale)
+                    .frame(width: Self.designSize.width * scale, height: Self.designSize.height * scale)
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .clipped()
         }
+        .dynamicTypeSize(.large)
+    }
+
+    @ViewBuilder
+    private func templateContent(scale s: CGFloat) -> some View {
+        switch template {
+        case .summitPoster:
+            summitPoster(scale: s)
+        case .splitsPoster:
+            splitsPoster(scale: s)
+        case .raceBibResult:
+            raceBibResult(scale: s)
+        case .glassHUD:
+            glassHUD(scale: s)
+        case .officialFinish:
+            officialFinish(scale: s)
+        case .bestEffortStamp:
+            bestEffortStamp(scale: s)
+        }
     }
 
     // MARK: - Templates
+    //
+    // Every recap is composited under the composer's always-on Ascend wordmark
+    // (see ShareExportCanvas / ShareComposerView), so templates must NOT draw their
+    // own wordmark at the bottom — that produced a duplicate. Race Bib keeps a
+    // wordmark only because it sits in a unique spot inside the bib footer.
 
     private func summitPoster(scale s: CGFloat) -> some View {
         ZStack {
@@ -151,7 +146,7 @@ struct ShareRecapCard: View {
                     chip("LIVE CLIMB COMPLETE", scale: s)
                     Spacer()
                     Text(data.rankText)
-                        .font(.montserratBold(size: 44 * s))
+                        .font(.recapBold(size: 44 * s))
                         .foregroundStyle(.white)
                 }
                 .padding(.horizontal, 30 * s)
@@ -161,13 +156,13 @@ struct ShareRecapCard: View {
 
                 VStack(alignment: .leading, spacing: 12 * s) {
                     Text(data.climbName)
-                        .font(.montserratBold(size: 46 * s))
+                        .font(.recapBold(size: 46 * s))
                         .foregroundStyle(.white)
                         .lineLimit(2)
                         .minimumScaleFactor(0.56)
 
                     Text("\(data.rankWithTotalText) · \(data.stepsText) STEPS")
-                        .font(.montserratSemiBold(size: 12 * s))
+                        .font(.recapSemiBold(size: 12 * s))
                         .tracking(1.6 * s)
                         .foregroundStyle(Color.recapLime)
                 }
@@ -178,14 +173,9 @@ struct ShareRecapCard: View {
                     .padding(.horizontal, 24 * s)
                     .padding(.top, 28 * s)
 
-                Spacer(minLength: 72 * s)
+                Spacer(minLength: 96 * s)
             }
-
-            VStack {
-                Spacer()
-                AscendWordmark(size: 16 * s, letterColor: .white.opacity(0.94))
-                    .padding(.bottom, 34 * s)
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -203,19 +193,19 @@ struct ShareRecapCard: View {
                 Spacer(minLength: 0)
 
                 Text(data.climbName)
-                    .font(.montserratBold(size: 42 * s))
+                    .font(.recapBold(size: 42 * s))
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .minimumScaleFactor(0.58)
 
                 Text("SPLITS")
-                    .font(.montserratBold(size: 22 * s))
+                    .font(.recapBold(size: 22 * s))
                     .tracking(3.5 * s)
                     .foregroundStyle(.white)
                     .padding(.top, 2 * s)
 
                 Text(data.splits?.subtitle.uppercased() ?? "\(data.stepsText) STEPS · \(data.paceText) SPM AVG")
-                    .font(.montserratBold(size: 10 * s))
+                    .font(.recapBold(size: 10 * s))
                     .tracking(1.5 * s)
                     .foregroundStyle(Color.recapLime)
                     .padding(.top, 8 * s)
@@ -231,13 +221,8 @@ struct ShareRecapCard: View {
             }
             .padding(.horizontal, 30 * s)
             .padding(.top, 160 * s)
-            .padding(.bottom, 116 * s)
-
-            VStack {
-                Spacer()
-                AscendWordmark(size: 16 * s, letterColor: .white.opacity(0.94))
-                    .padding(.bottom, 36 * s)
-            }
+            .padding(.bottom, 128 * s)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
 
@@ -259,12 +244,12 @@ struct ShareRecapCard: View {
 
                     VStack(alignment: .leading, spacing: 8 * s) {
                         Text("ASCEND RESULT")
-                            .font(.montserratBold(size: 10 * s))
+                            .font(.recapBold(size: 10 * s))
                             .tracking(2 * s)
                             .foregroundStyle(Color.recapLime)
 
                         Text(data.climbName)
-                            .font(.montserratBold(size: 34 * s))
+                            .font(.recapBold(size: 34 * s))
                             .foregroundStyle(.white)
                             .lineLimit(2)
                             .minimumScaleFactor(0.62)
@@ -275,18 +260,18 @@ struct ShareRecapCard: View {
                 VStack(spacing: 18 * s) {
                     HStack(alignment: .firstTextBaseline) {
                         Text(data.rankText)
-                            .font(.montserratBold(size: 72 * s))
+                            .font(.recapBold(size: 72 * s))
                             .foregroundStyle(.black)
 
                         Spacer()
 
                         VStack(alignment: .trailing, spacing: 5 * s) {
                             Text("GLOBAL")
-                                .font(.montserratBold(size: 10 * s))
+                                .font(.recapBold(size: 10 * s))
                                 .tracking(2 * s)
                                 .foregroundStyle(.black.opacity(0.45))
                             Text("of \(data.rankTotalText)")
-                                .font(.montserratBold(size: 20 * s))
+                                .font(.recapBold(size: 20 * s))
                                 .foregroundStyle(.black)
                         }
                     }
@@ -303,7 +288,7 @@ struct ShareRecapCard: View {
                         AscendWordmark(size: 14 * s, letterColor: .black)
                         Spacer()
                         Text(Date.now.formatted(date: .abbreviated, time: .omitted).uppercased())
-                            .font(.montserratBold(size: 10 * s))
+                            .font(.recapBold(size: 10 * s))
                             .tracking(1.4 * s)
                             .foregroundStyle(.black.opacity(0.55))
                     }
@@ -312,58 +297,7 @@ struct ShareRecapCard: View {
 
                 Spacer(minLength: 0)
             }
-        }
-    }
-
-    private func crownChase(scale s: CGFloat) -> some View {
-        ZStack {
-            LinearGradient(
-                colors: [.black, Color.hex(0x101712), .black],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-
-            mountainMark(scale: s)
-                .fill(.white.opacity(0.055))
-                .frame(width: 470 * s, height: 260 * s)
-                .offset(y: -70 * s)
-
-            VStack(alignment: .leading, spacing: 0) {
-                Text("CROWN CHASE")
-                    .font(.montserratBold(size: 12 * s))
-                    .tracking(2.6 * s)
-                    .foregroundStyle(Color.recapLime)
-
-                Text(data.climbName)
-                    .font(.montserratBold(size: 40 * s))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.58)
-                    .padding(.top, 12 * s)
-
-                Text("You finished \(data.rankText) out of \(data.rankTotalText).")
-                    .font(.montserratMedium(size: 15 * s))
-                    .foregroundStyle(.white.opacity(0.66))
-                    .padding(.top, 8 * s)
-
-                Spacer()
-
-                VStack(spacing: 10 * s) {
-                    podiumRow(place: "1", name: "Champion", value: "CROWN", highlighted: data.rank == 1, scale: s)
-                    podiumRow(place: data.rankText.replacingOccurrences(of: "#", with: ""), name: "You", value: data.stepsText, highlighted: true, scale: s)
-                    podiumRow(place: "TOP", name: "Field", value: data.rankTotalText, highlighted: false, scale: s)
-                }
-
-                metricDock(data.headlineStats, scale: s)
-                    .padding(.top, 22 * s)
-
-                AscendWordmark(size: 14 * s, letterColor: .white.opacity(0.92))
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 36 * s)
-            }
-            .padding(30 * s)
-            .padding(.top, 24 * s)
-            .padding(.bottom, 28 * s)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -380,12 +314,12 @@ struct ShareRecapCard: View {
             VStack(alignment: .leading, spacing: 18 * s) {
                 HStack {
                     Text("ASCEND HUD")
-                        .font(.montserratBold(size: 11 * s))
+                        .font(.recapBold(size: 11 * s))
                         .tracking(2.2 * s)
                         .foregroundStyle(.white.opacity(0.82))
                     Spacer()
                     Text(data.rankText)
-                        .font(.montserratBold(size: 22 * s))
+                        .font(.recapBold(size: 22 * s))
                         .foregroundStyle(Color.recapLime)
                 }
 
@@ -393,12 +327,12 @@ struct ShareRecapCard: View {
 
                 VStack(alignment: .leading, spacing: 8 * s) {
                     Text(data.climbName)
-                        .font(.montserratBold(size: 38 * s))
+                        .font(.recapBold(size: 38 * s))
                         .foregroundStyle(.white)
                         .lineLimit(2)
                         .minimumScaleFactor(0.6)
                     Text("LIVE RESULT · \(data.stepsText) STEPS")
-                        .font(.montserratBold(size: 10 * s))
+                        .font(.recapBold(size: 10 * s))
                         .tracking(1.8 * s)
                         .foregroundStyle(Color.recapLime)
                 }
@@ -414,116 +348,11 @@ struct ShareRecapCard: View {
                     RoundedRectangle(cornerRadius: 22 * s, style: .continuous)
                         .stroke(.white.opacity(0.16), lineWidth: 1)
                 )
-
-                AscendWordmark(size: 14 * s, letterColor: .white.opacity(0.92))
-                    .frame(maxWidth: .infinity)
             }
             .padding(28 * s)
             .padding(.top, 30 * s)
-            .padding(.bottom, 34 * s)
-        }
-    }
-
-    private func wrappedData(scale s: CGFloat) -> some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color.hex(0xB4CC00), Color.hex(0x101010), .black],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            Circle()
-                .fill(.black.opacity(0.2))
-                .frame(width: 430 * s, height: 430 * s)
-                .offset(x: 120 * s, y: -170 * s)
-
-            VStack(alignment: .leading, spacing: 18 * s) {
-                Text("YOUR CLIMB WRAPPED")
-                    .font(.montserratBold(size: 13 * s))
-                    .tracking(2 * s)
-                    .foregroundStyle(.black.opacity(0.78))
-
-                Text(data.climbName)
-                    .font(.montserratBold(size: 42 * s))
-                    .foregroundStyle(.black)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.58)
-
-                Spacer()
-
-                VStack(spacing: 12 * s) {
-                    wrappedMetric(rank: "01", label: "RANK", value: data.rankText, scale: s)
-                    wrappedMetric(rank: "02", label: "STEPS", value: data.stepsText, scale: s)
-                    wrappedMetric(rank: "03", label: "PACE", value: "\(data.paceText) SPM", scale: s)
-                    wrappedMetric(rank: "04", label: "TIME", value: data.durationText, scale: s)
-                }
-
-                Spacer()
-
-                AscendWordmark(size: 15 * s, letterColor: .white.opacity(0.94))
-                    .frame(maxWidth: .infinity)
-            }
-            .padding(28 * s)
-            .padding(.top, 34 * s)
-            .padding(.bottom, 34 * s)
-        }
-    }
-
-    private func blueprintClimb(scale s: CGFloat) -> some View {
-        ZStack {
-            Color.hex(0x071018)
-            blueprintGrid(scale: s)
-                .stroke(Color.recapLime.opacity(0.13), lineWidth: 0.8 * s)
-
-            VStack(alignment: .leading, spacing: 0) {
-                Text("CLIMB BLUEPRINT")
-                    .font(.montserratBold(size: 11 * s))
-                    .tracking(2.2 * s)
-                    .foregroundStyle(Color.recapLime)
-
-                Text(data.climbName)
-                    .font(.montserratBold(size: 38 * s))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.58)
-                    .padding(.top, 10 * s)
-
-                ZStack(alignment: .bottomLeading) {
-                    Path { path in
-                        path.move(to: CGPoint(x: 0, y: 210 * s))
-                        path.addLine(to: CGPoint(x: 70 * s, y: 210 * s))
-                        path.addLine(to: CGPoint(x: 70 * s, y: 160 * s))
-                        path.addLine(to: CGPoint(x: 142 * s, y: 160 * s))
-                        path.addLine(to: CGPoint(x: 142 * s, y: 110 * s))
-                        path.addLine(to: CGPoint(x: 214 * s, y: 110 * s))
-                        path.addLine(to: CGPoint(x: 214 * s, y: 58 * s))
-                        path.addLine(to: CGPoint(x: 292 * s, y: 58 * s))
-                    }
-                    .stroke(Color.recapLime, style: StrokeStyle(lineWidth: 8 * s, lineCap: .square, lineJoin: .miter))
-
-                    Text(data.stepsText)
-                        .font(.montserratBold(size: 64 * s))
-                        .foregroundStyle(.white.opacity(0.96))
-                        .offset(x: 10 * s, y: -16 * s)
-                }
-                .frame(height: 250 * s)
-                .padding(.top, 30 * s)
-
-                Spacer()
-
-                VStack(spacing: 8 * s) {
-                    blueprintMetric("DURATION", data.durationText, scale: s)
-                    blueprintMetric("VERTICAL", data.verticalText, scale: s)
-                    blueprintMetric("RANK", data.rankWithTotalText, scale: s)
-                }
-
-                AscendWordmark(size: 14 * s, letterColor: .white.opacity(0.92))
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 34 * s)
-            }
-            .padding(28 * s)
-            .padding(.top, 34 * s)
-            .padding(.bottom, 32 * s)
+            .padding(.bottom, 56 * s)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
 
@@ -538,7 +367,7 @@ struct ShareRecapCard: View {
 
             VStack(spacing: 0) {
                 Text("OFFICIAL FINISH")
-                    .font(.montserratBold(size: 12 * s))
+                    .font(.recapBold(size: 12 * s))
                     .tracking(2.7 * s)
                     .foregroundStyle(Color.recapLime)
 
@@ -548,13 +377,13 @@ struct ShareRecapCard: View {
                         .overlay(Circle().stroke(Color.hex(0xB9903E), lineWidth: 3 * s))
                         .frame(width: 190 * s, height: 190 * s)
                     Text(data.rankText)
-                        .font(.montserratBold(size: 70 * s))
+                        .font(.recapBold(size: 70 * s))
                         .foregroundStyle(.white)
                 }
                 .padding(.top, 36 * s)
 
                 Text(data.climbName)
-                    .font(.montserratBold(size: 38 * s))
+                    .font(.recapBold(size: 38 * s))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
@@ -563,20 +392,18 @@ struct ShareRecapCard: View {
                     .padding(.top, 28 * s)
 
                 Text("Finished \(data.rankWithTotalText)")
-                    .font(.montserratMedium(size: 15 * s))
+                    .font(.recapMedium(size: 15 * s))
                     .foregroundStyle(.white.opacity(0.62))
                     .padding(.top, 8 * s)
 
                 Spacer()
 
                 metricDock(data.headlineStats, scale: s)
-
-                AscendWordmark(size: 15 * s, letterColor: .white.opacity(0.94))
-                    .padding(.top, 38 * s)
             }
             .padding(28 * s)
             .padding(.top, 48 * s)
-            .padding(.bottom, 34 * s)
+            .padding(.bottom, 56 * s)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -599,11 +426,11 @@ struct ShareRecapCard: View {
                             .frame(width: 158 * s, height: 158 * s)
                         VStack(spacing: 4 * s) {
                             Text("BEST")
-                                .font(.montserratBold(size: 17 * s))
+                                .font(.recapBold(size: 17 * s))
                             Text("EFFORT")
-                                .font(.montserratBold(size: 17 * s))
+                                .font(.recapBold(size: 17 * s))
                             Text(data.bestEffort?.label ?? "CLIMB")
-                                .font(.montserratBold(size: 8 * s))
+                                .font(.recapBold(size: 8 * s))
                                 .tracking(1.3 * s)
                         }
                         .foregroundStyle(.white)
@@ -614,18 +441,18 @@ struct ShareRecapCard: View {
                 Spacer()
 
                 Text(data.bestEffort?.value ?? data.rankText)
-                    .font(.montserratBold(size: 70 * s))
+                    .font(.recapBold(size: 70 * s))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
 
                 Text(data.bestEffort?.label ?? "GLOBAL RANK")
-                    .font(.montserratBold(size: 12 * s))
+                    .font(.recapBold(size: 12 * s))
                     .tracking(2.2 * s)
                     .foregroundStyle(Color.recapLime)
 
                 Text(data.climbName)
-                    .font(.montserratBold(size: 32 * s))
+                    .font(.recapBold(size: 32 * s))
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .minimumScaleFactor(0.58)
@@ -633,84 +460,11 @@ struct ShareRecapCard: View {
 
                 metricDock(data.headlineStats, scale: s)
                     .padding(.top, 24 * s)
-
-                AscendWordmark(size: 14 * s, letterColor: .white.opacity(0.92))
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 36 * s)
             }
             .padding(28 * s)
             .padding(.top, 42 * s)
-            .padding(.bottom, 34 * s)
-        }
-    }
-
-    private func weeklyRecap(scale s: CGFloat) -> some View {
-        ZStack {
-            LinearGradient(
-                colors: [.black, Color.hex(0x10140D), .black],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            VStack(alignment: .leading, spacing: 0) {
-                Text("ASCEND WEEKLY")
-                    .font(.montserratBold(size: 12 * s))
-                    .tracking(2.4 * s)
-                    .foregroundStyle(Color.recapLime)
-
-                Text("Keep stacking climbs.")
-                    .font(.montserratBold(size: 42 * s))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.6)
-                    .padding(.top, 12 * s)
-
-                LazyVGrid(
-                    columns: [GridItem(.flexible()), GridItem(.flexible())],
-                    spacing: 12 * s
-                ) {
-                    ForEach(data.weeklyDisplayStats.prefix(4), id: \.label) { stat in
-                        weeklyTile(stat, scale: s)
-                    }
-                }
-                .padding(.top, 36 * s)
-
-                VStack(alignment: .leading, spacing: 12 * s) {
-                    Text("LATEST CLIMB")
-                        .font(.montserratBold(size: 10 * s))
-                        .tracking(2 * s)
-                        .foregroundStyle(.white.opacity(0.42))
-
-                    HStack(spacing: 14 * s) {
-                        ClimbArtworkView(climb: data.climb, variant: .thumb)
-                            .frame(width: 62 * s, height: 62 * s)
-                            .clipShape(RoundedRectangle(cornerRadius: 14 * s, style: .continuous))
-
-                        VStack(alignment: .leading, spacing: 4 * s) {
-                            Text(data.climbName)
-                                .font(.montserratBold(size: 17 * s))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
-                            Text("\(data.stepsText) steps · \(data.durationText)")
-                                .font(.montserratMedium(size: 12 * s))
-                                .foregroundStyle(.white.opacity(0.52))
-                                .lineLimit(1)
-                        }
-                        Spacer()
-                    }
-                    .padding(14 * s)
-                    .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 20 * s, style: .continuous))
-                }
-                .padding(.top, 34 * s)
-
-                Spacer()
-
-                AscendWordmark(size: 15 * s, letterColor: .white.opacity(0.94))
-                    .frame(maxWidth: .infinity)
-            }
-            .padding(28 * s)
-            .padding(.top, 42 * s)
-            .padding(.bottom, 36 * s)
+            .padding(.bottom, 56 * s)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
 
@@ -718,22 +472,31 @@ struct ShareRecapCard: View {
 
     @ViewBuilder
     private func artworkBackground(overlay colors: [Color]) -> some View {
-        ZStack {
-            if let climbArtworkOverride {
-                Image(uiImage: climbArtworkOverride)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                ClimbArtworkView(climb: data.climb, variant: .hero)
+        // Lay the artwork on a flexible Color.clear base via overlays rather than
+        // as a ZStack sizing member. A landscape hero's `scaledToFill` reports an
+        // overflowed width even under `.frame(maxWidth:.infinity).clipped()` — used
+        // directly in a ZStack that width drove the whole template, stretching the
+        // stat overlays off-card and center-cropping them. As an overlay it can
+        // overflow visually (and clip) without ever growing the card's layout.
+        Color.clear
+            .overlay {
+                if let climbArtworkOverride {
+                    Image(uiImage: climbArtworkOverride)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    ClimbArtworkView(climb: data.climb, variant: .hero)
+                }
             }
-
-            LinearGradient(colors: colors, startPoint: .top, endPoint: .bottom)
-        }
+            .overlay {
+                LinearGradient(colors: colors, startPoint: .top, endPoint: .bottom)
+            }
+            .clipped()
     }
 
     private func chip(_ text: String, scale s: CGFloat) -> some View {
         Text(text)
-            .font(.montserratBold(size: 9 * s))
+            .font(.recapBold(size: 9 * s))
             .tracking(1.5 * s)
             .foregroundStyle(.white)
             .padding(.horizontal, 13 * s)
@@ -761,12 +524,12 @@ struct ShareRecapCard: View {
     private func metricDockCell(_ stat: ResolvedShareStat, scale s: CGFloat) -> some View {
         VStack(spacing: 5 * s) {
             Text(stat.value)
-                .font(.montserratBold(size: 22 * s))
+                .font(.recapBold(size: 22 * s))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
             Text(shortLabel(stat.label))
-                .font(.montserratBold(size: 8 * s))
+                .font(.recapBold(size: 8 * s))
                 .tracking(1.4 * s)
                 .foregroundStyle(Color.recapLime)
         }
@@ -779,7 +542,7 @@ struct ShareRecapCard: View {
             splitRowsList(rows: Array(splits.rows.prefix(6)), scale: s)
         } else {
             Text("SPLITS UNAVAILABLE")
-                .font(.montserratBold(size: 15 * s))
+                .font(.recapBold(size: 15 * s))
                 .tracking(2 * s)
                 .foregroundStyle(.white.opacity(0.65))
         }
@@ -802,7 +565,7 @@ struct ShareRecapCard: View {
             Text("STEPS").frame(width: 58 * s, alignment: .trailing)
             Text("HR").frame(width: 42 * s, alignment: .trailing)
         }
-        .font(.montserratBold(size: 9 * s))
+        .font(.recapBold(size: 9 * s))
         .tracking(1.6 * s)
         .foregroundStyle(.white.opacity(0.64))
     }
@@ -811,28 +574,28 @@ struct ShareRecapCard: View {
         HStack(alignment: .center, spacing: 12 * s) {
             VStack(alignment: .leading, spacing: 2 * s) {
                 Text(row.segmentText)
-                    .font(.montserratBold(size: 21 * s))
+                    .font(.recapBold(size: 21 * s))
                     .foregroundStyle(.white)
                 Text(row.rangeText)
-                    .font(.montserratBold(size: 8 * s))
+                    .font(.recapBold(size: 8 * s))
                     .foregroundStyle(.white.opacity(0.58))
             }
             .frame(width: 48 * s, alignment: .leading)
 
             Text(row.spmText)
-                .font(.montserratBold(size: 20 * s))
+                .font(.recapBold(size: 20 * s))
                 .foregroundStyle(.white)
                 .frame(width: 38 * s, alignment: .leading)
 
             splitProgressBar(progress: row.progress, scale: s)
 
             Text(row.stepsText)
-                .font(.montserratBold(size: 17 * s))
+                .font(.recapBold(size: 17 * s))
                 .foregroundStyle(.white)
                 .frame(width: 58 * s, alignment: .trailing)
 
             Text(row.heartRateText ?? "--")
-                .font(.montserratBold(size: 17 * s))
+                .font(.recapBold(size: 17 * s))
                 .foregroundStyle(.white.opacity(row.heartRateText == nil ? 0.5 : 1))
                 .frame(width: 42 * s, alignment: .trailing)
         }
@@ -854,11 +617,11 @@ struct ShareRecapCard: View {
     private func raceBibMetric(_ label: String, _ value: String, scale s: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 5 * s) {
             Text(label)
-                .font(.montserratBold(size: 8 * s))
+                .font(.recapBold(size: 8 * s))
                 .tracking(1.4 * s)
                 .foregroundStyle(.black.opacity(0.46))
             Text(value)
-                .font(.montserratBold(size: 20 * s))
+                .font(.recapBold(size: 20 * s))
                 .foregroundStyle(.black)
                 .lineLimit(1)
                 .minimumScaleFactor(0.58)
@@ -868,37 +631,15 @@ struct ShareRecapCard: View {
         .background(.black.opacity(0.06), in: RoundedRectangle(cornerRadius: 12 * s, style: .continuous))
     }
 
-    private func podiumRow(place: String, name: String, value: String, highlighted: Bool, scale s: CGFloat) -> some View {
-        HStack(spacing: 12 * s) {
-            Text(place)
-                .font(.montserratBold(size: 18 * s))
-                .foregroundStyle(highlighted ? .black : .white.opacity(0.7))
-                .frame(width: 42 * s, height: 42 * s)
-                .background(highlighted ? Color.recapLime : Color.white.opacity(0.08), in: Circle())
-            VStack(alignment: .leading, spacing: 2 * s) {
-                Text(name)
-                    .font(.montserratBold(size: 15 * s))
-                    .foregroundStyle(.white)
-                Text(value)
-                    .font(.montserratBold(size: 11 * s))
-                    .tracking(1.2 * s)
-                    .foregroundStyle(highlighted ? Color.recapLime : .white.opacity(0.46))
-            }
-            Spacer()
-        }
-        .padding(12 * s)
-        .background(Color.white.opacity(highlighted ? 0.12 : 0.06), in: RoundedRectangle(cornerRadius: 16 * s, style: .continuous))
-    }
-
     private func glassMetric(_ label: String, _ value: String, progress: Double, scale s: CGFloat) -> some View {
         HStack(spacing: 12 * s) {
             VStack(alignment: .leading, spacing: 4 * s) {
                 Text(shortLabel(label))
-                    .font(.montserratBold(size: 8 * s))
+                    .font(.recapBold(size: 8 * s))
                     .tracking(1.5 * s)
                     .foregroundStyle(.white.opacity(0.48))
                 Text(value)
-                    .font(.montserratBold(size: 20 * s))
+                    .font(.recapBold(size: 20 * s))
                     .foregroundStyle(.white)
             }
             .frame(width: 104 * s, alignment: .leading)
@@ -914,66 +655,6 @@ struct ShareRecapCard: View {
             }
             .frame(height: 10 * s)
         }
-    }
-
-    private func wrappedMetric(rank: String, label: String, value: String, scale s: CGFloat) -> some View {
-        HStack {
-            Text(rank)
-                .font(.montserratBold(size: 12 * s))
-                .foregroundStyle(Color.recapLime)
-                .frame(width: 34 * s, height: 34 * s)
-                .background(.black, in: Circle())
-            Text(label)
-                .font(.montserratBold(size: 11 * s))
-                .tracking(1.8 * s)
-                .foregroundStyle(.white.opacity(0.62))
-            Spacer()
-            Text(value)
-                .font(.montserratBold(size: 22 * s))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-        }
-        .padding(15 * s)
-        .background(.black.opacity(0.48), in: RoundedRectangle(cornerRadius: 18 * s, style: .continuous))
-    }
-
-    private func blueprintMetric(_ label: String, _ value: String, scale s: CGFloat) -> some View {
-        HStack {
-            Text(label)
-                .font(.montserratBold(size: 9 * s))
-                .tracking(1.8 * s)
-                .foregroundStyle(Color.recapLime)
-            Spacer()
-            Text(value)
-                .font(.montserratBold(size: 18 * s))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-        }
-        .padding(.vertical, 12 * s)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Color.recapLime.opacity(0.18)).frame(height: 1)
-        }
-    }
-
-    private func weeklyTile(_ stat: ResolvedShareStat, scale s: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 8 * s) {
-            Text(stat.value)
-                .font(.montserratBold(size: 26 * s))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.58)
-            Text(shortLabel(stat.label))
-                .font(.montserratBold(size: 8 * s))
-                .tracking(1.4 * s)
-                .foregroundStyle(Color.recapLime)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16 * s)
-        .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 18 * s, style: .continuous))
     }
 
     private func dashedRule(scale s: CGFloat) -> some View {
@@ -1009,45 +690,24 @@ struct ShareRecapCard: View {
     }
 }
 
-private struct MountainMark: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.midX * 0.58, y: rect.midY * 0.86))
-        path.addLine(to: CGPoint(x: rect.midX * 0.92, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.midX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.midX * 1.14, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.midX * 1.45, y: rect.midY * 0.96))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        path.closeSubpath()
-        return path
-    }
-}
-
-private func mountainMark(scale: CGFloat) -> MountainMark {
-    MountainMark()
-}
-
-private func blueprintGrid(scale s: CGFloat) -> Path {
-    Path { path in
-        let width = 390 * s
-        let height = 693 * s
-        let step = 28 * s
-        stride(from: 0, through: width, by: step).forEach { x in
-            path.move(to: CGPoint(x: x, y: 0))
-            path.addLine(to: CGPoint(x: x, y: height))
-        }
-        stride(from: 0, through: height, by: step).forEach { y in
-            path.move(to: CGPoint(x: 0, y: y))
-            path.addLine(to: CGPoint(x: width, y: y))
-        }
-    }
-}
-
 private extension Array where Element == ResolvedShareStat {
     func uniquedByLabel() -> [ResolvedShareStat] {
         var seen = Set<String>()
         return filter { seen.insert($0.label).inserted }
+    }
+}
+
+private extension Font {
+    static func recapBold(size: CGFloat) -> Font {
+        Font.custom("Montserrat-Bold", fixedSize: size)
+    }
+
+    static func recapSemiBold(size: CGFloat) -> Font {
+        Font.custom("Montserrat-SemiBold", fixedSize: size)
+    }
+
+    static func recapMedium(size: CGFloat) -> Font {
+        Font.custom("Montserrat-Medium", fixedSize: size)
     }
 }
 

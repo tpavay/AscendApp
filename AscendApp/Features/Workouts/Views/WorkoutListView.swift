@@ -18,9 +18,6 @@ struct WorkoutListView: View {
     @State private var filterState = WorkoutListFilterState()
 
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
-    @State private var showingWorkoutForm = false
-    @State private var showingCompletedView = false
-    @State private var completedWorkout: Workout?
     @State private var isInDeleteMode = false
     @State private var selectedWorkouts: Set<UUID> = []
     @State private var showingDeleteConfirmation = false
@@ -30,9 +27,6 @@ struct WorkoutListView: View {
     @State private var isDeleting = false
     @State private var isCancelling = false
     @State private var deleteTask: Task<Void, Never>? = nil
-    @State private var showingRoutinesView = false
-
-    @State private var showingEntrySelection = false
 
     private let embedsInNavigationStack: Bool
     private let showsBackButton: Bool
@@ -133,62 +127,6 @@ struct WorkoutListView: View {
                 }
             }
             .navigationBarHidden(true)
-            .navigationDestination(isPresented: $showingRoutinesView) {
-                RoutinesView()
-            }
-            .overlay(alignment: .bottomTrailing) {
-                if !isInDeleteMode {
-                    // Floating Action Button
-                    Button(action: {
-                        showingEntrySelection = true
-                    }) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 20, weight: .medium))
-                            .foregroundStyle(.white)
-                            .frame(width: 56, height: 56)
-                            .background(
-                                Circle()
-                                    .fill(.accent)
-                                    .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
-                            )
-                    }
-                    .padding(20)
-                }
-            }
-            .sheet(isPresented: $showingEntrySelection) {
-                HomeWorkoutActionSheet(
-                    onManualEntry: presentWorkoutForm,
-                    onStartRoutine: presentRoutines,
-                    onImportWorkouts: presentImportSheet,
-                    pendingImportCount: importCoordinator.attentionCount
-                )
-                .appSheetStyle(.fitted())
-            }
-            .sheet(isPresented: $showingWorkoutForm) {
-                WorkoutFormView(
-                    showingWorkoutForm: $showingWorkoutForm,
-                    onWorkoutCompleted: { workout in
-                        print("🔍 WorkoutListView: onWorkoutCompleted called")
-                        completedWorkout = workout
-
-                        // Dismiss the form
-                        showingWorkoutForm = false
-
-                        // Then show completed view after a brief delay
-                        Task {
-                            try await Task.sleep(for: .milliseconds(300))
-                            showingCompletedView = true
-                            print("🔍 WorkoutListView: Set showingCompletedView = true")
-                        }
-                    }
-                )
-                .interactiveDismissDisabled()
-            }
-            .fullScreenCover(isPresented: $showingCompletedView) {
-                if let workout = completedWorkout {
-                    ShareComposerView(workout: workout)
-                }
-            }
             .sheet(isPresented: $showingDeleteConfirmation) {
                 DeleteWorkoutConfirmationView(
                     selectedCount: selectedWorkouts.count,
@@ -234,35 +172,6 @@ struct WorkoutListView: View {
                 importCoordinator.configure(modelContext: modelContext)
             }
     }
-
-    private func presentWorkoutForm() {
-        showingEntrySelection = false
-
-        Task {
-            try? await Task.sleep(for: .milliseconds(300))
-            showingWorkoutForm = true
-        }
-    }
-
-    private func presentRoutines() {
-        showingEntrySelection = false
-
-        Task {
-            try? await Task.sleep(for: .milliseconds(300))
-            showingRoutinesView = true
-        }
-    }
-
-    private func presentImportSheet() {
-        showingEntrySelection = false
-
-        Task {
-            try? await Task.sleep(for: .milliseconds(300))
-            await importCoordinator.refreshPendingImports(trigger: .manualReview)
-            showingImportSheet = true
-        }
-    }
-
 
     private var areAllWorkoutsSelected: Bool {
         let deletableWorkoutCount = workouts.filter { !$0.isLiveClimbAttemptWorkout }.count
@@ -380,7 +289,7 @@ struct WorkoutListView: View {
             do {
                 try await photoService.deletePhotos(allPhotos)
             } catch let error as PhotoDeletionError {
-                print("❌ Failed to delete photos: \(error)")
+                debugLog("❌ Failed to delete photos: \(error)")
                 await MainActor.run {
                     isDeleting = false
                     showingDeleteConfirmation = false
@@ -397,7 +306,7 @@ struct WorkoutListView: View {
                 }
                 return // Don't delete any workouts
             } catch {
-                print("❌ Failed to delete photos from Firebase: \(error)")
+                debugLog("❌ Failed to delete photos from Firebase: \(error)")
                 await MainActor.run {
                     isDeleting = false
                     showingDeleteConfirmation = false
@@ -446,7 +355,7 @@ struct WorkoutListView: View {
                 exitDeleteMode()
             }
         } catch {
-            print("❌ Error deleting workouts: \(error)")
+            debugLog("❌ Error deleting workouts: \(error)")
 
             if shouldProcessRemoteDeletion, let remoteSyncUserId {
                 Task { @MainActor in

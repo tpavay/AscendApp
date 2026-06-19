@@ -81,9 +81,9 @@ struct PhotoActionSheet: View {
     PhotoActionSheet(
         photo: Photo(url: URL(string: "https://example.com/photo.jpg")!),
         isHighlighted: false,
-        onMakeHighlighted: { print("Make highlighted") },
-        onDelete: { print("Delete") },
-        onCancel: { print("Cancel") }
+        onMakeHighlighted: { debugLog("Make highlighted") },
+        onDelete: { debugLog("Delete") },
+        onCancel: { debugLog("Cancel") }
     )
 }
 
@@ -91,9 +91,9 @@ struct PhotoActionSheet: View {
     PhotoActionSheet(
         photo: Photo(url: URL(string: "https://example.com/photo.jpg")!),
         isHighlighted: true,
-        onMakeHighlighted: { print("Make highlighted") },
-        onDelete: { print("Delete") },
-        onCancel: { print("Cancel") }
+        onMakeHighlighted: { debugLog("Make highlighted") },
+        onDelete: { debugLog("Delete") },
+        onCancel: { debugLog("Cancel") }
     )
     .preferredColorScheme(.dark)
 }
@@ -102,8 +102,8 @@ struct PhotoActionSheet: View {
     PhotoActionSheet(
         photo: Photo(url: URL(string: "https://example.com/video.mp4")!, type: .video, duration: 12.5),
         isHighlighted: false,
-        onMakeHighlighted: { print("Make highlighted") },
-        onDelete: { print("Delete") },
-        onCancel: { print("Cancel") }
+        onMakeHighlighted: { debugLog("Make highlighted") },
+        onDelete: { debugLog("Delete") },
+        onCancel: { debugLog("Cancel") }
     )
 }

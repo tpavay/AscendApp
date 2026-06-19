@@ -12,20 +12,17 @@ enum AppIconToken: Hashable, Sendable {
     case tabHomeSelected
     case tabWorkouts
     case tabWorkoutsSelected
-    case tabProgress
-    case tabProgressSelected
     case tabLeaderboard
     case tabLeaderboardSelected
     case tabProfile
     case tabProfileSelected
-    case tabSettings
-    case tabSettingsSelected
     case mapPin
     case mapPinFill
     case globeHemisphereWest
     case mountains
     case infinity
     case clipboardText
+    case manualWorkout
 
     case settingsEditProfile
     case settingsMeasurementSystem
@@ -58,10 +55,6 @@ enum AppIconToken: Hashable, Sendable {
             return .asset("ph-tab-workouts")
         case .tabWorkoutsSelected:
             return .asset("ph-tab-workouts-selected")
-        case .tabProgress:
-            return .asset("ph-tab-progress")
-        case .tabProgressSelected:
-            return .asset("ph-tab-progress-selected")
         case .tabLeaderboard:
             return .asset("ph-tab-leaderboard")
         case .tabLeaderboardSelected:
@@ -70,10 +63,6 @@ enum AppIconToken: Hashable, Sendable {
             return .systemSymbol("person.crop.circle")
         case .tabProfileSelected:
             return .systemSymbol("person.crop.circle.fill")
-        case .tabSettings:
-            return .asset("ph-tab-settings")
-        case .tabSettingsSelected:
-            return .asset("ph-tab-settings-selected")
         case .mapPin:
             return .asset("ph-map-pin")
         case .mapPinFill:
@@ -86,6 +75,8 @@ enum AppIconToken: Hashable, Sendable {
             return .asset("ph-infinity")
         case .clipboardText:
             return .asset("ph-clipboard-text")
+        case .manualWorkout:
+            return .systemSymbol("square.and.pencil")
 
         case .settingsEditProfile:
             return .asset("ph-settings-edit-profile")

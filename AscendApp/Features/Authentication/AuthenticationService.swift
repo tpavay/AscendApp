@@ -101,10 +101,8 @@ class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
 
             // Sign in to Firebase
             let result = try await Auth.auth().signIn(with: credential)
-            let firebaseUser = result.user
-
-            print("User \(firebaseUser.uid) signed in with email \(firebaseUser.email ?? "unknown")")
-            return firebaseUser
+            debugLog("Firebase Google sign-in succeeded")
+            return result.user
 
         } catch let error as AuthenticationError {
             throw error
@@ -127,9 +125,8 @@ class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
     func signInWithEmail(email: String, password: String) async throws -> User {
         do {
             let result = try await Auth.auth().signIn(withEmail: email, password: password)
-            let firebaseUser = result.user
-            print("User \(firebaseUser.uid) signed in with email \(firebaseUser.email ?? "unknown")")
-            return firebaseUser
+            debugLog("Firebase email sign-in succeeded")
+            return result.user
         } catch {
             throw AuthenticationError.emailPasswordSignInFailed(error.localizedDescription)
         }
@@ -137,34 +134,37 @@ class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
 
     func signInWithApple() async throws -> User {
         return try await withCheckedThrowingContinuation { continuation in
-            self.signInContinuation = continuation
-            
-            // Generate nonce for security
-            let nonce = randomNonceString()
-            currentNonce = nonce
-            
-            let appleIDProvider = ASAuthorizationAppleIDProvider()
-            let request = appleIDProvider.createRequest()
-            request.requestedScopes = [.email]
-            request.nonce = sha256(nonce)
-            
-            let authorizationController = ASAuthorizationController(authorizationRequests: [request])
-            authorizationController.delegate = self
-            authorizationController.performRequests()
+            do {
+                // Generate nonce for security
+                let nonce = try randomNonceString()
+                currentNonce = nonce
+                self.signInContinuation = continuation
+
+                let appleIDProvider = ASAuthorizationAppleIDProvider()
+                let request = appleIDProvider.createRequest()
+                request.requestedScopes = [.email]
+                request.nonce = sha256(nonce)
+
+                let authorizationController = ASAuthorizationController(authorizationRequests: [request])
+                authorizationController.delegate = self
+                authorizationController.performRequests()
+            } catch {
+                continuation.resume(throwing: error)
+            }
         }
     }
     
     func signOut() throws {
         do {
             try Auth.auth().signOut()
-            print("User signed out successfully")
+            debugLog("User signed out successfully")
         } catch {
             throw AuthenticationError.signOutFailed(error.localizedDescription)
         }
     }
     
     // MARK: - Apple Sign In Helper Methods
-    private func randomNonceString(length: Int = 32) -> String {
+    private func randomNonceString(length: Int = 32) throws -> String {
         precondition(length > 0)
         let charset: [Character] =
         Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
@@ -172,11 +172,11 @@ class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
         var remainingLength = length
         
         while remainingLength > 0 {
-            let randoms: [UInt8] = (0 ..< 16).map { _ in
+            let randoms: [UInt8] = try (0 ..< 16).map { _ in
                 var random: UInt8 = 0
                 let errorCode = SecRandomCopyBytes(kSecRandomDefault, 1, &random)
                 if errorCode != errSecSuccess {
-                    fatalError("Unable to generate nonce. SecRandomCopyBytes failed with OSStatus \(errorCode)")
+                    throw AuthenticationError.appleSignInFailed("Unable to prepare Apple Sign-in.")
                 }
                 return random
             }
@@ -252,7 +252,7 @@ extension AuthenticationService {
             do {
                 let result = try await Auth.auth().signIn(with: credential)
                 let firebaseUser = result.user
-                print("User \(firebaseUser.uid) signed in with Apple ID \(appleIDCredential.user)")
+                debugLog("Firebase Apple sign-in succeeded")
 
                 signInContinuation?.resume(returning: firebaseUser)
             } catch {
@@ -341,7 +341,7 @@ extension AuthenticationService {
             )
 
             try await user.reauthenticate(with: credential)
-            print("User reauthenticated with Google")
+            debugLog("User reauthenticated with Google")
         } catch let error as GIDSignInError where error.code == .canceled {
             throw CancellationError()
         } catch let error as AuthenticationError {
@@ -361,26 +361,30 @@ extension AuthenticationService {
         let credential = try await getAppleCredential()
 
         try await user.reauthenticate(with: credential)
-        print("User reauthenticated with Apple")
+        debugLog("User reauthenticated with Apple")
     }
 
     /// Get Apple credential without signing in (for reauthentication)
     private func getAppleCredential() async throws -> AuthCredential {
         return try await withCheckedThrowingContinuation { continuation in
-            let nonce = randomNonceString()
-            self.currentNonce = nonce
+            do {
+                let nonce = try randomNonceString()
+                self.currentNonce = nonce
 
-            let appleIDProvider = ASAuthorizationAppleIDProvider()
-            let request = appleIDProvider.createRequest()
-            request.requestedScopes = [.email]
-            request.nonce = sha256(nonce)
+                let appleIDProvider = ASAuthorizationAppleIDProvider()
+                let request = appleIDProvider.createRequest()
+                request.requestedScopes = [.email]
+                request.nonce = sha256(nonce)
 
-            // Store continuation for credential-only flow
-            self.credentialContinuation = continuation
+                // Store continuation for credential-only flow
+                self.credentialContinuation = continuation
 
-            let authorizationController = ASAuthorizationController(authorizationRequests: [request])
-            authorizationController.delegate = self
-            authorizationController.performRequests()
+                let authorizationController = ASAuthorizationController(authorizationRequests: [request])
+                authorizationController.delegate = self
+                authorizationController.performRequests()
+            } catch {
+                continuation.resume(throwing: error)
+            }
         }
     }
 

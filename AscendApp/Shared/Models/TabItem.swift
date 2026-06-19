@@ -12,9 +12,6 @@ enum AppTab: Hashable {
     case training
     case leaderboard
     case profile
-    case workouts
-    case progress
-    case settings
 }
 
 @MainActor
@@ -87,50 +84,5 @@ extension TabItem {
     @MainActor
     static var activeTabs: [TabItem] {
         availableTabs
-    }
-}
-
-// MARK: - Placeholder Views for Future Tabs
-struct WorkoutPlaceholderView: View {
-    @Environment(\.colorScheme) private var colorScheme
-    
-    var body: some View {
-        VStack(spacing: 24) {
-            AppIcon(token: .tabWorkouts, pointSize: 60)
-                .foregroundStyle(.accent)
-            
-            Text("Workouts")
-                .font(.montserratBold(size: 28))
-                .foregroundStyle(colorScheme == .dark ? .white : .black)
-            
-            Text("Your workout tracking will appear here")
-                .font(.montserratRegular(size: 16))
-                .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
-                .multilineTextAlignment(.center)
-        }
-        .themedBackground()
-        .navigationTitle("Workouts")
-    }
-}
-
-struct ProgressPlaceholderView: View {
-    @Environment(\.colorScheme) private var colorScheme
-    
-    var body: some View {
-        VStack(spacing: 24) {
-            AppIcon(token: .tabProgress, pointSize: 60)
-                .foregroundStyle(.accent)
-            
-            Text("Progress")
-                .font(.montserratBold(size: 28))
-                .foregroundStyle(colorScheme == .dark ? .white : .black)
-            
-            Text("Your progress analytics will appear here")
-                .font(.montserratRegular(size: 16))
-                .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
-                .multilineTextAlignment(.center)
-        }
-        .themedBackground()
-        .navigationTitle("Progress")
     }
 }

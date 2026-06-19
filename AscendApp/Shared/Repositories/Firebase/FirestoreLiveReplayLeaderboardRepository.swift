@@ -32,7 +32,6 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
     ) async throws -> LiveReplayCompletionRank {
         let resolvedDuration = max(completionDurationSeconds, 0)
 
-        async let summary = fetchSummary(context: context)
         async let fasterCompletionCount = countRowsFasterThan(
             context: context,
             completionDurationSeconds: resolvedDuration
@@ -45,13 +44,11 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             context: context
         )
 
-        let resolvedSummary = try await summary
         let fasterCount = try await fasterCompletionCount
         let publishedCount = try await publishedCompletionCount
         let hasPublishedCurrentUser = try await currentUserIsPublished
         let localCompletionAdjustment = hasPublishedCurrentUser ? 0 : 1
         let completedCount = max(
-            resolvedSummary.completedCount,
             publishedCount + localCompletionAdjustment,
             fasterCount + 1
         )
@@ -59,7 +56,135 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         return LiveReplayCompletionRank(
             rank: min(fasterCount + 1, completedCount),
             completedCount: completedCount,
-            updatedAt: resolvedSummary.updatedAt
+            updatedAt: nil
+        )
+    }
+
+    func fetchCompletionRankSnapshot(
+        context: LiveReplayLeaderboardContext,
+        workoutId: String
+    ) async throws -> LiveReplayCompletionRankSnapshot? {
+        let resolvedWorkoutId = workoutId
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard resolvedWorkoutId.isEmpty == false else {
+            return nil
+        }
+
+        let snapshot = try await completionSnapshotDocument(
+            context: context,
+            workoutId: resolvedWorkoutId
+        )
+        .getDocument(source: .server)
+
+        guard let data = snapshot.data(),
+              let rank = intValue(for: "rank", in: data),
+              let completedCount = intValue(for: "completedCount", in: data),
+              let completionDurationSeconds = doubleValue(
+                for: "completionDurationSeconds",
+                in: data
+              ) else {
+            return nil
+        }
+
+        return LiveReplayCompletionRankSnapshot(
+            workoutId: stringValue(for: "workoutId", in: data) ?? resolvedWorkoutId,
+            rank: rank,
+            completedCount: completedCount,
+            completionDurationSeconds: completionDurationSeconds,
+            rankedAt: timestampValue(for: "rankedAt", in: data),
+            rankingMetric: stringValue(for: "rankingMetric", in: data) ?? "completionDurationSeconds",
+            tiePolicy: stringValue(for: "tiePolicy", in: data) ?? "competition_rank_equal_durations_share_rank"
+        )
+    }
+
+    func fetchPublishStatus(
+        workoutId: String
+    ) async throws -> LiveReplayPublishStatus? {
+        guard let uid = Auth.auth().currentUser?.uid else {
+            return nil
+        }
+
+        let resolvedWorkoutId = workoutId
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard resolvedWorkoutId.isEmpty == false else {
+            return nil
+        }
+
+        let snapshot = try await publishStatusDocument(
+            userId: uid,
+            workoutId: resolvedWorkoutId
+        )
+        .getDocument(source: .server)
+
+        guard let data = snapshot.data(),
+              let rawState = stringValue(for: "state", in: data),
+              let state = LiveReplayPublishState(rawValue: rawState) else {
+            return nil
+        }
+
+        return LiveReplayPublishStatus(
+            state: state,
+            workoutId: stringValue(for: "workoutId", in: data) ?? resolvedWorkoutId,
+            userId: stringValue(for: "userId", in: data),
+            contextType: stringValue(for: "contextType", in: data) ?? "",
+            contextId: stringValue(for: "contextId", in: data) ?? "",
+            rankAtCompletion: intValue(for: "rankAtCompletion", in: data),
+            completedCountAtCompletion: intValue(for: "completedCountAtCompletion", in: data),
+            finisherOrder: intValue(for: "finisherOrder", in: data),
+            lastErrorCode: stringValue(for: "lastErrorCode", in: data),
+            lastErrorMessageSafe: stringValue(for: "lastErrorMessageSafe", in: data),
+            updatedAt: timestampValue(for: "updatedAt", in: data),
+            publishedAt: timestampValue(for: "publishedAt", in: data)
+        )
+    }
+
+    func fetchCurrentUserBestCompletion(
+        context: LiveReplayLeaderboardContext
+    ) async throws -> LiveReplayCurrentUserCompletion? {
+        guard let uid = Auth.auth().currentUser?.uid else {
+            return nil
+        }
+
+        let snapshot = try await entriesCollection(context: context, bucketIndex: 0)
+            .whereField("userId", isEqualTo: uid)
+            .getDocuments(source: .server)
+
+        let bestDocument = snapshot.documents.min { lhs, rhs in
+            let lhsDuration = doubleValue(for: "completionDurationSeconds", in: lhs.data()) ?? .greatestFiniteMagnitude
+            let rhsDuration = doubleValue(for: "completionDurationSeconds", in: rhs.data()) ?? .greatestFiniteMagnitude
+            if lhsDuration == rhsDuration {
+                return lhs.documentID < rhs.documentID
+            }
+            return lhsDuration < rhsDuration
+        }
+
+        guard let bestDocument,
+              let completionDurationSeconds = doubleValue(
+                for: "completionDurationSeconds",
+                in: bestDocument.data()
+              ) else {
+            return nil
+        }
+
+        async let fasterCompletionCount = countRowsFasterThan(
+            context: context,
+            completionDurationSeconds: completionDurationSeconds
+        )
+        async let publishedCompletionCount = countRows(
+            context: context,
+            bucketIndex: 0
+        )
+
+        let fasterCount = try await fasterCompletionCount
+        let publishedCount = try await publishedCompletionCount
+        let completedCount = max(publishedCount, fasterCount + 1)
+
+        return LiveReplayCurrentUserCompletion(
+            rank: min(fasterCount + 1, completedCount),
+            completedCount: completedCount,
+            completionDurationSeconds: completionDurationSeconds,
+            workoutId: stringValue(for: "workoutId", in: bestDocument.data()) ?? bestDocument.documentID,
+            updatedAt: timestampValue(for: "updatedAt", in: bestDocument.data())
         )
     }
 
@@ -130,7 +255,6 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             )
         }
         let completedCount = max(
-            resolvedSummary.completedCount,
             resolvedCompletedCount,
             startRank + max(rows.count - 1, 0)
         )
@@ -489,6 +613,25 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         leaderboardDocument(context: context)
             .collection("finishers")
             .document(userId)
+    }
+
+    private func completionSnapshotDocument(
+        context: LiveReplayLeaderboardContext,
+        workoutId: String
+    ) -> DocumentReference {
+        leaderboardDocument(context: context)
+            .collection("completionSnapshots")
+            .document(workoutId)
+    }
+
+    private func publishStatusDocument(
+        userId: String,
+        workoutId: String
+    ) -> DocumentReference {
+        db.collection("users")
+            .document(userId)
+            .collection("liveClimbPublishStatuses")
+            .document(workoutId)
     }
 
     private func intValue(for key: String, in data: [String: Any]) -> Int? {

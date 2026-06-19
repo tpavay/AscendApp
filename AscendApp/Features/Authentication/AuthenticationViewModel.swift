@@ -415,7 +415,7 @@ extension AuthenticationViewModel {
                 )
             } catch {
                 // Don't fail the whole operation if leaderboard update fails
-                print("Warning: Failed to update leaderboard photo URL: \(error)")
+                debugLog("Warning: Failed to update leaderboard photo URL: \(error)")
             }
             
         } catch {
@@ -454,7 +454,7 @@ extension AuthenticationViewModel {
                 )
             } catch {
                 // Don't fail the whole operation if leaderboard update fails
-                print("Warning: Failed to update leaderboard photo URL: \(error)")
+                debugLog("Warning: Failed to update leaderboard photo URL: \(error)")
             }
             
         } catch {
@@ -507,7 +507,7 @@ extension AuthenticationViewModel {
                 )
             } catch {
                 // Don't fail the whole operation if leaderboard update fails
-                print("Warning: Failed to update leaderboard display name: \(error)")
+                debugLog("Warning: Failed to update leaderboard display name: \(error)")
             }
 
             return true
@@ -562,7 +562,7 @@ extension AuthenticationViewModel {
                     displayName: trimmedName
                 )
             } catch {
-                print("Warning: Failed to update leaderboard display name: \(error)")
+                debugLog("Warning: Failed to update leaderboard display name: \(error)")
             }
 
             return true
@@ -651,7 +651,7 @@ extension AuthenticationViewModel {
                     weightKg: weightKg
                 )
             } catch {
-                print("Warning: Failed to update leaderboard body weight: \(error)")
+                debugLog("Warning: Failed to update leaderboard body weight: \(error)")
             }
             return true
         } catch {
@@ -693,7 +693,7 @@ extension AuthenticationViewModel {
                     weightKg: weightKg
                 )
             } catch {
-                print("Warning: Failed to update leaderboard body weight: \(error)")
+                debugLog("Warning: Failed to update leaderboard body weight: \(error)")
             }
             return true
         } catch {

@@ -34,8 +34,8 @@ struct DeleteWorkoutConfirmationView: View {
         selectedCount: 3,
         isLoading: false,
         isCancelling: false,
-        onConfirm: { print("Delete confirmed") },
-        onCancel: { print("Delete cancelled") }
+        onConfirm: { debugLog("Delete confirmed") },
+        onCancel: { debugLog("Delete cancelled") }
     )
 }
 
@@ -44,8 +44,8 @@ struct DeleteWorkoutConfirmationView: View {
         selectedCount: 1,
         isLoading: true,
         isCancelling: false,
-        onConfirm: { print("Delete confirmed") },
-        onCancel: { print("Delete cancelled") }
+        onConfirm: { debugLog("Delete confirmed") },
+        onCancel: { debugLog("Delete cancelled") }
     )
 }
 
@@ -54,7 +54,7 @@ struct DeleteWorkoutConfirmationView: View {
         selectedCount: 1,
         isLoading: true,
         isCancelling: true,
-        onConfirm: { print("Delete confirmed") },
-        onCancel: { print("Delete cancelled") }
+        onConfirm: { debugLog("Delete confirmed") },
+        onCancel: { debugLog("Delete cancelled") }
     )
 }

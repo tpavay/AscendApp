@@ -58,14 +58,14 @@ enum WorkoutSessionAnalyticsEvent: TelemetryEvent {
     case routineCompleted(
         context: RoutineSessionAnalyticsContext,
         durationSeconds: Int,
-        estimatedSteps: Int,
+        steps: Int,
         progressFraction: Double
     )
     case routineLogTapped(
         context: RoutineSessionAnalyticsContext,
         surface: RoutineSurface,
         durationSeconds: Int,
-        estimatedSteps: Int,
+        steps: Int,
         progressFraction: Double
     )
     case routineSaved(
@@ -78,7 +78,7 @@ enum WorkoutSessionAnalyticsEvent: TelemetryEvent {
         context: RoutineSessionAnalyticsContext,
         surface: RoutineSurface,
         durationSeconds: Int,
-        estimatedSteps: Int,
+        steps: Int,
         progressFraction: Double
     )
 
@@ -128,21 +128,21 @@ enum WorkoutSessionAnalyticsEvent: TelemetryEvent {
                 parameters: routineParameters(context)
             )
 
-        case .routineCompleted(let context, let durationSeconds, let estimatedSteps, let progressFraction):
+        case .routineCompleted(let context, let durationSeconds, let steps, let progressFraction):
             var parameters = routineParameters(context)
             parameters["duration_bucket"] = .string(DurationBucket(durationSeconds).rawValue)
-            parameters["estimated_steps_bucket"] = .string(CountBucket(estimatedSteps).rawValue)
+            parameters["steps_bucket"] = .string(CountBucket(steps).rawValue)
             parameters["progress_bucket"] = .string(ProgressBucket(progressFraction).rawValue)
             return TelemetryRecord(
                 name: "routine_completed",
                 parameters: parameters
             )
 
-        case .routineLogTapped(let context, let surface, let durationSeconds, let estimatedSteps, let progressFraction):
+        case .routineLogTapped(let context, let surface, let durationSeconds, let steps, let progressFraction):
             var parameters = routineParameters(context)
             parameters["surface"] = .string(surface.rawValue)
             parameters["duration_bucket"] = .string(DurationBucket(durationSeconds).rawValue)
-            parameters["estimated_steps_bucket"] = .string(CountBucket(estimatedSteps).rawValue)
+            parameters["steps_bucket"] = .string(CountBucket(steps).rawValue)
             parameters["progress_bucket"] = .string(ProgressBucket(progressFraction).rawValue)
             return TelemetryRecord(
                 name: "routine_log_tapped",
@@ -159,11 +159,11 @@ enum WorkoutSessionAnalyticsEvent: TelemetryEvent {
                 parameters: parameters
             )
 
-        case .routineDiscarded(let context, let surface, let durationSeconds, let estimatedSteps, let progressFraction):
+        case .routineDiscarded(let context, let surface, let durationSeconds, let steps, let progressFraction):
             var parameters = routineParameters(context)
             parameters["surface"] = .string(surface.rawValue)
             parameters["duration_bucket"] = .string(DurationBucket(durationSeconds).rawValue)
-            parameters["estimated_steps_bucket"] = .string(CountBucket(estimatedSteps).rawValue)
+            parameters["steps_bucket"] = .string(CountBucket(steps).rawValue)
             parameters["progress_bucket"] = .string(ProgressBucket(progressFraction).rawValue)
             return TelemetryRecord(
                 name: "routine_discarded",

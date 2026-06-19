@@ -47,6 +47,18 @@ struct LiveClimbStepTimelineRecorder: Equatable, Sendable {
         splitSampler.reset()
     }
 
+    mutating func restore(curve: LiveReplaySplitCurve) {
+        splitSampler.reset()
+
+        for (bucketIndex, steps) in curve.steps.enumerated() {
+            record(
+                elapsedSeconds: bucketIndex * curve.intervalSeconds,
+                cumulativeSteps: steps,
+                source: .unknown
+            )
+        }
+    }
+
     @discardableResult
     mutating func record(_ sample: LiveClimbStepSample) -> LiveReplaySplitCurve {
         splitSampler.record(
