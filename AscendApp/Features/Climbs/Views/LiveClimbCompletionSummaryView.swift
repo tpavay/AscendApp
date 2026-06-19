@@ -7,6 +7,12 @@ struct LiveClimbCompletionSummaryView: View {
     let leaderboardRank: Int?
     let leaderboardTotal: Int?
     let allowsRatingPrompt: Bool
+    let leaderboardContext: LiveReplayLeaderboardContext?
+    let rankingLabelOverride: String?
+    let completedDetailOverride: String?
+    let unrankedValueText: String
+    let unrankedDetailText: String
+    let showsPendingRankingState: Bool
     let onDone: () -> Void
 
     @Environment(\.modelContext) private var modelContext
@@ -20,6 +26,34 @@ struct LiveClimbCompletionSummaryView: View {
     @State private var completionSummary: LiveReplayLeaderboardSummary?
     @State private var isLoadingCompletionRank = false
     @State private var didTrackSummaryViewed = false
+
+    init(
+        climb: Climb?,
+        workout: Workout,
+        leaderboardRank: Int?,
+        leaderboardTotal: Int?,
+        allowsRatingPrompt: Bool,
+        leaderboardContext: LiveReplayLeaderboardContext? = nil,
+        rankingLabelOverride: String? = nil,
+        completedDetailOverride: String? = nil,
+        unrankedValueText: String = "Checking",
+        unrankedDetailText: String = "LOOKING FOR YOUR RANK",
+        showsPendingRankingState: Bool = true,
+        onDone: @escaping () -> Void
+    ) {
+        self.climb = climb
+        self.workout = workout
+        self.leaderboardRank = leaderboardRank
+        self.leaderboardTotal = leaderboardTotal
+        self.allowsRatingPrompt = allowsRatingPrompt
+        self.leaderboardContext = leaderboardContext
+        self.rankingLabelOverride = rankingLabelOverride
+        self.completedDetailOverride = completedDetailOverride
+        self.unrankedValueText = unrankedValueText
+        self.unrankedDetailText = unrankedDetailText
+        self.showsPendingRankingState = showsPendingRankingState
+        self.onDone = onDone
+    }
 
     private var paceSplits: [LiveClimbPaceSplit] {
         LiveClimbWorkoutSummaryData.paceSplits(
@@ -398,7 +432,7 @@ struct LiveClimbCompletionSummaryView: View {
         case .syncingRanking:
             return "Syncing"
         case .pending, .published, nil:
-            return "Checking"
+            return showsPendingRankingState ? "Checking" : unrankedValueText
         }
     }
 
@@ -408,7 +442,7 @@ struct LiveClimbCompletionSummaryView: View {
         }
 
         if displayedRank != nil {
-            return climb == nil ? "WORKOUT COMPLETE" : "LIVE CLIMB COMPLETE"
+            return completedDetailOverride ?? (climb == nil ? "WORKOUT COMPLETE" : "LIVE CLIMB COMPLETE")
         }
 
         switch publicResultStatus?.phase {
@@ -419,7 +453,7 @@ struct LiveClimbCompletionSummaryView: View {
         case .syncingRanking:
             return "SYNCING RANKING"
         case .pending, .published, nil:
-            return "LOOKING FOR YOUR RANK"
+            return unrankedDetailText
         }
     }
 
@@ -445,7 +479,7 @@ struct LiveClimbCompletionSummaryView: View {
     }
 
     private var rankingLabelText: String {
-        climb == nil ? "GLOBAL RANK" : "CLIMB RANK"
+        rankingLabelOverride ?? (climb == nil ? "GLOBAL RANK" : "CLIMB RANK")
     }
 
     private var showsRankingStatusColumn: Bool {
@@ -509,7 +543,9 @@ struct LiveClimbCompletionSummaryView: View {
 
     private var displayedRank: Int? {
         if climb == nil {
-            return leaderboardRank
+            return leaderboardRank ??
+                completionRankSnapshot?.rank ??
+                computedCompletionRank?.rank
         }
 
         return publicResultStatus?.rankSnapshot?.rank ??
@@ -520,7 +556,9 @@ struct LiveClimbCompletionSummaryView: View {
 
     private var displayedTotal: Int? {
         if climb == nil {
-            return leaderboardTotal
+            return leaderboardTotal ??
+                completionRankSnapshot?.completedCount ??
+                computedCompletionRank?.completedCount
         }
 
         if let snapshotTotal = completionRankSnapshot?.completedCount {
@@ -549,6 +587,18 @@ struct LiveClimbCompletionSummaryView: View {
             publicResultStatus?.rankSnapshot == nil &&
             publicResultStatus?.publishStatus?.rankAtCompletion == nil &&
             completionRankSnapshot == nil
+    }
+
+    private var effectiveLeaderboardContext: LiveReplayLeaderboardContext? {
+        if let leaderboardContext {
+            return leaderboardContext
+        }
+
+        guard let climb else { return nil }
+        return LiveReplayLeaderboardContext.liveClimb(
+            climbId: climb.id,
+            targetSteps: climb.referenceStepCount
+        )
     }
 
     private var maxSplitSPM: Double {
@@ -639,7 +689,7 @@ struct LiveClimbCompletionSummaryView: View {
     @MainActor
     private func loadCompletionRank() async {
         guard !isLoadingCompletionRank,
-              let climb else {
+              let context = effectiveLeaderboardContext else {
             return
         }
 
@@ -649,10 +699,6 @@ struct LiveClimbCompletionSummaryView: View {
         }
         computedCompletionRank = nil
 
-        let context = LiveReplayLeaderboardContext.liveClimb(
-            climbId: climb.id,
-            targetSteps: climb.referenceStepCount
-        )
         let workoutId = workout.id.uuidString
 
         async let fetchedSummary = LiveReplayLeaderboardService.shared.fetchSummary(context: context)
@@ -681,11 +727,13 @@ struct LiveClimbCompletionSummaryView: View {
         do {
             if let finisherStatus = try await fetchedFinisherStatus {
                 completionFinisherStatus = finisherStatus
-                try? ClimbService.shared.mirrorFinisherStatus(
-                    finisherStatus,
-                    for: climb,
-                    modelContext: modelContext
-                )
+                if let climb {
+                    try? ClimbService.shared.mirrorFinisherStatus(
+                        finisherStatus,
+                        for: climb,
+                        modelContext: modelContext
+                    )
+                }
             }
         } catch {
 #if DEBUG
@@ -693,14 +741,16 @@ struct LiveClimbCompletionSummaryView: View {
 #endif
         }
 
-        await resultSyncStore.refreshUntilRankPublished(
-            workout: workout,
-            climb: climb
-        )
-        if let rankSnapshot = resultSyncStore.status(for: workout.id)?.rankSnapshot {
-            completionRankSnapshot = rankSnapshot
-            computedCompletionRank = nil
-            return
+        if let climb {
+            await resultSyncStore.refreshUntilRankPublished(
+                workout: workout,
+                climb: climb
+            )
+            if let rankSnapshot = resultSyncStore.status(for: workout.id)?.rankSnapshot {
+                completionRankSnapshot = rankSnapshot
+                computedCompletionRank = nil
+                return
+            }
         }
 
         if displayedRank == nil {

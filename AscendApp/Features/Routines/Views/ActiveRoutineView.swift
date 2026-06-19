@@ -29,17 +29,21 @@ struct ActiveRoutineView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            switch viewModel.phase {
-            case .countdown:
-                LiveSessionCountdownOverlay(value: viewModel.countdownValue)
-            case .active, .complete, .finishing, .saving:
-                activeWorkoutView
-            case .failed(let message):
-                failedView(message: message)
-            }
+            if let savedWorkout = viewModel.savedWorkout {
+                routineCompletionSummary(workout: savedWorkout)
+            } else {
+                switch viewModel.phase {
+                case .countdown:
+                    LiveSessionCountdownOverlay(value: viewModel.countdownValue)
+                case .active, .complete, .finishing, .saving:
+                    activeWorkoutView
+                case .failed(let message):
+                    failedView(message: message)
+                }
 
-            if let stepSyncPrompt = viewModel.stepSyncPrompt {
-                stepSyncOverlay(prompt: stepSyncPrompt)
+                if let stepSyncPrompt = viewModel.stepSyncPrompt {
+                    stepSyncOverlay(prompt: stepSyncPrompt)
+                }
             }
         }
         .onAppear {
@@ -51,7 +55,12 @@ struct ActiveRoutineView: View {
         }
         .onChange(of: viewModel.showCompletionSheet) { _, isShowing in
             if isShowing {
-                recordCompletionIfNeeded()
+                Task {
+                    await saveRoutineForSummary(
+                        reason: .targetReached,
+                        recordCompletion: true
+                    )
+                }
             }
         }
         .task(id: viewModel.stepSyncConfirmation?.id) {
@@ -95,7 +104,7 @@ struct ActiveRoutineView: View {
             Button("Save Attempt") {
                 bindableViewModel.trackLogWorkoutTapped(surface: .stopAlert)
                 Task {
-                    await saveRoutineAndDismiss()
+                    await saveRoutineForSummary(reason: .userStopped)
                 }
             }
             Button("Discard", role: .destructive) {
@@ -107,9 +116,6 @@ struct ActiveRoutineView: View {
             }
         } message: {
             Text("Would you like to log your progress before leaving this routine?")
-        }
-        .sheet(isPresented: $bindableViewModel.showCompletionSheet) {
-            completionSheet
         }
     }
 
@@ -333,24 +339,23 @@ struct ActiveRoutineView: View {
         )
     }
 
-    private var completionSheet: some View {
-        WorkoutCompleteView(
-            routineName: routine.name,
-            duration: viewModel.actualElapsed,
-            intervalCount: viewModel.intervals.count,
-            primaryActionTitle: "Save Workout",
-            onLogWorkout: {
-                viewModel.trackLogWorkoutTapped(surface: .completionSheet)
-                Task { @MainActor in
-                    await saveRoutineAndDismiss()
-                }
-            },
-            onDiscard: {
-                viewModel.trackDiscard(surface: .completionSheet)
-                Task {
-                    await viewModel.discard(modelContext: modelContext)
-                    dismiss()
-                }
+    private func routineCompletionSummary(workout: Workout) -> some View {
+        let hasRoutineLeaderboard = viewModel.completionLeaderboardContext != nil
+
+        return LiveClimbCompletionSummaryView(
+            climb: nil,
+            workout: workout,
+            leaderboardRank: viewModel.completionLeaderboardRank,
+            leaderboardTotal: viewModel.completionLeaderboardTotal,
+            allowsRatingPrompt: false,
+            leaderboardContext: viewModel.completionLeaderboardContext,
+            rankingLabelOverride: hasRoutineLeaderboard ? "ROUTINE RANK" : "ROUTINE",
+            completedDetailOverride: "ROUTINE COMPLETE",
+            unrankedValueText: "Complete",
+            unrankedDetailText: "ROUTINE COMPLETE",
+            showsPendingRankingState: hasRoutineLeaderboard,
+            onDone: {
+                dismiss()
             }
         )
     }
@@ -554,16 +559,23 @@ struct ActiveRoutineView: View {
         viewModel.markCompletionRecorded()
     }
 
-    private func saveRoutineAndDismiss() async {
+    private func saveRoutineForSummary(
+        reason: HeadphoneMotionSessionStopReason,
+        recordCompletion: Bool = false
+    ) async {
         do {
             _ = try await viewModel.saveRecordedWorkout(
                 modelContext: modelContext,
-                reason: .userStopped
+                reason: reason
             )
+            if recordCompletion {
+                recordCompletionIfNeeded()
+            }
             viewModel.showCompletionSheet = false
-            dismiss()
         } catch {
+            viewModel.showCompletionSheet = false
             viewModel.errorMessage = error.localizedDescription
+            viewModel.phase = .failed(error.localizedDescription)
         }
     }
 }

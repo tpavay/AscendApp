@@ -155,6 +155,22 @@ final class ActiveRoutineViewModel {
         return min(max(Double(currentSteps) / Double(leaderboardProgressScale), 0), 1)
     }
 
+    var completionLeaderboardContext: LiveReplayLeaderboardContext? {
+        routine.source.isTemplate ? replayContext : nil
+    }
+
+    var completionLeaderboardRank: Int? {
+        guard routine.source.isTemplate else { return nil }
+        return leaderboardWindow?.currentUserRank ?? leaderboardRows.first(where: \.isCurrentUser)?.rank
+    }
+
+    var completionLeaderboardTotal: Int? {
+        guard routine.source.isTemplate,
+              let leaderboardWindow else { return nil }
+        let total = max(leaderboardWindow.totalClimbers, leaderboardRows.count)
+        return total > 0 ? total : nil
+    }
+
     var currentIntervalPositionText: String {
         guard !intervals.isEmpty else { return "No intervals" }
         let displayIndex = min(max(currentIntervalIndex + 1, 1), intervals.count)

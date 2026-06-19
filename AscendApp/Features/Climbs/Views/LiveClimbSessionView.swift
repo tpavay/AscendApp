@@ -59,6 +59,7 @@ struct LiveClimbSessionView: View {
                     leaderboardRank: viewModel.completionLeaderboardRank,
                     leaderboardTotal: viewModel.completionLeaderboardTotal,
                     allowsRatingPrompt: true,
+                    leaderboardContext: viewModel.replayContext,
                     onDone: { dismiss() }
                 )
             } else {
