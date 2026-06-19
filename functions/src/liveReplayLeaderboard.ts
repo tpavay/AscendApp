@@ -34,6 +34,9 @@ interface PublicUserSnapshot {
   displayName: string;
   avatarToken: string;
   photoURL: string | null;
+  age?: number | null;
+  gender?: string | null;
+  locationCity?: string | null;
 }
 
 interface FirstAscentWriteInput {
@@ -839,6 +842,7 @@ function replayEntryWrite(
   input: ReplayEntryWriteInput
 ): Record<string, unknown> {
   return {
+    ...publicUserDemographicFields(input.publicUser),
     avatarToken: input.publicUser.avatarToken,
     completionDurationSeconds: input.payload.finalDurationSeconds,
     contextId: input.payload.contextId,
@@ -923,6 +927,7 @@ function finisherStatusWrite(
   const didImproveBest = existingBestDuration === null ||
     input.payload.finalDurationSeconds < existingBestDuration;
   const write: Record<string, unknown> = {
+    ...publicUserDemographicFields(input.publicUser),
     avatarToken: input.publicUser.avatarToken,
     displayName: input.publicUser.displayName,
     globalCompletionOrder: input.globalCompletionOrder,
@@ -1150,10 +1155,41 @@ async function publicUserSnapshot(userId: string): Promise<PublicUserSnapshot> {
     "Climber";
 
   return {
+    age: ageValue(data?.age),
     avatarToken: avatarToken(displayName),
     displayName,
+    gender: genderValue(data?.gender),
+    locationCity: locationTextValue(data?.location_city),
     photoURL: urlStringValue(data?.profilePictureURL),
   };
+}
+
+/**
+ * Returns the public demographic fields allowed on replay rows.
+ * @param {PublicUserSnapshot} publicUser Public display snapshot.
+ * @return {Record<string, unknown>} Compact demographic fields.
+ */
+function publicUserDemographicFields(
+  publicUser: PublicUserSnapshot
+): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+
+  if (publicUser.age !== null && publicUser.age !== undefined) {
+    fields.age = publicUser.age;
+  }
+
+  if (publicUser.gender !== null && publicUser.gender !== undefined) {
+    fields.gender = publicUser.gender;
+  }
+
+  if (
+    publicUser.locationCity !== null &&
+    publicUser.locationCity !== undefined
+  ) {
+    fields.locationCity = publicUser.locationCity;
+  }
+
+  return fields;
 }
 
 /**
@@ -1218,6 +1254,53 @@ function urlStringValue(value: unknown): string | null {
   }
 
   return /^https?:\/\//i.test(valueString) ? valueString : null;
+}
+
+/**
+ * Returns an age value that is safe to publish.
+ * @param {unknown} value Raw value.
+ * @return {number | null} Age if valid.
+ */
+function ageValue(value: unknown): number | null {
+  const age = nonNegativeIntegerValue(value);
+  if (age === null || age < 13 || age > 120) {
+    return null;
+  }
+
+  return age;
+}
+
+/**
+ * Returns a profile gender raw value that is safe to publish.
+ * @param {unknown} value Raw value.
+ * @return {string | null} Gender raw value if valid.
+ */
+function genderValue(value: unknown): string | null {
+  const gender = stringValue(value);
+  if (
+    gender !== "man" &&
+    gender !== "woman" &&
+    gender !== "non_binary" &&
+    gender !== "prefer_not_to_say"
+  ) {
+    return null;
+  }
+
+  return gender;
+}
+
+/**
+ * Returns a bounded location text value.
+ * @param {unknown} value Raw value.
+ * @return {string | null} Location text if valid.
+ */
+function locationTextValue(value: unknown): string | null {
+  const text = stringValue(value);
+  if (!text || text.length > 120) {
+    return null;
+  }
+
+  return text;
 }
 
 /**

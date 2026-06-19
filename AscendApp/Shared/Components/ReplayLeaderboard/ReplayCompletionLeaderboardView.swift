@@ -221,6 +221,14 @@ private struct ReplayCompletionLeaderboardRowView: View {
                     }
                 }
 
+                if let demographicSummaryText = row.demographicSummaryText {
+                    Text(demographicSummaryText)
+                        .font(.montserratSemiBold(size: rank == 1 ? 11 : 10))
+                        .foregroundStyle(secondaryColor)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+
                 Text("\(displaySteps.formatted()) steps")
                     .font(.montserratMedium(size: rank == 1 ? 12 : 11))
                     .foregroundStyle(secondaryColor)
