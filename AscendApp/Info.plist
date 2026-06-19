@@ -58,10 +58,6 @@
 	<true/>
 	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
 	<true/>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>workout-processing</string>
-	</array>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Montserrat-Regular.ttf</string>
