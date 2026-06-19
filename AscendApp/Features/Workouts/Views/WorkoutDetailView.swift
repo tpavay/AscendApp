@@ -11,6 +11,8 @@ import UIKit
 
 struct WorkoutDetailView: View {
     let workout: Workout
+    private let embedsInNavigationStack: Bool
+
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -18,6 +20,7 @@ struct WorkoutDetailView: View {
     @Query(sort: \BestEffortCacheEntry.sortKey) private var bestEffortCacheEntries: [BestEffortCacheEntry]
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
+    @State private var importCoordinator = WorkoutImportCoordinator.shared
     @State private var showingEditWorkout = false
     @State private var showingShareWorkoutView = false
     @State private var showingDeleteConfirmation = false
@@ -30,6 +33,8 @@ struct WorkoutDetailView: View {
     @State private var liveClimbCompletionRank: LiveReplayCompletionRank?
     @State private var isLoadingLiveClimbRank = false
     @State private var copyConfirmationText: String?
+    @State private var isFetchingAppleHealthHeartRate = false
+    @State private var appleHealthHeartRateMessage: String?
 
     // Media layout state
     @State private var sheetPosition: SheetPosition = .middle
@@ -40,6 +45,11 @@ struct WorkoutDetailView: View {
     // Scroll tracking for traditional layout nav bar title
     @State private var scrolledPastTitle = false
     @State private var scrollContentOffset: CGFloat = 0
+
+    init(workout: Workout, embedsInNavigationStack: Bool = true) {
+        self.workout = workout
+        self.embedsInNavigationStack = embedsInNavigationStack
+    }
 
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -54,105 +64,121 @@ struct WorkoutDetailView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                (effectiveColorScheme == .dark ? Color.black : Color.white)
-                    .ignoresSafeArea()
+        if embedsInNavigationStack {
+            NavigationStack {
+                content
+            }
+        } else {
+            content
+        }
+    }
 
-                if hasMedia {
-                    workoutMediaLayout
-                } else {
-                    traditionalLayout
-                }
+    private var content: some View {
+        ZStack {
+            (effectiveColorScheme == .dark ? Color.black : Color.white)
+                .ignoresSafeArea()
+
+            if hasMedia {
+                workoutMediaLayout
+            } else {
+                traditionalLayout
             }
-            .navigationBarHidden(true)
-            .overlay(alignment: .top) {
-                adaptiveHeader
-            }
-            .sheet(isPresented: $showingEditWorkout) {
-                EditWorkoutView(
+        }
+        .navigationBarHidden(true)
+        .overlay(alignment: .top) {
+            adaptiveHeader
+        }
+        .sheet(isPresented: $showingEditWorkout) {
+            EditWorkoutView(
+                workout: workout,
+                showingEditWorkout: $showingEditWorkout
+            )
+            .interactiveDismissDisabled()
+        }
+        .fullScreenCover(isPresented: $showingShareWorkoutView) {
+            ShareComposerView(workout: workout, climb: liveClimbDetailClimb)
+        }
+        .fullScreenCover(isPresented: $showingLiveClimbSummaryPreview) {
+            if liveClimbSummaryMetadata?.climbId == nil || liveClimbDetailClimb != nil {
+                LiveClimbCompletionSummaryView(
+                    climb: liveClimbDetailClimb,
                     workout: workout,
-                    showingEditWorkout: $showingEditWorkout
-                )
-                .interactiveDismissDisabled()
-            }
-            .fullScreenCover(isPresented: $showingShareWorkoutView) {
-                ShareComposerView(workout: workout, climb: liveClimbDetailClimb)
-            }
-            .fullScreenCover(isPresented: $showingLiveClimbSummaryPreview) {
-                if liveClimbSummaryMetadata?.climbId == nil || liveClimbDetailClimb != nil {
-                    LiveClimbCompletionSummaryView(
-                        climb: liveClimbDetailClimb,
-                        workout: workout,
-                        leaderboardRank: liveClimbCompletionRank?.rank,
-                        leaderboardTotal: liveClimbCompletionRank?.completedCount,
-                        allowsRatingPrompt: false,
-                        onDone: {
-                            showingLiveClimbSummaryPreview = false
-                        }
-                    )
-                } else {
-                    LiveClimbSummaryPreviewUnavailableView {
+                    leaderboardRank: liveClimbCompletionRank?.rank,
+                    leaderboardTotal: liveClimbCompletionRank?.completedCount,
+                    allowsRatingPrompt: false,
+                    leaderboardContext: liveClimbSummaryLeaderboardContext,
+                    rankingLabelOverride: liveClimbSummaryRankingLabelOverride,
+                    completedDetailOverride: liveClimbSummaryCompletedDetailText,
+                    unrankedValueText: liveClimbSummaryLeaderboardContext == nil ? "Complete" : "Checking",
+                    unrankedDetailText: liveClimbSummaryLeaderboardContext == nil ?
+                        liveClimbSummaryCompletedDetailText :
+                        "LOOKING FOR YOUR RANK",
+                    showsPendingRankingState: liveClimbSummaryLeaderboardContext != nil,
+                    onDone: {
                         showingLiveClimbSummaryPreview = false
                     }
+                )
+            } else {
+                LiveClimbSummaryPreviewUnavailableView {
+                    showingLiveClimbSummaryPreview = false
                 }
             }
-            .onAppear {
-                if hasMedia {
-                    currentPhotoIndex = 0
-                }
+        }
+        .onAppear {
+            if hasMedia {
+                currentPhotoIndex = 0
             }
-            .task(id: workout.id) {
-                await loadLiveClimbCompletionRankIfNeeded()
+        }
+        .task(id: workout.id) {
+            await loadLiveClimbCompletionRankIfNeeded()
+            await retryAppleHealthEnrichmentIfNeeded()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            Task {
                 await retryAppleHealthEnrichmentIfNeeded()
             }
-            .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-                Task {
-                    await retryAppleHealthEnrichmentIfNeeded()
-                }
+        }
+        .onChange(of: showingEditWorkout) { _, isShowing in
+            if !isShowing && hasMedia {
+                currentPhotoIndex = 0
             }
-            .onChange(of: showingEditWorkout) { _, isShowing in
-                if !isShowing && hasMedia {
-                    currentPhotoIndex = 0
-                }
-            }
-            .sheet(isPresented: $showingDeleteConfirmation) {
-                SingleWorkoutDeleteConfirmationView(
-                    workout: workout,
-                    isLoading: isDeleting,
-                    isCancelling: isCancelling,
-                    onConfirm: {
-                        guard deleteTask == nil else { return }
-                        deleteTask = Task {
-                            await deleteWorkout()
-                            deleteTask = nil
-                        }
-                    },
-                    onCancel: {
-                        if isDeleting {
-                            isCancelling = true
-                            deleteTask?.cancel()
-                            deleteTask = nil
-                            isDeleting = false
-                            isCancelling = false
-                        }
-                        showingDeleteConfirmation = false
+        }
+        .sheet(isPresented: $showingDeleteConfirmation) {
+            SingleWorkoutDeleteConfirmationView(
+                workout: workout,
+                isLoading: isDeleting,
+                isCancelling: isCancelling,
+                onConfirm: {
+                    guard deleteTask == nil else { return }
+                    deleteTask = Task {
+                        await deleteWorkout()
+                        deleteTask = nil
                     }
-                )
-                .interactiveDismissDisabled(isDeleting || isCancelling)
-                .onDisappear {
-                    deleteTask?.cancel()
-                    deleteTask = nil
+                },
+                onCancel: {
+                    if isDeleting {
+                        isCancelling = true
+                        deleteTask?.cancel()
+                        deleteTask = nil
+                        isDeleting = false
+                        isCancelling = false
+                    }
+                    showingDeleteConfirmation = false
                 }
+            )
+            .interactiveDismissDisabled(isDeleting || isCancelling)
+            .onDisappear {
+                deleteTask?.cancel()
+                deleteTask = nil
             }
-            .fullScreenCover(item: $selectedPhoto) { photo in
-                FullScreenPhotoView(photo: photo) {
-                    selectedPhoto = nil
-                }
+        }
+        .fullScreenCover(item: $selectedPhoto) { photo in
+            FullScreenPhotoView(photo: photo) {
+                selectedPhoto = nil
             }
-            .overlay(alignment: .top) {
-                copyConfirmationOverlay
-            }
+        }
+        .overlay(alignment: .top) {
+            copyConfirmationOverlay
         }
     }
 
@@ -326,14 +352,15 @@ struct WorkoutDetailView: View {
                 )
             }
 
-            // Heart Rate Chart
-            if !workout.heartRateTimeSeries.isEmpty || workout.avgHeartRate != nil || workout.maxHeartRate != nil {
-                HeartRateChartView(
-                    heartRateData: workout.heartRateTimeSeries,
-                    workoutStartTime: workout.date,
-                    workoutDuration: workout.duration,
-                    averageHeartRateBpm: workout.avgHeartRate,
-                    maxHeartRateBpm: workout.maxHeartRate
+            if shouldShowHeartRateSection {
+                heartRateSection
+            }
+
+            if shouldShowPaceSplitsSection {
+                WorkoutPaceSplitsSection(
+                    splits: workoutPaceSplits,
+                    averageStepsPerMinute: workout.stepsPerMinute,
+                    effectiveColorScheme: effectiveColorScheme
                 )
             }
 
@@ -513,6 +540,133 @@ struct WorkoutDetailView: View {
 
     private var liveClimbSummaryMetadata: HeadphoneMotionWorkoutMetadata? {
         LiveClimbWorkoutSummaryData.metadata(for: workout)
+    }
+
+    @MainActor
+    private var liveClimbSummaryLeaderboardContext: LiveReplayLeaderboardContext? {
+        guard let metadata = liveClimbSummaryMetadata else { return nil }
+
+        switch metadata.trackingMode {
+        case .liveClimb:
+            guard let climb = liveClimbDetailClimb else { return nil }
+            return .liveClimb(
+                climbId: climb.id,
+                targetSteps: climb.referenceStepCount
+            )
+
+        case .justClimb:
+            return .justClimbGlobal(targetSteps: justClimbSummaryTargetSteps(metadata: metadata))
+
+        case .routine:
+            guard let templateId = metadata.routineTemplateId,
+                  !templateId.isEmpty else {
+                return nil
+            }
+
+            return .routineTemplate(
+                templateId: templateId,
+                targetSteps: summaryTargetSteps(metadata: metadata)
+            )
+
+        case nil:
+            guard metadata.climbId == nil else { return nil }
+            return .justClimbGlobal(targetSteps: justClimbSummaryTargetSteps(metadata: metadata))
+        }
+    }
+
+    @MainActor
+    private var liveClimbSummaryRankingLabelOverride: String? {
+        guard liveClimbSummaryMetadata?.trackingMode == .routine else { return nil }
+        return liveClimbSummaryLeaderboardContext == nil ? "ROUTINE" : "ROUTINE RANK"
+    }
+
+    private var liveClimbSummaryCompletedDetailText: String {
+        switch liveClimbSummaryMetadata?.trackingMode {
+        case .routine:
+            return "ROUTINE COMPLETE"
+        case .liveClimb:
+            return "LIVE CLIMB COMPLETE"
+        case .justClimb, nil:
+            return "WORKOUT COMPLETE"
+        }
+    }
+
+    private func summaryTargetSteps(metadata: HeadphoneMotionWorkoutMetadata) -> Int {
+        max(metadata.targetStepCount ?? workout.steps, workout.steps, 1)
+    }
+
+    private func justClimbSummaryTargetSteps(metadata: HeadphoneMotionWorkoutMetadata) -> Int {
+        max(
+            metadata.targetStepCount ?? JustClimbGoal.defaultOpenStepScale,
+            JustClimbGoal.defaultOpenStepScale,
+            workout.steps,
+            1
+        )
+    }
+
+    @ViewBuilder
+    private var heartRateSection: some View {
+        if hasHeartRateData {
+            HeartRateChartView(
+                heartRateData: workout.heartRateTimeSeries,
+                workoutStartTime: workout.date,
+                workoutDuration: workout.duration,
+                averageHeartRateBpm: workout.avgHeartRate,
+                maxHeartRateBpm: workout.maxHeartRate
+            )
+        } else if shouldShowAppleHealthHeartRateRecovery {
+            WorkoutHeartRateRecoveryCard(
+                connectionState: importCoordinator.appleHealthConnectionState,
+                isFetching: isFetchingAppleHealthHeartRate,
+                message: appleHealthHeartRateMessage,
+                effectiveColorScheme: effectiveColorScheme,
+                onFetch: fetchAppleHealthHeartRate
+            )
+        }
+    }
+
+    private var hasHeartRateData: Bool {
+        !workout.heartRateTimeSeries.isEmpty ||
+            workout.avgHeartRate != nil ||
+            workout.maxHeartRate != nil
+    }
+
+    private var shouldShowHeartRateSection: Bool {
+        hasHeartRateData || shouldShowAppleHealthHeartRateRecovery
+    }
+
+    private var shouldShowAppleHealthHeartRateRecovery: Bool {
+        workout.isInAppSensorWorkout && !hasHeartRateData
+    }
+
+    private var workoutPaceSplits: [LiveClimbPaceSplit] {
+        guard let metadata = liveClimbSummaryMetadata else { return [] }
+
+        return LiveClimbWorkoutSummaryData.paceSplits(
+            for: workout,
+            targetSteps: summaryTargetSteps(metadata: metadata)
+        )
+    }
+
+    private var shouldShowPaceSplitsSection: Bool {
+        workout.isInAppSensorWorkout &&
+            hasRecordedPaceSplitData &&
+            workoutPaceSplits.count > 1
+    }
+
+    private var hasRecordedPaceSplitData: Bool {
+        guard let metadata = liveClimbSummaryMetadata,
+              let intervalSeconds = metadata.splitIntervalSeconds,
+              intervalSeconds > 0,
+              let splitSteps = metadata.splitSteps,
+              splitSteps.count > 2 else {
+            return false
+        }
+
+        let finalSteps = max(workout.steps, 0)
+        return splitSteps.dropLast().contains { step in
+            step > 0 && step < finalSteps
+        }
     }
 
     // MARK: - Weights Section (unchanged)
@@ -756,7 +910,7 @@ struct WorkoutDetailView: View {
     private func loadLiveClimbCompletionRankIfNeeded() async {
         guard liveClimbCompletionRank == nil,
               !isLoadingLiveClimbRank,
-              let climb = liveClimbDetailClimb else {
+              let context = liveClimbSummaryLeaderboardContext else {
             return
         }
 
@@ -764,11 +918,6 @@ struct WorkoutDetailView: View {
         defer {
             isLoadingLiveClimbRank = false
         }
-
-        let context = LiveReplayLeaderboardContext.liveClimb(
-            climbId: climb.id,
-            targetSteps: climb.referenceStepCount
-        )
 
         do {
             liveClimbCompletionRank = try await LiveReplayLeaderboardService.shared.fetchCompletionRank(
@@ -784,10 +933,63 @@ struct WorkoutDetailView: View {
 
     @MainActor
     private func retryAppleHealthEnrichmentIfNeeded() async {
-        await WorkoutImportCoordinator.shared.enrichInAppWorkoutWithAppleHealthIfPossible(
+        await importCoordinator.enrichInAppWorkoutWithAppleHealthIfPossible(
             workout,
             modelContext: modelContext
         )
+    }
+
+    private func fetchAppleHealthHeartRate() {
+        guard !isFetchingAppleHealthHeartRate else { return }
+
+        Task { @MainActor in
+            isFetchingAppleHealthHeartRate = true
+            appleHealthHeartRateMessage = nil
+            defer {
+                isFetchingAppleHealthHeartRate = false
+            }
+
+            if importCoordinator.appleHealthConnectionState == .neverConnected {
+                let didConnect = await importCoordinator.requestAppleHealthAuthorizationIfNeeded()
+                guard didConnect else {
+                    appleHealthHeartRateMessage = importCoordinator.lastErrorMessage ??
+                        "Apple Health could not be connected."
+                    return
+                }
+            }
+
+            guard importCoordinator.appleHealthConnectionState == .connected else {
+                appleHealthHeartRateMessage = appleHealthUnavailableMessage
+                return
+            }
+
+            _ = await importCoordinator.enrichInAppWorkoutWithAppleHealthIfPossible(
+                workout,
+                modelContext: modelContext,
+                forceRangeDiscovery: true
+            )
+
+            if hasHeartRateData {
+                appleHealthHeartRateMessage = nil
+                HapticsManager.shared.trigger(.success)
+            } else {
+                appleHealthHeartRateMessage = "No matching heart-rate samples found yet. Try again after Apple Watch finishes syncing."
+                HapticsManager.shared.trigger(.warning)
+            }
+        }
+    }
+
+    private var appleHealthUnavailableMessage: String {
+        switch importCoordinator.appleHealthConnectionState {
+        case .unavailable:
+            return "Apple Health is not available on this device."
+        case .revoked:
+            return "Apple Health access is off. Re-enable Ascend in Health permissions."
+        case .neverConnected:
+            return "Connect Apple Health to fetch heart-rate data."
+        case .connected:
+            return "Apple Health is connected, but no heart-rate data was found yet."
+        }
     }
 
     private func deleteWorkout() async {

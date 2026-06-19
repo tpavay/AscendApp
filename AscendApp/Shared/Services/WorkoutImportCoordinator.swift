@@ -457,27 +457,44 @@ final class WorkoutImportCoordinator {
         await syncAppleHealthAutomationServices()
     }
 
+    @discardableResult
     func enrichInAppWorkoutWithAppleHealthIfPossible(
         _ workout: Workout,
-        modelContext: ModelContext
-    ) async {
-        guard canAttemptAppleHealthEnrichment(workout) else { return }
-        let shouldUseRangeDiscovery = enrichmentRetryStore.isRetryDue(for: workout)
+        modelContext: ModelContext,
+        forceRangeDiscovery: Bool = false
+    ) async -> Bool {
+        guard workout.isInAppSensorWorkout,
+              needsAppleHealthEnrichment(workout) else {
+            return false
+        }
+
+        let shouldUseRangeDiscovery = forceRangeDiscovery || enrichmentRetryStore.isRetryDue(for: workout)
         guard shouldUseRangeDiscovery || hasCachedAppleHealthEnrichmentSample(for: workout) else {
-            return
+            return false
         }
 
         await authorizationController.refreshAuthorizationRequestStatus()
 
         do {
+            if let externalRecordID = appleHealthExternalRecordID(for: workout) {
+                return try await enrichLinkedInAppWorkoutWithAppleHealthIfPossible(
+                    workout,
+                    externalRecordID: externalRecordID,
+                    modelContext: modelContext
+                )
+            }
+
             let existingIndex = try buildExistingWorkoutIndex(modelContext: modelContext)
-            _ = try await enrichInAppWorkoutsWithAppleHealthIfPossible(
+            let enrichedWorkouts = try await enrichInAppWorkoutsWithAppleHealthIfPossible(
                 existingIndex: existingIndex,
                 modelContext: modelContext,
-                eligibleWorkoutIDs: [workout.id]
+                eligibleWorkoutIDs: [workout.id],
+                forceRangeDiscovery: forceRangeDiscovery
             )
+            return enrichedWorkouts.contains { $0.id == workout.id }
         } catch {
             lastErrorMessage = error.localizedDescription
+            return false
         }
     }
 
@@ -599,7 +616,8 @@ final class WorkoutImportCoordinator {
     private func enrichInAppWorkoutsWithAppleHealthIfPossible(
         existingIndex: ExistingWorkoutIndex,
         modelContext: ModelContext,
-        eligibleWorkoutIDs: Set<UUID>? = nil
+        eligibleWorkoutIDs: Set<UUID>? = nil,
+        forceRangeDiscovery: Bool = false
     ) async throws -> [Workout] {
         guard authorizationController.connectionState == .connected else { return [] }
 
@@ -614,7 +632,8 @@ final class WorkoutImportCoordinator {
 
         let appleSamples = await appleHealthSamplesForEnrichment(
             eligibleWorkouts: eligibleWorkouts,
-            existingIndex: existingIndex
+            existingIndex: existingIndex,
+            forceRangeDiscovery: forceRangeDiscovery
         )
         guard !appleSamples.isEmpty else { return [] }
 
@@ -663,13 +682,16 @@ final class WorkoutImportCoordinator {
 
     private func appleHealthSamplesForEnrichment(
         eligibleWorkouts: [Workout],
-        existingIndex: ExistingWorkoutIndex
+        existingIndex: ExistingWorkoutIndex,
+        forceRangeDiscovery: Bool = false
     ) async -> [HealthKitWorkoutSample] {
         let ignoredAppleHealthWorkoutIDs = ignoredAppleHealthWorkoutStore.load()
         var samplesByID: [String: HealthKitWorkoutSample] = [:]
-        let retryableWorkouts = eligibleWorkouts.filter { workout in
-            enrichmentRetryStore.isRetryDue(for: workout)
-        }
+        let retryableWorkouts = forceRangeDiscovery
+            ? eligibleWorkouts
+            : eligibleWorkouts.filter { workout in
+                enrichmentRetryStore.isRetryDue(for: workout)
+            }
 
         func addIfEligible(_ sample: HealthKitWorkoutSample) {
             guard !ignoredAppleHealthWorkoutIDs.contains(sample.externalRecordID),
@@ -699,6 +721,42 @@ final class WorkoutImportCoordinator {
         return samplesByID.values.sorted { lhs, rhs in
             lhs.startDate > rhs.startDate
         }
+    }
+
+    @discardableResult
+    private func enrichLinkedInAppWorkoutWithAppleHealthIfPossible(
+        _ workout: Workout,
+        externalRecordID: String,
+        modelContext: ModelContext
+    ) async throws -> Bool {
+        guard authorizationController.connectionState == .connected,
+              let hkWorkout = try await workoutReader.fetchWorkout(withExternalRecordID: externalRecordID) else {
+            return false
+        }
+
+        let sample = healthKitWorkoutSample(from: hkWorkout)
+        let metricWindow = AppleHealthWorkoutEnrichmentPolicy.inAppSensorWorkout.metricWindow(
+            for: workout,
+            sample: sample
+        ) ?? (sample.startDate...sample.endDate)
+        let metrics = await metricsReader.fetchMetrics(for: hkWorkout, during: metricWindow)
+        let before = LeaderboardWorkoutSnapshot(workout: workout)
+        let didChangeMetrics = applyAppleHealthEnrichmentMetrics(metrics, from: sample, to: workout)
+        ensureAppleHealthLinkExists(sample: sample, for: workout, modelContext: modelContext)
+
+        guard didChangeMetrics else {
+            try modelContext.save()
+            return false
+        }
+
+        try WorkoutMutationHandler.shared.workoutsDidChange(
+            modelContext: modelContext,
+            mutation: WorkoutMutation(updated: [
+                .init(before: before, after: LeaderboardWorkoutSnapshot(workout: workout))
+            ]),
+            changedWorkouts: [workout]
+        )
+        return true
     }
 
     private func appleHealthEnrichmentDiscoveryRange(
@@ -941,6 +999,10 @@ final class WorkoutImportCoordinator {
         workout.hasSourceLink(provider: .appleHealth) || workout.healthKitUUID != nil
     }
 
+    private func appleHealthExternalRecordID(for workout: Workout) -> String? {
+        workout.sourceLink(for: .appleHealth)?.externalRecordID ?? workout.healthKitUUID
+    }
+
     private func canAttemptAppleHealthEnrichment(_ workout: Workout) -> Bool {
         AppleHealthWorkoutEnrichmentPolicy.inAppSessionPolicies.contains { policy in
             policy.isEligible(workout, hasAppleHealthLink: hasAppleHealthLink(workout))
@@ -984,29 +1046,61 @@ final class WorkoutImportCoordinator {
         workout.healthKitUUID = sample.externalRecordID
     }
 
+    @discardableResult
     private func applyAppleHealthEnrichmentMetrics(
         _ metrics: WorkoutMetrics,
         from sample: HealthKitWorkoutSample,
         to workout: Workout
-    ) {
-        if let avgHeartRate = metrics.avgHeartRate {
+    ) -> Bool {
+        var didChange = false
+
+        if let avgHeartRate = metrics.avgHeartRate, workout.avgHeartRate != avgHeartRate {
             workout.avgHeartRate = avgHeartRate
+            didChange = true
         }
-        if let maxHeartRate = metrics.maxHeartRate {
+        if let maxHeartRate = metrics.maxHeartRate, workout.maxHeartRate != maxHeartRate {
             workout.maxHeartRate = maxHeartRate
+            didChange = true
         }
         if !metrics.heartRateTimeSeries.isEmpty {
-            workout.heartRateData = metrics.heartRateTimeSeries.encoded
+            let encodedHeartRateData = metrics.heartRateTimeSeries.encoded
+            if workout.heartRateData != encodedHeartRateData {
+                workout.heartRateData = encodedHeartRateData
+                didChange = true
+            }
         }
-        if let caloriesBurned = metrics.caloriesBurned {
+        if let caloriesBurned = metrics.caloriesBurned, workout.caloriesBurned != caloriesBurned {
             workout.caloriesBurned = caloriesBurned
+            didChange = true
         }
-        if let averageMETs = metrics.averageMETs {
+        if let averageMETs = metrics.averageMETs, workout.averageMETs != averageMETs {
             workout.averageMETs = averageMETs
+            didChange = true
         }
 
-        workout.deviceModel = sample.deviceModel ?? sample.displaySourceName
-        workout.healthKitUUID = sample.externalRecordID
+        let deviceModel = sample.deviceModel ?? sample.displaySourceName
+        if workout.deviceModel != deviceModel {
+            workout.deviceModel = deviceModel
+            didChange = true
+        }
+        if workout.healthKitUUID != sample.externalRecordID {
+            workout.healthKitUUID = sample.externalRecordID
+            didChange = true
+        }
+
+        return didChange
+    }
+
+    private func healthKitWorkoutSample(from workout: HKWorkout) -> HealthKitWorkoutSample {
+        HealthKitWorkoutSample(
+            externalRecordID: workout.uuid.uuidString,
+            startDate: workout.startDate,
+            endDate: workout.endDate,
+            duration: workout.duration,
+            sourceName: workout.sourceRevision.source.name,
+            sourceBundleIdentifier: workout.sourceRevision.source.bundleIdentifier,
+            deviceModel: workout.device?.name
+        )
     }
 
     private func ensureAppleHealthLinkExists(

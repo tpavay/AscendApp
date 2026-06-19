@@ -82,8 +82,11 @@ test("builds First Ascent replay summary fields", () => {
     userId: "user-a",
     entryId: "workout-a",
     publicUser: {
+      age: 31,
       avatarToken: "MC",
       displayName: "Maya C.",
+      gender: "woman",
+      locationCity: "Austin",
       photoURL: null,
     },
     claimedAt,
@@ -155,8 +158,11 @@ test("builds replay entry fields with context identity", () => {
     userId: "user-a",
     entryId: "workout-a",
     publicUser: {
+      age: 31,
       avatarToken: "MC",
       displayName: "Maya C.",
+      gender: "woman",
+      locationCity: "Austin",
       photoURL: null,
     },
     stepsAtBucket: 420,
@@ -164,12 +170,15 @@ test("builds replay entry fields with context identity", () => {
   });
 
   assert.deepEqual(write, {
+    age: 31,
     avatarToken: "MC",
     completionDurationSeconds: 738,
     contextId: "empire-state-building",
     contextType: "live_climb",
     displayName: "Maya C.",
     finalSteps: 2096,
+    gender: "woman",
+    locationCity: "Austin",
     photoURL: "",
     schemaVersion: 1,
     splitIntervalSeconds: 10,
@@ -324,8 +333,11 @@ test("builds first finisher status with permanent completion order", () => {
     userId: "user-a",
     entryId: "workout-a",
     publicUser: {
+      age: 31,
       avatarToken: "MC",
       displayName: "Maya C.",
+      gender: "woman",
+      locationCity: "Austin",
       photoURL: null,
     },
     globalCompletionOrder: 47,
@@ -334,13 +346,16 @@ test("builds first finisher status with permanent completion order", () => {
   });
 
   assert.deepEqual(write, {
+    age: 31,
     avatarToken: "MC",
     bestCompletionDurationSeconds: 738,
     bestWorkoutId: "workout-a",
     displayName: "Maya C.",
     firstCompletedAt: completedAt,
     firstWorkoutId: "workout-a",
+    gender: "woman",
     globalCompletionOrder: 47,
+    locationCity: "Austin",
     photoURL: "",
     schemaVersion: 1,
     updatedAt: completedAt,

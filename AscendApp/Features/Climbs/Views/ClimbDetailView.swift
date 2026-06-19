@@ -108,7 +108,6 @@ struct ClimbDetailView: View {
     @State private var showingBrowseClimbs = false
     @State private var showingFlyover = false
     @State private var showingLiveClimbSession = false
-    @State private var selectedHistoryWorkout: Workout?
     @State private var showingHeadphoneHelp = false
     @State private var isHeroCardFlipped = false
     @State private var didTrackDetailViewed = false
@@ -197,9 +196,6 @@ struct ClimbDetailView: View {
         }
         .fullScreenCover(isPresented: $showingFlyover) {
             ClimbFlyoverScreen(climb: viewModel.climb)
-        }
-        .navigationDestination(item: $selectedHistoryWorkout) { workout in
-            WorkoutDetailView(workout: workout)
         }
         .navigationDestination(isPresented: $showingBrowseClimbs) {
             ClimbBrowseView(viewModel: browseViewModel, analyticsEntryPoint: .detailBrowse)
@@ -890,10 +886,6 @@ struct ClimbDetailView: View {
                 communityStatsRow
             }
 
-            if viewModel.hasCompletionHistory {
-                overviewCompletionStatusRow
-            }
-
             primaryActionRow
         }
         .padding(.horizontal, 4)
@@ -911,21 +903,9 @@ struct ClimbDetailView: View {
                 historyMetricsGrid
                     .padding(.vertical, 2)
 
-                Text("RECENT ATTEMPTS")
-                    .font(.montserratSemiBold(size: 12))
-                    .tracking(1.2)
-                    .foregroundStyle(Color.customGray)
-
                 VStack(spacing: 0) {
                     ForEach(viewModel.historySummary.recentEntries) { entry in
-                        Button {
-                            if let workout = workout(forAttemptId: entry.attemptId) {
-                                selectedHistoryWorkout = workout
-                            }
-                        } label: {
-                            historyRow(for: entry)
-                        }
-                        .buttonStyle(.plain)
+                        historyRowLink(for: entry)
                     }
                 }
                 .padding(.top, -2)
@@ -1109,6 +1089,14 @@ struct ClimbDetailView: View {
                                     .fill(Color.accent)
                             )
                     }
+                }
+
+                if let demographicSummaryText = row.demographicSummaryText {
+                    Text(demographicSummaryText)
+                        .font(.montserratSemiBold(size: isFirst ? 11 : 10))
+                        .foregroundStyle(leaderboardSecondaryTextColor)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                 }
 
                 Text("\(row.finalSteps.formatted()) steps")
@@ -1387,20 +1375,6 @@ struct ClimbDetailView: View {
         return "\(viewModel.communityCompletedCount) completed"
     }
 
-    private var overviewCompletionStatusRow: some View {
-        HStack(alignment: .center, spacing: 8) {
-            Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.accent)
-
-            Text("Completed")
-                .font(.montserratSemiBold(size: 13))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.84) : .black.opacity(0.76))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-    }
-
     private func publicResultSyncStatusRow(
         for status: LiveClimbPublicResultSyncStatus
     ) -> some View {
@@ -1677,7 +1651,21 @@ struct ClimbDetailView: View {
         return (try? modelContext.fetch(descriptor))?.first?.workout
     }
 
-    private func historyRow(for entry: ClimbHistoryEntry) -> some View {
+    @ViewBuilder
+    private func historyRowLink(for entry: ClimbHistoryEntry) -> some View {
+        if let workout = workout(forAttemptId: entry.attemptId) {
+            NavigationLink {
+                WorkoutDetailView(workout: workout, embedsInNavigationStack: false)
+            } label: {
+                historyRow(for: entry, showsChevron: true)
+            }
+            .buttonStyle(.plain)
+        } else {
+            historyRow(for: entry, showsChevron: false)
+        }
+    }
+
+    private func historyRow(for entry: ClimbHistoryEntry, showsChevron: Bool) -> some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(entry.date.formatted(date: .abbreviated, time: .omitted))
@@ -1709,6 +1697,12 @@ struct ClimbDetailView: View {
                 .font(.montserratBold(size: 17))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                 .monospacedDigit()
+
+            if showsChevron {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.32) : .black.opacity(0.28))
+            }
         }
         .padding(.vertical, 14)
         .overlay(alignment: .bottom) {

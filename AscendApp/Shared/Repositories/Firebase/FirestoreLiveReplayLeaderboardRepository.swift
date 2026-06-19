@@ -479,7 +479,10 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             isCurrentUser: false,
             isPersonalBest: (data["isPersonalBest"] as? Bool) ?? false,
             completionDurationSeconds: doubleValue(for: "completionDurationSeconds", in: data),
-            userId: userId
+            userId: userId,
+            gender: stringValue(for: "gender", in: data),
+            age: intValue(for: "age", in: data),
+            locationCity: stringValue(for: "locationCity", in: data)
         )
     }
 
@@ -516,7 +519,10 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             isCurrentUser: userId == currentUserId,
             isPersonalBest: userId == currentUserId,
             completionDurationSeconds: completionDurationSeconds,
-            userId: userId
+            userId: userId,
+            gender: stringValue(for: "gender", in: data),
+            age: intValue(for: "age", in: data),
+            locationCity: stringValue(for: "locationCity", in: data)
         )
     }
 
@@ -560,7 +566,10 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             isCurrentUser: row.isCurrentUser,
             isPersonalBest: row.isPersonalBest,
             completionDurationSeconds: row.completionDurationSeconds,
-            userId: row.userId
+            userId: row.userId,
+            gender: row.gender,
+            age: row.age,
+            locationCity: row.locationCity
         )
     }
 

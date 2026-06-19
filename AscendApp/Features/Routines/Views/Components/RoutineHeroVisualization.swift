@@ -47,8 +47,8 @@ struct RoutineHeroVisualization: View {
             LinearGradient(
                 colors: [
                     .clear,
-                    accentColor.opacity(0.06),
-                    accentColor.opacity(0.12)
+                    ambientColor.opacity(0.06),
+                    ambientColor.opacity(0.12)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -60,24 +60,30 @@ struct RoutineHeroVisualization: View {
 
     private var silhouetteLayer: some View {
         ZStack {
-            // Filled ridge — gradient from accent at the top to transparent at base
-            TopographicSilhouetteShape(intervals: intervals, totalDuration: totalDuration)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            accentColor.opacity(0.85),
-                            accentColor.opacity(0.35),
-                            accentColor.opacity(0.05)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
+            ForEach(intervalColorSlices) { slice in
+                TopographicSilhouetteShape(intervals: intervals, totalDuration: totalDuration)
+                    .fill(areaGradient(for: slice))
+                    .clipShape(
+                        RoutineHeroIntervalClipShape(
+                            startRatio: slice.startRatio,
+                            endRatio: slice.endRatio,
+                            horizontalOverscan: 1.5
+                        )
                     )
-                )
+            }
 
-            // Crisp stroke along the ridge line itself
-            TopographicSilhouetteShape(intervals: intervals, totalDuration: totalDuration, strokeOnly: true)
-                .stroke(accentColor.opacity(0.95), lineWidth: 1.5)
-                .shadow(color: accentColor.opacity(0.55), radius: 8, x: 0, y: 0)
+            ForEach(intervalColorSlices) { slice in
+                TopographicSilhouetteShape(intervals: intervals, totalDuration: totalDuration, strokeOnly: true)
+                    .stroke(segmentColor(for: slice).opacity(0.96), lineWidth: 1.7)
+                    .clipShape(
+                        RoutineHeroIntervalClipShape(
+                            startRatio: slice.startRatio,
+                            endRatio: slice.endRatio,
+                            horizontalOverscan: 2
+                        )
+                    )
+                    .shadow(color: segmentColor(for: slice).opacity(0.45), radius: 7, x: 0, y: 0)
+            }
         }
     }
 
@@ -116,8 +122,58 @@ struct RoutineHeroVisualization: View {
 
     // MARK: - Helpers
 
-    private var accentColor: Color {
-        Color(red: 0.706, green: 0.8, blue: 0)
+    private var intervalColorSlices: [RoutineHeroColorSlice] {
+        guard !intervals.isEmpty, totalDuration > 0 else { return [] }
+
+        var cumulativeDuration: TimeInterval = 0
+
+        return intervals.enumerated().map { index, interval in
+            let startRatio = cumulativeDuration / totalDuration
+            cumulativeDuration += max(interval.duration, 0)
+            let endRatio = index == intervals.count - 1 ? 1 : cumulativeDuration / totalDuration
+
+            return RoutineHeroColorSlice(
+                id: interval.id,
+                interval: interval,
+                startRatio: min(max(startRatio, 0), 1),
+                endRatio: min(max(endRatio, startRatio), 1)
+            )
+        }
+    }
+
+    private var ambientColor: Color {
+        guard !intervals.isEmpty else {
+            return Color(red: 0.706, green: 0.8, blue: 0)
+        }
+
+        let weightedScore = intervals.reduce(0.0) { total, interval in
+            total + interval.intensityTier.heatMapScore * max(interval.duration, 0)
+        }
+        let measuredDuration = intervals.reduce(0.0) { $0 + max($1.duration, 0) }
+        let averageScore = measuredDuration > 0 ? weightedScore / measuredDuration : 0.5
+
+        return Color.heatMapColor(for: averageScore, colorScheme: colorScheme)
+    }
+
+    private func segmentColor(for slice: RoutineHeroColorSlice) -> Color {
+        Color.heatMapColor(
+            for: slice.interval.intensityTier.heatMapScore,
+            colorScheme: colorScheme
+        )
+    }
+
+    private func areaGradient(for slice: RoutineHeroColorSlice) -> LinearGradient {
+        let color = segmentColor(for: slice)
+
+        return LinearGradient(
+            colors: [
+                color.opacity(0.82),
+                color.opacity(0.34),
+                color.opacity(0.05)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
 
     private var totalDurationLabel: String {
@@ -125,6 +181,37 @@ struct RoutineHeroVisualization: View {
         let minutes = totalSeconds / 60
         let seconds = totalSeconds % 60
         return "\(minutes):\(seconds.formatted(.number.precision(.integerLength(2))))"
+    }
+}
+
+private struct RoutineHeroColorSlice: Identifiable {
+    let id: UUID
+    let interval: RoutineInterval
+    let startRatio: Double
+    let endRatio: Double
+}
+
+private struct RoutineHeroIntervalClipShape: Shape {
+    let startRatio: Double
+    let endRatio: Double
+    var horizontalOverscan: CGFloat = 0
+
+    func path(in rect: CGRect) -> Path {
+        let startX = rect.minX + rect.width * CGFloat(startRatio)
+        let endX = rect.minX + rect.width * CGFloat(endRatio)
+        let expandedStartX = max(rect.minX, startX - horizontalOverscan)
+        let expandedEndX = min(rect.maxX, endX + horizontalOverscan)
+
+        var path = Path()
+        path.addRect(
+            CGRect(
+                x: expandedStartX,
+                y: rect.minY,
+                width: max(expandedEndX - expandedStartX, 0),
+                height: rect.height
+            )
+        )
+        return path
     }
 }
 

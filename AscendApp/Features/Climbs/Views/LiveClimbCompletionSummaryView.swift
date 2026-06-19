@@ -25,6 +25,7 @@ struct LiveClimbCompletionSummaryView: View {
     @State private var completionFinisherStatus: LiveReplayFinisherStatus?
     @State private var completionSummary: LiveReplayLeaderboardSummary?
     @State private var isLoadingCompletionRank = false
+    @State private var didFinishCompletionRankLoad = false
     @State private var didTrackSummaryViewed = false
 
     init(
@@ -197,20 +198,6 @@ struct LiveClimbCompletionSummaryView: View {
             }
 
             Spacer(minLength: 0)
-
-            if showsRankingStatusColumn {
-                VStack(alignment: .trailing, spacing: 5) {
-                    Text("STATUS")
-                        .font(.montserratBold(size: 8))
-                        .foregroundStyle(.white.opacity(0.42))
-
-                    Text(rankingStatusText)
-                        .font(.montserratBold(size: 11))
-                        .foregroundStyle(.white.opacity(0.72))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
-                }
-            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -424,6 +411,10 @@ struct LiveClimbCompletionSummaryView: View {
             return displayedRank.ordinalText
         }
 
+        if shouldShowRankUnavailableState {
+            return "Unavailable"
+        }
+
         switch publicResultStatus?.phase {
         case .savedOnDevice:
             return "Saved"
@@ -432,7 +423,7 @@ struct LiveClimbCompletionSummaryView: View {
         case .syncingRanking:
             return "Syncing"
         case .pending, .published, nil:
-            return showsPendingRankingState ? "Checking" : unrankedValueText
+            return shouldShowPendingRankCopy ? "Checking" : fallbackUnrankedValueText
         }
     }
 
@@ -445,6 +436,10 @@ struct LiveClimbCompletionSummaryView: View {
             return completedDetailOverride ?? (climb == nil ? "WORKOUT COMPLETE" : "LIVE CLIMB COMPLETE")
         }
 
+        if shouldShowRankUnavailableState {
+            return "CHECK LEADERBOARD LATER"
+        }
+
         switch publicResultStatus?.phase {
         case .savedOnDevice:
             return "RESULT SAVED ON DEVICE"
@@ -453,28 +448,7 @@ struct LiveClimbCompletionSummaryView: View {
         case .syncingRanking:
             return "SYNCING RANKING"
         case .pending, .published, nil:
-            return unrankedDetailText
-        }
-    }
-
-    private var rankingStatusText: String {
-        if isUsingComputedRankFallback {
-            return "CURRENT"
-        }
-
-        if displayedRank != nil {
-            return "COMPLETE"
-        }
-
-        switch publicResultStatus?.phase {
-        case .savedOnDevice:
-            return "SAVED"
-        case .syncFailedRetry:
-            return "FAILED"
-        case .syncingRanking:
-            return "SYNCING"
-        case .pending, .published, nil:
-            return "LOADING"
+            return fallbackUnrankedDetailText
         }
     }
 
@@ -482,11 +456,37 @@ struct LiveClimbCompletionSummaryView: View {
         rankingLabelOverride ?? (climb == nil ? "GLOBAL RANK" : "CLIMB RANK")
     }
 
-    private var showsRankingStatusColumn: Bool {
-        displayedRank != nil ||
-            publicResultStatus?.phase == .savedOnDevice ||
-            publicResultStatus?.phase == .syncFailedRetry ||
-            publicResultStatus?.phase == .syncingRanking
+    private var hasCompletionRankContext: Bool {
+        effectiveLeaderboardContext != nil
+    }
+
+    private var shouldShowPendingRankCopy: Bool {
+        showsPendingRankingState &&
+            hasCompletionRankContext &&
+            !didFinishCompletionRankLoad
+    }
+
+    private var shouldShowRankUnavailableState: Bool {
+        showsPendingRankingState &&
+            hasCompletionRankContext &&
+            didFinishCompletionRankLoad &&
+            displayedRank == nil
+    }
+
+    private var fallbackUnrankedValueText: String {
+        if !hasCompletionRankContext && unrankedValueText == "Checking" {
+            return "Complete"
+        }
+
+        return unrankedValueText
+    }
+
+    private var fallbackUnrankedDetailText: String {
+        if !hasCompletionRankContext && unrankedDetailText == "LOOKING FOR YOUR RANK" {
+            return completedDetailOverride ?? (climb == nil ? "WORKOUT COMPLETE" : "LIVE CLIMB COMPLETE")
+        }
+
+        return unrankedDetailText
     }
 
     private var averageSPMText: String {
@@ -688,14 +688,20 @@ struct LiveClimbCompletionSummaryView: View {
 
     @MainActor
     private func loadCompletionRank() async {
-        guard !isLoadingCompletionRank,
-              let context = effectiveLeaderboardContext else {
+        guard let context = effectiveLeaderboardContext else {
+            didFinishCompletionRankLoad = true
+            return
+        }
+
+        guard !isLoadingCompletionRank else {
             return
         }
 
         isLoadingCompletionRank = true
+        didFinishCompletionRankLoad = false
         defer {
             isLoadingCompletionRank = false
+            didFinishCompletionRankLoad = true
         }
         computedCompletionRank = nil
 

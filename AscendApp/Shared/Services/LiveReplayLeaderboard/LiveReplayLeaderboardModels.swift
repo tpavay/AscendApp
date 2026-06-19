@@ -261,6 +261,9 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
     let isPersonalBest: Bool
     let completionDurationSeconds: TimeInterval?
     let userId: String?
+    let gender: String?
+    let age: Int?
+    let locationCity: String?
 
     init(
         id: String,
@@ -274,7 +277,10 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
         isCurrentUser: Bool,
         isPersonalBest: Bool,
         completionDurationSeconds: TimeInterval?,
-        userId: String? = nil
+        userId: String? = nil,
+        gender: String? = nil,
+        age: Int? = nil,
+        locationCity: String? = nil
     ) {
         self.id = id
         self.rank = rank
@@ -288,6 +294,9 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
         self.isPersonalBest = isPersonalBest
         self.completionDurationSeconds = completionDurationSeconds
         self.userId = userId
+        self.gender = Self.cleanedString(gender)
+        self.age = Self.validAge(age)
+        self.locationCity = Self.cleanedString(locationCity)
     }
 
     var averageStepsPerMinute: Double? {
@@ -301,12 +310,36 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
         return value.isFinite ? value : nil
     }
 
+    var demographicSummaryText: String? {
+        let parts = [
+            genderAbbreviation,
+            age.map(String.init),
+            locationCity
+        ].compactMap { $0 }
+
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private var genderAbbreviation: String? {
+        switch gender?.lowercased() {
+        case "man", "male", "m":
+            return "M"
+        case "woman", "female", "f":
+            return "F"
+        default:
+            return nil
+        }
+    }
+
     static func currentUser(
         rank: Int?,
         steps: Int,
         avatarToken: String = "YOU",
         photoURL: URL? = nil,
-        isPersonalBest: Bool = false
+        isPersonalBest: Bool = false,
+        gender: String? = nil,
+        age: Int? = nil,
+        locationCity: String? = nil
     ) -> LiveReplayLeaderboardRow {
         LiveReplayLeaderboardRow(
             id: "current-user",
@@ -320,7 +353,10 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
             isCurrentUser: true,
             isPersonalBest: isPersonalBest,
             completionDurationSeconds: nil,
-            userId: nil
+            userId: nil,
+            gender: gender,
+            age: age,
+            locationCity: locationCity
         )
     }
 
@@ -372,7 +408,10 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
             isCurrentUser: isCurrentUser,
             isPersonalBest: isPersonalBest,
             completionDurationSeconds: completionDurationSeconds,
-            userId: userId
+            userId: userId,
+            gender: gender,
+            age: age,
+            locationCity: locationCity
         )
     }
 
@@ -386,6 +425,24 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
 
         let defaultSyntheticSPM = 72.0
         return max(Double(finalSteps) / defaultSyntheticSPM * 60, 90)
+    }
+
+    private static func cleanedString(_ value: String?) -> String? {
+        guard let cleaned = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !cleaned.isEmpty else {
+            return nil
+        }
+
+        return cleaned
+    }
+
+    private static func validAge(_ value: Int?) -> Int? {
+        guard let value,
+              (13...120).contains(value) else {
+            return nil
+        }
+
+        return value
     }
 }
 

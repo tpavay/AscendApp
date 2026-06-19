@@ -112,27 +112,36 @@ actor LiveReplayLeaderboardService: LiveReplayLeaderboardServicing {
     func fetchSummary(
         context: LiveReplayLeaderboardContext
     ) async throws -> LiveReplayLeaderboardSummary {
-        try await repository.fetchSummary(context: context)
+        let repository = repository
+        return try await withLiveReplayLeaderboardTimeout(seconds: fetchTimeoutSeconds) {
+            try await repository.fetchSummary(context: context)
+        }
     }
 
     func fetchCompletionRank(
         context: LiveReplayLeaderboardContext,
         completionDurationSeconds: TimeInterval
     ) async throws -> LiveReplayCompletionRank {
-        try await repository.fetchCompletionRank(
-            context: context,
-            completionDurationSeconds: completionDurationSeconds
-        )
+        let repository = repository
+        return try await withLiveReplayLeaderboardTimeout(seconds: fetchTimeoutSeconds) {
+            try await repository.fetchCompletionRank(
+                context: context,
+                completionDurationSeconds: completionDurationSeconds
+            )
+        }
     }
 
     func fetchCompletionRankSnapshot(
         context: LiveReplayLeaderboardContext,
         workoutId: String
     ) async throws -> LiveReplayCompletionRankSnapshot? {
-        try await repository.fetchCompletionRankSnapshot(
-            context: context,
-            workoutId: workoutId
-        )
+        let repository = repository
+        return try await withLiveReplayLeaderboardTimeout(seconds: fetchTimeoutSeconds) {
+            try await repository.fetchCompletionRankSnapshot(
+                context: context,
+                workoutId: workoutId
+            )
+        }
     }
 
     func fetchPublishStatus(
@@ -150,7 +159,10 @@ actor LiveReplayLeaderboardService: LiveReplayLeaderboardServicing {
     func fetchCurrentUserFinisherStatus(
         context: LiveReplayLeaderboardContext
     ) async throws -> LiveReplayFinisherStatus? {
-        try await repository.fetchCurrentUserFinisherStatus(context: context)
+        let repository = repository
+        return try await withLiveReplayLeaderboardTimeout(seconds: fetchTimeoutSeconds) {
+            try await repository.fetchCurrentUserFinisherStatus(context: context)
+        }
     }
 
     func fetchCompletionLeaderboard(

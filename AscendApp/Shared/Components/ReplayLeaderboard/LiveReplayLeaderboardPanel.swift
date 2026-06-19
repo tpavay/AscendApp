@@ -199,11 +199,21 @@ private struct LiveReplayLeaderboardRowView: View {
 
                 avatarView
 
-                Text(row.displayName)
-                    .font(.montserratBold(size: 17))
-                    .foregroundStyle(primaryColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(row.isCurrentUser ? "You" : row.displayName)
+                        .font(.montserratBold(size: 17))
+                        .foregroundStyle(primaryColor)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+
+                    if let demographicSummaryText = row.demographicSummaryText {
+                        Text(demographicSummaryText)
+                            .font(.montserratSemiBold(size: 10))
+                            .foregroundStyle(secondaryColor)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                    }
+                }
 
                 Spacer(minLength: 0)
 
