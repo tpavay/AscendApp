@@ -27,6 +27,9 @@ class DebugToolsViewModel {
         static let replayPostAuthOnboarding = "Replay Onboarding Now"
         static let replayFullOnboardingFromLanding = "Replay From Landing"
         static let completePostAuthOnboarding = "Complete Post-Auth Onboarding"
+        static let presentAppAccessPaywall = "Present App Access Paywall"
+        static let refreshEntitlements = "Refresh Entitlements"
+        static let restorePurchases = "Restore Purchases"
     }
 
     var selectedWorkoutPreset: WorkoutSeedPreset = .appStoreScreenshots
@@ -39,6 +42,7 @@ class DebugToolsViewModel {
     var sections: [DebugSection] {
         [
             onboardingSection,
+            monetizationSection,
             appleHealthImportSection,
             workoutsSection,
             leaderboardSection
@@ -68,6 +72,35 @@ class DebugToolsViewModel {
                     title: ActionTitle.completePostAuthOnboarding,
                     description: "Marks the current account as having completed the post-auth onboarding flow.",
                     icon: "checkmark.seal.fill",
+                    iconColor: .green
+                )
+            ]
+        )
+    }
+
+    // MARK: - Monetization Section
+
+    private var monetizationSection: DebugSection {
+        DebugSection(
+            title: "Monetization",
+            subtitle: "Exercise the RevenueCat and Superwall app-access flow without waiting for the production gate",
+            actions: [
+                DebugAction(
+                    title: ActionTitle.presentAppAccessPaywall,
+                    description: "Presents the app-access Superwall placement using the RevenueCat purchase controller.",
+                    icon: "creditcard.fill",
+                    iconColor: .accent
+                ),
+                DebugAction(
+                    title: ActionTitle.refreshEntitlements,
+                    description: "Fetches the latest RevenueCat customer info and updates local app-access state.",
+                    icon: "arrow.clockwise.circle.fill",
+                    iconColor: .blue
+                ),
+                DebugAction(
+                    title: ActionTitle.restorePurchases,
+                    description: "Runs RevenueCat restore purchases and updates local entitlement state.",
+                    icon: "arrow.counterclockwise.circle.fill",
                     iconColor: .green
                 )
             ]
@@ -193,6 +226,29 @@ class DebugToolsViewModel {
                 NotificationCenter.default.post(name: .postAuthOnboardingStateDidChange, object: nil)
                 successMessage = "Marked post-auth onboarding complete for this user."
 
+            case ActionTitle.presentAppAccessPaywall:
+                guard MonetizationManager.shared.isSuperwallConfigured else {
+                    throw DebugMonetizationError.superwallUnavailable
+                }
+                MonetizationManager.shared.presentPaywall(
+                    .appAccessGate,
+                    params: ["source": "debug_tools"]
+                )
+
+            case ActionTitle.refreshEntitlements:
+                guard MonetizationManager.shared.isRevenueCatConfigured else {
+                    throw DebugMonetizationError.revenueCatUnavailable
+                }
+                await MonetizationManager.shared.refreshEntitlements()
+                successMessage = "Refreshed RevenueCat entitlements."
+
+            case ActionTitle.restorePurchases:
+                guard MonetizationManager.shared.isRevenueCatConfigured else {
+                    throw DebugMonetizationError.revenueCatUnavailable
+                }
+                try await MonetizationManager.shared.restorePurchases()
+                successMessage = "Restored purchases from RevenueCat."
+
             case ActionTitle.seedWorkouts:
                 let count = try await service.seedWorkoutData(
                     preset: selectedWorkoutPreset,
@@ -241,6 +297,20 @@ private enum DebugOnboardingError: LocalizedError {
 
     var errorDescription: String? {
         "Sign in before changing onboarding debug state."
+    }
+}
+
+private enum DebugMonetizationError: LocalizedError {
+    case superwallUnavailable
+    case revenueCatUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .superwallUnavailable:
+            return "Superwall is not configured for this build."
+        case .revenueCatUnavailable:
+            return "RevenueCat is not configured for this build."
+        }
     }
 }
 #endif

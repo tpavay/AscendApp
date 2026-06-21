@@ -6,7 +6,8 @@ Date: 2026-06-10
 
 - Project: `24464`
 - iOS application: `47442`
-- App placement already used by the iOS app: `onboarding_paywall`
+- App placement used by the iOS hard gate: `app_access_gate`
+- App placement reserved for onboarding-specific paywall tests: `onboarding_paywall`
 - Existing default campaign: `90307`
 - Existing default example paywall: `232089`
 
@@ -67,6 +68,11 @@ Product reference names expected by the self-hosted page:
 - `primary`: yearly free-trial product
 - `secondary`: monthly product
 
+Superwall product identifiers currently present in project `24464`:
+
+- `ascend_yearly`
+- `ascend_monthly`
+
 ## One-time Offer Paywall
 
 Copy:
@@ -94,13 +100,21 @@ Superwall accepted the organization API key and asset uploads, but the paywall c
 
 This is not an authorization issue: the same key successfully wrote assets. Use the dashboard editor or Superwall support for the paywall record creation failure, or deploy the self-hosted pages and retry URL-based creation.
 
+API check on 2026-06-19:
+
+- Paywalls: `232127`, `232372`, and `232373` are all draft `New Paywall` records with no attached products.
+- Existing campaign `90307` is still `Example Campaign` and only listens to placement `campaign_trigger`.
+- The campaign variant still references archived example paywall `232089`.
+- The iOS app hard gate now registers placement `app_access_gate`, so no live Superwall campaign will present until a campaign owns that placement.
+
 ## Remaining Setup
 
-1. Confirm App Store product identifiers for yearly trial, monthly, and optional discount offer.
+1. Confirm App Store Connect and RevenueCat both use product identifiers `ascend_yearly` and `ascend_monthly`, or update Superwall product identifiers to match the final App Store IDs.
 2. Create or repair the two Superwall paywall records.
 3. Attach product references:
-   - yearly trial as `primary`
-   - monthly as `secondary`
+   - `ascend_yearly` as `primary`
+   - `ascend_monthly` as `secondary`
    - discount offer as `primary` on the one-time offer paywall
-4. Wire the main paywall to `onboarding_paywall`.
-5. Keep the campaign disabled until the editor preview renders correctly and RevenueCat entitlements are verified.
+4. Wire the main hard-gate paywall to `app_access_gate`.
+5. Optionally wire onboarding-specific experiments to `onboarding_paywall` once the onboarding paywall stage exists.
+6. Keep the campaign disabled until the editor preview renders correctly and RevenueCat entitlements are verified.

@@ -3,8 +3,14 @@ import SwiftUI
 struct AppAccessPaywallPlaceholderView: View {
     @Environment(MonetizationManager.self) private var monetizationManager
 
-    let onRestore: () -> Void
     @State private var didPresentPaywall = false
+    @State private var restoreState: RestoreState?
+
+    private enum RestoreState: Equatable {
+        case restoring
+        case restored
+        case failed
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -45,8 +51,8 @@ struct AppAccessPaywallPlaceholderView: View {
                 .disabled(!monetizationManager.isSuperwallConfigured)
                 .accessibilityHint("Presents the Ascend subscription paywall.")
 
-                Button(action: onRestore) {
-                    Text("Restore Purchases")
+                Button(action: restorePurchases) {
+                    Text(restoreButtonTitle)
                         .font(.montserratSemiBold(size: 15))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
@@ -57,6 +63,7 @@ struct AppAccessPaywallPlaceholderView: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .disabled(restoreState == .restoring || !monetizationManager.isRevenueCatConfigured)
             }
 
             Spacer()
@@ -72,7 +79,7 @@ struct AppAccessPaywallPlaceholderView: View {
         guard monetizationManager.isSuperwallConfigured else { return }
         guard !didPresentPaywall else {
             monetizationManager.presentPaywall(
-                .onboardingPaywall,
+                .appAccessGate,
                 params: ["source": "paywall_placeholder_retry"]
             )
             return
@@ -80,13 +87,48 @@ struct AppAccessPaywallPlaceholderView: View {
 
         didPresentPaywall = true
         monetizationManager.presentPaywall(
-            .onboardingPaywall,
-            params: ["source": "post_auth_onboarding"]
+            .appAccessGate,
+            params: ["source": "app_access_gate"]
         )
+    }
+
+    private var restoreButtonTitle: String {
+        guard monetizationManager.isRevenueCatConfigured else {
+            return "Restore Unavailable"
+        }
+
+        switch restoreState {
+        case .restoring:
+            return "Restoring..."
+        case .restored:
+            return "Restored"
+        case .failed:
+            return "Restore Failed"
+        case nil:
+            return "Restore Purchases"
+        }
+    }
+
+    private func restorePurchases() {
+        guard monetizationManager.isRevenueCatConfigured else {
+            restoreState = .failed
+            return
+        }
+        guard restoreState != .restoring else { return }
+        restoreState = .restoring
+
+        Task {
+            do {
+                try await monetizationManager.restorePurchases()
+                restoreState = .restored
+            } catch {
+                restoreState = .failed
+            }
+        }
     }
 }
 
 #Preview {
-    AppAccessPaywallPlaceholderView(onRestore: {})
+    AppAccessPaywallPlaceholderView()
         .environment(MonetizationManager())
 }

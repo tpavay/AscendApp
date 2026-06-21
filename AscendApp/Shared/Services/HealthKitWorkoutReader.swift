@@ -92,8 +92,7 @@ final class HealthKitWorkoutReader: HealthKitWorkoutReading {
 
         let datePredicate = HKQuery.predicateForSamples(
             withStart: dateRange.lowerBound,
-            end: dateRange.upperBound,
-            options: .strictStartDate
+            end: dateRange.upperBound
         )
         let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [Self.stairWorkoutPredicate(), datePredicate])
         let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
@@ -118,11 +117,17 @@ final class HealthKitWorkoutReader: HealthKitWorkoutReading {
         }
     }
 
+    nonisolated static var stairWorkoutActivityTypes: [HKWorkoutActivityType] {
+        [
+            .stairClimbing,
+            .stepTraining
+        ]
+    }
+
     nonisolated static func stairWorkoutPredicate() -> NSPredicate {
-        NSCompoundPredicate(orPredicateWithSubpredicates: [
-            HKQuery.predicateForWorkouts(with: .stairClimbing),
-            HKQuery.predicateForWorkouts(with: .stepTraining)
-        ])
+        NSCompoundPredicate(orPredicateWithSubpredicates: stairWorkoutActivityTypes.map {
+            HKQuery.predicateForWorkouts(with: $0)
+        })
     }
 
     nonisolated private static func makeSample(from workout: HKWorkout) -> HealthKitWorkoutSample {

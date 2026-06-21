@@ -22,16 +22,16 @@ final class RevenueCatPurchaseController: PurchaseController {
         guard Purchases.isConfigured else { return }
 
         subscriptionStatusTask?.cancel()
-        subscriptionStatusTask = Task {
-            for await customerInfo in Purchases.shared.customerInfoStream {
-                let entitlements = customerInfo.entitlements.activeInCurrentEnvironment.keys.map {
-                    SuperwallKit.Entitlement(id: $0)
-                }
-
+        subscriptionStatusTask = Task { [weak self] in
+            if let customerInfo = try? await Purchases.shared.customerInfo() {
                 await MainActor.run {
-                    Superwall.shared.subscriptionStatus = entitlements.isEmpty
-                        ? .inactive
-                        : .active(Set(entitlements))
+                    self?.applySubscriptionStatus(from: customerInfo)
+                }
+            }
+
+            for await customerInfo in Purchases.shared.customerInfoStream {
+                await MainActor.run {
+                    self?.applySubscriptionStatus(from: customerInfo)
                 }
             }
         }
@@ -47,6 +47,11 @@ final class RevenueCatPurchaseController: PurchaseController {
             let storeProduct = RevenueCat.StoreProduct(sk2Product: sk2Product)
             let result = try await Purchases.shared.purchase(product: storeProduct)
             let outcome = result.userCancelled ? "cancelled" : "purchased"
+
+            if !result.userCancelled {
+                applySubscriptionStatus(from: result.customerInfo)
+                await RevenueCatEntitlementService.shared.refreshCustomerInfo()
+            }
 
             TelemetryManager.shared.track(
                 PaywallAnalyticsEvent.purchaseControllerCompleted(
@@ -81,7 +86,9 @@ final class RevenueCatPurchaseController: PurchaseController {
     @MainActor
     func restorePurchases() async -> RestorationResult {
         do {
-            _ = try await Purchases.shared.restorePurchases()
+            let customerInfo = try await Purchases.shared.restorePurchases()
+            applySubscriptionStatus(from: customerInfo)
+            await RevenueCatEntitlementService.shared.refreshCustomerInfo()
             TelemetryManager.shared.track(
                 PaywallAnalyticsEvent.restoreControllerCompleted(outcome: "restored")
             )
@@ -92,5 +99,16 @@ final class RevenueCatPurchaseController: PurchaseController {
             )
             return .failed(error)
         }
+    }
+
+    @MainActor
+    private func applySubscriptionStatus(from customerInfo: RevenueCat.CustomerInfo) {
+        let entitlements = customerInfo.entitlements.activeInCurrentEnvironment.keys.map {
+            SuperwallKit.Entitlement(id: $0)
+        }
+
+        Superwall.shared.subscriptionStatus = entitlements.isEmpty
+            ? .inactive
+            : .active(Set(entitlements))
     }
 }
