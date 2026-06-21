@@ -47,14 +47,14 @@ enum AppleHealthWorkoutEnrichmentPolicy: CaseIterable {
     private var minimumOverlapRatio: Double {
         switch self {
         case .inAppSensorWorkout:
-            return 0.70
+            return 0.50
         }
     }
 
     private var maximumStartDelta: TimeInterval {
         switch self {
         case .inAppSensorWorkout:
-            return 15 * 60
+            return 30 * 60
         }
     }
 }

@@ -52,11 +52,16 @@ struct WorkoutMetrics {
 protocol HealthKitMetricsReading {
     func fetchMetrics(for workout: HKWorkout) async -> WorkoutMetrics
     func fetchMetrics(for workout: HKWorkout, during dateRange: ClosedRange<Date>) async -> WorkoutMetrics
+    func fetchMetrics(during dateRange: ClosedRange<Date>) async -> WorkoutMetrics
 }
 
 extension HealthKitMetricsReading {
     func fetchMetrics(for workout: HKWorkout, during dateRange: ClosedRange<Date>) async -> WorkoutMetrics {
         await fetchMetrics(for: workout)
+    }
+
+    func fetchMetrics(during dateRange: ClosedRange<Date>) async -> WorkoutMetrics {
+        WorkoutMetrics()
     }
 }
 
@@ -75,6 +80,14 @@ final class HealthKitMetricsReader: HealthKitMetricsReading {
     }
 
     func fetchMetrics(for workout: HKWorkout, during dateRange: ClosedRange<Date>) async -> WorkoutMetrics {
+        await fetchMetrics(workout: workout, during: dateRange)
+    }
+
+    func fetchMetrics(during dateRange: ClosedRange<Date>) async -> WorkoutMetrics {
+        await fetchMetrics(workout: nil, during: dateRange)
+    }
+
+    private func fetchMetrics(workout: HKWorkout?, during dateRange: ClosedRange<Date>) async -> WorkoutMetrics {
         var metrics = WorkoutMetrics()
 
         if let stepCount = await fetchQuantityData(for: .stepCount, during: dateRange, unit: .count()) {
@@ -90,7 +103,7 @@ final class HealthKitMetricsReader: HealthKitMetricsReading {
             summary: heartRateData
         )
 
-        if let avgMetsQuantity = workout.metadata?["HKAverageMETs"] as? HKQuantity {
+        if let avgMetsQuantity = workout?.metadata?["HKAverageMETs"] as? HKQuantity {
             let metsUnit = HKUnit.kilocalorie().unitDivided(
                 by: HKUnit.hour().unitMultiplied(by: HKUnit.gramUnit(with: .kilo))
             )
@@ -163,7 +176,7 @@ final class HealthKitMetricsReader: HealthKitMetricsReading {
     }
 
     private func fetchHeartRateTimeSeries(
-        for workout: HKWorkout,
+        for workout: HKWorkout?,
         during dateRange: ClosedRange<Date>,
         summary: (average: Int?, maximum: Int?)
     ) async -> [HeartRateDataPoint] {
@@ -280,7 +293,7 @@ final class HealthKitMetricsReader: HealthKitMetricsReading {
 #if DEBUG
 private extension HealthKitMetricsReader {
     func logHeartRateImportDiagnostics(
-        workout: HKWorkout,
+        workout: HKWorkout?,
         dateRange: ClosedRange<Date>,
         parentSamples: [HKQuantitySample],
         parentDataPoints: [HeartRateDataPoint],
@@ -296,10 +309,10 @@ private extension HealthKitMetricsReader {
 
         debugLog(
             """
-            [HK-HR-IMPORT] workout=\(workout.uuid.uuidString) name=\(workout.workoutActivityType.rawValue) \
+            [HK-HR-IMPORT] workout=\(workout?.uuid.uuidString ?? "time-window") name=\(workout?.workoutActivityType.rawValue.description ?? "none") \
             range=\(Self.debugDate(dateRange.lowerBound))...\(Self.debugDate(dateRange.upperBound)) \
-            duration=\(workout.duration) source=\(workout.sourceRevision.source.name) bundle=\(workout.sourceRevision.source.bundleIdentifier) \
-            device=\(workout.device?.name ?? "nil") avg=\(summary.average.map(String.init) ?? "nil") max=\(summary.maximum.map(String.init) ?? "nil") \
+            duration=\(dateRange.upperBound.timeIntervalSince(dateRange.lowerBound)) source=\(workout?.sourceRevision.source.name ?? "time-window") bundle=\(workout?.sourceRevision.source.bundleIdentifier ?? "none") \
+            device=\(workout?.device?.name ?? "nil") avg=\(summary.average.map(String.init) ?? "nil") max=\(summary.maximum.map(String.init) ?? "nil") \
             parentSamples=\(parentSamples.count) parentMappedPoints=\(parentDataPoints.count) seriesChildPoints=\(seriesPoints.points.count) \
             importedPoints=\(importedDataPoints.count) importedSource=\(importedSource)
             """

@@ -163,13 +163,7 @@ struct RootView: View {
                 )
 
             case .paywall:
-                AppAccessPaywallPlaceholderView(
-                    onRestore: {
-                        Task {
-                            try? await monetizationManager.restorePurchases()
-                        }
-                    }
-                )
+                AppAccessPaywallPlaceholderView()
 
             case .mainApp:
                 MainTabView(tabRouter: tabRouter)

@@ -51,8 +51,8 @@ final class AppleHealthEnrichmentRetryStore {
     init(
         defaults: UserDefaults = .standard,
         key: String = "appleHealth.enrichmentRetry.lastAttemptByWorkoutID",
-        minimumRetryInterval: TimeInterval = 10 * 60,
-        retryWindow: TimeInterval = 24 * 60 * 60,
+        minimumRetryInterval: TimeInterval = 60,
+        retryWindow: TimeInterval = 72 * 60 * 60,
         now: @escaping () -> Date = Date.init
     ) {
         self.defaults = defaults
@@ -630,18 +630,31 @@ final class WorkoutImportCoordinator {
         }
         guard !eligibleWorkouts.isEmpty else { return [] }
 
+        let heartRateFallbackWorkouts = forceRangeDiscovery
+            ? eligibleWorkouts
+            : eligibleWorkouts.filter { enrichmentRetryStore.isRetryDue(for: $0) }
         let appleSamples = await appleHealthSamplesForEnrichment(
             eligibleWorkouts: eligibleWorkouts,
             existingIndex: existingIndex,
             forceRangeDiscovery: forceRangeDiscovery
         )
-        guard !appleSamples.isEmpty else { return [] }
+        guard !appleSamples.isEmpty else {
+            return try await enrichInAppWorkoutsWithAppleHealthHeartRateByTimeWindowIfPossible(
+                heartRateFallbackWorkouts,
+                modelContext: modelContext
+            )
+        }
 
         let matches = resolveAppleHealthEnrichmentMatches(
             eligibleWorkouts: eligibleWorkouts,
             appleSamples: appleSamples
         )
-        guard !matches.isEmpty else { return [] }
+        guard !matches.isEmpty else {
+            return try await enrichInAppWorkoutsWithAppleHealthHeartRateByTimeWindowIfPossible(
+                heartRateFallbackWorkouts,
+                modelContext: modelContext
+            )
+        }
 
         var updatedWorkouts: [Workout] = []
         var updates: [WorkoutMutation.Update] = []
@@ -677,7 +690,12 @@ final class WorkoutImportCoordinator {
             return linkedAppleHealthIDs.contains(externalRecordID)
         }
 
-        return updatedWorkouts
+        let heartRateFallbackUpdates = try await enrichInAppWorkoutsWithAppleHealthHeartRateByTimeWindowIfPossible(
+            heartRateFallbackWorkouts.filter { needsAppleHealthHeartRateEnrichment($0) },
+            modelContext: modelContext
+        )
+
+        return updatedWorkouts + heartRateFallbackUpdates
     }
 
     private func appleHealthSamplesForEnrichment(
@@ -763,14 +781,17 @@ final class WorkoutImportCoordinator {
         for workouts: [Workout]
     ) -> ClosedRange<Date>? {
         let starts = workouts.map(\.date)
+        let ends = workouts.map { workout in
+            workout.date.addingTimeInterval(max(workout.duration, 1))
+        }
         guard let earliestStart = starts.min(),
-              let latestStart = starts.max() else {
+              let latestEnd = ends.max() else {
             return nil
         }
 
-        let startTolerance: TimeInterval = 15 * 60
-        let lowerBound = earliestStart.addingTimeInterval(-startTolerance)
-        let upperBound = latestStart.addingTimeInterval(startTolerance)
+        let tolerance: TimeInterval = 30 * 60
+        let lowerBound = earliestStart.addingTimeInterval(-tolerance)
+        let upperBound = latestEnd.addingTimeInterval(tolerance)
         return lowerBound...upperBound
     }
 
@@ -1017,6 +1038,50 @@ final class WorkoutImportCoordinator {
             workout.averageMETs == nil
     }
 
+    private func needsAppleHealthHeartRateEnrichment(_ workout: Workout) -> Bool {
+        workout.avgHeartRate == nil ||
+            workout.maxHeartRate == nil ||
+            workout.heartRateTimeSeries.isEmpty
+    }
+
+    @discardableResult
+    private func enrichInAppWorkoutsWithAppleHealthHeartRateByTimeWindowIfPossible(
+        _ workouts: [Workout],
+        modelContext: ModelContext
+    ) async throws -> [Workout] {
+        guard authorizationController.connectionState == .connected else { return [] }
+
+        let candidates = workouts.filter { workout in
+            workout.isInAppSensorWorkout && needsAppleHealthHeartRateEnrichment(workout)
+        }
+        guard !candidates.isEmpty else { return [] }
+
+        var updatedWorkouts: [Workout] = []
+        var updates: [WorkoutMutation.Update] = []
+
+        for workout in candidates {
+            let metricWindow = workout.date...workout.date.addingTimeInterval(max(workout.duration, 1))
+            let metrics = await metricsReader.fetchMetrics(during: metricWindow)
+            let before = LeaderboardWorkoutSnapshot(workout: workout)
+            let didChangeMetrics = applyAppleHealthHeartRateMetrics(metrics, to: workout)
+
+            guard didChangeMetrics else { continue }
+
+            updatedWorkouts.append(workout)
+            updates.append(.init(before: before, after: LeaderboardWorkoutSnapshot(workout: workout)))
+            enrichmentRetryStore.clear(workoutID: workout.id)
+        }
+
+        guard !updatedWorkouts.isEmpty else { return [] }
+
+        try WorkoutMutationHandler.shared.workoutsDidChange(
+            modelContext: modelContext,
+            mutation: WorkoutMutation(updated: updates),
+            changedWorkouts: updatedWorkouts
+        )
+        return updatedWorkouts
+    }
+
     private func hasCachedAppleHealthEnrichmentSample(for workout: Workout) -> Bool {
         let ignoredAppleHealthWorkoutIDs = ignoredAppleHealthWorkoutStore.load()
         return HealthKitSyncState.cachedWorkoutSamples.contains { sample in
@@ -1086,6 +1151,32 @@ final class WorkoutImportCoordinator {
         if workout.healthKitUUID != sample.externalRecordID {
             workout.healthKitUUID = sample.externalRecordID
             didChange = true
+        }
+
+        return didChange
+    }
+
+    @discardableResult
+    private func applyAppleHealthHeartRateMetrics(
+        _ metrics: WorkoutMetrics,
+        to workout: Workout
+    ) -> Bool {
+        var didChange = false
+
+        if let avgHeartRate = metrics.avgHeartRate, workout.avgHeartRate != avgHeartRate {
+            workout.avgHeartRate = avgHeartRate
+            didChange = true
+        }
+        if let maxHeartRate = metrics.maxHeartRate, workout.maxHeartRate != maxHeartRate {
+            workout.maxHeartRate = maxHeartRate
+            didChange = true
+        }
+        if !metrics.heartRateTimeSeries.isEmpty {
+            let encodedHeartRateData = metrics.heartRateTimeSeries.encoded
+            if workout.heartRateData != encodedHeartRateData {
+                workout.heartRateData = encodedHeartRateData
+                didChange = true
+            }
         }
 
         return didChange
