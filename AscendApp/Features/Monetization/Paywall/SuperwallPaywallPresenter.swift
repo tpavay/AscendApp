@@ -1,9 +1,11 @@
 import Foundation
+import os
 import SuperwallKit
 
 @MainActor
 final class SuperwallPaywallPresenter: PaywallPresenting {
     static let shared = SuperwallPaywallPresenter()
+    private static let logger = Logger(subsystem: "com.ascendapp.app", category: "Paywall")
 
     private(set) var isConfigured = false
     private let purchaseController = RevenueCatPurchaseController()
@@ -38,10 +40,46 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
 
     func register(placement: SuperwallPlacement, params: [String: Any]? = nil) {
         guard isConfigured else { return }
+        let handler = makePresentationHandler(for: placement)
+
         Superwall.shared.register(
             placement: placement.rawValue,
-            params: params
+            params: params,
+            handler: handler,
+            feature: {}
         )
+    }
+
+    private func makePresentationHandler(for placement: SuperwallPlacement) -> PaywallPresentationHandler {
+        let handler = PaywallPresentationHandler()
+
+        handler.onSkip { reason in
+            Self.logger.warning("Superwall skipped placement \(placement.rawValue, privacy: .public): \(String(describing: reason), privacy: .public)")
+            TelemetryManager.shared.track(
+                TelemetryRecord(
+                    name: "paywall_skipped",
+                    parameters: [
+                        "placement": .string(placement.rawValue),
+                        "reason": .string(String(describing: reason))
+                    ]
+                )
+            )
+        }
+
+        handler.onError { error in
+            Self.logger.error("Superwall failed placement \(placement.rawValue, privacy: .public): \(String(describing: error), privacy: .public)")
+            TelemetryManager.shared.track(
+                TelemetryRecord(
+                    name: "paywall_error",
+                    parameters: [
+                        "placement": .string(placement.rawValue),
+                        "error": .string(String(describing: error))
+                    ]
+                )
+            )
+        }
+
+        return handler
     }
 }
 

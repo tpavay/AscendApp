@@ -64,6 +64,20 @@ struct AppAccessPaywallPlaceholderView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(restoreState == .restoring || !monetizationManager.isRevenueCatConfigured)
+
+                #if DEBUG
+                if monetizationManager.debugForcesAppAccessPaywall {
+                    Button(action: clearDebugGateOverride) {
+                        Text("Clear Debug Gate Override")
+                            .font(.montserratSemiBold(size: 14))
+                            .foregroundStyle(.white.opacity(0.72))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Returns the debug app to normal unentitled access.")
+                }
+                #endif
             }
 
             Spacer()
@@ -126,6 +140,12 @@ struct AppAccessPaywallPlaceholderView: View {
             }
         }
     }
+
+    #if DEBUG
+    private func clearDebugGateOverride() {
+        monetizationManager.setDebugForcesAppAccessPaywall(false)
+    }
+    #endif
 }
 
 #Preview {

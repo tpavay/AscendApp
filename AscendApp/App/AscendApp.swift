@@ -31,6 +31,9 @@ struct AscendApp: App {
         }
 
         if firebaseFailure == nil {
+            #if DEBUG || STAGING
+            SuperwallStaticConfigCacheBusterURLProtocol.register()
+            #endif
             PushNotificationService.shared.configure()
             TelemetryManager.shared.configure()
             TelemetryManager.shared.setAppMetadata()

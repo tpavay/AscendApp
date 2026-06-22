@@ -5,18 +5,44 @@ import Observation
 @Observable
 final class MonetizationManager {
     static let shared = MonetizationManager()
+    #if DEBUG
+    private static let debugForcesAppAccessPaywallKey = "debug.monetization.forceAppAccessPaywall"
+    #endif
 
     private let entitlementService: any EntitlementServicing
     private let paywallPresenter: any PaywallPresenting
     private(set) var configuration: MonetizationConfiguration
+    #if DEBUG
+    private(set) var debugForcesAppAccessPaywall = UserDefaults.standard.bool(
+        forKey: MonetizationManager.debugForcesAppAccessPaywallKey
+    )
+    #endif
 
     var entitlementState: MonetizationEntitlementState {
         entitlementService.entitlementState
     }
 
     var hasAppAccess: Bool {
-        configuration.allowsUnentitledAppAccess
-            || entitlementState.hasActiveEntitlement(configuration.revenueCatEntitlementID)
+        allowsUnentitledAppAccessForRouting
+            || entitlementStateForRouting.hasActiveEntitlement(configuration.revenueCatEntitlementID)
+    }
+
+    var entitlementStateForRouting: MonetizationEntitlementState {
+        #if DEBUG
+        if debugForcesAppAccessPaywall {
+            return .inactive
+        }
+        #endif
+
+        return entitlementState
+    }
+
+    var allowsUnentitledAppAccessForRouting: Bool {
+        #if DEBUG
+        return configuration.allowsUnentitledAppAccess && !debugForcesAppAccessPaywall
+        #else
+        return configuration.allowsUnentitledAppAccess
+        #endif
     }
 
     var isRevenueCatConfigured: Bool {
@@ -68,6 +94,13 @@ final class MonetizationManager {
         trackPaywallReached(placement, params: params)
         paywallPresenter.register(placement: placement, params: params)
     }
+
+    #if DEBUG
+    func setDebugForcesAppAccessPaywall(_ shouldForce: Bool) {
+        debugForcesAppAccessPaywall = shouldForce
+        UserDefaults.standard.set(shouldForce, forKey: Self.debugForcesAppAccessPaywallKey)
+    }
+    #endif
 
     private func trackPaywallReached(_ placement: SuperwallPlacement, params: [String: Any]?) {
         let source = params?["source"] as? String
