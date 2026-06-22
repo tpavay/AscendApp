@@ -120,9 +120,9 @@ struct RootView: View {
             authenticationState: authVM.authenticationState,
             userId: authVM.user?.uid,
             postAuthOnboardingPhase: postAuthOnboardingCoordinator.phase,
-            entitlementState: monetizationManager.entitlementState,
+            entitlementState: monetizationManager.entitlementStateForRouting,
             requiredEntitlementID: monetizationManager.configuration.revenueCatEntitlementID,
-            allowsUnentitledAppAccess: monetizationManager.configuration.allowsUnentitledAppAccess
+            allowsUnentitledAppAccess: monetizationManager.allowsUnentitledAppAccessForRouting
         )
 
         if case .onboarding(.displayName) = resolvedRoute,

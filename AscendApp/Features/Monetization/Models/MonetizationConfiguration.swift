@@ -100,7 +100,7 @@ struct MonetizationConfiguration: Equatable {
     }
 
     private static var defaultAllowsUnentitledAppAccess: Bool {
-        #if DEBUG
+        #if DEBUG || STAGING
         true
         #else
         false
