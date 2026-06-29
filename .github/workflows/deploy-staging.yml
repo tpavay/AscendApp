@@ -145,10 +145,23 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
-          token_format: access_token
 
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
+
+      - name: Create temporary Firebase service account key
+        shell: bash
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-deploy-key.json
+        run: |
+          set -euo pipefail
+
+          gcloud iam service-accounts keys create "$GOOGLE_APPLICATION_CREDENTIALS" \
+            --iam-account="${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}"
+
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS" >> "$GITHUB_ENV"
+          echo "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE=$GOOGLE_APPLICATION_CREDENTIALS" >> "$GITHUB_ENV"
+          echo "GOOGLE_GHA_CREDS_PATH=$GOOGLE_APPLICATION_CREDENTIALS" >> "$GITHUB_ENV"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
