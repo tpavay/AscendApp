@@ -162,7 +162,7 @@ jobs:
         run: npm --prefix web run build
 
       - name: Deploy Functions, Rules, Indexes, Storage, and Hosting
-        run: npx -y firebase-tools@15.22.1 deploy --project ascend-staging-fa7d5 --only functions,firestore:rules,firestore:indexes,storage,hosting --non-interactive --force
+        run: npx -y firebase-tools@14 deploy --project ascend-staging-fa7d5 --only functions,firestore:rules,firestore:indexes,storage,hosting --non-interactive --force
 
   upload-testflight:
     name: Upload to TestFlight (Staging)
