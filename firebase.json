@@ -25,6 +25,7 @@
     }
   ],
   "hosting": {
+    "target": "web",
     "public": "web/dist",
     "cleanUrls": true,
     "ignore": [
