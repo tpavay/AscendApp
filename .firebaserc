@@ -4,5 +4,28 @@
     "dev": "ascend-f2e4f",
     "staging": "ascend-staging-fa7d5",
     "production": "ascend-prod-9c8f2"
+  },
+  "targets": {
+    "ascend-f2e4f": {
+      "hosting": {
+        "web": [
+          "ascend-f2e4f"
+        ]
+      }
+    },
+    "ascend-staging-fa7d5": {
+      "hosting": {
+        "web": [
+          "ascend-staging-fa7d5"
+        ]
+      }
+    },
+    "ascend-prod-9c8f2": {
+      "hosting": {
+        "web": [
+          "ascend-prod-9c8f2"
+        ]
+      }
+    }
   }
 }
