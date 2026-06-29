@@ -57,9 +57,30 @@ final class DebugToolsService {
             modelContext: modelContext
         )
     }
+
+    func sendSentryTestDiagnostic() {
+        TelemetryManager.shared.debugEnableCollectionForSession()
+        TelemetryManager.shared.recordError(
+            DebugDiagnosticsError.sentryTestEvent,
+            context: .network,
+            code: "debug_sentry_test_event",
+            additionalInfo: [
+                "source": "debug_tools",
+                "expected": "true"
+            ]
+        )
+    }
     
     // MARK: - Future: Add more debug operations
     // func clearAllData() async throws { }
     // func resetUserPreferences() async throws { }
+}
+
+private enum DebugDiagnosticsError: LocalizedError {
+    case sentryTestEvent
+
+    var errorDescription: String? {
+        "Debug Sentry test diagnostic"
+    }
 }
 #endif

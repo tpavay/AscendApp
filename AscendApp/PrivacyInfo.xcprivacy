@@ -229,7 +229,7 @@
             </array>
         </dict>
 
-        <!-- Crash Data — Firebase Crashlytics -->
+        <!-- Crash Data — Firebase Crashlytics and Sentry diagnostics -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeCrashData</string>
@@ -243,7 +243,7 @@
             </array>
         </dict>
 
-        <!-- Performance Data — non-fatal error logging via Crashlytics.recordError -->
+        <!-- Performance Data — non-fatal error logging via Crashlytics.recordError and Sentry.capture(error:) -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypePerformanceData</string>
