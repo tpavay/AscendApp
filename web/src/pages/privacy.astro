@@ -92,7 +92,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
   <div class="privacy-page">
     <main>
       <h1>Privacy Policy</h1>
-      <p class="last-updated">Last updated: June 10, 2026</p>
+      <p class="last-updated">Last updated: June 24, 2026</p>
 
       <h2>Introduction</h2>
       <p>Ascend ("we", "our", or "us") is a stair-stepper workout app for tracking climbs, workouts, leaderboards, achievements, and progress. This Privacy Policy explains what information we collect, how we use it, how we share it, and the choices you have.</p>
@@ -108,7 +108,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         <li><strong>Purchase and subscription information:</strong> Trial, subscription, entitlement, restore-purchase, paywall interaction, and purchase-status information processed through Apple, RevenueCat, and Superwall.</li>
         <li><strong>Product usage analytics:</strong> Screen views, onboarding funnel events, feature interactions, paywall events, and other first-party product analytics collected through Firebase Analytics and Mixpanel in non-debug builds.</li>
         <li><strong>Notification data:</strong> Notification preferences, iOS notification permission state, and APNs/FCM push registration tokens used to send opted-in app notifications such as climb-drop alerts.</li>
-        <li><strong>Diagnostics:</strong> Crash reports, performance data, non-fatal error logs, app version, operating system version, device model, and related debugging context collected through Firebase Crashlytics and app telemetry.</li>
+        <li><strong>Diagnostics:</strong> Crash reports, performance data, non-fatal error logs, app version, operating system version, device model, and related debugging context collected through Firebase Crashlytics, Sentry, and app telemetry.</li>
         <li><strong>City search and map context:</strong> Searches and selected city-level location information used to help you pick profile and leaderboard context. If you choose current location during onboarding, Ascend uses it once to find your city, then saves only city, region, and country. Ascend does not collect continuous background location or gym-level location for leaderboards.</li>
       </ul>
 
@@ -140,7 +140,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       </ul>
 
       <h2>Analytics, Tracking, and Advertising</h2>
-      <p>Ascend uses first-party analytics to understand whether onboarding, subscriptions, workouts, leaderboards, and core features are working. We use Firebase Analytics and Mixpanel for product analytics, Firebase Crashlytics for crash reporting, and Superwall and RevenueCat for subscription and paywall analytics.</p>
+      <p>Ascend uses first-party analytics to understand whether onboarding, subscriptions, workouts, leaderboards, and core features are working. We use Firebase Analytics and Mixpanel for product analytics, Firebase Crashlytics and Sentry for crash reporting and diagnostics, and Superwall and RevenueCat for subscription and paywall analytics.</p>
       <p>Ascend does <strong>not</strong> sell personal information, does <strong>not</strong> use advertising networks, does <strong>not</strong> use the iOS advertising identifier (IDFA), and does <strong>not</strong> track you across other companies' apps or websites for targeted advertising. Because we do not perform App Tracking Transparency-style tracking, Ascend does not show the ATT prompt.</p>
 
       <h2>Third-Party Services</h2>
@@ -152,6 +152,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         <li><strong>RevenueCat:</strong> Subscription status, entitlements, purchase history, and restore-purchase support.</li>
         <li><strong>Superwall:</strong> Paywall presentation, paywall analytics, campaign logic, and subscription conversion measurement.</li>
         <li><strong>Mixpanel:</strong> First-party product analytics and onboarding funnel measurement.</li>
+        <li><strong>Sentry:</strong> Crash reporting, non-fatal error diagnostics, performance diagnostics, breadcrumbs, and release health investigation.</li>
       </ul>
 
       <h2>Data Storage and Security</h2>

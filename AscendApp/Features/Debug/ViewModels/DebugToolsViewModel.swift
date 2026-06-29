@@ -32,6 +32,7 @@ class DebugToolsViewModel {
         static let presentAppAccessPaywall = "Present App Access Paywall"
         static let refreshEntitlements = "Refresh Entitlements"
         static let restorePurchases = "Restore Purchases"
+        static let sendSentryTestDiagnostic = "Send Sentry Test Event"
     }
 
     var selectedWorkoutPreset: WorkoutSeedPreset = .appStoreScreenshots
@@ -43,12 +44,30 @@ class DebugToolsViewModel {
 
     var sections: [DebugSection] {
         [
+            diagnosticsSection,
             onboardingSection,
             monetizationSection,
             appleHealthImportSection,
             workoutsSection,
             leaderboardSection
         ]
+    }
+
+    // MARK: - Diagnostics Section
+
+    private var diagnosticsSection: DebugSection {
+        DebugSection(
+            title: "Diagnostics",
+            subtitle: "Verify crash and non-fatal error reporting",
+            actions: [
+                DebugAction(
+                    title: ActionTitle.sendSentryTestDiagnostic,
+                    description: "Enables telemetry for this Debug session and sends a harmless non-fatal diagnostic event through Crashlytics and Sentry.",
+                    icon: "waveform.path.ecg.rectangle.fill",
+                    iconColor: .red
+                )
+            ]
+        )
     }
 
     // MARK: - Onboarding Section
@@ -270,6 +289,10 @@ class DebugToolsViewModel {
                 }
                 try await MonetizationManager.shared.restorePurchases()
                 successMessage = "Restored purchases from RevenueCat."
+
+            case ActionTitle.sendSentryTestDiagnostic:
+                service.sendSentryTestDiagnostic()
+                successMessage = "Sent a non-fatal Sentry test diagnostic."
 
             case ActionTitle.seedWorkouts:
                 let count = try await service.seedWorkoutData(

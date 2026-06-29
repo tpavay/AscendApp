@@ -130,16 +130,16 @@ final class PostAuthOnboardingCoordinator {
     private func recordLifecycleSnapshot(_ snapshot: PostAuthOnboardingSnapshot) {
         let completedStages = PostAuthOnboardingStage.allCases
             .filter { snapshot.completedStages.contains($0) }
-            .map(\.rawValue)
+            .map(\.lifecycleKey)
 
         if snapshot.isComplete {
             LifecycleEventRecorder.shared.recordOnboardingCompleted(
-                currentStage: snapshot.currentStage.rawValue,
+                currentStage: snapshot.currentStage.lifecycleKey,
                 completedStages: completedStages
             )
         } else {
             LifecycleEventRecorder.shared.recordOnboardingStageReached(
-                stage: snapshot.currentStage.rawValue,
+                stage: snapshot.currentStage.lifecycleKey,
                 completedStages: completedStages
             )
         }
@@ -175,5 +175,16 @@ final class PostAuthOnboardingCoordinator {
 
     private func firstIncompleteStage(in snapshot: PostAuthOnboardingSnapshot) -> PostAuthOnboardingStage {
         PostAuthOnboardingStage.allCases.first { !snapshot.completedStages.contains($0) } ?? .first
+    }
+}
+
+private extension PostAuthOnboardingStage {
+    var lifecycleKey: String {
+        switch self {
+        case .displayName:
+            return "display_name"
+        default:
+            return rawValue
+        }
     }
 }

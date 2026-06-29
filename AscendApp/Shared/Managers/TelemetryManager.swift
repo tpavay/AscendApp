@@ -27,7 +27,12 @@ final class TelemetryManager: @unchecked Sendable {
         crashlyticsReporter: (any CrashlyticsReporting)? = nil,
         collectionEnabledOverride: Bool? = nil
     ) {
-        let reporter = crashlyticsReporter ?? FirebaseCrashlyticsReporter()
+        let reporter = crashlyticsReporter ?? CompositeCrashlyticsReporter(
+            reporters: [
+                FirebaseCrashlyticsReporter(),
+                SentryDiagnosticsReporter()
+            ]
+        )
         self.crashlyticsReporter = reporter
         self.collectionEnabledOverride = collectionEnabledOverride
         if let sinks {
@@ -118,6 +123,13 @@ final class TelemetryManager: @unchecked Sendable {
         default:
             return nil
         }
+    }
+
+    func debugEnableCollectionForSession() {
+        lock.withLock { $0.isCollectionEnabled = true }
+        crashlyticsReporter.setCollectionEnabled(true)
+        sinks.forEach { $0.setCollectionEnabled(true) }
+        setAppMetadata()
     }
     #endif
 

@@ -20,6 +20,7 @@
 		9C3000012F2A000000100001 /* Mixpanel in Frameworks */ = {isa = PBXBuildFile; productRef = 9C3000032F2A000000100003 /* Mixpanel */; };
 		9D4000012F60000000100001 /* MapboxMaps in Frameworks */ = {isa = PBXBuildFile; productRef = 9D4000032F60000000100003 /* MapboxMaps */; };
 		9E5000012F6B000000100001 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 9E5000022F6B000000100002 /* FirebaseMessaging */; };
+		9F6000012F75000000100001 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 9F6000032F75000000100003 /* Sentry */; };
 		A20000012F10000000000001 /* AscendLiveActivityWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A20000012F10000000000003 /* AscendLiveActivityWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -124,6 +125,7 @@
 				9B1000022F22000000100002 /* SuperwallKit in Frameworks */,
 				9C3000012F2A000000100001 /* Mixpanel in Frameworks */,
 				9D4000012F60000000100001 /* MapboxMaps in Frameworks */,
+				9F6000012F75000000100001 /* Sentry in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -217,6 +219,7 @@
 				9B1000062F22000000100006 /* SuperwallKit */,
 				9C3000032F2A000000100003 /* Mixpanel */,
 				9D4000032F60000000100003 /* MapboxMaps */,
+				9F6000032F75000000100003 /* Sentry */,
 			);
 			productName = AscendApp;
 			productReference = 9A5E4D822E2406F8008DE803 /* AscendApp.app */;
@@ -311,6 +314,7 @@
 				9B1000042F22000000100004 /* XCRemoteSwiftPackageReference "Superwall-iOS" */,
 				9C3000022F2A000000100002 /* XCRemoteSwiftPackageReference "mixpanel-swift" */,
 				9D4000022F60000000100002 /* XCRemoteSwiftPackageReference "mapbox-maps-ios-binary" */,
+				9F6000022F75000000100002 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 9A5E4D832E2406F8008DE803 /* Products */;
@@ -364,6 +368,7 @@
 				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_PATH)",
 				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Resources/DWARF/${PRODUCT_NAME}.debug.dylib",
 				"$(SRCROOT)/scripts/link-firebase-plists.sh",
+				"$(SRCROOT)/scripts/upload-sentry-dsyms.sh",
 				"$(SRCROOT)/AscendApp/Info.plist",
 				"$(SRCROOT)/AscendApp/App/Firebase/GoogleService-Info-Dev.plist",
 				"$(SRCROOT)/AscendApp/App/Firebase/GoogleService-Info-Staging.plist",
@@ -376,7 +381,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -eu\n\n# Ensure local Firebase config plists are linked into this worktree.\n\"${SRCROOT}/scripts/link-firebase-plists.sh\"\n\n# Determine which GoogleService-Info plist to use\ncase \"${CONFIGURATION}\" in\n    \"Debug\")\n        GOOGLE_SERVICE_PLIST=\"${SRCROOT}/AscendApp/App/Firebase/GoogleService-Info-Dev.plist\"\n        ;;\n    \"Staging\")\n        GOOGLE_SERVICE_PLIST=\"${SRCROOT}/AscendApp/App/Firebase/GoogleService-Info-Staging.plist\"\n        ;;\n    \"Release\")\n        GOOGLE_SERVICE_PLIST=\"${SRCROOT}/AscendApp/App/Firebase/GoogleService-Info-Production.plist\"\n        ;;\nesac\n\n# Run Crashlytics with the correct plist\n\"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\" -gsp \"${GOOGLE_SERVICE_PLIST}\"\n";
+			shellScript = "set -eu\n\n# Ensure local Firebase config plists are linked into this worktree.\n\"${SRCROOT}/scripts/link-firebase-plists.sh\"\n\n# Determine which GoogleService-Info plist to use\ncase \"${CONFIGURATION}\" in\n    \"Debug\")\n        GOOGLE_SERVICE_PLIST=\"${SRCROOT}/AscendApp/App/Firebase/GoogleService-Info-Dev.plist\"\n        ;;\n    \"Staging\")\n        GOOGLE_SERVICE_PLIST=\"${SRCROOT}/AscendApp/App/Firebase/GoogleService-Info-Staging.plist\"\n        ;;\n    \"Release\")\n        GOOGLE_SERVICE_PLIST=\"${SRCROOT}/AscendApp/App/Firebase/GoogleService-Info-Production.plist\"\n        ;;\nesac\n\n# Run Crashlytics with the correct plist\n\"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\" -gsp \"${GOOGLE_SERVICE_PLIST}\"\n\n# Upload dSYMs to Sentry when CI or the local shell provides SENTRY_AUTH_TOKEN.\n\"${SRCROOT}/scripts/upload-sentry-dsyms.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -483,6 +488,8 @@
 				ASCEND_MIXPANEL_TOKEN = 354ccda8eef57e08d823eebc8598aab7;
 				ASCEND_REVENUECAT_API_KEY = appl_OuhVbQoKshaWOxkeVfELTpsvlHP;
 				ASCEND_REVENUECAT_TEST_API_KEY = "";
+				ASCEND_SENTRY_DSN = "https://8ffadf8996800f8feaaea21ca77ebe5d@o4511621278728192.ingest.us.sentry.io/4511621439815680";
+				ASCEND_SENTRY_ENABLED = YES;
 				ASCEND_SUPERWALL_API_KEY = pk_DGywY9Qw39wY_9glnLs8R;
 				ASCEND_SUPERWALL_TEST_MODE = NO;
 				ASCEND_USE_REVENUECAT_TEST_STORE = NO;
@@ -659,6 +666,8 @@
 				ASCEND_MIXPANEL_TOKEN = 354ccda8eef57e08d823eebc8598aab7;
 				ASCEND_REVENUECAT_API_KEY = appl_OuhVbQoKshaWOxkeVfELTpsvlHP;
 				ASCEND_REVENUECAT_TEST_API_KEY = "";
+				ASCEND_SENTRY_DSN = "https://8ffadf8996800f8feaaea21ca77ebe5d@o4511621278728192.ingest.us.sentry.io/4511621439815680";
+				ASCEND_SENTRY_ENABLED = YES;
 				ASCEND_SUPERWALL_API_KEY = pk_DGywY9Qw39wY_9glnLs8R;
 				ASCEND_SUPERWALL_TEST_MODE = NO;
 				ASCEND_USE_REVENUECAT_TEST_STORE = NO;
@@ -711,6 +720,8 @@
 				ASCEND_MIXPANEL_TOKEN = 354ccda8eef57e08d823eebc8598aab7;
 				ASCEND_REVENUECAT_API_KEY = appl_OuhVbQoKshaWOxkeVfELTpsvlHP;
 				ASCEND_REVENUECAT_TEST_API_KEY = "";
+				ASCEND_SENTRY_DSN = "https://8ffadf8996800f8feaaea21ca77ebe5d@o4511621278728192.ingest.us.sentry.io/4511621439815680";
+				ASCEND_SENTRY_ENABLED = YES;
 				ASCEND_SUPERWALL_API_KEY = pk_DGywY9Qw39wY_9glnLs8R;
 				ASCEND_SUPERWALL_TEST_MODE = NO;
 				ASCEND_USE_REVENUECAT_TEST_STORE = NO;
@@ -1007,6 +1018,14 @@
 				minimumVersion = 11.20.0;
 			};
 		};
+		9F6000022F75000000100002 /* XCRemoteSwiftPackageReference "sentry-cocoa" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/getsentry/sentry-cocoa";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.18.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1074,6 +1093,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 9A8E4CE42E2418D200C78912 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseMessaging;
+		};
+		9F6000032F75000000100003 /* Sentry */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9F6000022F75000000100002 /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
+			productName = Sentry;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

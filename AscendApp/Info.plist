@@ -14,6 +14,10 @@
 	<string>$(ASCEND_SUPERWALL_TEST_MODE)</string>
 	<key>AscendMixpanelToken</key>
 	<string>$(ASCEND_MIXPANEL_TOKEN)</string>
+	<key>AscendSentryDSN</key>
+	<string>$(ASCEND_SENTRY_DSN)</string>
+	<key>AscendSentryEnabled</key>
+	<string>$(ASCEND_SENTRY_ENABLED)</string>
 	<key>MBXAccessToken</key>
 	<string>$(MAPBOX_ACCESS_TOKEN)</string>
 	<key>CFBundleURLTypes</key>
