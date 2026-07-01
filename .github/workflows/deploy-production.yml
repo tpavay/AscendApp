@@ -164,35 +164,10 @@ jobs:
     environment: production
     permissions:
       contents: read
-      id-token: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Authenticate to Google Cloud (OIDC)
-        id: auth
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER_PRODUCTION }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL_PRODUCTION }}
-
-      - name: Set up gcloud
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Create temporary Firebase service account key
-        shell: bash
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-deploy-key.json
-        run: |
-          set -euo pipefail
-
-          gcloud iam service-accounts keys create "$GOOGLE_APPLICATION_CREDENTIALS" \
-            --iam-account="${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL_PRODUCTION }}"
-
-          echo "GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS" >> "$GITHUB_ENV"
-          echo "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE=$GOOGLE_APPLICATION_CREDENTIALS" >> "$GITHUB_ENV"
-          echo "GOOGLE_GHA_CREDS_PATH=$GOOGLE_APPLICATION_CREDENTIALS" >> "$GITHUB_ENV"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -208,7 +183,9 @@ jobs:
         run: npm --prefix web run build
 
       - name: Deploy Functions, Rules, Indexes, Storage, and Hosting
-        run: npx -y firebase-tools@15.22.1 deploy --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --only functions,firestore:rules,firestore:indexes,storage,hosting --non-interactive --force
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: npx -y firebase-tools@15.22.1 deploy --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --only functions,firestore:rules,firestore:indexes,storage,hosting --non-interactive --force --token "$FIREBASE_TOKEN"
 
   upload-testflight:
     name: Upload to TestFlight (Production)
