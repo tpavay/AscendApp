@@ -176,10 +176,23 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      - name: Decode production Firebase plist
+        env:
+          GOOGLE_SERVICE_INFO_PRODUCTION_BASE64: ${{ secrets.GOOGLE_SERVICE_INFO_PRODUCTION_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$GOOGLE_SERVICE_INFO_PRODUCTION_BASE64" ]; then
+            echo "::error::Required secret GOOGLE_SERVICE_INFO_PRODUCTION_BASE64 is missing or empty."
+            exit 1
+          fi
+          mkdir -p AscendApp/App/Firebase
+          printf "%s" "$GOOGLE_SERVICE_INFO_PRODUCTION_BASE64" | base64 --decode > AscendApp/App/Firebase/GoogleService-Info-Production.plist
+          plutil -lint AscendApp/App/Firebase/GoogleService-Info-Production.plist
+
       # The production deploy pipeline is the first place the Release
       # configuration would otherwise compile. Building it unsigned here means
-      # Release-only build errors surface on the PR, not on launch day. Uses
-      # the committed GoogleService-Info-Production.plist; no secrets needed.
+      # Release-only build errors surface on the PR, not on launch day.
       - name: Build app (Release, unsigned)
         run: |
           xcodebuild \
