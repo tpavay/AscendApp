@@ -128,7 +128,9 @@ platform :ios do
       clean: true,
       skip_profile_detection: true,
       skip_package_ipa: true,
-      archive_path: archive_path
+      archive_path: archive_path,
+      # Pinned SPM checkout location so CI can cache dependencies across runs.
+      cloned_source_packages_path: File.expand_path("../SourcePackages", __dir__)
     )
 
     # Diagnostic: verify entitlements embedded in the archive
@@ -207,7 +209,9 @@ platform :ios do
       clean: true,
       skip_profile_detection: true,
       skip_package_ipa: true,
-      archive_path: archive_path
+      archive_path: archive_path,
+      # Pinned SPM checkout location so CI can cache dependencies across runs.
+      cloned_source_packages_path: File.expand_path("../SourcePackages", __dir__)
     )
 
     # Step 2: Export the archive to IPA

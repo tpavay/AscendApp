@@ -72,17 +72,17 @@ jobs:
           decode_base64_required "GOOGLE_SERVICE_INFO_DEV_BASE64" "$GOOGLE_SERVICE_INFO_DEV_BASE64" "AscendApp/App/Firebase/GoogleService-Info-Dev.plist"
           decode_base64_required "GOOGLE_SERVICE_INFO_STAGING_BASE64" "$GOOGLE_SERVICE_INFO_STAGING_BASE64" "AscendApp/App/Firebase/GoogleService-Info-Staging.plist"
 
-      - name: Build app (unsigned)
-        run: |
-          xcodebuild \
-            -project AscendApp.xcodeproj \
-            -scheme "AscendApp-Staging" \
-            -configuration Staging \
-            -sdk iphoneos \
-            -destination "generic/platform=iOS" \
-            CODE_SIGNING_ALLOWED=NO \
-            clean build
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: SourcePackages
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
 
+      # The device (iphoneos) compile is covered by the ios-verify-release job;
+      # this job proves the simulator build + test suite, so the app compiles
+      # exactly once per job instead of twice.
       - name: Select simulator
         id: simulator
         shell: bash
@@ -159,6 +159,7 @@ jobs:
             -scheme "AscendApp-Staging" \
             -configuration Staging \
             -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.id }}" \
+            -clonedSourcePackagesDirPath SourcePackages \
             ENABLE_TESTABILITY=YES \
             test
 
@@ -190,9 +191,18 @@ jobs:
           printf "%s" "$GOOGLE_SERVICE_INFO_PRODUCTION_BASE64" | base64 --decode > AscendApp/App/Firebase/GoogleService-Info-Production.plist
           plutil -lint AscendApp/App/Firebase/GoogleService-Info-Production.plist
 
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: SourcePackages
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
       # The production deploy pipeline is the first place the Release
       # configuration would otherwise compile. Building it unsigned here means
-      # Release-only build errors surface on the PR, not on launch day.
+      # Release-only build errors surface on the PR, not on launch day. This is
+      # also the job that proves the device (iphoneos) compile for PRs.
       - name: Build app (Release, unsigned)
         run: |
           xcodebuild \
@@ -201,5 +211,6 @@ jobs:
             -configuration Release \
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
+            -clonedSourcePackagesDirPath SourcePackages \
             CODE_SIGNING_ALLOWED=NO \
-            clean build
+            build
