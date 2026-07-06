@@ -89,6 +89,3 @@ web/.astro/
 # Bundler local artifacts
 .bundle/
 vendor/bundle/
-
-# SPM checkout dir pinned for CI caching (fastlane cloned_source_packages_path / -clonedSourcePackagesDirPath)
-SourcePackages/

@@ -75,7 +75,7 @@ jobs:
       - name: Cache Swift packages
         uses: actions/cache@v4
         with:
-          path: SourcePackages
+          path: ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
           key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-spm-
@@ -159,7 +159,6 @@ jobs:
             -scheme "AscendApp-Staging" \
             -configuration Staging \
             -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.id }}" \
-            -clonedSourcePackagesDirPath SourcePackages \
             ENABLE_TESTABILITY=YES \
             test
 
@@ -194,7 +193,7 @@ jobs:
       - name: Cache Swift packages
         uses: actions/cache@v4
         with:
-          path: SourcePackages
+          path: ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
           key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-spm-
@@ -211,6 +210,5 @@ jobs:
             -configuration Release \
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
-            -clonedSourcePackagesDirPath SourcePackages \
             CODE_SIGNING_ALLOWED=NO \
             build
