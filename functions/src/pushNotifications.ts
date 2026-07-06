@@ -42,7 +42,7 @@ export const registerPushDevice = onCall(async (request) => {
     .collection("communication_preferences")
     .doc("current");
 
-  await firestore.runTransaction(async (transaction) => {
+  await runContendedTransaction(firestore, async (transaction) => {
     const [deviceSnapshot, preferencesSnapshot] = await Promise.all([
       transaction.get(deviceRef),
       transaction.get(preferencesRef),
@@ -137,7 +137,7 @@ export const updatePushNotificationPreferences = onCall(async (request) => {
     .collection("communication_preferences")
     .doc("current");
 
-  await firestore.runTransaction(async (transaction) => {
+  await runContendedTransaction(firestore, async (transaction) => {
     const snapshot = await transaction.get(preferencesRef);
     const existing = snapshot.exists ? snapshot.data() ?? {} : {};
     transaction.set(preferencesRef, {
@@ -505,6 +505,71 @@ async function deactivateInvalidTokens(tokenHashes: string[]) {
     }
     await deactivateToken(uid, tokenHash, now);
   }));
+}
+
+const grpcAbortedCode = 10;
+const contentionRetryAttempts = 3;
+
+/**
+ * Runs a Firestore transaction, retrying cross-transaction contention.
+ *
+ * Concurrent callable invocations for the same user (the client can fire
+ * launch, APNS, and token-refresh syncs close together) contend on the same
+ * documents. The SDK does not always classify that ABORTED as transient, so
+ * it escapes runTransaction as an unhandled error and reaches the client as
+ * INTERNAL. Retry it here, and fail with a typed callable error when the
+ * retries are exhausted.
+ * @param {admin.firestore.Firestore} firestore Firestore instance.
+ * @param {Function} updateFunction Transaction body.
+ * @return {Promise<*>} Transaction result.
+ */
+async function runContendedTransaction<T>(
+  firestore: admin.firestore.Firestore,
+  updateFunction: (
+    transaction: admin.firestore.Transaction
+  ) => Promise<T>
+): Promise<T> {
+  for (let attempt = 1; attempt <= contentionRetryAttempts; attempt++) {
+    try {
+      return await firestore.runTransaction(updateFunction);
+    } catch (error) {
+      if (
+        !isTransactionContentionError(error) ||
+        attempt === contentionRetryAttempts
+      ) {
+        if (isTransactionContentionError(error)) {
+          throw new HttpsError(
+            "aborted",
+            "Another update is in progress. Retry shortly."
+          );
+        }
+        throw error;
+      }
+      await delay(50 * 2 ** (attempt - 1) + Math.floor(Math.random() * 50));
+    }
+  }
+  throw new HttpsError("internal", "Transaction retry loop exited early.");
+}
+
+/**
+ * Detects the gRPC ABORTED contention error surfaced by the Firestore SDK.
+ * @param {unknown} error Candidate error.
+ * @return {boolean} True when the error is transaction contention.
+ */
+function isTransactionContentionError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  return (error as {code?: unknown}).code === grpcAbortedCode;
+}
+
+/**
+ * Waits for a duration.
+ * @param {number} milliseconds Delay duration.
+ * @return {Promise<void>} Resolves after the delay.
+ */
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 /**

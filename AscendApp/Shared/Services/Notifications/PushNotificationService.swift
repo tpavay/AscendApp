@@ -12,6 +12,7 @@ final class PushNotificationService: NSObject, MessagingDelegate {
     private let functions = Functions.functions(region: "us-central1")
     private var isConfigured = false
     private var lastRegisteredToken: String?
+    private var inFlightSyncTask: Task<Void, Never>?
 
     private override init() {
         super.init()
@@ -73,13 +74,29 @@ final class PushNotificationService: NSObject, MessagingDelegate {
     }
 
     func synchronizeAuthenticatedDeviceIfNeeded() async {
-        let status = await authorizationStatus()
+        guard Auth.auth().currentUser != nil else { return }
 
-        if status == .denied, ClimbDropNotificationPreferenceStore.isEnabled {
-            ClimbDropNotificationPreferenceStore.isEnabled = false
+        // Launch fires this from several hooks at once (root task, APNS
+        // callback, FCM token refresh). Concurrent registerPushDevice calls
+        // contend on the same Firestore documents server-side, so overlapping
+        // requests join the in-flight sync instead of starting another.
+        if let inFlightSyncTask {
+            await inFlightSyncTask.value
+            return
         }
 
-        await synchronizePreferenceAndDevice(authorizationStatus: status)
+        let syncTask = Task {
+            let status = await authorizationStatus()
+
+            if status == .denied, ClimbDropNotificationPreferenceStore.isEnabled {
+                ClimbDropNotificationPreferenceStore.isEnabled = false
+            }
+
+            await synchronizePreferenceAndDevice(authorizationStatus: status)
+        }
+        inFlightSyncTask = syncTask
+        await syncTask.value
+        inFlightSyncTask = nil
     }
 
     func unregisterCurrentDevice() async {
@@ -183,7 +200,7 @@ final class PushNotificationService: NSObject, MessagingDelegate {
     private func fetchFCMToken() async -> String? {
         await withCheckedContinuation { continuation in
             Messaging.messaging().token { token, error in
-                if let error {
+                if let error, !Self.isMissingAPNSTokenError(error) {
                     Task { @MainActor in
                         TelemetryManager.shared.recordError(
                             error,
@@ -196,6 +213,16 @@ final class PushNotificationService: NSObject, MessagingDelegate {
                 continuation.resume(returning: token)
             }
         }
+    }
+
+    /// FCM error 505: token requested before APNS delivered a device token
+    /// (always the case on Simulator, and briefly after
+    /// `registerForRemoteNotifications()`). The APNS callback and the FCM
+    /// token-refresh delegate both re-run the sync, so this is an expected
+    /// transient state, not an error worth reporting.
+    private nonisolated static func isMissingAPNSTokenError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == "com.google.fcm" && nsError.code == 505
     }
 
     private func callFunction(_ name: String, data: sending [String: Any]) async throws {

@@ -80,6 +80,14 @@ final class TelemetryManager: @unchecked Sendable {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         userDefaults: UserDefaults = .standard
     ) -> Bool {
+        // The unit-test host must never ship telemetry: test-injected failures
+        // would surface in Crashlytics/Sentry as real issues. This overrides
+        // every other enablement path, including persisted debug toggles.
+        if environment["XCTestConfigurationFilePath"] != nil ||
+            environment["XCTestSessionIdentifier"] != nil {
+            return false
+        }
+
         if arguments.contains("-TelemetryDisabled") {
             #if DEBUG
             userDefaults.set(false, forKey: debugCollectionEnabledDefaultsKey)
