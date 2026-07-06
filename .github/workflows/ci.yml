@@ -161,3 +161,32 @@ jobs:
             -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.id }}" \
             ENABLE_TESTABILITY=YES \
             test
+
+  ios-verify-release:
+    name: iOS Verify (Release)
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      # The production deploy pipeline is the first place the Release
+      # configuration would otherwise compile. Building it unsigned here means
+      # Release-only build errors surface on the PR, not on launch day. Uses
+      # the committed GoogleService-Info-Production.plist; no secrets needed.
+      - name: Build app (Release, unsigned)
+        run: |
+          xcodebuild \
+            -project AscendApp.xcodeproj \
+            -scheme "AscendApp" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            CODE_SIGNING_ALLOWED=NO \
+            clean build
