@@ -109,7 +109,7 @@ struct MainTabView: View {
         switch tab {
         case .home:
             NavigationStack(path: $homeNavigationPath) {
-                HomeView(homeDashboard: homeDashboard)
+                HomeView(homeDashboard: homeDashboard, tabRouter: tabRouter)
                     .navigationDestination(for: HomeNavigationDestination.self) { destination in
                         homeDestination(for: destination)
                     }

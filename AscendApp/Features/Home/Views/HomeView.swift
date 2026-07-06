@@ -10,7 +10,12 @@ import SwiftData
 
 struct HomeView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
-    @Environment(TabRouter.self) private var tabRouter
+    // Passed directly rather than read from the environment: HomeView updates
+    // during the onboarding -> main-app crossfade while briefly detached from
+    // its environment, and a non-optional @Environment(TabRouter.self) read
+    // fatal-errors there (ASCEND-IOS-13). MainTabView owns the router and
+    // constructs this view, so direct injection is also the simpler shape.
+    private let tabRouter: TabRouter
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
@@ -34,8 +39,12 @@ struct HomeView: View {
         tabRouter.selectedTab == .home
     }
 
-    init(homeDashboard: HomeDashboardViewModel = HomeDashboardViewModel()) {
+    init(
+        homeDashboard: HomeDashboardViewModel = HomeDashboardViewModel(),
+        tabRouter: TabRouter
+    ) {
         self.homeDashboard = homeDashboard
+        self.tabRouter = tabRouter
     }
 
     private var hasBlockingModalPresentation: Bool {
@@ -396,9 +405,8 @@ struct HomeView: View {
 
 #Preview {
     NavigationStack {
-        HomeView()
+        HomeView(tabRouter: TabRouter())
             .environment(AuthenticationViewModel())
-            .environment(TabRouter())
     }
     .modelContainer(
         for: [
