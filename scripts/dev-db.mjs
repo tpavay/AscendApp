@@ -13,14 +13,17 @@
  *   node scripts/dev-db.mjs clear --target profiles,leaderboard --project dev
  *   node scripts/dev-db.mjs reset --target all --project dev
  *   node scripts/dev-db.mjs wipe --project dev --confirm-dev-wipe
+ *   node scripts/dev-db.mjs create-auth-user --project staging --email qa@example.com --display-name "QA Tester"
  *   node scripts/dev-db.mjs hydrate-user --project dev --user <uid> --display-name "Tyler P." --age 27 --gender man --height-in 70 --weight-lb 178 --country US --region IL
  *   node scripts/dev-db.mjs seed-demo-user --project staging --email person@example.com
  */
 
 import {spawnSync} from "node:child_process";
+import {randomBytes} from "node:crypto";
 import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {applicationDefault, initializeApp} from "firebase-admin/app";
+import {getAuth} from "firebase-admin/auth";
 import {FieldValue, getFirestore, Timestamp} from "firebase-admin/firestore";
 import {
   DEV_PROJECT_ID,
@@ -68,6 +71,7 @@ const TARGETS = {
 };
 
 const SERVER_TIMESTAMP_PREVIEW = "<serverTimestamp>";
+let initializedProjectId = null;
 const LIVE_REPLAY_SEED_FLAGS = new Set([
   "--source-user",
   "--avatar-dir",
@@ -109,6 +113,13 @@ function parseArgs(argv) {
     confirmDevWipe: false,
     passthrough: [],
     userId: null,
+    password: null,
+    passwordEnv: null,
+    generatePassword: false,
+    useExistingAuthUser: false,
+    emailVerified: true,
+    hydrateProfile: false,
+    seedDemoData: false,
     displayName: null,
     firstName: null,
     lastName: null,
@@ -156,6 +167,31 @@ function parseArgs(argv) {
       case "--user":
       case "--uid":
         args.userId = requireValue(argv, ++index, value);
+        break;
+      case "--password":
+        args.password = requireValue(argv, ++index, value);
+        break;
+      case "--password-env":
+        args.passwordEnv = requireValue(argv, ++index, value);
+        break;
+      case "--generate-password":
+      case "--random-password":
+        args.generatePassword = true;
+        break;
+      case "--use-existing":
+        args.useExistingAuthUser = true;
+        break;
+      case "--unverified":
+        args.emailVerified = false;
+        break;
+      case "--email-verified":
+        args.emailVerified = true;
+        break;
+      case "--hydrate-profile":
+        args.hydrateProfile = true;
+        break;
+      case "--seed-demo-data":
+        args.seedDemoData = true;
         break;
       case "--display-name":
         args.displayName = requireValue(argv, ++index, value);
@@ -253,6 +289,7 @@ Usage:
   node scripts/dev-db.mjs clear --target profiles,leaderboard --project dev
   node scripts/dev-db.mjs reset --target all --project dev
   node scripts/dev-db.mjs wipe --project dev --confirm-dev-wipe
+  node scripts/dev-db.mjs create-auth-user --project staging --email qa@example.com --display-name "QA Tester"
   node scripts/dev-db.mjs hydrate-user --project dev --user <uid> --display-name "Tyler P." --age 27 --gender man --height-in 70 --weight-lb 178 --country US --region IL
   node scripts/dev-db.mjs seed-demo-user --project staging --email person@example.com
 
@@ -263,6 +300,7 @@ Commands:
   clear         Clear one or more targets.
   reset         Clear then seed one or more targets.
   wipe          Delete all reviewed top-level Firestore collections in dev only.
+  create-auth-user Create one Firebase Auth email/password user in dev/staging.
   hydrate-user  Merge complete profile identity/demographic fields into one dev/staging user.
   seed-demo-user Seed one real dev/staging Auth user with product-demo data.
 
@@ -287,6 +325,12 @@ Options:
   --scenario <name>                  Demo user scenario. Defaults to full-showcase.
   --first-ascent-climb <climbId>     Demo First Ascent climb. Defaults in seed script.
   --no-first-ascent                  Demo user seed will not claim a First Ascent.
+
+create-auth-user fields:
+  --email <email> [--display-name <name>] [--uid <uid>] [--photo-url <url>]
+  [--password <password> | --password-env <ENV_NAME> | --generate-password]
+  [--use-existing] [--unverified] [--hydrate-profile | --seed-demo-data]
+  If no password flag is provided, a random password is generated and printed once.
 
 hydrate-user fields:
   --user <uid> --display-name <name> --age <13-120> --gender <woman|man|non_binary|prefer_not_to_say>
@@ -323,6 +367,11 @@ async function main() {
     return;
   }
 
+  if (args.command === "create-auth-user") {
+    await createAuthUser(projectId, args);
+    return;
+  }
+
   if (args.command === "hydrate-user") {
     await hydrateUser(projectId, args);
     return;
@@ -334,7 +383,7 @@ async function main() {
   }
 
   if (!["seed", "clear", "reset"].includes(args.command)) {
-    throw new Error("Command must be plan, seed, audit, clear, reset, wipe, hydrate-user, seed-demo-user, or help");
+    throw new Error("Command must be plan, seed, audit, clear, reset, wipe, create-auth-user, hydrate-user, seed-demo-user, or help");
   }
 
   const targets = resolveTargets(args.targets);
@@ -365,6 +414,7 @@ function printPlan() {
   console.log("  node scripts/dev-db.mjs seed --target profiles,live-replay --project dev --dry-run");
   console.log("  node scripts/dev-db.mjs seed --target routine-templates --project dev");
   console.log("  node scripts/dev-db.mjs clear --target leaderboard --project dev");
+  console.log("  node scripts/dev-db.mjs create-auth-user --project staging --email qa@example.com --display-name \"QA Tester\"");
   console.log("  node scripts/dev-db.mjs hydrate-user --project dev --user <uid> --display-name \"Tyler P.\" --age 27 --gender man --height-in 70 --weight-lb 178 --country US --region IL");
   console.log("  node scripts/dev-db.mjs seed-demo-user --project staging --email person@example.com");
 }
@@ -375,6 +425,18 @@ function resolveProjectId(projectOrAlias) {
 
 function assertAllowedProject(projectId) {
   assertSeedableProject(projectId);
+}
+
+function initializeFirebaseAdmin(projectId) {
+  if (initializedProjectId) {
+    if (initializedProjectId !== projectId) {
+      throw new Error(`Firebase Admin already initialized for ${initializedProjectId}; refusing to reuse it for ${projectId}.`);
+    }
+    return;
+  }
+
+  initializeApp({credential: applicationDefault(), projectId});
+  initializedProjectId = projectId;
 }
 
 function resolveTargets(rawTargets) {
@@ -546,6 +608,169 @@ function appendFilteredPassthroughArgs(scriptArgs, passthroughArgs, allowedFlags
   }
 }
 
+async function createAuthUser(projectId, args) {
+  validateCreateAuthUserArgs(args);
+  const password = resolveCreateAuthPassword(args);
+
+  printCreateAuthUserPlan(projectId, args, password);
+  if (args.dryRun) {
+    console.log("Dry run only. No Firebase Auth user or Firestore documents were written.");
+    return;
+  }
+
+  initializeFirebaseAdmin(projectId);
+  const auth = getAuth();
+  const createRequest = {
+    email: args.email,
+    password: password.value,
+    emailVerified: args.emailVerified,
+    disabled: false,
+  };
+  if (args.userId) {
+    createRequest.uid = args.userId;
+  }
+  if (args.displayName) {
+    createRequest.displayName = args.displayName;
+  }
+  if (args.photoURL) {
+    createRequest.photoURL = args.photoURL;
+  }
+
+  let userRecord;
+  let created = false;
+  try {
+    userRecord = await auth.createUser(createRequest);
+    created = true;
+  } catch (error) {
+    if (!args.useExistingAuthUser || !isExistingAuthUserError(error)) {
+      throw new Error(`Failed to create Firebase Auth user: ${firebaseAuthErrorMessage(error)}`);
+    }
+
+    userRecord = await resolveExistingAuthUserForCreate(auth, args, error);
+  }
+
+  const action = created ? "Created" : "Using existing";
+  console.log(`${action} Firebase Auth user ${userRecord.uid} (${userRecord.email ?? args.email}) in ${projectId}.`);
+  if (created && password.generated) {
+    console.log(`Generated password: ${password.value}`);
+  }
+
+  const childArgs = {
+    ...args,
+    userId: userRecord.uid,
+    email: userRecord.email ?? args.email,
+    displayName: args.displayName ?? userRecord.displayName ?? null,
+    photoURL: args.photoURL ?? userRecord.photoURL ?? null,
+  };
+
+  if (args.hydrateProfile) {
+    await hydrateUser(projectId, childArgs);
+  }
+
+  if (args.seedDemoData) {
+    runDemoUserScript(projectId, childArgs);
+  }
+}
+
+function validateCreateAuthUserArgs(args) {
+  args.email = trimmed(args.email);
+  args.displayName = trimmed(args.displayName);
+  args.photoURL = trimmed(args.photoURL);
+  args.password = trimmed(args.password);
+  args.passwordEnv = trimmed(args.passwordEnv);
+
+  if (!args.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(args.email)) {
+    throw new Error("create-auth-user requires --email <email>");
+  }
+
+  const passwordSources = [args.password != null, args.passwordEnv != null, args.generatePassword]
+    .filter(Boolean).length;
+  if (passwordSources > 1) {
+    throw new Error("Use only one password source: --password, --password-env, or --generate-password");
+  }
+
+  if (args.password && args.password.length < 6) {
+    throw new Error("--password must be at least 6 characters for Firebase Auth");
+  }
+
+  if (args.hydrateProfile && args.seedDemoData) {
+    throw new Error("Use either --hydrate-profile or --seed-demo-data. Demo seeding already writes profile data.");
+  }
+
+  if (args.hydrateProfile) {
+    validateHydrateUserArgs({...args, userId: args.userId ?? "new-auth-user"});
+  }
+}
+
+function resolveCreateAuthPassword(args) {
+  if (args.password) {
+    return {value: args.password, generated: false, source: "provided via --password"};
+  }
+
+  if (args.passwordEnv) {
+    const value = trimmed(process.env[args.passwordEnv]);
+    if (!value) {
+      throw new Error(`--password-env ${args.passwordEnv} is not set or is empty`);
+    }
+    if (value.length < 6) {
+      throw new Error(`--password-env ${args.passwordEnv} must contain at least 6 characters`);
+    }
+    return {value, generated: false, source: `provided via ${args.passwordEnv}`};
+  }
+
+  return {value: randomAuthPassword(), generated: true, source: "generated random password"};
+}
+
+function randomAuthPassword() {
+  return `${randomBytes(18).toString("base64url")}Aa1!`;
+}
+
+function printCreateAuthUserPlan(projectId, args, password) {
+  console.log(`Project: ${projectId}`);
+  console.log(`Command: create-auth-user${args.dryRun ? " (dry run)" : ""}`);
+  console.log(`Email: ${args.email}`);
+  console.log(`UID: ${args.userId ?? "(Firebase generated)"}`);
+  console.log(`Display name: ${args.displayName ?? "(none)"}`);
+  console.log(`Email verified: ${args.emailVerified ? "yes" : "no"}`);
+  console.log(`Password: ${password.source}${password.generated ? " (printed only if a new user is created)" : " (not printed)"}`);
+  console.log(`Existing user behavior: ${args.useExistingAuthUser ? "reuse matching existing user" : "fail if the email or uid already exists"}`);
+  if (args.hydrateProfile) {
+    console.log("After create: hydrate profile documents");
+  }
+  if (args.seedDemoData) {
+    console.log("After create: seed product-demo account data");
+  }
+}
+
+function isExistingAuthUserError(error) {
+  return error?.code === "auth/email-already-exists" || error?.code === "auth/uid-already-exists";
+}
+
+async function resolveExistingAuthUserForCreate(auth, args, createError) {
+  if (createError?.code === "auth/email-already-exists") {
+    const existing = await auth.getUserByEmail(args.email);
+    if (args.userId && existing.uid !== args.userId) {
+      throw new Error(`Firebase Auth email ${args.email} already belongs to uid ${existing.uid}, not requested uid ${args.userId}.`);
+    }
+    return existing;
+  }
+
+  if (createError?.code === "auth/uid-already-exists") {
+    const existing = await auth.getUser(args.userId);
+    if (existing.email !== args.email) {
+      throw new Error(`Firebase Auth uid ${args.userId} already belongs to ${existing.email ?? "(no email)"}, not ${args.email}.`);
+    }
+    return existing;
+  }
+
+  throw createError;
+}
+
+function firebaseAuthErrorMessage(error) {
+  const code = error?.code ? `${error.code}: ` : "";
+  return `${code}${error?.message ?? String(error)}`;
+}
+
 async function wipeDevFirestore(projectId, args) {
   if (projectId !== DEV_PROJECT_ID) {
     throw new Error(`wipe is dev-only. Refusing to wipe ${projectId}.`);
@@ -554,7 +779,7 @@ async function wipeDevFirestore(projectId, args) {
     throw new Error("wipe requires --confirm-dev-wipe unless --dry-run is set");
   }
 
-  initializeApp({credential: applicationDefault(), projectId});
+  initializeFirebaseAdmin(projectId);
   const db = getFirestore();
   const existingCollections = await db.listCollections();
   const existingIds = existingCollections.map((collection) => collection.id).sort();
@@ -589,7 +814,7 @@ async function wipeDevFirestore(projectId, args) {
 
 async function hydrateUser(projectId, args) {
   validateHydrateUserArgs(args);
-  initializeApp({credential: applicationDefault(), projectId});
+  initializeFirebaseAdmin(projectId);
   const db = getFirestore();
   const userRef = db.collection("users").doc(args.userId);
   const existingSnapshot = await userRef.get();

@@ -103,6 +103,24 @@ climb-images/{climbId}/thumb.heic
 
 If replacing images for an existing climb, increment `imageSetVersion` in both catalog files so clients fetch the new cached path.
 
+### Image tooling (`scripts/sync-climb-images.mjs`)
+
+Images are per-environment Storage content — publishing a catalog does NOT move images. Use this tool to keep buckets in sync with the catalog:
+
+```bash
+# Check a bucket against the catalog (exits 1 if an available climb lacks images)
+node scripts/sync-climb-images.mjs audit --project staging
+
+# Upload new artwork (folder must contain hero.heic, card.heic, thumb.heic)
+node scripts/sync-climb-images.mjs upload --project dev --climb <id> --dir <folder> --image-set-version 1
+
+# Propagate images between environments (dry-run first)
+node scripts/sync-climb-images.mjs sync --from staging --to production --dry-run
+node scripts/sync-climb-images.mjs sync --from staging --to production --confirm-production
+```
+
+Writes to production require `--confirm-production`. Sync copies only missing/changed objects (md5 compare) and never deletes. When adding a climb: upload images to dev/staging first, validate in-app, then sync to production alongside (or before) the catalog deploy that references them.
+
 ## Workflow
 
 1. Read the existing catalog entries to match style, order, tags, and category naming.

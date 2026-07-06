@@ -297,6 +297,7 @@ Multiple analytics destinations are sanctioned — each is best at a different j
 - **Firebase Analytics** — broad funnel, cohort, retention analysis. Most product events go here.
 - **SuperWall** — onboarding-flow step-level conversion + paywall presentation analytics (its specialty).
 - **Crashlytics** — crashes, fatal errors, stability metrics.
+- **Sentry** — error/crash diagnostics mirror alongside Crashlytics (non-fatal errors, app hangs, symbolicated traces). When reading, triaging, or updating Sentry issues/events, use the repo-local skill at `skills/sentry/SKILL.md`. Like the climb-content skill, it is harness-neutral so Codex, Claude, Cursor, or any other AI provider can follow the same workflow.
 
 When evaluating new providers, justify them by what they uniquely measure that the existing set doesn't.
 
@@ -494,6 +495,7 @@ Both have their own browse, detail, live, and leaderboard surfaces. Don't fold o
 - Use `scripts/dev-db.mjs` as the central dev/staging database tool for repeatable fixture workflows. It can seed, clear, or reset `profiles`, `leaderboard`, `live-replay`, or `all`, and it must keep refusing production (`ascend-prod-9c8f2`) and unknown Firebase projects.
 - Dev database cleanup should be target-scoped and metadata-driven. Do not hide an unrestricted project wipe behind a friendly `clear all` command; full destructive wipes need an explicit, separately guarded command and a reviewed collection list.
 - Profile fixture data must include the full public profile contract: display name, age, gender, `weight_kg`, `location_country`, optional `location_region`, `joined_at`, public profile mirror, profile stats, achievements, and public workout summaries.
+- To create one dev/staging QA Auth account, use `scripts/dev-db.mjs create-auth-user`. It must stay dev/staging-only, can generate a password, and can optionally run `--hydrate-profile` or `--seed-demo-data` after the Auth account exists.
 - To patch one dev/staging account, use `scripts/dev-db.mjs hydrate-user` so private `users/{uid}` and public `users/{uid}/public_profile/current` stay in sync.
 - Live replay leaderboard seed data must be Admin SDK/server-written into the read-only `live_replay_leaderboards` index, never client-written during a live session.
 - `scripts/seed-live-replay-leaderboards.mjs` may write only to dev (`ascend-f2e4f`) or staging (`ascend-staging-fa7d5`) and must hard-refuse production or any unknown project; use environment-specific seed packs for repeatable active/warm Live Climb replay fixtures.

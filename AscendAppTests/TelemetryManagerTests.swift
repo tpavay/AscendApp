@@ -124,6 +124,35 @@ struct TelemetryManagerTests {
     }
 
     @Test
+    func xcTestEnvironmentDisablesCollectionOverridingAllOtherPaths() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let enabledArgumentUnderTests = TelemetryManager.shouldEnableCollection(
+            arguments: ["AscendApp", "-TelemetryEnabled"],
+            environment: ["XCTestConfigurationFilePath": "/tmp/tests.xctestconfiguration"],
+            userDefaults: defaults
+        )
+        let enabledEnvironmentUnderTests = TelemetryManager.shouldEnableCollection(
+            arguments: ["AscendApp"],
+            environment: [
+                "ASC_DEBUG_TELEMETRY_ENABLED": "1",
+                "XCTestSessionIdentifier": UUID().uuidString
+            ],
+            userDefaults: defaults
+        )
+        let persistedAfterTestRuns = TelemetryManager.shouldEnableCollection(
+            arguments: ["AscendApp"],
+            environment: [:],
+            userDefaults: defaults
+        )
+
+        #expect(!enabledArgumentUnderTests)
+        #expect(!enabledEnvironmentUnderTests)
+        #expect(!persistedAfterTestRuns)
+    }
+
+    @Test
     func debugCollectionDefaultsOffWithoutOverride() throws {
         let (defaults, suiteName) = try makeDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }

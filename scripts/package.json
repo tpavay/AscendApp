@@ -13,6 +13,8 @@
     "db:reset": "node dev-db.mjs reset --project dev",
     "db:reset:staging": "node dev-db.mjs reset --project staging",
     "db:wipe": "node dev-db.mjs wipe --project dev --confirm-dev-wipe",
+    "db:create-auth-user": "node dev-db.mjs create-auth-user --project dev",
+    "db:create-auth-user:staging": "node dev-db.mjs create-auth-user --project staging",
     "db:hydrate-user": "node dev-db.mjs hydrate-user --project dev",
     "db:hydrate-user:staging": "node dev-db.mjs hydrate-user --project staging",
     "db:seed-demo-user": "node dev-db.mjs seed-demo-user --project dev",
@@ -42,7 +44,13 @@
     "seed:profiles": "node seed-test-users.mjs seed --project dev",
     "seed:profiles:staging": "node seed-test-users.mjs seed --project staging",
     "clear:profiles": "node seed-test-users.mjs clear --project dev",
-    "clear:profiles:staging": "node seed-test-users.mjs clear --project staging"
+    "clear:profiles:staging": "node seed-test-users.mjs clear --project staging",
+    "images:audit": "node sync-climb-images.mjs audit --project dev",
+    "images:audit:staging": "node sync-climb-images.mjs audit --project staging",
+    "images:audit:production": "node sync-climb-images.mjs audit --project production",
+    "images:diff:staging-to-production": "node sync-climb-images.mjs diff --from staging --to production",
+    "images:sync:staging-to-dev": "node sync-climb-images.mjs sync --from staging --to dev",
+    "images:sync:staging-to-production": "node sync-climb-images.mjs sync --from staging --to production --confirm-production"
   },
   "engines": {
     "node": ">=20"

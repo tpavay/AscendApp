@@ -1,4 +1,5 @@
 import Foundation
+@preconcurrency import FirebaseAuth
 @preconcurrency import FirebaseFunctions
 import UserNotifications
 
@@ -126,21 +127,39 @@ final class LifecycleEventRecorder {
     }
 
     private func record(type: String, payload: sending [String: Any]) {
+        // Lifecycle events are per-user server state; the callable rejects
+        // unauthenticated requests, so don't send them while signed out.
+        guard Auth.auth().currentUser != nil else { return }
+
         let eventData: [String: Any] = [
             "type": type,
             "payload": payload
         ]
 
         functions.httpsCallable("recordLifecycleEvent").call(eventData) { _, error in
-            if let error {
-                TelemetryManager.shared.recordError(
-                    error,
-                    context: .network,
-                    code: "lifecycle_event_record_failed",
-                    additionalInfo: ["type": type]
-                )
-            }
+            guard let error, !Self.isExpectedTransportNoise(error) else { return }
+
+            TelemetryManager.shared.recordError(
+                error,
+                context: .network,
+                code: "lifecycle_event_record_failed",
+                additionalInfo: ["type": type]
+            )
         }
+    }
+
+    /// Errors that are part of normal operation — a request cancelled by the
+    /// system mid-flight, or auth racing sign-out — not defects worth alerting on.
+    private nonisolated static func isExpectedTransportNoise(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
+            return true
+        }
+        if nsError.domain == FunctionsErrorDomain,
+           nsError.code == FunctionsErrorCode.unauthenticated.rawValue {
+            return true
+        }
+        return false
     }
 }
 
