@@ -111,6 +111,14 @@ jobs:
           rm -f AscendApp/App/Firebase/GoogleService-Info-Production.plist
           decode_base64_required "GOOGLE_SERVICE_INFO_PRODUCTION_BASE64" "$GOOGLE_SERVICE_INFO_PRODUCTION_BASE64" "AscendApp/App/Firebase/GoogleService-Info-Production.plist"
 
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
       - name: Validate match secrets
         env:
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
