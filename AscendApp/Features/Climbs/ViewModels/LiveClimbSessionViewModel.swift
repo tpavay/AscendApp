@@ -180,6 +180,11 @@ final class LiveClimbSessionViewModel {
     private(set) var stepSyncPrompt: LiveStepSyncPrompt?
     private(set) var stepSyncConfirmation: LiveStepSyncConfirmation?
 
+    let heartRateMonitor: HeartRateMonitorService = .shared
+    private(set) var heartRateZoneProfile = HeartRateZoneProfile(age: nil)
+    private var heartRateSamples: [HeartRateDataPoint] = []
+    private var lastHeartRateSampleAt: Date?
+
     private var hasSavedSession = false
     private var stepTimelineRecorder: LiveClimbStepTimelineRecorder
     private var isLeaderboardRefreshInFlight = false
@@ -430,6 +435,17 @@ final class LiveClimbSessionViewModel {
                 "resumed_from_draft": preexistingDraft == nil ? "false" : "true"
             ]
         )
+        // Strap-on-and-go: reconnect the remembered heart-rate monitor
+        // silently, and resolve the climber's zone bands from their profile
+        // age. Both are best-effort — the session never waits on them.
+        heartRateSamples.removeAll()
+        lastHeartRateSampleAt = nil
+        heartRateMonitor.autoConnectIfRemembered()
+        Task { [weak self] in
+            let profile = await HeartRateZoneProfileResolver.resolve()
+            self?.heartRateZoneProfile = profile
+        }
+
         do {
             stepTimelineRecorder.reset()
             if let splitCurve = activeDraft?.splitCurve {
@@ -698,9 +714,42 @@ final class LiveClimbSessionViewModel {
             cumulativeSteps: motionSession.stepCount,
             source: .headphoneMotion
         )
+        recordHeartRateSampleIfFresh()
         if let modelContext {
             checkpointDraft(modelContext: modelContext)
         }
+    }
+
+    // MARK: - Heart rate
+
+    /// Latest trusted heart-rate reading for live display; nil when no
+    /// monitor is connected or the last reading has gone stale.
+    var liveHeartRate: Int? {
+        heartRateMonitor.freshMeasurement?.beatsPerMinute
+    }
+
+    var liveHeartRateZone: HeartRateZone? {
+        liveHeartRate.map(heartRateZoneProfile.zone(forBeatsPerMinute:))
+    }
+
+    var isHeartRateMonitorConnected: Bool {
+        heartRateMonitor.isConnected
+    }
+
+    /// Buffers one reading per second-tick while recording so completed
+    /// workouts carry the same heart-rate series shape as imported ones —
+    /// the existing sync pipeline uploads it with zero extra plumbing.
+    private func recordHeartRateSampleIfFresh() {
+        guard let measurement = heartRateMonitor.freshMeasurement else { return }
+
+        let now = Date()
+        if let lastHeartRateSampleAt, now.timeIntervalSince(lastHeartRateSampleAt) < 0.9 {
+            return
+        }
+        lastHeartRateSampleAt = now
+        heartRateSamples.append(
+            HeartRateDataPoint(timestamp: now, heartRate: measurement.beatsPerMinute)
+        )
     }
 
     func checkpointForLifecycleChange(modelContext: ModelContext) {
@@ -980,6 +1029,11 @@ final class LiveClimbSessionViewModel {
             stepCorrections: result.stepCorrections
         )
 
+        let heartRates = heartRateSamples.map(\.heartRate)
+        let averageHeartRate = heartRates.isEmpty
+            ? nil
+            : heartRates.reduce(0, +) / heartRates.count
+
         let workout = Workout(
             name: mode.workoutName,
             date: result.startedAt,
@@ -987,6 +1041,9 @@ final class LiveClimbSessionViewModel {
             steps: result.steps,
             floors: floors,
             stepsPerFloor: Workout.defaultStepsPerFloor,
+            avgHeartRate: averageHeartRate,
+            maxHeartRate: heartRates.max(),
+            heartRateTimeSeries: heartRateSamples.isEmpty ? nil : heartRateSamples,
             source: .headphoneMotion,
             deviceModel: UIDevice.current.model,
             sourceMetadata: metadata.jsonString
