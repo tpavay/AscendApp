@@ -23,6 +23,8 @@ struct IntegrationsView: View {
 
                 AppleHealthIntegrationCard()
 
+                HeartRateMonitorIntegrationCard()
+
                 Spacer()
             }
             .padding(.horizontal, 20)

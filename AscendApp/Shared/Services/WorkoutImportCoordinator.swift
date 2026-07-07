@@ -1119,19 +1119,27 @@ final class WorkoutImportCoordinator {
     ) -> Bool {
         var didChange = false
 
-        if let avgHeartRate = metrics.avgHeartRate, workout.avgHeartRate != avgHeartRate {
-            workout.avgHeartRate = avgHeartRate
-            didChange = true
-        }
-        if let maxHeartRate = metrics.maxHeartRate, workout.maxHeartRate != maxHeartRate {
-            workout.maxHeartRate = maxHeartRate
-            didChange = true
-        }
-        if !metrics.heartRateTimeSeries.isEmpty {
-            let encodedHeartRateData = metrics.heartRateTimeSeries.encoded
-            if workout.heartRateData != encodedHeartRateData {
-                workout.heartRateData = encodedHeartRateData
+        // A workout that already carries a live-captured heart-rate series
+        // (Bluetooth chest strap during the session) keeps it: strap data is
+        // first-party and more accurate than wrist-derived Apple Health HR.
+        // Enrichment still fills calories/METs below.
+        let hasLiveCapturedHeartRate = !workout.heartRateTimeSeries.isEmpty
+
+        if !hasLiveCapturedHeartRate {
+            if let avgHeartRate = metrics.avgHeartRate, workout.avgHeartRate != avgHeartRate {
+                workout.avgHeartRate = avgHeartRate
                 didChange = true
+            }
+            if let maxHeartRate = metrics.maxHeartRate, workout.maxHeartRate != maxHeartRate {
+                workout.maxHeartRate = maxHeartRate
+                didChange = true
+            }
+            if !metrics.heartRateTimeSeries.isEmpty {
+                let encodedHeartRateData = metrics.heartRateTimeSeries.encoded
+                if workout.heartRateData != encodedHeartRateData {
+                    workout.heartRateData = encodedHeartRateData
+                    didChange = true
+                }
             }
         }
         if let caloriesBurned = metrics.caloriesBurned, workout.caloriesBurned != caloriesBurned {
