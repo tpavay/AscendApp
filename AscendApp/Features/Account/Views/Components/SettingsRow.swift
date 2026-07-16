@@ -8,8 +8,6 @@
 import SwiftUI
 
 struct SettingsRow: View {
-    @Environment(\.colorScheme) private var colorScheme
-    
     let option: SettingsOption
     
     var body: some View {
@@ -39,13 +37,13 @@ struct SettingsRow: View {
             // Title
             Text(option.title)
                 .font(.montserratMedium)
-                .foregroundStyle(option.isDestructive ? .red : (colorScheme == .dark ? .white : .black))
+                .foregroundStyle(option.isDestructive ? .red : .white)
             
             Spacer()
             
             // Chevron
             AppIcon(token: .disclosureChevronRight, pointSize: 14, weight: .medium)
-                .foregroundStyle(option.isDestructive ? .red.opacity(0.6) : (colorScheme == .dark ? .white.opacity(0.6) : .black.opacity(0.6)))
+                .foregroundStyle(option.isDestructive ? .red.opacity(0.6) : .white.opacity(0.6))
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
@@ -65,9 +63,9 @@ struct SettingsRow: View {
         
         SettingsRow(
             option: SettingsOption(
-                icon: .settingsAppearance,
-                title: "Appearance",
-                destination: AnyView(Text("Theme View"))
+                icon: .settingsIntegrations,
+                title: "Integrations",
+                destination: AnyView(Text("Integrations View"))
             )
         )
     }

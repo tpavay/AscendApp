@@ -54,15 +54,6 @@ enum FitnessLevel: String, CaseIterable, Codable, Identifiable {
         }
     }
 
-    /// Floors threshold for max score
-    var floorsThreshold: Double {
-        switch self {
-        case .beginner: return 60
-        case .intermediate: return 100
-        case .advanced: return 150
-        }
-    }
-
     /// Duration threshold in seconds for max score
     var durationThreshold: Double {
         switch self {
@@ -118,12 +109,12 @@ enum FitnessLevel: String, CaseIterable, Codable, Identifiable {
     }
 
     /// Get threshold for a specific heat map metric
-    func threshold(for metric: HeatMapMetric, preferredMetric: WorkoutMetric) -> Double {
+    func threshold(for metric: HeatMapMetric) -> Double {
         switch metric {
         case .effortScore:
             return 1.0  // Effort score is already 0-1 normalized
         case .primaryMetric:
-            return preferredMetric == .steps ? stepsThreshold : floorsThreshold
+            return stepsThreshold
         case .duration:
             return durationThreshold
         case .stepsPerMinute:

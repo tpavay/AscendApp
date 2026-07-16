@@ -14,10 +14,51 @@
 		9A8C9A352EEF22F800C94089 /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = 9A8C9A342EEF22F800C94089 /* FirebaseCrashlytics */; };
 		9A8E4CE62E2418D200C78912 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 9A8E4CE52E2418D200C78912 /* FirebaseAnalytics */; };
 		9AF20E5E2E64DCFF00044C25 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 9AF20E5D2E64DCFF00044C25 /* FirebaseFirestore */; };
+		9B1000012F22000000100001 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 9B1000052F22000000100005 /* RevenueCat */; };
+		9B1000022F22000000100002 /* SuperwallKit in Frameworks */ = {isa = PBXBuildFile; productRef = 9B1000062F22000000100006 /* SuperwallKit */; };
+		9B2000022F23000000100002 /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = 9B2000012F23000000100001 /* FirebaseFunctions */; };
+		9C3000012F2A000000100001 /* Mixpanel in Frameworks */ = {isa = PBXBuildFile; productRef = 9C3000032F2A000000100003 /* Mixpanel */; };
+		9D4000012F60000000100001 /* MapboxMaps in Frameworks */ = {isa = PBXBuildFile; productRef = 9D4000032F60000000100003 /* MapboxMaps */; };
+		9E5000012F6B000000100001 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 9E5000022F6B000000100002 /* FirebaseMessaging */; };
+		9F6000012F75000000100001 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 9F6000032F75000000100003 /* Sentry */; };
+		A20000012F10000000000001 /* AscendLiveActivityWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A20000012F10000000000003 /* AscendLiveActivityWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A10600012F0A000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 9A5E4D7A2E2406F8008DE803 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9A5E4D812E2406F8008DE803;
+			remoteInfo = AscendApp;
+		};
+		A20000012F10000000000002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 9A5E4D7A2E2406F8008DE803 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A20000012F10000000000009;
+			remoteInfo = AscendLiveActivityWidgets;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A20000012F10000000000008 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A20000012F10000000000001 /* AscendLiveActivityWidgets.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		9A5E4D822E2406F8008DE803 /* AscendApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AscendApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10600012F0A000000000003 /* AscendAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AscendAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000012F10000000000003 /* AscendLiveActivityWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AscendLiveActivityWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -28,6 +69,13 @@
 			);
 			target = 9A5E4D812E2406F8008DE803 /* AscendApp */;
 		};
+		A20000012F10000000000004 /* Exceptions for "AscendLiveActivityWidgets" folder in "AscendLiveActivityWidgets" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = A20000012F10000000000009 /* AscendLiveActivityWidgets */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -37,6 +85,24 @@
 				9A4167C82E47B1A9004E8B91 /* Exceptions for "AscendApp" folder in "AscendApp" target */,
 			);
 			path = AscendApp;
+			sourceTree = "<group>";
+		};
+		A10600012F0A000000000004 /* AscendAppTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = AscendAppTests;
+			sourceTree = "<group>";
+		};
+		A20000012F10000000000005 /* AscendLiveActivityWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A20000012F10000000000004 /* Exceptions for "AscendLiveActivityWidgets" folder in "AscendLiveActivityWidgets" target */,
+			);
+			path = AscendLiveActivityWidgets;
+			sourceTree = "<group>";
+		};
+		A20000012F10000000000006 /* AscendApp/Features/Climbs/LiveActivity */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = AscendApp/Features/Climbs/LiveActivity;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -53,12 +119,41 @@
 				9AF20E5E2E64DCFF00044C25 /* FirebaseFirestore in Frameworks */,
 				9A4D66FF2E49447800EEAE1D /* GoogleSignInSwift in Frameworks */,
 				9A6A00D42E7F36E70015F349 /* FirebaseStorage in Frameworks */,
+				9B2000022F23000000100002 /* FirebaseFunctions in Frameworks */,
+				9E5000012F6B000000100001 /* FirebaseMessaging in Frameworks */,
+				9B1000012F22000000100001 /* RevenueCat in Frameworks */,
+				9B1000022F22000000100002 /* SuperwallKit in Frameworks */,
+				9C3000012F2A000000100001 /* Mixpanel in Frameworks */,
+				9D4000012F60000000100001 /* MapboxMaps in Frameworks */,
+				9F6000012F75000000100001 /* Sentry in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10600012F0A000000000005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A20000012F10000000000007 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		9A19BE052FB131BE005F75C8 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				A20000012F10000000000006 /* AscendApp/Features/Climbs/LiveActivity */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
 		9A4D66F62E4817BD00EEAE1D /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -70,8 +165,11 @@
 			isa = PBXGroup;
 			children = (
 				9A5E4D842E2406F8008DE803 /* AscendApp */,
+				A20000012F10000000000005 /* AscendLiveActivityWidgets */,
+				A10600012F0A000000000004 /* AscendAppTests */,
 				9A4D66F62E4817BD00EEAE1D /* Frameworks */,
 				9A5E4D832E2406F8008DE803 /* Products */,
+				9A19BE052FB131BE005F75C8 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -79,6 +177,8 @@
 			isa = PBXGroup;
 			children = (
 				9A5E4D822E2406F8008DE803 /* AscendApp.app */,
+				A20000012F10000000000003 /* AscendLiveActivityWidgets.appex */,
+				A10600012F0A000000000003 /* AscendAppTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -93,11 +193,13 @@
 				9A5E4D7E2E2406F8008DE803 /* Sources */,
 				9A5E4D7F2E2406F8008DE803 /* Frameworks */,
 				9A5E4D802E2406F8008DE803 /* Resources */,
+				A20000012F10000000000008 /* Embed App Extensions */,
 				9A8C9A362EEF27F000C94089 /* ShellScript */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A20000012F1000000000000B /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				9A5E4D842E2406F8008DE803 /* AscendApp */,
@@ -111,10 +213,63 @@
 				9AF20E5D2E64DCFF00044C25 /* FirebaseFirestore */,
 				9A6A00D32E7F36E70015F349 /* FirebaseStorage */,
 				9A8C9A342EEF22F800C94089 /* FirebaseCrashlytics */,
+				9B2000012F23000000100001 /* FirebaseFunctions */,
+				9E5000022F6B000000100002 /* FirebaseMessaging */,
+				9B1000052F22000000100005 /* RevenueCat */,
+				9B1000062F22000000100006 /* SuperwallKit */,
+				9C3000032F2A000000100003 /* Mixpanel */,
+				9D4000032F60000000100003 /* MapboxMaps */,
+				9F6000032F75000000100003 /* Sentry */,
 			);
 			productName = AscendApp;
 			productReference = 9A5E4D822E2406F8008DE803 /* AscendApp.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A10600012F0A000000000008 /* AscendAppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10600012F0A00000000000C /* Build configuration list for PBXNativeTarget "AscendAppTests" */;
+			buildPhases = (
+				A10600012F0A000000000007 /* Sources */,
+				A10600012F0A000000000005 /* Frameworks */,
+				A10600012F0A000000000006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A10600012F0A000000000002 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A10600012F0A000000000004 /* AscendAppTests */,
+			);
+			name = AscendAppTests;
+			packageProductDependencies = (
+			);
+			productName = AscendAppTests;
+			productReference = A10600012F0A000000000003 /* AscendAppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		A20000012F10000000000009 /* AscendLiveActivityWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A20000012F10000000000010 /* Build configuration list for PBXNativeTarget "AscendLiveActivityWidgets" */;
+			buildPhases = (
+				A20000012F1000000000000C /* Sources */,
+				A20000012F10000000000007 /* Frameworks */,
+				A20000012F1000000000000A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A20000012F10000000000005 /* AscendLiveActivityWidgets */,
+				A20000012F10000000000006 /* AscendApp/Features/Climbs/LiveActivity */,
+			);
+			name = AscendLiveActivityWidgets;
+			packageProductDependencies = (
+			);
+			productName = AscendLiveActivityWidgets;
+			productReference = A20000012F10000000000003 /* AscendLiveActivityWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -127,6 +282,18 @@
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					9A5E4D812E2406F8008DE803 = {
+						CreatedOnToolsVersion = 16.4;
+						SystemCapabilities = {
+							com.apple.Push = {
+								enabled = 1;
+							};
+						};
+					};
+					A10600012F0A000000000008 = {
+						CreatedOnToolsVersion = 16.4;
+						TestTargetID = 9A5E4D812E2406F8008DE803;
+					};
+					A20000012F10000000000009 = {
 						CreatedOnToolsVersion = 16.4;
 					};
 				};
@@ -143,6 +310,11 @@
 			packageReferences = (
 				9A8E4CE42E2418D200C78912 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 				9A4D66FB2E49447800EEAE1D /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+				9B1000032F22000000100003 /* XCRemoteSwiftPackageReference "purchases-ios" */,
+				9B1000042F22000000100004 /* XCRemoteSwiftPackageReference "Superwall-iOS" */,
+				9C3000022F2A000000100002 /* XCRemoteSwiftPackageReference "mixpanel-swift" */,
+				9D4000022F60000000100002 /* XCRemoteSwiftPackageReference "mapbox-maps-ios-binary" */,
+				9F6000022F75000000100002 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 9A5E4D832E2406F8008DE803 /* Products */;
@@ -150,6 +322,8 @@
 			projectRoot = "";
 			targets = (
 				9A5E4D812E2406F8008DE803 /* AscendApp */,
+				A20000012F10000000000009 /* AscendLiveActivityWidgets */,
+				A10600012F0A000000000008 /* AscendAppTests */,
 			);
 		};
 /* End PBXProject section */
@@ -162,11 +336,26 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A10600012F0A000000000006 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A20000012F1000000000000A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
 		9A8C9A362EEF27F000C94089 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
@@ -178,16 +367,21 @@
 				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Info.plist",
 				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_PATH)",
 				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Resources/DWARF/${PRODUCT_NAME}.debug.dylib",
+				"$(SRCROOT)/scripts/link-firebase-plists.sh",
+				"$(SRCROOT)/scripts/upload-sentry-dsyms.sh",
+				"$(SRCROOT)/AscendApp/Info.plist",
 				"$(SRCROOT)/AscendApp/App/Firebase/GoogleService-Info-Dev.plist",
 				"$(SRCROOT)/AscendApp/App/Firebase/GoogleService-Info-Staging.plist",
+				"$(SRCROOT)/AscendApp/App/Firebase/GoogleService-Info-Production.plist",
 			);
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/GoogleService-Info.plist",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# Determine which GoogleService-Info plist to use\n  case \"${CONFIGURATION}\" in\n      \"Debug\")\n          GOOGLE_SERVICE_PLIST=\"${SRCROOT}/AscendApp/App/Firebase/GoogleService-Info-Dev.plist\"\n          ;;\n      \"Staging\")\n          GOOGLE_SERVICE_PLIST=\"${SRCROOT}/AscendApp/App/Firebase/GoogleService-Info-Staging.plist\"\n          ;;\n      \"Release\")\n          GOOGLE_SERVICE_PLIST=\"${SRCROOT}/AscendApp/App/Firebase/GoogleService-Info-Production.plist\"\n          ;;\n  esac\n\n  # Run Crashlytics with the correct plist\n  \"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\" -gsp \"${GOOGLE_SERVICE_PLIST}\"\n";
+			shellScript = "set -eu\n\n# Ensure local Firebase config plists are linked into this worktree.\n\"${SRCROOT}/scripts/link-firebase-plists.sh\"\n\n# Determine which GoogleService-Info plist to use\ncase \"${CONFIGURATION}\" in\n    \"Debug\")\n        GOOGLE_SERVICE_PLIST=\"${SRCROOT}/AscendApp/App/Firebase/GoogleService-Info-Dev.plist\"\n        ;;\n    \"Staging\")\n        GOOGLE_SERVICE_PLIST=\"${SRCROOT}/AscendApp/App/Firebase/GoogleService-Info-Staging.plist\"\n        ;;\n    \"Release\")\n        GOOGLE_SERVICE_PLIST=\"${SRCROOT}/AscendApp/App/Firebase/GoogleService-Info-Production.plist\"\n        ;;\nesac\n\n# Run Crashlytics with the correct plist\n\"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\" -gsp \"${GOOGLE_SERVICE_PLIST}\"\n\n# Upload dSYMs to Sentry when CI or the local shell provides SENTRY_AUTH_TOKEN.\n\"${SRCROOT}/scripts/upload-sentry-dsyms.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -199,7 +393,34 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A10600012F0A000000000007 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A20000012F1000000000000C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A10600012F0A000000000002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9A5E4D812E2406F8008DE803 /* AscendApp */;
+			targetProxy = A10600012F0A000000000001 /* PBXContainerItemProxy */;
+		};
+		A20000012F1000000000000B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A20000012F10000000000009 /* AscendLiveActivityWidgets */;
+			targetProxy = A20000012F10000000000002 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		9A09EB312F032E36007A47DD /* Staging */ = {
@@ -263,19 +484,31 @@
 		9A09EB322F032E36007A47DD /* Staging */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				APS_ENVIRONMENT = production;
+				ASCEND_MIXPANEL_TOKEN = 354ccda8eef57e08d823eebc8598aab7;
+				ASCEND_REVENUECAT_API_KEY = appl_OuhVbQoKshaWOxkeVfELTpsvlHP;
+				ASCEND_REVENUECAT_TEST_API_KEY = "";
+				ASCEND_SENTRY_DSN = "https://8ffadf8996800f8feaaea21ca77ebe5d@o4511621278728192.ingest.us.sentry.io/4511621439815680";
+				ASCEND_SENTRY_ENABLED = YES;
+				ASCEND_SUPERWALL_API_KEY = pk_DGywY9Qw39wY_9glnLs8R;
+				ASCEND_SUPERWALL_TEST_MODE = NO;
+				ASCEND_USE_REVENUECAT_TEST_STORE = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconStaging;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = AscendApp/AscendApp.entitlements;
-				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";
+				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 2;
-				DEVELOPMENT_TEAM = QWGVB7TN4T;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = QWGVB7TN4T;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AscendApp/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Ascend;
+				INFOPLIST_KEY_CFBundleDisplayName = "Ascend - STG";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
-				INFOPLIST_KEY_NSCameraUsageDescription = "Ascend uses your camera to capture workout photos and videos.";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, flights climbed, heart rate, and calories burned.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "Ascend uses motion from compatible headphones to track steps during Live Climbs.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Ascend saves your workout posters to your Photos library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend needs access to your photo library to attach photos and videos to workouts.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -288,8 +521,10 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.staging;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "match AppStore com.TylerPavay.AscendApp.staging";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
@@ -427,9 +662,19 @@
 		9A5E4D8E2E2406F9008DE803 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				APS_ENVIRONMENT = development;
+				ASCEND_MIXPANEL_TOKEN = 354ccda8eef57e08d823eebc8598aab7;
+				ASCEND_REVENUECAT_API_KEY = appl_OuhVbQoKshaWOxkeVfELTpsvlHP;
+				ASCEND_REVENUECAT_TEST_API_KEY = "";
+				ASCEND_SENTRY_DSN = "https://8ffadf8996800f8feaaea21ca77ebe5d@o4511621278728192.ingest.us.sentry.io/4511621439815680";
+				ASCEND_SENTRY_ENABLED = YES;
+				ASCEND_SUPERWALL_API_KEY = pk_DGywY9Qw39wY_9glnLs8R;
+				ASCEND_SUPERWALL_TEST_MODE = NO;
+				ASCEND_USE_REVENUECAT_TEST_STORE = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconDev;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = AscendApp/AscendApp.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
@@ -437,10 +682,11 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AscendApp/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Ascend;
+				INFOPLIST_KEY_CFBundleDisplayName = "Ascend - DEV";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
-				INFOPLIST_KEY_NSCameraUsageDescription = "Ascend uses your camera to capture workout photos and videos.";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, flights climbed, heart rate, and calories burned.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "Ascend uses motion from compatible headphones to track steps during Live Climbs.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Ascend saves your workout posters to your Photos library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend needs access to your photo library to attach photos and videos to workouts.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -452,9 +698,11 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				MAPBOX_ACCESS_TOKEN = "";
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.dev;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
@@ -468,19 +716,31 @@
 		9A5E4D8F2E2406F9008DE803 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APS_ENVIRONMENT = production;
+				ASCEND_MIXPANEL_TOKEN = 354ccda8eef57e08d823eebc8598aab7;
+				ASCEND_REVENUECAT_API_KEY = appl_OuhVbQoKshaWOxkeVfELTpsvlHP;
+				ASCEND_REVENUECAT_TEST_API_KEY = "";
+				ASCEND_SENTRY_DSN = "https://8ffadf8996800f8feaaea21ca77ebe5d@o4511621278728192.ingest.us.sentry.io/4511621439815680";
+				ASCEND_SENTRY_ENABLED = YES;
+				ASCEND_SUPERWALL_API_KEY = pk_DGywY9Qw39wY_9glnLs8R;
+				ASCEND_SUPERWALL_TEST_MODE = NO;
+				ASCEND_USE_REVENUECAT_TEST_STORE = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = AscendApp/AscendApp.entitlements;
-				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";
+				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 2;
-				DEVELOPMENT_TEAM = QWGVB7TN4T;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = QWGVB7TN4T;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AscendApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Ascend;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
-				INFOPLIST_KEY_NSCameraUsageDescription = "Ascend uses your camera to capture workout photos and videos.";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, flights climbed, heart rate, and calories burned.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "Ascend uses motion from compatible headphones to track steps during Live Climbs.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Ascend saves your workout posters to your Photos library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Ascend needs access to your photo library to attach photos and videos to workouts.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -495,6 +755,8 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "match AppStore com.TylerPavay.AscendApp";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
@@ -504,6 +766,163 @@
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
+		};
+		A10600012F0A000000000009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = QWGVB7TN4T;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendAppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AscendApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AscendApp";
+			};
+			name = Debug;
+		};
+		A10600012F0A00000000000A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = QWGVB7TN4T;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendAppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AscendApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AscendApp";
+			};
+			name = Release;
+		};
+		A10600012F0A00000000000B /* Staging */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = QWGVB7TN4T;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendAppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AscendApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AscendApp";
+			};
+			name = Staging;
+		};
+		A20000012F1000000000000D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = QWGVB7TN4T;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = AscendLiveActivityWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.dev.LiveClimbWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		A20000012F1000000000000E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = QWGVB7TN4T;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = AscendLiveActivityWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.LiveClimbWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "match AppStore com.TylerPavay.AscendApp.LiveClimbWidgets";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		A20000012F1000000000000F /* Staging */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = QWGVB7TN4T;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = AscendLiveActivityWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.TylerPavay.AscendApp.staging.LiveClimbWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "match AppStore com.TylerPavay.AscendApp.staging.LiveClimbWidgets";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = STAGING;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Staging;
 		};
 /* End XCBuildConfiguration section */
 
@@ -528,6 +947,26 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		A10600012F0A00000000000C /* Build configuration list for PBXNativeTarget "AscendAppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10600012F0A000000000009 /* Debug */,
+				A10600012F0A00000000000A /* Release */,
+				A10600012F0A00000000000B /* Staging */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A20000012F10000000000010 /* Build configuration list for PBXNativeTarget "AscendLiveActivityWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A20000012F1000000000000D /* Debug */,
+				A20000012F1000000000000E /* Release */,
+				A20000012F1000000000000F /* Staging */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -545,6 +984,46 @@
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 11.15.0;
+			};
+		};
+		9B1000032F22000000100003 /* XCRemoteSwiftPackageReference "purchases-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/RevenueCat/purchases-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.74.0;
+			};
+		};
+		9B1000042F22000000100004 /* XCRemoteSwiftPackageReference "Superwall-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/superwall/Superwall-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 4.15.3;
+			};
+		};
+		9C3000022F2A000000100002 /* XCRemoteSwiftPackageReference "mixpanel-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mixpanel/mixpanel-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 6.3.0;
+			};
+		};
+		9D4000022F60000000100002 /* XCRemoteSwiftPackageReference "mapbox-maps-ios-binary" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mapbox/mapbox-maps-ios-binary.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 11.20.0;
+			};
+		};
+		9F6000022F75000000100002 /* XCRemoteSwiftPackageReference "sentry-cocoa" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/getsentry/sentry-cocoa";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.18.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -584,6 +1063,41 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 9A8E4CE42E2418D200C78912 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseFirestore;
+		};
+		9B1000052F22000000100005 /* RevenueCat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9B1000032F22000000100003 /* XCRemoteSwiftPackageReference "purchases-ios" */;
+			productName = RevenueCat;
+		};
+		9B1000062F22000000100006 /* SuperwallKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9B1000042F22000000100004 /* XCRemoteSwiftPackageReference "Superwall-iOS" */;
+			productName = SuperwallKit;
+		};
+		9B2000012F23000000100001 /* FirebaseFunctions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9A8E4CE42E2418D200C78912 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFunctions;
+		};
+		9C3000032F2A000000100003 /* Mixpanel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9C3000022F2A000000100002 /* XCRemoteSwiftPackageReference "mixpanel-swift" */;
+			productName = Mixpanel;
+		};
+		9D4000032F60000000100003 /* MapboxMaps */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9D4000022F60000000100002 /* XCRemoteSwiftPackageReference "mapbox-maps-ios-binary" */;
+			productName = MapboxMaps;
+		};
+		9E5000022F6B000000100002 /* FirebaseMessaging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9A8E4CE42E2418D200C78912 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseMessaging;
+		};
+		9F6000032F75000000100003 /* Sentry */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9F6000022F75000000100002 /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
+			productName = Sentry;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

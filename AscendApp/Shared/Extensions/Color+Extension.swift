@@ -8,6 +8,16 @@
 import SwiftUI
 
 extension Color {
+    static var ascendAccent: Color {
+        Color(
+            uiColor: UIColor(
+                named: "AccentColor",
+                in: .main,
+                compatibleWith: nil
+            ) ?? UIColor(red: 134 / 255, green: 211 / 255, blue: 10 / 255, alpha: 1)
+        )
+    }
+
     /// Initialize a Color from a hex string
     /// - Parameter hex: Hex string (with or without #, supports 3, 6, or 8 characters)
     init(hex: String) {
@@ -46,6 +56,17 @@ extension Color {
                          opacity: a)
         }
 
+    func lighter(by amount: CGFloat) -> Color {
+            let ui = UIColor(self)
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            ui.getRed(&r, green: &g, blue: &b, alpha: &a)
+            return Color(.sRGB,
+                         red: min(r + amount, 1),
+                         green: min(g + amount, 1),
+                         blue: min(b + amount, 1),
+                         opacity: a)
+        }
+
     /// Custom gray colors
     static let customGray = Color(hex: "888888")
     static let darkGray = Color(hex: "333333")
@@ -54,7 +75,7 @@ extension Color {
     
     /// Returns a gradient for workout intensity
     /// Uses lighter/darker versions of the yellow-orange gradient
-    static func intensityGradient(for intensity: WorkoutIntensity, colorScheme: ColorScheme) -> LinearGradient {
+    static func intensityGradient(for intensity: IntensityTier, colorScheme: ColorScheme) -> LinearGradient {
         let colors = intensityColors(for: intensity, colorScheme: colorScheme)
         return LinearGradient(
             gradient: Gradient(colors: colors),
@@ -64,9 +85,9 @@ extension Color {
     }
     
     /// Returns the color pair for a given intensity level
-    static func intensityColors(for intensity: WorkoutIntensity, colorScheme: ColorScheme) -> [Color] {
+    static func intensityColors(for intensity: IntensityTier, colorScheme: ColorScheme) -> [Color] {
         switch intensity {
-        case .veryLight:
+        case .minimal:
             // Lightest - very subtle gradient (keeping as is)
             return [
                 Color(red: 1.0, green: 0.95, blue: 0.7),   // Very light yellow
@@ -87,14 +108,14 @@ extension Color {
                 Color(red: 1.0, green: 0.55, blue: 0.0)    // Orange
             ]
             
-        case .hard:
+        case .high:
             // Hard - deep orange to red-orange
             return [
                 Color(red: 1.0, green: 0.55, blue: 0.0),   // Deep orange
                 Color(red: 1.0, green: 0.3, blue: 0.0)     // Red-orange
             ]
             
-        case .veryHard:
+        case .maximum:
             // Very Hard - orange to deep red
             return [
                 Color(red: 1.0, green: 0.4, blue: 0.0),    // Bright red-orange

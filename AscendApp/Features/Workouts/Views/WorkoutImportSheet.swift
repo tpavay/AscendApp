@@ -6,56 +6,107 @@
 //
 
 import SwiftUI
-import HealthKit
 import SwiftData
 
 struct WorkoutImportSheet: View {
+    @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
+    @State private var settingsManager = SettingsManager.shared
     @State private var themeManager = ThemeManager.shared
-    @State private var unifiedImportService = UnifiedImportService.shared
-    @State private var hevyManager = HevyManager.shared
+    @State private var importCoordinator = WorkoutImportCoordinator.shared
     @State private var showingCelebration = false
     @State private var celebrationData: ImportCelebrationData?
     @State private var importTask: Task<Void, Never>?
     @State private var isSelectionMode = false
-    @State private var selectedPendingIds: Set<String> = []
+    @State private var selectedCandidateIDs: Set<String> = []
+    @State private var isRequestingAppleHealthAuthorization = false
+    @State private var isEnablingAutoImportFromPrompt = false
+    @State private var dismissedAutoImportPromptThisSession = false
+    @State private var autoImportStatusMessage: String?
+    @State private var setupAlertMessage = ""
+    @State private var showingSetupAlert = false
 
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
 
-    private var unimportedPendingWorkouts: [PendingWorkout] {
-        unifiedImportService.pendingWorkouts.filter { workout in
-            !unifiedImportService.isWorkoutImported(workout)
-        }
+    private var candidates: [ImportedWorkoutCandidate] {
+        importCoordinator.pendingCandidates
     }
 
-    private var unimportedCount: Int {
-        unimportedPendingWorkouts.count
+    private var candidateIDs: Set<String> {
+        Set(candidates.map(\.id))
     }
 
-    private var unimportedPendingIds: Set<String> {
-        Set(unimportedPendingWorkouts.map(\.id))
+    private var candidateCount: Int {
+        candidates.count
     }
 
-    private var selectedUnimportedCount: Int {
-        selectedPendingIds.intersection(unimportedPendingIds).count
+    private var selectedCount: Int {
+        selectedCandidateIDs.intersection(candidateIDs).count
     }
 
-    private var allUnimportedSelected: Bool {
-        unimportedCount > 0 && selectedUnimportedCount == unimportedCount
+    private var appleHealthConnectionState: AppleHealthConnectionState {
+        importCoordinator.appleHealthConnectionState
+    }
+
+    private var shouldShowAppleHealthSetupCard: Bool {
+        importCoordinator.isAppleHealthAvailable &&
+        (appleHealthConnectionState == .neverConnected || appleHealthConnectionState == .revoked)
+    }
+
+    private var shouldHideGenericEmptyState: Bool {
+        shouldShowAppleHealthSetupCard
+    }
+
+    private var shouldShowAutoImportPromptBanner: Bool {
+        guard let userID = authVM.user?.uid else { return false }
+
+        return appleHealthConnectionState == .connected &&
+            !settingsManager.appleHealthAutoImportEnabled &&
+            !dismissedAutoImportPromptThisSession &&
+            !settingsManager.hasDismissedAppleHealthAutoImportPrompt(for: userID)
+    }
+
+    private var allCandidatesSelected: Bool {
+        candidateCount > 0 && selectedCount == candidateCount
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 0) {
-                    // Content
-                    if unifiedImportService.isLoading {
+                VStack(spacing: 20) {
+                    if shouldShowAppleHealthSetupCard {
+                        appleHealthSetupCard
+                            .padding(.horizontal, 20)
+                            .padding(.top, 20)
+                    }
+
+                    if let autoImportStatusMessage {
+                        autoImportEnabledCard(message: autoImportStatusMessage)
+                            .padding(.horizontal, 20)
+                            .padding(.top, shouldShowAppleHealthSetupCard ? 0 : 20)
+                    }
+
+                    if shouldShowAutoImportPromptBanner {
+                        AppleHealthAutoImportPromptBanner(
+                            effectiveColorScheme: effectiveColorScheme,
+                            isEnabling: isEnablingAutoImportFromPrompt,
+                            onTurnOn: enableAutoImportFromPrompt,
+                            onDismiss: dismissAutoImportPrompt
+                        )
+                        .padding(.horizontal, 20)
+                        .padding(.top, shouldShowAppleHealthSetupCard || autoImportStatusMessage != nil ? 0 : 20)
+                    }
+
+                    if shouldHideGenericEmptyState {
+                        EmptyView()
+                    } else if importCoordinator.isChecking && candidates.isEmpty {
                         loadingStateView
-                    } else if unifiedImportService.pendingWorkouts.isEmpty {
+                    } else if candidates.isEmpty {
                         emptyStateView
                     } else {
                         workoutListSection
@@ -82,14 +133,17 @@ struct WorkoutImportSheet: View {
                     }
                     .font(.montserratMedium(size: 16))
                     .foregroundStyle(.accent)
-                    .disabled(unifiedImportService.isImporting)
+                    .disabled(importCoordinator.isImporting)
                 }
             }
         }
         .themedBackground()
-        .interactiveDismissDisabled(unifiedImportService.isImporting || showingCelebration)
+        .analyticsScreen(
+            WorkoutImportAnalyticsScreen.sheet(candidateCount: candidateCount)
+        )
+        .interactiveDismissDisabled(importCoordinator.isImporting || showingCelebration)
         .safeAreaInset(edge: .bottom) {
-            if isSelectionMode && unimportedCount > 0 {
+            if isSelectionMode && candidateCount > 0 {
                 batchActionBar
             }
         }
@@ -101,11 +155,18 @@ struct WorkoutImportSheet: View {
                 }
             }
         }
-        .onAppear {
-            syncSelectionWithPendingWorkouts()
+        .alert("Apple Health", isPresented: $showingSetupAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(setupAlertMessage)
         }
-        .onChange(of: unifiedImportService.pendingWorkouts.map(\.id)) { _, _ in
-            syncSelectionWithPendingWorkouts()
+        .task {
+            importCoordinator.configure(modelContext: modelContext)
+            syncSelectionWithCandidates()
+            await importCoordinator.refreshPendingImports(trigger: .manualReview)
+        }
+        .onChange(of: candidates.map(\.id)) { _, _ in
+            syncSelectionWithCandidates()
         }
     }
 
@@ -114,20 +175,18 @@ struct WorkoutImportSheet: View {
             Button("Import All", systemImage: "square.and.arrow.down") {
                 importAllWorkouts()
             }
-            .disabled(unimportedCount == 0 || unifiedImportService.isImporting)
+            .disabled(candidateCount == 0 || importCoordinator.isImporting)
 
             Button("Select", systemImage: "checklist") {
                 enterSelectionMode()
             }
-            .disabled(unimportedCount <= 1 || unifiedImportService.isImporting)
+            .disabled(candidateCount <= 1 || importCoordinator.isImporting)
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(.accent)
         }
     }
-
-    // MARK: - Loading State
 
     private var loadingStateView: some View {
         VStack(spacing: 16) {
@@ -141,8 +200,6 @@ struct WorkoutImportSheet: View {
         .padding(.top, 60)
     }
 
-    // MARK: - Empty State
-
     private var emptyStateView: some View {
         VStack(spacing: 16) {
             Image(systemName: "checkmark.circle")
@@ -153,25 +210,139 @@ struct WorkoutImportSheet: View {
                 .font(.montserratBold(size: 20))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
 
-            Text(hevyManager.isConnected
-                 ? "All your Apple Health and Hevy workouts have already been imported."
-                 : "All your Apple Health workouts have already been imported.")
+            Text(emptyStateMessage)
                 .font(.montserratRegular(size: 14))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
         .padding(.horizontal, 40)
         .padding(.top, 60)
+        .padding(.bottom, 24)
     }
 
-    // MARK: - Workout List Section
+    private var emptyStateMessage: String {
+        if shouldShowAppleHealthSetupCard {
+            return "Connect Apple Health above to import past stair-stepper sessions and auto-save new ones."
+        }
+
+        return "Apple Health is caught up. New workouts will appear here when there is something to import."
+    }
+
+    private var appleHealthSetupCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 12) {
+                Image("appleHealth-icon")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 36, height: 36)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(appleHealthSetupTitle)
+                        .font(.montserratSemiBold(size: 16))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
+
+                    if !appleHealthSetupSubtitle.isEmpty {
+                        Text(appleHealthSetupSubtitle)
+                            .font(.montserratRegular(size: 13))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            Text(appleHealthSetupMessage)
+                .font(.montserratRegular(size: 14))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if !appleHealthSetupSecondaryLine.isEmpty {
+                Text(appleHealthSetupSecondaryLine)
+                    .font(.montserratRegular(size: 13))
+                    .foregroundStyle(.secondary.opacity(0.92))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Button(appleHealthSetupButtonTitle) {
+                handleAppleHealthSetupButtonTapped()
+            }
+            .appSheetButtonStyle()
+            .disabled(isRequestingAppleHealthAuthorization)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(effectiveColorScheme == .dark ? Color.white.opacity(0.06) : Color.white)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(effectiveColorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.08), lineWidth: 1)
+        }
+    }
+
+    private var appleHealthSetupTitle: String {
+        switch appleHealthConnectionState {
+        case .neverConnected:
+            return "Connect Apple Health"
+        case .revoked:
+            return "Reconnect Apple Health"
+        case .connected, .unavailable:
+            return "Apple Health"
+        }
+    }
+
+    private var appleHealthSetupSubtitle: String {
+        switch appleHealthConnectionState {
+        case .neverConnected:
+            return ""
+        case .revoked:
+            return "Health permissions were turned off outside Ascend."
+        case .connected, .unavailable:
+            return ""
+        }
+    }
+
+    private var appleHealthSetupMessage: String {
+        switch appleHealthConnectionState {
+        case .neverConnected:
+            return "Import past stair-stepper workouts. New Apple Health stair-stepper workouts will save automatically in Ascend after you finish them."
+        case .revoked:
+            return "Re-enable workout access in the Health app to bring Apple Health workouts into Ascend again."
+        case .connected, .unavailable:
+            return ""
+        }
+    }
+
+    private var appleHealthSetupSecondaryLine: String {
+        switch appleHealthConnectionState {
+        case .neverConnected:
+            return "Turn auto-import off anytime in Settings > Edit Profile > Integrations > Apple Health."
+        case .revoked, .connected, .unavailable:
+            return ""
+        }
+    }
+
+    private var appleHealthSetupButtonTitle: String {
+        if isRequestingAppleHealthAuthorization, appleHealthConnectionState == .neverConnected {
+            return "Connecting..."
+        }
+
+        switch appleHealthConnectionState {
+        case .neverConnected:
+            return "Connect Apple Health"
+        case .revoked:
+            return "Open Health Permissions"
+        case .connected, .unavailable:
+            return "Manage"
+        }
+    }
 
     private var workoutListSection: some View {
         VStack(spacing: 0) {
-            // Header
             VStack(spacing: 10) {
                 HStack {
-                    Text("\(unimportedCount) NEW WORKOUTS")
+                    Text("\(candidateCount) READY TO IMPORT")
                         .font(.montserratSemiBold(size: 12))
                         .foregroundStyle(.secondary)
 
@@ -179,7 +350,7 @@ struct WorkoutImportSheet: View {
                 }
                 .padding(.horizontal, 20)
 
-                if unifiedImportService.isImporting && unifiedImportService.currentImportingPendingId != nil {
+                if importCoordinator.isImporting && importCoordinator.currentImportingCandidateID != nil {
                     HStack(spacing: 8) {
                         ProgressView()
                             .scaleEffect(0.8)
@@ -190,11 +361,11 @@ struct WorkoutImportSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 20)
                 } else if isSelectionMode {
-                    Text("\(selectedUnimportedCount) Selected")
+                    Text("\(selectedCount) Selected")
                         .font(.montserratRegular(size: 13))
                         .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 20)
                 }
 
                 Rectangle()
@@ -203,19 +374,17 @@ struct WorkoutImportSheet: View {
             }
             .padding(.bottom, 8)
 
-            // Workout rows
             LazyVStack(spacing: 0) {
-                ForEach(unifiedImportService.pendingWorkouts, id: \.id) { pending in
-                    PendingWorkoutImportRow(
-                        pending: pending,
+                ForEach(candidates, id: \.id) { candidate in
+                    ImportedWorkoutCandidateRow(
+                        candidate: candidate,
                         showSelectionControl: isSelectionMode,
-                        isSelected: selectedPendingIds.contains(pending.id),
-                        isImportingThis: unifiedImportService.currentImportingPendingId == pending.id,
-                        isImportingAny: unifiedImportService.isImporting,
-                        autoLinkEnabled: hevyManager.autoLinkAppleHealth,
+                        isSelected: selectedCandidateIDs.contains(candidate.id),
+                        isImportingThis: importCoordinator.currentImportingCandidateID == candidate.id,
+                        isImportingAny: importCoordinator.isImporting,
                         effectiveColorScheme: effectiveColorScheme,
-                        onToggleSelection: { toggleSelection(for: pending) },
-                        onImport: { importWorkout(pending) }
+                        onToggleSelection: { toggleSelection(for: candidate) },
+                        onImport: { importWorkout(candidate) }
                     )
 
                     Rectangle()
@@ -230,106 +399,137 @@ struct WorkoutImportSheet: View {
     private var batchActionBar: some View {
         SelectionActionBar(
             effectiveColorScheme: effectiveColorScheme,
-            secondaryTitle: allUnimportedSelected ? "Deselect All" : "Select All",
+            secondaryTitle: allCandidatesSelected ? "Deselect All" : "Select All",
             onSecondaryTapped: toggleSelectAll,
-            isSecondaryDisabled: unifiedImportService.isImporting || unimportedCount == 0,
-            primaryTitle: "Import Selected (\(selectedUnimportedCount))",
+            isSecondaryDisabled: importCoordinator.isImporting || candidateCount == 0,
+            primaryTitle: "Import Selected (\(selectedCount))",
             onPrimaryTapped: importSelectedWorkouts,
-            isPrimaryDisabled: selectedUnimportedCount == 0 || unifiedImportService.isImporting
+            isPrimaryDisabled: selectedCount == 0 || importCoordinator.isImporting
         )
     }
 
-    // MARK: - Actions
+    private func autoImportEnabledCard(message: String) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 12) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.accent)
+                    .frame(width: 36, height: 36)
 
-    private func importWorkout(_ pending: PendingWorkout) {
-        selectedPendingIds.remove(pending.id)
-        importTask = Task {
-            let referenceDate = Date()
-            let preGoalCapture = capturePreGoalSnapshot(referenceDate: referenceDate)
-            let outcome = await unifiedImportService.importWorkout(pending)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Apple Health connected")
+                        .font(.montserratSemiBold(size: 16))
+                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
 
-            if case .imported(let workout) = outcome {
-                let goalSnapshot = buildGoalSnapshot(preGoalCapture: preGoalCapture)
-                let data = buildCelebrationData(
-                    importedWorkouts: [workout],
-                    failedCount: 0,
-                    goalSnapshot: goalSnapshot
-                )
-                celebrationData = data
-                showingCelebration = true
+                    Text("Auto-import is on")
+                        .font(.montserratRegular(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 0)
+
+                Button {
+                    autoImportStatusMessage = nil
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
             }
 
-            syncSelectionWithPendingWorkouts()
+            Text(message)
+                .font(.montserratRegular(size: 14))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(effectiveColorScheme == .dark ? Color.white.opacity(0.06) : Color.white)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(effectiveColorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.08), lineWidth: 1)
+        }
+    }
+
+    private func importWorkout(_ candidate: ImportedWorkoutCandidate) {
+        selectedCandidateIDs.remove(candidate.id)
+        importTask = Task {
+            let outcome = await importCoordinator.importCandidate(candidate)
+
+            switch outcome {
+            case .imported(let workout):
+                celebrationData = buildCelebrationData(
+                    importedWorkouts: [workout],
+                    failedCount: 0
+                )
+                showingCelebration = true
+            case .updatedExisting, .skipped, .failed:
+                break
+            }
+
+            syncSelectionWithCandidates()
         }
     }
 
     private func importAllWorkouts() {
         importTask = Task {
-            let referenceDate = Date()
-            let preGoalCapture = capturePreGoalSnapshot(referenceDate: referenceDate)
-            let result = await unifiedImportService.importAllWorkouts()
+            let result = await importCoordinator.importAllCandidates()
 
             if result.successCount > 0 {
-                let goalSnapshot = buildGoalSnapshot(preGoalCapture: preGoalCapture)
-                let data = buildCelebrationData(
+                celebrationData = buildCelebrationData(
                     importedWorkouts: result.importedWorkouts,
-                    failedCount: result.failedCount,
-                    goalSnapshot: goalSnapshot
+                    failedCount: result.failedCount
                 )
-                celebrationData = data
                 showingCelebration = true
             }
 
-            syncSelectionWithPendingWorkouts()
+            syncSelectionWithCandidates()
         }
     }
 
     private func importSelectedWorkouts() {
-        let selectedIds = selectedPendingIds.intersection(unimportedPendingIds)
-        guard !selectedIds.isEmpty else { return }
+        let selectedIDs = selectedCandidateIDs.intersection(candidateIDs)
+        guard !selectedIDs.isEmpty else { return }
 
         importTask = Task {
-            let referenceDate = Date()
-            let preGoalCapture = capturePreGoalSnapshot(referenceDate: referenceDate)
-            let result = await unifiedImportService.importSelectedWorkouts(pendingIds: selectedIds)
+            let result = await importCoordinator.importCandidates(ids: selectedIDs)
 
             if result.successCount > 0 {
-                let goalSnapshot = buildGoalSnapshot(preGoalCapture: preGoalCapture)
-                let data = buildCelebrationData(
+                celebrationData = buildCelebrationData(
                     importedWorkouts: result.importedWorkouts,
-                    failedCount: result.failedCount,
-                    goalSnapshot: goalSnapshot
+                    failedCount: result.failedCount
                 )
-                celebrationData = data
                 showingCelebration = true
             }
 
-            syncSelectionWithPendingWorkouts()
+            syncSelectionWithCandidates()
             exitSelectionMode(clearSelection: true)
         }
     }
 
-    private func toggleSelection(for pending: PendingWorkout) {
-        guard !unifiedImportService.isWorkoutImported(pending) else { return }
-
-        if selectedPendingIds.contains(pending.id) {
-            selectedPendingIds.remove(pending.id)
+    private func toggleSelection(for candidate: ImportedWorkoutCandidate) {
+        if selectedCandidateIDs.contains(candidate.id) {
+            selectedCandidateIDs.remove(candidate.id)
         } else {
-            selectedPendingIds.insert(pending.id)
+            selectedCandidateIDs.insert(candidate.id)
         }
     }
 
     private func toggleSelectAll() {
-        if allUnimportedSelected {
-            selectedPendingIds.subtract(unimportedPendingIds)
+        if allCandidatesSelected {
+            selectedCandidateIDs.subtract(candidateIDs)
         } else {
-            selectedPendingIds.formUnion(unimportedPendingIds)
+            selectedCandidateIDs.formUnion(candidateIDs)
         }
     }
 
-    private func syncSelectionWithPendingWorkouts() {
-        selectedPendingIds.formIntersection(unimportedPendingIds)
-        if unimportedCount <= 1 {
+    private func syncSelectionWithCandidates() {
+        selectedCandidateIDs.formIntersection(candidateIDs)
+        if candidateCount <= 1 {
             isSelectionMode = false
         }
     }
@@ -342,51 +542,91 @@ struct WorkoutImportSheet: View {
 
     private func exitSelectionMode(clearSelection: Bool = true) {
         if clearSelection {
-            selectedPendingIds.removeAll()
+            selectedCandidateIDs.removeAll()
         }
         withAnimation(.easeInOut(duration: 0.2)) {
             isSelectionMode = false
         }
     }
 
-    private typealias PreGoalCapture = (goal: Goal, progress: GoalProgress, referenceDate: Date)
-
-    private func capturePreGoalSnapshot(referenceDate: Date) -> PreGoalCapture? {
-        do {
-            let existingWorkouts = try ImportCelebrationService.fetchAllWorkouts(modelContext: modelContext)
-            guard let capture = ImportCelebrationService.captureGoalSnapshot(
-                modelContext: modelContext,
-                existingWorkouts: existingWorkouts,
-                referenceDate: referenceDate
-            ) else {
-                return nil
-            }
-            return (goal: capture.goal, progress: capture.progress, referenceDate: referenceDate)
-        } catch {
-            return nil
+    private func handleAppleHealthSetupButtonTapped() {
+        switch appleHealthConnectionState {
+        case .neverConnected:
+            requestAppleHealthAuthorization()
+        case .revoked:
+            openHealthPermissions()
+        case .connected, .unavailable:
+            break
         }
     }
 
-    private func buildGoalSnapshot(preGoalCapture: PreGoalCapture?) -> GoalCelebrationSnapshot? {
-        guard let preGoalCapture else { return nil }
+    private func requestAppleHealthAuthorization() {
+        guard !isRequestingAppleHealthAuthorization else { return }
 
-        do {
-            let allWorkoutsAfterImport = try ImportCelebrationService.fetchAllWorkouts(modelContext: modelContext)
-            return ImportCelebrationService.buildGoalData(
-                preGoal: preGoalCapture.goal,
-                preProgress: preGoalCapture.progress,
-                allWorkoutsAfterImport: allWorkoutsAfterImport,
-                referenceDate: preGoalCapture.referenceDate
-            )
-        } catch {
-            return nil
+        isRequestingAppleHealthAuthorization = true
+        Task {
+            let didConnect = await importCoordinator.requestAppleHealthAuthorizationIfNeeded()
+
+            guard didConnect else {
+                await MainActor.run {
+                    isRequestingAppleHealthAuthorization = false
+                    if let errorMessage = importCoordinator.lastErrorMessage, !errorMessage.isEmpty {
+                        presentSetupAlert(errorMessage)
+                    }
+                }
+                return
+            }
+
+            await MainActor.run {
+                isRequestingAppleHealthAuthorization = false
+                settingsManager.setAppleHealthAutoImportEnabled(true)
+                autoImportStatusMessage = defaultAutoImportStatusMessage
+            }
+            await importCoordinator.handleAppleHealthAutoImportPreferenceChanged()
         }
+    }
+
+    private func openHealthPermissions() {
+        guard let healthURL = URL(string: "x-apple-health://") else { return }
+        openURL(healthURL)
+    }
+
+    private func enableAutoImportFromPrompt() {
+        guard !isEnablingAutoImportFromPrompt else { return }
+
+        dismissAutoImportPrompt()
+        isEnablingAutoImportFromPrompt = true
+        settingsManager.setAppleHealthAutoImportEnabled(true)
+
+        Task {
+            await importCoordinator.handleAppleHealthAutoImportPreferenceChanged()
+            await MainActor.run {
+                isEnablingAutoImportFromPrompt = false
+                autoImportStatusMessage = defaultAutoImportStatusMessage
+            }
+        }
+    }
+
+    private func dismissAutoImportPrompt() {
+        dismissedAutoImportPromptThisSession = true
+
+        if let userID = authVM.user?.uid {
+            settingsManager.markAppleHealthAutoImportPromptDismissed(for: userID)
+        }
+    }
+
+    private var defaultAutoImportStatusMessage: String {
+        "New Apple Health stair-stepper workouts will save automatically. Ascend will show the latest one once so you can fix steps, notes, or media."
+    }
+
+    private func presentSetupAlert(_ message: String) {
+        setupAlertMessage = message
+        showingSetupAlert = true
     }
 
     private func buildCelebrationData(
         importedWorkouts: [Workout],
-        failedCount: Int,
-        goalSnapshot: GoalCelebrationSnapshot?
+        failedCount: Int
     ) -> ImportCelebrationData {
         let settings = SettingsManager.shared
         let totalDuration = importedWorkouts.reduce(0.0) { $0 + $1.duration }
@@ -406,42 +646,29 @@ struct WorkoutImportSheet: View {
             totalSteps: totalSteps,
             totalFloors: totalFloors,
             totalVerticalClimb: totalVerticalClimb,
-            verticalClimbUnit: settings.measurementSystem.distanceUnit,
-            goalSnapshot: goalSnapshot
+            verticalClimbUnit: settings.measurementSystem.distanceUnit
         )
     }
 }
 
-// MARK: - Pending Workout Import Row
-
-struct PendingWorkoutImportRow: View {
-    let pending: PendingWorkout
+struct ImportedWorkoutCandidateRow: View {
+    let candidate: ImportedWorkoutCandidate
     let showSelectionControl: Bool
     let isSelected: Bool
-    let isImportingThis: Bool  // This specific workout is being imported
-    let isImportingAny: Bool   // Any import is in progress (disable button)
-    let autoLinkEnabled: Bool
+    let isImportingThis: Bool
+    let isImportingAny: Bool
     let effectiveColorScheme: ColorScheme
     let onToggleSelection: () -> Void
     let onImport: () -> Void
 
-    @State private var unifiedImportService = UnifiedImportService.shared
-
-    private var isImported: Bool {
-        unifiedImportService.isWorkoutImported(pending)
-    }
-
     var body: some View {
         Group {
             if showSelectionControl {
-                Button {
-                    onToggleSelection()
-                } label: {
+                Button(action: onToggleSelection) {
                     rowContent
                 }
                 .buttonStyle(.plain)
-                .disabled(isImported || isImportingAny)
-                .opacity(isImported ? 0.6 : 1)
+                .disabled(isImportingAny)
             } else {
                 rowContent
             }
@@ -458,18 +685,16 @@ struct PendingWorkoutImportRow: View {
                     .foregroundStyle(isSelected ? .accent : .secondary)
             }
 
-            // Source icon
             sourceIcon
-                .frame(width: 24, height: 24)
+                .frame(width: 28, height: 24)
 
-            // Left side - Date, time, source
             VStack(alignment: .leading, spacing: 4) {
-                Text(pending.startDate.formatted(.dateTime.month().day().year()))
+                Text(candidate.displayName)
                     .font(.montserratSemiBold(size: 16))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
 
                 HStack(spacing: 6) {
-                    Text(pending.startDate.formatted(.dateTime.hour().minute()))
+                    Text(candidate.startDate.formatted(.dateTime.month().day().year()))
                         .font(.montserratRegular(size: 14))
                         .foregroundStyle(.secondary)
 
@@ -477,36 +702,31 @@ struct PendingWorkoutImportRow: View {
                         .font(.montserratRegular(size: 14))
                         .foregroundStyle(.secondary)
 
-                    Text(formatDuration(pending.duration))
+                    Text(candidate.startDate.formatted(.dateTime.hour().minute()))
+                        .font(.montserratRegular(size: 14))
+                        .foregroundStyle(.secondary)
+
+                    Text("\u{2022}")
+                        .font(.montserratRegular(size: 14))
+                        .foregroundStyle(.secondary)
+
+                    Text(formatDuration(candidate.duration))
                         .font(.montserratRegular(size: 14))
                         .foregroundStyle(.secondary)
                 }
 
-                Text(pending.displaySourceName(autoLinkEnabled: autoLinkEnabled))
+                Text(candidate.sourceDisplayName)
                     .font(.montserratRegular(size: 13))
                     .foregroundStyle(.secondary)
             }
 
             Spacer()
 
-            // Right side - Spinner, Import button, or Imported status
-            if isImported {
-                HStack(spacing: 4) {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text("Imported")
-                        .font(.montserratMedium(size: 13))
-                }
-                .foregroundStyle(.accent)
-            } else if isImportingThis {
+            if isImportingThis {
                 ProgressView()
                     .scaleEffect(0.8)
-            } else if showSelectionControl {
-                EmptyView()
-            } else {
-                Button {
-                    onImport()
-                } label: {
+            } else if !showSelectionControl {
+                Button(action: onImport) {
                     Text("Import")
                         .font(.montserratSemiBold(size: 14))
                         .foregroundStyle(.white)
@@ -525,26 +745,11 @@ struct PendingWorkoutImportRow: View {
 
     @ViewBuilder
     private var sourceIcon: some View {
-        switch pending.source {
+        switch candidate.kind {
         case .appleHealth:
             Image(systemName: "heart.fill")
                 .font(.system(size: 14))
                 .foregroundStyle(.red)
-        case .hevy:
-            Image("hevy-icon")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 20, height: 20)
-                .clipShape(.rect(cornerRadius: 4))
-        case .manual:
-            Image(systemName: "hand.draw.fill")
-                .font(.system(size: 14))
-                .foregroundStyle(.blue)
-        case .garmin, .strava, .fitbit:
-            // Future integrations - show generic icon
-            Image(systemName: "figure.walk")
-                .font(.system(size: 14))
-                .foregroundStyle(.blue)
         }
     }
 
@@ -556,12 +761,14 @@ struct PendingWorkoutImportRow: View {
 
         if hours > 0 {
             return "\(hours):\(minutes < 10 ? "0" : "")\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
-        } else {
-            return "\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
         }
+
+        return "\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
     }
 }
 
 #Preview {
     WorkoutImportSheet()
+        .environment(AuthenticationViewModel())
+        .modelContainer(for: [Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self], inMemory: true)
 }

@@ -1,7 +1,7 @@
 import Foundation
 
 /// How intensity is specified for an interval
-enum IntensityType: String, Codable, CaseIterable {
+enum IntensityType: String, Codable, CaseIterable, Sendable {
     case level
     case stepsPerMinute
 
@@ -25,7 +25,7 @@ enum IntensityType: String, Codable, CaseIterable {
 }
 
 /// Direction for sideways climbing
-enum SidewaysDirection: String, Codable, CaseIterable {
+enum SidewaysDirection: String, Codable, CaseIterable, Sendable {
     case left
     case right
 
@@ -49,7 +49,7 @@ enum SidewaysDirection: String, Codable, CaseIterable {
 }
 
 /// Modifiers that can be applied during an interval
-struct IntervalModifiers: Codable, Equatable {
+struct IntervalModifiers: Codable, Equatable, Sendable {
     var sidewaysDirection: SidewaysDirection? = nil
     var skipStep: Bool = false
     var backwardStep: Bool = false
@@ -78,6 +78,28 @@ struct IntervalModifiers: Codable, Equatable {
         sidewaysDirection != nil || skipStep || backwardStep || holdingBars || hasWeightOverride
     }
 
+    var stepTypeDescription: String {
+        var labels: [String] = []
+
+        if let direction = sidewaysDirection {
+            labels.append(direction == .left ? "Face left" : "Face right")
+        }
+
+        if skipStep {
+            labels.append("Skip step")
+        }
+
+        if backwardStep {
+            labels.append("Backward step")
+        }
+
+        if labels.isEmpty {
+            return "Standard step"
+        }
+
+        return labels.joined(separator: " · ")
+    }
+
     /// Whether this interval has a weight override (not using routine defaults)
     var hasWeightOverride: Bool {
         guard let override = weightOverride else { return false }
@@ -85,6 +107,13 @@ struct IntervalModifiers: Codable, Equatable {
     }
 
     static let none = IntervalModifiers()
+    static let standard = IntervalModifiers()
+    static let skipStep = IntervalModifiers(skipStep: true)
+    static let backward = IntervalModifiers(backwardStep: true)
+
+    static func facing(_ direction: SidewaysDirection) -> IntervalModifiers {
+        IntervalModifiers(sidewaysDirection: direction)
+    }
 
     // Convenience initializer for backward compatibility
     init(
@@ -103,8 +132,9 @@ struct IntervalModifiers: Codable, Equatable {
 }
 
 /// Source of a routine (built-in vs user-created)
-enum RoutineSource: String, Codable {
+enum RoutineSource: String, Codable, Sendable {
     case builtin
+    case remoteTemplate
     case userCreated
     case copiedFromBuiltin
 
@@ -112,25 +142,21 @@ enum RoutineSource: String, Codable {
         switch self {
         case .builtin:
             return "Built-in"
+        case .remoteTemplate:
+            return "Ascend Routine"
         case .userCreated:
             return "My Routine"
         case .copiedFromBuiltin:
             return "Customized"
         }
     }
-}
 
-/// Completion status of a routine-based workout
-enum RoutineCompletionStatus: String, Codable {
-    case completed
-    case stoppedEarly
-
-    var displayName: String {
+    var isTemplate: Bool {
         switch self {
-        case .completed:
-            return "Completed"
-        case .stoppedEarly:
-            return "Stopped Early"
+        case .builtin, .remoteTemplate:
+            return true
+        case .userCreated, .copiedFromBuiltin:
+            return false
         }
     }
 }

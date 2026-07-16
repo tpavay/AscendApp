@@ -1,6 +1,10 @@
 {
   "firestore": {
-    "rules": "firestore.rules"
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
   },
   "functions": [
     {
@@ -21,6 +25,7 @@
     }
   ],
   "hosting": {
+    "target": "web",
     "public": "web/dist",
     "cleanUrls": true,
     "ignore": [
@@ -28,11 +33,27 @@
       "**/.*",
       "**/node_modules/**"
     ],
-    "rewrites": [
+    "headers": [
       {
-        "source": "/strava/callback",
-        "function": "stravaCallback"
+        "source": "/climbs/manifest.json",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=300, s-maxage=300"
+          }
+        ]
       },
+      {
+        "source": "/climbs/catalog-*.json",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=3600, s-maxage=3600"
+          }
+        ]
+      }
+    ],
+    "rewrites": [
       {
         "source": "/api/join-waitlist",
         "function": "joinWaitlist"

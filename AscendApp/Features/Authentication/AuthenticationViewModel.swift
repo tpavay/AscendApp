@@ -7,6 +7,7 @@
 
 import Foundation
 import FirebaseAuth
+import FirebaseCore
 import Observation
 import PhotosUI
 import SwiftUI
@@ -15,10 +16,20 @@ enum AuthenticationState {
     case authenticated
     case authenticatingWithApple
     case authenticatingWithGoogle
+    case authenticatingWithInternalQA
     case unauthenticated
 
     /// Shown while restoring a session on app launch (waiting for profile fetch)
     case restoringSession
+
+    var isAuthenticating: Bool {
+        switch self {
+        case .authenticatingWithApple, .authenticatingWithGoogle, .authenticatingWithInternalQA:
+            return true
+        case .authenticated, .unauthenticated, .restoringSession:
+            return false
+        }
+    }
 }
 
 
@@ -33,21 +44,31 @@ class AuthenticationViewModel {
     var isErrorAlertPresented: Bool = false
     var photoURL: URL?
     var customProfilePictureURL: URL?
+    private(set) var lastUsedProvider: AuthProviderKind?
+    private(set) var hasRemoteDisplayName: Bool = false
 
     /// Indicates whether the profile data has been loaded from Firestore/cache after auth restore.
-    /// Used to avoid showing NameInputView before we know if the user has a name.
+    /// Used to avoid showing authenticated UI before profile state is known.
     private(set) var isProfileLoaded: Bool = false
 
     private var authenticationService = AuthenticationService()
-    private var photoService = PhotoService()
+    private let accountSessionStore = AccountSessionStore.shared
 
     init() {
+        lastUsedProvider = accountSessionStore.lastUsedProvider
+
         // Load cached display name immediately for UI responsiveness
         displayName = UserDataRepository.shared.getCachedDisplayName() ?? ""
         
         // Load cached profile picture URL
         if let cachedURLString = UserDataRepository.shared.getCachedProfilePictureURL() {
             customProfilePictureURL = URL(string: cachedURLString)
+        }
+
+        if let currentUser = Auth.auth().currentUser {
+            user = currentUser
+            photoURL = currentUser.photoURL
+            authenticationState = .restoringSession
         }
         
         registerAuthStateHandler()
@@ -64,14 +85,19 @@ class AuthenticationViewModel {
                     // Set telemetry user ID and log session restored
                     TelemetryManager.shared.setUserId(user.uid)
                     TelemetryManager.shared.log(.authSessionRestored)
+                    Task {
+                        await MonetizationManager.shared.identify(userId: user.uid)
+                    }
 
                     // Check if we're in an interactive sign-in flow (already showing progress)
                     let isInteractiveSignIn = self.authenticationState == .authenticatingWithGoogle ||
-                                               self.authenticationState == .authenticatingWithApple
+                                               self.authenticationState == .authenticatingWithApple ||
+                                               self.authenticationState == .authenticatingWithInternalQA
 
                     // Load cached display name immediately
-                    let cachedDisplayName = UserDataRepository.shared.getCachedDisplayName() ?? user.displayName ?? ""
+                    let cachedDisplayName = UserDataRepository.shared.getCachedDisplayName() ?? ""
                     self.displayName = cachedDisplayName
+                    let shouldSaveInitialUserRecord = !isInteractiveSignIn || !cachedDisplayName.isEmpty
 
                     // If we have a cached name, we can show authenticated immediately
                     // Otherwise, show restoring session while we fetch from Firestore
@@ -89,8 +115,11 @@ class AuthenticationViewModel {
 
                     // Handle Firestore operations in background
                     Task {
-                        // Save/update user in Firestore first
-                        try? await self.saveUserToFirestore(user: user)
+                        // Avoid writing a provider-derived or empty display name during new sign-up.
+                        // The post-auth name step creates the profile document with the user's chosen name.
+                        if shouldSaveInitialUserRecord {
+                            try? await self.saveUserToFirestore(user: user)
+                        }
 
                         // Fetch the authoritative display name from Firestore
                         let firestoreDisplayName = await UserDataRepository.shared.getDisplayName(userId: user.uid)
@@ -102,6 +131,9 @@ class AuthenticationViewModel {
                             // Update display name if we got one from Firestore
                             if let firestoreDisplayName, !firestoreDisplayName.isEmpty {
                                 self.displayName = firestoreDisplayName
+                                self.hasRemoteDisplayName = true
+                            } else {
+                                self.hasRemoteDisplayName = false
                             }
 
                             // Update profile picture URL
@@ -122,9 +154,13 @@ class AuthenticationViewModel {
                     // User signed out - reset all state
                     TelemetryManager.shared.log(.authSignOut)
                     TelemetryManager.shared.clearUserId()
+                    Task {
+                        await MonetizationManager.shared.resetIdentity()
+                    }
 
                     self.displayName = ""
                     self.customProfilePictureURL = nil
+                    self.hasRemoteDisplayName = false
                     self.isProfileLoaded = false
                     self.authenticationState = .unauthenticated
                     UserDataRepository.shared.clearUserCache()
@@ -137,28 +173,51 @@ class AuthenticationViewModel {
 @MainActor
 extension AuthenticationViewModel {
     func signOut() {
-        do {
-            try authenticationService.signOut()
-            errorMessage = nil
-        }
-        catch {
-            errorMessage = error.localizedDescription
+        Task { @MainActor in
+            await PushNotificationService.shared.unregisterCurrentDevice()
+
+            do {
+                try authenticationService.signOut()
+                errorMessage = nil
+            }
+            catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
     func signInWithGoogle() async {
         authenticationState = .authenticatingWithGoogle
         errorMessage = nil
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.authStarted(provider: AuthProviderKind.google.rawValue)
+        )
 
         do {
             _ = try await authenticationService.signInWithGoogle()
+            recordSuccessfulSignIn(provider: .google)
+            TelemetryManager.shared.track(
+                OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.google.rawValue)
+            )
             TelemetryManager.shared.log(.authInteractiveSignInSuccess)
         } catch {
             // Don't show error for user cancellation
             if error is CancellationError {
+                TelemetryManager.shared.track(
+                    OnboardingAnalyticsEvent.authFailed(
+                        provider: AuthProviderKind.google.rawValue,
+                        reason: "cancelled"
+                    )
+                )
                 // User canceled - just reset state without showing error
                 authenticationState = .unauthenticated
             } else {
+                TelemetryManager.shared.track(
+                    OnboardingAnalyticsEvent.authFailed(
+                        provider: AuthProviderKind.google.rawValue,
+                        reason: "failed"
+                    )
+                )
                 TelemetryManager.shared.log(.authSignInFailed)
                 TelemetryManager.shared.recordError(error, context: .auth, code: "google_sign_in_failed", additionalInfo: ["provider": "google"])
                 errorMessage = error.localizedDescription
@@ -166,20 +225,92 @@ extension AuthenticationViewModel {
             }
         }
     }
+
+    func signInWithInternalQA(email: String, password: String) async {
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard InternalQASignInAvailability.isEnabled(projectID: FirebaseApp.app()?.options.projectID) else {
+            errorMessage = "Internal QA sign-in is unavailable in this build."
+            authenticationState = .unauthenticated
+            return
+        }
+
+        guard !trimmedEmail.isEmpty else {
+            errorMessage = "Enter the internal QA email address."
+            authenticationState = .unauthenticated
+            return
+        }
+
+        guard !password.isEmpty else {
+            errorMessage = "Enter the internal QA password."
+            authenticationState = .unauthenticated
+            return
+        }
+
+        authenticationState = .authenticatingWithInternalQA
+        errorMessage = nil
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.authStarted(provider: AuthProviderKind.internalQA.rawValue)
+        )
+
+        do {
+            _ = try await authenticationService.signInWithEmail(email: trimmedEmail, password: password)
+            recordSuccessfulSignIn(provider: .internalQA)
+            TelemetryManager.shared.track(
+                OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.internalQA.rawValue)
+            )
+            TelemetryManager.shared.log(.authInteractiveSignInSuccess)
+        } catch {
+            TelemetryManager.shared.track(
+                OnboardingAnalyticsEvent.authFailed(
+                    provider: AuthProviderKind.internalQA.rawValue,
+                    reason: "failed"
+                )
+            )
+            TelemetryManager.shared.log(.authSignInFailed)
+            TelemetryManager.shared.recordError(
+                error,
+                context: .auth,
+                code: "internal_qa_sign_in_failed",
+                additionalInfo: ["provider": "internal_qa"]
+            )
+            errorMessage = error.localizedDescription
+            authenticationState = .unauthenticated
+        }
+    }
     
     func signInWithApple() async {
         authenticationState = .authenticatingWithApple
         errorMessage = nil
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.authStarted(provider: AuthProviderKind.apple.rawValue)
+        )
 
         do {
             _ = try await authenticationService.signInWithApple()
+            recordSuccessfulSignIn(provider: .apple)
+            TelemetryManager.shared.track(
+                OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.apple.rawValue)
+            )
             TelemetryManager.shared.log(.authInteractiveSignInSuccess)
         } catch {
             // Don't show error for user cancellation
             if error is CancellationError {
+                TelemetryManager.shared.track(
+                    OnboardingAnalyticsEvent.authFailed(
+                        provider: AuthProviderKind.apple.rawValue,
+                        reason: "cancelled"
+                    )
+                )
                 // User canceled - just reset state without showing error
                 authenticationState = .unauthenticated
             } else {
+                TelemetryManager.shared.track(
+                    OnboardingAnalyticsEvent.authFailed(
+                        provider: AuthProviderKind.apple.rawValue,
+                        reason: "failed"
+                    )
+                )
                 TelemetryManager.shared.log(.authSignInFailed)
                 TelemetryManager.shared.recordError(error, context: .auth, code: "apple_sign_in_failed", additionalInfo: ["provider": "apple"])
                 errorMessage = error.localizedDescription
@@ -190,9 +321,8 @@ extension AuthenticationViewModel {
 
     func setDisplayName(firstName: String, lastName: String) async {
         do {
-            try await authenticationService.updateUserDisplayName(firstName: firstName, lastName: lastName)
-            
             let fullDisplayName = "\(firstName) \(lastName)"
+            try await authenticationService.updateUserDisplayName(displayName: fullDisplayName)
             displayName = fullDisplayName
             
             // Cache display name for immediate UI updates
@@ -207,6 +337,7 @@ extension AuthenticationViewModel {
                     lastName: lastName,
                     displayName: fullDisplayName
                 )
+                hasRemoteDisplayName = true
             }
             
             authenticationState = .authenticated
@@ -223,36 +354,30 @@ extension AuthenticationViewModel {
 
         return .authenticated
     }
+
+    private func recordSuccessfulSignIn(provider: AuthProviderKind) {
+        accountSessionStore.recordSuccessfulSignIn(provider: provider)
+        lastUsedProvider = provider
+    }
     
     private func saveUserToFirestore(user: User) async throws {
-        // Get existing data from Firestore or use Firebase Auth data
-        var firstName: String?
-        var lastName: String?
-        var displayNameToSave = !self.displayName.isEmpty ? self.displayName : user.displayName
-        
-        do {
-            let userDisplayNameData = try await UserDataRepository.shared.getUserFromFirestore(userId: user.uid)
-            
-            // Assign existing names if we don't already have them
-            firstName = userDisplayNameData.firstName
-            lastName = userDisplayNameData.lastName
-
-            // Use existing display name if we don't have a better one
-            if displayNameToSave?.isEmpty == true {
-                displayNameToSave = userDisplayNameData.displayName ?? 
-                    (firstName != nil && lastName != nil ? "\(firstName!) \(lastName!)" : nil)
-            }
-
-        } catch {
-            // If we can't fetch existing data, proceed with what we have
-        }
+        let existingData = try? await UserDataRepository.shared.getUserFromFirestore(userId: user.uid)
         
         try await UserDataRepository.shared.saveUserToFirestore(
             userId: user.uid,
             email: user.email,
-            firstName: firstName,
-            lastName: lastName,
-            displayName: displayNameToSave
+            firstName: existingData?.firstName,
+            lastName: existingData?.lastName,
+            displayName: existingData?.displayName,
+            age: existingData?.age,
+            gender: existingData?.gender,
+            weightKg: existingData?.weightKg,
+            heightCm: existingData?.heightCm,
+            locationCity: existingData?.locationCity,
+            locationCountry: existingData?.locationCountry,
+            locationRegion: existingData?.locationRegion,
+            onboardingFirstClimbId: existingData?.onboardingFirstClimbId,
+            joinedAt: existingData?.joinedAt ?? user.metadata.creationDate
         )
     }
     
@@ -265,32 +390,32 @@ extension AuthenticationViewModel {
         }
         
         do {
-            // Upload the photo
-            let uploadedPhotos = try await photoService.uploadPhotos([photoPickerItem])
-            
-            guard let uploadedPhoto = uploadedPhotos.first else {
+            guard let imageData = try await photoPickerItem.loadTransferable(type: Data.self) else {
                 errorMessage = "Failed to upload photo"
                 return
             }
-            
-            // Save the URL to Firestore user document
+
+            let filename = "users/\(user.uid)/profile_pictures/\(UUID().uuidString).jpg"
+            let photoRepo = FirebasePhotoRepository()
+            let uploadedURL = try await photoRepo.upload(imageData, filename: filename)
+
             try await UserDataRepository.shared.updateProfilePictureURL(
                 userId: user.uid,
-                profilePictureURL: uploadedPhoto.url.absoluteString
+                profilePictureURL: uploadedURL.absoluteString
             )
             
             // Update the local state
-            customProfilePictureURL = uploadedPhoto.url
+            customProfilePictureURL = uploadedURL
             
             // Update all leaderboard entries with the new photo URL
             do {
                 try await LeaderboardService.shared.updateProfilePictureURL(
                     userId: user.uid,
-                    photoURL: uploadedPhoto.url
+                    photoURL: uploadedURL
                 )
             } catch {
                 // Don't fail the whole operation if leaderboard update fails
-                print("Warning: Failed to update leaderboard photo URL: \(error)")
+                debugLog("Warning: Failed to update leaderboard photo URL: \(error)")
             }
             
         } catch {
@@ -308,7 +433,7 @@ extension AuthenticationViewModel {
         
         do {
             // Upload the photo data directly
-            let filename = "profile_pictures/\(user.uid)_\(UUID().uuidString).jpg"
+            let filename = "users/\(user.uid)/profile_pictures/\(UUID().uuidString).jpg"
             let photoRepo = FirebasePhotoRepository()
             let uploadedURL = try await photoRepo.upload(imageData, filename: filename)
             
@@ -329,7 +454,7 @@ extension AuthenticationViewModel {
                 )
             } catch {
                 // Don't fail the whole operation if leaderboard update fails
-                print("Warning: Failed to update leaderboard photo URL: \(error)")
+                debugLog("Warning: Failed to update leaderboard photo URL: \(error)")
             }
             
         } catch {
@@ -342,30 +467,37 @@ extension AuthenticationViewModel {
         return customProfilePictureURL ?? photoURL
     }
     
-    func updateDisplayName(_ newDisplayName: String) async {
+    @discardableResult
+    func updateDisplayName(_ newDisplayName: String) async -> Bool {
         errorMessage = nil
         
         guard let user = user else {
             errorMessage = "User not authenticated"
-            return
+            return false
         }
         
         let trimmedName = newDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
         
         guard !trimmedName.isEmpty else {
             errorMessage = "Display name cannot be empty"
-            return
+            return false
         }
         
+        let previousDisplayName = displayName
+
         do {
             // Update local state immediately for responsive UI
             displayName = trimmedName
+
+            try await authenticationService.updateUserDisplayName(displayName: trimmedName)
             
             // Save to Firestore user document
             try await UserDataRepository.shared.updateDisplayName(
                 userId: user.uid,
+                email: user.email,
                 displayName: trimmedName
             )
+            hasRemoteDisplayName = true
             
             // Update all leaderboard entries with the new display name
             do {
@@ -375,11 +507,270 @@ extension AuthenticationViewModel {
                 )
             } catch {
                 // Don't fail the whole operation if leaderboard update fails
-                print("Warning: Failed to update leaderboard display name: \(error)")
+                debugLog("Warning: Failed to update leaderboard display name: \(error)")
             }
+
+            return true
             
         } catch {
+            displayName = previousDisplayName
             errorMessage = "Failed to update display name: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    func updateOnboardingProfile(displayName newDisplayName: String, age: Int, gender: ProfileGender) async -> Bool {
+        errorMessage = nil
+
+        guard let user else {
+            errorMessage = "User not authenticated"
+            return false
+        }
+
+        let trimmedName = newDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedName.isEmpty else {
+            errorMessage = "Display name cannot be empty"
+            return false
+        }
+
+        guard (13...120).contains(age) else {
+            errorMessage = "Enter an age from 13 to 120"
+            return false
+        }
+
+        let previousDisplayName = displayName
+
+        do {
+            displayName = trimmedName
+
+            try await authenticationService.updateUserDisplayName(displayName: trimmedName)
+
+            try await UserDataRepository.shared.updateOnboardingProfile(
+                userId: user.uid,
+                email: user.email,
+                displayName: trimmedName,
+                age: age,
+                gender: gender
+            )
+            hasRemoteDisplayName = true
+
+            do {
+                try await LeaderboardService.shared.updateDisplayName(
+                    userId: user.uid,
+                    displayName: trimmedName
+                )
+            } catch {
+                debugLog("Warning: Failed to update leaderboard display name: \(error)")
+            }
+
+            return true
+        } catch {
+            displayName = previousDisplayName
+            errorMessage = "Failed to update profile: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    func updateOnboardingGender(_ gender: ProfileGender) async -> Bool {
+        errorMessage = nil
+
+        guard let user else {
+            errorMessage = "User not authenticated"
+            return false
+        }
+
+        do {
+            try await UserDataRepository.shared.updateOnboardingDemographics(
+                userId: user.uid,
+                email: user.email,
+                displayName: displayName,
+                gender: gender
+            )
+            return true
+        } catch {
+            errorMessage = "Failed to update profile: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    func updateOnboardingAge(_ age: Int) async -> Bool {
+        errorMessage = nil
+
+        guard let user else {
+            errorMessage = "User not authenticated"
+            return false
+        }
+
+        guard (13...120).contains(age) else {
+            errorMessage = "Enter an age from 13 to 120"
+            return false
+        }
+
+        do {
+            try await UserDataRepository.shared.updateOnboardingDemographics(
+                userId: user.uid,
+                email: user.email,
+                displayName: displayName,
+                age: age
+            )
+            return true
+        } catch {
+            errorMessage = "Failed to update profile: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    func updateOnboardingWeightKilograms(_ weightKg: Double) async -> Bool {
+        errorMessage = nil
+
+        guard let user else {
+            errorMessage = "User not authenticated"
+            return false
+        }
+
+        guard weightKg > 0, weightKg <= 400 else {
+            errorMessage = "Enter a valid body weight"
+            return false
+        }
+
+        do {
+            try await UserDataRepository.shared.updateOnboardingDemographics(
+                userId: user.uid,
+                email: user.email,
+                displayName: displayName,
+                weightKg: weightKg
+            )
+            do {
+                try await LeaderboardService.shared.updateBodyWeight(
+                    userId: user.uid,
+                    weightKg: weightKg
+                )
+            } catch {
+                debugLog("Warning: Failed to update leaderboard body weight: \(error)")
+            }
+            return true
+        } catch {
+            errorMessage = "Failed to update profile: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    func updateOnboardingBodyMetrics(weightKg: Double, heightCm: Double) async -> Bool {
+        errorMessage = nil
+
+        guard let user else {
+            errorMessage = "User not authenticated"
+            return false
+        }
+
+        guard weightKg > 0, weightKg <= 400 else {
+            errorMessage = "Enter a valid body weight"
+            return false
+        }
+
+        guard heightCm >= 90, heightCm <= 240 else {
+            errorMessage = "Enter a valid height"
+            return false
+        }
+
+        do {
+            try await UserDataRepository.shared.updateOnboardingDemographics(
+                userId: user.uid,
+                email: user.email,
+                displayName: displayName,
+                weightKg: weightKg,
+                heightCm: heightCm
+            )
+            do {
+                try await LeaderboardService.shared.updateBodyWeight(
+                    userId: user.uid,
+                    weightKg: weightKg
+                )
+            } catch {
+                debugLog("Warning: Failed to update leaderboard body weight: \(error)")
+            }
+            return true
+        } catch {
+            errorMessage = "Failed to update profile: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    func updateOnboardingLocation(city: String, countryCode: String, region: String?) async -> Bool {
+        errorMessage = nil
+
+        guard let user else {
+            errorMessage = "User not authenticated"
+            return false
+        }
+
+        let normalizedCity = city.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedCountry = countryCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        let normalizedRegion = region?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !normalizedCity.isEmpty, normalizedCity.count <= 120 else {
+            errorMessage = "Choose a valid city"
+            return false
+        }
+
+        guard normalizedCountry.range(of: #"^[A-Z]{2}$"#, options: .regularExpression) != nil else {
+            errorMessage = "Choose a valid country"
+            return false
+        }
+
+        guard normalizedRegion?.count ?? 0 <= 120 else {
+            errorMessage = "Choose a valid region"
+            return false
+        }
+
+        do {
+            try await UserDataRepository.shared.updateOnboardingDemographics(
+                userId: user.uid,
+                email: user.email,
+                displayName: displayName,
+                locationCity: normalizedCity,
+                locationCountry: normalizedCountry,
+                locationRegion: normalizedRegion?.isEmpty == true ? nil : normalizedRegion
+            )
+            return true
+        } catch {
+            errorMessage = "Failed to update profile: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    func updateOnboardingFirstClimb(_ climbId: String) async -> Bool {
+        errorMessage = nil
+
+        guard let user else {
+            errorMessage = "User not authenticated"
+            return false
+        }
+
+        let normalizedClimbId = climbId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedClimbId.range(of: #"^[a-z0-9-]{1,160}$"#, options: .regularExpression) != nil else {
+            errorMessage = "Choose a valid first climb"
+            return false
+        }
+
+        do {
+            try await UserDataRepository.shared.updateOnboardingFirstClimb(
+                userId: user.uid,
+                email: user.email,
+                climbId: normalizedClimbId
+            )
+            return true
+        } catch {
+            errorMessage = "Failed to update first climb: \(error.localizedDescription)"
+            return false
         }
     }
 }

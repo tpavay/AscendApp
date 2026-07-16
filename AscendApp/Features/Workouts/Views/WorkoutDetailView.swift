@@ -5,131 +5,192 @@
 //  Created by Tyler Pavay on 8/28/25.
 //
 
+import SwiftData
 import SwiftUI
+import UIKit
 
 struct WorkoutDetailView: View {
     let workout: Workout
+    private let embedsInNavigationStack: Bool
+
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(AuthenticationViewModel.self) private var authVM
+    @Query(sort: \BestEffortCacheEntry.sortKey) private var bestEffortCacheEntries: [BestEffortCacheEntry]
     @State private var themeManager = ThemeManager.shared
     @State private var settingsManager = SettingsManager.shared
+    @State private var importCoordinator = WorkoutImportCoordinator.shared
     @State private var showingEditWorkout = false
     @State private var showingShareWorkoutView = false
     @State private var showingDeleteConfirmation = false
     @State private var showingDeleteError = false
     @State private var deleteErrorMessage = ""
-    @State private var stravaManager = StravaManager.shared
-    @State private var isSyncingToStrava = false
-    @State private var syncingIconOpacity: Double = 1.0
-    @State private var showingStravaSyncSuccess = false
-    @State private var stravaSyncError: String? = nil
     @State private var isDeleting = false
     @State private var isCancelling = false
     @State private var deleteTask: Task<Void, Never>? = nil
-    @State private var isNotesExpanded = false
+    @State private var showingLiveClimbSummaryPreview = false
+    @State private var liveClimbCompletionRank: LiveReplayCompletionRank?
+    @State private var isLoadingLiveClimbRank = false
+    @State private var copyConfirmationText: String?
+    @State private var isFetchingAppleHealthHeartRate = false
+    @State private var appleHealthHeartRateMessage: String?
 
-    // Strava-style layout state
+    // Media layout state
     @State private var sheetPosition: SheetPosition = .middle
     @State private var currentPhotoIndex: Int = 0
     @State private var selectedPhoto: Photo? = nil
-    @State private var sheetOffset: CGFloat = 0  // For smooth hero animation during drag
+    @State private var sheetOffset: CGFloat = 0
+
+    // Scroll tracking for traditional layout nav bar title
+    @State private var scrolledPastTitle = false
+    @State private var scrollContentOffset: CGFloat = 0
+
+    init(workout: Workout, embedsInNavigationStack: Bool = true) {
+        self.workout = workout
+        self.embedsInNavigationStack = embedsInNavigationStack
+    }
 
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
 
-    /// Whether the workout has media (photos or pending uploads)
     private var hasMedia: Bool {
-        !workout.photos.isEmpty
+        !orderedPhotos.isEmpty
+    }
+
+    private var orderedPhotos: [Photo] {
+        workout.orderedPhotosForDisplay
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                // Background
-                (effectiveColorScheme == .dark ? Color.black : Color.white)
-                    .ignoresSafeArea()
-
-                if hasMedia {
-                    stravaStyleLayout
-                } else {
-                    traditionalLayout
-                }
+        if embedsInNavigationStack {
+            NavigationStack {
+                content
             }
-            .navigationBarHidden(true)
-            .overlay(alignment: .top) {
-                adaptiveHeader
-            }
-            .sheet(isPresented: $showingEditWorkout) {
-                EditWorkoutView(
-                    workout: workout,
-                    showingEditWorkout: $showingEditWorkout
-                )
-                .interactiveDismissDisabled()
-            }
-            .sheet(isPresented: $showingShareWorkoutView) {
-                WorkoutShareCarouselView(workout: workout, displayName: authVM.displayName)
-            }
-            .onAppear {
-                // Preload share card templates in background (anticipate sharing)
-                ShareCardTemplateService.shared.preloadIfNeeded()
-            }
-            .sheet(isPresented: $showingDeleteConfirmation) {
-                SingleWorkoutDeleteConfirmationView(
-                    workout: workout,
-                    isLoading: isDeleting,
-                    isCancelling: isCancelling,
-                    onConfirm: {
-                        // Guard against double-starting
-                        guard deleteTask == nil else { return }
-                        deleteTask = Task {
-                            await deleteWorkout()
-                            deleteTask = nil
-                        }
-                    },
-                    onCancel: {
-                        if isDeleting {
-                            // Cancel in-flight deletion
-                            isCancelling = true
-                            deleteTask?.cancel()
-                            deleteTask = nil
-                            isDeleting = false
-                            isCancelling = false
-                        }
-                        showingDeleteConfirmation = false
-                    }
-                )
-                .presentationDetents([.height(200)])
-                .interactiveDismissDisabled(isDeleting || isCancelling)
-                .onDisappear {
-                    deleteTask?.cancel()
-                    deleteTask = nil
-                }
-            }
-            .fullScreenCover(item: $selectedPhoto) { photo in
-                FullScreenPhotoView(photo: photo) {
-                    selectedPhoto = nil
-                }
-            }
+        } else {
+            content
         }
     }
 
-    // MARK: - Strava-Style Layout
+    private var content: some View {
+        ZStack {
+            (effectiveColorScheme == .dark ? Color.black : Color.white)
+                .ignoresSafeArea()
+
+            if hasMedia {
+                workoutMediaLayout
+            } else {
+                traditionalLayout
+            }
+        }
+        .navigationBarHidden(true)
+        .overlay(alignment: .top) {
+            adaptiveHeader
+        }
+        .sheet(isPresented: $showingEditWorkout) {
+            EditWorkoutView(
+                workout: workout,
+                showingEditWorkout: $showingEditWorkout
+            )
+            .interactiveDismissDisabled()
+        }
+        .fullScreenCover(isPresented: $showingShareWorkoutView) {
+            ShareComposerView(workout: workout, climb: liveClimbDetailClimb)
+        }
+        .fullScreenCover(isPresented: $showingLiveClimbSummaryPreview) {
+            if liveClimbSummaryMetadata?.climbId == nil || liveClimbDetailClimb != nil {
+                LiveClimbCompletionSummaryView(
+                    climb: liveClimbDetailClimb,
+                    workout: workout,
+                    leaderboardRank: liveClimbCompletionRank?.rank,
+                    leaderboardTotal: liveClimbCompletionRank?.completedCount,
+                    allowsRatingPrompt: false,
+                    leaderboardContext: liveClimbSummaryLeaderboardContext,
+                    rankingLabelOverride: liveClimbSummaryRankingLabelOverride,
+                    completedDetailOverride: liveClimbSummaryCompletedDetailText,
+                    unrankedValueText: liveClimbSummaryLeaderboardContext == nil ? "Complete" : "Checking",
+                    unrankedDetailText: liveClimbSummaryLeaderboardContext == nil ?
+                        liveClimbSummaryCompletedDetailText :
+                        "LOOKING FOR YOUR RANK",
+                    showsPendingRankingState: liveClimbSummaryLeaderboardContext != nil,
+                    onDone: {
+                        showingLiveClimbSummaryPreview = false
+                    }
+                )
+            } else {
+                LiveClimbSummaryPreviewUnavailableView {
+                    showingLiveClimbSummaryPreview = false
+                }
+            }
+        }
+        .onAppear {
+            if hasMedia {
+                currentPhotoIndex = 0
+            }
+        }
+        .task(id: workout.id) {
+            await loadLiveClimbCompletionRankIfNeeded()
+            await retryAppleHealthEnrichmentIfNeeded()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            Task {
+                await retryAppleHealthEnrichmentIfNeeded()
+            }
+        }
+        .onChange(of: showingEditWorkout) { _, isShowing in
+            if !isShowing && hasMedia {
+                currentPhotoIndex = 0
+            }
+        }
+        .sheet(isPresented: $showingDeleteConfirmation) {
+            SingleWorkoutDeleteConfirmationView(
+                workout: workout,
+                isLoading: isDeleting,
+                isCancelling: isCancelling,
+                onConfirm: {
+                    guard deleteTask == nil else { return }
+                    deleteTask = Task {
+                        await deleteWorkout()
+                        deleteTask = nil
+                    }
+                },
+                onCancel: {
+                    if isDeleting {
+                        isCancelling = true
+                        deleteTask?.cancel()
+                        deleteTask = nil
+                        isDeleting = false
+                        isCancelling = false
+                    }
+                    showingDeleteConfirmation = false
+                }
+            )
+            .interactiveDismissDisabled(isDeleting || isCancelling)
+            .onDisappear {
+                deleteTask?.cancel()
+                deleteTask = nil
+            }
+        }
+        .fullScreenCover(item: $selectedPhoto) { photo in
+            FullScreenPhotoView(photo: photo) {
+                selectedPhoto = nil
+            }
+        }
+        .overlay(alignment: .top) {
+            copyConfirmationOverlay
+        }
+    }
+
+    // MARK: - Media Layout
 
     @ViewBuilder
-    private var stravaStyleLayout: some View {
+    private var workoutMediaLayout: some View {
         GeometryReader { geometry in
             ZStack(alignment: .top) {
-                // Photo/Video Hero (behind sheet)
-                // Use sheetOffset for smooth height during drag, fall back to position-based height
-                // sheetOffset > 0 means we're actively dragging; use the live offset for immediate feedback
-                // sheetOffset == 0 means drag ended; use position-based height which animates via .animation modifier
                 let heroHeight = sheetOffset > 0 ? sheetOffset : sheetPosition.photoHeight(in: geometry)
                 let heroOpacity: Double = {
                     if sheetOffset > 0 {
-                        // During drag: fade based on how much hero is visible
                         return min(1.0, sheetOffset / (geometry.size.height * 0.1))
                     } else {
                         return sheetPosition.photoOpacity
@@ -137,9 +198,10 @@ struct WorkoutDetailView: View {
                 }()
 
                 WorkoutDetailHeroView(
-                    photos: workout.photos,
+                    photos: orderedPhotos,
                     currentIndex: $currentPhotoIndex,
                     sheetPosition: sheetPosition,
+                    isPlaybackEnabled: selectedPhoto == nil,
                     onPhotoTap: { photo in
                         selectedPhoto = photo
                     }
@@ -148,7 +210,6 @@ struct WorkoutDetailView: View {
                 .opacity(heroOpacity)
                 .animation(.spring(response: 0.35, dampingFraction: 0.8), value: sheetPosition)
 
-                // Draggable Detail Sheet (overlays photo)
                 DraggableDetailSheet(position: $sheetPosition, currentOffset: $sheetOffset) {
                     sheetDetailContent(in: geometry)
                 }
@@ -159,7 +220,6 @@ struct WorkoutDetailView: View {
     private func sheetDetailContent(in geometry: GeometryProxy) -> some View {
         ScrollableDetailContent(sheetPosition: $sheetPosition) {
             VStack(spacing: 24) {
-                // Media upload status banner at top
                 MediaUploadBanner(workoutId: workout.id) {
                     Task {
                         await MediaUploadManager.shared.retryFailedUploads(
@@ -169,107 +229,10 @@ struct WorkoutDetailView: View {
                     }
                 }
 
-                // Header section (without top padding since sheet handles it)
-                sheetHeaderSection
-
-                // Notes (if available)
-                if !workout.notes.isEmpty {
-                    notesSection
-                }
-
-                // Workout Details
-                workoutDetailsSection
-
-                // Heart Rate Chart (if available)
-                if !workout.heartRateTimeSeries.isEmpty {
-                    HeartRateChartView(
-                        heartRateData: workout.heartRateTimeSeries,
-                        workoutStartTime: workout.date,
-                        workoutDuration: workout.duration
-                    )
-                }
-
-                // Additional metrics
-                if hasAdditionalMetrics {
-                    additionalMetricsSection
-                }
-
-                // Weights section
-                if workout.hasWeights {
-                    weightsUsedSection
-                }
-
-                Spacer(minLength: 40)
+                workoutContentSections
             }
             .padding(.horizontal, 20)
-            // Add top padding when expanded to account for header overlay
             .padding(.top, sheetPosition == .expanded ? 60 : 8)
-        }
-    }
-
-    /// Header section for sheet (without top padding)
-    private var sheetHeaderSection: some View {
-        VStack(spacing: 16) {
-            // Workout name
-            Text(workout.name)
-                .font(.montserratBold(size: 24))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                .multilineTextAlignment(.center)
-                .lineLimit(nil)
-                .fixedSize(horizontal: false, vertical: true)
-
-            // Personal Records Badges
-            if workout.hasPersonalRecords {
-                PersonalRecordBadgeGroup(
-                    workout: workout,
-                    size: .medium,
-                    maxVisible: nil
-                )
-                .padding(.top, 4)
-            }
-
-            // Strava sync indicator
-            if FeatureFlags.isStravaEnabled && (isSyncingToStrava || workout.isSyncedToStrava) {
-                stravaSyncBadge
-            }
-
-            // Date & time
-            VStack(spacing: 4) {
-                Text(formatWorkoutDateTime())
-                    .font(.montserratRegular(size: 16))
-                    .foregroundStyle(.accent)
-            }
-        }
-    }
-
-    private var stravaSyncBadge: some View {
-        HStack(spacing: 6) {
-            Image("strava-icon")
-                .renderingMode(.template)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 12, height: 12)
-                .opacity(isSyncingToStrava ? syncingIconOpacity : 1.0)
-            Text(isSyncingToStrava ? "Syncing..." : "Synced to Strava")
-                .font(.montserratRegular(size: 12))
-        }
-        .foregroundStyle(Color(red: 252/255, green: 76/255, blue: 2/255)) // Strava orange
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(
-            Capsule()
-                .fill(Color(red: 252/255, green: 76/255, blue: 2/255).opacity(0.15))
-        )
-        .onChange(of: isSyncingToStrava) { _, syncing in
-            if syncing {
-                withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
-                    syncingIconOpacity = 0.3
-                }
-            } else {
-                withAnimation(.default) {
-                    syncingIconOpacity = 1.0
-                }
-            }
         }
     }
 
@@ -278,8 +241,15 @@ struct WorkoutDetailView: View {
     private var traditionalLayout: some View {
         ScrollView {
             VStack(spacing: 24) {
-                // Header with workout name and date
-                headerSection
+                // Title row — scrolls naturally behind the opaque nav bar
+                WorkoutTitleRow(
+                    workoutName: workout.name,
+                    dateText: formatWorkoutDateTime(),
+                    weightSummary: weightSummary,
+                    bestEfforts: workoutBestEfforts,
+                    effectiveColorScheme: effectiveColorScheme
+                )
+                .padding(.top, 80) // Account for header overlay
 
                 // Media upload status banner
                 MediaUploadBanner(workoutId: workout.id) {
@@ -291,42 +261,131 @@ struct WorkoutDetailView: View {
                     }
                 }
 
-                // Notes (if available)
-                if !workout.notes.isEmpty {
-                    notesSection
-                }
+                workoutContentSectionsWithoutTitle
 
-                // Workout Details
-                workoutDetailsSection
-
-                // Photos section - show if there are photos or pending uploads
+                // Photos section
                 WorkoutPhotosSection(workout: workout)
-
-                // Heart Rate Chart
-                if !workout.heartRateTimeSeries.isEmpty {
-                    HeartRateChartView(
-                        heartRateData: workout.heartRateTimeSeries,
-                        workoutStartTime: workout.date,
-                        workoutDuration: workout.duration
-                    )
-                }
-
-                // Additional metrics
-                if hasAdditionalMetrics {
-                    additionalMetricsSection
-                }
-
-                // Weights section
-                if workout.hasWeights {
-                    weightsUsedSection
-                }
 
                 Spacer(minLength: 20)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
+            .overlay(alignment: .top) {
+                // Scroll offset tracker — pinned to top of content
+                GeometryReader { geo in
+                    let minY = geo.frame(in: .global).minY
+                    Color.clear
+                        .onChange(of: minY) { _, newValue in
+                            scrollContentOffset = newValue
+                            // Title text is at ~96pt from content top (16pt padding + 80pt offset).
+                            // When the content top (minY) has scrolled so the title is behind the
+                            // nav bar, show the nav bar title. The safe area top + nav bar ≈ 100pt.
+                            let shouldShow = newValue < -40
+                            if shouldShow != scrolledPastTitle {
+                                scrolledPastTitle = shouldShow
+                            }
+                        }
+                }
+                .frame(height: 0)
+            }
         }
         .scrollIndicators(.hidden)
+    }
+
+    // MARK: - Shared Content Sections
+
+    /// All content sections (used in sheet detail for media layout)
+    private var workoutContentSections: some View {
+        Group {
+            // Hide inline title when sheet is expanded (nav bar shows it instead)
+            if sheetPosition != .expanded {
+                WorkoutTitleRow(
+                    workoutName: workout.name,
+                    dateText: formatWorkoutDateTime(),
+                    weightSummary: weightSummary,
+                    bestEfforts: workoutBestEfforts,
+                    effectiveColorScheme: effectiveColorScheme
+                )
+
+            }
+
+            workoutContentSectionsWithoutTitle
+
+            Spacer(minLength: 40)
+        }
+    }
+
+    /// Content sections after the title (shared between both layouts)
+    private var workoutContentSectionsWithoutTitle: some View {
+        Group {
+            // Notes (blockquote style)
+            if !workout.notes.isEmpty {
+                NotesBlockquote(
+                    text: workout.notes,
+                    effectiveColorScheme: effectiveColorScheme
+                )
+            }
+
+            HeroStatsPair(
+                leftLabel: "Duration",
+                leftValue: workout.durationFormatted,
+                rightLabel: "Steps",
+                rightValue: formattedPrimaryMetric,
+                effectiveColorScheme: effectiveColorScheme
+            )
+
+            // Secondary stats row (pace, calories, METs)
+            if !secondaryStatItems.isEmpty {
+                SecondaryStatsRow(
+                    items: secondaryStatItems,
+                    effectiveColorScheme: effectiveColorScheme
+                )
+            }
+
+            if canOpenLiveClimbSummary {
+                LiveClimbSummaryLinkRow(
+                    climb: liveClimbDetailClimb,
+                    effectiveColorScheme: effectiveColorScheme,
+                    onViewSummary: {
+                        showingLiveClimbSummaryPreview = true
+                    }
+                )
+            }
+
+            if shouldShowHeartRateSection {
+                heartRateSection
+            }
+
+            if shouldShowPaceSplitsSection {
+                WorkoutPaceSplitsSection(
+                    splits: workoutPaceSplits,
+                    averageStepsPerMinute: workout.stepsPerMinute,
+                    effectiveColorScheme: effectiveColorScheme
+                )
+            }
+
+            // Vertical Climb
+            if let verticalClimb = verticalClimbValue {
+                VerticalClimbCard(
+                    value: verticalClimb.formatted(.number.precision(.fractionLength(1))),
+                    unit: workout.verticalClimbUnit(measurementSystem: settingsManager.measurementSystem),
+                    effectiveColorScheme: effectiveColorScheme
+                )
+            }
+
+            // Effort Rating
+            if let effortRating = workout.effortRating {
+                EffortRatingCard(
+                    rating: effortRating,
+                    effectiveColorScheme: effectiveColorScheme
+                )
+            }
+
+            // Weights section (unchanged)
+            if workout.hasWeights {
+                weightsUsedSection
+            }
+        }
     }
 
     // MARK: - Adaptive Header
@@ -334,25 +393,25 @@ struct WorkoutDetailView: View {
     private var adaptiveHeader: some View {
         VStack(spacing: 0) {
             HStack {
-                // Back button
-                Button(action: { dismiss() }) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(headerForegroundColor)
-                        .padding(10)
-                        .background(
-                            Circle()
-                                .fill(headerBackgroundColor)
-                        )
+                OnboardingBackButton {
+                    dismiss()
                 }
 
                 Spacer()
 
-                // Title (fades in as sheet expands)
-                Text("Workout Details")
-                    .font(.montserratSemiBold(size: 18))
-                    .foregroundStyle(headerForegroundColor)
-                    .opacity(hasMedia ? headerTitleOpacity : 1.0)
+                // Title + subtitle (fades in when scrolled past inline title)
+                VStack(spacing: 2) {
+                    Text(workout.name)
+                        .font(.montserratSemiBold(size: 16))
+                        .foregroundStyle(headerForegroundColor)
+                        .lineLimit(1)
+
+                    Text(headerSubtitleText)
+                        .font(.montserratRegular(size: 11))
+                        .foregroundStyle(headerForegroundColor.opacity(0.6))
+                        .lineLimit(1)
+                }
+                .opacity(headerTitleOpacity)
 
                 Spacer()
 
@@ -374,14 +433,17 @@ struct WorkoutDetailView: View {
             .padding(.top, 8)
             .padding(.bottom, hasMedia && sheetPosition != .expanded ? 8 : 16)
 
-            // Divider only when not over photo
             if !hasMedia || sheetPosition == .expanded {
                 Divider()
                     .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
             }
         }
-        .background(headerBackground)
+        .background {
+            headerBackground
+                .ignoresSafeArea(edges: .top)
+        }
         .animation(.easeOut(duration: 0.2), value: sheetPosition)
+        .animation(.easeOut(duration: 0.2), value: scrolledPastTitle)
     }
 
     private var headerForegroundColor: Color {
@@ -399,9 +461,10 @@ struct WorkoutDetailView: View {
     }
 
     private var headerTitleOpacity: Double {
-        switch sheetPosition {
-        case .collapsed, .middle: return 0.0
-        case .expanded: return 1.0
+        if hasMedia {
+            return sheetPosition == .expanded ? 1.0 : 0.0
+        } else {
+            return scrolledPastTitle ? 1.0 : 0.0
         }
     }
 
@@ -414,6 +477,21 @@ struct WorkoutDetailView: View {
         }
     }
 
+    /// Compact subtitle text for the nav bar (date + optional weight)
+    private var headerSubtitleText: String {
+        let date = formatWorkoutDateTime()
+        switch weightSummary {
+        case .none:
+            return date
+        case .single(let label):
+            return "\(date) | \(label)"
+        case .multiple(let total, _):
+            return "\(date) | +\(total)"
+        }
+    }
+
+    // MARK: - Menu
+
     @ViewBuilder
     private var menuContent: some View {
         Button(action: {
@@ -422,356 +500,179 @@ struct WorkoutDetailView: View {
             Label("Share", systemImage: "square.and.arrow.up")
         }
 
-        // Strava sync option
-        if FeatureFlags.isStravaEnabled && stravaManager.isConnected {
-            if workout.isSyncedToStrava {
-                Label("Synced to Strava", systemImage: "checkmark.circle.fill")
-            } else {
-                Button(action: shareToStrava) {
-                    if isSyncingToStrava {
-                        Label("Syncing...", systemImage: "arrow.triangle.2.circlepath")
-                    } else {
-                        HStack {
-                            Image("strava-icon")
-                                .renderingMode(.template)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 13, height: 13)
-                            Text("Sync to Strava")
-                        }
-                    }
-                }
-                .disabled(isSyncingToStrava)
+        Button(action: copyWorkoutText) {
+            Label("Copy Workout Text", systemImage: "doc.on.doc")
+        }
+
+        if canOpenLiveClimbSummary {
+            Button {
+                showingLiveClimbSummaryPreview = true
+            } label: {
+                Label("View Completion Summary", systemImage: "flag.checkered")
             }
         }
 
-        Button(action: {
-            showingEditWorkout = true
-        }) {
-            Label("Edit Workout", systemImage: "pencil")
-        }
+        if workout.isLiveClimbAttemptWorkout {
+            Label("Live climb result locked", systemImage: "lock.fill")
+        } else {
+            Button(action: {
+                showingEditWorkout = true
+            }) {
+                Label("Edit Workout", systemImage: "pencil")
+            }
 
-        Button(role: .destructive, action: {
-            showingDeleteConfirmation = true
-        }) {
-            Label("Delete Workout", systemImage: "trash")
+            Button(role: .destructive, action: {
+                showingDeleteConfirmation = true
+            }) {
+                Label("Delete Workout", systemImage: "trash")
+            }
         }
     }
 
-    // MARK: - Original Custom Header (keeping for reference)
-
-    private var customHeader: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Button(action: {
-                    dismiss()
-                }) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(.accent)
-                }
-                
-                Spacer()
-                
-                Text("Workout Details")
-                    .font(.montserratSemiBold(size: 18))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                
-                Spacer()
-                
-                Menu {
-                    Button(action: {
-                        showingShareWorkoutView = true
-                    }) {
-                        Label("Share", systemImage: "square.and.arrow.up")
-                    }
-
-                    // Strava sync option
-                    if FeatureFlags.isStravaEnabled && stravaManager.isConnected {
-                        if workout.isSyncedToStrava {
-                            // Show synced state (non-actionable)
-                            Label("Synced to Strava", systemImage: "checkmark.circle.fill")
-                        } else {
-                            Button(action: shareToStrava) {
-                                if isSyncingToStrava {
-                                    Label("Syncing...", systemImage: "arrow.triangle.2.circlepath")
-                                } else {
-                                    HStack {
-                                        Image("strava-icon")
-                                            .renderingMode(.template)
-                                            .resizable()
-                                            .scaledToFit()
-                                            .frame(width: 13, height: 13)
-                                        Text("Sync to Strava")
-                                    }
-                                }
-                            }
-                            .disabled(isSyncingToStrava)
-                        }
-                    }
-
-                    Button(action: {
-                        showingEditWorkout = true
-                    }) {
-                        Label("Edit Workout", systemImage: "pencil")
-                    }
-
-                    Button(role: .destructive, action: {
-                        showingDeleteConfirmation = true
-                    }) {
-                        Label("Delete Workout", systemImage: "trash")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 16)
-            .background(effectiveColorScheme == .dark ? .black : .white)
-            
-            Divider()
-                .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
-        }
-        .background(effectiveColorScheme == .dark ? .black : .white)
-    }
-    
-    private var headerSection: some View {
-        VStack(spacing: 16) {
-            // Workout name
-            Text(workout.name)
-                .font(.montserratBold(size: 24))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                .multilineTextAlignment(.center)
-                .lineLimit(nil)
-                .fixedSize(horizontal: false, vertical: true)
-            
-            // Personal Records Badges
-            if workout.hasPersonalRecords {
-                PersonalRecordBadgeGroup(
-                    workout: workout,
-                    size: .medium,
-                    maxVisible: nil
-                )
-                .padding(.top, 4)
-            }
-
-            // Strava sync indicator
-            if FeatureFlags.isStravaEnabled && (isSyncingToStrava || workout.isSyncedToStrava) {
-                HStack(spacing: 6) {
-                    Image("strava-icon")
-                        .renderingMode(.template)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 12, height: 12)
-                        .opacity(isSyncingToStrava ? syncingIconOpacity : 1.0)
-                    Text(isSyncingToStrava ? "Syncing..." : "Synced to Strava")
-                        .font(.montserratRegular(size: 12))
-                }
-                .foregroundStyle(Color(red: 252/255, green: 76/255, blue: 2/255)) // Strava orange
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(
-                    Capsule()
-                        .fill(Color(red: 252/255, green: 76/255, blue: 2/255).opacity(0.15))
-                )
-                .onChange(of: isSyncingToStrava) { _, syncing in
-                    if syncing {
-                        withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
-                            syncingIconOpacity = 0.3
-                        }
-                    } else {
-                        withAnimation(.default) {
-                            syncingIconOpacity = 1.0
-                        }
-                    }
-                }
-            }
-
-            // Date & time
-            VStack(spacing: 4) {
-                Text(formatWorkoutDateTime())
-                    .font(.montserratRegular(size: 16))
-                    .foregroundStyle(.accent)
-            }
-        }
-        .padding(.top, 80) // Account for custom header overlay
+    private var canOpenLiveClimbSummary: Bool {
+        liveClimbSummaryMetadata != nil
     }
 
-    private var workoutDetailsSection: some View {
-        VStack(spacing: 16) {
-            // Section header
-            HStack {
-                Text("Workout Summary")
-                    .font(.montserratSemiBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                Spacer()
-            }
-            
-            VStack(spacing: 16) {
-                // Square grid for main metrics
-                if workout.avgHeartRate != nil || workout.maxHeartRate != nil {
-                    // Show duration, steps/floors, avg HR, max HR in square
-                    squareMetricsGrid
-                    
-                    // Show pace below
-                    additionalMetrics
-                } else {
-                    // Show duration, steps/floors, pace in square
-                    fullWorkoutMetricsGrid
-                }
-                
-                // Effort rating (if available)
-                if let effortRating = workout.effortRating {
-                    statCard(
-                        icon: "bolt.fill",
-                        title: "Effort Rating",
-                        value: "\(Int(effortRating))/5",
-                        subtitle: effortDescription(for: effortRating),
-                        iconColor: .orange
-                    )
-                }
-            }
-        }
+    @MainActor
+    private var liveClimbDetailClimb: Climb? {
+        LiveClimbWorkoutSummaryData.climb(for: workout)
     }
-    
-    private var preferredMetric: WorkoutMetric {
-        settingsManager.preferredWorkoutMetric
+
+    private var liveClimbSummaryMetadata: HeadphoneMotionWorkoutMetadata? {
+        LiveClimbWorkoutSummaryData.metadata(for: workout)
     }
-    
-    private var squareMetricsGrid: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 2), spacing: 10) {
-            // Duration
-            gridStatCard(
-                icon: "stopwatch",
-                title: "Duration",
-                value: workout.durationFormatted
+
+    @MainActor
+    private var liveClimbSummaryLeaderboardContext: LiveReplayLeaderboardContext? {
+        guard let metadata = liveClimbSummaryMetadata else { return nil }
+
+        switch metadata.trackingMode {
+        case .liveClimb:
+            guard let climb = liveClimbDetailClimb else { return nil }
+            return .liveClimb(
+                climbId: climb.id,
+                targetSteps: climb.referenceStepCount
             )
-            
-            // Primary metric based on user preference
-            gridStatCard(
-                icon: preferredMetric == .steps ? "figure.stairs" : "building.2",
-                title: preferredMetric.displayName,
-                value: "\(workout.metricValue(for: preferredMetric))"
-            )
-            
-            // Average Heart Rate
-            if let avgHR = workout.avgHeartRate {
-                gridStatCard(
-                    icon: "heart.fill",
-                    title: "Avg Heart Rate",
-                    value: "\(avgHR)",
-                    iconColor: .red
-                )
-            } else {
-                gridStatCard(icon: "minus", title: "No Data", value: "—")
-            }
-            
-            // Max Heart Rate
-            if let maxHR = workout.maxHeartRate {
-                gridStatCard(
-                    icon: "heart.fill",
-                    title: "Max Heart Rate",
-                    value: "\(maxHR)",
-                    iconColor: .red
-                )
-            } else {
-                gridStatCard(icon: "minus", title: "No Data", value: "—")
-            }
-        }
-    }
-    
-    private var fullWorkoutMetricsGrid: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 2), spacing: 10) {
-            // Duration
-            gridStatCard(
-                icon: "stopwatch",
-                title: "Duration",
-                value: workout.durationFormatted
-            )
-            
-            // Primary metric based on user preference
-            gridStatCard(
-                icon: preferredMetric == .steps ? "figure.stairs" : "building.2",
-                title: preferredMetric.displayName,
-                value: "\(workout.metricValue(for: preferredMetric))"
-            )
-            
-            // Pace based on user preference
-            if let pace = workout.pace(for: preferredMetric) {
-                gridStatCard(
-                    icon: "speedometer",
-                    title: "Pace",
-                    value: pace.formatted(.number.precision(.fractionLength(1)))
-                )
-            } else {
-                gridStatCard(icon: "minus", title: "No Data", value: "—")
-            }
-        }
-    }
-    
-    private var additionalMetrics: some View {
-        VStack(spacing: 16) {
-            // Pace based on user preference
-            if let pace = workout.pace(for: preferredMetric) {
-                statCard(
-                    icon: "speedometer",
-                    title: "Pace",
-                    value: pace.formatted(.number.precision(.fractionLength(1))),
-                    subtitle: "\(preferredMetric.unit)/min"
-                )
-            }
-        }
-    }
-    
-    private var additionalMetricsSection: some View {
-        VStack(spacing: 16) {
-            // Section header
-            HStack {
-                Text("Additional Metrics")
-                    .font(.montserratSemiBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                Spacer()
+
+        case .justClimb:
+            return .justClimbGlobal(targetSteps: justClimbSummaryTargetSteps(metadata: metadata))
+
+        case .routine:
+            guard let templateId = metadata.routineTemplateId,
+                  !templateId.isEmpty else {
+                return nil
             }
 
-            if let verticalClimb = verticalClimbValue {
-                statCard(
-                    icon: "arrow.up",
-                    title: "Vertical Climb",
-                    value: verticalClimb.formatted(.number.precision(.fractionLength(1))),
-                    subtitle: workout.verticalClimbUnit(measurementSystem: settingsManager.measurementSystem)
-                )
-            }
+            return .routineTemplate(
+                templateId: templateId,
+                targetSteps: summaryTargetSteps(metadata: metadata)
+            )
 
-            if let calories = workout.caloriesBurned {
-                statCard(
-                    icon: "flame.fill",
-                    title: "Calories Burned",
-                    value: "\(calories)",
-                    subtitle: "calories",
-                    iconColor: .orange
-                )
-            }
-
-            if let averageMETs = workout.averageMETs {
-                statCard(
-                    icon: "bolt.circle.fill",
-                    title: "Average METs",
-                    value: averageMETs.formatted(.number.precision(.fractionLength(1))),
-                    subtitle: "METs",
-                    iconColor: .green
-                )
-            }
+        case nil:
+            guard metadata.climbId == nil else { return nil }
+            return .justClimbGlobal(targetSteps: justClimbSummaryTargetSteps(metadata: metadata))
         }
     }
+
+    @MainActor
+    private var liveClimbSummaryRankingLabelOverride: String? {
+        guard liveClimbSummaryMetadata?.trackingMode == .routine else { return nil }
+        return liveClimbSummaryLeaderboardContext == nil ? "ROUTINE" : "ROUTINE RANK"
+    }
+
+    private var liveClimbSummaryCompletedDetailText: String {
+        switch liveClimbSummaryMetadata?.trackingMode {
+        case .routine:
+            return "ROUTINE COMPLETE"
+        case .liveClimb:
+            return "LIVE CLIMB COMPLETE"
+        case .justClimb, nil:
+            return "WORKOUT COMPLETE"
+        }
+    }
+
+    private func summaryTargetSteps(metadata: HeadphoneMotionWorkoutMetadata) -> Int {
+        max(metadata.targetStepCount ?? workout.steps, workout.steps, 1)
+    }
+
+    private func justClimbSummaryTargetSteps(metadata: HeadphoneMotionWorkoutMetadata) -> Int {
+        max(
+            metadata.targetStepCount ?? JustClimbGoal.defaultOpenStepScale,
+            JustClimbGoal.defaultOpenStepScale,
+            workout.steps,
+            1
+        )
+    }
+
+    @ViewBuilder
+    private var heartRateSection: some View {
+        if hasHeartRateData {
+            HeartRateChartView(
+                heartRateData: workout.heartRateTimeSeries,
+                workoutStartTime: workout.date,
+                workoutDuration: workout.duration,
+                averageHeartRateBpm: workout.avgHeartRate,
+                maxHeartRateBpm: workout.maxHeartRate
+            )
+        } else if shouldShowAppleHealthHeartRateRecovery {
+            WorkoutHeartRateRecoveryCard(
+                connectionState: importCoordinator.appleHealthConnectionState,
+                isFetching: isFetchingAppleHealthHeartRate,
+                message: appleHealthHeartRateMessage,
+                effectiveColorScheme: effectiveColorScheme,
+                onFetch: fetchAppleHealthHeartRate
+            )
+        }
+    }
+
+    private var hasHeartRateData: Bool {
+        !workout.heartRateTimeSeries.isEmpty ||
+            workout.avgHeartRate != nil ||
+            workout.maxHeartRate != nil
+    }
+
+    private var shouldShowHeartRateSection: Bool {
+        hasHeartRateData || shouldShowAppleHealthHeartRateRecovery
+    }
+
+    private var shouldShowAppleHealthHeartRateRecovery: Bool {
+        workout.isInAppSensorWorkout && !hasHeartRateData
+    }
+
+    private var workoutPaceSplits: [LiveClimbPaceSplit] {
+        guard let metadata = liveClimbSummaryMetadata else { return [] }
+
+        return LiveClimbWorkoutSummaryData.paceSplits(
+            for: workout,
+            targetSteps: summaryTargetSteps(metadata: metadata)
+        )
+    }
+
+    private var shouldShowPaceSplitsSection: Bool {
+        workout.isInAppSensorWorkout &&
+            hasRecordedPaceSplitData &&
+            workoutPaceSplits.count > 1
+    }
+
+    private var hasRecordedPaceSplitData: Bool {
+        guard let metadata = liveClimbSummaryMetadata,
+              let intervalSeconds = metadata.splitIntervalSeconds,
+              intervalSeconds > 0,
+              let splitSteps = metadata.splitSteps,
+              splitSteps.count > 2 else {
+            return false
+        }
+
+        let finalSteps = max(workout.steps, 0)
+        return splitSteps.dropLast().contains { step in
+            step > 0 && step < finalSteps
+        }
+    }
+
+    // MARK: - Weights Section (unchanged)
 
     private var weightsUsedSection: some View {
         VStack(spacing: 16) {
-            // Section header
             HStack {
                 Text("Weights Used")
                     .font(.montserratSemiBold(size: 20))
@@ -786,11 +687,9 @@ struct WorkoutDetailView: View {
                             Divider()
                                 .padding(.leading, 48)
                         }
-
                         weightEntryRow(entry: entry)
                     }
 
-                    // Total weight footer
                     Divider()
                         .padding(.vertical, 8)
 
@@ -818,18 +717,15 @@ struct WorkoutDetailView: View {
 
     private func weightEntryRow(entry: WeightEntry) -> some View {
         HStack(spacing: 12) {
-            // Icon
             weightEquipmentIcon(for: entry.equipmentType)
                 .frame(width: 24, height: 24)
 
-            // Equipment name
             Text(entry.equipmentType.displayName)
                 .font(.montserratMedium(size: 15))
                 .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
 
             Spacer()
 
-            // Weight value
             VStack(alignment: .trailing, spacing: 2) {
                 Text(entry.formattedWeight(unit: settingsManager.measurementSystem.weightAbbreviation))
                     .font(.montserratSemiBold(size: 15))
@@ -847,14 +743,12 @@ struct WorkoutDetailView: View {
 
     @ViewBuilder
     private func weightEquipmentIcon(for type: WeightEquipmentType) -> some View {
-        // Try custom icon first, fall back to SF Symbol
         if let _ = UIImage(named: type.iconName) {
             Image(type.iconName)
                 .resizable()
                 .scaledToFit()
                 .frame(width: 20, height: 20)
         } else {
-            // Fallback SF Symbols
             Image(systemName: weightFallbackSFSymbol(for: type))
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(.accent)
@@ -871,8 +765,10 @@ struct WorkoutDetailView: View {
         }
     }
 
-    private var hasAdditionalMetrics: Bool {
-        verticalClimbValue != nil || workout.caloriesBurned != nil || workout.averageMETs != nil
+    // MARK: - Data Helpers
+
+    private var formattedPrimaryMetric: String {
+        workout.steps.formatted(.number)
     }
 
     private var verticalClimbValue: Double? {
@@ -881,238 +777,243 @@ struct WorkoutDetailView: View {
             measurementSystem: settingsManager.measurementSystem
         )
     }
-    
-    /// Check if notes need truncation (more than ~4 lines worth of text)
-    private var notesNeedsTruncation: Bool {
-        // Approximate check: ~60 chars per line at this font size, so ~240 for 4 lines
-        workout.notes.count > 240 || workout.notes.components(separatedBy: "\n").count > 4
+
+    /// Build secondary stat items from available data
+    private var secondaryStatItems: [SecondaryStatItem] {
+        var items: [SecondaryStatItem] = []
+
+        if let pace = workout.stepsPerMinute {
+            items.append(SecondaryStatItem(
+                label: "steps/Min",
+                value: pace.formatted(.number.precision(.fractionLength(1)))
+            ))
+        }
+
+        // Calories
+        if let calories = workout.caloriesBurned {
+            items.append(SecondaryStatItem(
+                label: "Calories",
+                value: "\(calories)"
+            ))
+        }
+
+        // METs
+        if let mets = workout.averageMETs {
+            items.append(SecondaryStatItem(
+                label: "METs",
+                value: mets.formatted(.number.precision(.fractionLength(1)))
+            ))
+        }
+
+        return items
     }
 
-    private var notesSection: some View {
-        VStack(spacing: 16) {
-            // Section header
-            HStack {
-                Text("Notes")
-                    .font(.montserratSemiBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                Spacer()
-            }
+    /// Build weight summary for the title row subtitle
+    private var weightSummary: WeightSummary {
+        guard let config = workout.weightConfiguration, !config.isEmpty else {
+            return .none
+        }
 
-            Button {
-                if notesNeedsTruncation && !isNotesExpanded {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isNotesExpanded = true
-                    }
-                }
-            } label: {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(workout.notes)
-                        .font(.montserratRegular(size: 16))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.9) : .black.opacity(0.8))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .lineLimit(isNotesExpanded ? nil : 4)
+        let enabledEntries = config.entries.filter { $0.isEnabled }
+        let ms = settingsManager.measurementSystem
 
-                    if isNotesExpanded {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                isNotesExpanded = false
-                            }
-                        } label: {
-                            Text("Show less")
-                                .font(.montserratMedium(size: 14))
-                                .foregroundStyle(.accent)
-                        }
-                    }
-                }
-                .padding(20)
-                .contentShape(Rectangle())
+        if enabledEntries.count == 1, let entry = enabledEntries.first {
+            let weightStr = ms.formatWeight(entry.totalWeight)
+            let label = "\(weightStr) \(entry.equipmentType.displayName.lowercased())"
+            return .single(label: label)
+        } else {
+            let total = ms.formatWeight(config.totalWeight)
+            let entries = enabledEntries.map { entry in
+                (name: entry.equipmentType.displayName, weight: ms.formatWeight(entry.totalWeight))
             }
-            .buttonStyle(.plain)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
-                    )
-            )
+            return .multiple(total: total, entries: entries)
         }
     }
-    
-    private func statCard(
-        icon: String,
-        title: String,
-        value: String,
-        subtitle: String? = nil,
-        iconColor: Color = .accent,
-        isProminent: Bool = false
-    ) -> some View {
-        HStack(spacing: 16) {
-            // Icon
-            Image(systemName: icon)
-                .font(.system(size: isProminent ? 24 : 20, weight: .medium))
-                .foregroundStyle(iconColor)
-                .frame(width: isProminent ? 32 : 28)
-            
-            // Content
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.montserratMedium(size: isProminent ? 16 : 14))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(value)
-                        .font(.montserratBold(size: isProminent ? 28 : 20))
-                        .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                    
-                    if let subtitle = subtitle {
-                        Text(subtitle)
-                            .font(.montserratRegular(size: isProminent ? 16 : 14))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                    }
-                }
-            }
-            
-            Spacer()
-        }
-        .padding(20)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
-                )
+
+    private var workoutBestEfforts: [RankedBestEffort] {
+        BestEffortCacheSnapshot(
+            entries: bestEffortCacheEntries,
+            workouts: [workout]
         )
+        .efforts(for: workout)
     }
-    
-    private func gridStatCard(
-        icon: String,
-        title: String,
-        value: String,
-        iconColor: Color = .accent
-    ) -> some View {
-        VStack(spacing: 6) {
-            // Icon
-            Image(systemName: icon)
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(iconColor)
-                .frame(height: 20)
 
-            // Content
-            VStack(spacing: 2) {
-                Text(title)
-                    .font(.montserratMedium(size: 11))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
+    private var primaryBestEffort: RankedBestEffort? {
+        workoutBestEfforts.first
+    }
 
-                Text(value)
-                    .font(.montserratBold(size: 16))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                    .multilineTextAlignment(.center)
-            }
+    @ViewBuilder
+    private var copyConfirmationOverlay: some View {
+        if let copyConfirmationText {
+            Text(copyConfirmationText)
+                .font(.montserratSemiBold(size: 14))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
+                .background(Capsule().fill(.black.opacity(0.82)))
+                .padding(.top, 72)
+                .transition(.opacity.combined(with: .scale))
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 80)
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
-                )
-        )
     }
-    
+
+    // MARK: - Formatting
+
     private func formatWorkoutDateTime() -> String {
         let calendar = Calendar.current
         let timeFormatter = DateFormatter()
         timeFormatter.dateFormat = "h:mm a"
-        
+
         if calendar.isDateInToday(workout.date) {
             return "Today at \(timeFormatter.string(from: workout.date))"
         } else if calendar.isDateInYesterday(workout.date) {
             return "Yesterday at \(timeFormatter.string(from: workout.date))"
         } else {
             let dateFormatter = DateFormatter()
-            dateFormatter.dateFormat = "MMM d"
-            // Check if it's from this year
             if calendar.component(.year, from: workout.date) == calendar.component(.year, from: Date()) {
-                return "\(dateFormatter.string(from: workout.date)) at \(timeFormatter.string(from: workout.date))"
+                dateFormatter.dateFormat = "MMM d"
             } else {
                 dateFormatter.dateFormat = "MMM d, yyyy"
-                return "\(dateFormatter.string(from: workout.date)) at \(timeFormatter.string(from: workout.date))"
             }
+            return "\(dateFormatter.string(from: workout.date)) at \(timeFormatter.string(from: workout.date))"
         }
     }
-    
-    private func effortDescription(for rating: Double) -> String {
-        switch Int(rating) {
-        case 1:
-            return "Minimal"
-        case 2:
-            return "Light"
-        case 3:
-            return "Moderate"
-        case 4:
-            return "High"
-        case 5:
-            return "Maximum"
-        default:
-            return "Moderate"
-        }
+
+    // MARK: - Actions
+
+    private func copyWorkoutText() {
+        UIPasteboard.general.string = workoutShareText(
+            for: workout,
+            measurementSystem: settingsManager.measurementSystem,
+            stepHeight: settingsManager.stepHeight,
+            bestEffort: primaryBestEffort
+        )
+        HapticsManager.shared.trigger(.success)
+        showCopyConfirmation("Workout text copied")
     }
-    
-    private func shareToStrava() {
-        guard !workout.isSyncedToStrava else { return }
+
+    private func showCopyConfirmation(_ text: String) {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            copyConfirmationText = text
+        }
 
         Task {
-            isSyncingToStrava = true
-            stravaSyncError = nil
+            try? await Task.sleep(for: .milliseconds(1600))
+            withAnimation(.easeOut(duration: 0.3)) {
+                if copyConfirmationText == text {
+                    copyConfirmationText = nil
+                }
+            }
+        }
+    }
 
-            do {
-                let activityId = try await stravaManager.syncWorkout(
-                    workout,
-                    primaryMetric: settingsManager.preferredWorkoutMetric
-                )
+    @MainActor
+    private func loadLiveClimbCompletionRankIfNeeded() async {
+        guard liveClimbCompletionRank == nil,
+              !isLoadingLiveClimbRank,
+              let context = liveClimbSummaryLeaderboardContext else {
+            return
+        }
 
-                // Update workout with sync metadata
-                let metadata = StravaSyncMetadata(stravaActivityId: activityId)
-                workout.setStravaSyncMetadata(metadata)
-                try? modelContext.save()
+        isLoadingLiveClimbRank = true
+        defer {
+            isLoadingLiveClimbRank = false
+        }
 
-                HapticsManager.shared.trigger(.success)
-                showingStravaSyncSuccess = true
+        do {
+            liveClimbCompletionRank = try await LiveReplayLeaderboardService.shared.fetchCompletionRank(
+                context: context,
+                completionDurationSeconds: workout.duration
+            )
+        } catch {
+#if DEBUG
+            debugLog("Workout detail Live Climb rank fetch failed: \(error.localizedDescription)")
+#endif
+        }
+    }
 
-                // Auto-dismiss the success message after 2 seconds
-                try? await Task.sleep(for: .seconds(2))
-                showingStravaSyncSuccess = false
-            } catch {
-                stravaSyncError = error.localizedDescription
-                HapticsManager.shared.trigger(.error)
+    @MainActor
+    private func retryAppleHealthEnrichmentIfNeeded() async {
+        await importCoordinator.enrichInAppWorkoutWithAppleHealthIfPossible(
+            workout,
+            modelContext: modelContext
+        )
+    }
+
+    private func fetchAppleHealthHeartRate() {
+        guard !isFetchingAppleHealthHeartRate else { return }
+
+        Task { @MainActor in
+            isFetchingAppleHealthHeartRate = true
+            appleHealthHeartRateMessage = nil
+            defer {
+                isFetchingAppleHealthHeartRate = false
             }
 
-            isSyncingToStrava = false
+            if importCoordinator.appleHealthConnectionState == .neverConnected {
+                let didConnect = await importCoordinator.requestAppleHealthAuthorizationIfNeeded()
+                guard didConnect else {
+                    appleHealthHeartRateMessage = importCoordinator.lastErrorMessage ??
+                        "Apple Health could not be connected."
+                    return
+                }
+            }
+
+            guard importCoordinator.appleHealthConnectionState == .connected else {
+                appleHealthHeartRateMessage = appleHealthUnavailableMessage
+                return
+            }
+
+            _ = await importCoordinator.enrichInAppWorkoutWithAppleHealthIfPossible(
+                workout,
+                modelContext: modelContext,
+                forceRangeDiscovery: true
+            )
+
+            if hasHeartRateData {
+                appleHealthHeartRateMessage = nil
+                HapticsManager.shared.trigger(.success)
+            } else {
+                appleHealthHeartRateMessage = "No matching heart-rate samples found yet. Try again after Apple Watch finishes syncing."
+                HapticsManager.shared.trigger(.warning)
+            }
+        }
+    }
+
+    private var appleHealthUnavailableMessage: String {
+        switch importCoordinator.appleHealthConnectionState {
+        case .unavailable:
+            return "Apple Health is not available on this device."
+        case .revoked:
+            return "Apple Health access is off. Re-enable Ascend in Health permissions."
+        case .neverConnected:
+            return "Connect Apple Health to fetch heart-rate data."
+        case .connected:
+            return "Apple Health is connected, but no heart-rate data was found yet."
         }
     }
 
     private func deleteWorkout() async {
+        guard !workout.isLiveClimbAttemptWorkout else {
+            await MainActor.run {
+                showingDeleteConfirmation = false
+                deleteErrorMessage = "Live climb attempts are saved as competitive history and cannot be deleted from the workout log."
+                showingDeleteError = true
+            }
+            return
+        }
+
         await MainActor.run {
             isDeleting = true
         }
 
-        // Cancel any pending uploads first (deletes local files and records)
         await MediaUploadManager.shared.cancelUploads(for: workout.id, modelContext: modelContext)
 
-        // Delete uploaded photos from Firebase
         if !workout.photos.isEmpty {
             let photoService = PhotoService()
             do {
                 try await photoService.deletePhotos(workout.photos)
             } catch let error as PhotoDeletionError {
-                print("❌ Failed to delete photos: \(error)")
+                debugLog("❌ Failed to delete photos: \(error)")
                 await MainActor.run {
                     isDeleting = false
                     showingDeleteConfirmation = false
@@ -1127,9 +1028,9 @@ struct WorkoutDetailView: View {
                     showingDeleteError = true
                     HapticsManager.shared.trigger(.error)
                 }
-                return // Don't delete the workout
+                return
             } catch {
-                print("❌ Failed to delete photos from Firebase: \(error)")
+                debugLog("❌ Failed to delete photos from Firebase: \(error)")
                 await MainActor.run {
                     isDeleting = false
                     showingDeleteConfirmation = false
@@ -1137,31 +1038,70 @@ struct WorkoutDetailView: View {
                     showingDeleteError = true
                     HapticsManager.shared.trigger(.error)
                 }
-                return // Don't delete the workout
+                return
             }
         }
 
-        // Only delete workout if photo deletion succeeded
+        let remoteSyncUserId = workout.ownerUserId ?? authVM.user?.uid
+        let didQueueRemoteDeletion: Bool
+
+        do {
+            didQueueRemoteDeletion = try WorkoutSyncCoordinator.shared.enqueuePendingDeletions(
+                for: [workout],
+                fallbackUserId: authVM.user?.uid,
+                modelContext: modelContext
+            )
+        } catch {
+            debugLog("❌ Error queueing remote workout deletion: \(error)")
+            await MainActor.run {
+                isDeleting = false
+                showingDeleteConfirmation = false
+                deleteErrorMessage = "Failed to prepare workout deletion. Please try again."
+                showingDeleteError = true
+                HapticsManager.shared.trigger(.error)
+            }
+            return
+        }
+
+        var shouldProcessRemoteDeletion = false
+
         modelContext.delete(workout)
         do {
+            let deletedSnapshot = LeaderboardWorkoutSnapshot(workout: workout)
             try modelContext.save()
-
-            // Recalculate PRs after deletion since the deleted workout may have held a PR
-            let settingsManager = SettingsManager.shared
-            try PersonalRecordService.recalculateAllPersonalRecords(
+            shouldProcessRemoteDeletion = didQueueRemoteDeletion
+            try WorkoutMutationHandler.shared.workoutsDidChange(
                 modelContext: modelContext,
-                measurementSystem: settingsManager.measurementSystem,
-                stepHeight: settingsManager.stepHeight
+                mutation: .deleted([deletedSnapshot])
             )
+
+            if shouldProcessRemoteDeletion, let remoteSyncUserId {
+                Task { @MainActor in
+                    await WorkoutSyncCoordinator.shared.processPendingWorkouts(
+                        modelContext: modelContext,
+                        currentUserId: remoteSyncUserId
+                    )
+                }
+            }
 
             await MainActor.run {
                 isDeleting = false
                 showingDeleteConfirmation = false
                 HapticsManager.shared.trigger(.success)
-                dismiss() // Navigate back to workout list
+                dismiss()
             }
         } catch {
-            print("❌ Error deleting workout: \(error)")
+            debugLog("❌ Error deleting workout: \(error)")
+
+            if shouldProcessRemoteDeletion, let remoteSyncUserId {
+                Task { @MainActor in
+                    await WorkoutSyncCoordinator.shared.processPendingWorkouts(
+                        modelContext: modelContext,
+                        currentUserId: remoteSyncUserId
+                    )
+                }
+            }
+
             await MainActor.run {
                 isDeleting = false
                 showingDeleteConfirmation = false
@@ -1173,90 +1113,12 @@ struct WorkoutDetailView: View {
     }
 }
 
-struct SingleWorkoutDeleteConfirmationView: View {
-    let workout: Workout
-    let isLoading: Bool
-    let isCancelling: Bool
-    let onConfirm: () -> Void
-    let onCancel: () -> Void
-
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var themeManager = ThemeManager.shared
-
-    private var effectiveColorScheme: ColorScheme {
-        themeManager.effectiveColorScheme(for: colorScheme)
-    }
-
-    var body: some View {
-        VStack(spacing: 20) {
-            VStack(spacing: 8) {
-                Text("Delete Workout")
-                    .font(.montserratBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                Text("Are you sure you want to delete \"\(workout.name)\"? This action cannot be undone.")
-                    .font(.montserratRegular(size: 16))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.8) : .gray)
-                    .multilineTextAlignment(.center)
-            }
-
-            HStack(spacing: 12) {
-                // Cancel button - enabled during loading so user can cancel
-                Button {
-                    onCancel()
-                } label: {
-                    if isCancelling {
-                        HStack(spacing: 6) {
-                            ProgressView()
-                                .tint(effectiveColorScheme == .dark ? .white : .black)
-                                .scaleEffect(0.8)
-                            Text("Stopping...")
-                        }
-                    } else {
-                        Text("Cancel")
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
-                )
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                .disabled(isCancelling)
-                .opacity(isLoading && !isCancelling ? 0.7 : 1)
-
-                Button {
-                    onConfirm()
-                } label: {
-                    if isLoading {
-                        ProgressView()
-                            .tint(.white)
-                    } else {
-                        Text("Delete")
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(.red)
-                )
-                .foregroundStyle(.white)
-                .disabled(isLoading || isCancelling)
-            }
-        }
-        .padding(20)
-        .themedBackground()
-    }
-}
-
 // MARK: - Preview
 #Preview {
     let sampleWorkout = Workout(
         name: "Morning Stair Climb",
         date: Date(),
-        duration: 1800, // 30 minutes
+        duration: 1800,
         steps: 2500,
         floors: 156,
         stepsPerFloor: 16,
@@ -1266,15 +1128,25 @@ struct SingleWorkoutDeleteConfirmationView: View {
         caloriesBurned: 320,
         effortRating: 4.0
     )
-    
+
     WorkoutDetailView(workout: sampleWorkout)
+        .modelContainer(
+            for: [
+                Workout.self,
+                WorkoutSourceLink.self,
+                WorkoutParticipation.self,
+                BestEffortCacheEntry.self,
+                BestEffortCacheMetadata.self
+            ],
+            inMemory: true
+        )
 }
 
 #Preview("No Health Metrics") {
     let sampleWorkout = Workout(
         name: "Evening Floors Session",
-        date: Date().addingTimeInterval(-86400), // Yesterday
-        duration: 2400, // 40 minutes
+        date: Date().addingTimeInterval(-86400),
+        duration: 2400,
         steps: 1360,
         floors: 85,
         stepsPerFloor: 16,
@@ -1284,7 +1156,17 @@ struct SingleWorkoutDeleteConfirmationView: View {
         caloriesBurned: nil,
         effortRating: 3.0
     )
-    
+
     WorkoutDetailView(workout: sampleWorkout)
         .preferredColorScheme(.dark)
+        .modelContainer(
+            for: [
+                Workout.self,
+                WorkoutSourceLink.self,
+                WorkoutParticipation.self,
+                BestEffortCacheEntry.self,
+                BestEffortCacheMetadata.self
+            ],
+            inMemory: true
+        )
 }

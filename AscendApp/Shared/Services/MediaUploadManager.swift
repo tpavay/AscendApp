@@ -8,6 +8,7 @@
 import Foundation
 import SwiftData
 import PhotosUI
+import FirebaseAuth
 
 /// Status of media uploads for a workout
 enum MediaUploadStatus: Equatable {
@@ -19,11 +20,14 @@ enum MediaUploadStatus: Equatable {
 /// Errors that can occur during media upload
 enum UploadError: LocalizedError {
     case timeout
+    case notAuthenticated
 
     var errorDescription: String? {
         switch self {
         case .timeout:
             return "Upload timed out"
+        case .notAuthenticated:
+            return "You must be signed in to upload media."
         }
     }
 }
@@ -46,7 +50,7 @@ final class MediaUploadManager {
     // MARK: - Private State
 
     /// Active upload tasks keyed by PendingMediaUpload.id (for cancellation)
-    private var activeUploadTasks: [UUID: Task<Void, Never>] = [:]
+    private var activeUploadTasks: [UUID: Task<Bool, Never>] = [:]
 
     /// Workouts currently being processed (prevents double-processing)
     private var processingWorkoutIds: Set<UUID> = []
@@ -246,24 +250,37 @@ final class MediaUploadManager {
         }
 
         // Process uploads sequentially
+        var didUploadAnyMedia = false
+
         for (currentIndex, upload) in pendingUploads.enumerated() {
             // Update status to show progress
             let total = pendingUploads.count
             uploadStatuses[workoutId] = .uploading(current: currentIndex + 1, total: total)
 
             // Create task for this upload
-            let task = Task<Void, Never> { [weak self] in
-                guard let self else { return }
-                await self.processUpload(upload, workout: workout, modelContext: modelContext)
+            let task = Task<Bool, Never> { [weak self] in
+                guard let self else { return false }
+                return await self.processUpload(
+                    upload,
+                    workout: workout,
+                    modelContext: modelContext
+                )
             }
 
             activeUploadTasks[upload.id] = task
-            await task.value
+            let didUploadMedia = await task.value
             activeUploadTasks[upload.id] = nil
+            didUploadAnyMedia = didUploadAnyMedia || didUploadMedia
 
             // Check if cancelled
             if Task.isCancelled { break }
         }
+
+        guard didUploadAnyMedia else { return }
+        await queueRemoteSyncForUploadedMedia(
+            workoutId: workoutId,
+            modelContext: modelContext
+        )
     }
 
     /// Process a single upload with retry logic
@@ -271,7 +288,7 @@ final class MediaUploadManager {
         _ upload: PendingMediaUpload,
         workout: Workout,
         modelContext: ModelContext
-    ) async {
+    ) async -> Bool {
         upload.uploadStatus = .uploading
         try? modelContext.save()
 
@@ -279,17 +296,23 @@ final class MediaUploadManager {
         var currentDelay = initialDelaySeconds
 
         for attempt in 0..<maxRetries {
-            if Task.isCancelled { return }
+            if Task.isCancelled { return false }
 
             do {
                 // Read local file data
                 let data = try await LocalMediaStorage.readData(filename: upload.localFileName)
 
                 // Determine Firebase path
+                guard let userId = Auth.auth().currentUser?.uid else {
+                    throw UploadError.notAuthenticated
+                }
+
                 let fileExtension = upload.isVideo ?
                     (URL(fileURLWithPath: upload.localFileName).pathExtension.isEmpty ? "mov" : URL(fileURLWithPath: upload.localFileName).pathExtension) :
                     "jpg"
-                let path = upload.isVideo ? "videos/\(UUID().uuidString).\(fileExtension)" : "photos/\(UUID().uuidString).jpg"
+                let path = upload.isVideo ?
+                    "users/\(userId)/videos/\(UUID().uuidString).\(fileExtension)" :
+                    "users/\(userId)/photos/\(UUID().uuidString).jpg"
 
                 // Upload to Firebase with timeout
                 let remoteURL = try await withThrowingTaskGroup(of: URL.self) { group in
@@ -328,12 +351,13 @@ final class MediaUploadManager {
                 try? modelContext.save()
                 await LocalMediaStorage.deleteIfExists(filename: upload.localFileName)
 
-                return // Success
+                return true // Success
 
             } catch {
                 lastError = error
+                debugLog("[MediaUploadManager] Upload attempt \(attempt + 1) failed for \(upload.localFileName): \(error.localizedDescription)")
 
-                if Task.isCancelled { return }
+                if Task.isCancelled { return false }
 
                 // Wait before retry (unless last attempt)
                 if attempt < maxRetries - 1 {
@@ -347,7 +371,48 @@ final class MediaUploadManager {
         upload.uploadStatus = .failed
         upload.retryCount = maxRetries
         upload.lastError = lastError?.localizedDescription ?? "Unknown error"
+        if let lastError {
+            TelemetryManager.shared.recordError(
+                lastError,
+                context: .storage,
+                code: upload.isVideo ? "video_upload_failed" : "photo_upload_failed",
+                additionalInfo: ["media_type": upload.mediaType]
+            )
+            debugLog("[MediaUploadManager] Upload failed after \(maxRetries) attempts for \(upload.localFileName): \(lastError.localizedDescription)")
+        } else {
+            debugLog("[MediaUploadManager] Upload failed after \(maxRetries) attempts for \(upload.localFileName): Unknown error")
+        }
         try? modelContext.save()
+        return false
+    }
+
+    private func queueRemoteSyncForUploadedMedia(
+        workoutId: UUID,
+        modelContext: ModelContext
+    ) async {
+        guard let currentUserId = Auth.auth().currentUser?.uid else { return }
+
+        let descriptor = FetchDescriptor<Workout>(
+            predicate: #Predicate<Workout> { workout in
+                workout.id == workoutId
+            }
+        )
+
+        guard let workout = try? modelContext.fetch(descriptor).first else { return }
+
+        workout.markPendingRemoteUpsert(ownerUserId: currentUserId)
+
+        do {
+            try modelContext.save()
+        } catch {
+            debugLog("[MediaUploadManager] Failed to mark workout \(workoutId) pending for remote sync: \(error.localizedDescription)")
+            return
+        }
+
+        await WorkoutSyncCoordinator.shared.processPendingWorkouts(
+            modelContext: modelContext,
+            currentUserId: currentUserId
+        )
     }
 
     /// Update the upload status for a workout based on pending uploads
@@ -357,12 +422,12 @@ final class MediaUploadManager {
         )
 
         guard let uploads = try? modelContext.fetch(descriptor) else {
-            uploadStatuses[workoutId] = .none
+            uploadStatuses[workoutId] = MediaUploadStatus.none
             return
         }
 
         if uploads.isEmpty {
-            uploadStatuses[workoutId] = .none
+            uploadStatuses[workoutId] = MediaUploadStatus.none
             return
         }
 
@@ -375,7 +440,7 @@ final class MediaUploadManager {
             if pendingCount > 0 {
                 uploadStatuses[workoutId] = .uploading(current: 1, total: pendingCount)
             } else {
-                uploadStatuses[workoutId] = .none
+                uploadStatuses[workoutId] = MediaUploadStatus.none
             }
         }
     }

@@ -2,6 +2,24 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>AscendRevenueCatAPIKey</key>
+	<string>$(ASCEND_REVENUECAT_API_KEY)</string>
+	<key>AscendRevenueCatTestAPIKey</key>
+	<string>$(ASCEND_REVENUECAT_TEST_API_KEY)</string>
+	<key>AscendUseRevenueCatTestStore</key>
+	<string>$(ASCEND_USE_REVENUECAT_TEST_STORE)</string>
+	<key>AscendSuperwallAPIKey</key>
+	<string>$(ASCEND_SUPERWALL_API_KEY)</string>
+	<key>AscendSuperwallTestMode</key>
+	<string>$(ASCEND_SUPERWALL_TEST_MODE)</string>
+	<key>AscendMixpanelToken</key>
+	<string>$(ASCEND_MIXPANEL_TOKEN)</string>
+	<key>AscendSentryDSN</key>
+	<string>$(ASCEND_SENTRY_DSN)</string>
+	<key>AscendSentryEnabled</key>
+	<string>$(ASCEND_SENTRY_ENABLED)</string>
+	<key>MBXAccessToken</key>
+	<string>$(MAPBOX_ACCESS_TOKEN)</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -9,8 +27,9 @@
 			<string>Editor</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.808186881002-ncqmrtrc05021fm2ekdlv2u6cjltbr14</string>
-				<string>com.googleusercontent.apps.699362062754-btv2ounn0dvd3omgkjpfhcg3ppsclnh0</string>
+				<string>com.googleusercontent.apps.808186881002-2nbeopa7sltss4mndm75s37o0var3c8n</string>
+				<string>com.googleusercontent.apps.761975761909-dibgspg10c56v2ipkm86a9jv6i51t2on</string>
+				<string>com.googleusercontent.apps.699362062754-od2ba0i13alcaqeplnrvh01p9vgj9hgi</string>
 			</array>
 		</dict>
 		<dict>
@@ -31,22 +50,34 @@
 		<string>x-apple-health</string>
 		<string>App-Prefs</string>
 	</array>
-	<key>NSCameraUsageDescription</key>
-	<string>Ascend uses your camera to capture workout photos and videos.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Ascend needs access to your photo library to attach photos and videos to workouts.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Ascend needs access to your Health data to import your stair climbing workouts, including steps, heart rate, active energy, and resting energy.</string>
-	<key>NSHealthUpdateUsageDescription</key>
-	<string>Ascend saves your stair stepper workouts to Apple Health to keep all your fitness data in one place.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Ascend uses your location once to set your profile city for leaderboard context.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Ascend uses motion from compatible headphones to track steps during Live Climbs.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Ascend connects to your Bluetooth heart rate monitor to show live heart rate and effort zones while you climb.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>bluetooth-central</string>
+	</array>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
+	<true/>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Montserrat-Regular.ttf</string>
 		<string>Montserrat-Medium.ttf</string>
 		<string>Montserrat-Bold.ttf</string>
 		<string>Montserrat-SemiBold.ttf</string>
-		<string>Montserrat-Light.ttf</string>
-		<string>Montserrat-Italic.ttf</string>
+		<string>Anton-Regular.ttf</string>
+		<string>PlayfairDisplay-Italic-VariableFont_wght.ttf</string>
+		<string>SpaceMono-Regular.ttf</string>
+		<string>SpaceMono-Bold.ttf</string>
 	</array>
 </dict>
 </plist>

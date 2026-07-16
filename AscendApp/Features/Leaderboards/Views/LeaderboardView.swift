@@ -10,64 +10,81 @@ import SwiftData
 
 struct LeaderboardView: View {
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(TabRouter.self) private var tabRouter
+    @Environment(\.dismiss) private var dismiss
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.modelContext) private var modelContext
-    @Query private var workouts: [Workout]
+    @Environment(NetworkConnectivityService.self) private var connectivityService
 
-    @State private var viewModel = LeaderboardViewModel()
+    @State private var viewModel: LeaderboardViewModel
     @State private var scrollResetTrigger = 0
-    @State private var scrollProxy: ScrollViewProxy?
-    @State private var isSearchExpanded = false
-    @State private var showFilterSheet = false
-    @FocusState private var isSearchFocused: Bool
+
+    private let lockedMetric: LeaderboardMetric?
+    private let selectableTimeFrames: [LeaderboardTimeFrame] = [.weekly, .monthly, .yearly, .allTime]
 
     private enum ScrollTarget: Hashable {
         case top
-        case userRow(String)
     }
 
-    private var effectiveColorScheme: ColorScheme {
-        colorScheme
+    @MainActor
+    init(lockedMetric: LeaderboardMetric? = nil, initialTimeFrame: LeaderboardTimeFrame = .weekly) {
+        self.lockedMetric = lockedMetric
+
+        let vm = LeaderboardViewModel()
+        if let lockedMetric {
+            vm.selectedMetric = lockedMetric
+        }
+        vm.selectedTimeFrame = initialTimeFrame
+        _viewModel = State(initialValue: vm)
+    }
+
+    private var metricTitle: String {
+        viewModel.selectedMetric.displayName
+    }
+
+    private var isLockedMetricView: Bool {
+        lockedMetric != nil
+    }
+
+    private var backgroundColor: Color {
+        colorScheme == .dark ? .black : .white
+    }
+
+    private var primaryTextColor: Color {
+        colorScheme == .dark ? .white : .black
     }
 
     var body: some View {
         ZStack {
-            VStack(spacing: 0) {
-                header
-                    .onChange(of: viewModel.selectedMetric) { _, _ in
-                        resetScrollPosition()
-                        Task { await loadData() }
-                    }
-                    .onChange(of: viewModel.selectedTimeFrame) { _, _ in
-                        resetScrollPosition()
-                        Task { await loadData() }
-                    }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        Color.clear
+                            .frame(height: 0)
+                            .id(ScrollTarget.top)
 
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 20) {
-                            Color.clear
-                                .frame(height: 0)
-                                .id(ScrollTarget.top)
+                        header
+                            .padding(.top, 18)
+                            .padding(.bottom, 16)
 
-                            if viewModel.isOffline && viewModel.hasCachedEntries {
-                                offlineBanner
-                            } else if let error = viewModel.errorMessage, viewModel.hasCachedEntries {
-                                errorBanner(error)
-                            }
-
-                            contentSection
+                        if let error = viewModel.errorMessage, viewModel.hasCachedEntries {
+                            StatusBannerView(
+                                message: error,
+                                style: .warning
+                            )
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 16)
                         }
-                        .padding(.vertical, 16)
+
+                        contentSection
                     }
-                    .onChange(of: scrollResetTrigger) { _, _ in
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(ScrollTarget.top, anchor: .top)
-                        }
-                    }
-                    .onAppear {
-                        scrollProxy = proxy
+                    .padding(.bottom, 124)
+                }
+                .refreshable {
+                    await refreshData()
+                }
+                .onChange(of: scrollResetTrigger) { _, _ in
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo(ScrollTarget.top, anchor: .top)
                     }
                 }
             }
@@ -77,18 +94,35 @@ struct LeaderboardView: View {
                     .allowsHitTesting(false)
             }
         }
-        .themedBackground()
-        .navigationTitle("Leaderboard")
+        .background(backgroundColor.ignoresSafeArea())
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(isLockedMetricView)
+        .toolbar(.hidden, for: .navigationBar)
         .task {
             resetScrollPosition()
             await setupAndLoad()
         }
-        .refreshable {
-            await refreshData()
-        }
-        .onChange(of: tabRouter.selectedTab) { _, newTab in
-            guard newTab == .leaderboard else { return }
+        .onChange(of: viewModel.selectedMetric) { _, newMetric in
+            if let lockedMetric, newMetric != lockedMetric {
+                viewModel.selectedMetric = lockedMetric
+                return
+            }
             resetScrollPosition()
+            Task { await loadData() }
+        }
+        .onChange(of: viewModel.selectedTimeFrame) { _, _ in
+            resetScrollPosition()
+            Task { await loadData() }
+        }
+        .onChange(of: viewModel.selectedAgeGroup) { _, _ in
+            demographicFilterChanged()
+        }
+        .onChange(of: viewModel.selectedBodyWeightFilter) { _, _ in
+            demographicFilterChanged()
+        }
+        .onChange(of: viewModel.selectedLocationFilter) { _, _ in
+            demographicFilterChanged()
         }
         .onChange(of: authVM.displayName) { _, _ in
             syncCurrentUserEntry()
@@ -96,137 +130,281 @@ struct LeaderboardView: View {
         .onChange(of: authVM.displayPhotoURL) { _, _ in
             syncCurrentUserEntry()
         }
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button {
-                    isSearchFocused = false
-                } label: {
-                    Text("Done")
-                        .font(.montserratSemiBold(size: 16))
-                }
-            }
-        }
-    }
-
-    private var dynamicTitle: String {
-        let timeFrame = viewModel.selectedTimeFrame.displayName
-        let metric = viewModel.selectedMetric.displayName(for: SettingsManager.shared.preferredWorkoutMetric)
-        return "\(timeFrame) \(metric)"
     }
 
     private var header: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
-                // Dynamic title
-                Text(dynamicTitle)
-                    .font(.montserratBold(size: 18))
-                    .foregroundStyle(colorScheme == .dark ? .white : .black)
-
-                Spacer()
-
-                // Search button
-                Button {
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        isSearchExpanded.toggle()
+                if isLockedMetricView {
+                    OnboardingBackButton {
+                        HapticsManager.shared.trigger(.lightImpact)
+                        dismiss()
                     }
-                    HapticsManager.shared.trigger(.lightImpact)
-                } label: {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(colorScheme == .dark ? .white : .black)
                 }
 
-                // Filter button
-                Button {
-                    showFilterSheet = true
-                    HapticsManager.shared.trigger(.lightImpact)
-                } label: {
-                    Image(systemName: "line.3.horizontal.decrease")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(colorScheme == .dark ? .white : .black)
+                if isLockedMetricView {
+                    titleLabel
+                } else {
+                    metricTitleMenu
                 }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, isSearchExpanded ? 12 : 16)
 
-            // Expandable search field
-            if isSearchExpanded {
-                searchField
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 12)
-                    .transition(.asymmetric(
-                        insertion: .opacity.combined(with: .move(edge: .top)),
-                        removal: .opacity.combined(with: .move(edge: .top))
-                    ))
+                Spacer(minLength: 10)
             }
 
-            Rectangle()
-                .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
-                .frame(height: 1)
+            timeFrameFilters
+
+            demographicFilters
         }
-        .background(
-            (effectiveColorScheme == .dark ? Color.jet : Color.white)
-                .opacity(0.95)
-        )
-        .sheet(isPresented: $showFilterSheet) {
-            LeaderboardFilterSheet(
-                selectedTimeFrame: $viewModel.selectedTimeFrame,
-                selectedMetric: $viewModel.selectedMetric
-            )
+        .padding(.horizontal, 20)
+    }
+
+    private var titleLabel: some View {
+        metricTitleText(metricTitle)
+    }
+
+    private func metricTitleText(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.montserratBold(size: 34))
+            .foregroundStyle(primaryTextColor)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var metricTitleMenu: some View {
+        Menu {
+            metricMenuOptions
+        } label: {
+            HStack(spacing: 8) {
+                ZStack(alignment: .leading) {
+                    ForEach(LeaderboardMetric.allCases) { metric in
+                        metricTitleText(metric.displayName)
+                            .hidden()
+                    }
+
+                    titleLabel
+                }
+
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(primaryTextColor.opacity(0.82))
+                    .padding(.top, 4)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var metricMenuOptions: some View {
+        ForEach(LeaderboardMetric.allCases) { metric in
+            Button {
+                guard viewModel.selectedMetric != metric else { return }
+                HapticsManager.shared.trigger(.selection)
+                viewModel.selectedMetric = metric
+            } label: {
+                Label(
+                    metric.displayName,
+                    systemImage: metric.icon
+                )
+            }
         }
     }
 
-    private var searchField: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-
-            TextField("Search for a player", text: $viewModel.searchText)
-                .textInputAutocapitalization(.words)
-                .autocorrectionDisabled()
-                .submitLabel(.search)
-                .font(.montserratRegular(size: 14))
-                .focused($isSearchFocused)
-
-            if !viewModel.searchText.isEmpty {
-                Button {
-                    viewModel.searchText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+    private var timeFrameFilters: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(selectableTimeFrames) { timeFrame in
+                    let isSelected = viewModel.selectedTimeFrame == timeFrame
+                    Button {
+                        guard viewModel.selectedTimeFrame != timeFrame else { return }
+                        HapticsManager.shared.trigger(.selection)
+                        viewModel.selectedTimeFrame = timeFrame
+                    } label: {
+                        Text(timeFrame.displayName.uppercased())
+                            .font(.montserratBold(size: 10))
+                            .foregroundStyle(isSelected ? .accent : primaryTextColor.opacity(0.74))
+                            .lineLimit(1)
+                            .padding(.horizontal, 13)
+                            .frame(height: 30)
+                            .background(
+                                Capsule()
+                                    .fill(isSelected ? Color.accent.opacity(0.09) : Color.clear)
+                            )
+                            .overlay(
+                                Capsule()
+                                    .stroke(
+                                        isSelected
+                                            ? Color.accent
+                                            : (colorScheme == .dark ? .white.opacity(0.16) : .black.opacity(0.14)),
+                                        lineWidth: 1
+                                    )
+                            )
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-
-            Button {
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    isSearchExpanded = false
-                    viewModel.searchText = ""
-                }
-            } label: {
-                Text("Cancel")
-                    .font(.montserratMedium(size: 14))
-                    .foregroundStyle(.accent)
-            }
+            .padding(.vertical, 1)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .scrollClipDisabled()
+    }
+
+    private var demographicFilters: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ageFilterMenu
+                bodyWeightFilterMenu
+                locationFilterMenu
+
+                if viewModel.hasActiveDemographicFilters {
+                    Button {
+                        HapticsManager.shared.trigger(.selection)
+                        viewModel.clearDemographicFilters()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(primaryTextColor.opacity(0.72))
+                            .frame(width: 30, height: 30)
+                            .background(
+                                Circle()
+                                    .fill(colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.06))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear leaderboard filters")
+                }
+            }
+            .padding(.vertical, 1)
+        }
+        .scrollClipDisabled()
+    }
+
+    private var ageFilterMenu: some View {
+        Menu {
+            Button {
+                guard viewModel.selectedAgeGroup != nil else { return }
+                HapticsManager.shared.trigger(.selection)
+                viewModel.selectAgeGroup(nil)
+            } label: {
+                if viewModel.selectedAgeGroup == nil {
+                    Label("All ages", systemImage: "checkmark")
+                } else {
+                    Text("All ages")
+                }
+            }
+
+            ForEach(LeaderboardAgeGroup.allCases) { ageGroup in
+                Button {
+                    guard viewModel.selectedAgeGroup != ageGroup else { return }
+                    HapticsManager.shared.trigger(.selection)
+                    viewModel.selectAgeGroup(ageGroup)
+                } label: {
+                    if viewModel.selectedAgeGroup == ageGroup {
+                        Label(ageGroup.displayName, systemImage: "checkmark")
+                    } else {
+                        Text(ageGroup.displayName)
+                    }
+                }
+            }
+        } label: {
+            demographicFilterChip(
+                title: viewModel.ageFilterTitle,
+                isActive: viewModel.selectedAgeGroup != nil
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var bodyWeightFilterMenu: some View {
+        Menu {
+            ForEach(LeaderboardBodyWeightFilter.allCases) { filter in
+                Button {
+                    guard viewModel.selectedBodyWeightFilter != filter else { return }
+                    HapticsManager.shared.trigger(.selection)
+                    viewModel.selectBodyWeightFilter(filter)
+                } label: {
+                    if viewModel.selectedBodyWeightFilter == filter {
+                        Label(filter.displayName, systemImage: "checkmark")
+                    } else {
+                        Text(filter.displayName)
+                    }
+                }
+            }
+        } label: {
+            demographicFilterChip(
+                title: viewModel.bodyWeightFilterTitle,
+                isActive: viewModel.selectedBodyWeightFilter != .all
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var locationFilterMenu: some View {
+        Menu {
+            ForEach(viewModel.currentLocationFilterOptions) { filter in
+                Button {
+                    guard viewModel.selectedLocationFilter != filter else { return }
+                    HapticsManager.shared.trigger(.selection)
+                    viewModel.selectLocationFilter(filter)
+                } label: {
+                    let title = filter.displayName(currentUserProfile: viewModel.currentUserLocationProfile)
+                    if viewModel.selectedLocationFilter == filter {
+                        Label(title, systemImage: "checkmark")
+                    } else {
+                        Text(title)
+                    }
+                }
+            }
+        } label: {
+            demographicFilterChip(
+                title: viewModel.locationFilterTitle,
+                isActive: viewModel.selectedLocationFilter != .all
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func demographicFilterChip(title: String, isActive: Bool) -> some View {
+        HStack(spacing: 6) {
+            Text(title.uppercased())
+                .font(.montserratBold(size: 10))
+                .foregroundStyle(isActive ? .accent : primaryTextColor.opacity(0.74))
+                .lineLimit(1)
+
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(isActive ? .accent : primaryTextColor.opacity(0.54))
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 30)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color("Jet") : Color.gray.opacity(0.08))
+            Capsule()
+                .fill(isActive ? Color.accent.opacity(0.09) : Color.clear)
         )
+        .overlay(
+            Capsule()
+                .stroke(
+                    isActive
+                        ? Color.accent
+                        : (colorScheme == .dark ? .white.opacity(0.16) : .black.opacity(0.14)),
+                    lineWidth: 1
+                )
+        )
+        .contentShape(Capsule())
     }
 
     @ViewBuilder
     private var contentSection: some View {
         let entries = viewModel.displayedEntries
+
         if entries.isEmpty {
             if !viewModel.isLoading {
                 if viewModel.isOffline {
                     offlineEmptyStateView
                 } else if let error = viewModel.errorMessage {
                     errorView(error)
+                } else if viewModel.hasActiveDemographicFilters {
+                    filteredEmptyStateView
                 } else {
                     emptyStateView
                 }
@@ -236,115 +414,172 @@ struct LeaderboardView: View {
         }
     }
 
+    // MARK: - Leaderboard Content
+
+    private struct LeaderboardPresentationState {
+        let podiumEntries: [LeaderboardEntry]
+        let pinnedUserEntry: LeaderboardEntry?
+        let listEntries: [LeaderboardEntry]
+    }
+
+    private func leaderboardContent(entries: [LeaderboardEntry]) -> some View {
+        let state = presentationState(for: entries)
+
+        return VStack(spacing: 16) {
+            if !state.podiumEntries.isEmpty {
+                LeaderboardPodiumView(
+                    entries: state.podiumEntries,
+                    metric: viewModel.selectedMetric,
+                    usesContainerBackground: false
+                )
+                .padding(.horizontal, 20)
+            }
+
+            if let userEntry = state.pinnedUserEntry {
+                LeaderboardUserRowView(
+                    entry: userEntry,
+                    metric: viewModel.selectedMetric,
+                    crownGapText: crownGapText(for: userEntry, podiumEntries: state.podiumEntries)
+                )
+                .padding(.top, 2)
+            }
+
+            if !state.listEntries.isEmpty {
+                LeaderboardRowListView(
+                    entries: state.listEntries,
+                    metric: viewModel.selectedMetric,
+                    onEntryAppear: { entry in
+                        viewModel.loadMoreEntriesIfNeeded(currentEntry: entry)
+                    }
+                )
+                .padding(.top, 2)
+            } else if entries.count == 1, let entry = entries.first, entry.isCurrentUser {
+                Text("You own this board. Keep it there.")
+                    .font(.montserratMedium(size: 14))
+                    .foregroundStyle(primaryTextColor.opacity(0.68))
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 14)
+                    .padding(.horizontal, 40)
+            }
+        }
+    }
+
+    private func presentationState(for entries: [LeaderboardEntry]) -> LeaderboardPresentationState {
+        let podiumEntries = entries.filter { $0.rank <= 3 }
+        let listEntries = entries.filter { $0.rank > 3 }
+
+        guard let userEntry = viewModel.userEntry else {
+            return LeaderboardPresentationState(
+                podiumEntries: podiumEntries,
+                pinnedUserEntry: nil,
+                listEntries: listEntries
+            )
+        }
+
+        if shouldPinUserRow(userEntry) {
+            let dedupedRows = listEntries.filter { $0.userId != userEntry.userId }
+            return LeaderboardPresentationState(
+                podiumEntries: podiumEntries,
+                pinnedUserEntry: userEntry,
+                listEntries: dedupedRows
+            )
+        }
+
+        return LeaderboardPresentationState(
+            podiumEntries: podiumEntries,
+            pinnedUserEntry: nil,
+            listEntries: listEntries
+        )
+    }
+
+    private func shouldPinUserRow(_ entry: LeaderboardEntry) -> Bool {
+        entry.rank > 3
+    }
+
+    private func crownGapText(for userEntry: LeaderboardEntry, podiumEntries: [LeaderboardEntry]) -> String? {
+        guard let leader = podiumEntries.first(where: { $0.rank == 1 }),
+              leader.userId != userEntry.userId
+        else {
+            return nil
+        }
+
+        let gap = leader.value - userEntry.value
+        guard gap > 0 else { return nil }
+
+        return "\(formattedCrownGap(gap, for: viewModel.selectedMetric)) TO CROWN"
+    }
+
+    private func formattedCrownGap(_ gap: Double, for metric: LeaderboardMetric) -> String {
+        switch metric {
+        case .climb:
+            return "\(Int(gap.rounded(.up)).formatted(.number.grouping(.automatic))) STEPS"
+        case .workouts:
+            return "\(Int(gap.rounded(.up)).formatted(.number.grouping(.automatic))) WORKOUTS"
+        case .duration:
+            return formattedDurationGap(gap)
+        case .pace:
+            return "\(gap.formatted(.number.precision(.fractionLength(1)))) SPM"
+        }
+    }
+
+    private func formattedDurationGap(_ gap: Double) -> String {
+        let totalSeconds = Int(gap.rounded(.up))
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+
+        if hours > 0 {
+            return "\(hours):\(twoDigit(minutes)):\(twoDigit(seconds))"
+        }
+
+        return "\(minutes):\(twoDigit(seconds))"
+    }
+
+    private func twoDigit(_ value: Int) -> String {
+        value < 10 ? "0\(value)" : "\(value)"
+    }
+
     private var shouldShowBlockingLoader: Bool {
         viewModel.displayedEntries.isEmpty && viewModel.isLoading
     }
 
     private var blockingLoader: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-                .progressViewStyle(.circular)
-            Text("Loading leaderboard…")
-                .font(.montserratSemiBold(size: 16))
-                .foregroundStyle(colorScheme == .dark ? .white : .black)
-        }
-        .padding(24)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(colorScheme == .dark ? Color("Jet") : Color.white)
-                .shadow(color: .black.opacity(0.1), radius: 20, x: 0, y: 10)
-        )
-    }
+        ZStack {
+            backgroundColor.opacity(colorScheme == .dark ? 0.72 : 0.58)
+                .ignoresSafeArea()
 
-    // MARK: - Leaderboard Content
+            VStack(spacing: 12) {
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .tint(.accent)
 
-    /// Whether the user is in the top 5
-    private var isUserInTop5: Bool {
-        guard let userEntry = viewModel.userEntry else { return false }
-        return userEntry.rank <= 5
-    }
-
-    /// Entries for the top 5 carousel (only original top 5 that match search)
-    private var top5Entries: [LeaderboardEntry] {
-        viewModel.displayedEntries.filter { $0.rank <= 5 }
-    }
-
-    /// Entries for the rankings list (#6+, only original rank 6+ that match search)
-    private var remainingEntries: [LeaderboardEntry] {
-        viewModel.displayedEntries.filter { $0.rank > 5 }
-    }
-
-    @ViewBuilder
-    private func leaderboardContent(entries: [LeaderboardEntry]) -> some View {
-        VStack(spacing: 20) {
-            // "You're in #XX" banner (only when user is NOT in top 5)
-            if let userEntry = viewModel.userEntry, !isUserInTop5 {
-                UserPositionBanner(
-                    entry: userEntry,
-                    metric: viewModel.selectedMetric,
-                    onTap: {
-                        scrollToUserPosition()
-                    }
-                )
+                Text("Loading leaderboard...")
+                    .font(.montserratSemiBold(size: 15))
+                    .foregroundStyle(primaryTextColor)
             }
-
-            // Top 5 Carousel
-            if !top5Entries.isEmpty {
-                Top5CarouselView(
-                    entries: top5Entries,
-                    metric: viewModel.selectedMetric,
-                    currentUserId: authVM.user?.uid
-                )
-            }
-
-            // Rankings list (#6+)
-            if !remainingEntries.isEmpty {
-                LazyVStack(spacing: 12) {
-                    ForEach(remainingEntries) { entry in
-                        LeaderboardRow(
-                            entry: entry,
-                            metric: viewModel.selectedMetric
-                        )
-                        .id(ScrollTarget.userRow(entry.userId))
-                        .onAppear {
-                            viewModel.loadMoreEntriesIfNeeded(currentEntry: entry)
-                        }
-                    }
-                }
-            } else if entries.count <= 5 && entries.count > 0 {
-                // Only top 5 or fewer entries exist - show simple message if user is the only one
-                if entries.count == 1, let entry = entries.first, entry.isCurrentUser {
-                    VStack(spacing: 8) {
-                        Text("You're the first on this leaderboard!")
-                            .font(.montserratMedium(size: 14))
-                            .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
-                            .multilineTextAlignment(.center)
-                    }
-                    .padding(.top, 20)
-                    .padding(.horizontal, 40)
-                }
-            }
+            .padding(22)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(colorScheme == .dark ? Color.jet : Color.white)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(colorScheme == .dark ? .white.opacity(0.12) : .black.opacity(0.08), lineWidth: 1)
+            )
         }
     }
 
-    private func scrollToUserPosition() {
-        guard let userEntry = viewModel.userEntry else { return }
-        withAnimation(.easeInOut(duration: 0.3)) {
-            scrollProxy?.scrollTo(ScrollTarget.userRow(userEntry.userId), anchor: .center)
-        }
-    }
-
-    // MARK: - Error View
+    // MARK: - Empty and Error States
 
     private func errorView(_ message: String) -> some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 50))
+                .font(.system(size: 34, weight: .semibold))
                 .foregroundStyle(.red)
 
-            Text("Error")
-                .font(.montserratBold(size: 24))
-                .foregroundStyle(colorScheme == .dark ? .white : .black)
+            Text("Leaderboard stalled.")
+                .font(.montserratBold(size: 20))
+                .foregroundStyle(primaryTextColor)
 
             Text(message)
                 .font(.montserratRegular(size: 14))
@@ -352,96 +587,101 @@ struct LeaderboardView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
         }
-        .padding(.vertical, 40)
-    }
-
-    private var offlineBanner: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "wifi.slash")
-                .foregroundStyle(.orange)
-
-            Text("Offline - showing cached data")
-                .font(.montserratRegular(size: 13))
-                .foregroundStyle(colorScheme == .dark ? .white : .black)
-                .multilineTextAlignment(.leading)
-        }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.orange.opacity(0.15) : Color.orange.opacity(0.1))
-        )
-        .padding(.horizontal, 20)
-    }
-
-    private func errorBanner(_ message: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
-
-            Text(message)
-                .font(.montserratRegular(size: 13))
-                .foregroundStyle(colorScheme == .dark ? .white : .black)
-                .multilineTextAlignment(.leading)
-        }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? Color.red.opacity(0.2) : Color.red.opacity(0.1))
-        )
-        .padding(.horizontal, 20)
+        .padding(.vertical, 42)
     }
 
     private var emptyStateView: some View {
         VStack(spacing: 12) {
             Image(systemName: "person.3.fill")
-                .font(.system(size: 42))
+                .font(.system(size: 36, weight: .semibold))
                 .foregroundStyle(.accent)
 
-            Text("No leaderboard data yet")
+            Text("No entries yet.")
                 .font(.montserratBold(size: 20))
-                .foregroundStyle(colorScheme == .dark ? .white : .black)
+                .foregroundStyle(primaryTextColor)
 
-            Text("Pull to refresh after you've completed a workout to see how you stack up.")
+            Text("Take the first spot.")
                 .font(.montserratRegular(size: 14))
-                .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
+                .foregroundStyle(primaryTextColor.opacity(0.66))
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
         }
-        .padding(.vertical, 40)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 44)
+        .padding(.horizontal, 20)
+    }
+
+    private var filteredEmptyStateView: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "line.3.horizontal.decrease.circle")
+                .font(.system(size: 36, weight: .semibold))
+                .foregroundStyle(.accent)
+
+            VStack(spacing: 5) {
+                Text(viewModel.filteredEmptyStateTitle)
+                    .font(.montserratBold(size: 20))
+                    .foregroundStyle(primaryTextColor)
+
+                Text(viewModel.filteredEmptyStateMessage)
+                    .font(.montserratRegular(size: 14))
+                    .foregroundStyle(primaryTextColor.opacity(0.66))
+                    .multilineTextAlignment(.center)
+            }
+
+            Button {
+                HapticsManager.shared.trigger(.selection)
+                viewModel.clearDemographicFilters()
+            } label: {
+                Text("Clear Filters")
+                    .font(.montserratBold(size: 13))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 18)
+                    .frame(height: 34)
+                    .background(Capsule().fill(Color.accent))
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 44)
+        .padding(.horizontal, 20)
     }
 
     private var offlineEmptyStateView: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 12) {
             Image(systemName: "wifi.slash")
-                .font(.system(size: 50))
+                .font(.system(size: 36, weight: .semibold))
                 .foregroundStyle(.orange)
 
-            Text("You're Offline")
-                .font(.montserratBold(size: 24))
-                .foregroundStyle(colorScheme == .dark ? .white : .black)
+            Text("You're offline.")
+                .font(.montserratBold(size: 20))
+                .foregroundStyle(primaryTextColor)
 
-            Text("Please check your internet connection and pull to refresh.")
+            Text("Pull to retry when the connection is back.")
                 .font(.montserratRegular(size: 14))
-                .foregroundStyle(colorScheme == .dark ? .white.opacity(0.7) : .gray)
+                .foregroundStyle(primaryTextColor.opacity(0.66))
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
         }
-        .padding(.vertical, 40)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 44)
+        .padding(.horizontal, 20)
     }
 
     // MARK: - Data Loading
 
     private func setupAndLoad() async {
         guard let userId = authVM.user?.uid else { return }
+        if let lockedMetric {
+            viewModel.selectedMetric = lockedMetric
+        }
         viewModel.configure(userId: userId, modelContext: modelContext)
         await loadData()
     }
 
     private func loadData() async {
         guard let userId = authVM.user?.uid else { return }
-        await viewModel.loadLeaderboard(userId: userId)
+        await viewModel.loadLeaderboard(
+            userId: userId,
+            isNetworkConnected: connectivityService.isConnected
+        )
     }
 
     private func refreshData() async {
@@ -450,12 +690,17 @@ struct LeaderboardView: View {
             userId: userId,
             displayName: authVM.displayName,
             photoURL: authVM.displayPhotoURL,
-            workouts: workouts
+            isNetworkConnected: connectivityService.isConnected
         )
     }
 
     private func resetScrollPosition() {
         scrollResetTrigger &+= 1
+    }
+
+    private func demographicFilterChanged() {
+        resetScrollPosition()
+        Task { await loadData() }
     }
 
     private func syncCurrentUserEntry() {
@@ -471,7 +716,8 @@ struct LeaderboardView: View {
     NavigationStack {
         LeaderboardView()
             .environment(AuthenticationViewModel())
+            .environment(NetworkConnectivityService.shared)
             .environment(TabRouter())
     }
-    .modelContainer(for: Workout.self, inMemory: true)
+    .modelContainer(for: [Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self], inMemory: true)
 }

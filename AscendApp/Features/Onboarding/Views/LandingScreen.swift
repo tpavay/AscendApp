@@ -1,49 +1,83 @@
 import SwiftUI
 
 struct LandingScreen: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
-        VStack(spacing: 18) {
-                Image("AppIconInternal")
-                    .resizable()
-                    .renderingMode(.template)
-                    .foregroundStyle(.accent)
-                    .frame(width: 120, height: 120)
-                    .shadow(color: .accent.opacity(0.35), radius: 16, y: 6)
+        ZStack {
+            OnboardingWelcomeBackground()
 
-                Text("Ascend")
-                    .font(.montserratBold)
-                    .foregroundStyle(colorScheme == .dark ? .white : .black)
-                    .kerning(0.5)
-                    .shadow(color: colorScheme == .dark ? .black.opacity(0.6) : .clear, radius: 10, y: 4)
+            GeometryReader { geometry in
+                let scaleX = geometry.size.width / 390
+                let scaleY = geometry.size.height / 844
+                let typeScale = min(scaleX, scaleY)
+                let centerX = geometry.size.width / 2
 
-                Text("Elevate Your Stair Climbing Game")
-                    .font(.montserratMedium)
-                    .foregroundStyle(colorScheme == .dark ? .white.opacity(0.72) : .gray)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
-                    .padding(.top, -4)
+                ZStack(alignment: .topLeading) {
+                    AscendWordmark(
+                        size: 30 * typeScale,
+                        letterColor: .white,
+                        letterSpacing: 5.0 * typeScale,
+                        iconSize: 52 * typeScale,
+                        iconTrailingSpacing: 14 * typeScale
+                    )
+                    .position(x: centerX, y: 200 * scaleY)
 
-                VStack(spacing: -12) {
-                    NavigationLink(destination: SignUpView()) {
-                        Text("Continue")
-                            .font(.montserratSemiBold)
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 55)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14)
-                                    .fill(.accent)
-                            )
-                            .padding()
+                    welcomeHeadline(typeScale: typeScale)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                        .frame(width: 334 * scaleX, height: 36 * scaleY, alignment: .top)
+                        .position(x: centerX, y: 270 * scaleY)
+
+                    NavigationLink(destination: PreAuthOnboardingValueCarouselScreen()) {
+                        Text("GET STARTED")
                     }
-                }
+                    .buttonStyle(
+                        OnboardingPrimaryCTAButtonStyle(
+                            height: 56 * scaleY,
+                            cornerRadius: 12 * typeScale,
+                            fontSize: 16 * typeScale,
+                            tint: brandAccentColor,
+                            shadowOpacity: 0
+                        )
+                    )
+                    .frame(width: 334 * scaleX)
+                    .position(x: centerX, y: 752 * scaleY)
 
-                Spacer(minLength: 24)
+                }
+            }
+            .ignoresSafeArea()
         }
-        .padding(.top, 180)
-        .themedBackground()
+        .background(Color.black)
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private func welcomeHeadline(typeScale: CGFloat) -> Text {
+        Text("The ")
+            .foregroundStyle(.white.opacity(0.95))
+            .font(.montserratSemiBold(size: 24 * typeScale))
+        + Text("stair stepper")
+            .foregroundStyle(brandAccentColor)
+            .font(.montserratSemiBold(size: 24 * typeScale))
+        + Text(" app.")
+            .foregroundStyle(.white.opacity(0.95))
+            .font(.montserratSemiBold(size: 24 * typeScale))
+    }
+
+    private var brandAccentColor: Color {
+        Color.ascendAccent
+    }
+}
+
+private struct OnboardingWelcomeBackground: View {
+    var body: some View {
+        GeometryReader { geometry in
+            Image("OnboardingWelcomeBackground")
+                .resizable()
+                .scaledToFill()
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .clipped()
+        }
+        .ignoresSafeArea()
     }
 }
 

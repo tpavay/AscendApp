@@ -8,26 +8,9 @@
 import SwiftUI
 
 struct ThemedBackground: View {
-    @Environment(\.colorScheme) private var systemColorScheme
-    @State private var themeManager = ThemeManager.shared
-    
-    private var effectiveColorScheme: ColorScheme {
-        themeManager.effectiveColorScheme(for: systemColorScheme)
-    }
-    
     var body: some View {
-        Group {
-            if effectiveColorScheme == .dark {
-                LinearGradient(
-                    colors: [.night, .jetLighter],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            } else {
-                Color.white
-            }
-        }
-        .ignoresSafeArea()
+        Color.black
+            .ignoresSafeArea()
     }
 }
 
@@ -48,14 +31,4 @@ extension View {
     }
     .themedBackground()
     .preferredColorScheme(.dark)
-}
-
-#Preview("Light Mode") {
-    VStack {
-        Text("Light Mode Preview")
-            .font(.title)
-            .foregroundStyle(.black)
-    }
-    .themedBackground()
-    .preferredColorScheme(.light)
 }

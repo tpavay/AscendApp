@@ -12,6 +12,13 @@ import SwiftData
 struct EditWorkoutView: View {
     let workout: Workout
     @Binding var showingEditWorkout: Bool
+    let title: String
+    let primaryActionTitle: String
+    let cancelActionTitle: String?
+    let destructiveActionTitle: String?
+    let onSave: (() -> Void)?
+    let onCancel: (() -> Void)?
+    let onDestructiveAction: (() -> Void)?
     
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -24,9 +31,8 @@ struct EditWorkoutView: View {
     @State private var durationHours: String = ""
     @State private var durationMinutes: String = ""
     @State private var durationSeconds: String = ""
-    @State private var metricValue: String = ""
+    @State private var stepsValue: String = ""
     @State private var notes: String = ""
-    @State private var showingMetricTooltip = false
     @State private var selectedImages: [SelectedPhotoItem] = []
     @State private var existingPhotos: [Photo] = []
     @State private var photosMarkedForDeletion: [Photo] = []
@@ -57,6 +63,28 @@ struct EditWorkoutView: View {
     @FocusState private var focusedField: WorkoutFormField?
     
     private let photoService = PhotoService()
+
+    init(
+        workout: Workout,
+        showingEditWorkout: Binding<Bool>,
+        title: String = "Edit Workout",
+        primaryActionTitle: String = "Update",
+        cancelActionTitle: String? = "Cancel",
+        destructiveActionTitle: String? = nil,
+        onSave: (() -> Void)? = nil,
+        onCancel: (() -> Void)? = nil,
+        onDestructiveAction: (() -> Void)? = nil
+    ) {
+        self.workout = workout
+        self._showingEditWorkout = showingEditWorkout
+        self.title = title
+        self.primaryActionTitle = primaryActionTitle
+        self.cancelActionTitle = cancelActionTitle
+        self.destructiveActionTitle = destructiveActionTitle
+        self.onSave = onSave
+        self.onCancel = onCancel
+        self.onDestructiveAction = onDestructiveAction
+    }
     
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
@@ -81,16 +109,17 @@ struct EditWorkoutView: View {
     }
     
     private var isFormValid: Bool {
-        // Steps/floors is optional - only validate if provided
-        let metricValid = metricValue.isEmpty || Int(metricValue) != nil
+        let stepsValid = WorkoutInputValidation.isValidOptionalSteps(stepsValue)
 
         // Workout name is optional - will use default if empty
-        let nameValid = workoutName.isEmpty || workoutName.count <= 50
+        let nameValid = WorkoutInputValidation.isValidWorkoutName(workoutName)
+        let notesValid = WorkoutInputValidation.isValidNotes(notes)
 
         let basicValidation = nameValid &&
+        notesValid &&
         !durationMinutes.isEmpty &&
         !durationSeconds.isEmpty &&
-        metricValid &&
+        stepsValid &&
         Int(durationMinutes) != nil &&
         Int(durationSeconds) != nil &&
         (Int(durationMinutes) ?? 0) < 60 &&
@@ -103,13 +132,19 @@ struct EditWorkoutView: View {
         let seconds = Int(durationSeconds) ?? 0
         let totalDurationSeconds = hours * 3600 + minutes * 60 + seconds
         let durationValid = totalDurationSeconds > 0
+        let workoutTotalsValid = WorkoutInputValidation.isValidWorkoutTotals(
+            stepsValue: stepsValue,
+            durationHours: hours,
+            durationMinutes: minutes,
+            durationSeconds: seconds
+        )
         
         // Validate health metrics if provided
-        let avgHRValid = avgHeartRate.isEmpty || (Int(avgHeartRate) != nil && (Int(avgHeartRate) ?? 0) >= 25 && (Int(avgHeartRate) ?? 0) <= 230)
-        let maxHRValid = maxHeartRate.isEmpty || (Int(maxHeartRate) != nil && (Int(maxHeartRate) ?? 0) >= 25 && (Int(maxHeartRate) ?? 0) <= 230)
-        let caloriesValid = caloriesBurned.isEmpty || (Int(caloriesBurned) != nil && (Int(caloriesBurned) ?? 0) >= 0)
+        let avgHRValid = WorkoutInputValidation.isValidOptionalHeartRate(avgHeartRate)
+        let maxHRValid = WorkoutInputValidation.isValidOptionalHeartRate(maxHeartRate)
+        let caloriesValid = WorkoutInputValidation.isValidOptionalCalories(caloriesBurned)
         
-        return basicValidation && durationValid && avgHRValid && maxHRValid && caloriesValid && !isSaving
+        return basicValidation && durationValid && workoutTotalsValid && avgHRValid && maxHRValid && caloriesValid && !isSaving
     }
     
     var body: some View {
@@ -123,23 +158,15 @@ struct EditWorkoutView: View {
             }
             .themedBackground()
             .navigationBarHidden(true)
-            .toolbar {
-                ToolbarItem(placement: .keyboard) {
-                    KeyboardDismissButton()
-                }
-            }
-        }
-        .sheet(isPresented: $showingMetricTooltip) {
-            MetricTooltipView()
-                .presentationDetents([.fraction(0.30)])
+            .keyboardDoneToolbar()
         }
         .sheet(isPresented: $showingDatePicker) {
             DateTimePickerView(selectedDate: $workoutDate)
-                .presentationDetents([.height(400)])
+                .appSheetStyle(.dateTimePicker)
         }
         .sheet(isPresented: $showingEffortRating) {
             EffortRatingView(effortRating: $effortRating)
-                .presentationDetents([.fraction(0.4)])
+                .appSheetStyle(.effortRating)
         }
         .sheet(isPresented: $showingDurationPicker) {
             DurationPickerSheet(
@@ -150,8 +177,7 @@ struct EditWorkoutView: View {
                 setDuration(hours: durationPickerHours, minutes: durationPickerMinutes, seconds: durationPickerSeconds)
                 showingDurationPicker = false
             }
-            .presentationDetents([.height(340)])
-            .interactiveDismissDisabled()
+            .appSheetStyle(.durationPicker, isInteractiveDismissDisabled: true)
         }
         .sheet(item: $photoPendingDeletion) { photo in
             DeletePhotoConfirmationView(
@@ -179,8 +205,6 @@ struct EditWorkoutView: View {
                     photoForAction = nil
                 }
             )
-            .presentationDetents([.height(isPhotoHighlighted(photo) ? 260 : 280)])
-            .presentationDragIndicator(.visible)
         }
         .alert("Unable to Update", isPresented: Binding(
             get: { updateErrorMessage != nil },
@@ -208,50 +232,24 @@ struct EditWorkoutView: View {
     }
     
     private var permanentHeader: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Button("Cancel") {
-                    cleanupVideoFiles()
-                    showingEditWorkout = false
+        EditWorkoutPermanentHeader(
+            title: title,
+            primaryActionTitle: primaryActionTitle,
+            cancelActionTitle: cancelActionTitle,
+            effectiveColorScheme: effectiveColorScheme,
+            isFormValid: isFormValid,
+            isSaving: isSaving,
+            onCancel: {
+                cleanupVideoFiles()
+                onCancel?()
+                showingEditWorkout = false
+            },
+            onSave: {
+                Task {
+                    await updateWorkout()
                 }
-                .font(.montserratRegular)
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                Spacer()
-
-                Text("Edit Workout")
-                    .font(.montserratSemiBold(size: 18))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                Spacer()
-
-                Button(action: {
-                    Task {
-                        await updateWorkout()
-                    }
-                }) {
-                    if isSaving {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                            .progressViewStyle(CircularProgressViewStyle(tint: .accent))
-                    } else {
-                        Text("Update")
-                    }
-                }
-                .font(.montserratSemiBold)
-                .foregroundStyle(isFormValid ? .accent : .gray)
-                .disabled(!isFormValid)
-                .frame(width: 80)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 16)
-            .background(effectiveColorScheme == .dark ? .black : .white)
-
-            Divider()
-                .background(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.2))
-        }
-        .background(effectiveColorScheme == .dark ? .black : .white)
+        )
     }
     
     private var scrollContent: some View {
@@ -272,7 +270,7 @@ struct EditWorkoutView: View {
                                     fieldIdentifier: WorkoutFormField.avgHeartRate
                                 )
                                 .onChange(of: avgHeartRate) { _, newValue in
-                                    avgHeartRate = filterNumericInput(newValue)
+                                    avgHeartRate = WorkoutInputValidation.filterNumericInput(newValue)
                                 }
 
                                 // Maximum Heart Rate
@@ -285,7 +283,7 @@ struct EditWorkoutView: View {
                                     fieldIdentifier: WorkoutFormField.maxHeartRate
                                 )
                                 .onChange(of: maxHeartRate) { _, newValue in
-                                    maxHeartRate = filterNumericInput(newValue)
+                                    maxHeartRate = WorkoutInputValidation.filterNumericInput(newValue)
                                 }
 
                                 // Calories Burned
@@ -298,7 +296,7 @@ struct EditWorkoutView: View {
                                     fieldIdentifier: WorkoutFormField.caloriesBurned
                                 )
                                 .onChange(of: caloriesBurned) { _, newValue in
-                                    caloriesBurned = filterNumericInput(newValue)
+                                    caloriesBurned = WorkoutInputValidation.filterNumericInput(newValue)
                                 }
                             }
                         }
@@ -308,6 +306,16 @@ struct EditWorkoutView: View {
                                 configuration: $weightConfiguration,
                                 measurementSystem: settingsManager.measurementSystem
                             )
+                        }
+
+                        if let destructiveActionTitle {
+                            Button(role: .destructive) {
+                                onDestructiveAction?()
+                            } label: {
+                                Text(destructiveActionTitle)
+                            }
+                            .appSheetButtonStyle(tone: .destructive)
+                            .disabled(isSaving)
                         }
                     }
 
@@ -320,11 +328,11 @@ struct EditWorkoutView: View {
             .onChange(of: focusedField) { oldFocus, newFocus in
                 // Validate fields when focus changes
                 if oldFocus == .avgHeartRate {
-                    validateHeartRateOnSubmit($avgHeartRate)
+                    avgHeartRate = WorkoutInputValidation.normalizeHeartRateOnSubmit(avgHeartRate)
                 } else if oldFocus == .maxHeartRate {
-                    validateHeartRateOnSubmit($maxHeartRate)
+                    maxHeartRate = WorkoutInputValidation.normalizeHeartRateOnSubmit(maxHeartRate)
                 } else if oldFocus == .caloriesBurned {
-                    validateCaloriesOnSubmit()
+                    caloriesBurned = WorkoutInputValidation.normalizeCaloriesOnSubmit(caloriesBurned)
                 }
             }
             .scrollDismissesKeyboard(.interactively)
@@ -339,7 +347,7 @@ struct EditWorkoutView: View {
                 text: $workoutName,
                 focusedField: $focusedField,
                 fieldIdentifier: WorkoutFormField.workoutName,
-                maxLength: 50
+                maxLength: WorkoutInputValidation.nameMaxLength
             )
 
             // Description
@@ -349,17 +357,20 @@ struct EditWorkoutView: View {
                 placeholder: "Add a description for your workout",
                 text: $notes,
                 focusedField: $focusedField,
-                fieldIdentifier: WorkoutFormField.notes
+                fieldIdentifier: WorkoutFormField.notes,
+                maxLength: WorkoutInputValidation.notesMaxLength
             )
             
-            existingPhotosSection
-            
-            PhotoGalleryView(
-                selectedImages: $selectedImages,
-                highlightedSelectedItemId: highlightedSelectedItemBinding,
-                existingMediaCount: existingPhotos.count,
-                existingVideoCount: existingPhotos.filter { $0.isVideo }.count
-            )
+            if existingPhotos.isEmpty {
+                PhotoGalleryView(
+                    selectedImages: $selectedImages,
+                    highlightedSelectedItemId: highlightedSelectedItemBinding,
+                    existingMediaCount: existingPhotos.count,
+                    existingVideoCount: existingPhotos.filter { $0.isVideo }.count
+                )
+            } else {
+                existingPhotosSection
+            }
             
             FormSection(title: "Workout Details") {
                 VStack(spacing: 12) {
@@ -384,18 +395,17 @@ struct EditWorkoutView: View {
                         }
                     )
 
-                    // Steps/Floors
                     FormTextField(
-                        label: settingsManager.preferredWorkoutMetric.unit.capitalized,
+                        label: "Steps",
                         isRequired: false,
-                        icon: settingsManager.preferredWorkoutMetric == .steps ? "figure.stairs" : "building.2",
+                        icon: "figure.stairs",
                         keyboardType: .numberPad,
-                        text: $metricValue,
+                        text: $stepsValue,
                         focusedField: $focusedField,
-                        fieldIdentifier: WorkoutFormField.metricValue
+                        fieldIdentifier: WorkoutFormField.stepsValue
                     )
-                    .onChange(of: metricValue) { _, newValue in
-                        metricValue = filterNumericInput(newValue)
+                    .onChange(of: stepsValue) { _, newValue in
+                        stepsValue = WorkoutInputValidation.filterNumericInput(newValue)
                     }
 
                     // Effort Rating
@@ -435,28 +445,15 @@ struct EditWorkoutView: View {
                                     photoForAction = photo
                                 }
                                 .overlay(alignment: .topTrailing) {
-                                    Button {
+                                    MediaTileDeleteButton {
                                         photoPendingDeletion = photo
-                                    } label: {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .font(.system(size: 20))
-                                            .symbolRenderingMode(.hierarchical)
-                                            .foregroundStyle(.white, .black.opacity(0.7))
-                                            .shadow(radius: 2)
                                     }
-                                    .offset(x: 6, y: -6)
+                                    .padding(6)
                                 }
                                 
                                 // Highlighted indicator
                                 if isPhotoHighlighted(photo) {
-                                    Image(systemName: "star.fill")
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(.white)
-                                        .padding(4)
-                                        .background(
-                                            Circle()
-                                                .fill(.accent)
-                                        )
+                                    MediaTileHighlightBadge()
                                         .padding(6)
                                 }
                             }
@@ -476,6 +473,14 @@ struct EditWorkoutView: View {
                                 }
                             }
                         }
+
+                        PhotoGalleryView(
+                            selectedImages: $selectedImages,
+                            highlightedSelectedItemId: highlightedSelectedItemBinding,
+                            existingMediaCount: existingPhotos.count,
+                            existingVideoCount: existingPhotos.filter { $0.isVideo }.count,
+                            embeddedInScrollRow: true
+                        )
                     }
                     .padding(.vertical, 4)
                 }
@@ -522,8 +527,7 @@ struct EditWorkoutView: View {
             durationFormatted = "\(hours):\(minutes < 10 ? "0" : "")\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
         }
         
-        // Primary metric value based on user preference
-        metricValue = String(workout.metricValue(for: settingsManager.preferredWorkoutMetric))
+        stepsValue = String(workout.steps)
         
         // Health metrics
         avgHeartRate = workout.avgHeartRate != nil ? String(workout.avgHeartRate!) : ""
@@ -631,39 +635,6 @@ struct EditWorkoutView: View {
         }
     }
     
-    private func validateHeartRateOnSubmit(_ field: Binding<String>) {
-        let digits = field.wrappedValue.filter { $0.isNumber }
-        if digits.isEmpty { 
-            field.wrappedValue = ""
-            return 
-        }
-        
-        guard let value = Int(digits) else { return }
-        
-        if value < 25 { 
-            field.wrappedValue = "25" 
-        } else if value > 230 { 
-            field.wrappedValue = "230" 
-        } else {
-            field.wrappedValue = String(value)
-        }
-    }
-    
-    private func validateCaloriesOnSubmit() {
-        let digits = caloriesBurned.filter { $0.isNumber }
-        if digits.isEmpty { 
-            caloriesBurned = ""
-            return 
-        }
-        
-        guard let value = Int(digits) else { return }
-        caloriesBurned = value < 0 ? "0" : String(value)
-    }
-    
-    private func filterNumericInput(_ input: String) -> String {
-        return input.filter { $0.isNumber }
-    }
-    
     private func effortRatingDisplayText() -> String {
         guard let rating = effortRating else {
             return "Add effort rating (optional)"
@@ -709,29 +680,19 @@ struct EditWorkoutView: View {
     
     @MainActor
     private func updateWorkout() async {
-        print("🔍 Update workout called")
-        print("🔍 Form valid: \(isFormValid)")
+        debugLog("🔍 Update workout called")
+        debugLog("🔍 Form valid: \(isFormValid)")
         
         guard !isSaving else { return }
+        guard isFormValid else { return }
         guard let minutes = Int(durationMinutes),
               let seconds = Int(durationSeconds) else {
-            print("❌ Guard failed - invalid number conversion")
+            debugLog("❌ Guard failed - invalid number conversion")
             return
         }
         
-        // Steps/floors is optional - default to 0 if not provided
-        let value = Int(metricValue) ?? 0
-
-        // Calculate both metric values from the user's primary metric
-        let steps: Int
-        let floors: Int
-        if settingsManager.preferredWorkoutMetric == .steps {
-            steps = value
-            floors = Workout.stepsToFloors(value, stepsPerFloor: workout.stepsPerFloor)
-        } else {
-            floors = value
-            steps = Workout.floorsToSteps(value, stepsPerFloor: workout.stepsPerFloor)
-        }
+        let steps = Int(stepsValue) ?? 0
+        let floors = Workout.stepsToFloors(steps)
         
         ensureHighlightSelectionIsValid()
         isSaving = true
@@ -747,6 +708,7 @@ struct EditWorkoutView: View {
         
         let selectedImagesSnapshot = selectedImages
         var newlyUploadedPhotos: [Photo] = []
+        let leaderboardSnapshotBeforeEdit = LeaderboardWorkoutSnapshot(workout: workout)
         
         do {
             if !selectedImagesSnapshot.isEmpty {
@@ -766,9 +728,9 @@ struct EditWorkoutView: View {
             // Update weight configuration
             workout.weightConfiguration = weightConfiguration.isEmpty ? nil : weightConfiguration
 
-            // Update both metric values
             workout.steps = steps
             workout.floors = floors
+            workout.stepsPerFloor = Workout.defaultStepsPerFloor
             
             // Persist new/existing photos
             let combinedPhotos = existingPhotos + newlyUploadedPhotos
@@ -785,13 +747,16 @@ struct EditWorkoutView: View {
             }
             
             try modelContext.save()
-            print("✅ Successfully updated workout with \(workout.photos.count) photos")
-            
-            // Recalculate PRs after edit since metrics may have changed
-            try PersonalRecordService.recalculateAllPersonalRecords(
+            debugLog("✅ Successfully updated workout with \(workout.photos.count) photos")
+
+            // Refresh derived workout data and leaderboard stats after edit.
+            try WorkoutMutationHandler.shared.workoutsDidChange(
                 modelContext: modelContext,
-                measurementSystem: settingsManager.measurementSystem,
-                stepHeight: settingsManager.stepHeight
+                mutation: .updated(
+                    before: leaderboardSnapshotBeforeEdit,
+                    after: LeaderboardWorkoutSnapshot(workout: workout)
+                ),
+                changedWorkouts: [workout]
             )
             
             let photosToDelete = photosMarkedForDeletion
@@ -800,11 +765,12 @@ struct EditWorkoutView: View {
                     try? await photoService.deletePhotos(photosToDelete)
                 }
             }
-            
+
             // Clean up video files
             cleanupVideoFiles()
 
             showingEditWorkout = false
+            onSave?()
         } catch {
             if !newlyUploadedPhotos.isEmpty {
                 Task {
@@ -813,7 +779,7 @@ struct EditWorkoutView: View {
             }
             // Clean up temp video files on failure
             cleanupVideoFiles()
-            print("❌ Error updating workout: \(error)")
+            debugLog("❌ Error updating workout: \(error)")
             updateErrorMessage = error.userFriendlyMessage
         }
 
@@ -834,11 +800,7 @@ struct EditWorkoutView: View {
     }
     
     private func cleanupVideoFiles() {
-        for item in selectedImages {
-            if let videoURL = item.videoURL {
-                try? FileManager.default.removeItem(at: videoURL)
-            }
-        }
+        SelectedMediaPreparationService.cleanupTemporaryVideoFiles(in: selectedImages)
     }
     
     private func ensureHighlightSelectionIsValid() {
@@ -911,5 +873,5 @@ struct EditWorkoutView: View {
     )
     
     EditWorkoutView(workout: sampleWorkout, showingEditWorkout: $showEdit)
-        .modelContainer(for: Workout.self, inMemory: true)
+        .modelContainer(for: [Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self], inMemory: true)
 }

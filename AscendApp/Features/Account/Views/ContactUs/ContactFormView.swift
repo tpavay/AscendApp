@@ -61,11 +61,8 @@ struct ContactFormView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 sendButton
             }
-
-            ToolbarItem(placement: .keyboard) {
-                KeyboardDismissButton()
-            }
         }
+        .keyboardDoneToolbar()
         .alert("Feedback Sent!", isPresented: $showSuccessAlert) {
             Button("OK") {
                 dismiss()
@@ -212,14 +209,6 @@ struct ContactFormView: View {
             isSubmitting = false
         }
     }
-}
-
-#Preview("Light Theme") {
-    NavigationStack {
-        ContactFormView(feedbackType: .featureRequest)
-            .environment(AuthenticationViewModel())
-    }
-    .preferredColorScheme(.light)
 }
 
 #Preview("Dark Theme") {

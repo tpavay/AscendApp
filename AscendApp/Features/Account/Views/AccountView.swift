@@ -13,7 +13,10 @@ struct AccountView: View {
     @Environment(\.dismiss) private var dismiss
     
     @State private var isShowingEditProfile = false
+    @State private var isShowingTermsOfService = false
     @State private var isShowingPrivacyPolicy = false
+    @State private var isShowingSignOutConfirmation = false
+    @State private var isShowingDeleteAccountConfirmation = false
 
     var body: some View {
         ScrollView {
@@ -31,6 +34,14 @@ struct AccountView: View {
                 sectionView(title: "Support", options: supportOptions)
                 sectionView(title: "Developer", options: developerOptions)
 
+                SignOutButton {
+                    isShowingSignOutConfirmation = true
+                }
+
+                DeleteAccountButton {
+                    isShowingDeleteAccountConfirmation = true
+                }
+
                 // Error Message
                 if let errorMessage = authVM.errorMessage {
                     errorMessageView(errorMessage)
@@ -41,7 +52,7 @@ struct AccountView: View {
         }
         .themedBackground()
         .navigationTitle("Settings")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.clear, for: .navigationBar)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         .navigationDestination(isPresented: $isShowingEditProfile) {
@@ -53,6 +64,31 @@ struct AccountView: View {
                 SafariView(url: url)
                     .ignoresSafeArea()
             }
+        }
+        .sheet(isPresented: $isShowingTermsOfService) {
+            if let projectId = FirebaseApp.app()?.options.projectID,
+               let url = URL(string: "https://\(projectId).web.app/terms") {
+                SafariView(url: url)
+                    .ignoresSafeArea()
+            }
+        }
+        .sheet(isPresented: $isShowingDeleteAccountConfirmation) {
+            DeleteAccountConfirmationView(
+                onAccountDeleted: {
+                    dismiss()
+                }
+            )
+        }
+        .alert(
+            "Sign Out",
+            isPresented: $isShowingSignOutConfirmation,
+        ) {
+            Button("Cancel", role: .cancel) { }
+            Button("Sign Out", role: .destructive) {
+                authVM.signOut()
+            }
+        } message: {
+            Text("You'll need to sign back in to access your account.")
         }
         .onChange(of: authVM.authenticationState) { oldValue, newValue in
             if newValue == .unauthenticated {
@@ -80,6 +116,11 @@ struct AccountView: View {
                 action: {
                     isShowingEditProfile = true
                 }
+            ),
+            SettingsOption(
+                icon: .settingsNotifications,
+                title: "Notifications",
+                destination: NotificationSettingsView()
             )
         ]
     }
@@ -104,6 +145,13 @@ struct AccountView: View {
 
     private var supportOptions: [SettingsOption] {
         [
+            SettingsOption(
+                icon: .settingsTermsOfService,
+                title: "Terms of Service",
+                action: {
+                    isShowingTermsOfService = true
+                }
+            ),
             SettingsOption(
                 icon: .settingsPrivacyPolicy,
                 title: "Privacy Policy",

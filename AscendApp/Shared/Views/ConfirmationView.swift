@@ -49,74 +49,56 @@ struct ConfirmationView: View {
     }
 
     var body: some View {
-        VStack(spacing: 20) {
-            // Header section
-            VStack(spacing: 8) {
-                Text(title)
-                    .font(.montserratBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ?
-                        .white : .black)
-
-                if let message = message {
-                    Text(message)
-                        .font(.montserratRegular(size: 16))
-                        .foregroundStyle(effectiveColorScheme == .dark ?
-                            .white.opacity(0.8) : .gray)
-                        .multilineTextAlignment(.center)
+        AppSheetScaffold(title: title, message: message) {
+            EmptyView()
+        } footer: {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    cancelButton
+                    confirmButton
                 }
-            }
 
-            // Action buttons
-            HStack(spacing: 12) {
-                // Cancel button - enabled during loading so user can cancel
-                Button {
-                    onCancel()
-                } label: {
-                    if isCancelling {
-                        HStack(spacing: 6) {
-                            ProgressView()
-                                .tint(effectiveColorScheme == .dark ? .white : .black)
-                                .scaleEffect(0.8)
-                            Text("Stopping...")
-                        }
-                    } else {
-                        Text(cancelButtonText)
-                    }
+                VStack(spacing: 10) {
+                    cancelButton
+                    confirmButton
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(effectiveColorScheme == .dark ?
-                            .white.opacity(0.1) : .gray.opacity(0.1))
-                )
-                .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                .disabled(isCancelling)
-                .opacity(isLoading && !isCancelling ? 0.7 : 1)
-
-                // Confirm button
-                Button {
-                    onConfirm()
-                } label: {
-                    if isLoading {
-                        ProgressView()
-                            .tint(.white)
-                    } else {
-                        Text(confirmButtonText)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(isDestructive ? .red : .accent)
-                )
-                .foregroundStyle(.white)
-                .disabled(isLoading || isCancelling)
             }
         }
-        .padding(20)
-        .themedBackground()
+    }
+
+    private var cancelButton: some View {
+        Button {
+            onCancel()
+        } label: {
+            if isCancelling {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .tint(effectiveColorScheme == .dark ? .white : .black)
+                        .scaleEffect(0.8)
+                    Text("Stopping...")
+                }
+            } else {
+                Text(cancelButtonText)
+            }
+        }
+        .appSheetButtonStyle(tone: .secondary)
+        .disabled(isCancelling)
+        .opacity(isLoading && !isCancelling ? 0.7 : 1)
+    }
+
+    private var confirmButton: some View {
+        Button {
+            onConfirm()
+        } label: {
+            if isLoading {
+                ProgressView()
+                    .tint(.white)
+            } else {
+                Text(confirmButtonText)
+            }
+        }
+        .appSheetButtonStyle(tone: isDestructive ? .destructive : .primary)
+        .disabled(isLoading || isCancelling)
     }
 }
 
@@ -126,8 +108,8 @@ struct ConfirmationView: View {
         message: "Are you sure you want to delete this item? This action cannot be undone.",
         confirmButtonText: "Delete",
         isDestructive: true,
-        onCancel: { print("Cancelled") },
-        onConfirm: { print("Confirmed") }
+        onCancel: { debugLog("Cancelled") },
+        onConfirm: { debugLog("Confirmed") }
     )
 }
 
@@ -137,8 +119,8 @@ struct ConfirmationView: View {
         message: "Do you want to save your changes?",
         confirmButtonText: "Save",
         isDestructive: false,
-        onCancel: { print("Cancelled") },
-        onConfirm: { print("Saved") }
+        onCancel: { debugLog("Cancelled") },
+        onConfirm: { debugLog("Saved") }
     )
 }
 
@@ -147,7 +129,7 @@ struct ConfirmationView: View {
         title: "Confirm Action",
         confirmButtonText: "Continue",
         isDestructive: false,
-        onCancel: { print("Cancelled") },
-        onConfirm: { print("Confirmed") }
+        onCancel: { debugLog("Cancelled") },
+        onConfirm: { debugLog("Confirmed") }
     )
 }

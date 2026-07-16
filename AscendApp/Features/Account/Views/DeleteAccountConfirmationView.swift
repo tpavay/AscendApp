@@ -125,9 +125,8 @@ struct DeleteAccountConfirmationView: View {
         .padding(.horizontal, 24)
         .padding(.top, 48)
         .padding(.bottom, 24)
-        .presentationDetents([.height(400)])
-        .presentationDragIndicator(.visible)
-        .interactiveDismissDisabled(isDeleting)
+        .appSheetBackground()
+        .appSheetStyle(.dialog(height: 400), isInteractiveDismissDisabled: isDeleting)
         .onDisappear {
             cancelInFlightTasks()
         }

@@ -9,6 +9,7 @@ import PhotosUI
 import SwiftUI
 import AVFoundation
 import UniformTypeIdentifiers
+import FirebaseAuth
 
 actor PhotoService {
     private let repo: any PhotoRepositoryProtocol
@@ -92,7 +93,7 @@ actor PhotoService {
     
     private func uploadPhoto(_ item: PhotosPickerItem, repo: any PhotoRepositoryProtocol) async throws -> Photo? {
         guard let data = try await item.loadTransferable(type: Data.self) else { return nil }
-        let filename = "photos/\(UUID().uuidString).jpg"
+        let filename = "users/\(try currentUserId())/photos/\(UUID().uuidString).jpg"
         let url = try await repo.upload(data, filename: filename)
         return Photo(url: url, type: .photo, duration: nil)
     }
@@ -111,7 +112,7 @@ actor PhotoService {
         
         // Upload with video extension
         let fileExtension = movie.url.pathExtension.isEmpty ? "mov" : movie.url.pathExtension
-        let filename = "videos/\(UUID().uuidString).\(fileExtension)"
+        let filename = "users/\(try currentUserId())/videos/\(UUID().uuidString).\(fileExtension)"
         let url = try await repo.upload(data, filename: filename)
         
         // Clean up temporary file
@@ -127,7 +128,7 @@ actor PhotoService {
         
         // Upload with video extension
         let fileExtension = videoURL.pathExtension.isEmpty ? "mov" : videoURL.pathExtension
-        let filename = "videos/\(UUID().uuidString).\(fileExtension)"
+        let filename = "users/\(try currentUserId())/videos/\(UUID().uuidString).\(fileExtension)"
         let url = try await repo.upload(data, filename: filename)
         
         // Don't clean up the temporary file here - PhotoGalleryView will handle cleanup
@@ -257,5 +258,16 @@ actor PhotoService {
                 throw error
             }
         }
+    }
+
+    private func currentUserId() throws -> String {
+        guard let userId = Auth.auth().currentUser?.uid else {
+            throw NSError(
+                domain: "PhotoService",
+                code: 401,
+                userInfo: [NSLocalizedDescriptionKey: "You must be signed in to upload media."]
+            )
+        }
+        return userId
     }
 }

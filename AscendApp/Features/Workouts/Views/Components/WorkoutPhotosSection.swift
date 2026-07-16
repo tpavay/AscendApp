@@ -124,8 +124,6 @@ struct WorkoutPhotosSection: View {
                         photoForAction = nil
                     }
                 )
-                .presentationDetents([.height(isHighlighted(photo) ? 260 : 280)])
-                .presentationDragIndicator(.visible)
             }
         }
     }
@@ -145,14 +143,7 @@ struct WorkoutPhotosSection: View {
 
             // Highlighted indicator
             if isHighlighted(photo) {
-                Image(systemName: "star.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.white)
-                    .padding(4)
-                    .background(
-                        Circle()
-                            .fill(.accent)
-                    )
+                MediaTileHighlightBadge()
                     .padding(6)
             }
         }
@@ -242,7 +233,7 @@ struct WorkoutPhotosSection: View {
             let photoService = PhotoService()
             try await photoService.deletePhotos([photo])
         } catch {
-            print("Failed to delete photo from Firebase: \(error)")
+            debugLog("Failed to delete photo from Firebase: \(error)")
             return
         }
 

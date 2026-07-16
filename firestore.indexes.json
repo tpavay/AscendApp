@@ -1,0 +1,159 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "leaderboard_stats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "timeFrame",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "periodStartAt",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "totalSteps",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "leaderboard_stats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "timeFrame",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "periodStartAt",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "totalWorkouts",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "leaderboard_stats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "timeFrame",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "periodStartAt",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "totalDuration",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "leaderboard_stats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "timeFrame",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "periodStartAt",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "stepsPerMinute",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "email_jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "readyAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "email_jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "processingStartedAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "notification_devices",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "active",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "climbDropPushEnabled",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "platform",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "notification_devices",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "uid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "active",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "notification_devices",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "uid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "active",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "climbDropPushEnabled",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "platform",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

@@ -14,19 +14,17 @@ import SwiftUI
 final class SettingsManager {
     static let shared = SettingsManager()
     
-    private let preferredMetricKey = "preferredWorkoutMetric"
     private let measurementSystemKey = "measurementSystem"
     private let stepHeightKey = "stepHeight"
-    private let stepsPerFloorKey = "stepsPerFloor"
     private let fitnessLevelKey = "userFitnessLevel"
-    private let weekStartDayKey = "weekStartDay"
-    
-    var preferredWorkoutMetric: WorkoutMetric {
-        didSet {
-            savePreferredMetric()
-        }
-    }
-    
+    private let seededBaseLevelKey = "seededBaseLevel"
+    private let autoCalculatedBaseLevelKey = "autoCalculatedBaseLevel"
+    private let manualBaseLevelOverrideKey = "manualBaseLevelOverride"
+    private let hasCompletedBaseLevelOnboardingKey = "hasCompletedBaseLevelOnboarding"
+    private let firstLaunchDateKey = "firstLaunchDate"
+    private let appleHealthAutoImportEnabledKey = "appleHealthAutoImportEnabled"
+    private let appleHealthAutoImportActivatedAtKey = "appleHealthAutoImportActivatedAt"
+    private let appleHealthAutoImportPromptDismissedUserIDsKey = "appleHealthAutoImportPromptDismissedUserIDs"
     var measurementSystem: MeasurementSystem {
         didSet {
             let oldSystem = oldValue
@@ -42,37 +40,79 @@ final class SettingsManager {
         }
     }
     
-    var stepsPerFloor: Int {
-        didSet {
-            saveStepsPerFloor()
-        }
-    }
-
     var fitnessLevel: FitnessLevel {
         didSet {
             saveFitnessLevel()
         }
     }
 
-    var weekStartDay: WeekStartDay {
+    var seededBaseLevel: Int {
         didSet {
-            saveWeekStartDay()
+            saveSeededBaseLevel()
         }
     }
 
-    var weekStartFirstWeekday: Int {
-        weekStartDay.firstWeekday
+    var autoCalculatedBaseLevel: Int? {
+        didSet {
+            saveAutoCalculatedBaseLevel()
+        }
+    }
+
+    var manualBaseLevelOverride: Int? {
+        didSet {
+            saveManualBaseLevelOverride()
+        }
+    }
+
+    var hasCompletedBaseLevelOnboarding: Bool {
+        didSet {
+            saveHasCompletedBaseLevelOnboarding()
+        }
+    }
+
+    var appleHealthAutoImportEnabled: Bool {
+        didSet {
+            if appleHealthAutoImportEnabled && !oldValue {
+                appleHealthAutoImportActivatedAt = Date()
+            } else if !appleHealthAutoImportEnabled {
+                appleHealthAutoImportActivatedAt = nil
+            }
+
+            saveAppleHealthAutoImportEnabled()
+        }
+    }
+
+    var appleHealthAutoImportActivatedAt: Date? {
+        didSet {
+            saveAppleHealthAutoImportActivatedAt()
+        }
+    }
+
+    var effectiveBaseLevel: Int {
+        manualBaseLevelOverride ?? autoCalculatedBaseLevel ?? seededBaseLevel
+    }
+
+    var effectiveBaseLevelSPM: Int {
+        SPMMappingService.spm(forLevel: effectiveBaseLevel)
+    }
+
+    var baseLevelState: BaseLevelState {
+        if manualBaseLevelOverride != nil {
+            return .manualOverride
+        }
+
+        if autoCalculatedBaseLevel != nil {
+            return .autoCalculated
+        }
+
+        return .seeded
+    }
+
+    var shouldPresentBaseLevelOnboarding: Bool {
+        !hasCompletedBaseLevelOnboarding
     }
 
     private init() {
-        // Load saved metric or default to steps
-        if let savedMetric = UserDefaults.standard.string(forKey: preferredMetricKey),
-           let metric = WorkoutMetric(rawValue: savedMetric) {
-            self.preferredWorkoutMetric = metric
-        } else {
-            self.preferredWorkoutMetric = .steps
-        }
-        
         // Load saved measurement system or default to imperial
         let loadedMeasurementSystem: MeasurementSystem
         if let savedSystem = UserDefaults.standard.string(forKey: measurementSystemKey),
@@ -90,30 +130,50 @@ final class SettingsManager {
             self.stepHeight = loadedMeasurementSystem.defaultStepHeight
         }
         
-        // Load saved steps per floor or default to 16
-        self.stepsPerFloor = UserDefaults.standard.object(forKey: stepsPerFloorKey) != nil
-            ? UserDefaults.standard.integer(forKey: stepsPerFloorKey)
-            : 16
-
         // Load saved fitness level or default to intermediate
+        let loadedFitnessLevel: FitnessLevel
         if let savedLevel = UserDefaults.standard.string(forKey: fitnessLevelKey),
            let level = FitnessLevel(rawValue: savedLevel) {
-            self.fitnessLevel = level
+            loadedFitnessLevel = level
         } else {
-            self.fitnessLevel = .intermediate
+            loadedFitnessLevel = .intermediate
+        }
+        self.fitnessLevel = loadedFitnessLevel
+
+        let hadPreviousLaunch = UserDefaults.standard.object(forKey: firstLaunchDateKey) != nil
+        let migratedSeededLevel = Self.migratedBaseLevel(for: loadedFitnessLevel)
+        if let storedSeededBaseLevel = UserDefaults.standard.object(forKey: seededBaseLevelKey) as? Int {
+            self.seededBaseLevel = SPMMappingService.clampedLevel(storedSeededBaseLevel)
+        } else {
+            let initialSeededBaseLevel = hadPreviousLaunch ? migratedSeededLevel : 7
+            self.seededBaseLevel = initialSeededBaseLevel
+            UserDefaults.standard.set(initialSeededBaseLevel, forKey: seededBaseLevelKey)
         }
 
-        if let savedWeekStart = UserDefaults.standard.string(forKey: weekStartDayKey),
-           let weekStartDay = WeekStartDay(rawValue: savedWeekStart) {
-            self.weekStartDay = weekStartDay
+        if let storedAutoCalculatedBaseLevel = UserDefaults.standard.object(forKey: autoCalculatedBaseLevelKey) as? Int {
+            self.autoCalculatedBaseLevel = SPMMappingService.clampedLevel(storedAutoCalculatedBaseLevel)
         } else {
-            self.weekStartDay = WeekStartDay.from(firstWeekday: Calendar.current.firstWeekday)
+            self.autoCalculatedBaseLevel = nil
         }
-    }
-    
-    private func savePreferredMetric() {
-        UserDefaults.standard.set(preferredWorkoutMetric.rawValue, forKey: preferredMetricKey)
-        UserDefaults.standard.synchronize()
+
+        if let storedManualBaseLevelOverride = UserDefaults.standard.object(forKey: manualBaseLevelOverrideKey) as? Int {
+            self.manualBaseLevelOverride = SPMMappingService.clampedLevel(storedManualBaseLevelOverride)
+        } else {
+            self.manualBaseLevelOverride = nil
+        }
+
+        if UserDefaults.standard.object(forKey: hasCompletedBaseLevelOnboardingKey) != nil {
+            self.hasCompletedBaseLevelOnboarding = UserDefaults.standard.bool(forKey: hasCompletedBaseLevelOnboardingKey)
+        } else {
+            self.hasCompletedBaseLevelOnboarding = hadPreviousLaunch
+            if hadPreviousLaunch {
+                UserDefaults.standard.set(true, forKey: hasCompletedBaseLevelOnboardingKey)
+            }
+        }
+
+        self.appleHealthAutoImportEnabled = UserDefaults.standard.bool(forKey: appleHealthAutoImportEnabledKey)
+        self.appleHealthAutoImportActivatedAt = UserDefaults.standard.object(forKey: appleHealthAutoImportActivatedAtKey) as? Date
+
     }
     
     private func saveMeasurementSystem() {
@@ -126,21 +186,49 @@ final class SettingsManager {
         UserDefaults.standard.synchronize()
     }
     
-    private func saveStepsPerFloor() {
-        UserDefaults.standard.set(stepsPerFloor, forKey: stepsPerFloorKey)
-        UserDefaults.standard.synchronize()
-    }
-
     private func saveFitnessLevel() {
         UserDefaults.standard.set(fitnessLevel.rawValue, forKey: fitnessLevelKey)
         UserDefaults.standard.synchronize()
     }
 
-    private func saveWeekStartDay() {
-        UserDefaults.standard.set(weekStartDay.rawValue, forKey: weekStartDayKey)
+    private func saveSeededBaseLevel() {
+        UserDefaults.standard.set(seededBaseLevel, forKey: seededBaseLevelKey)
         UserDefaults.standard.synchronize()
     }
-    
+
+    private func saveAutoCalculatedBaseLevel() {
+        if let autoCalculatedBaseLevel {
+            UserDefaults.standard.set(autoCalculatedBaseLevel, forKey: autoCalculatedBaseLevelKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: autoCalculatedBaseLevelKey)
+        }
+        UserDefaults.standard.synchronize()
+    }
+
+    private func saveManualBaseLevelOverride() {
+        if let manualBaseLevelOverride {
+            UserDefaults.standard.set(manualBaseLevelOverride, forKey: manualBaseLevelOverrideKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: manualBaseLevelOverrideKey)
+        }
+        UserDefaults.standard.synchronize()
+    }
+
+    private func saveHasCompletedBaseLevelOnboarding() {
+        UserDefaults.standard.set(hasCompletedBaseLevelOnboarding, forKey: hasCompletedBaseLevelOnboardingKey)
+        UserDefaults.standard.synchronize()
+    }
+
+    private func saveAppleHealthAutoImportEnabled() {
+        UserDefaults.standard.set(appleHealthAutoImportEnabled, forKey: appleHealthAutoImportEnabledKey)
+        UserDefaults.standard.synchronize()
+    }
+
+    private func saveAppleHealthAutoImportActivatedAt() {
+        UserDefaults.standard.set(appleHealthAutoImportActivatedAt, forKey: appleHealthAutoImportActivatedAtKey)
+        UserDefaults.standard.synchronize()
+    }
+
     private func convertStepHeight(from oldSystem: MeasurementSystem, to newSystem: MeasurementSystem) {
         guard oldSystem != newSystem else { return }
         
@@ -157,35 +245,83 @@ final class SettingsManager {
         }
     }
     
-    func setPreferredMetric(_ metric: WorkoutMetric) {
-        withAnimation(.easeInOut(duration: 0.3)) {
-            preferredWorkoutMetric = metric
-        }
-    }
-    
     func setMeasurementSystem(_ system: MeasurementSystem) {
         withAnimation(.easeInOut(duration: 0.3)) {
             measurementSystem = system
         }
     }
-    
+
+    func setAppleHealthAutoImportEnabled(_ enabled: Bool) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            appleHealthAutoImportEnabled = enabled
+        }
+    }
+
+    func hasDismissedAppleHealthAutoImportPrompt(for userID: String) -> Bool {
+        Set(UserDefaults.standard.stringArray(forKey: appleHealthAutoImportPromptDismissedUserIDsKey) ?? [])
+            .contains(userID)
+    }
+
+    func markAppleHealthAutoImportPromptDismissed(for userID: String) {
+        var dismissedUserIDs = Set(UserDefaults.standard.stringArray(forKey: appleHealthAutoImportPromptDismissedUserIDsKey) ?? [])
+        let inserted = dismissedUserIDs.insert(userID).inserted
+        guard inserted else { return }
+
+        UserDefaults.standard.set(Array(dismissedUserIDs).sorted(), forKey: appleHealthAutoImportPromptDismissedUserIDsKey)
+        UserDefaults.standard.synchronize()
+    }
+
     func setStepHeight(_ height: Double) {
         stepHeight = height
     }
     
-    func setStepsPerFloor(_ steps: Int) {
-        stepsPerFloor = steps
-    }
-
     func setFitnessLevel(_ level: FitnessLevel) {
         withAnimation(.easeInOut(duration: 0.3)) {
             fitnessLevel = level
         }
     }
 
-    func setWeekStartDay(_ day: WeekStartDay) {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            weekStartDay = day
+    func completeBaseLevelOnboarding(with level: Int) {
+        seededBaseLevel = SPMMappingService.clampedLevel(level)
+        hasCompletedBaseLevelOnboarding = true
+    }
+
+    func saveBaseLevelSelection(_ level: Int) {
+        let clampedLevel = SPMMappingService.clampedLevel(level)
+
+        if autoCalculatedBaseLevel == nil {
+            seededBaseLevel = clampedLevel
+        } else if autoCalculatedBaseLevel == clampedLevel {
+            manualBaseLevelOverride = nil
+        } else {
+            manualBaseLevelOverride = clampedLevel
+        }
+
+        hasCompletedBaseLevelOnboarding = true
+    }
+
+    func resetBaseLevelOverride() {
+        manualBaseLevelOverride = nil
+    }
+
+    func updateAutoCalculatedBaseLevel(_ level: Int?) {
+        autoCalculatedBaseLevel = level.map(SPMMappingService.clampedLevel)
+    }
+
+    func resolveBaseLevelBootstrap(hasWorkoutHistory: Bool) {
+        if hasWorkoutHistory {
+            hasCompletedBaseLevelOnboarding = true
+        }
+    }
+
+    private static func migratedBaseLevel(for fitnessLevel: FitnessLevel) -> Int {
+        switch fitnessLevel {
+        case .beginner:
+            return 5
+        case .intermediate:
+            return 8
+        case .advanced:
+            return 12
         }
     }
 }

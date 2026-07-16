@@ -12,9 +12,13 @@ enum WorkoutSource: String, CaseIterable, Codable {
     case manual = "manual"           // User entered manually
     case appleHealth = "apple_health" // Imported from Apple Health
     case garmin = "garmin"           // Future: Garmin Connect
-    case strava = "strava"           // Future: Strava
     case fitbit = "fitbit"           // Future: Fitbit
-    case hevy = "hevy"               // Imported from Hevy app
+    case hevy = "hevy"               // Legacy import source retained for old synced workouts
+    case headphoneMotion = "headphone_motion" // Live tracking from compatible headphones
+
+    static var filterOptions: [WorkoutSource] {
+        [.manual, .appleHealth, .headphoneMotion]
+    }
 
     var displayName: String {
         switch self {
@@ -24,12 +28,12 @@ enum WorkoutSource: String, CaseIterable, Codable {
             return "Apple Health"
         case .garmin:
             return "Garmin"
-        case .strava:
-            return "Strava"
         case .fitbit:
             return "Fitbit"
         case .hevy:
-            return "Hevy"
+            return "Imported Workout"
+        case .headphoneMotion:
+            return "Headphone Tracking"
         }
     }
 
@@ -37,10 +41,63 @@ enum WorkoutSource: String, CaseIterable, Codable {
         switch self {
         case .manual:
             return false
-        case .appleHealth, .garmin, .strava, .fitbit, .hevy:
+        case .appleHealth, .garmin, .fitbit, .hevy, .headphoneMotion:
             return true
         }
     }
+}
+
+enum WorkoutProvider: String, CaseIterable, Codable, Sendable {
+    case appleHealth = "apple_health"
+    case garmin = "garmin"
+    case fitbit = "fitbit"
+    case hevy = "hevy"
+
+    var displayName: String {
+        switch self {
+        case .appleHealth:
+            return "Apple Health"
+        case .garmin:
+            return "Garmin"
+        case .fitbit:
+            return "Fitbit"
+        case .hevy:
+            return "Imported Workout"
+        }
+    }
+
+    var asWorkoutSource: WorkoutSource {
+        switch self {
+        case .appleHealth:
+            return .appleHealth
+        case .garmin:
+            return .garmin
+        case .fitbit:
+            return .fitbit
+        case .hevy:
+            return .hevy
+        }
+    }
+
+    init?(workoutSource: WorkoutSource) {
+        switch workoutSource {
+        case .manual, .headphoneMotion:
+            return nil
+        case .appleHealth:
+            self = .appleHealth
+        case .garmin:
+            self = .garmin
+        case .fitbit:
+            self = .fitbit
+        case .hevy:
+            self = .hevy
+        }
+    }
+}
+
+enum TimingPrecision: String, CaseIterable, Codable, Sendable {
+    case exact = "exact"
+    case containerWindow = "container_window"
 }
 
 enum DataIntegrityLevel: String, CaseIterable, Codable {
@@ -59,6 +116,8 @@ enum DataIntegrityLevel: String, CaseIterable, Codable {
 
 @Model
 class Workout {
+    static let defaultStepsPerFloor = 16
+
     var id: UUID
     var name: String
     var date: Date
@@ -68,6 +127,12 @@ class Workout {
     var stepsPerFloor: Int // Snapshot of conversion rate at workout creation (for historical accuracy)
     var notes: String
     var createdAt: Date
+    var ownerUserId: String?
+    var lastModifiedAt: Date = Date()
+    var lastRemoteSyncAt: Date?
+    var lastRemoteHeartRateSeriesStoragePath: String?
+    var remoteSyncStatusRawValue: String = WorkoutRemoteSyncStatus.pendingUpsert.rawValue
+    var lastRemoteSyncError: String?
     var avgHeartRate: Int? // Average heart rate in BPM
     var maxHeartRate: Int? // Maximum heart rate in BPM
     var caloriesBurned: Int? // Calories burned during workout
@@ -84,36 +149,18 @@ class Workout {
     var hevyWorkoutId: String? // Hevy workout ID for deduplication
     var photos: [Photo]
     var highlightedPhotoId: UUID? // ID of the photo/video to display on workout cards
-
-    // Strava sync tracking - stored as JSON for Codable compatibility
-    var stravaSyncData: String?
-
-    // Personal Records tracking - stored as JSON for reliable CoreData serialization
-    var personalRecordTypesData: Data?
-
-    // Weight Personal Records tracking - stored as JSON
-    var weightPersonalRecordTypesData: Data?
+    @Relationship(deleteRule: .cascade, inverse: \WorkoutSourceLink.workout)
+    var sourceLinks: [WorkoutSourceLink]
+    @Relationship(deleteRule: .cascade, inverse: \WorkoutParticipation.workout)
+    var participations: [WorkoutParticipation]
 
     // Weight equipment tracking - stored as JSON
     var weightConfigurationData: Data?
 
     // Heat map percentile scores - stored as JSON (snapshot at workout save time)
     var percentileScoresData: Data?
-
-    // Computed property for easy access to personal record types
-    var personalRecordTypes: [String]? {
-        get {
-            guard let data = personalRecordTypesData else { return nil }
-            return try? JSONDecoder().decode([String].self, from: data)
-        }
-        set {
-            if let newValue = newValue {
-                personalRecordTypesData = try? JSONEncoder().encode(newValue)
-            } else {
-                personalRecordTypesData = nil
-            }
-        }
-    }
+    var effortScoreValue: Double?
+    var equivalentLevelValue: Int?
 
     // Computed property for easy access to weight configuration
     var weightConfiguration: WeightConfiguration? {
@@ -128,6 +175,10 @@ class Workout {
     /// Whether this workout has any weight equipment configured
     var hasWeights: Bool {
         !(weightConfiguration?.isEmpty ?? true)
+    }
+
+    var weightLoadoutKey: WeightLoadoutKey? {
+        WeightLoadoutKey(configuration: weightConfiguration)
     }
 
     // Computed property for easy access to percentile scores
@@ -157,38 +208,18 @@ class Workout {
         percentileScores = scores
     }
 
+    var equivalentLevel: Int? {
+        get { equivalentLevelValue }
+        set { equivalentLevelValue = newValue.map(SPMMappingService.clampedLevel) }
+    }
+
     /// Total weight used in this workout (for display)
     var totalWeightUsed: Double {
         weightConfiguration?.totalWeight ?? 0
     }
 
-    // MARK: - Strava Sync
-
-    /// Parsed Strava sync metadata
-    var stravaSyncMetadata: StravaSyncMetadata? {
-        guard let json = stravaSyncData,
-              let data = json.data(using: .utf8) else { return nil }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try? decoder.decode(StravaSyncMetadata.self, from: data)
-    }
-
-    /// Whether this workout has been synced to Strava
-    var isSyncedToStrava: Bool {
-        stravaSyncMetadata != nil
-    }
-
-    /// Set Strava sync metadata after successful sync
-    func setStravaSyncMetadata(_ metadata: StravaSyncMetadata) {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        if let data = try? encoder.encode(metadata),
-           let json = String(data: data, encoding: .utf8) {
-            stravaSyncData = json
-        }
-    }
-
-    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int, floors: Int, stepsPerFloor: Int = 16, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil, hevyWorkoutId: String? = nil, photos: [Photo] = [], highlightedPhotoId: UUID? = nil, personalRecordTypes: [String]? = nil, weightConfiguration: WeightConfiguration? = nil) {
+    init(name: String = "", date: Date = Date(), duration: TimeInterval, steps: Int, floors: Int, stepsPerFloor: Int = Workout.defaultStepsPerFloor, notes: String = "", avgHeartRate: Int? = nil, maxHeartRate: Int? = nil, caloriesBurned: Int? = nil, effortRating: Double? = nil, heartRateTimeSeries: [HeartRateDataPoint]? = nil, averageMETs: Double? = nil, source: WorkoutSource = .manual, deviceModel: String? = nil, sourceMetadata: String? = nil, healthKitUUID: String? = nil, hevyWorkoutId: String? = nil, photos: [Photo] = [], highlightedPhotoId: UUID? = nil, weightConfiguration: WeightConfiguration? = nil) {
+        let createdAt = Date()
         self.id = UUID()
         self.name = name.isEmpty ? "Workout" : name
         self.date = date
@@ -197,7 +228,13 @@ class Workout {
         self.floors = floors
         self.stepsPerFloor = stepsPerFloor
         self.notes = notes
-        self.createdAt = Date()
+        self.createdAt = createdAt
+        self.ownerUserId = nil
+        self.lastModifiedAt = createdAt
+        self.lastRemoteSyncAt = nil
+        self.lastRemoteHeartRateSeriesStoragePath = nil
+        self.remoteSyncStatusRawValue = WorkoutRemoteSyncStatus.pendingUpsert.rawValue
+        self.lastRemoteSyncError = nil
         self.avgHeartRate = avgHeartRate
         self.maxHeartRate = maxHeartRate
         self.caloriesBurned = caloriesBurned
@@ -215,8 +252,41 @@ class Workout {
         self.photos = photos
         // Default to first photo if not specified and photos exist
         self.highlightedPhotoId = highlightedPhotoId ?? photos.first?.id
-        self.personalRecordTypes = personalRecordTypes
+        self.sourceLinks = []
+        self.participations = []
         self.weightConfiguration = weightConfiguration
+    }
+
+    var remoteSyncStatus: WorkoutRemoteSyncStatus {
+        get { WorkoutRemoteSyncStatus(rawValue: remoteSyncStatusRawValue) ?? .pendingUpsert }
+        set { remoteSyncStatusRawValue = newValue.rawValue }
+    }
+
+    func markPendingRemoteUpsert(ownerUserId: String, modifiedAt: Date = Date()) {
+        self.ownerUserId = ownerUserId
+        lastModifiedAt = modifiedAt
+        remoteSyncStatus = .pendingUpsert
+        lastRemoteSyncError = nil
+    }
+
+    func markRemoteSyncSucceeded(
+        syncedAt: Date = Date(),
+        heartRateSeriesStoragePath: String?
+    ) {
+        lastRemoteSyncAt = syncedAt
+        lastRemoteHeartRateSeriesStoragePath = heartRateSeriesStoragePath
+        remoteSyncStatus = .synced
+        lastRemoteSyncError = nil
+    }
+
+    func markRemoteSyncFailed(_ errorMessage: String) {
+        remoteSyncStatus = .failed
+        lastRemoteSyncError = errorMessage
+    }
+
+    func markRemoteSyncRejected(_ errorMessage: String) {
+        remoteSyncStatus = .rejected
+        lastRemoteSyncError = errorMessage
     }
     
     // Computed properties for convenience
@@ -233,36 +303,9 @@ class Workout {
         }
     }
     
-    /// Returns the metric value for the specified metric type
-    func metricValue(for metric: WorkoutMetric) -> Int {
-        switch metric {
-        case .steps:
-            return steps
-        case .floors:
-            return floors
-        }
-    }
-    
-    /// Calculate pace for the specified metric (steps or floors per minute)
-    func pace(for metric: WorkoutMetric) -> Double? {
-        guard duration > 0 else { return nil }
-        let minutes = duration / 60.0
-        return Double(metricValue(for: metric)) / minutes
-    }
-    
-    /// Legacy computed property - returns steps (views should use metricValue(for:) with user's preference)
-    var primaryMetricValue: Int {
-        return steps
-    }
-    
-    /// Legacy computed property - returns .steps (views should use user's preferredWorkoutMetric directly)
-    var metricType: WorkoutMetric {
-        return .steps
-    }
-    
-    /// Legacy pace - returns steps per minute (use pace(for:) for preference-aware access)
-    var pace: Double? {
-        return pace(for: .steps)
+    var stepsPerMinute: Double? {
+        guard steps > 0, duration > 0 else { return nil }
+        return Double(steps) / (duration / 60.0)
     }
     
     // Calculate total vertical climb using settings
@@ -300,17 +343,45 @@ class Workout {
     var integrityDisplayName: String {
         return integrityLevel.displayName
     }
+
+    var linkedProviders: [WorkoutProvider] {
+        sourceLinks
+            .map(\.provider)
+            .sorted { $0.displayName < $1.displayName }
+    }
+
+    var isInAppSensorWorkout: Bool {
+        switch source {
+        case .headphoneMotion:
+            return true
+        case .manual, .appleHealth, .garmin, .fitbit, .hevy:
+            return false
+        }
+    }
+
+    var isLiveClimbAttemptWorkout: Bool {
+        source == .headphoneMotion &&
+            participations.contains { $0.contextType == .climbAttempt }
+    }
+
+    func sourceLink(for provider: WorkoutProvider) -> WorkoutSourceLink? {
+        sourceLinks.first { $0.provider == provider }
+    }
+
+    func hasSourceLink(provider: WorkoutProvider) -> Bool {
+        sourceLink(for: provider) != nil
+    }
     
     // MARK: - Metric Conversion Helpers
     
-    /// Converts steps to floors using the given stepsPerFloor rate, rounded to whole numbers
-    static func stepsToFloors(_ steps: Int, stepsPerFloor: Int) -> Int {
+    /// Converts steps to floors using Ascend's fixed conversion rate, rounded to whole numbers.
+    static func stepsToFloors(_ steps: Int, stepsPerFloor: Int = Workout.defaultStepsPerFloor) -> Int {
         guard stepsPerFloor > 0 else { return 0 }
         return Int((Double(steps) / Double(stepsPerFloor)).rounded())
     }
     
-    /// Converts floors to steps using the given stepsPerFloor rate
-    static func floorsToSteps(_ floors: Int, stepsPerFloor: Int) -> Int {
+    /// Converts floors to steps using Ascend's fixed conversion rate.
+    static func floorsToSteps(_ floors: Int, stepsPerFloor: Int = Workout.defaultStepsPerFloor) -> Int {
         return floors * stepsPerFloor
     }
 
@@ -326,12 +397,14 @@ class Workout {
 
     /// Recalculates floors based on current steps value
     func recalculateFloorsFromSteps() {
-        floors = Workout.stepsToFloors(steps, stepsPerFloor: stepsPerFloor)
+        stepsPerFloor = Workout.defaultStepsPerFloor
+        floors = Workout.stepsToFloors(steps)
     }
     
     /// Recalculates steps based on current floors value
     func recalculateStepsFromFloors() {
-        steps = Workout.floorsToSteps(floors, stepsPerFloor: stepsPerFloor)
+        stepsPerFloor = Workout.defaultStepsPerFloor
+        steps = Workout.floorsToSteps(floors)
     }
     
     // MARK: - Highlighted Photo
@@ -346,58 +419,25 @@ class Workout {
         // Fallback to first photo if highlighted photo doesn't exist
         return photos.first
     }
+
+    /// Returns workout media ordered for display with the highlighted item first.
+    var orderedPhotosForDisplay: [Photo] {
+        guard let highlightedId = highlightedPhotoId,
+              let highlightedIndex = photos.firstIndex(where: { $0.id == highlightedId }),
+              highlightedIndex != 0 else {
+            return photos
+        }
+
+        var orderedPhotos = photos
+        let highlightedPhoto = orderedPhotos.remove(at: highlightedIndex)
+        orderedPhotos.insert(highlightedPhoto, at: 0)
+        return orderedPhotos
+    }
     
     /// Sets the highlighted photo ID and updates if the specified photo exists
     func setHighlightedPhoto(_ photoId: UUID) {
         guard photos.contains(where: { $0.id == photoId }) else { return }
         highlightedPhotoId = photoId
-    }
-    
-    // MARK: - Personal Records
-    var achievedPersonalRecords: [PersonalRecordType] {
-        guard let recordTypes = personalRecordTypes else { return [] }
-        return recordTypes.compactMap { PersonalRecordType(rawValue: $0) }
-    }
-    
-    var hasPersonalRecords: Bool {
-        return !(personalRecordTypes?.isEmpty ?? true)
-    }
-    
-    func addPersonalRecord(_ type: PersonalRecordType) {
-        if personalRecordTypes == nil {
-            personalRecordTypes = []
-        }
-        if !(personalRecordTypes?.contains(type.rawValue) ?? false) {
-            personalRecordTypes?.append(type.rawValue)
-        }
-    }
-
-    // MARK: - Weight Personal Records
-
-    /// Computed property for easy access to weight personal record types
-    var weightPersonalRecordTypes: [String]? {
-        get {
-            guard let data = weightPersonalRecordTypesData else { return nil }
-            return try? JSONDecoder().decode([String].self, from: data)
-        }
-        set {
-            if let newValue = newValue {
-                weightPersonalRecordTypesData = try? JSONEncoder().encode(newValue)
-            } else {
-                weightPersonalRecordTypesData = nil
-            }
-        }
-    }
-
-    var hasWeightPersonalRecords: Bool {
-        return !(weightPersonalRecordTypes?.isEmpty ?? true)
-    }
-
-    /// Total PR count combining standard and weight PRs (for share cards)
-    var totalPRCount: Int {
-        let standardPRs = personalRecordTypes?.count ?? 0
-        let weightPRs = weightPersonalRecordTypes?.count ?? 0
-        return standardPRs + weightPRs
     }
     
     // MARK: - Streak Calculations
@@ -546,7 +586,7 @@ class Workout {
 }
 
 // MARK: - Heart Rate Data Extensions
-struct HeartRateDataPoint: Codable, Equatable {
+struct HeartRateDataPoint: Codable, Equatable, Sendable {
     let timestamp: Date
     let heartRate: Int
 }

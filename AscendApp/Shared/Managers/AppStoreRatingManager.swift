@@ -8,59 +8,81 @@
 import StoreKit
 import SwiftUI
 
-/// Manages App Store rating prompts with intelligent timing
-/// Prompts at 20 workouts, then every 30 workouts thereafter
+/// Manages App Store rating prompts behind an app-owned sentiment question.
 @MainActor
 final class AppStoreRatingManager {
     static let shared = AppStoreRatingManager()
 
     private init() {}
 
+    enum EnjoymentResponse: String, Equatable {
+        case yes
+        case no
+    }
+
     // MARK: - Constants
 
     private enum Constants {
-        static let firstPromptThreshold = 20
-        static let subsequentPromptInterval = 30
-        static let userDefaultsKey = "lastRatingPromptWorkoutCount"
+        static let firstEligibleLiveClimbCompletionCount = 1
+        static let enjoymentResponseKey = "appStoreRatingEnjoymentResponse"
+        static let lastReviewRequestAtKey = "lastAppStoreRatingRequestAt"
     }
 
     // MARK: - UserDefaults
 
-    private var lastPromptedWorkoutCount: Int {
-        get { UserDefaults.standard.integer(forKey: Constants.userDefaultsKey) }
-        set { UserDefaults.standard.set(newValue, forKey: Constants.userDefaultsKey) }
+    private var storedEnjoymentResponse: EnjoymentResponse? {
+        get {
+            guard let rawValue = UserDefaults.standard.string(forKey: Constants.enjoymentResponseKey) else {
+                return nil
+            }
+
+            return EnjoymentResponse(rawValue: rawValue)
+        }
+        set {
+            if let newValue {
+                UserDefaults.standard.set(newValue.rawValue, forKey: Constants.enjoymentResponseKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: Constants.enjoymentResponseKey)
+            }
+        }
+    }
+
+    private var lastReviewRequestAt: Date? {
+        get { UserDefaults.standard.object(forKey: Constants.lastReviewRequestAtKey) as? Date }
+        set {
+            if let newValue {
+                UserDefaults.standard.set(newValue, forKey: Constants.lastReviewRequestAtKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: Constants.lastReviewRequestAtKey)
+            }
+        }
     }
 
     // MARK: - Public Methods
 
-    /// Check if the user is eligible for a rating prompt based on current workout count
-    /// - Parameter currentWorkoutCount: Total number of workouts the user has logged
-    /// - Returns: True if the user should be prompted for a rating
-    func shouldPromptForRating(currentWorkoutCount: Int) -> Bool {
-        // Haven't reached minimum threshold yet
-        guard currentWorkoutCount >= Constants.firstPromptThreshold else {
-            return false
-        }
-
-        // First time reaching 20 workouts
-        if lastPromptedWorkoutCount == 0 && currentWorkoutCount >= Constants.firstPromptThreshold {
-            return true
-        }
-
-        // Check if we've reached another interval (50, 80, 110, etc.)
-        let workoutsSinceLastPrompt = currentWorkoutCount - lastPromptedWorkoutCount
-        return workoutsSinceLastPrompt >= Constants.subsequentPromptInterval
+    func shouldAskEnjoymentQuestionAfterFirstLiveClimb(completedLiveClimbCount: Int) -> Bool {
+        completedLiveClimbCount == Constants.firstEligibleLiveClimbCompletionCount
+            && storedEnjoymentResponse == nil
     }
 
-    /// Request an App Store rating prompt
-    /// Apple will decide whether to actually show it based on system limitations
-    /// - Parameter currentWorkoutCount: Current workout count to track when we prompted
-    func requestReview(currentWorkoutCount: Int) {
-        // Update the last prompted count
-        lastPromptedWorkoutCount = currentWorkoutCount
+    func recordEnjoymentResponse(_ response: EnjoymentResponse) {
+        storedEnjoymentResponse = response
+        LifecycleEventRecorder.shared.recordRatingPromptAnswered(
+            response: response.rawValue
+        )
+    }
 
-        // Request the review from Apple
-        // Note: Apple controls whether the prompt is actually shown based on:
+    /// Request the native App Store review prompt.
+    ///
+    /// Apple does not expose whether the prompt was shown or whether the user rated.
+    /// We only track that Ascend asked Apple to show it.
+    func requestReview() {
+        lastReviewRequestAt = Date()
+        LifecycleEventRecorder.shared.recordAppStoreReviewRequested(
+            reason: "rating_prompt_yes"
+        )
+
+        // Apple controls whether the prompt is actually shown based on:
         // - User's "In-App Ratings & Reviews" setting
         // - System-wide rate limiting (3 prompts per 365 days)
         // - Recent rating activity across all apps
@@ -76,23 +98,11 @@ final class AppStoreRatingManager {
         }
     }
 
-    /// Check eligibility and request review if appropriate
-    /// - Parameter currentWorkoutCount: Total number of workouts the user has logged
-    /// - Returns: True if a review was requested, false otherwise
-    @discardableResult
-    func checkAndRequestReviewIfNeeded(currentWorkoutCount: Int) -> Bool {
-        guard shouldPromptForRating(currentWorkoutCount: currentWorkoutCount) else {
-            return false
-        }
-
-        requestReview(currentWorkoutCount: currentWorkoutCount)
-        return true
-    }
-
     // MARK: - Testing Support
 
     /// Reset the rating prompt state (for testing purposes)
     func resetPromptState() {
-        lastPromptedWorkoutCount = 0
+        storedEnjoymentResponse = nil
+        lastReviewRequestAt = nil
     }
 }

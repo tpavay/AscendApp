@@ -12,9 +12,27 @@ import SwiftData
 /// Data to prefill the workout form from a completed routine
 struct RoutinePrefillData {
     let name: String
+    let startedAt: Date
     let duration: TimeInterval
     let weightConfiguration: WeightConfiguration?
     let difficulty: Int?
+    let attribution: RoutineWorkoutAttribution?
+
+    init(
+        name: String,
+        startedAt: Date,
+        duration: TimeInterval,
+        weightConfiguration: WeightConfiguration?,
+        difficulty: Int?,
+        attribution: RoutineWorkoutAttribution? = nil
+    ) {
+        self.name = name
+        self.startedAt = startedAt
+        self.duration = duration
+        self.weightConfiguration = weightConfiguration
+        self.difficulty = difficulty
+        self.attribution = attribution
+    }
 }
 
 struct WorkoutFormView: View {
@@ -32,13 +50,13 @@ struct WorkoutFormView: View {
     @State private var viewModel = WorkoutFormViewModel()
 
     // UI-only state
-    @State private var showingMetricTooltip = false
     @State private var showingDatePicker = false
     @State private var showingEffortRating = false
     @State private var showingDurationPicker = false
     @State private var durationPickerHours = 0
     @State private var durationPickerMinutes = 0
     @State private var durationPickerSeconds = 0
+    @State private var didApplyRoutinePrefill = false
 
     @FocusState private var focusedField: WorkoutFormField?
 
@@ -57,23 +75,15 @@ struct WorkoutFormView: View {
             }
             .themedBackground()
             .navigationBarHidden(true)
-            .toolbar {
-                ToolbarItem(placement: .keyboard) {
-                    KeyboardDismissButton()
-                }
-            }
-        }
-        .sheet(isPresented: $showingMetricTooltip) {
-            MetricTooltipView()
-                .presentationDetents([.fraction(0.30)])
+            .keyboardDoneToolbar()
         }
         .sheet(isPresented: $showingDatePicker) {
             DateTimePickerView(selectedDate: $viewModel.workoutDate)
-                .presentationDetents([.height(400)])
+                .appSheetStyle(.dateTimePicker)
         }
         .sheet(isPresented: $showingEffortRating) {
             EffortRatingView(effortRating: $viewModel.effortRating)
-                .presentationDetents([.fraction(0.4)])
+                .appSheetStyle(.effortRating)
         }
         .sheet(isPresented: $showingDurationPicker) {
             DurationPickerSheet(
@@ -88,8 +98,7 @@ struct WorkoutFormView: View {
                 )
                 showingDurationPicker = false
             }
-            .presentationDetents([.height(340)])
-            .interactiveDismissDisabled()
+            .appSheetStyle(.durationPicker, isInteractiveDismissDisabled: true)
         }
         .alert("Upload Error", isPresented: .constant(viewModel.uploadError != nil)) {
             Button("OK") {
@@ -105,13 +114,16 @@ struct WorkoutFormView: View {
                 viewModel.workoutName = Workout.generateDefaultName(for: viewModel.workoutDate)
             }
             // Apply prefill from routine completion if provided
-            if let routine = routinePrefill {
+            if let routine = routinePrefill, !didApplyRoutinePrefill {
                 viewModel.prefillFromRoutine(
                     name: routine.name,
+                    startedAt: routine.startedAt,
                     duration: routine.duration,
                     weightConfiguration: routine.weightConfiguration,
-                    difficulty: routine.difficulty
+                    difficulty: routine.difficulty,
+                    attribution: routine.attribution
                 )
+                didApplyRoutinePrefill = true
             }
         }
     }
@@ -126,7 +138,7 @@ struct WorkoutFormView: View {
                 text: $viewModel.workoutName,
                 focusedField: $focusedField,
                 fieldIdentifier: WorkoutFormField.workoutName,
-                maxLength: 50
+                maxLength: WorkoutInputValidation.nameMaxLength
             )
 
             // Description
@@ -136,7 +148,8 @@ struct WorkoutFormView: View {
                 placeholder: "Add a description for your workout",
                 text: $viewModel.notes,
                 focusedField: $focusedField,
-                fieldIdentifier: WorkoutFormField.notes
+                fieldIdentifier: WorkoutFormField.notes,
+                maxLength: WorkoutInputValidation.notesMaxLength
             )
 
             PhotoGalleryView(
@@ -170,27 +183,15 @@ struct WorkoutFormView: View {
                         }
                     )
 
-                    // Steps/Floors
-                    HStack(spacing: 12) {
-                        FormTextField(
-                            label: settingsManager.preferredWorkoutMetric.unit.capitalized,
-                            isRequired: false,
-                            icon: settingsManager.preferredWorkoutMetric == .steps ? "figure.stairs" : "building.2",
-                            keyboardType: .numberPad,
-                            text: $viewModel.metricValue,
-                            focusedField: $focusedField,
-                            fieldIdentifier: WorkoutFormField.metricValue
-                        )
-
-                        Button(action: {
-                            showingMetricTooltip = true
-                        }) {
-                            Image(systemName: "info.circle")
-                                .font(.system(size: 20, weight: .medium))
-                                .foregroundStyle(.accent)
-                                .frame(width: 48, height: 48)
-                        }
-                    }
+                    FormTextField(
+                        label: "Steps",
+                        isRequired: false,
+                        icon: "figure.stairs",
+                        keyboardType: .numberPad,
+                        text: $viewModel.stepsValue,
+                        focusedField: $focusedField,
+                        fieldIdentifier: WorkoutFormField.stepsValue
+                    )
 
                     // Effort Rating
                     FormButton(
@@ -330,10 +331,10 @@ struct WorkoutFormView: View {
     private func saveWorkout() async {
         do {
             let workout = try await viewModel.saveWorkout(to: modelContext)
-            print("✅ Successfully saved workout with \(workout.photos.count) photos")
+            debugLog("✅ Successfully saved workout with \(workout.photos.count) photos")
             onWorkoutCompleted(workout)
         } catch {
-            print("❌ Error saving workout: \(error)")
+            debugLog("❌ Error saving workout: \(error)")
             // Error is already set in viewModel
         }
     }
@@ -346,18 +347,18 @@ struct WorkoutFormView: View {
 }
 
 enum WorkoutFormField: Hashable {
-    case workoutName, durationHours, durationMinutes, durationSeconds, metricValue, notes, caloriesBurned, avgHeartRate, maxHeartRate
+    case workoutName, durationHours, durationMinutes, durationSeconds, stepsValue, notes, caloriesBurned, avgHeartRate, maxHeartRate
 }
 
 #Preview {
     @Previewable @State var showForm = true
     WorkoutFormView(showingWorkoutForm: $showForm) { _ in }
-        .modelContainer(for: Workout.self, inMemory: true)
+        .modelContainer(for: [Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self], inMemory: true)
 }
 
 #Preview("Dark") {
     @Previewable @State var showForm = true
     WorkoutFormView(showingWorkoutForm: $showForm) { _ in }
-        .modelContainer(for: Workout.self, inMemory: true)
+        .modelContainer(for: [Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self], inMemory: true)
         .preferredColorScheme(.dark)
 }

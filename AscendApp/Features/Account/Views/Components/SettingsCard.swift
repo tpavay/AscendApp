@@ -8,8 +8,6 @@
 import SwiftUI
 
 struct SettingsCard: View {
-    @Environment(\.colorScheme) private var colorScheme
-    
     let options: [SettingsOption]
     
     var body: some View {
@@ -19,16 +17,16 @@ struct SettingsCard: View {
                 
                 if index < options.count - 1 {
                     Divider()
-                        .background(colorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
+                        .background(.white.opacity(0.1))
                 }
             }
         }
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(colorScheme == .dark ? .jetLighter.opacity(0.3) : .gray.opacity(0.06))
+                .fill(.jetLighter.opacity(0.3))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
-                        .stroke(colorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
+                        .stroke(.white.opacity(0.1), lineWidth: 1)
                 )
         )
     }
@@ -39,7 +37,7 @@ struct SettingsCard: View {
         options: [
             SettingsOption(icon: .settingsEditProfile, title: "Edit Profile", action: {}),
             SettingsOption(icon: .settingsNotifications, title: "Notifications", action: {}),
-            SettingsOption(icon: .settingsAppearance, title: "Appearance", action: {})
+            SettingsOption(icon: .settingsIntegrations, title: "Integrations", action: {})
         ]
     )
     .padding()

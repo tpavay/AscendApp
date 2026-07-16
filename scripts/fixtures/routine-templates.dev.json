@@ -1,0 +1,100 @@
+[
+  {
+    "templateId": "tylers-10-min-heater",
+    "status": "published",
+    "version": 1,
+    "name": "Tyler's 10 Min Heater",
+    "description": "A 10-minute heater: settle in at level 14, then cycle three rounds of level 20 pressure and level 12 recovery.",
+    "difficulty": 5,
+    "estimatedCalories": 115,
+    "isFeatured": true,
+    "displayOrder": 40,
+    "featuredOrder": 40,
+    "browseSections": [],
+    "intervals": [
+      {
+        "durationSeconds": 150,
+        "level": 14
+      },
+      {
+        "durationSeconds": 60,
+        "level": 20
+      },
+      {
+        "durationSeconds": 90,
+        "level": 12
+      },
+      {
+        "durationSeconds": 60,
+        "level": 20
+      },
+      {
+        "durationSeconds": 90,
+        "level": 12
+      },
+      {
+        "durationSeconds": 60,
+        "level": 20
+      },
+      {
+        "durationSeconds": 90,
+        "level": 12
+      }
+    ]
+  },
+  {
+    "templateId": "social-pyramid-20",
+    "status": "published",
+    "version": 1,
+    "name": "Social Pyramid 20",
+    "description": "A clean 20-minute pyramid climb: build every two minutes, hit the peak, then step back down.",
+    "difficulty": 3,
+    "estimatedCalories": 190,
+    "isFeatured": true,
+    "displayOrder": 50,
+    "featuredOrder": 50,
+    "browseSections": [],
+    "intervals": [
+      {
+        "durationSeconds": 120,
+        "level": 6
+      },
+      {
+        "durationSeconds": 120,
+        "level": 8
+      },
+      {
+        "durationSeconds": 120,
+        "level": 10
+      },
+      {
+        "durationSeconds": 120,
+        "level": 12
+      },
+      {
+        "durationSeconds": 120,
+        "level": 14
+      },
+      {
+        "durationSeconds": 120,
+        "level": 16
+      },
+      {
+        "durationSeconds": 120,
+        "level": 14
+      },
+      {
+        "durationSeconds": 120,
+        "level": 12
+      },
+      {
+        "durationSeconds": 120,
+        "level": 10
+      },
+      {
+        "durationSeconds": 120,
+        "level": 8
+      }
+    ]
+  }
+]

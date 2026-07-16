@@ -86,7 +86,7 @@ final class CelebrationSoundManager {
 
             guard buffers[.countTick] != nil else {
                 #if DEBUG
-                print("CelebrationSoundManager: required count tick file missing")
+                debugLog("CelebrationSoundManager: required count tick file missing")
                 #endif
                 return
             }
@@ -109,7 +109,7 @@ final class CelebrationSoundManager {
         } catch {
             isPrepared = false
             #if DEBUG
-            print("CelebrationSoundManager failed to start: \(error)")
+            debugLog("CelebrationSoundManager failed to start: \(error)")
             #endif
         }
     }

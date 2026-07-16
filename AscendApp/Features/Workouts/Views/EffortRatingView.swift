@@ -41,18 +41,8 @@ struct EffortRatingView: View {
     }
     
     var body: some View {
-        VStack(spacing: 20) {
-            // Handle bar
-            RoundedRectangle(cornerRadius: 2.5)
-                .fill(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5))
-                .frame(width: 36, height: 5)
-                .padding(.top, 8)
-            
+        AppSheetScaffold(title: "How much effort did you put in?") {
             VStack(spacing: 24) {
-                Text("How much effort did you put in?")
-                    .font(.montserratSemiBold(size: 18))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                
                 VStack(spacing: 16) {
                     Text(effortDescription(for: tempRating))
                         .font(.montserratMedium(size: 24))
@@ -78,43 +68,24 @@ struct EffortRatingView: View {
                         .font(.montserratBold(size: 32))
                         .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
                 }
-                
-                HStack(spacing: 12) {
-                    Button(action: {
-                        dismiss()
-                    }) {
-                        Text("Cancel")
-                            .font(.montserratSemiBold)
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 44)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(effectiveColorScheme == .dark ? .white.opacity(0.3) : .gray.opacity(0.5), lineWidth: 1)
-                            )
-                    }
-                    
-                    Button(action: {
-                        effortRating = tempRating
-                        dismiss()
-                    }) {
-                        Text("Done")
-                            .font(.montserratSemiBold)
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 44)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(.accent)
-                            )
-                    }
-                }
-                .padding(.top, 8)
             }
-            .padding(.horizontal, 20)
-            
-            Spacer()
+        } footer: {
+            HStack(spacing: 12) {
+                Button(action: {
+                    dismiss()
+                }) {
+                    Text("Cancel")
+                }
+                .appSheetButtonStyle(tone: .secondary)
+                
+                Button(action: {
+                    effortRating = tempRating
+                    dismiss()
+                }) {
+                    Text("Done")
+                }
+                .appSheetButtonStyle(tone: .primary)
+            }
         }
-        .themedBackground()
     }
 }

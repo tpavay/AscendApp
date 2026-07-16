@@ -20,14 +20,13 @@ struct DeletePhotoConfirmationView: View {
             onCancel: onCancel,
             onConfirm: onDelete
         )
-        .presentationDetents([.height(180)])
-        .presentationDragIndicator(.visible)
+        .appSheetStyle(.compactConfirmation)
     }
 }
 
 #Preview {
     DeletePhotoConfirmationView(
-        onDelete: { print("Photo deleted") },
-        onCancel: { print("Cancelled") }
+        onDelete: { debugLog("Photo deleted") },
+        onCancel: { debugLog("Cancelled") }
     )
 }

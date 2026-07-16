@@ -7,47 +7,44 @@
 
 import Foundation
 
-enum LeaderboardMetric: String, CaseIterable, Codable, Identifiable {
-    case climb = "climb"  // Shows steps or floors based on user preference
+enum LeaderboardMetric: String, CaseIterable, Codable, Identifiable, Sendable {
+    case climb = "climb"
     case workouts = "workouts"
     case duration = "duration"
-    case pace = "pace"  // Shows steps/min or floors/min based on user preference
+    case pace = "pace"
     
     var id: String { rawValue }
     
-    /// Display name based on user's preferred workout metric
-    func displayName(for preferredMetric: WorkoutMetric) -> String {
+    var displayName: String {
         switch self {
         case .climb:
-            return preferredMetric.displayName
+            return "Steps"
         case .workouts:
             return "Workouts"
         case .duration:
             return "Duration"
         case .pace:
-            return "\(preferredMetric.displayName)/Min"
+            return "Steps/Min"
         }
     }
     
-    /// Unit label based on user's preferred workout metric
-    func unit(for preferredMetric: WorkoutMetric) -> String {
+    var unit: String {
         switch self {
         case .climb:
-            return preferredMetric.unit
+            return "steps"
         case .workouts:
             return "workouts"
         case .duration:
             return ""
         case .pace:
-            return "\(preferredMetric.unit)/min"
+            return "steps/min"
         }
     }
     
-    /// Icon for this metric
-    func icon(for preferredMetric: WorkoutMetric) -> String {
+    var icon: String {
         switch self {
         case .climb:
-            return preferredMetric == .steps ? "figure.stairs" : "building.2"
+            return "figure.stairs"
         case .workouts:
             return "flame.fill"
         case .duration:
@@ -57,11 +54,10 @@ enum LeaderboardMetric: String, CaseIterable, Codable, Identifiable {
         }
     }
     
-    /// Short name based on user's preferred workout metric
-    func shortName(for preferredMetric: WorkoutMetric) -> String {
+    var shortName: String {
         switch self {
         case .climb:
-            return preferredMetric.displayName
+            return "Steps"
         case .workouts:
             return "Workouts"
         case .duration:
@@ -70,22 +66,17 @@ enum LeaderboardMetric: String, CaseIterable, Codable, Identifiable {
             return "Pace"
         }
     }
-    
-    // MARK: - Legacy convenience properties (use preference-aware methods when possible)
-    
-    var displayName: String {
-        displayName(for: .steps)
-    }
-    
-    var unit: String {
-        unit(for: .steps)
-    }
-    
-    var icon: String {
-        icon(for: .steps)
-    }
-    
-    var shortName: String {
-        shortName(for: .steps)
+
+    var sortField: String {
+        switch self {
+        case .climb:
+            return "totalSteps"
+        case .workouts:
+            return "totalWorkouts"
+        case .duration:
+            return "totalDuration"
+        case .pace:
+            return "stepsPerMinute"
+        }
     }
 }

@@ -5,16 +5,15 @@
 //  Created by Tyler Pavay on 9/20/25.
 //
 
-
 import SwiftUI
 import PhotosUI
-import AVFoundation
 
 struct PhotoGalleryView: View {
     @Binding private var selectedImages: [SelectedPhotoItem]
     @Binding private var highlightedSelectedItemId: UUID?
     var existingMediaCount: Int = 0 // Count of existing media already in the workout
     var existingVideoCount: Int = 0 // Count of existing videos already in the workout
+    var embeddedInScrollRow: Bool = false
     
     @State private var selectedPhotos: [PhotosPickerItem] = [] // Make this local state
     @State private var photoToDelete: SelectedPhotoItem?
@@ -22,17 +21,21 @@ struct PhotoGalleryView: View {
     @State private var showErrorAlert = false
     @State private var errorMessage = ""
     @State private var isLoadingMedia = false // Loading state for media processing
+    @State private var mediaProcessingTask: Task<Void, Never>?
+    @State private var activeProcessingToken = UUID()
     
     init(
         selectedImages: Binding<[SelectedPhotoItem]>,
         highlightedSelectedItemId: Binding<UUID?> = .constant(nil),
         existingMediaCount: Int = 0,
-        existingVideoCount: Int = 0
+        existingVideoCount: Int = 0,
+        embeddedInScrollRow: Bool = false
     ) {
         self._selectedImages = selectedImages
         self._highlightedSelectedItemId = highlightedSelectedItemId
         self.existingMediaCount = existingMediaCount
         self.existingVideoCount = existingVideoCount
+        self.embeddedInScrollRow = embeddedInScrollRow
     }
     
     // Computed properties for validation
@@ -54,12 +57,11 @@ struct PhotoGalleryView: View {
 
     var body: some View {
         Group {
-            if selectedImages.isEmpty {
-                // Empty state - show picker (with loading state if applicable)
-                PhotoPickerButton(selectedPhotos: $selectedPhotos, isLoading: isLoadingMedia)
-                    .frame(height: 120)
+            if embeddedInScrollRow {
+                embeddedGalleryContent
+            } else if selectedImages.isEmpty {
+                standaloneEmptyState
             } else {
-                // Photos selected - show gallery with picker at end
                 ScrollView(.horizontal) {
                     LazyHStack(spacing: 12) {
                         ForEach(selectedImages) { item in
@@ -77,8 +79,7 @@ struct PhotoGalleryView: View {
 
                         // Picker at the end - only show if under limit
                         if canAddMore {
-                            PhotoPickerButton(selectedPhotos: $selectedPhotos, isLoading: isLoadingMedia)
-                                .frame(width: 120)
+                            compactPickerButton
                         }
                     }
                     .padding(.horizontal, 4)
@@ -87,10 +88,11 @@ struct PhotoGalleryView: View {
                 .scrollTargetBehavior(.paging)
             }
         }
-        .onChange(of: selectedPhotos) {
-            Task {
-                await processNewPhotos(selectedPhotos)
-            }
+        .onChange(of: selectedPhotos) { _, newItems in
+            beginProcessing(newItems)
+        }
+        .onDisappear {
+            cancelMediaProcessing()
         }
         .sheet(item: $itemForActionSheet) { item in
             SelectedPhotoActionSheet(
@@ -108,8 +110,6 @@ struct PhotoGalleryView: View {
                     itemForActionSheet = nil
                 }
             )
-            .presentationDetents([.height(actionSheetHeight(for: item))])
-            .presentationDragIndicator(.visible)
         }
         .sheet(item: $photoToDelete) { item in
             DeletePhotoConfirmationView(
@@ -123,148 +123,111 @@ struct PhotoGalleryView: View {
             Text(errorMessage)
         }
     }
-    
-    private func actionSheetHeight(for item: SelectedPhotoItem) -> CGFloat {
-        highlightedSelectedItemId == item.id ? 220 : 240
+
+    @ViewBuilder
+    private var standaloneEmptyState: some View {
+        if existingMediaCount > 0 {
+            if canAddMore {
+                compactPickerButton
+            }
+        } else {
+            PhotoPickerButton(selectedPhotos: $selectedPhotos, isLoading: isLoadingMedia)
+                .frame(height: 120)
+        }
     }
+
+    private var embeddedGalleryContent: some View {
+        HStack(spacing: 12) {
+            ForEach(selectedImages) { item in
+                ThumbnailPhotoView(
+                    photoItem: item,
+                    isHighlighted: highlightedSelectedItemId == item.id,
+                    onTap: {
+                        itemForActionSheet = item
+                    },
+                    onDelete: {
+                        photoToDelete = item
+                    }
+                )
+            }
+
+            if canAddMore {
+                compactPickerButton
+            }
+        }
+    }
+
+    private var compactPickerButton: some View {
+        PhotoPickerButton(
+            selectedPhotos: $selectedPhotos,
+            isLoading: isLoadingMedia,
+            style: .inlineTile
+        )
+    }
+    
 }
 
 extension PhotoGalleryView {
     @MainActor
-    private func processNewPhotos(_ newItems: [PhotosPickerItem]) async {
-        // Set loading state
+    private func beginProcessing(_ newItems: [PhotosPickerItem]) {
+        mediaProcessingTask?.cancel()
+
+        guard !newItems.isEmpty else {
+            activeProcessingToken = UUID()
+            mediaProcessingTask = nil
+            isLoadingMedia = false
+            return
+        }
+
+        let token = UUID()
+        activeProcessingToken = token
         isLoadingMedia = true
-        
-        // Validate total media count first
-        let potentialTotal = totalMediaCount + newItems.count
-        if potentialTotal > 3 {
-            errorMessage = "Only 3 combined photos and videos (max 1 video) can be added to a given workout."
-            showErrorAlert = true
-            selectedPhotos.removeAll()
-            isLoadingMedia = false
-            return
-        }
-        
-        // Count videos in new items
-        var newVideoCount = 0
-        for item in newItems {
-            if let contentType = item.supportedContentTypes.first?.identifier,
-               contentType.contains("video") || contentType.contains("movie") {
-                newVideoCount += 1
-            }
-        }
-        
-        // Check video limit (including existing videos)
-        if totalVideoCount + newVideoCount > 1 {
-            errorMessage = "You can only add one video with a max length of 15 seconds."
-            showErrorAlert = true
-            selectedPhotos.removeAll()
-            isLoadingMedia = false
-            return
-        }
-        
-        // Process photos/videos on background, update UI on main
-        let newSelectedImages = await withTaskGroup(of: SelectedPhotoItem?.self) { group in
-            for item in newItems {
-                group.addTask {
-                    await createSelectedPhotoItem(from: item)
-                }
+
+        mediaProcessingTask = Task {
+            defer {
+                finishProcessing(token)
             }
 
-            var results: [SelectedPhotoItem] = []
-            for await result in group {
-                if let item = result {
-                    results.append(item)
-                }
+            let preparationOutcome = await SelectedMediaPreparationService.prepareItems(
+                newItems,
+                currentMediaCount: totalMediaCount,
+                currentVideoCount: totalVideoCount
+            )
+
+            guard activeProcessingToken == token else {
+                SelectedMediaPreparationService.cleanupTemporaryVideoFiles(in: preparationOutcome.items)
+                return
             }
-            return results
-        }
 
-        // Check if any videos exceed 15 seconds or have unknown duration
-        var validItems: [SelectedPhotoItem] = []
-        var hasInvalidVideo = false
-
-        for item in newSelectedImages {
-            if item.isVideo {
-                // Reject if duration is unknown (nil) or exceeds 15 seconds
-                guard let duration = item.duration, duration <= 15 else {
-                    hasInvalidVideo = true
-                    // Clean up the temporary file
-                    if let videoURL = item.videoURL {
-                        try? FileManager.default.removeItem(at: videoURL)
-                    }
-                    continue
-                }
+            if let alertMessage = preparationOutcome.alertMessage {
+                errorMessage = alertMessage
+                showErrorAlert = true
             }
-            validItems.append(item)
+
+            guard preparationOutcome.wasCancelled == false else {
+                return
+            }
+
+            selectedImages.append(contentsOf: preparationOutcome.items)
         }
+    }
 
-        // Show error if any video was invalid
-        if hasInvalidVideo {
-            errorMessage = "Video must be 15 seconds or less."
-            showErrorAlert = true
-        }
-
-        // Add valid items
-        selectedImages.append(contentsOf: validItems)
-
-        // Clear loading state
-        isLoadingMedia = false
+    @MainActor
+    private func cancelMediaProcessing() {
+        activeProcessingToken = UUID()
+        mediaProcessingTask?.cancel()
+        mediaProcessingTask = nil
         selectedPhotos.removeAll()
+        isLoadingMedia = false
     }
 
-    private func createSelectedPhotoItem(from item: PhotosPickerItem) async -> SelectedPhotoItem? {
-        // Check if it's a video
-        if let contentType = item.supportedContentTypes.first?.identifier,
-           contentType.contains("video") || contentType.contains("movie") {
-            return await createVideoItem(from: item)
-        } else {
-            return await createPhotoItem(from: item)
-        }
-    }
-    
-    private func createPhotoItem(from item: PhotosPickerItem) async -> SelectedPhotoItem? {
-        guard let data = try? await item.loadTransferable(type: Data.self),
-              let uiImage = UIImage(data: data) else {
-            return nil
-        }
+    @MainActor
+    private func finishProcessing(_ token: UUID) {
+        guard activeProcessingToken == token else { return }
 
-        return SelectedPhotoItem(
-            pickerItem: item,
-            image: Image(uiImage: uiImage),
-            localIdentifier: item.itemIdentifier ?? UUID().uuidString,
-            isVideo: false,
-            duration: nil
-        )
-    }
-    
-    private func createVideoItem(from item: PhotosPickerItem) async -> SelectedPhotoItem? {
-        guard let movie = try? await item.loadTransferable(type: VideoPickerTransferable.self) else {
-            return nil
-        }
-        
-        let asset = AVURLAsset(url: movie.url)
-        let duration = try? await asset.load(.duration).seconds
-        
-        // Generate thumbnail
-        let imageGenerator = AVAssetImageGenerator(asset: asset)
-        imageGenerator.appliesPreferredTrackTransform = true
-        
-        guard let cgImage = try? await imageGenerator.image(at: .zero).image,
-              let duration = duration else {
-            return nil
-        }
-        
-        let uiImage = UIImage(cgImage: cgImage)
-        
-        return SelectedPhotoItem(
-            pickerItem: item,
-            image: Image(uiImage: uiImage),
-            localIdentifier: item.itemIdentifier ?? UUID().uuidString,
-            isVideo: true,
-            duration: duration,
-            videoURL: movie.url
-        )
+        mediaProcessingTask = nil
+        selectedPhotos.removeAll()
+        isLoadingMedia = false
     }
 
     private func deletePhoto(_ item: SelectedPhotoItem) {
@@ -274,10 +237,7 @@ extension PhotoGalleryView {
             highlightedSelectedItemId = nil
         }
 
-        // Clean up video temporary file if it exists
-        if let videoURL = item.videoURL {
-            try? FileManager.default.removeItem(at: videoURL)
-        }
+        SelectedMediaPreparationService.cleanupTemporaryVideoFile(at: item.videoURL)
 
         photoToDelete = nil
     }
@@ -306,94 +266,47 @@ private struct SelectedPhotoActionSheet: View {
     }
     
     var body: some View {
-        VStack(spacing: 16) {
-            VStack(spacing: 4) {
-                Text(labels.options)
-                    .font(.montserratBold(size: 20))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-            }
-            
+        AppSheetScaffold(title: labels.options, layout: .actionMenu) {
             VStack(spacing: 12) {
                 if !isHighlighted {
                     Button(action: onMakeHighlighted) {
-                        actionRow(
+                        AppSheetOptionRow(
                             systemImage: "star.fill",
-                            text: labels.highlight,
-                            tint: .accent,
-                            textColor: effectiveColorScheme == .dark ? .white : .black
+                            title: labels.highlight,
+                            iconTint: .accent,
+                            style: .compact
                         )
                     }
+                    .buttonStyle(.plain)
                 } else {
-                    highlightedRow
+                    AppSheetOptionRow(
+                        systemImage: "star.fill",
+                        title: "Currently Highlighted",
+                        iconTint: .accent,
+                        tone: .accent,
+                        style: .compact,
+                        trailingSymbol: "checkmark",
+                        trailingTint: .accent
+                    )
                 }
                 
                 Button(role: .destructive, action: onDelete) {
-                    actionRow(
+                    AppSheetOptionRow(
                         systemImage: "trash",
-                        text: labels.delete,
-                        tint: .red,
-                        textColor: .red
+                        title: labels.delete,
+                        iconTint: .red,
+                        tone: .destructive,
+                        style: .compact
                     )
                 }
+                .buttonStyle(.plain)
             }
-            
+        } footer: {
             Button(action: onCancel) {
                 Text("Cancel")
-                    .font(.montserratMedium(size: 16))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .gray)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(effectiveColorScheme == .dark ? .white.opacity(0.05) : .gray.opacity(0.05))
-                    )
             }
+            .appSheetButtonStyle(tone: .subtle)
         }
-        .padding(20)
-        .themedBackground()
-    }
-    
-    private func actionRow(systemImage: String, text: String, tint: Color, textColor: Color) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.system(size: 18))
-                .foregroundStyle(tint)
-            
-            Text(text)
-                .font(.montserratMedium(size: 16))
-                .foregroundStyle(textColor)
-            
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.1))
-        )
-    }
-    
-    private var highlightedRow: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "star.fill")
-                .font(.system(size: 18))
-                .foregroundStyle(.accent)
-            
-            Text("Currently Highlighted")
-                .font(.montserratMedium(size: 16))
-                .foregroundStyle(.accent)
-            
-            Spacer()
-            
-            Image(systemName: "checkmark")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(.accent)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(.accent.opacity(0.15))
-        )
+        .appSheetStyle(.actionMenu)
     }
 }

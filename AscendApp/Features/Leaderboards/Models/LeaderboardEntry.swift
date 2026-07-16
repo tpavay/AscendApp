@@ -1,14 +1,7 @@
-//
-//  LeaderboardEntry.swift
-//  AscendApp
-//
-//  Created by Tyler Pavay on 10/3/25.
-//
-
 import Foundation
 
-struct LeaderboardEntry: Identifiable, Equatable {
-    let id: String // userId
+struct LeaderboardEntry: Identifiable, Equatable, Sendable {
+    let id: String
     let userId: String
     let displayName: String
     let photoURL: URL?
@@ -35,83 +28,78 @@ struct LeaderboardEntry: Identifiable, Equatable {
         self.formattedValue = formattedValue
         self.isCurrentUser = isCurrentUser
     }
-
-    static func == (lhs: LeaderboardEntry, rhs: LeaderboardEntry) -> Bool {
-        lhs.id == rhs.id && lhs.rank == rhs.rank && lhs.value == rhs.value
-    }
 }
 
-// Firestore representation - stores both steps and floors
-struct FirestoreLeaderboardStats: Codable {
+struct FirestoreLeaderboardStats: Codable, Equatable, Sendable {
     let userId: String
     let displayName: String
     let photoURL: String?
     let timeFrame: String
-    let periodIdentifier: String
+    let schemaVersion: Int
+    let periodKey: String
+    let periodStartAt: Date
     let totalSteps: Int
     let totalFloors: Int
     let totalWorkouts: Int
     let totalDuration: Double
-    let averageStepsPerMinute: Double
-    let averageFloorsPerMinute: Double
+    let stepsPerMinute: Double
     let lastUpdated: Date
+    let age: Int?
+    let weightKg: Double?
+    let locationCity: String?
+    let locationCountry: String?
+    let locationRegion: String?
 
-    // Initializer for converting from local LeaderboardStats to upload to Firestore
-    init(from stats: LeaderboardStats, displayName: String, photoURL: URL?) {
-        self.userId = stats.userId
-        self.displayName = displayName
-        self.photoURL = photoURL?.absoluteString
-        self.timeFrame = stats.timeFrame
-        self.periodIdentifier = stats.periodIdentifier
-        self.totalSteps = stats.totalSteps
-        self.totalFloors = stats.totalFloors
-        self.totalWorkouts = stats.totalWorkouts
-        self.totalDuration = stats.totalDuration
-        self.averageStepsPerMinute = stats.averageStepsPerMinute
-        self.averageFloorsPerMinute = stats.averageFloorsPerMinute
-        self.lastUpdated = stats.lastUpdated
-    }
-
-    // Initializer for creating from Firestore data
     init(
         userId: String,
         displayName: String,
-        photoURL: String?,
+        photoURL: String? = nil,
         timeFrame: String,
-        periodIdentifier: String,
+        schemaVersion: Int,
+        periodKey: String,
+        periodStartAt: Date,
         totalSteps: Int,
         totalFloors: Int,
         totalWorkouts: Int,
         totalDuration: Double,
-        averageStepsPerMinute: Double,
-        averageFloorsPerMinute: Double,
-        lastUpdated: Date
+        stepsPerMinute: Double,
+        lastUpdated: Date,
+        age: Int? = nil,
+        weightKg: Double? = nil,
+        locationCity: String? = nil,
+        locationCountry: String? = nil,
+        locationRegion: String? = nil
     ) {
         self.userId = userId
         self.displayName = displayName
         self.photoURL = photoURL
         self.timeFrame = timeFrame
-        self.periodIdentifier = periodIdentifier
+        self.schemaVersion = schemaVersion
+        self.periodKey = periodKey
+        self.periodStartAt = periodStartAt
         self.totalSteps = totalSteps
         self.totalFloors = totalFloors
         self.totalWorkouts = totalWorkouts
         self.totalDuration = totalDuration
-        self.averageStepsPerMinute = averageStepsPerMinute
-        self.averageFloorsPerMinute = averageFloorsPerMinute
+        self.stepsPerMinute = stepsPerMinute
         self.lastUpdated = lastUpdated
+        self.age = age
+        self.weightKg = weightKg
+        self.locationCity = locationCity
+        self.locationCountry = locationCountry
+        self.locationRegion = locationRegion
     }
 
-    /// Get value for a specific metric, respecting user's preferred workout metric
-    func value(for metric: LeaderboardMetric, preferredWorkoutMetric: WorkoutMetric = .steps) -> Double {
+    func value(for metric: LeaderboardMetric) -> Double {
         switch metric {
         case .climb:
-            return preferredWorkoutMetric == .steps ? Double(totalSteps) : Double(totalFloors)
+            return Double(totalSteps)
         case .workouts:
             return Double(totalWorkouts)
         case .duration:
             return totalDuration
         case .pace:
-            return preferredWorkoutMetric == .steps ? averageStepsPerMinute : averageFloorsPerMinute
+            return stepsPerMinute
         }
     }
 }

@@ -74,6 +74,10 @@ Secrets/
 # Claude Code settings (user-specific)
 .claude/
 
+# Codex/local agent tooling
+.agents/
+skills-lock.json
+
 # Node.js / Firebase Functions
 node_modules/
 /package-lock.json
@@ -81,3 +85,7 @@ node_modules/
 # Astro build output
 web/dist/
 web/.astro/
+
+# Bundler local artifacts
+.bundle/
+vendor/bundle/

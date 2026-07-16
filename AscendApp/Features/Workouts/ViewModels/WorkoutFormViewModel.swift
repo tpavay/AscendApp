@@ -19,7 +19,7 @@ class WorkoutFormViewModel {
     var durationHours: String = ""
     var durationMinutes: String = ""
     var durationSeconds: String = ""
-    var metricValue: String = ""
+    var stepsValue: String = ""
     var notes: String = ""
     var highlightedSelectedItemId: UUID?
     var selectedImages: [SelectedPhotoItem] = [] {
@@ -49,6 +49,7 @@ class WorkoutFormViewModel {
     var uploadError: String? = nil
     var durationFormatted: String = ""
     private var rawDurationDigits: String = ""
+    private var routineAttribution: RoutineWorkoutAttribution?
 
     // Dependencies
     private let workoutService: WorkoutService
@@ -72,12 +73,16 @@ class WorkoutFormViewModel {
     /// Prefill form fields from a completed routine session
     func prefillFromRoutine(
         name: String,
+        startedAt: Date,
         duration: TimeInterval,
         weightConfiguration: WeightConfiguration?,
-        difficulty: Int?
+        difficulty: Int?,
+        attribution: RoutineWorkoutAttribution? = nil
     ) {
         // Use routine name as workout name
         workoutName = name
+        workoutDate = startedAt
+        routineAttribution = attribution
 
         // Set duration from elapsed time
         let totalSeconds = Int(duration)
@@ -99,16 +104,17 @@ class WorkoutFormViewModel {
 
     // MARK: - Computed Properties
     var isFormValid: Bool {
-        // Steps/floors is optional - only validate if provided
-        let metricValid = metricValue.isEmpty || Int(metricValue) != nil
+        let stepsValid = WorkoutInputValidation.isValidOptionalSteps(stepsValue)
 
         // Workout name is optional - will use default if empty
-        let nameValid = workoutName.isEmpty || workoutName.count <= 50
+        let nameValid = WorkoutInputValidation.isValidWorkoutName(workoutName)
+        let notesValid = WorkoutInputValidation.isValidNotes(notes)
 
         let basicValidation = nameValid &&
+        notesValid &&
         !durationMinutes.isEmpty &&
         !durationSeconds.isEmpty &&
-        metricValid &&
+        stepsValid &&
         Int(durationMinutes) != nil &&
         Int(durationSeconds) != nil &&
         (Int(durationMinutes) ?? 0) < 60 &&
@@ -121,13 +127,19 @@ class WorkoutFormViewModel {
         let seconds = Int(durationSeconds) ?? 0
         let totalDurationSeconds = hours * 3600 + minutes * 60 + seconds
         let durationValid = totalDurationSeconds > 0
+        let workoutTotalsValid = WorkoutInputValidation.isValidWorkoutTotals(
+            stepsValue: stepsValue,
+            durationHours: hours,
+            durationMinutes: minutes,
+            durationSeconds: seconds
+        )
 
         // Validate health metrics if provided
-        let avgHRValid = avgHeartRate.isEmpty || (Int(avgHeartRate) != nil && (Int(avgHeartRate) ?? 0) >= 25 && (Int(avgHeartRate) ?? 0) <= 230)
-        let maxHRValid = maxHeartRate.isEmpty || (Int(maxHeartRate) != nil && (Int(maxHeartRate) ?? 0) >= 25 && (Int(maxHeartRate) ?? 0) <= 230)
-        let caloriesValid = caloriesBurned.isEmpty || (Int(caloriesBurned) != nil && (Int(caloriesBurned) ?? 0) >= 0)
+        let avgHRValid = WorkoutInputValidation.isValidOptionalHeartRate(avgHeartRate)
+        let maxHRValid = WorkoutInputValidation.isValidOptionalHeartRate(maxHeartRate)
+        let caloriesValid = WorkoutInputValidation.isValidOptionalCalories(caloriesBurned)
 
-        return basicValidation && durationValid && avgHRValid && maxHRValid && caloriesValid && !isUploading
+        return basicValidation && durationValid && workoutTotalsValid && avgHRValid && maxHRValid && caloriesValid && !isUploading
     }
 
     // MARK: - Actions
@@ -138,6 +150,7 @@ class WorkoutFormViewModel {
 
         isUploading = true
         uploadError = nil
+        defer { isUploading = false }
 
         do {
             let request = try createWorkoutRequest()
@@ -145,25 +158,21 @@ class WorkoutFormViewModel {
             // Create workout without photos - they'll be uploaded asynchronously
             let workout = try await workoutService.createWorkout(from: request)
 
-            // Calculate and store percentile scores for heat map
-            let existingWorkouts = try fetchAllWorkouts(from: modelContext)
-            let percentileScores = PercentileScoreService.calculateAllPercentiles(
-                for: workout,
-                existingWorkouts: existingWorkouts,
-                fitnessLevel: settingsManager.fitnessLevel,
-                preferredMetric: settingsManager.preferredWorkoutMetric
-            )
-            workout.percentileScores = percentileScores
-
             modelContext.insert(workout)
+            try WorkoutParticipationService.addRoutineParticipationIfNeeded(
+                for: workout,
+                attribution: routineAttribution,
+                userId: nil,
+                modelContext: modelContext
+            )
             try modelContext.save()
 
-            // Recalculate all PRs based on chronological workout order
-            // This ensures PRs are correct even if the user logs a workout with an older date
-            try PersonalRecordService.recalculateAllPersonalRecords(
+            // Refresh derived workout data and leaderboard stats.
+            try WorkoutMutationHandler.shared.workoutsDidChange(
                 modelContext: modelContext,
-                measurementSystem: settingsManager.measurementSystem,
-                stepHeight: settingsManager.stepHeight
+                mutation: .created([LeaderboardWorkoutSnapshot(workout: workout)]),
+                newWorkouts: [workout],
+                changedWorkouts: [workout]
             )
 
             // Queue media uploads asynchronously (fire-and-forget)
@@ -172,38 +181,21 @@ class WorkoutFormViewModel {
                 let highlightedIndex = highlightedSelectedItemId.flatMap { id in
                     selectedImages.firstIndex(where: { $0.id == id })
                 }
-                let imagesToUpload = selectedImages
-                let workoutId = workout.id
-                Task {
-                    try? await MediaUploadManager.shared.queueUploads(
-                        for: workoutId,
-                        photos: imagesToUpload,
-                        highlightedIndex: highlightedIndex,
+                queueMediaUploadsInBackground(
+                    for: workout.id,
+                    highlightedIndex: highlightedIndex,
+                    modelContext: modelContext
+                )
+            }
+
+            if routineAttribution != nil {
+                Task { @MainActor in
+                    await WorkoutImportCoordinator.shared.enrichInAppWorkoutWithAppleHealthIfPossible(
+                        workout,
                         modelContext: modelContext
                     )
                 }
             }
-
-            // Fire-and-forget Strava auto-sync (doesn't block save)
-            let stravaManager = StravaManager.shared
-            if FeatureFlags.isStravaEnabled && stravaManager.isConnected && stravaManager.autoSyncEnabled {
-                let primaryMetric = settingsManager.preferredWorkoutMetric
-                Task {
-                    do {
-                        guard !workout.isSyncedToStrava else { return }
-                        let activityId = try await stravaManager.syncWorkout(
-                            workout,
-                            primaryMetric: primaryMetric
-                        )
-                        workout.setStravaSyncMetadata(StravaSyncMetadata(stravaActivityId: activityId))
-                        try? modelContext.save()
-                    } catch {
-                        print("Strava auto-sync failed: \(error)")
-                    }
-                }
-            }
-
-            isUploading = false
 
             // Don't clean up video files here - MediaUploadManager needs them
             // They'll be cleaned up after successful upload
@@ -211,7 +203,6 @@ class WorkoutFormViewModel {
             return workout
 
         } catch {
-            isUploading = false
             // Clean up temp video files on failure (since we won't be uploading)
             cleanupVideoFiles()
             uploadError = error.userFriendlyMessage
@@ -221,13 +212,35 @@ class WorkoutFormViewModel {
     
     /// Clean up temporary video files
     func cleanupVideoFiles() {
-        for item in selectedImages {
-            if let videoURL = item.videoURL {
-                try? FileManager.default.removeItem(at: videoURL)
+        SelectedMediaPreparationService.cleanupTemporaryVideoFiles(in: selectedImages)
+    }
+
+    private func queueMediaUploadsInBackground(
+        for workoutId: UUID,
+        highlightedIndex: Int?,
+        modelContext: ModelContext
+    ) {
+        let imagesToUpload = selectedImages
+
+        Task { @MainActor in
+            do {
+                try await MediaUploadManager.shared.queueUploads(
+                    for: workoutId,
+                    photos: imagesToUpload,
+                    highlightedIndex: highlightedIndex,
+                    modelContext: modelContext
+                )
+            } catch {
+                TelemetryManager.shared.recordError(
+                    error,
+                    context: .storage,
+                    code: "media_upload_queue_failed"
+                )
+                debugLog("Media upload queue failed: \(error)")
             }
         }
     }
-    
+
     // MARK: - Form Processing Methods
     func formatDurationInput(_ newValue: String, oldValue: String) {
         let previousDigits = oldValue.filter { $0.isNumber }
@@ -265,50 +278,14 @@ class WorkoutFormViewModel {
         // Limit to 6 digits (hhmmss)
         rawDurationDigits = String(rawDurationDigits.prefix(6))
 
-        // Convert to total seconds, working from right-to-left
-        var totalSeconds = 0
-        let reversedDigits = Array(rawDurationDigits.reversed())
-
-        // Process digits as seconds, then minutes, then hours
-        for (index, digit) in reversedDigits.enumerated() {
-            if let digitValue = Int(String(digit)) {
-                switch index {
-                case 0: // ones place of seconds
-                    totalSeconds += digitValue
-                case 1: // tens place of seconds
-                    totalSeconds += digitValue * 10
-                case 2: // ones place of minutes
-                    totalSeconds += digitValue * 60
-                case 3: // tens place of minutes
-                    totalSeconds += digitValue * 600
-                case 4: // ones place of hours
-                    totalSeconds += digitValue * 3600
-                case 5: // tens place of hours
-                    totalSeconds += digitValue * 36000
-                default:
-                    break
-                }
-            }
-        }
-
-        // Convert back to hours, minutes, seconds
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        let seconds = totalSeconds % 60
-
-        // Format display based on whether hours is non-zero
-        if hours == 0 {
-            // Show as MM:SS
-            durationFormatted = "\(minutes < 10 ? "0" : "")\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
-        } else {
-            // Show as H:MM:SS
-            durationFormatted = "\(hours):\(minutes < 10 ? "0" : "")\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
-        }
+        // Parse and format using the new utility
+        let (h, m, s) = DurationFormatter.parse(rawDigits: rawDurationDigits)
+        durationFormatted = DurationFormatter.format(hours: h, minutes: m, seconds: s)
 
         // Update individual components for saving
-        durationHours = hours < 10 ? "0\(hours)" : "\(hours)"
-        durationMinutes = minutes < 10 ? "0\(minutes)" : "\(minutes)"
-        durationSeconds = seconds < 10 ? "0\(seconds)" : "\(seconds)"
+        durationHours = h < 10 ? "0\(h)" : "\(h)"
+        durationMinutes = m < 10 ? "0\(m)" : "\(m)"
+        durationSeconds = s < 10 ? "0\(s)" : "\(s)"
     }
 
     func setDuration(hours: Int, minutes: Int, seconds: Int) {
@@ -316,46 +293,26 @@ class WorkoutFormViewModel {
         let clampedMinutes = min(max(minutes, 0), 59)
         let clampedSeconds = min(max(seconds, 0), 59)
 
-        let hasHours = clampedHours > 0
+        durationFormatted = DurationFormatter.format(hours: clampedHours, minutes: clampedMinutes, seconds: clampedSeconds)
+        
         durationHours = clampedHours < 10 ? "0\(clampedHours)" : "\(clampedHours)"
         durationMinutes = clampedMinutes < 10 ? "0\(clampedMinutes)" : "\(clampedMinutes)"
         durationSeconds = clampedSeconds < 10 ? "0\(clampedSeconds)" : "\(clampedSeconds)"
 
-        if hasHours {
-            durationFormatted = "\(clampedHours):\(clampedMinutes < 10 ? "0" : "")\(clampedMinutes):\(clampedSeconds < 10 ? "0" : "")\(clampedSeconds)"
-        } else {
-            durationFormatted = "\(clampedMinutes < 10 ? "0" : "")\(clampedMinutes):\(clampedSeconds < 10 ? "0" : "")\(clampedSeconds)"
-        }
-
-        let hoursDigits = hasHours ? String(clampedHours) : ""
+        let hoursDigits = clampedHours > 0 ? String(clampedHours) : ""
         rawDurationDigits = hoursDigits + "\(clampedMinutes < 10 ? "0" : "")\(clampedMinutes)\(clampedSeconds < 10 ? "0" : "")\(clampedSeconds)"
     }
 
     func validateHeartRateOnSubmit(_ value: String) -> String {
-        let digits = value.filter { $0.isNumber }
-        if digits.isEmpty { return "" }
-
-        guard let intValue = Int(digits) else { return value }
-
-        if intValue < 25 {
-            return "25"
-        } else if intValue > 230 {
-            return "230"
-        } else {
-            return String(intValue)
-        }
+        WorkoutInputValidation.normalizeHeartRateOnSubmit(value)
     }
 
     func validateCaloriesOnSubmit(_ value: String) -> String {
-        let digits = value.filter { $0.isNumber }
-        if digits.isEmpty { return "" }
-
-        guard let intValue = Int(digits) else { return value }
-        return intValue < 0 ? "0" : String(intValue)
+        WorkoutInputValidation.normalizeCaloriesOnSubmit(value)
     }
 
     func filterNumericInput(_ input: String) -> String {
-        return input.filter { $0.isNumber }
+        WorkoutInputValidation.filterNumericInput(input)
     }
 
     func formatWorkoutDateTime() -> String {
@@ -391,8 +348,8 @@ class WorkoutFormViewModel {
             throw WorkoutFormError.invalidInput
         }
         
-        // Steps/floors is optional - default to 0 if not provided
-        let value = Int(metricValue) ?? 0
+        let steps = Int(stepsValue) ?? 0
+        let floors = Workout.stepsToFloors(steps)
 
         let hours = Int(durationHours) ?? 0
         let totalDuration = TimeInterval(hours * 3600 + minutes * 60 + seconds)
@@ -401,21 +358,6 @@ class WorkoutFormViewModel {
         let maxHR = !maxHeartRate.isEmpty ? Int(maxHeartRate) : nil
         let calories = !caloriesBurned.isEmpty ? Int(caloriesBurned) : nil
         
-        // Snapshot the current stepsPerFloor setting
-        let stepsPerFloor = settingsManager.stepsPerFloor
-        
-        // Calculate both steps and floors based on which metric user entered
-        let steps: Int
-        let floors: Int
-        
-        if settingsManager.preferredWorkoutMetric == .steps {
-            steps = value
-            floors = Workout.stepsToFloors(value, stepsPerFloor: stepsPerFloor)
-        } else {
-            floors = value
-            steps = Workout.floorsToSteps(value, stepsPerFloor: stepsPerFloor)
-        }
-
         // Only include weight configuration if it has enabled entries
         let weights = weightConfiguration.isEmpty ? nil : weightConfiguration
 
@@ -425,7 +367,7 @@ class WorkoutFormViewModel {
             duration: totalDuration,
             steps: steps,
             floors: floors,
-            stepsPerFloor: stepsPerFloor,
+            stepsPerFloor: Workout.defaultStepsPerFloor,
             notes: notes,
             avgHeartRate: avgHR,
             maxHeartRate: maxHR,
@@ -447,12 +389,6 @@ class WorkoutFormViewModel {
     }
 
     /// Fetch all workouts from the model context for percentile calculation
-    private func fetchAllWorkouts(from modelContext: ModelContext) throws -> [Workout] {
-        let descriptor = FetchDescriptor<Workout>(
-            sortBy: [SortDescriptor(\.date, order: .forward)]
-        )
-        return try modelContext.fetch(descriptor)
-    }
 }
 
 enum WorkoutFormError: LocalizedError {

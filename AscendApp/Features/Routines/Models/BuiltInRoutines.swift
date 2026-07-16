@@ -2,104 +2,223 @@ import Foundation
 
 /// Pre-made routine templates that ship with the app
 enum BuiltInRoutines {
+    static var templateIdsInDisplayOrder: [String] {
+        definitions.map(\.id)
+    }
 
-    /// Returns all built-in templates (creates new instances each call)
-    static var templates: [Routine] {
+    static var featuredTemplateIdsInDisplayOrder: [String] {
+        definitions.filter(\.isFeatured).map(\.id)
+    }
+
+    static func templateIds(in section: BuiltInRoutineBrowseSection) -> [String] {
+        definitions
+            .filter { $0.browseSections.contains(section) }
+            .map(\.id)
+    }
+
+    static var definitions: [BuiltInRoutineTemplateDefinition] {
         [
-            beginner20Min,
-            hiitIntervals,
-            enduranceBuilder,
-            quickBurn10
+            BuiltInRoutineTemplateDefinition(
+                id: "first_climb_10",
+                name: "First Climb 10",
+                routineDescription: "Settle into a short, steady climb with time to warm up and ease back down. Pick this when you want the simplest possible starting point.",
+                intervals: [
+                    RelativeRoutineInterval(zone: .warmup, duration: 120),
+                    RelativeRoutineInterval(zone: .steady, duration: 360),
+                    RelativeRoutineInterval(zone: .recovery, duration: 120)
+                ],
+                browseSections: [.gettingStarted],
+                isFeatured: false,
+                difficulty: 1,
+                estimatedCalories: 85
+            ),
+            BuiltInRoutineTemplateDefinition(
+                id: "first_climb_15",
+                name: "First Climb 15",
+                routineDescription: "Build a little more time at your steady pace without adding complexity. Pick this when you're ready to stay on the machine longer and build confidence.",
+                intervals: [
+                    RelativeRoutineInterval(zone: .warmup, duration: 120),
+                    RelativeRoutineInterval(zone: .steady, duration: 600),
+                    RelativeRoutineInterval(zone: .recovery, duration: 180)
+                ],
+                browseSections: [.gettingStarted],
+                isFeatured: false,
+                difficulty: 1,
+                estimatedCalories: 125
+            ),
+            BuiltInRoutineTemplateDefinition(
+                id: "gentle_build",
+                name: "Gentle Build",
+                routineDescription: "Start easy, move into a steady working pace, then back off before the finish. Pick this when you want a smooth introduction to changing intensity.",
+                intervals: [
+                    RelativeRoutineInterval(zone: .warmup, duration: 120),
+                    RelativeRoutineInterval(zone: .easy, duration: 180),
+                    RelativeRoutineInterval(zone: .steady, duration: 180),
+                    RelativeRoutineInterval(zone: .easy, duration: 120),
+                    RelativeRoutineInterval(zone: .recovery, duration: 120)
+                ],
+                browseSections: [.gettingStarted],
+                isFeatured: false,
+                difficulty: 1,
+                estimatedCalories: 100
+            ),
+            BuiltInRoutineTemplateDefinition(
+                id: "first_intervals",
+                name: "First Intervals",
+                routineDescription: "Alternate short steady pushes with easy recoveries to break the workout into manageable chunks. Pick this when you want variety without jumping into hard HIIT.",
+                intervals: [
+                    RelativeRoutineInterval(zone: .warmup, duration: 120),
+                    RelativeRoutineInterval(zone: .steady, duration: 60),
+                    RelativeRoutineInterval(zone: .easy, duration: 60),
+                    RelativeRoutineInterval(zone: .steady, duration: 60),
+                    RelativeRoutineInterval(zone: .easy, duration: 60),
+                    RelativeRoutineInterval(zone: .steady, duration: 60),
+                    RelativeRoutineInterval(zone: .easy, duration: 60),
+                    RelativeRoutineInterval(zone: .steady, duration: 60),
+                    RelativeRoutineInterval(zone: .easy, duration: 60),
+                    RelativeRoutineInterval(zone: .recovery, duration: 120)
+                ],
+                browseSections: [.gettingStarted],
+                isFeatured: false,
+                difficulty: 2,
+                estimatedCalories: 105
+            ),
+            BuiltInRoutineTemplateDefinition(
+                id: "challenge_10_8_4",
+                name: "Quick Climb",
+                routineDescription: "A short climb with a 1-minute warmup, 8-minute steady push, and 1-minute recovery. Pick this when you want a fast, balanced effort.",
+                intervals: [
+                    RelativeRoutineInterval(zone: .warmup, duration: 60),
+                    RelativeRoutineInterval(zone: .steady, duration: 480),
+                    RelativeRoutineInterval(zone: .recovery, duration: 60)
+                ],
+                browseSections: [],
+                isFeatured: true,
+                difficulty: 1,
+                estimatedCalories: 90
+            ),
+            BuiltInRoutineTemplateDefinition(
+                id: "challenge_25_7_2",
+                name: "Steady State",
+                routineDescription: "Ease in for 5 minutes, then hold your steady pace for 25 minutes. Pick this when you want sustained work without big intensity changes.",
+                intervals: [
+                    RelativeRoutineInterval(zone: .easy, duration: 300),
+                    RelativeRoutineInterval(zone: .steady, duration: 1_500)
+                ],
+                browseSections: [],
+                isFeatured: true,
+                difficulty: 2,
+                estimatedCalories: 260
+            ),
+            BuiltInRoutineTemplateDefinition(
+                id: "stair_3030",
+                name: "Tempo Switch",
+                routineDescription: "Alternate easy recoveries with longer tempo pushes across 30 minutes. Pick this when you want rhythm changes without going full HIIT.",
+                intervals: [
+                    RelativeRoutineInterval(zone: .easy, duration: 120),
+                    RelativeRoutineInterval(zone: .tempo, duration: 300),
+                    RelativeRoutineInterval(zone: .easy, duration: 120),
+                    RelativeRoutineInterval(zone: .tempo, duration: 360),
+                    RelativeRoutineInterval(zone: .easy, duration: 120),
+                    RelativeRoutineInterval(zone: .tempo, duration: 300),
+                    RelativeRoutineInterval(zone: .easy, duration: 480)
+                ],
+                browseSections: [],
+                isFeatured: true,
+                difficulty: 3,
+                estimatedCalories: 280
+            ),
+            BuiltInRoutineTemplateDefinition(
+                id: "double_step_intervals",
+                name: "Skip Step Intervals",
+                routineDescription: "Alternate reset intervals with skip-step climbing to raise the demand. Pick this when you want variety and more lower-body challenge.",
+                intervals: [
+                    RelativeRoutineInterval(zone: .warmup, duration: 60),
+                    RelativeRoutineInterval(zone: .easy, duration: 90, modifiers: .skipStep),
+                    RelativeRoutineInterval(zone: .warmup, duration: 60),
+                    RelativeRoutineInterval(zone: .steady, duration: 90, modifiers: .skipStep),
+                    RelativeRoutineInterval(zone: .warmup, duration: 60),
+                    RelativeRoutineInterval(zone: .steady, duration: 90, modifiers: .skipStep),
+                    RelativeRoutineInterval(zone: .warmup, duration: 60),
+                    RelativeRoutineInterval(zone: .easy, duration: 90, modifiers: .skipStep),
+                    RelativeRoutineInterval(zone: .recovery, duration: 60)
+                ],
+                browseSections: [],
+                isFeatured: true,
+                difficulty: 3,
+                estimatedCalories: 130
+            ),
+            BuiltInRoutineTemplateDefinition(
+                id: "zone_2_steady",
+                name: "Zone 2 Easy",
+                routineDescription: "Stay mostly at an easy, conversational pace with a brief warmup and recovery. Pick this when you want aerobic volume without a hard finish.",
+                intervals: [
+                    RelativeRoutineInterval(zone: .warmup, duration: 60),
+                    RelativeRoutineInterval(zone: .easy, duration: 2_280),
+                    RelativeRoutineInterval(zone: .recovery, duration: 60)
+                ],
+                browseSections: [],
+                isFeatured: true,
+                difficulty: 2,
+                estimatedCalories: 320
+            ),
+            BuiltInRoutineTemplateDefinition(
+                id: "hiit_crusher",
+                name: "HIIT Sprint",
+                routineDescription: "Short sprint and threshold bursts alternate with recovery throughout the session. Pick this when you want the hardest effort in the shortest time.",
+                intervals: [
+                    RelativeRoutineInterval(zone: .warmup, duration: 60),
+                    RelativeRoutineInterval(zone: .sprint, duration: 30),
+                    RelativeRoutineInterval(zone: .recovery, duration: 30),
+                    RelativeRoutineInterval(zone: .sprint, duration: 30),
+                    RelativeRoutineInterval(zone: .recovery, duration: 30),
+                    RelativeRoutineInterval(zone: .threshold, duration: 30),
+                    RelativeRoutineInterval(zone: .recovery, duration: 30),
+                    RelativeRoutineInterval(zone: .sprint, duration: 30),
+                    RelativeRoutineInterval(zone: .recovery, duration: 30),
+                    RelativeRoutineInterval(zone: .threshold, duration: 30),
+                    RelativeRoutineInterval(zone: .recovery, duration: 30),
+                    RelativeRoutineInterval(zone: .warmup, duration: 60)
+                ],
+                browseSections: [],
+                isFeatured: true,
+                difficulty: 5,
+                estimatedCalories: 170
+            ),
+            BuiltInRoutineTemplateDefinition(
+                id: "pyramid_climb",
+                name: "Pyramid Climb",
+                routineDescription: "Climb up through each zone, hit a hard peak, then step back down. Pick this when you want a progressive challenge with a clear build and release.",
+                intervals: [
+                    RelativeRoutineInterval(zone: .easy, duration: 120),
+                    RelativeRoutineInterval(zone: .steady, duration: 120),
+                    RelativeRoutineInterval(zone: .tempo, duration: 120),
+                    RelativeRoutineInterval(zone: .threshold, duration: 120),
+                    RelativeRoutineInterval(zone: .sprint, duration: 240),
+                    RelativeRoutineInterval(zone: .threshold, duration: 120),
+                    RelativeRoutineInterval(zone: .tempo, duration: 120),
+                    RelativeRoutineInterval(zone: .steady, duration: 120),
+                    RelativeRoutineInterval(zone: .easy, duration: 120)
+                ],
+                browseSections: [],
+                isFeatured: true,
+                difficulty: 4,
+                estimatedCalories: 220
+            )
         ]
     }
 
-    /// Beginner 20min - A gentle introduction with gradual intensity increases
-    /// 3 min warmup (L5) → 5 min moderate (L8) → 5 min push (L10) → 5 min moderate (L8) → 2 min cooldown (L5)
-    static var beginner20Min: Routine {
-        let intervals: [RoutineInterval] = [
-            RoutineInterval(duration: 180, intensityValue: 5, order: 0),
-            RoutineInterval(duration: 300, intensityValue: 8, order: 1),
-            RoutineInterval(duration: 300, intensityValue: 10, order: 2),
-            RoutineInterval(duration: 300, intensityValue: 8, order: 3),
-            RoutineInterval(duration: 120, intensityValue: 5, order: 4),
-        ]
-        return Routine(
-            name: "Beginner 20min",
-            routineDescription: "A gentle introduction to stair climbing with gradual intensity increases.",
-            source: .builtin,
-            intervals: intervals,
-            templateId: "beginner_20min",
-            difficulty: 1,
-            estimatedCalories: 150
-        )
-    }
-
-    /// HIIT Intervals - High-intensity interval training with 30-second bursts
-    /// 2 min warmup (L6) → 8x [30s hard (L15) + 30s recovery (L6)] → 2 min cooldown (L5)
-    static var hiitIntervals: Routine {
-        var intervals: [RoutineInterval] = [
-            RoutineInterval(duration: 120, intensityValue: 6, order: 0),
-        ]
-
-        // 8 rounds of 30s hard / 30s easy
-        for i in 0..<8 {
-            intervals.append(RoutineInterval(duration: 30, intensityValue: 15, order: 1 + i * 2))
-            intervals.append(RoutineInterval(duration: 30, intensityValue: 6, order: 2 + i * 2))
+    static func resolvedTemplates(for baseLevel: Int) -> [Routine] {
+        definitions.enumerated().map { index, definition in
+            RoutineTemplateResolver.resolveTemplate(
+                definition,
+                baseLevel: baseLevel,
+                displayOrder: index
+            )
         }
-
-        intervals.append(RoutineInterval(duration: 120, intensityValue: 5, order: 17))
-
-        return Routine(
-            name: "HIIT Intervals",
-            routineDescription: "High-intensity interval training with 30-second bursts.",
-            source: .builtin,
-            intervals: intervals,
-            templateId: "hiit_intervals",
-            difficulty: 4,
-            estimatedCalories: 200
-        )
     }
 
-    /// Endurance Builder - Build stamina with sustained moderate-to-hard climbing
-    /// 5 min warmup (L6) → 15 min steady (L10) → 10 min push (L12) → 5 min cooldown (L6)
-    static var enduranceBuilder: Routine {
-        let intervals: [RoutineInterval] = [
-            RoutineInterval(duration: 300, intensityValue: 6, order: 0),
-            RoutineInterval(duration: 900, intensityValue: 10, order: 1),
-            RoutineInterval(duration: 600, intensityValue: 12, order: 2),
-            RoutineInterval(duration: 300, intensityValue: 6, order: 3),
-        ]
-        return Routine(
-            name: "Endurance Builder",
-            routineDescription: "Build stamina with sustained moderate-to-hard climbing.",
-            source: .builtin,
-            intervals: intervals,
-            templateId: "endurance_builder",
-            difficulty: 3,
-            estimatedCalories: 350
-        )
-    }
-
-    /// Quick Burn 10 - A fast-paced 10-minute routine for short sessions
-    /// 1 min warmup (L6) → 2 min hard (L12) → 1 min recovery (L8) → 2 min harder (L14) → 1 min recovery (L8) → 2 min peak (L16) → 1 min cooldown (L5)
-    static var quickBurn10: Routine {
-        let intervals: [RoutineInterval] = [
-            RoutineInterval(duration: 60, intensityValue: 6, order: 0),
-            RoutineInterval(duration: 120, intensityValue: 12, order: 1),
-            RoutineInterval(duration: 60, intensityValue: 8, order: 2),
-            RoutineInterval(duration: 120, intensityValue: 14, order: 3),
-            RoutineInterval(duration: 60, intensityValue: 8, order: 4),
-            RoutineInterval(duration: 120, intensityValue: 16, order: 5),
-            RoutineInterval(duration: 60, intensityValue: 5, order: 6),
-        ]
-        return Routine(
-            name: "Quick Burn 10",
-            routineDescription: "A fast-paced 10-minute routine for when you're short on time.",
-            source: .builtin,
-            intervals: intervals,
-            templateId: "quick_burn_10",
-            difficulty: 3,
-            estimatedCalories: 120
-        )
+    static var previewTemplates: [Routine] {
+        resolvedTemplates(for: 8)
     }
 }

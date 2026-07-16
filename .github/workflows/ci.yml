@@ -1,0 +1,214 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "AscendApp/**"
+      - "AscendAppTests/**"
+      - "AscendApp.xcodeproj/**"
+      - ".github/workflows/**"
+      - ".github/workflows/ci.yml"
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ios-verify:
+    name: iOS Verify (Staging)
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Decode Firebase plist files
+        env:
+          GOOGLE_SERVICE_INFO_DEV_BASE64: ${{ secrets.GOOGLE_SERVICE_INFO_DEV_BASE64 }}
+          GOOGLE_SERVICE_INFO_STAGING_BASE64: ${{ secrets.GOOGLE_SERVICE_INFO_STAGING_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          decode_base64_required() {
+            local secret_name="$1"
+            local encoded="$2"
+            local output_path="$3"
+
+            if [ -z "$encoded" ]; then
+              echo "::error::Required secret ${secret_name} is missing or empty."
+              exit 1
+            fi
+
+            if ! (printf "%s" "$encoded" | base64 --decode > "$output_path" 2>/dev/null || printf "%s" "$encoded" | base64 -D > "$output_path" 2>/dev/null); then
+              echo "::error::Failed to decode secret ${secret_name} as base64."
+              exit 1
+            fi
+
+            if [ ! -s "$output_path" ]; then
+              echo "::error::Decoded file for ${secret_name} is empty."
+              exit 1
+            fi
+
+            if ! plutil -lint "$output_path" >/dev/null; then
+              echo "::error::Decoded file for ${secret_name} is not a valid plist."
+              exit 1
+            fi
+          }
+
+          mkdir -p AscendApp/App/Firebase
+          rm -f AscendApp/App/Firebase/GoogleService-Info-Dev.plist
+          rm -f AscendApp/App/Firebase/GoogleService-Info-Staging.plist
+          decode_base64_required "GOOGLE_SERVICE_INFO_DEV_BASE64" "$GOOGLE_SERVICE_INFO_DEV_BASE64" "AscendApp/App/Firebase/GoogleService-Info-Dev.plist"
+          decode_base64_required "GOOGLE_SERVICE_INFO_STAGING_BASE64" "$GOOGLE_SERVICE_INFO_STAGING_BASE64" "AscendApp/App/Firebase/GoogleService-Info-Staging.plist"
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      # The device (iphoneos) compile is covered by the ios-verify-release job;
+      # this job proves the simulator build + test suite, so the app compiles
+      # exactly once per job instead of twice.
+      - name: Select simulator
+        id: simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          preferred_names=(
+            "iPhone 16 Pro"
+            "iPhone 16"
+            "iPhone 16 Pro Max"
+            "iPhone 16 Plus"
+            "iPhone 15 Pro"
+            "iPhone 15"
+          )
+
+          destinations="$(
+            xcodebuild \
+              -project AscendApp.xcodeproj \
+              -scheme "AscendApp-Staging" \
+              -showdestinations
+          )"
+
+          parsed_destinations="$(
+            printf '%s\n' "$destinations" | sed -n 's/.*platform:iOS Simulator,.*id:\([^,}]*\), OS:[^,}]*, name:\(.*\) }.*/\1|\2/p'
+          )"
+
+          simulator_id=""
+
+          for name in "${preferred_names[@]}"; do
+            simulator_id="$(
+              printf '%s\n' "$parsed_destinations" | awk -F'|' -v target="$name" '
+                $2 == target {
+                  id = $1
+                }
+                END {
+                  if (id != "") {
+                    print id
+                  }
+                }
+              '
+            )"
+
+            if [ -n "$simulator_id" ]; then
+              break
+            fi
+          done
+
+          if [ -z "$simulator_id" ]; then
+            simulator_id="$(
+              printf '%s\n' "$parsed_destinations" | awk -F'|' '
+                $2 ~ /^iPhone/ {
+                  id = $1
+                }
+                END {
+                  if (id != "") {
+                    print id
+                  }
+                }
+              '
+            )"
+          fi
+
+          if [ -z "$simulator_id" ]; then
+            echo "::error::No available iPhone simulator destination found."
+            exit 1
+          fi
+
+          echo "id=$simulator_id" >> "$GITHUB_OUTPUT"
+
+      - name: Run tests
+        run: |
+          xcodebuild \
+            -project AscendApp.xcodeproj \
+            -scheme "AscendApp-Staging" \
+            -configuration Staging \
+            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.id }}" \
+            ENABLE_TESTABILITY=YES \
+            test
+
+  ios-verify-release:
+    name: iOS Verify (Release)
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Decode production Firebase plist
+        env:
+          GOOGLE_SERVICE_INFO_PRODUCTION_BASE64: ${{ secrets.GOOGLE_SERVICE_INFO_PRODUCTION_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$GOOGLE_SERVICE_INFO_PRODUCTION_BASE64" ]; then
+            echo "::error::Required secret GOOGLE_SERVICE_INFO_PRODUCTION_BASE64 is missing or empty."
+            exit 1
+          fi
+          mkdir -p AscendApp/App/Firebase
+          printf "%s" "$GOOGLE_SERVICE_INFO_PRODUCTION_BASE64" | base64 --decode > AscendApp/App/Firebase/GoogleService-Info-Production.plist
+          plutil -lint AscendApp/App/Firebase/GoogleService-Info-Production.plist
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      # The production deploy pipeline is the first place the Release
+      # configuration would otherwise compile. Building it unsigned here means
+      # Release-only build errors surface on the PR, not on launch day. This is
+      # also the job that proves the device (iphoneos) compile for PRs.
+      - name: Build app (Release, unsigned)
+        run: |
+          xcodebuild \
+            -project AscendApp.xcodeproj \
+            -scheme "AscendApp" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            CODE_SIGNING_ALLOWED=NO \
+            build

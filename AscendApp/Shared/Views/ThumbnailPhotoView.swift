@@ -8,6 +8,9 @@
 import SwiftUI
 
 struct ThumbnailPhotoView: View {
+    private let thumbnailSize: CGFloat = 120
+    private let cornerRadius: CGFloat = 12
+
     let photoItem: SelectedPhotoItem
     let isHighlighted: Bool
     let onTap: () -> Void
@@ -19,8 +22,8 @@ struct ThumbnailPhotoView: View {
             photoItem.image
                 .resizable()
                 .aspectRatio(contentMode: .fill)
-                .frame(width: 120, height: 120)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .frame(width: thumbnailSize, height: thumbnailSize)
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             
             // Video overlay
             if photoItem.isVideo {
@@ -48,37 +51,21 @@ struct ThumbnailPhotoView: View {
                         }
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             }
             
             if isHighlighted {
-                Image(systemName: "star.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.white)
-                    .padding(4)
-                    .background(
-                        Circle()
-                            .fill(.accent)
-                    )
+                MediaTileHighlightBadge()
                     .padding(6)
             }
         }
-        .frame(width: 120, height: 120)
-        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .frame(width: thumbnailSize, height: thumbnailSize)
+        .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
         }
         .buttonStyle(.plain)
         .overlay(alignment: .topTrailing) {
-            Button {
-                onDelete()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 20))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(.white, .black.opacity(0.7))
-                    .shadow(radius: 2)
-            }
-            .offset(x: 6, y: -6)
-            .buttonStyle(.plain)
+            MediaTileDeleteButton(action: onDelete)
+                .padding(6)
         }
     }
     

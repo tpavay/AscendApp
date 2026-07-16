@@ -1,0 +1,126 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function validFileName(fileName) {
+      return fileName.size() > 0 && fileName.size() <= 200;
+    }
+
+    function isImageUpload(maxBytes) {
+      return request.resource != null &&
+        request.resource.size > 0 &&
+        request.resource.size <= maxBytes &&
+        request.resource.contentType.matches("image/.*");
+    }
+
+    function isVideoUpload(maxBytes) {
+      return request.resource != null &&
+        request.resource.size > 0 &&
+        request.resource.size <= maxBytes &&
+        request.resource.contentType.matches("video/.*");
+    }
+
+    function validWorkoutHeartRateFileName(fileName) {
+      return fileName.matches("^[0-9a-fA-F-]{36}\\.json\\.gz$");
+    }
+
+    function isCompressedHeartRateUpload(maxBytes) {
+      return request.resource != null &&
+        request.resource.size > 0 &&
+        request.resource.size <= maxBytes &&
+        request.resource.contentType.matches(
+          "application/(gzip|x-gzip|octet-stream)"
+        );
+    }
+
+    // User workout photos.
+    match /users/{userId}/photos/{fileName} {
+      allow get: if isOwner(userId) && validFileName(fileName);
+      allow list: if isOwner(userId);
+      allow create, update: if isOwner(userId) &&
+        validFileName(fileName) &&
+        isImageUpload(15 * 1024 * 1024);
+      allow delete: if isOwner(userId) && validFileName(fileName);
+    }
+
+    // User workout videos.
+    match /users/{userId}/videos/{fileName} {
+      allow get: if isOwner(userId) && validFileName(fileName);
+      allow list: if isOwner(userId);
+      allow create, update: if isOwner(userId) &&
+        validFileName(fileName) &&
+        isVideoUpload(200 * 1024 * 1024);
+      allow delete: if isOwner(userId) && validFileName(fileName);
+    }
+
+    // User workout heart-rate sidecars.
+    match /users/{userId}/workout_heart_rate/{fileName} {
+      allow get: if isOwner(userId) && validWorkoutHeartRateFileName(fileName);
+      allow list: if isOwner(userId);
+      allow create, update: if isOwner(userId) &&
+        validWorkoutHeartRateFileName(fileName) &&
+        isCompressedHeartRateUpload(5 * 1024 * 1024);
+      allow delete: if isOwner(userId) && validWorkoutHeartRateFileName(fileName);
+    }
+
+    // User profile pictures.
+    match /users/{userId}/profile_pictures/{fileName} {
+      allow get: if isOwner(userId) && validFileName(fileName);
+      allow list: if isOwner(userId);
+      allow create, update: if isOwner(userId) &&
+        validFileName(fileName) &&
+        isImageUpload(10 * 1024 * 1024);
+      allow delete: if isOwner(userId) && validFileName(fileName);
+    }
+
+    // ── Legacy flat-path rules (pre-migration) ──────────────────────
+    // Files uploaded before the user-scoped path migration live at
+    // root-level photos/, videos/, and profile_pictures/ prefixes.
+    // These rules grant read + delete so the app can still display
+    // them and account deletion / migration can clean them up.
+    // No new writes are allowed. Remove once migration is complete.
+
+    match /photos/{fileName} {
+      allow read: if isSignedIn() && validFileName(fileName);
+      allow delete: if isSignedIn() && validFileName(fileName);
+      allow create, update: if false;
+    }
+
+    match /videos/{fileName} {
+      allow read: if isSignedIn() && validFileName(fileName);
+      allow delete: if isSignedIn() && validFileName(fileName);
+      allow create, update: if false;
+    }
+
+    match /profile_pictures/{fileName} {
+      allow read: if isSignedIn() && validFileName(fileName);
+      allow delete: if isSignedIn() && validFileName(fileName);
+      allow create, update: if false;
+    }
+
+    // Remote share-card template assets are read-only from the app.
+    match /share-card-templates/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // Climb landmark images are read-only from the app.
+    match /climb-images/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // Synthetic live replay avatars are server-owned and read-only from the app.
+    match /live-replay-avatars/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+  }
+}

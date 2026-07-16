@@ -6,35 +6,25 @@
 //
 
 import SwiftUI
-import SwiftData
 
 struct ThisWeekCard: View {
     let workouts: [Workout]
     var isLoading: Bool = false
 
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.modelContext) private var modelContext
     @State private var themeManager = ThemeManager.shared
-    @State private var settingsManager = SettingsManager.shared
-    @State private var viewModel = GoalsViewModel()
 
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
 
-    private var preferredMetric: WorkoutMetric {
-        settingsManager.preferredWorkoutMetric
-    }
-
-    /// Uses active goal's locked reset day when available, otherwise app preference.
     private var firstWeekday: Int {
-        viewModel.activeGoal?.firstWeekday ?? settingsManager.weekStartFirstWeekday
+        WeekConfiguration.mondayFirstWeekday
     }
 
     private var summary: WeekActivitySummary? {
         return WeekActivitySummaryCalculator(
             workouts: workouts,
-            metric: preferredMetric,
             firstWeekday: firstWeekday
         ).calculate()
     }
@@ -55,10 +45,6 @@ struct ThisWeekCard: View {
         }
         .padding(20)
         .background(cardBackground)
-        .onAppear {
-            viewModel.configure(modelContext: modelContext)
-            viewModel.loadActiveGoal()
-        }
     }
 
     private var cardBackground: some View {
@@ -103,8 +89,7 @@ struct ThisWeekCard: View {
                     .font(.montserratBold(size: 24))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
 
-                // Primary metric + duration - supporting context
-                Text("\(formatCompactValue(summary.weekTotalValue)) \(preferredMetric.unit) · \(formatCompactDuration(summary.totalDuration))")
+                Text("\(formatCompactValue(summary.weekTotalValue)) steps · \(formatCompactDuration(summary.totalDuration))")
                     .font(.montserratMedium(size: 14))
                     .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.7) : .black.opacity(0.7))
 
@@ -214,9 +199,7 @@ struct ThisWeekCard: View {
     // MARK: - Helpers
 
     private var resetDayName: String {
-        let dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-        let index = (firstWeekday - 1) % 7
-        return dayNames[index]
+        WeekConfiguration.fullDayName(for: firstWeekday)
     }
 
     private func formatDuration(_ duration: TimeInterval) -> String {
@@ -261,31 +244,6 @@ struct ThisWeekCard: View {
             }
         } else {
             return "\(value)"
-        }
-    }
-
-    private func formatGoalProgress(current: Int, target: Int, metric: GoalMetric) -> String {
-        if metric == .duration {
-            return "\(formatDurationMinutes(current)) / \(formatDurationMinutes(target))"
-        }
-        let unit = target == 1 ? metric.unitSingular : metric.unit
-        return "\(current.formatted()) / \(target.formatted()) \(unit)"
-    }
-
-    private func formatRemaining(_ remaining: Int, metric: GoalMetric) -> String {
-        if metric == .duration {
-            return formatDurationMinutes(remaining)
-        }
-        return remaining.formatted()
-    }
-
-    private func formatDurationMinutes(_ minutes: Int) -> String {
-        let hours = minutes / 60
-        let mins = minutes % 60
-        if hours > 0 {
-            return "\(hours)h \(mins)m"
-        } else {
-            return "\(mins)m"
         }
     }
 
@@ -452,7 +410,6 @@ private struct DailyActivityData: Identifiable {
 
 private struct WeekActivitySummaryCalculator {
     let workouts: [Workout]
-    let metric: WorkoutMetric
     let firstWeekday: Int
 
     func calculate(referenceDate: Date = Date()) -> WeekActivitySummary {
@@ -481,7 +438,7 @@ private struct WeekActivitySummaryCalculator {
         var dailyValues: [Date: (value: Int, duration: TimeInterval)] = [:]
         for workout in filteredWorkouts {
             let day = calendar.startOfDay(for: workout.date)
-            let value = workout.metricValue(for: metric)
+            let value = workout.steps
             let existing = dailyValues[day] ?? (0, 0)
             dailyValues[day] = (existing.value + value, existing.duration + workout.duration)
         }
@@ -506,7 +463,7 @@ private struct WeekActivitySummaryCalculator {
         let weekWorkouts = filteredWorkouts.filter { workout in
             weekInterval.contains(workout.date)
         }
-        let weekTotalValue = weekWorkouts.reduce(0) { $0 + $1.metricValue(for: metric) }
+        let weekTotalValue = weekWorkouts.reduce(0) { $0 + $1.steps }
         let weekWorkoutCount = weekWorkouts.count
         let totalDuration = weekWorkouts.reduce(0.0) { $0 + $1.duration }
 
@@ -523,7 +480,7 @@ private struct WeekActivitySummaryCalculator {
             let weekOfYear = calendar.component(.weekOfYear, from: workout.date)
             let year = calendar.component(.yearForWeekOfYear, from: workout.date)
             let weekKey = year * 100 + weekOfYear
-            let value = workout.metricValue(for: metric)
+            let value = workout.steps
             let existing = weeklyTotals[weekKey] ?? (0, 0)
             weeklyTotals[weekKey] = (existing.value + value, existing.workouts + 1)
         }
@@ -593,235 +550,6 @@ private struct WeekActivitySummaryCalculator {
     }
 }
 
-// MARK: - Weekly Goal Card
-
-struct WeeklyGoalCard: View {
-    let workouts: [Workout]
-    @Binding var showGoalsSheet: Bool
-
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.modelContext) private var modelContext
-    @State private var themeManager = ThemeManager.shared
-    @State private var viewModel = GoalsViewModel()
-
-    private var effectiveColorScheme: ColorScheme {
-        themeManager.effectiveColorScheme(for: colorScheme)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let goal = viewModel.activeGoal,
-               let progress = viewModel.progress {
-                // Has goal state
-                goalContent(goal: goal, progress: progress)
-            } else {
-                // Empty state
-                emptyStateContent
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(cardBackground)
-        .onAppear {
-            viewModel.configure(modelContext: modelContext)
-            viewModel.loadActiveGoal()
-            viewModel.calculateProgress(from: workouts)
-        }
-        .onChange(of: workouts.count) { _, _ in
-            viewModel.calculateProgress(from: workouts)
-        }
-        .onChange(of: showGoalsSheet) { oldValue, newValue in
-            if oldValue && !newValue {
-                viewModel.loadActiveGoal()
-                viewModel.calculateProgress(from: workouts)
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .weeklyGoalDidChange)) { _ in
-            viewModel.loadActiveGoal()
-            viewModel.calculateProgress(from: workouts)
-        }
-    }
-
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 16)
-            .fill(effectiveColorScheme == .dark ? .jetLighter.opacity(0.2) : .gray.opacity(0.06))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(effectiveColorScheme == .dark ? .white.opacity(0.1) : .gray.opacity(0.15), lineWidth: 1)
-            )
-    }
-
-    @ViewBuilder
-    private func goalContent(goal: Goal, progress: GoalProgress) -> some View {
-        let isComplete = progress.current >= progress.target
-
-        // Title row
-        HStack {
-            Text("WEEKLY GOAL")
-                .font(.montserratMedium(size: 14))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
-
-            Spacer()
-
-            Button(action: { showGoalsSheet = true }) {
-                Text("Edit")
-                    .font(.montserratMedium(size: 14))
-                    .foregroundStyle(.accent)
-            }
-            .buttonStyle(.plain)
-        }
-
-        if isComplete {
-            // Complete state - show achievement + overflow (subdued)
-            HStack(spacing: 6) {
-                Text(formatTarget(target: progress.target, metric: goal.metric))
-                    .font(.montserratMedium(size: 18))
-                    .foregroundStyle(.accent)
-
-                Text("✓")
-                    .font(.montserratMedium(size: 14))
-                    .foregroundStyle(.accent.opacity(0.7))
-            }
-
-            // Overflow amount - small and muted
-            let overflow = progress.current - progress.target
-            if overflow > 0 {
-                Text("+\(formatOverflow(overflow, metric: goal.metric)) over goal")
-                    .font(.montserratRegular(size: 12))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray.opacity(0.7))
-            }
-        } else {
-            // In progress state - constraint, not trophy
-            Text(formatTarget(target: progress.target, metric: goal.metric))
-                .font(.montserratMedium(size: 18))
-                .foregroundStyle(.accent)
-
-            Text("\(progressPercentage(progress))% complete")
-                .font(.montserratRegular(size: 12))
-                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.5) : .gray.opacity(0.7))
-        }
-
-        // Progress bar
-        GoalProgressBar(
-            current: progress.current,
-            target: progress.target,
-            metric: goal.metric
-        )
-    }
-
-    @ViewBuilder
-    private var emptyStateContent: some View {
-        Text("WEEKLY GOAL")
-            .font(.montserratMedium(size: 14))
-            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
-
-        Text("Set a weekly target to track your progress.")
-            .font(.montserratRegular(size: 14))
-            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.6) : .gray)
-
-        Button(action: { showGoalsSheet = true }) {
-            HStack(spacing: 6) {
-                Text("Set a goal")
-                    .font(.montserratMedium(size: 14))
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 12, weight: .medium))
-            }
-            .foregroundStyle(.accent)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func progressPercentage(_ progress: GoalProgress) -> Int {
-        guard progress.target > 0 else { return 0 }
-        return min(Int((Double(progress.current) / Double(progress.target)) * 100), 100)
-    }
-
-    private func formatTarget(target: Int, metric: GoalMetric) -> String {
-        if metric == .duration {
-            return formatDurationMinutes(target)
-        }
-        let unit = target == 1 ? metric.unitSingular : metric.unit
-        return "\(target.formatted()) \(unit)"
-    }
-
-    private func formatRemaining(remaining: Int, metric: GoalMetric) -> String {
-        if remaining <= 0 {
-            return "0"
-        }
-        if metric == .duration {
-            return formatDurationMinutes(remaining)
-        }
-        return remaining.formatted()
-    }
-
-    private func formatOverflow(_ overflow: Int, metric: GoalMetric) -> String {
-        if metric == .duration {
-            return formatDurationMinutes(overflow)
-        }
-        let unit = overflow == 1 ? metric.unitSingular : metric.unit
-        return "\(overflow) \(unit)"
-    }
-
-    private func formatDurationMinutes(_ minutes: Int) -> String {
-        let hours = minutes / 60
-        let mins = minutes % 60
-        if hours > 0 && mins > 0 {
-            return "\(hours)h \(mins)m"
-        } else if hours > 0 {
-            return "\(hours)h"
-        } else {
-            return "\(mins)m"
-        }
-    }
-}
-
-// MARK: - Goal Progress Bar
-
-private struct GoalProgressBar: View {
-    let current: Int
-    let target: Int
-    let metric: GoalMetric
-
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var themeManager = ThemeManager.shared
-
-    private var effectiveColorScheme: ColorScheme {
-        themeManager.effectiveColorScheme(for: colorScheme)
-    }
-
-    /// For workouts, use target as segment count
-    /// For other metrics, use a fixed 10 segments
-    private var segmentCount: Int {
-        if metric == .workouts {
-            return max(target, 1)
-        }
-        return 10
-    }
-
-    private var filledSegments: Int {
-        guard target > 0 else { return 0 }
-        if metric == .workouts {
-            return min(current, target)
-        }
-        let progress = Double(current) / Double(target)
-        return min(Int(ceil(progress * Double(segmentCount))), segmentCount)
-    }
-
-    var body: some View {
-        HStack(spacing: 3) {
-            ForEach(0..<segmentCount, id: \.self) { index in
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(index < filledSegments ? Color.accentColor.opacity(0.8) : emptyColor)
-                    .frame(height: 6)
-            }
-        }
-    }
-
-    private var emptyColor: Color {
-        effectiveColorScheme == .dark ? .white.opacity(0.15) : .gray.opacity(0.2)
-    }
-}
-
 // MARK: - Preview
 
 #Preview("This Week - With Data") {
@@ -849,10 +577,5 @@ private struct GoalProgressBar: View {
 
 #Preview("This Week - Empty") {
     ThisWeekCard(workouts: [])
-        .padding(20)
-}
-
-#Preview("Weekly Goal Card") {
-    WeeklyGoalCard(workouts: [], showGoalsSheet: .constant(false))
         .padding(20)
 }

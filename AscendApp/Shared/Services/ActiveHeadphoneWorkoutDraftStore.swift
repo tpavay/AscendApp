@@ -1,0 +1,312 @@
+import Foundation
+import SwiftData
+import UIKit
+
+struct ActiveHeadphoneWorkoutDraftStore {
+    private let userDefaults: UserDefaults
+    private let activeDraftIDKey = "activeHeadphoneWorkoutDraft.id.v1"
+
+    init(userDefaults: UserDefaults = .standard) {
+        self.userDefaults = userDefaults
+    }
+
+    func activeDraftID() -> UUID? {
+        guard let rawValue = userDefaults.string(forKey: activeDraftIDKey) else {
+            return nil
+        }
+
+        return UUID(uuidString: rawValue)
+    }
+
+    func setActiveDraftID(_ id: UUID) {
+        userDefaults.set(id.uuidString, forKey: activeDraftIDKey)
+        userDefaults.synchronize()
+    }
+
+    func clearActiveDraftID(_ id: UUID? = nil) {
+        if let id,
+           activeDraftID() != id {
+            return
+        }
+
+        userDefaults.removeObject(forKey: activeDraftIDKey)
+        userDefaults.synchronize()
+    }
+
+    @MainActor
+    func activeDraft(in modelContext: ModelContext) throws -> ActiveHeadphoneWorkoutDraft? {
+        guard let id = activeDraftID() else {
+            return try mostRecentDraft(in: modelContext)
+        }
+
+        let descriptor = FetchDescriptor<ActiveHeadphoneWorkoutDraft>(
+            predicate: #Predicate { $0.id == id },
+            sortBy: [SortDescriptor(\.lastCheckpointAt, order: .reverse)]
+        )
+        let draft = try modelContext.fetch(descriptor).first
+
+        if draft == nil {
+            AppDiagnosticsRecorder.shared.record(
+                "active_headphone_draft_pointer_stale",
+                level: .warning,
+                details: ["draft_id": id.uuidString]
+            )
+            clearActiveDraftID(id)
+        }
+
+        return draft
+    }
+
+    @MainActor
+    func mostRecentDraft(in modelContext: ModelContext) throws -> ActiveHeadphoneWorkoutDraft? {
+        var descriptor = FetchDescriptor<ActiveHeadphoneWorkoutDraft>(
+            sortBy: [SortDescriptor(\.lastCheckpointAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = 1
+
+        let draft = try modelContext.fetch(descriptor).first
+        if let draft {
+            setActiveDraftID(draft.id)
+            AppDiagnosticsRecorder.shared.record(
+                "active_headphone_draft_fallback_found",
+                level: .warning,
+                details: draft.diagnosticDetails
+            )
+        }
+        return draft
+    }
+
+    @MainActor
+    func draft(sessionID: String, in modelContext: ModelContext) throws -> ActiveHeadphoneWorkoutDraft? {
+        let descriptor = FetchDescriptor<ActiveHeadphoneWorkoutDraft>(
+            predicate: #Predicate { $0.sessionID == sessionID },
+            sortBy: [SortDescriptor(\.lastCheckpointAt, order: .reverse)]
+        )
+        return try modelContext.fetch(descriptor).first
+    }
+
+    @MainActor
+    func insert(_ draft: ActiveHeadphoneWorkoutDraft, in modelContext: ModelContext) throws {
+        modelContext.insert(draft)
+        try modelContext.save()
+        setActiveDraftID(draft.id)
+        AppDiagnosticsRecorder.shared.record(
+            "active_headphone_draft_created",
+            details: draft.diagnosticDetails
+        )
+    }
+
+    @MainActor
+    func delete(_ draft: ActiveHeadphoneWorkoutDraft, in modelContext: ModelContext) throws {
+        let details = draft.diagnosticDetails
+        let draftID = draft.id
+        modelContext.delete(draft)
+        try modelContext.save()
+        clearActiveDraftID(draftID)
+        AppDiagnosticsRecorder.shared.record(
+            "active_headphone_draft_deleted",
+            details: details
+        )
+    }
+
+    @MainActor
+    func applyRecoveryStepSync(
+        correctedSteps: Int,
+        to draft: ActiveHeadphoneWorkoutDraft,
+        in modelContext: ModelContext,
+        syncedAt: Date = Date()
+    ) throws {
+        let normalizedSteps = max(correctedSteps, 0)
+        let elapsedSeconds = max(
+            draft.durationSeconds,
+            syncedAt.timeIntervalSince(draft.startedAt)
+        )
+        let trackingGapSeconds = max(syncedAt.timeIntervalSince(draft.lastCheckpointAt), 0)
+        let previousIntegrity = draft.trackingIntegrity
+        let interruptionCount = trackingGapSeconds > 0
+            ? previousIntegrity.interruptionCount + 1
+            : previousIntegrity.interruptionCount
+        let updatedIntegrity = HeadphoneMotionTrackingIntegrity(
+            currentUnavailableDuration: 0,
+            totalUnavailableDuration: previousIntegrity.totalUnavailableDuration + trackingGapSeconds,
+            longestUnavailableDuration: max(previousIntegrity.longestUnavailableDuration, trackingGapSeconds),
+            interruptionCount: interruptionCount
+        )
+        let correction = HeadphoneMotionStepCorrection(
+            elapsedSeconds: Int(elapsedSeconds.rounded(.down)),
+            detectedSteps: draft.steps,
+            correctedSteps: normalizedSteps,
+            deltaSteps: normalizedSteps - draft.steps,
+            trackingGapDurationSeconds: trackingGapSeconds,
+            totalUnavailableDurationSeconds: updatedIntegrity.totalUnavailableDuration,
+            interruptionCount: updatedIntegrity.interruptionCount
+        )
+        var recorder = LiveClimbStepTimelineRecorder(intervalSeconds: draft.splitCurve?.intervalSeconds ?? 10)
+        if let splitCurve = draft.splitCurve {
+            recorder.restore(curve: splitCurve)
+        }
+        let splitCurve = recorder.recordCorrection(correction)
+        var corrections = draft.stepCorrections
+        corrections.append(correction)
+
+        draft.applyCheckpoint(
+            steps: normalizedSteps,
+            durationSeconds: elapsedSeconds,
+            sampleCount: draft.sampleCount,
+            splitCurve: splitCurve,
+            trackingIntegrity: updatedIntegrity,
+            stepCorrections: corrections,
+            status: draft.status,
+            checkpointedAt: syncedAt
+        )
+        try modelContext.save()
+        setActiveDraftID(draft.id)
+
+        AppDiagnosticsRecorder.shared.record(
+            "active_headphone_recovery_steps_synced",
+            level: .warning,
+            details: draft.diagnosticDetails.merging([
+                "detected_steps": String(correction.detectedSteps),
+                "corrected_steps": String(correction.correctedSteps),
+                "delta_steps": String(correction.deltaSteps),
+                "tracking_gap_seconds": String(Int(trackingGapSeconds.rounded(.down)))
+            ]) { current, _ in current }
+        )
+    }
+}
+
+@MainActor
+final class ActiveHeadphoneWorkoutRuntimeRegistry {
+    static let shared = ActiveHeadphoneWorkoutRuntimeRegistry()
+
+    private var activeDraftIDs: Set<UUID> = []
+
+    private init() {}
+
+    var hasActiveSession: Bool {
+        !activeDraftIDs.isEmpty
+    }
+
+    func markActive(_ draft: ActiveHeadphoneWorkoutDraft?) {
+        guard let draft else { return }
+        activeDraftIDs.insert(draft.id)
+    }
+
+    func markInactive(_ draft: ActiveHeadphoneWorkoutDraft?) {
+        guard let draft else { return }
+        activeDraftIDs.remove(draft.id)
+    }
+}
+
+@MainActor
+enum ActiveHeadphoneWorkoutDraftSaver {
+    static func save(
+        _ draft: ActiveHeadphoneWorkoutDraft,
+        modelContext: ModelContext
+    ) throws -> Workout {
+        let splitCurve = draft.splitCurve ?? LiveReplaySplitCurve(
+            intervalSeconds: 10,
+            steps: [draft.steps]
+        )
+        let floors = Workout.stepsToFloors(draft.steps)
+        let metadata = HeadphoneMotionWorkoutMetadata(
+            sampleCount: draft.sampleCount,
+            trackingMode: trackingMode(for: draft),
+            climbId: draft.climbId,
+            routineId: draft.routineId?.uuidString,
+            routineTemplateId: draft.routineTemplateId,
+            targetStepCount: draft.targetStepCount,
+            climbTargetStepCount: climbTargetStepCount(for: draft),
+            targetDurationSeconds: draft.targetDurationSeconds,
+            stopReason: .interrupted,
+            splitCurve: splitCurve,
+            trackingIntegrity: draft.trackingIntegrity,
+            stepCorrections: draft.stepCorrections
+        )
+
+        if draft.kind == .liveClimb,
+           let climb = climb(for: draft) {
+            _ = try ClimbService.shared.prepareLiveClimbAttempt(
+                for: climb,
+                startedAt: draft.startedAt,
+                modelContext: modelContext
+            )
+        }
+
+        let workout = Workout(
+            name: draft.workoutName,
+            date: draft.startedAt,
+            duration: max(draft.durationSeconds, 1),
+            steps: draft.steps,
+            floors: floors,
+            stepsPerFloor: Workout.defaultStepsPerFloor,
+            source: .headphoneMotion,
+            deviceModel: UIDevice.current.model,
+            sourceMetadata: metadata.jsonString,
+            weightConfiguration: draft.routineWeightConfiguration
+        )
+
+        modelContext.insert(workout)
+        try modelContext.save()
+
+        if draft.kind == .liveClimb {
+            try ClimbService.shared.apply(workouts: [workout], modelContext: modelContext)
+        } else if draft.kind == .routine {
+            try WorkoutParticipationService.addRoutineParticipationIfNeeded(
+                for: workout,
+                attribution: routineAttribution(for: draft),
+                userId: workout.ownerUserId,
+                modelContext: modelContext
+            )
+            try modelContext.save()
+        }
+
+        try WorkoutMutationHandler.shared.workoutsDidChange(
+            modelContext: modelContext,
+            mutation: .created([LeaderboardWorkoutSnapshot(workout: workout)]),
+            newWorkouts: [workout],
+            changedWorkouts: [workout]
+        )
+
+        Task { @MainActor in
+            await WorkoutImportCoordinator.shared.enrichInAppWorkoutWithAppleHealthIfPossible(
+                workout,
+                modelContext: modelContext
+            )
+        }
+
+        try ActiveHeadphoneWorkoutDraftStore().delete(draft, in: modelContext)
+        return workout
+    }
+
+    private static func trackingMode(for draft: ActiveHeadphoneWorkoutDraft) -> HeadphoneMotionWorkoutTrackingMode {
+        switch draft.kind {
+        case .liveClimb:
+            return .liveClimb
+        case .justClimb:
+            return .justClimb
+        case .routine:
+            return .routine
+        }
+    }
+
+    private static func climbTargetStepCount(for draft: ActiveHeadphoneWorkoutDraft) -> Int? {
+        guard draft.kind == .liveClimb else { return nil }
+        return draft.targetStepCount
+    }
+
+    private static func climb(for draft: ActiveHeadphoneWorkoutDraft) -> Climb? {
+        guard let climbId = draft.climbId else { return nil }
+        return try? ClimbService.shared.climb(for: climbId)
+    }
+
+    private static func routineAttribution(for draft: ActiveHeadphoneWorkoutDraft) -> RoutineWorkoutAttribution? {
+        guard let routineId = draft.routineId else { return nil }
+        let routineSource = draft.routineSourceRawValue.flatMap(RoutineSource.init(rawValue:)) ?? .userCreated
+        return RoutineWorkoutAttribution(
+            routineId: routineId,
+            routineSource: routineSource,
+            templateId: draft.routineTemplateId
+        )
+    }
+}

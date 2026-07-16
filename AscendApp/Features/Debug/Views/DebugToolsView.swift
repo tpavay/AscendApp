@@ -6,10 +6,13 @@
 //
 
 import SwiftUI
+import SwiftData
 
 #if DEBUG
 struct DebugToolsView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.modelContext) private var modelContext
+    @Environment(AuthenticationViewModel.self) private var authVM
     @State private var viewModel = DebugToolsViewModel()
     @State private var showSuccessAlert = false
     @State private var showErrorAlert = false
@@ -77,18 +80,6 @@ struct DebugToolsView: View {
             // Navigation Links
             VStack(spacing: 12) {
                 NavigationLink {
-                    PersonalRecordsDebugView()
-                } label: {
-                    inspectionRow(
-                        title: "Personal Records",
-                        description: "View all current and historical PRs",
-                        icon: "trophy.fill",
-                        iconColor: .orange
-                    )
-                }
-                .buttonStyle(.plain)
-                
-                NavigationLink {
                     HapticsTestView()
                 } label: {
                     inspectionRow(
@@ -96,6 +87,66 @@ struct DebugToolsView: View {
                         description: "Test all haptic feedback types",
                         icon: "waveform",
                         iconColor: .purple
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
+                    TelemetryConsoleView()
+                } label: {
+                    inspectionRow(
+                        title: "Telemetry Console",
+                        description: "Inspect recent analytics events, screen views, and breadcrumbs",
+                        icon: "waveform.path.ecg.rectangle",
+                        iconColor: .mint
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
+                    DiagnosticsLogView()
+                } label: {
+                    inspectionRow(
+                        title: "Diagnostics Log",
+                        description: "Inspect persistent lifecycle and live-session breadcrumbs",
+                        icon: "stethoscope",
+                        iconColor: .orange
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
+                    LiveClimbScreenshotPickerView()
+                } label: {
+                    inspectionRow(
+                        title: "Live Climb Screenshots",
+                        description: "Choose the Home Live Climb card for screenshot setup",
+                        icon: "photo.on.rectangle.angled",
+                        iconColor: .accent
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
+                    ClimbMapboxPrototypeSurface()
+                } label: {
+                    inspectionRow(
+                        title: "Mapbox Prototype",
+                        description: "Render climb tokens on the contained Mapbox surface",
+                        icon: "map.fill",
+                        iconColor: .green
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
+                    JourneyPrototypeSurface()
+                } label: {
+                    inspectionRow(
+                        title: "Journey Prototype",
+                        description: "Test ordered climb circuits and MapKit route lines",
+                        icon: "point.topleft.down.curvedto.point.bottomright.up.fill",
+                        iconColor: .orange
                     )
                 }
                 .buttonStyle(.plain)
@@ -189,6 +240,11 @@ struct DebugToolsView: View {
             }
             .padding(.horizontal, 20)
 
+            if section.title == "Workouts" {
+                workoutPresetPicker
+                    .padding(.horizontal, 20)
+            }
+
             // Actions
             VStack(spacing: 12) {
                 ForEach(section.actions) { action in
@@ -197,13 +253,33 @@ struct DebugToolsView: View {
                         isExecuting: viewModel.isExecuting(action),  // Check if THIS specific action is executing
                         onExecute: {
                             Task {
-                                await viewModel.executeAction(action)
+                                await viewModel.executeAction(
+                                    action,
+                                    modelContext: modelContext,
+                                    authVM: authVM
+                                )
                             }
                         }
                     )
                 }
             }
             .padding(.horizontal, 20)
+        }
+    }
+
+    private var workoutPresetPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Preset")
+                .font(.montserratSemiBold(size: 13))
+                .foregroundStyle(colorScheme == .dark ? .white.opacity(0.8) : .black.opacity(0.7))
+
+            Picker("Workout Preset", selection: $viewModel.selectedWorkoutPreset) {
+                ForEach(WorkoutSeedPreset.allCases) { preset in
+                    Text(preset.pickerLabel)
+                        .tag(preset)
+                }
+            }
+            .pickerStyle(.segmented)
         }
     }
 
@@ -245,5 +321,7 @@ struct DebugToolsView: View {
     NavigationStack {
         DebugToolsView()
     }
+    .environment(AuthenticationViewModel())
+    .modelContainer(for: [Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self], inMemory: true)
 }
 #endif

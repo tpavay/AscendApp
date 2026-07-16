@@ -1,0 +1,231 @@
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "AscendApp/**"
+      - "AscendApp.xcodeproj/**"
+      - "fastlane/**"
+      - "Gemfile"
+      - "Gemfile.lock"
+      - "functions/**"
+      - "web/**"
+      - "firebase.json"
+      - "firestore.rules"
+      - "storage.rules"
+      - ".firebaserc"
+      - ".github/workflows/deploy-production.yml"
+
+concurrency:
+  group: deploy-production-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  production-gate:
+    name: Production Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check production readiness
+        run: |
+          if [ "${{ vars.PRODUCTION_READY }}" != "true" ]; then
+            echo "Production deploy is disabled."
+            echo "Set repository variable PRODUCTION_READY=true after provisioning production Firebase + secrets."
+            echo "Workflow will exit without deploy jobs."
+          else
+            echo "Production deploy is enabled."
+          fi
+
+  build-ios:
+    name: Build iOS IPA (Production)
+    if: ${{ vars.PRODUCTION_READY == 'true' }}
+    needs: production-gate
+    runs-on: macos-15
+    timeout-minutes: 60
+    environment: production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.1"
+          bundler-cache: true
+
+      - name: Configure SSH for match repository
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
+
+      - name: Trust GitHub host key
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.ssh"
+          ssh-keyscan github.com >> "$HOME/.ssh/known_hosts"
+
+      - name: Decode production Firebase plist
+        env:
+          GOOGLE_SERVICE_INFO_PRODUCTION_BASE64: ${{ secrets.GOOGLE_SERVICE_INFO_PRODUCTION_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          decode_base64_required() {
+            local secret_name="$1"
+            local encoded="$2"
+            local output_path="$3"
+
+            if [ -z "$encoded" ]; then
+              echo "::error::Required secret ${secret_name} is missing or empty."
+              exit 1
+            fi
+
+            if ! (printf "%s" "$encoded" | base64 --decode > "$output_path" 2>/dev/null || printf "%s" "$encoded" | base64 -D > "$output_path" 2>/dev/null); then
+              echo "::error::Failed to decode secret ${secret_name} as base64."
+              exit 1
+            fi
+
+            if [ ! -s "$output_path" ]; then
+              echo "::error::Decoded file for ${secret_name} is empty."
+              exit 1
+            fi
+
+            if ! plutil -lint "$output_path" >/dev/null; then
+              echo "::error::Decoded file for ${secret_name} is not a valid plist."
+              exit 1
+            fi
+          }
+
+          mkdir -p AscendApp/App/Firebase
+          rm -f AscendApp/App/Firebase/GoogleService-Info-Production.plist
+          decode_base64_required "GOOGLE_SERVICE_INFO_PRODUCTION_BASE64" "$GOOGLE_SERVICE_INFO_PRODUCTION_BASE64" "AscendApp/App/Firebase/GoogleService-Info-Production.plist"
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Validate match secrets
+        env:
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "$MATCH_GIT_URL" ]; then
+            echo "::error::Required secret MATCH_GIT_URL is missing or empty."
+            exit 1
+          fi
+
+          if [ -z "$MATCH_PASSWORD" ]; then
+            echo "::error::Required secret MATCH_PASSWORD is missing or empty."
+            exit 1
+          fi
+
+      - name: Build production IPA via Fastlane
+        env:
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_BRANCH: main
+          MATCH_READONLY: "true"
+          IOS_SIGNING_IDENTITY: Apple Distribution
+          IOS_PROVISIONING_PROFILE_SPECIFIER: match AppStore com.TylerPavay.AscendApp
+          IOS_DEVELOPMENT_TEAM: QWGVB7TN4T
+          IOS_PRODUCTION_BUNDLE_ID: com.TylerPavay.AscendApp
+          IOS_PRODUCTION_WIDGET_BUNDLE_ID: com.TylerPavay.AscendApp.LiveClimbWidgets
+          IOS_PRODUCTION_WIDGET_PROVISIONING_PROFILE_SPECIFIER: match AppStore com.TylerPavay.AscendApp.LiveClimbWidgets
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "120"
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: bundle exec fastlane build_production
+
+      - name: Upload production IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AscendApp-Production-IPA
+          path: fastlane/build/AscendApp-Production.ipa
+          retention-days: 14
+
+  deploy-firebase:
+    name: Deploy Firebase (Production)
+    if: ${{ vars.PRODUCTION_READY == 'true' }}
+    needs:
+      - production-gate
+      - build-ios
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies for deploy
+        run: |
+          npm --prefix functions ci
+          npm --prefix web ci
+
+      - name: Build web app
+        run: npm --prefix web run build
+
+      - name: Deploy Functions, Rules, Indexes, Storage, and Hosting
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: npx -y firebase-tools@15.22.1 deploy --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --only functions,firestore:rules,firestore:indexes,storage,hosting --non-interactive --force --token "$FIREBASE_TOKEN"
+
+  upload-testflight:
+    name: Upload to TestFlight (Production)
+    if: ${{ vars.PRODUCTION_READY == 'true' }}
+    needs:
+      - production-gate
+      - build-ios
+      - deploy-firebase
+    runs-on: macos-15
+    timeout-minutes: 30
+    environment: production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.1"
+          bundler-cache: true
+
+      - name: Download production IPA artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: AscendApp-Production-IPA
+          path: build
+
+      - name: Upload artifact to TestFlight
+        env:
+          IPA_PATH: build/AscendApp-Production.ipa
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+        run: bundle exec fastlane upload_testflight

@@ -5,7 +5,7 @@
 
 import SwiftUI
 
-/// A single stat tile with value + label, matching DetailedSummaryCard.metricBlock pattern
+/// A single stat tile with value + label for celebration surfaces.
 struct StatTile: View {
     let value: Int
     let label: String

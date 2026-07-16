@@ -1,10 +1,3 @@
-//
-//  LeaderboardRepository.swift
-//  AscendApp
-//
-//  Created by Tyler Pavay on 10/3/25.
-//
-
 import Foundation
 @preconcurrency import FirebaseFirestore
 
@@ -14,123 +7,125 @@ final class LeaderboardRepository: Sendable {
 
     private init() {}
 
-    // Sync stats to Firestore - accepts Sendable primitives only
-    func syncStatsToFirestore(
-        userId: String,
-        displayName: String,
-        photoURL: URL?,
-        timeFrame: String,
-        periodIdentifier: String,
-        totalSteps: Int,
-        totalFloors: Int,
-        totalWorkouts: Int,
-        totalDuration: Double,
-        averageStepsPerMinute: Double,
-        averageFloorsPerMinute: Double,
-        lastUpdated: Date
-    ) async throws {
-        let docRef = db.collection("leaderboard_stats")
-            .document("\(userId)_\(timeFrame)_\(periodIdentifier)")
-
-        try await docRef.setData([
-            "userId": userId,
-            "displayName": displayName,
-            "photoURL": photoURL?.absoluteString ?? "",
-            "timeFrame": timeFrame,
-            "periodIdentifier": periodIdentifier,
-            "totalSteps": totalSteps,
-            "totalFloors": totalFloors,
-            "totalWorkouts": totalWorkouts,
-            "totalDuration": totalDuration,
-            "averageStepsPerMinute": averageStepsPerMinute,
-            "averageFloorsPerMinute": averageFloorsPerMinute,
-            "lastUpdated": FieldValue.serverTimestamp()
-        ], merge: true)
+    func documentID(userId: String, timeFrame: LeaderboardTimeFrame, periodKey: String) -> String {
+        "\(timeFrame.rawValue)_\(periodKey)_\(userId)"
     }
 
-    // Fetch leaderboard for a specific metric and time frame
+    func documentID(userId: String, timeFrame: LeaderboardTimeFrame, period: LeaderboardPeriod) -> String {
+        documentID(userId: userId, timeFrame: timeFrame, periodKey: period.key)
+    }
+
+    func currentDocumentID(userId: String, timeFrame: LeaderboardTimeFrame) -> String {
+        documentID(userId: userId, timeFrame: timeFrame, period: timeFrame.currentPeriod())
+    }
+
+    func upsertStats(_ payload: LeaderboardSyncPayload) async throws {
+        let docRef = db.collection("leaderboard_stats")
+            .document(documentID(userId: payload.userId, timeFrame: payload.timeFrame, periodKey: payload.periodKey))
+
+        var data: [String: Any] = [
+            "userId": payload.userId,
+            "displayName": payload.displayName,
+            "photoURL": payload.photoURL?.absoluteString ?? "",
+            "timeFrame": payload.timeFrame.rawValue,
+            "schemaVersion": payload.schemaVersion,
+            "periodKey": payload.periodKey,
+            "periodStartAt": Timestamp(date: payload.periodStartAt),
+            "totalSteps": payload.totalSteps,
+            "totalFloors": payload.totalFloors,
+            "totalWorkouts": payload.totalWorkouts,
+            "totalDuration": payload.totalDuration,
+            "stepsPerMinute": payload.stepsPerMinute,
+            "lastUpdated": FieldValue.serverTimestamp()
+        ]
+
+        if let profile = payload.profile {
+            setOptional(profile.age, for: "age", in: &data)
+            setOptional(profile.weightKg, for: "weight_kg", in: &data)
+            setOptional(profile.locationCity, for: "location_city", in: &data)
+            setOptional(profile.locationCountry, for: "location_country", in: &data)
+            setOptional(profile.locationRegion, for: "location_region", in: &data)
+        }
+
+        try await docRef.setData(data, merge: true)
+    }
+
+    func deleteStats(userId: String, timeFrame: LeaderboardTimeFrame, periodKey: String) async throws {
+        let docRef = db.collection("leaderboard_stats")
+            .document(documentID(userId: userId, timeFrame: timeFrame, periodKey: periodKey))
+        try await docRef.delete()
+    }
+
+    func deleteLegacyStats(userId: String) async throws {
+        let snapshot = try await db.collection("leaderboard_stats")
+            .whereField("userId", isEqualTo: userId)
+            .getDocuments()
+
+        let legacyDocumentIDs = Set(LeaderboardTimeFrame.allCases.map { "\(userId)_\($0.rawValue)" })
+        for document in snapshot.documents where legacyDocumentIDs.contains(document.documentID) {
+            try await document.reference.delete()
+        }
+    }
+
     func fetchLeaderboard(
         metric: LeaderboardMetric,
         timeFrame: LeaderboardTimeFrame,
         limit: Int = 100,
-        preferredWorkoutMetric: WorkoutMetric = .steps
+        source: FirestoreSource = .default
     ) async throws -> [FirestoreLeaderboardStats] {
-        let (firstWeekday, timeZone): (Int, TimeZone) = await MainActor.run {
-            (SettingsManager.shared.weekStartFirstWeekday, TimeZone.current)
-        }
-        let periodIdentifier = timeFrame.periodIdentifier(
-            firstWeekday: firstWeekday,
-            timeZone: timeZone
-        )
+        let period = timeFrame.currentPeriod()
         return try await fetchLeaderboard(
             metric: metric,
             timeFrame: timeFrame,
-            periodIdentifier: periodIdentifier,
+            period: period,
             limit: limit,
-            preferredWorkoutMetric: preferredWorkoutMetric
+            source: source
         )
     }
 
-    // Fetch leaderboard with explicit period identifier (used when period is pinned at capture time)
     func fetchLeaderboard(
         metric: LeaderboardMetric,
         timeFrame: LeaderboardTimeFrame,
-        periodIdentifier: String,
+        period: LeaderboardPeriod,
         limit: Int = 100,
-        preferredWorkoutMetric: WorkoutMetric = .steps
+        source: FirestoreSource = .default
     ) async throws -> [FirestoreLeaderboardStats] {
-        // Query Firestore for the specific time frame and period
         let query = db.collection("leaderboard_stats")
             .whereField("timeFrame", isEqualTo: timeFrame.rawValue)
-            .whereField("periodIdentifier", isEqualTo: periodIdentifier)
-            .limit(to: limit)
+            .whereField("periodStartAt", isEqualTo: Timestamp(date: period.startAt))
+            .order(by: metric.sortField, descending: true)
+            .limit(to: max(limit, 0))
 
-        let snapshot = try await query.getDocuments()
-
-        var stats: [FirestoreLeaderboardStats] = []
+        let snapshot = try await query.getDocuments(source: source)
+        var statsByUserId: [String: FirestoreLeaderboardStats] = [:]
+        var canonicalUserIds = Set<String>()
 
         for document in snapshot.documents {
             let data = document.data()
+            guard let stat = parseStat(data) else { continue }
+            guard stat.periodStartAt == period.startAt else { continue }
+            let canonicalID = documentID(userId: stat.userId, timeFrame: timeFrame, periodKey: stat.periodKey)
+            let isCanonical = document.documentID == canonicalID
 
-            guard let userId = data["userId"] as? String,
-                  let displayName = data["displayName"] as? String,
-                  let timeFrame = data["timeFrame"] as? String,
-                  let periodIdentifier = data["periodIdentifier"] as? String,
-                  let totalSteps = data["totalSteps"] as? Int,
-                  let totalWorkouts = data["totalWorkouts"] as? Int,
-                  let totalDuration = data["totalDuration"] as? Double,
-                  let averageStepsPerMinute = data["averageStepsPerMinute"] as? Double,
-                  let timestamp = data["lastUpdated"] as? Timestamp else {
-                continue
+            if let existing = statsByUserId[stat.userId] {
+                let existingIsCanonical = canonicalUserIds.contains(stat.userId)
+                if isCanonical && !existingIsCanonical {
+                    statsByUserId[stat.userId] = stat
+                    canonicalUserIds.insert(stat.userId)
+                } else if isCanonical == existingIsCanonical && stat.lastUpdated > existing.lastUpdated {
+                    statsByUserId[stat.userId] = stat
+                }
+            } else {
+                statsByUserId[stat.userId] = stat
+                if isCanonical {
+                    canonicalUserIds.insert(stat.userId)
+                }
             }
-
-            let photoURLString = data["photoURL"] as? String
-            // Handle missing floors data gracefully (for backwards compatibility)
-            let totalFloors = data["totalFloors"] as? Int ?? 0
-            let averageFloorsPerMinute = data["averageFloorsPerMinute"] as? Double ?? 0
-
-            let stat = FirestoreLeaderboardStats(
-                userId: userId,
-                displayName: displayName,
-                photoURL: photoURLString,
-                timeFrame: timeFrame,
-                periodIdentifier: periodIdentifier,
-                totalSteps: totalSteps,
-                totalFloors: totalFloors,
-                totalWorkouts: totalWorkouts,
-                totalDuration: totalDuration,
-                averageStepsPerMinute: averageStepsPerMinute,
-                averageFloorsPerMinute: averageFloorsPerMinute,
-                lastUpdated: timestamp.dateValue()
-            )
-
-            stats.append(stat)
         }
 
-        // Sort by requested metric with deterministic tie-breaking.
-        stats.sort {
-            let lhs = $0.value(for: metric, preferredWorkoutMetric: preferredWorkoutMetric)
-            let rhs = $1.value(for: metric, preferredWorkoutMetric: preferredWorkoutMetric)
+        let stats = statsByUserId.values.sorted {
+            let lhs = $0.value(for: metric)
+            let rhs = $1.value(for: metric)
             if lhs != rhs { return lhs > rhs }
             return $0.userId < $1.userId
         }
@@ -138,36 +133,29 @@ final class LeaderboardRepository: Sendable {
         return stats
     }
 
-    // Get user's rank for a specific metric and time frame
     func getUserRank(
         userId: String,
         metric: LeaderboardMetric,
-        timeFrame: LeaderboardTimeFrame,
-        preferredWorkoutMetric: WorkoutMetric = .steps
+        timeFrame: LeaderboardTimeFrame
     ) async throws -> (rank: Int, total: Int)? {
         let allStats = try await fetchLeaderboard(
             metric: metric,
             timeFrame: timeFrame,
-            limit: 1000,
-            preferredWorkoutMetric: preferredWorkoutMetric
+            limit: 1000
         )
 
-        guard let userIndex = allStats.firstIndex(where: { $0.userId == userId }) else {
+        guard let index = allStats.firstIndex(where: { $0.userId == userId }) else {
             return nil
         }
 
-        return (rank: userIndex + 1, total: allStats.count)
+        return (rank: index + 1, total: allStats.count)
     }
-    
-    // Update profile picture URL across all user's leaderboard documents
+
     func updateProfilePictureURL(userId: String, photoURL: String) async throws {
-        // Query all documents for this user
-        let query = db.collection("leaderboard_stats")
+        let snapshot = try await db.collection("leaderboard_stats")
             .whereField("userId", isEqualTo: userId)
-        
-        let snapshot = try await query.getDocuments()
-        
-        // Update each document
+            .getDocuments()
+
         for document in snapshot.documents {
             try await document.reference.updateData([
                 "photoURL": photoURL,
@@ -175,21 +163,107 @@ final class LeaderboardRepository: Sendable {
             ])
         }
     }
-    
-    // Update display name across all user's leaderboard documents
+
     func updateDisplayName(userId: String, displayName: String) async throws {
-        // Query all documents for this user
-        let query = db.collection("leaderboard_stats")
+        let snapshot = try await db.collection("leaderboard_stats")
             .whereField("userId", isEqualTo: userId)
-        
-        let snapshot = try await query.getDocuments()
-        
-        // Update each document
+            .getDocuments()
+
         for document in snapshot.documents {
             try await document.reference.updateData([
                 "displayName": displayName,
                 "lastUpdated": FieldValue.serverTimestamp()
             ])
         }
+    }
+
+    func updateBodyWeight(userId: String, weightKg: Double) async throws {
+        let snapshot = try await db.collection("leaderboard_stats")
+            .whereField("userId", isEqualTo: userId)
+            .getDocuments()
+
+        for document in snapshot.documents {
+            try await document.reference.updateData([
+                "weight_kg": weightKg,
+                "lastUpdated": FieldValue.serverTimestamp()
+            ])
+        }
+    }
+
+    private func parseStat(_ data: [String: Any]) -> FirestoreLeaderboardStats? {
+        guard let userId = data["userId"] as? String,
+              let displayName = data["displayName"] as? String,
+              let timeFrame = data["timeFrame"] as? String,
+              let periodKey = data["periodKey"] as? String,
+              let periodStartAt = timestampValue(for: "periodStartAt", in: data),
+              let lastUpdated = timestampValue(for: "lastUpdated", in: data) else {
+            return nil
+        }
+
+        let schemaVersion = intValue(for: "schemaVersion", in: data) ?? 1
+        let totalSteps = intValue(for: "totalSteps", in: data) ?? 0
+        let totalFloors = intValue(for: "totalFloors", in: data) ?? 0
+        let totalWorkouts = intValue(for: "totalWorkouts", in: data) ?? 0
+        let totalDuration = doubleValue(for: "totalDuration", in: data) ?? 0
+        let stepsPerMinute = doubleValue(for: "stepsPerMinute", in: data) ?? 0
+
+        guard totalWorkouts > 0 || totalSteps > 0 || totalFloors > 0 || totalDuration > 0 else {
+            return nil
+        }
+
+        return FirestoreLeaderboardStats(
+            userId: userId,
+            displayName: displayName,
+            photoURL: data["photoURL"] as? String,
+            timeFrame: timeFrame,
+            schemaVersion: schemaVersion,
+            periodKey: periodKey,
+            periodStartAt: periodStartAt,
+            totalSteps: totalSteps,
+            totalFloors: totalFloors,
+            totalWorkouts: totalWorkouts,
+            totalDuration: totalDuration,
+            stepsPerMinute: stepsPerMinute,
+            lastUpdated: lastUpdated,
+            age: intValue(for: "age", in: data),
+            weightKg: doubleValue(for: "weight_kg", in: data),
+            locationCity: data["location_city"] as? String,
+            locationCountry: data["location_country"] as? String,
+            locationRegion: data["location_region"] as? String
+        )
+    }
+
+    private func setOptional(_ value: Any?, for key: String, in data: inout [String: Any]) {
+        if let value {
+            data[key] = value
+        } else {
+            data[key] = FieldValue.delete()
+        }
+    }
+
+    private func intValue(for key: String, in data: [String: Any]) -> Int? {
+        if let value = data[key] as? Int { return value }
+        if let value = data[key] as? Int64 { return Int(value) }
+        if let value = data[key] as? Double { return Int(value) }
+        if let value = data[key] as? NSNumber { return value.intValue }
+        return nil
+    }
+
+    private func doubleValue(for key: String, in data: [String: Any]) -> Double? {
+        if let value = data[key] as? Double { return value }
+        if let value = data[key] as? Int { return Double(value) }
+        if let value = data[key] as? Int64 { return Double(value) }
+        if let value = data[key] as? NSNumber { return value.doubleValue }
+        return nil
+    }
+
+    private func timestampValue(for key: String, in data: [String: Any]) -> Date? {
+        if let timestamp = data[key] as? Timestamp {
+            return timestamp.dateValue()
+        }
+        if let date = data[key] as? Date {
+            return date
+        }
+        return nil
     }
 }

@@ -14,7 +14,6 @@ struct FullScreenPhotoView: View {
 
     @State private var loadedImage: UIImage?
     @State private var isLoading = true
-    @State private var loadError: Error?
     @State private var scale: CGFloat = 1.0
     @State private var offset: CGSize = .zero
     @State private var dragOffset: CGSize = .zero
@@ -29,7 +28,7 @@ struct FullScreenPhotoView: View {
             // Video Player for videos
             if photo.isVideo {
                 if let player = player {
-                    VideoPlayer(player: player)
+                    FullScreenVideoPlayer(player: player)
                         .ignoresSafeArea()
                         .onAppear {
                             player.play()
@@ -180,8 +179,7 @@ struct FullScreenPhotoView: View {
     
     @ViewBuilder
     private var overlayViews: some View {
-        // Close button
-        VStack {
+        VStack(spacing: 0) {
             HStack {
                 Spacer()
 
@@ -190,86 +188,37 @@ struct FullScreenPhotoView: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 32))
-                        .foregroundStyle(.white.opacity(0.8))
-                        .background(Color.black.opacity(0.5))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .background(Color.black.opacity(0.45))
                         .clipShape(Circle())
                 }
             }
-            .padding()
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
 
-            Spacer()
+            Spacer(minLength: 0)
         }
-
-        // Media info overlay (bottom)
-        VStack {
-            Spacer()
-
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Uploaded \(photo.uploadedAt.formatted(.dateTime.month().day().hour().minute()))")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.8))
-                    
-                    if photo.isVideo, let duration = photo.duration {
-                        Text("Duration: \(formatDuration(duration))")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.8))
-                    }
-                }
-
-                Spacer()
-            }
-            .padding()
-            .background(
-                LinearGradient(
-                    colors: [.clear, .black.opacity(0.6)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-        }
+        .safeAreaPadding(.top)
     }
     
     private func loadVideo() async {
-        let asset = AVURLAsset(url: photo.url)
-        // Preload to avoid main thread blocking
-        try? await asset.load(.isPlayable)
-
-        let playerItem = AVPlayerItem(asset: asset)
+        let canPrepareVideo = await RemoteMediaLoader.shared.canPrepareVideo(from: photo.url)
 
         await MainActor.run {
-            self.player = AVPlayer(playerItem: playerItem)
+            if canPrepareVideo {
+                self.player = AVPlayer(url: photo.url)
+            } else {
+                self.player = nil
+            }
             self.isLoading = false
         }
     }
 
     private func loadPhoto() async {
-        // Check cache first
-        if let cached = ImageCache.shared.image(for: photo.url) {
-            await MainActor.run {
-                self.loadedImage = cached
-                self.isLoading = false
-            }
-            return
-        }
-
-        do {
-            let (data, _) = try await URLSession.shared.data(from: photo.url)
-
-            await MainActor.run {
-                if let image = UIImage(data: data) {
-                    ImageCache.shared.store(image, for: photo.url)
-                    self.loadedImage = image
-                } else {
-                    self.loadError = PhotoLoadError.invalidImageData
-                }
-                self.isLoading = false
-            }
-        } catch {
-            await MainActor.run {
-                self.loadError = error
-                self.isLoading = false
-            }
+        let image = await RemoteMediaLoader.shared.loadPhoto(from: photo.url)
+        await MainActor.run {
+            self.loadedImage = image
+            self.isLoading = false
         }
     }
 
@@ -286,12 +235,23 @@ struct FullScreenPhotoView: View {
         offset.width = max(-maxOffsetX, min(maxOffsetX, offset.width))
         offset.height = max(-maxOffsetY, min(maxOffsetY, offset.height))
     }
-    
-    private func formatDuration(_ duration: TimeInterval) -> String {
-        let totalSeconds = Int(duration.rounded())
-        let minutes = totalSeconds / 60
-        let seconds = totalSeconds % 60
-        return "\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
+}
+
+private struct FullScreenVideoPlayer: UIViewControllerRepresentable {
+    let player: AVPlayer
+
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.player = player
+        controller.showsPlaybackControls = true
+        controller.allowsPictureInPicturePlayback = false
+        controller.canStartPictureInPictureAutomaticallyFromInline = false
+        controller.updatesNowPlayingInfoCenter = false
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
+        uiViewController.player = player
     }
 }
 
@@ -299,6 +259,6 @@ struct FullScreenPhotoView: View {
     FullScreenPhotoView(
         photo: Photo(url: URL(string: "https://picsum.photos/400/600")!)
     ) {
-        print("Dismissed")
+        debugLog("Dismissed")
     }
 }

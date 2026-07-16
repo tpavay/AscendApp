@@ -8,7 +8,7 @@
 import Foundation
 
 /// Types of weight equipment that can be used during workouts
-enum WeightEquipmentType: String, Codable, CaseIterable, Identifiable {
+enum WeightEquipmentType: String, Codable, CaseIterable, Identifiable, Sendable {
     case weightedVest = "weighted_vest"
     case dumbbells = "dumbbells"
     case barbell = "barbell"
@@ -62,6 +62,10 @@ enum WeightEquipmentType: String, Codable, CaseIterable, Identifiable {
         case .ankleWeights: return "Ankle"
         case .wristWeights: return "Wrist"
         }
+    }
+
+    var sortOrder: Int {
+        WeightEquipmentType.allCases.firstIndex(of: self) ?? 0
     }
 }
 
@@ -151,8 +155,80 @@ struct WeightConfiguration: Codable, Equatable {
     }
 }
 
+struct WeightLoadoutEntryKey: Codable, Hashable {
+    let equipmentType: WeightEquipmentType
+    let weightValue: Double
+
+    var keyString: String {
+        "\(equipmentType.rawValue)_\(Self.normalizedWeightString(weightValue))"
+    }
+
+    var totalWeight: Double {
+        equipmentType.isPaired ? weightValue * 2 : weightValue
+    }
+
+    func displayName(unit: String) -> String {
+        let value = Self.displayWeightString(weightValue)
+        if equipmentType.isPaired {
+            return "\(value) \(unit) each \(equipmentType.shortDescription)"
+        }
+
+        return "\(value) \(unit) \(equipmentType.shortDescription)"
+    }
+
+    private static func normalizedWeightString(_ value: Double) -> String {
+        value.truncatingRemainder(dividingBy: 1) == 0
+            ? String(format: "%.0f", value)
+            : String(format: "%.1f", value)
+    }
+
+    private static func displayWeightString(_ value: Double) -> String {
+        value.truncatingRemainder(dividingBy: 1) == 0
+            ? value.formatted(.number.precision(.fractionLength(0)))
+            : value.formatted(.number.precision(.fractionLength(1)))
+    }
+}
+
+struct WeightLoadoutKey: Codable, Hashable, Identifiable {
+    let entries: [WeightLoadoutEntryKey]
+
+    init?(configuration: WeightConfiguration?) {
+        guard let configuration else { return nil }
+        let enabledEntries = configuration.entries
+            .filter { $0.isEnabled && $0.weightValue > 0 }
+            .sorted { lhs, rhs in
+                if lhs.equipmentType.sortOrder != rhs.equipmentType.sortOrder {
+                    return lhs.equipmentType.sortOrder < rhs.equipmentType.sortOrder
+                }
+                return lhs.weightValue < rhs.weightValue
+            }
+
+        guard !enabledEntries.isEmpty else { return nil }
+        entries = enabledEntries.map {
+            WeightLoadoutEntryKey(
+                equipmentType: $0.equipmentType,
+                weightValue: $0.weightValue
+            )
+        }
+    }
+
+    var id: String { keyString }
+
+    var keyString: String {
+        entries.map(\.keyString).joined(separator: "+")
+    }
+
+    var totalWeight: Double {
+        entries.reduce(0) { $0 + $1.totalWeight }
+    }
+
+    func displayName(unit: String) -> String {
+        entries.map { $0.displayName(unit: unit) }.joined(separator: " + ")
+    }
+}
+
 /// Override settings for interval-specific weight configuration
-struct IntervalWeightOverride: Codable, Equatable {
+struct IntervalWeightOverride: Codable, Equatable, Sendable {
     /// Equipment types enabled for this specific interval.
     /// - nil: Use routine defaults (inherit from routine)
     /// - empty set: No weights for this interval

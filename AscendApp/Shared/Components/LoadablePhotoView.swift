@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import AVFoundation
 
 struct LoadablePhotoView: View {
     let photo: Photo
@@ -14,9 +13,10 @@ struct LoadablePhotoView: View {
     let cornerRadius: CGFloat
     let onTap: (() -> Void)?
 
+    @Environment(NetworkConnectivityService.self) private var connectivityService
+
     @State private var loadedImage: UIImage?
     @State private var isLoading = true
-    @State private var loadError: Error?
 
     init(
         photo: Photo,
@@ -95,6 +95,10 @@ struct LoadablePhotoView: View {
         .task {
             await loadMedia()
         }
+        .onChange(of: connectivityService.isConnected) { oldValue, newValue in
+            guard oldValue == false, newValue == true else { return }
+            retryFailedLoadIfNeeded()
+        }
     }
 
     private func loadMedia() async {
@@ -106,66 +110,18 @@ struct LoadablePhotoView: View {
     }
     
     private func loadPhoto() async {
-        // Check cache first
-        if let cached = ImageCache.shared.image(for: photo.url) {
-            await MainActor.run {
-                self.loadedImage = cached
-                self.isLoading = false
-            }
-            return
-        }
-
-        do {
-            let (data, _) = try await URLSession.shared.data(from: photo.url)
-
-            await MainActor.run {
-                if let image = UIImage(data: data) {
-                    ImageCache.shared.store(image, for: photo.url)
-                    self.loadedImage = image
-                } else {
-                    self.loadError = PhotoLoadError.invalidImageData
-                }
-                self.isLoading = false
-            }
-        } catch {
-            await MainActor.run {
-                self.loadError = error
-                self.isLoading = false
-            }
+        let image = await RemoteMediaLoader.shared.loadPhoto(from: photo.url)
+        await MainActor.run {
+            self.loadedImage = image
+            self.isLoading = false
         }
     }
 
     private func loadVideoThumbnail() async {
-        // Check cache first
-        if let cached = ImageCache.shared.image(for: photo.url) {
-            await MainActor.run {
-                self.loadedImage = cached
-                self.isLoading = false
-            }
-            return
-        }
-
-        do {
-            let asset = AVURLAsset(url: photo.url)
-            // Preload to ensure asset is ready for thumbnail generation
-            try await asset.load(.isReadable, .tracks)
-
-            let imageGenerator = AVAssetImageGenerator(asset: asset)
-            imageGenerator.appliesPreferredTrackTransform = true
-
-            let cgImage = try await imageGenerator.image(at: .zero).image
-            let image = UIImage(cgImage: cgImage)
-
-            await MainActor.run {
-                ImageCache.shared.store(image, for: photo.url)
-                self.loadedImage = image
-                self.isLoading = false
-            }
-        } catch {
-            await MainActor.run {
-                self.loadError = error
-                self.isLoading = false
-            }
+        let image = await RemoteMediaLoader.shared.loadVideoThumbnail(from: photo.url)
+        await MainActor.run {
+            self.loadedImage = image
+            self.isLoading = false
         }
     }
     
@@ -173,18 +129,15 @@ struct LoadablePhotoView: View {
         let totalSeconds = Int(duration.rounded())
         let minutes = totalSeconds / 60
         let seconds = totalSeconds % 60
-        
+
         return "\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
     }
-}
 
-enum PhotoLoadError: LocalizedError {
-    case invalidImageData
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidImageData:
-            return "Invalid image data"
+    private func retryFailedLoadIfNeeded() {
+        guard isLoading == false, loadedImage == nil else { return }
+        isLoading = true
+        Task {
+            await loadMedia()
         }
     }
 }
