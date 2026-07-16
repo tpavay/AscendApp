@@ -9,6 +9,8 @@ interface FakePortOptions {
   subcollections?: string[];
   leaderboardEntries?: number;
   replayFinisherStatuses?: number;
+  feedbackDocuments?: number;
+  lifecycleEmailJobs?: number;
   failOn?: string[];
   failListing?: boolean;
 }
@@ -54,6 +56,22 @@ function makeFakePort(options: FakePortOptions = {}): {
       }
       deleted.push("live_replay_finishers");
       return options.replayFinisherStatuses ?? 0;
+    },
+
+    async deleteFeedbackDocuments() {
+      if (failOn.has("feedback")) {
+        throw new Error("cannot delete feedback");
+      }
+      deleted.push("feedback");
+      return options.feedbackDocuments ?? 0;
+    },
+
+    async deleteLifecycleEmailJobs() {
+      if (failOn.has("email_jobs")) {
+        throw new Error("cannot delete email_jobs");
+      }
+      deleted.push("email_jobs");
+      return options.lifecycleEmailJobs ?? 0;
     },
 
     async deleteRateLimitDocument() {
@@ -139,6 +157,26 @@ test("removes replay finishers living outside users/{uid}", async () => {
   assert.ok(deleted.includes("live_replay_finishers"));
 });
 
+test("removes feedback carrying the user's email and message", async () => {
+  const {deleted, port} = makeFakePort({feedbackDocuments: 2});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  // feedback/{id} is `allow read, update, delete: if false` and holds userId,
+  // userEmail and free-text message, so only the Admin SDK can clear it.
+  assert.equal(summary.deletedFeedbackDocuments, 2);
+  assert.ok(deleted.includes("feedback"));
+});
+
+test("removes queued lifecycle email jobs holding a raw email", async () => {
+  const {deleted, port} = makeFakePort({lifecycleEmailJobs: 1});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.deletedLifecycleEmailJobs, 1);
+  assert.ok(deleted.includes("email_jobs"));
+});
+
 test("one failing subcollection does not abandon other PII", async () => {
   const {deleted, port} = makeFakePort({
     failOn: ["lifecycle"],
@@ -155,6 +193,20 @@ test("one failing subcollection does not abandon other PII", async () => {
   assert.match(summary.failures[0], /lifecycle: cannot delete lifecycle/);
   assert.ok(deleted.includes("leaderboard_stats"));
   assert.ok(deleted.includes("live_replay_finishers"));
+  assert.ok(deleted.includes("feedback"));
+  assert.ok(deleted.includes("email_jobs"));
+  assert.ok(deleted.includes("userRateLimits"));
+});
+
+test("a failing feedback sweep is reported for retry", async () => {
+  const {deleted, port} = makeFakePort({failOn: ["feedback"]});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.deletedFeedbackDocuments, 0);
+  assert.equal(summary.failures.length, 1);
+  assert.match(summary.failures[0], /feedback: cannot delete feedback/);
+  assert.ok(deleted.includes("email_jobs"));
   assert.ok(deleted.includes("userRateLimits"));
 });
 

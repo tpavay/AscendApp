@@ -1,6 +1,8 @@
 import {onDocumentDeleted} from "firebase-functions/v2/firestore";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
+import {buildRatingPromptEmailDedupeKey} from "./email/automation";
+import {buildEmailJobId} from "./email/queue";
 
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
 
@@ -13,6 +15,8 @@ export interface DeletedUserCleanupPort {
   deleteSubcollection(userId: string, collectionId: string): Promise<void>;
   deleteLeaderboardStats(userId: string): Promise<number>;
   deleteReplayFinisherStatuses(userId: string): Promise<number>;
+  deleteFeedbackDocuments(userId: string): Promise<number>;
+  deleteLifecycleEmailJobs(userId: string): Promise<number>;
   deleteRateLimitDocument(userId: string): Promise<void>;
 }
 
@@ -20,6 +24,8 @@ export interface CleanupSummary {
   deletedSubcollections: string[];
   deletedLeaderboardEntries: number;
   deletedReplayFinisherStatuses: number;
+  deletedFeedbackDocuments: number;
+  deletedLifecycleEmailJobs: number;
   failures: string[];
 }
 
@@ -38,7 +44,16 @@ export interface CleanupSummary {
  * later are swept without anyone remembering to update this list. User-keyed
  * PII that lives *outside* the users/{uid} subtree cannot be discovered that
  * way, so each such record needs its own step here: leaderboard_stats,
- * userRateLimits, and the replay finisher statuses.
+ * userRateLimits, the replay finisher statuses, feedback, and the uid-keyed
+ * email_jobs. Feedback is hard-deleted rather than anonymized because its
+ * `message` is free text the user typed, so it can hold anything they chose to
+ * disclose; the admin notification email already carries the report itself.
+ *
+ * Two records are deliberately left behind. The `firstAscent*` fields on a
+ * replay context root outlive the account by product design, and
+ * waitlist-welcome email_jobs are keyed by email hash rather than uid because
+ * they belong to the newsletter relationship, which has its own unsubscribe
+ * path and is not granted or revoked by owning an account.
  *
  * Each step is isolated: one failure must not abandon the rest of the PII.
  * @param {string} userId The uid of the deleted user.
@@ -84,6 +99,20 @@ export async function cleanupDeletedUser(
     failures.push(`live_replay_finishers: ${errorMessage(error)}`);
   }
 
+  let deletedFeedbackDocuments = 0;
+  try {
+    deletedFeedbackDocuments = await port.deleteFeedbackDocuments(userId);
+  } catch (error) {
+    failures.push(`feedback: ${errorMessage(error)}`);
+  }
+
+  let deletedLifecycleEmailJobs = 0;
+  try {
+    deletedLifecycleEmailJobs = await port.deleteLifecycleEmailJobs(userId);
+  } catch (error) {
+    failures.push(`email_jobs: ${errorMessage(error)}`);
+  }
+
   try {
     await port.deleteRateLimitDocument(userId);
   } catch (error) {
@@ -91,7 +120,9 @@ export async function cleanupDeletedUser(
   }
 
   return {
+    deletedFeedbackDocuments,
     deletedLeaderboardEntries,
+    deletedLifecycleEmailJobs,
     deletedReplayFinisherStatuses,
     deletedSubcollections,
     failures,
@@ -160,6 +191,42 @@ function makeAdminPort(): DeletedUserCleanupPort {
       return deleted;
     },
 
+    async deleteFeedbackDocuments(userId) {
+      const snapshot = await firestore
+        .collection("feedback")
+        .where("userId", "==", userId)
+        .get();
+
+      for (const document of snapshot.docs) {
+        await document.ref.delete();
+      }
+
+      return snapshot.size;
+    },
+
+    async deleteLifecycleEmailJobs(userId) {
+      // Job ids are the hash of a dedupe key, so only uid-keyed emails are
+      // reachable from a uid. Add the key here when a new one is introduced.
+      const dedupeKeys = [buildRatingPromptEmailDedupeKey(userId)];
+
+      let deleted = 0;
+      for (const dedupeKey of dedupeKeys) {
+        const job = firestore
+          .collection("email_jobs")
+          .doc(buildEmailJobId(dedupeKey));
+        const snapshot = await job.get();
+
+        if (!snapshot.exists) {
+          continue;
+        }
+
+        await job.delete();
+        deleted += 1;
+      }
+
+      return deleted;
+    },
+
     async deleteRateLimitDocument(userId) {
       await firestore.collection("userRateLimits").doc(userId).delete();
     },
@@ -189,7 +256,9 @@ export const cleanupDeletedUserData = onDocumentDeleted(
     const summary = await cleanupDeletedUser(userId, makeAdminPort());
 
     logger.info("Swept deleted user data", {
+      deletedFeedbackDocuments: summary.deletedFeedbackDocuments,
       deletedLeaderboardEntries: summary.deletedLeaderboardEntries,
+      deletedLifecycleEmailJobs: summary.deletedLifecycleEmailJobs,
       deletedReplayFinisherStatuses: summary.deletedReplayFinisherStatuses,
       deletedSubcollections: summary.deletedSubcollections,
       userId,
