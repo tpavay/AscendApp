@@ -148,6 +148,16 @@ let functionsURL = "https://\(region)-\(projectId).cloudfunctions.net"
 - Legacy share card template assets may still live under `share-card-templates/...`, but workout share cards in v1 must not fetch their backgrounds or layout config from Firebase.
 - Account deletion and cleanup should target only the authenticated user's scoped prefixes, including durable workout heart-rate sidecars and private workout backup documents.
 
+### Account Deletion (Apple 5.1.1(v))
+
+Ordering is the whole game. Every delete in `firestore.rules` is gated on `isOwner(userId)`, so anything still present when `user.delete()` succeeds is orphaned forever - no client can authenticate as that uid again.
+`AccountDeletionService` therefore deletes all remote data, then revokes, then deletes the auth user last. Its ordering is locked in by `AscendAppTests/AccountDeletionServiceTests.swift`; if you add a remote record, add its deletion before the auth step and extend those tests.
+
+- Firebase calls live behind `AccountDeletionGateway`, and on-device cleanup behind `AccountDeletionLocalCleanup`, so the sequence is testable and tests never touch the host's UserDefaults.
+- Deleting a Sign in with Apple account must revoke the Apple token via `Auth.auth().revokeToken(withAuthorizationCode:)` before `user.delete()`. The authorization code is single-use and is captured during re-auth by `AuthenticationService.reauthenticateWithApple()`, which is the only place it is available. Revocation is deliberately best-effort: failing to delete is a worse guideline violation than a lingering token.
+- Clients can only delete what the rules allow. Server-owned subcollections (`achievements`, `lifecycle`, `lifecycle_events`, `communication_preferences`, `notification_devices`, `integrations`, `liveClimbPublishStatuses`) are `allow write: if false` and are unreachable from any client.
+- The `cleanupDeletedUserData` Cloud Function (`functions/src/accountCleanup.ts`) is the authoritative sweep, not just a safety net. It triggers on delete of `users/{uid}`, discovers subcollections via `listCollections()` rather than a hardcoded list, and retries on failure.
+
 ### Workout Durability Architecture
 
 Local-first with cloud backup. SwiftData is the editing surface and source of truth for in-flight UX; Firestore + Storage carry durable backups so a user's history survives reinstalls and crosses devices.
