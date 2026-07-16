@@ -9,6 +9,7 @@ import * as admin from "firebase-admin";
 
 admin.initializeApp();
 
+export {cleanupDeletedUserData} from "./accountCleanup";
 export {processEmailJobs} from "./email/processor";
 export {onLifecycleEventEmailAutomation} from "./email/automation";
 export {onFeedbackCreated} from "./feedback";
