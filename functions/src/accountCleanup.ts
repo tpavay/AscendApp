@@ -131,10 +131,12 @@ export async function cleanupDeletedUser(
 
 /**
  * Builds the Admin SDK backed port.
+ * @param {admin.firestore.Firestore} firestore Handle to sweep through.
  * @return {DeletedUserCleanupPort} Production port.
  */
-function makeAdminPort(): DeletedUserCleanupPort {
-  const firestore = admin.firestore();
+export function makeAdminPort(
+  firestore: admin.firestore.Firestore = admin.firestore()
+): DeletedUserCleanupPort {
   const userRef = (userId: string) =>
     firestore.collection("users").doc(userId);
 
@@ -158,11 +160,29 @@ function makeAdminPort(): DeletedUserCleanupPort {
         return 0;
       }
 
+      // close() resolves once the writes are no longer pending, never rejects,
+      // so only the per-write promises report a permanently failed delete.
+      // They are caught as they are created: a rejection with no handler
+      // attached before close() settles would surface as an unhandled one.
       const writer = firestore.bulkWriter();
-      for (const document of snapshot.docs) {
-        void writer.delete(document.ref);
-      }
+      const deletes = snapshot.docs.map((document) =>
+        writer.delete(document.ref).then(
+          () => null,
+          (error: unknown) => errorMessage(error)
+        )
+      );
       await writer.close();
+
+      const failures = (await Promise.all(deletes)).filter(
+        (failure): failure is string => failure !== null
+      );
+
+      if (failures.length > 0) {
+        throw new Error(
+          `${failures.length} of ${snapshot.size} deletes failed: ` +
+            failures.join("; ")
+        );
+      }
 
       return snapshot.size;
     },

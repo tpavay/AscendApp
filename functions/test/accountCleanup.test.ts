@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import * as admin from "firebase-admin";
 import {
   cleanupDeletedUser,
   DeletedUserCleanupPort,
+  makeAdminPort,
 } from "../src/accountCleanup.js";
 
 interface FakePortOptions {
@@ -83,6 +85,61 @@ function makeFakePort(options: FakePortOptions = {}): {
   };
 
   return {deleted, port};
+}
+
+/**
+ * Builds a Firestore stand-in whose leaderboard_stats query returns
+ * `documentCount` documents and whose BulkWriter fails `failingDeletes` of
+ * them the way a permanent error does: the per-write promise rejects while
+ * close() still resolves.
+ * @param {number} documentCount Matching leaderboard_stats documents.
+ * @param {number} failingDeletes How many of those deletes reject.
+ * @return {admin.firestore.Firestore} The stand-in.
+ */
+function makeLeaderboardFirestore(
+  documentCount: number,
+  failingDeletes: number
+): admin.firestore.Firestore {
+  const docs = Array.from({length: documentCount}, (_unused, index) => ({
+    ref: {id: `entry-${index}`},
+  }));
+
+  let deleteCount = 0;
+  const firestore = {
+    bulkWriter() {
+      return {
+        delete() {
+          deleteCount += 1;
+          return deleteCount <= failingDeletes ?
+            Promise.reject(new Error("7 PERMISSION_DENIED")) :
+            Promise.resolve({});
+        },
+        // Mirrors the documented contract: "Returns a Promise that resolves
+        // when there are no more pending writes. The Promise will never be
+        // rejected."
+        close() {
+          return Promise.resolve();
+        },
+      };
+    },
+    collection() {
+      return {
+        where() {
+          return {
+            get() {
+              return Promise.resolve({
+                docs,
+                empty: docs.length === 0,
+                size: docs.length,
+              });
+            },
+          };
+        },
+      };
+    },
+  };
+
+  return firestore as unknown as admin.firestore.Firestore;
 }
 
 test("sweeps server-owned subcollections a client cannot delete", async () => {
@@ -208,6 +265,55 @@ test("a failing feedback sweep is reported for retry", async () => {
   assert.match(summary.failures[0], /feedback: cannot delete feedback/);
   assert.ok(deleted.includes("email_jobs"));
   assert.ok(deleted.includes("userRateLimits"));
+});
+
+test("a failing leaderboard sweep is reported for retry", async () => {
+  const {deleted, port} = makeFakePort({
+    failOn: ["leaderboard_stats"],
+    leaderboardEntries: 3,
+  });
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.deletedLeaderboardEntries, 0);
+  assert.equal(summary.failures.length, 1);
+  assert.match(
+    summary.failures[0],
+    /leaderboard_stats: cannot delete leaderboard_stats/
+  );
+  assert.ok(deleted.includes("live_replay_finishers"));
+  assert.ok(deleted.includes("feedback"));
+  assert.ok(deleted.includes("userRateLimits"));
+});
+
+test("a permanently failed leaderboard delete is not a success", async () => {
+  // BulkWriter.close() resolves even when a write permanently fails, so a
+  // discarded per-write promise would report the ghost-on-leaderboard entry
+  // as swept and the retry policy would never fire.
+  const port = makeAdminPort(makeLeaderboardFirestore(3, 1));
+
+  await assert.rejects(
+    () => port.deleteLeaderboardStats("user-a"),
+    /1 of 3 deletes failed: 7 PERMISSION_DENIED/
+  );
+});
+
+test("a permanently failed leaderboard delete lands in failures", async () => {
+  const {port} = makeFakePort();
+  const adminPort = makeAdminPort(makeLeaderboardFirestore(2, 2));
+  port.deleteLeaderboardStats = adminPort.deleteLeaderboardStats;
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.deletedLeaderboardEntries, 0);
+  assert.equal(summary.failures.length, 1);
+  assert.match(summary.failures[0], /leaderboard_stats: 2 of 2 deletes failed/);
+});
+
+test("a leaderboard sweep counts only writes that succeeded", async () => {
+  const port = makeAdminPort(makeLeaderboardFirestore(3, 0));
+
+  assert.equal(await port.deleteLeaderboardStats("user-a"), 3);
 });
 
 test("a failing finisher sweep is reported for retry", async () => {
