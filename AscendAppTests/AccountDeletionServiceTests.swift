@@ -157,6 +157,47 @@ struct AccountDeletionServiceTests {
         #expect(gateway.steps.contains(.deleteAuthAccount))
     }
 
+    // MARK: - Reauthentication provider selection
+
+    @Test
+    func reauthenticatesWithAppleWhenBothProvidersAreLinked() async throws {
+        // Firebase links same-email providers onto one uid on its own. Only an
+        // Apple authorization yields the code revocation needs, so picking
+        // Google here would silently skip revocation for that cohort.
+        let provider = AccountDeletionReauthenticationProvider.preferred(
+            forProviderIDs: ["google.com", "apple.com"]
+        )
+
+        #expect(provider == .apple)
+    }
+
+    @Test
+    func reauthenticatesWithApplePreferringItOverEveryOtherProvider() async throws {
+        let provider = AccountDeletionReauthenticationProvider.preferred(
+            forProviderIDs: ["apple.com"]
+        )
+
+        #expect(provider == .apple)
+    }
+
+    @Test
+    func reauthenticatesWithGoogleWhenAppleIsNotLinked() async throws {
+        let provider = AccountDeletionReauthenticationProvider.preferred(
+            forProviderIDs: ["google.com"]
+        )
+
+        #expect(provider == .google)
+    }
+
+    @Test
+    func hasNoProviderToReauthenticateWithWhenNoneIsSupported() async throws {
+        let provider = AccountDeletionReauthenticationProvider.preferred(
+            forProviderIDs: ["password"]
+        )
+
+        #expect(provider == nil)
+    }
+
     // MARK: - Helpers
 
     private func makeModelContext() throws -> ModelContext {

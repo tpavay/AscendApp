@@ -8,6 +8,7 @@ import {
 interface FakePortOptions {
   subcollections?: string[];
   leaderboardEntries?: number;
+  replayFinisherStatuses?: number;
   failOn?: string[];
   failListing?: boolean;
 }
@@ -45,6 +46,14 @@ function makeFakePort(options: FakePortOptions = {}): {
       }
       deleted.push("leaderboard_stats");
       return options.leaderboardEntries ?? 0;
+    },
+
+    async deleteReplayFinisherStatuses() {
+      if (failOn.has("live_replay_finishers")) {
+        throw new Error("cannot delete live_replay_finishers");
+      }
+      deleted.push("live_replay_finishers");
+      return options.replayFinisherStatuses ?? 0;
     },
 
     async deleteRateLimitDocument() {
@@ -118,6 +127,18 @@ test("removes leaderboard entries so deleted users stop ranking", async () => {
   assert.ok(deleted.includes("leaderboard_stats"));
 });
 
+test("removes replay finishers living outside users/{uid}", async () => {
+  const {deleted, port} = makeFakePort({replayFinisherStatuses: 2});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  // finishers/{uid} carries displayName, photoURL and demographics, is
+  // `allow write: if false`, and sits under live_replay_leaderboards, so
+  // subcollection discovery under users/{uid} can never reach it.
+  assert.equal(summary.deletedReplayFinisherStatuses, 2);
+  assert.ok(deleted.includes("live_replay_finishers"));
+});
+
 test("one failing subcollection does not abandon other PII", async () => {
   const {deleted, port} = makeFakePort({
     failOn: ["lifecycle"],
@@ -133,6 +154,21 @@ test("one failing subcollection does not abandon other PII", async () => {
   assert.equal(summary.failures.length, 1);
   assert.match(summary.failures[0], /lifecycle: cannot delete lifecycle/);
   assert.ok(deleted.includes("leaderboard_stats"));
+  assert.ok(deleted.includes("live_replay_finishers"));
+  assert.ok(deleted.includes("userRateLimits"));
+});
+
+test("a failing finisher sweep is reported for retry", async () => {
+  const {deleted, port} = makeFakePort({failOn: ["live_replay_finishers"]});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.deletedReplayFinisherStatuses, 0);
+  assert.equal(summary.failures.length, 1);
+  assert.match(
+    summary.failures[0],
+    /live_replay_finishers: cannot delete live_replay_finishers/
+  );
   assert.ok(deleted.includes("userRateLimits"));
 });
 

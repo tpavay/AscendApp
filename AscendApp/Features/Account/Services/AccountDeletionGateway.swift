@@ -45,6 +45,32 @@ enum AccountDeletionGatewayError: Error {
     case unknownProvider
 }
 
+/// The provider a user reauthenticates with before their account is deleted.
+enum AccountDeletionReauthenticationProvider: Equatable {
+    case apple
+    case google
+
+    /// Picks which linked provider to reauthenticate with.
+    ///
+    /// Apple wins whenever it is linked, even when Google is linked too: the
+    /// authorization code that Sign in with Apple revocation needs is only ever
+    /// produced by an Apple authorization, so reauthenticating a multi-provider
+    /// uid with Google would silently skip the revocation guideline 5.1.1(v)
+    /// requires. Firebase's "link accounts that use the same email" setting
+    /// produces those uids without any linking code in the app.
+    static func preferred(forProviderIDs providerIDs: [String]) -> Self? {
+        if providerIDs.contains("apple.com") {
+            return .apple
+        }
+
+        if providerIDs.contains("google.com") {
+            return .google
+        }
+
+        return nil
+    }
+}
+
 /// The production gateway, backed by Firebase Auth, Firestore, and Storage.
 @MainActor
 struct FirebaseAccountDeletionGateway: AccountDeletionGateway {
@@ -66,13 +92,16 @@ struct FirebaseAccountDeletionGateway: AccountDeletionGateway {
             throw AccountDeletionGatewayError.notAuthenticated
         }
 
-        let providerIDs = user.providerData.map(\.providerID)
+        let provider = AccountDeletionReauthenticationProvider.preferred(
+            forProviderIDs: user.providerData.map(\.providerID)
+        )
 
-        if providerIDs.contains("google.com") {
-            return try await authService.reauthenticateWithGoogle()
-        } else if providerIDs.contains("apple.com") {
+        switch provider {
+        case .apple:
             return try await authService.reauthenticateWithApple()
-        } else {
+        case .google:
+            return try await authService.reauthenticateWithGoogle()
+        case nil:
             throw AccountDeletionGatewayError.unknownProvider
         }
     }

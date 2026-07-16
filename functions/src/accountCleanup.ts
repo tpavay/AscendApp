@@ -2,6 +2,8 @@ import {onDocumentDeleted} from "firebase-functions/v2/firestore";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
 
+const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
+
 /**
  * Firestore work the cleanup sweep needs, narrowed to a port so the sweep
  * logic can be tested without the Admin SDK or an emulator.
@@ -10,12 +12,14 @@ export interface DeletedUserCleanupPort {
   listUserSubcollections(userId: string): Promise<string[]>;
   deleteSubcollection(userId: string, collectionId: string): Promise<void>;
   deleteLeaderboardStats(userId: string): Promise<number>;
+  deleteReplayFinisherStatuses(userId: string): Promise<number>;
   deleteRateLimitDocument(userId: string): Promise<void>;
 }
 
 export interface CleanupSummary {
   deletedSubcollections: string[];
   deletedLeaderboardEntries: number;
+  deletedReplayFinisherStatuses: number;
   failures: string[];
 }
 
@@ -31,7 +35,10 @@ export interface CleanupSummary {
  * gated on isOwner(userId), and the auth user is gone by then.
  *
  * Subcollections are discovered rather than hardcoded so collections added
- * later are swept without anyone remembering to update this list.
+ * later are swept without anyone remembering to update this list. User-keyed
+ * PII that lives *outside* the users/{uid} subtree cannot be discovered that
+ * way, so each such record needs its own step here: leaderboard_stats,
+ * userRateLimits, and the replay finisher statuses.
  *
  * Each step is isolated: one failure must not abandon the rest of the PII.
  * @param {string} userId The uid of the deleted user.
@@ -68,13 +75,27 @@ export async function cleanupDeletedUser(
     failures.push(`leaderboard_stats: ${errorMessage(error)}`);
   }
 
+  let deletedReplayFinisherStatuses = 0;
+  try {
+    deletedReplayFinisherStatuses = await port.deleteReplayFinisherStatuses(
+      userId
+    );
+  } catch (error) {
+    failures.push(`live_replay_finishers: ${errorMessage(error)}`);
+  }
+
   try {
     await port.deleteRateLimitDocument(userId);
   } catch (error) {
     failures.push(`userRateLimits: ${errorMessage(error)}`);
   }
 
-  return {deletedLeaderboardEntries, deletedSubcollections, failures};
+  return {
+    deletedLeaderboardEntries,
+    deletedReplayFinisherStatuses,
+    deletedSubcollections,
+    failures,
+  };
 }
 
 /**
@@ -115,6 +136,30 @@ function makeAdminPort(): DeletedUserCleanupPort {
       return snapshot.size;
     },
 
+    async deleteReplayFinisherStatuses(userId) {
+      // The finisher document id is the uid, so every replay context is probed
+      // directly. A collection group query would need its own index, and the
+      // context count is bounded by the climb catalog.
+      const contexts = await firestore
+        .collection(LIVE_REPLAY_COLLECTION)
+        .listDocuments();
+
+      let deleted = 0;
+      for (const context of contexts) {
+        const finisher = context.collection("finishers").doc(userId);
+        const snapshot = await finisher.get();
+
+        if (!snapshot.exists) {
+          continue;
+        }
+
+        await finisher.delete();
+        deleted += 1;
+      }
+
+      return deleted;
+    },
+
     async deleteRateLimitDocument(userId) {
       await firestore.collection("userRateLimits").doc(userId).delete();
     },
@@ -145,6 +190,7 @@ export const cleanupDeletedUserData = onDocumentDeleted(
 
     logger.info("Swept deleted user data", {
       deletedLeaderboardEntries: summary.deletedLeaderboardEntries,
+      deletedReplayFinisherStatuses: summary.deletedReplayFinisherStatuses,
       deletedSubcollections: summary.deletedSubcollections,
       userId,
     });
