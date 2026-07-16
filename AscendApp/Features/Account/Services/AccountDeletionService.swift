@@ -7,8 +7,6 @@
 
 import Foundation
 import FirebaseAuth
-import FirebaseFirestore
-import FirebaseStorage
 import SwiftData
 
 /// Service responsible for handling complete account deletion
@@ -45,36 +43,41 @@ final class AccountDeletionService {
         }
     }
 
-    private let authService = AuthenticationService()
-    
     struct DeletionProgress {
         var currentStep: String
         var completedSteps: Int
         var totalSteps: Int
-        
+
         var progressPercentage: Double {
             guard totalSteps > 0 else { return 0 }
             return Double(completedSteps) / Double(totalSteps)
         }
     }
-    
-    private let db = Firestore.firestore()
-    
+
+    private let gateway: AccountDeletionGateway
+    private let localCleanup: AccountDeletionLocalCleanup
+
+    init(
+        gateway: AccountDeletionGateway = FirebaseAccountDeletionGateway(),
+        localCleanup: AccountDeletionLocalCleanup = AppAccountDeletionLocalCleanup()
+    ) {
+        self.gateway = gateway
+        self.localCleanup = localCleanup
+    }
+
     /// Performs complete account deletion
     /// - Parameters:
     ///   - modelContext: SwiftData model context for local data deletion
     ///   - progressHandler: Optional callback for progress updates
-    /// - Returns: True if deletion was successful
     func deleteAccount(
         modelContext: ModelContext,
         progressHandler: ((DeletionProgress) -> Void)? = nil
     ) async throws {
-        guard let user = Auth.auth().currentUser else {
+        guard let userId = gateway.currentUserId else {
             throw DeletionError.notAuthenticated
         }
 
-        let userId = user.uid
-        let totalSteps = 10
+        let totalSteps = 11
         var completedSteps = 0
         var hasStagedLocalDeletion = false
         var hasCommittedLocalDeletion = false
@@ -100,7 +103,7 @@ final class AccountDeletionService {
         // By doing it first we guarantee that cancelling reauth leaves
         // all data intact — nothing has been deleted yet.
         updateProgress("Verifying your identity...")
-        try await ensureFreshAuthentication(user: user)
+        let reauthentication = try await ensureFreshAuthentication()
         completedSteps += 1
         try Task.checkCancellation()
 
@@ -136,55 +139,70 @@ final class AccountDeletionService {
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 7: Delete Firestore user document
+        // Step 7: Delete the publicly readable profile mirrors.
+        //
+        // This MUST happen before the auth account goes away (step 10):
+        // firestore.rules gates these deletes on isOwner(userId), so once the
+        // auth user is deleted no client can ever authenticate as this uid
+        // again and the documents become orphaned PII that keeps the deleted
+        // user visible on leaderboards and profiles.
+        updateProgress("Deleting public profile...")
+        try await deletePublicProfileMirrors(userId: userId)
+        completedSteps += 1
+        try Task.checkCancellation()
+
+        // Step 8: Delete Firestore user document.
+        //
+        // Deleting this fires the cleanupDeletedUserData Cloud Function, which
+        // sweeps every remaining subcollection, including the server-owned ones
+        // (achievements, lifecycle, integrations, ...) that no client is allowed
+        // to touch, and anything the steps above left behind.
         updateProgress("Deleting user profile...")
         try await deleteUserDocument(userId: userId)
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 8: Stage local deletion (rollback if auth deletion fails)
+        // Step 9: Stage local deletion (rollback if auth deletion fails)
         updateProgress("Preparing local data cleanup...")
         try stageLocalDataDeletion(modelContext: modelContext)
         hasStagedLocalDeletion = true
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 9: Delete Firebase Auth account (credentials already fresh from Step 1)
+        // Step 10: Revoke the Sign in with Apple token, then delete the Firebase
+        // Auth account (credentials already fresh from Step 1).
         updateProgress("Deleting account...")
+        await revokeAppleTokenIfNeeded(reauthentication)
         try await deleteAuthAccount()
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 10: Commit local deletion and clear caches
+        // Step 11: Commit local deletion and clear caches
         updateProgress("Finalizing local cleanup...")
         try commitStagedLocalDeletion(modelContext: modelContext)
         hasCommittedLocalDeletion = true
         try await clearLocalPendingUploadFiles()
-        clearUserDefaults()
-        ImageCache.shared.clearAll()
+        localCleanup.clearUserDefaults()
+        localCleanup.clearImageCache()
         completedSteps += 1
 
         updateProgress("Account deleted successfully")
     }
-    
-    // MARK: - Private Deletion Methods
+
+    // MARK: - Authentication
 
     /// Proactively reauthenticates the user so that the interactive sign-in
     /// happens BEFORE any destructive operations. If the user cancels here,
     /// no data has been deleted yet.
-    private func ensureFreshAuthentication(user: User) async throws {
-        let providerIDs = user.providerData.map { $0.providerID }
-
+    private func ensureFreshAuthentication() async throws -> ReauthenticationResult {
         do {
-            if providerIDs.contains("google.com") {
-                try await authService.reauthenticateWithGoogle()
-            } else if providerIDs.contains("apple.com") {
-                try await authService.reauthenticateWithApple()
-            } else {
-                throw DeletionError.reauthenticationFailed("Unknown sign-in provider")
-            }
+            return try await gateway.reauthenticate()
         } catch is CancellationError {
             throw DeletionError.reauthenticationCancelled
+        } catch AccountDeletionGatewayError.notAuthenticated {
+            throw DeletionError.notAuthenticated
+        } catch AccountDeletionGatewayError.unknownProvider {
+            throw DeletionError.reauthenticationFailed("Unknown sign-in provider")
         } catch let error as DeletionError {
             throw error
         } catch {
@@ -192,53 +210,61 @@ final class AccountDeletionService {
         }
     }
 
+    /// Revokes the user's Sign in with Apple token, which Apple has required on
+    /// account deletion since 2022 (App Store guideline 5.1.1(v)). Without it
+    /// the app keeps appearing under Settings > Apple ID > Sign in with Apple.
+    ///
+    /// Best-effort by design: revocation is a courtesy to Apple's account list,
+    /// while failing to delete is a guideline violation the user feels directly.
+    /// A transient revoke failure must not strand someone with an account they
+    /// cannot delete, so this logs and lets deletion proceed.
+    private func revokeAppleTokenIfNeeded(_ reauthentication: ReauthenticationResult) async {
+        guard let authorizationCode = reauthentication.appleAuthorizationCode else { return }
+
+        do {
+            try await gateway.revokeAppleToken(authorizationCode: authorizationCode)
+        } catch {
+            debugLog("Sign in with Apple token revocation failed: \(error.localizedDescription)")
+        }
+    }
+
     /// Deletes Firebase Auth account. Credentials should already be fresh
     /// from ensureFreshAuthentication(), but handles requiresRecentLogin
     /// as a fallback just in case.
     private func deleteAuthAccount() async throws {
-        guard let user = Auth.auth().currentUser else {
-            throw DeletionError.notAuthenticated
-        }
-
         do {
-            try await user.delete()
+            try await gateway.deleteAuthAccount()
+        } catch AccountDeletionGatewayError.notAuthenticated {
+            throw DeletionError.notAuthenticated
         } catch let error as NSError {
-            if error.code == AuthErrorCode.requiresRecentLogin.rawValue {
-                // This shouldn't happen since we reauthenticated upfront,
-                // but handle it gracefully rather than losing data.
-                try await ensureFreshAuthentication(
-                    user: user
-                )
-                guard let refreshedUser = Auth.auth().currentUser else {
-                    throw DeletionError.notAuthenticated
-                }
-                try await refreshedUser.delete()
-            } else {
+            guard error.code == AuthErrorCode.requiresRecentLogin.rawValue else {
+                throw DeletionError.authDeletionFailed(error.localizedDescription)
+            }
+
+            // This shouldn't happen since we reauthenticated upfront,
+            // but handle it gracefully rather than losing data. The retry
+            // yields a new authorization code, so revoke that one instead:
+            // the original was already consumed or has expired.
+            let reauthentication = try await ensureFreshAuthentication()
+            await revokeAppleTokenIfNeeded(reauthentication)
+
+            do {
+                try await gateway.deleteAuthAccount()
+            } catch AccountDeletionGatewayError.notAuthenticated {
+                throw DeletionError.notAuthenticated
+            } catch {
                 throw DeletionError.authDeletionFailed(error.localizedDescription)
             }
         }
     }
 
-    /// Sweeps all user-scoped Storage prefixes and deletes every file.
-    /// This is independent of SwiftData — it catches orphaned files too.
-    private nonisolated func deleteAllUserStorage(userId: String) async throws {
-        let userRoot = Storage.storage().reference()
-            .child("users")
-            .child(userId)
+    // MARK: - Remote Deletion
 
-        let prefixes = [
-            userRoot.child("photos"),
-            userRoot.child("videos"),
-            userRoot.child("profile_pictures"),
-            userRoot.child("workout_heart_rate"),
-        ]
-
-        for prefix in prefixes {
-            do {
-                try await deleteAllFiles(under: prefix)
-            } catch {
-                throw DeletionError.storageDeletionFailed(error.localizedDescription)
-            }
+    private func deleteAllUserStorage(userId: String) async throws {
+        do {
+            try await gateway.deleteAllUserStorage(userId: userId)
+        } catch {
+            throw DeletionError.storageDeletionFailed(error.localizedDescription)
         }
     }
 
@@ -246,129 +272,62 @@ final class AccountDeletionService {
     /// Falls back to SwiftData records because the old paths (e.g. `photos/uuid.jpg`)
     /// have no user ID — we can only identify them through the stored download URLs.
     private func deleteLegacyFlatPathMedia(modelContext: ModelContext) async throws {
-        let descriptor = FetchDescriptor<Workout>()
+        let urls: [URL]
 
         do {
-            let workouts = try modelContext.fetch(descriptor)
-            let allPhotos = workouts.flatMap(\.photos)
-
-            guard !allPhotos.isEmpty else { return }
-
-            let storage = Storage.storage()
-            for photo in allPhotos {
-                try Task.checkCancellation()
-                do {
-                    let ref = try storage.reference(for: photo.url)
-                    try await ref.delete()
-                } catch let error as NSError
-                    where error.domain == StorageErrorDomain &&
-                          error.code == StorageErrorCode.objectNotFound.rawValue {
-                    // Already deleted (possibly by the user-scoped sweep) — continue
-                    continue
-                } catch {
-                    // Best-effort: log but don't block deletion for legacy files
-                    continue
-                }
-            }
-        } catch let error as DeletionError {
-            throw error
+            let workouts = try modelContext.fetch(FetchDescriptor<Workout>())
+            urls = workouts.flatMap(\.photos).map(\.url)
         } catch {
             throw DeletionError.storageDeletionFailed(error.localizedDescription)
         }
+
+        guard !urls.isEmpty else { return }
+        await gateway.deleteLegacyMedia(at: urls)
     }
 
-    /// Recursively lists and deletes all files under a Storage reference.
-    private nonisolated func deleteAllFiles(under ref: StorageReference) async throws {
-        let result: StorageListResult
-        do {
-            result = try await ref.listAll()
-        } catch let error as NSError
-            where error.domain == StorageErrorDomain &&
-                  error.code == StorageErrorCode.objectNotFound.rawValue {
-            // Prefix doesn't exist — nothing to delete
-            return
-        }
-
-        for item in result.items {
-            do {
-                try await item.delete()
-            } catch let error as NSError
-                where error.domain == StorageErrorDomain &&
-                      error.code == StorageErrorCode.objectNotFound.rawValue {
-                continue
-            }
-        }
-
-        for prefix in result.prefixes {
-            try await deleteAllFiles(under: prefix)
-        }
-    }
-
-    /// Deletes all leaderboard stats documents for the user from Firestore
     private func deleteLeaderboardStats(userId: String) async throws {
-        do {
-            let query = db.collection("leaderboard_stats")
-                .whereField("userId", isEqualTo: userId)
-
-            let snapshot = try await query.getDocuments()
-
-            for document in snapshot.documents {
-                try await document.reference.delete()
-            }
-        } catch {
-            throw DeletionError.firestoreDeletionFailed(error.localizedDescription)
+        try await runFirestoreDeletion {
+            try await gateway.deleteLeaderboardStats(userId: userId)
         }
     }
 
-    /// Deletes user rate-limit metadata stored in Firestore
     private func deleteFeedbackRateLimitDocument(userId: String) async throws {
-        do {
-            try await db.collection("userRateLimits").document(userId).delete()
-        } catch {
-            throw DeletionError.firestoreDeletionFailed(error.localizedDescription)
+        try await runFirestoreDeletion {
+            try await gateway.deleteFeedbackRateLimitDocument(userId: userId)
         }
     }
 
-    /// Deletes all private workout backup documents stored under the user's Firestore subcollection.
     private func deleteWorkoutBackups(userId: String) async throws {
-        do {
-            let snapshot = try await db.collection("users")
-                .document(userId)
-                .collection("workouts")
-                .getDocuments()
-
-            guard !snapshot.documents.isEmpty else { return }
-
-            var batch = db.batch()
-            var operationsInBatch = 0
-
-            for document in snapshot.documents {
-                batch.deleteDocument(document.reference)
-                operationsInBatch += 1
-
-                if operationsInBatch == 500 {
-                    try await batch.commit()
-                    batch = db.batch()
-                    operationsInBatch = 0
-                }
-            }
-
-            if operationsInBatch > 0 {
-                try await batch.commit()
-            }
-        } catch {
-            throw DeletionError.firestoreDeletionFailed(error.localizedDescription)
+        try await runFirestoreDeletion {
+            try await gateway.deleteWorkoutBackups(userId: userId)
         }
     }
 
-    /// Deletes the user document from Firestore
+    private func deletePublicProfileMirrors(userId: String) async throws {
+        try await runFirestoreDeletion {
+            try await gateway.deletePublicProfileMirrors(userId: userId)
+        }
+    }
+
     private func deleteUserDocument(userId: String) async throws {
+        try await runFirestoreDeletion {
+            try await gateway.deleteUserDocument(userId: userId)
+        }
+    }
+
+    private func runFirestoreDeletion(
+        _ deletion: () async throws -> Void
+    ) async throws {
         do {
-            try await db.collection("users").document(userId).delete()
+            try await deletion()
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw DeletionError.firestoreDeletionFailed(error.localizedDescription)
         }
     }
+
+    // MARK: - Local Deletion
 
     /// Stages local data deletion without saving (allows rollback on failure)
     private func stageLocalDataDeletion(modelContext: ModelContext) throws {
@@ -425,20 +384,10 @@ final class AccountDeletionService {
     /// Deletes local pending upload files from disk
     private func clearLocalPendingUploadFiles() async throws {
         do {
-            try await LocalMediaStorage.clearAllPendingUploads()
+            try await localCleanup.clearPendingUploadFiles()
         } catch {
             throw DeletionError.localDataDeletionFailed(error.localizedDescription)
         }
-    }
-
-    /// Clears all UserDefaults for the app domain
-    private func clearUserDefaults() {
-        guard let bundleIdentifier = Bundle.main.bundleIdentifier else {
-            return
-        }
-
-        UserDefaults.standard.removePersistentDomain(forName: bundleIdentifier)
-        UserDefaults.standard.synchronize()
     }
 
 }
