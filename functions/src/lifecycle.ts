@@ -1,5 +1,6 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import {buildNextCommunicationPreferences} from "./email/preferences";
 
 type LifecycleEventType =
   | "rating_prompt_answered"
@@ -155,30 +156,6 @@ export const recordLifecycleEvent = onCall(async (request) => {
     ok: true,
   };
 });
-
-/**
- * Builds the next communication preferences document from the stored one.
- *
- * The document is shared with updatePushNotificationPreferences, so only the
- * keys in the payload change and unrelated stored keys are carried forward.
- * @param {PlainObject} existing Stored preferences document.
- * @param {PlainObject} payload Validated preference payload.
- * @param {admin.firestore.Timestamp} now Server timestamp for this write.
- * @return {PlainObject} Preferences document to write.
- */
-export function buildNextCommunicationPreferences(
-  existing: PlainObject,
-  payload: PlainObject,
-  now: admin.firestore.Timestamp
-): PlainObject {
-  return {
-    ...existing,
-    ...payload,
-    createdAt: existing.createdAt ?? now,
-    schemaVersion: 1,
-    updatedAt: now,
-  };
-}
 
 /**
  * Normalizes untrusted callable input into a server-owned event document.

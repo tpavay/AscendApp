@@ -17,6 +17,7 @@ final class EmailPreferencesViewModel {
     private(set) var errorMessage: String?
 
     private let service: EmailPreferencesProviding
+    private var isLoading = false
 
     init(service: EmailPreferencesProviding = EmailPreferencesService()) {
         self.service = service
@@ -28,15 +29,32 @@ final class EmailPreferencesViewModel {
 
     /// Reads the server value, which may have changed since the app last ran:
     /// an unsubscribe link in an email flips the same preference.
+    ///
+    /// Safe to call repeatedly. Once a value has been read, later reads are
+    /// refreshes: they never take the screen back to loading or failed, since
+    /// the value already on screen stays the best information available.
     func load() async {
-        loadState = .loading
-        errorMessage = nil
+        guard !isLoading, !isUpdating else { return }
+        isLoading = true
+        defer { isLoading = false }
+
+        let hasKnownGoodValue = loadState == .ready
+        if !hasKnownGoodValue {
+            loadState = .loading
+            errorMessage = nil
+        }
 
         do {
-            isLifecycleEmailsEnabled = try await service
-                .loadLifecycleEmailsEnabled()
+            let serverValue = try await service.loadLifecycleEmailsEnabled()
+            // A write that started mid-read owns the value; this read is stale.
+            guard !isUpdating else { return }
+
+            isLifecycleEmailsEnabled = serverValue
             loadState = .ready
+            errorMessage = nil
         } catch {
+            guard !hasKnownGoodValue else { return }
+
             loadState = .failed
             errorMessage = "Couldn't load your email settings."
         }

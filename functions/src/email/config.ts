@@ -98,6 +98,17 @@ export function getTransactionalEmailConfig(): TransactionalEmailConfig {
 }
 
 /**
+ * Throws unless the transactional email secret is present and valid.
+ *
+ * Callers that render before sending use this to surface a deploy-config
+ * problem as its own failure, rather than letting it reach a render path that
+ * would misread it as an unrenderable payload.
+ */
+export function assertTransactionalEmailConfig(): void {
+  getTransactionalEmailConfig();
+}
+
+/**
  * Returns the HMAC signing key used for one-click unsubscribe tokens.
  * @return {string} Unsubscribe signing key
  */
@@ -107,9 +118,11 @@ export function getUnsubscribeSigningKey(): string {
 
 /**
  * Returns the public marketing website used in customer-facing email copy.
- * Falls back to the primary marketing site only in test-only render paths
- * where the secret is unavailable; a configured secret must carry a valid
- * websiteUrl or getTransactionalEmailConfig throws before any send.
+ *
+ * The fallback covers only render paths that never set the secret, such as
+ * template tests. A secret that is present but invalid throws instead: it is
+ * the host the unsubscribe link points at, so guessing it wrong would emit
+ * links that verify against another environment's key and never work.
  * @return {string} Normalized website URL
  */
 export function getMarketingWebsiteUrl(): string {
@@ -117,11 +130,7 @@ export function getMarketingWebsiteUrl(): string {
     return DEFAULT_MARKETING_WEBSITE_URL;
   }
 
-  try {
-    return getTransactionalEmailConfig().websiteUrl;
-  } catch {
-    return DEFAULT_MARKETING_WEBSITE_URL;
-  }
+  return getTransactionalEmailConfig().websiteUrl;
 }
 
 /**

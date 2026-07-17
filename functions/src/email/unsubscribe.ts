@@ -5,9 +5,9 @@ import * as admin from "firebase-admin";
 // endpoint untestable locally.
 import {Timestamp} from "firebase-admin/firestore";
 import {onRequest} from "firebase-functions/v2/https";
-import {buildNextCommunicationPreferences} from "../lifecycle";
 import {getUnsubscribeSigningKey, transactionalEmailConfig} from "./config";
 import {escapeHtml} from "./html";
+import {buildNextCommunicationPreferences} from "./preferences";
 import {verifyUnsubscribeToken} from "./unsubscribeToken";
 
 const BRAND_ACCENT_COLOR = "#86D30A";

@@ -1,6 +1,7 @@
 import * as admin from "firebase-admin";
 import {onSchedule} from "firebase-functions/v2/scheduler";
 import {
+  assertTransactionalEmailConfig,
   getMarketingWebsiteUrl,
   getUnsubscribeSigningKey,
   transactionalEmailConfig,
@@ -263,10 +264,13 @@ async function processClaimedJob(
     return "skipped";
   }
 
+  // Every job, uid or not, resolves the config here rather than lazily inside
+  // the render below: a deploy-config problem is not a bad payload, and the
+  // render path dead-letters what it cannot render. Throwing leaves the job
+  // claimed for reclaim and a later retry.
+  assertTransactionalEmailConfig();
+
   const nextAttemptCount = job.attemptCount + 1;
-  // A signing-key failure is a deploy-config problem, not a bad payload, so
-  // let it throw: the job stays claimed and is reclaimed for a later retry
-  // instead of being dead-lettered as unrenderable.
   const unsubscribeUrl = unsubscribeUrlForJob(job);
   let renderedEmail;
 
@@ -380,6 +384,7 @@ export const processEmailJobs = onSchedule(
     let retriedCount = 0;
     let failedCount = 0;
     let skippedCount = 0;
+    let erroredCount = 0;
 
     for (const document of dueJobsSnapshot.docs) {
       const claimedJob = await claimEmailJob(document.ref, startedAtTimestamp);
@@ -387,11 +392,26 @@ export const processEmailJobs = onSchedule(
         continue;
       }
 
-      const outcome = await processClaimedJob(
-        document.ref,
-        claimedJob,
-        startedAtTimestamp
-      );
+      let outcome: JobOutcome;
+      try {
+        outcome = await processClaimedJob(
+          document.ref,
+          claimedJob,
+          startedAtTimestamp
+        );
+      } catch (error) {
+        // One job's config or Firestore failure must not end the run and stall
+        // the rest of the batch. The job stays claimed and unsent, so the
+        // stale-processing reclaim requeues it rather than dead-lettering it.
+        erroredCount += 1;
+        console.error("processEmailJobs job error", {
+          errorCode: "job_processing_error",
+          errorMessage: serializeErrorMessage(error),
+          jobId: document.ref.id,
+        });
+        continue;
+      }
+
       if (outcome === "sent") {
         sentCount += 1;
       } else if (outcome === "retried") {
@@ -404,6 +424,7 @@ export const processEmailJobs = onSchedule(
     }
 
     console.log("processEmailJobs summary", {
+      erroredCount,
       failedCount,
       queuedCount: dueJobsSnapshot.size,
       reclaimedCount,

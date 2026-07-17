@@ -7,9 +7,13 @@ import {
   verifyUnsubscribeToken,
 } from "../src/email/unsubscribeToken";
 import {buildUnsubscribeHeaders} from "../src/email/provider";
-import {renderUnsubscribePage} from "../src/email/unsubscribe";
-import {buildNextCommunicationPreferences} from "../src/lifecycle";
 import {
+  DEFAULT_MARKETING_WEBSITE_URL,
+  getMarketingWebsiteUrl,
+} from "../src/email/config";
+import {renderUnsubscribePage} from "../src/email/unsubscribe";
+import {
+  buildNextCommunicationPreferences,
   isEmailJobSuppressed,
   isLifecycleEmailAllowed,
 } from "../src/email/preferences";
@@ -237,6 +241,50 @@ test("resubscribing re-opens lifecycle email sends", () => {
 });
 
 // =============================================================================
+// Website Host Config
+// =============================================================================
+
+const VALID_CONFIG = {
+  provider: "resend",
+  apiKey: "re_test",
+  fromEmail: "hello@updates.ascendstepper.com",
+  fromName: "Ascend",
+  unsubscribeSigningKey: SIGNING_KEY,
+  websiteUrl: "https://staging.ascendstepper.com",
+};
+
+test("the configured host drives customer-facing email links", () => {
+  withTransactionalEmailConfig(VALID_CONFIG, () => {
+    assert.equal(
+      getMarketingWebsiteUrl(),
+      "https://staging.ascendstepper.com"
+    );
+  });
+});
+
+test("a secret missing websiteUrl fails loudly", () => {
+  // Guessing the production host would point a staging link, signed with the
+  // staging key, at the production endpoint that cannot verify it.
+  withTransactionalEmailConfig(
+    {...VALID_CONFIG, websiteUrl: undefined},
+    () => assert.throws(() => getMarketingWebsiteUrl(), /websiteUrl/)
+  );
+});
+
+test("a non-https websiteUrl fails loudly", () => {
+  withTransactionalEmailConfig(
+    {...VALID_CONFIG, websiteUrl: "http://ascendstepper.com"},
+    () => assert.throws(() => getMarketingWebsiteUrl(), /websiteUrl/)
+  );
+});
+
+test("render paths with no secret fall back to the marketing host", () => {
+  withTransactionalEmailConfig(undefined, () => {
+    assert.equal(getMarketingWebsiteUrl(), DEFAULT_MARKETING_WEBSITE_URL);
+  });
+});
+
+// =============================================================================
 // Send-Time Preference Gate
 // =============================================================================
 
@@ -366,4 +414,31 @@ test("communication preferences only change the supplied keys", () => {
  */
 function stubTimestamp(millis: number): Timestamp {
   return Timestamp.fromMillis(millis);
+}
+
+/**
+ * Runs a body with a specific transactional email secret in place.
+ * @param {unknown} config - Secret payload, or undefined to leave it unset
+ * @param {Function} body - Test body
+ */
+function withTransactionalEmailConfig(
+  config: unknown,
+  body: () => void
+): void {
+  const original = process.env.TRANSACTIONAL_EMAIL_CONFIG;
+  if (config === undefined) {
+    delete process.env.TRANSACTIONAL_EMAIL_CONFIG;
+  } else {
+    process.env.TRANSACTIONAL_EMAIL_CONFIG = JSON.stringify(config);
+  }
+
+  try {
+    body();
+  } finally {
+    if (original === undefined) {
+      delete process.env.TRANSACTIONAL_EMAIL_CONFIG;
+    } else {
+      process.env.TRANSACTIONAL_EMAIL_CONFIG = original;
+    }
+  }
 }

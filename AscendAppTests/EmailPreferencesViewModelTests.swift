@@ -42,6 +42,51 @@ struct EmailPreferencesViewModelTests {
     }
 
     @Test
+    func aFailedRefreshKeepsTheLastKnownGoodValue() async {
+        // Returning to an open screen with no network must not take a working
+        // toggle away: the value already read is still the best one we have.
+        let service = StubEmailPreferencesService(storedValue: false)
+        let viewModel = EmailPreferencesViewModel(service: service)
+        await viewModel.load()
+
+        await service.setLoadError(StubError.offline)
+        await viewModel.load()
+
+        #expect(viewModel.isLifecycleEmailsEnabled == false)
+        #expect(viewModel.loadState == .ready)
+        #expect(viewModel.errorMessage == nil)
+        #expect(viewModel.isToggleDisabled == false)
+    }
+
+    @Test
+    func aSucceedingRefreshPicksUpAServerSideChange() async {
+        let service = StubEmailPreferencesService(storedValue: true)
+        let viewModel = EmailPreferencesViewModel(service: service)
+        await viewModel.load()
+        #expect(viewModel.isLifecycleEmailsEnabled == true)
+
+        await service.setStoredValue(false)
+        await viewModel.load()
+
+        #expect(viewModel.isLifecycleEmailsEnabled == false)
+        #expect(viewModel.loadState == .ready)
+    }
+
+    @Test
+    func concurrentLoadsReadTheServerOnce() async {
+        let service = StubEmailPreferencesService(storedValue: false)
+        let viewModel = EmailPreferencesViewModel(service: service)
+
+        async let first: Void = viewModel.load()
+        async let second: Void = viewModel.load()
+        _ = await (first, second)
+
+        #expect(await service.loadCount == 1)
+        #expect(viewModel.loadState == .ready)
+        #expect(viewModel.isLifecycleEmailsEnabled == false)
+    }
+
+    @Test
     func togglingOffWritesThePreference() async {
         let service = StubEmailPreferencesService(storedValue: true)
         let viewModel = EmailPreferencesViewModel(service: service)
@@ -125,9 +170,14 @@ private actor StubEmailPreferencesService: EmailPreferencesProviding {
     private var loadError: Error?
     private var saveError: Error?
     private(set) var savedValues: [Bool] = []
+    private(set) var loadCount = 0
 
     init(storedValue: Bool) {
         self.storedValue = storedValue
+    }
+
+    func setStoredValue(_ value: Bool) {
+        storedValue = value
     }
 
     func setLoadError(_ error: Error?) {
@@ -139,6 +189,8 @@ private actor StubEmailPreferencesService: EmailPreferencesProviding {
     }
 
     func loadLifecycleEmailsEnabled() async throws -> Bool {
+        loadCount += 1
+
         if let loadError {
             throw loadError
         }

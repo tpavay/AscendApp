@@ -1,10 +1,35 @@
 import * as admin from "firebase-admin";
 import type {EmailJobDocument} from "./types";
 
-export type StoredCommunicationPreferences = Record<string, unknown> | null;
+export type CommunicationPreferences = Record<string, unknown>;
+export type StoredCommunicationPreferences = CommunicationPreferences | null;
 export type CommunicationPreferencesReader = (
   uid: string
 ) => Promise<StoredCommunicationPreferences>;
+
+/**
+ * Builds the next communication preferences document from the stored one.
+ *
+ * The document is shared by every writer of communication_preferences, so only
+ * the keys in the payload change and unrelated stored keys are carried forward.
+ * @param {CommunicationPreferences} existing Stored preferences document.
+ * @param {CommunicationPreferences} payload Validated preference payload.
+ * @param {admin.firestore.Timestamp} now Server timestamp for this write.
+ * @return {CommunicationPreferences} Preferences document to write.
+ */
+export function buildNextCommunicationPreferences(
+  existing: CommunicationPreferences,
+  payload: CommunicationPreferences,
+  now: admin.firestore.Timestamp
+): CommunicationPreferences {
+  return {
+    ...existing,
+    ...payload,
+    createdAt: existing.createdAt ?? now,
+    schemaVersion: 1,
+    updatedAt: now,
+  };
+}
 
 /**
  * Determines whether lifecycle emails are currently allowed.
