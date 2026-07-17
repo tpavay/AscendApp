@@ -1,8 +1,9 @@
 name: Deploy Staging
 
+# Staging deploys are manual until staging gets a trigger that cannot collide
+# with production. deploy-production.yml already runs on pushes to main, so
+# pointing staging at main would deploy both on one event. See issue #201.
 on:
-  push:
-    branches: [develop]
   workflow_dispatch:
 
 concurrency:
