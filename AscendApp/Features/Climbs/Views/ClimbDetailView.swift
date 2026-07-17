@@ -1036,10 +1036,22 @@ struct ClimbDetailView: View {
                 Spacer(minLength: 0)
 
                 VStack(alignment: .trailing, spacing: 4) {
-                    Text("#\(personalCurrentCompletionRank.rank.formatted())")
-                        .font(.montserratBold(size: 20))
-                        .foregroundStyle(.accent)
-                        .monospacedDigit()
+                    Text(
+                        CompetitionRanking.rankLabel(
+                            personalCurrentCompletionRank.rank,
+                            isTied: personalCurrentCompletionRank.isTied,
+                            untiedPrefix: "#"
+                        )
+                    )
+                    .font(.montserratBold(size: 20))
+                    .foregroundStyle(.accent)
+                    .monospacedDigit()
+                    .accessibilityLabel(
+                        CompetitionRanking.rankAccessibilityLabel(
+                            personalCurrentCompletionRank.rank,
+                            isTied: personalCurrentCompletionRank.isTied
+                        )
+                    )
 
                     Text("of \(personalCurrentCompletionRank.completedCount.formatted())")
                         .font(.montserratSemiBold(size: 12))
@@ -1062,7 +1074,7 @@ struct ClimbDetailView: View {
         let rowAccent = leaderboardAccentColor(for: rank)
 
         return HStack(alignment: .center, spacing: isFirst ? 14 : 12) {
-            leaderboardRankView(for: rank)
+            leaderboardRankView(for: row)
 
             leaderboardAvatar(
                 for: row,
@@ -1141,19 +1153,34 @@ struct ClimbDetailView: View {
     }
 
     @ViewBuilder
-    private func leaderboardRankView(for rank: Int?) -> some View {
+    private func leaderboardRankView(for row: LiveReplayLeaderboardRow) -> some View {
+        let rank = row.rank
+
         if rank == 1 {
+            // A shared crown reads as a tie on its own; the label says so out loud.
             Image(systemName: "crown.fill")
                 .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(leaderboardGold)
                 .frame(width: 34, alignment: .leading)
-                .accessibilityLabel("Rank 1")
-        } else {
-            Text("#\(rank?.formatted() ?? "--")")
+                .accessibilityLabel(
+                    CompetitionRanking.rankAccessibilityLabel(1, isTied: row.isTied)
+                )
+        } else if let rank {
+            Text(CompetitionRanking.rankLabel(rank, isTied: row.isTied, untiedPrefix: "#"))
                 .font(.montserratBold(size: 15))
                 .foregroundStyle(leaderboardAccentColor(for: rank))
                 .frame(width: 34, alignment: .leading)
                 .monospacedDigit()
+                .accessibilityLabel(
+                    CompetitionRanking.rankAccessibilityLabel(rank, isTied: row.isTied)
+                )
+        } else {
+            Text("--")
+                .font(.montserratBold(size: 15))
+                .foregroundStyle(leaderboardAccentColor(for: rank))
+                .frame(width: 34, alignment: .leading)
+                .monospacedDigit()
+                .accessibilityLabel("Rank unavailable")
         }
     }
 

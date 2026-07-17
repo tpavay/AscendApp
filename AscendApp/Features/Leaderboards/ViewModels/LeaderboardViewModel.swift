@@ -335,28 +335,14 @@ final class LeaderboardViewModel {
         guard let userId else { return }
 
         if let index = leaderboardEntries.firstIndex(where: { $0.userId == userId }) {
-            let existing = leaderboardEntries[index]
-            leaderboardEntries[index] = LeaderboardEntry(
-                userId: existing.userId,
+            leaderboardEntries[index] = leaderboardEntries[index].withProfile(
                 displayName: displayName,
-                photoURL: photoURL,
-                rank: existing.rank,
-                value: existing.value,
-                formattedValue: existing.formattedValue,
-                isCurrentUser: true
+                photoURL: photoURL
             )
         }
 
         if let entry = userEntry, entry.userId == userId {
-            userEntry = LeaderboardEntry(
-                userId: entry.userId,
-                displayName: displayName,
-                photoURL: photoURL,
-                rank: entry.rank,
-                value: entry.value,
-                formattedValue: entry.formattedValue,
-                isCurrentUser: true
-            )
+            userEntry = entry.withProfile(displayName: displayName, photoURL: photoURL)
         }
 
         let sessionCache = sessionCache
@@ -381,16 +367,20 @@ final class LeaderboardViewModel {
 
     private func reapplyCurrentStats(userId: String) {
         let filteredStats = filtered(rawLeaderboardStats)
+        let metric = selectedMetric
+        let ranks = CompetitionRanking.ranks(for: filteredStats) { $0.value(for: metric) }
+        let tieFlags = CompetitionRanking.tieFlags(for: ranks)
         let entries = filteredStats.enumerated().map { index, stat in
-            let value = stat.value(for: selectedMetric)
+            let value = stat.value(for: metric)
             return LeaderboardEntry(
                 userId: stat.userId,
                 displayName: stat.displayName,
                 photoURL: stat.photoURL.flatMap(URL.init(string:)),
-                rank: index + 1,
+                rank: ranks[index],
                 value: value,
-                formattedValue: formatValue(value, for: selectedMetric),
-                isCurrentUser: stat.userId == userId
+                formattedValue: formatValue(value, for: metric),
+                isCurrentUser: stat.userId == userId,
+                isTied: tieFlags[index]
             )
         }
 

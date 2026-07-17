@@ -465,8 +465,8 @@ struct LeaderboardView: View {
     }
 
     private func presentationState(for entries: [LeaderboardEntry]) -> LeaderboardPresentationState {
-        let podiumEntries = entries.filter { $0.rank <= 3 }
-        let listEntries = entries.filter { $0.rank > 3 }
+        let podiumEntries = LeaderboardPodiumLayout.podiumEntries(from: entries)
+        let listEntries = LeaderboardPodiumLayout.listEntries(from: entries)
 
         guard let userEntry = viewModel.userEntry else {
             return LeaderboardPresentationState(
@@ -476,7 +476,7 @@ struct LeaderboardView: View {
             )
         }
 
-        if shouldPinUserRow(userEntry) {
+        if shouldPinUserRow(userEntry, podiumEntries: podiumEntries) {
             let dedupedRows = listEntries.filter { $0.userId != userEntry.userId }
             return LeaderboardPresentationState(
                 podiumEntries: podiumEntries,
@@ -492,8 +492,11 @@ struct LeaderboardView: View {
         )
     }
 
-    private func shouldPinUserRow(_ entry: LeaderboardEntry) -> Bool {
-        entry.rank > 3
+    private func shouldPinUserRow(
+        _ entry: LeaderboardEntry,
+        podiumEntries: [LeaderboardEntry]
+    ) -> Bool {
+        !podiumEntries.contains { $0.userId == entry.userId }
     }
 
     private func crownGapText(for userEntry: LeaderboardEntry, podiumEntries: [LeaderboardEntry]) -> String? {

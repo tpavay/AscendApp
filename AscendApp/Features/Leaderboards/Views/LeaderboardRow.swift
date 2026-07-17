@@ -19,10 +19,11 @@ struct LeaderboardRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Text("\(entry.rank)")
+            Text(CompetitionRanking.rankLabel(entry.rank, isTied: entry.isTied))
                 .font(.montserratMedium(size: 14))
                 .foregroundStyle(primaryTextColor.opacity(0.82))
                 .frame(width: 34, alignment: .leading)
+                .monospacedDigit()
 
             Text(entry.displayName.uppercased())
                 .font(.montserratMedium(size: 13))
@@ -41,7 +42,10 @@ struct LeaderboardRow: View {
         .frame(height: 36)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Rank \(entry.rank), \(entry.displayName), \(entry.formattedValue) \(metric.displayName)")
+        .accessibilityLabel(
+            "\(CompetitionRanking.rankAccessibilityLabel(entry.rank, isTied: entry.isTied)), "
+                + "\(entry.displayName), \(entry.formattedValue) \(metric.displayName)"
+        )
     }
 }
 

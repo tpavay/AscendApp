@@ -180,20 +180,11 @@ final class ProfileStandingService: Sendable {
     private func competitionRankedRows(
         _ stats: [FirestoreLeaderboardStats]
     ) -> [(stat: FirestoreLeaderboardStats, rank: Int, value: Double)] {
-        var rows: [(FirestoreLeaderboardStats, Int, Double)] = []
-        var lastValue: Double?
-        var currentRank = 0
+        let ranks = CompetitionRanking.ranks(for: stats) { $0.value(for: .climb) }
 
-        for (index, stat) in stats.enumerated() {
-            let value = stat.value(for: .climb)
-            if lastValue != value {
-                currentRank = index + 1
-                lastValue = value
-            }
-            rows.append((stat, currentRank, value))
+        return zip(stats, ranks).map { stat, rank in
+            (stat: stat, rank: rank, value: stat.value(for: .climb))
         }
-
-        return rows
     }
 
     private func thresholdValue(

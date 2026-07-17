@@ -26,12 +26,13 @@ struct LeaderboardUserRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Text("\(entry.rank)")
+            Text(CompetitionRanking.rankLabel(entry.rank, isTied: entry.isTied))
                 .font(.montserratBold(size: 30))
                 .foregroundStyle(.accent)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(width: 52, alignment: .leading)
+                .monospacedDigit()
 
             profileImage
                 .frame(width: 42, height: 42)
@@ -99,7 +100,10 @@ struct LeaderboardUserRowView: View {
     }
 
     private var accessibilityLabel: String {
-        let base = "Your rank \(entry.rank), \(entry.displayName), \(entry.formattedValue) \(metric.displayName)"
+        let rankText = entry.isTied
+            ? "You are tied for rank \(entry.rank)"
+            : "Your rank \(entry.rank)"
+        let base = "\(rankText), \(entry.displayName), \(entry.formattedValue) \(metric.displayName)"
         guard let crownGapText else {
             return base
         }
