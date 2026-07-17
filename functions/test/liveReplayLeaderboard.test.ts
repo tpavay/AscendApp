@@ -29,6 +29,43 @@ test("rejects user-stopped live climb attempts", () => {
   assert.equal(payload, null);
 });
 
+test("rejects skipped attempts", () => {
+  const payload = liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload(
+    makeWorkoutDocument({
+      sourceMetadata: makeSourceMetadata({stopReason: "skipped"}),
+    }),
+    {requireEligibleParticipation: true}
+  );
+
+  assert.equal(payload, null);
+});
+
+test("rejects skipped routine sessions from every replay context", () => {
+  const document = makeWorkoutDocument({
+    participations: [makeParticipation({contextType: "routine_template"})],
+    sourceMetadata: makeSourceMetadata({
+      climbId: undefined,
+      routineTemplateId: "pyramid_climb",
+      stopReason: "skipped",
+      trackingMode: "routine",
+    }),
+    steps: 0,
+  });
+
+  assert.equal(
+    liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload(document, {
+      requireEligibleParticipation: true,
+    }),
+    null
+  );
+  assert.equal(
+    liveReplayLeaderboardTestHooks.parseJustClimbReplayPayload(document, {
+      requireEligibleParticipation: true,
+    }),
+    null
+  );
+});
+
 test("rejects resumed partial target hits", () => {
   const payload = liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload(
     makeWorkoutDocument({

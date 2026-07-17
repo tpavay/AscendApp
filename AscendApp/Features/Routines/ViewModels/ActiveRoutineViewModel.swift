@@ -33,6 +33,7 @@ final class ActiveRoutineViewModel {
     private(set) var leaderboardFetchFailed = false
     private(set) var recordedResult: HeadphoneMotionSessionResult?
     private(set) var savedWorkout: Workout?
+    private(set) var skippedIntervalCount = 0
     private(set) var stepSyncPrompt: RoutineStepSyncPrompt?
     private(set) var stepSyncConfirmation: RoutineStepSyncConfirmation?
 
@@ -181,6 +182,21 @@ final class ActiveRoutineViewModel {
         remainingInInterval <= 3 && remainingInInterval > 0
     }
 
+    var didSkipInterval: Bool {
+        skippedIntervalCount > 0
+    }
+
+    /// Reaching the end of the interval list only earns competitive credit when the climber
+    /// actually stepped through every interval. Skipping burns the clock without steps, so a
+    /// session containing any skip finishes as `.skipped` and stays out of the replay index.
+    var completionStopReason: HeadphoneMotionSessionStopReason {
+        didSkipInterval ? .skipped : .targetReached
+    }
+
+    var countsAsCompletion: Bool {
+        !didSkipInterval
+    }
+
     func startSession(modelContext: ModelContext) {
         AppDiagnosticsRecorder.shared.record(
             "routine_headphone_session_start_requested",
@@ -199,6 +215,7 @@ final class ActiveRoutineViewModel {
             sessionStartedAt = activeDraft.startedAt
             recordedResult = nil
             savedWorkout = nil
+            skippedIntervalCount = activeDraft.routineSkippedIntervalCount ?? 0
             if let splitCurve = activeDraft.splitCurve {
                 stepTimelineRecorder.restore(curve: splitCurve)
             }
@@ -210,6 +227,7 @@ final class ActiveRoutineViewModel {
             sessionStartedAt = nil
             recordedResult = nil
             savedWorkout = nil
+            skippedIntervalCount = 0
             stepTimelineRecorder.reset()
             stepTimelineRecorder.record(
                 elapsedSeconds: 0,
@@ -278,6 +296,7 @@ final class ActiveRoutineViewModel {
         elapsedInInterval = 0
         lastWarningSecond = nil
         currentIntervalIndex += 1
+        skippedIntervalCount += 1
         lastTickDate = Date()
 
         if currentIntervalIndex >= intervals.count {
@@ -458,7 +477,8 @@ final class ActiveRoutineViewModel {
             attribution: RoutineWorkoutAttribution(
                 routineId: routine.id,
                 routineSource: routine.source,
-                templateId: routine.templateId
+                templateId: routine.templateId,
+                didCompleteAsPlanned: countsAsCompletion
             ),
             userId: workout.ownerUserId,
             modelContext: modelContext
@@ -614,7 +634,7 @@ final class ActiveRoutineViewModel {
         lastTickDate = nil
         lastWarningSecond = nil
         Task { @MainActor in
-            await finishRecording(reason: .targetReached, showCompletion: true)
+            await finishRecording(reason: completionStopReason, showCompletion: true)
         }
     }
 
@@ -807,6 +827,7 @@ final class ActiveRoutineViewModel {
             trackingIntegrity: result?.trackingIntegrity ?? motionSession.trackingIntegrity,
             stepCorrections: result?.stepCorrections ?? motionSession.stepCorrectionsSnapshot,
             status: status,
+            skippedIntervalCount: skippedIntervalCount,
             checkpointedAt: now
         )
 
@@ -890,7 +911,8 @@ final class ActiveRoutineViewModel {
                 context: analyticsContext,
                 durationSeconds: analyticsDurationSeconds,
                 steps: currentSteps,
-                progressFraction: progress
+                progressFraction: progress,
+                stopReason: completionStopReason.rawValue
             )
         )
     }

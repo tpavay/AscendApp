@@ -57,8 +57,8 @@ struct ActiveRoutineView: View {
             if isShowing {
                 Task {
                     await saveRoutineForSummary(
-                        reason: .targetReached,
-                        recordCompletion: true
+                        reason: viewModel.completionStopReason,
+                        recordCompletion: viewModel.countsAsCompletion
                     )
                 }
             }

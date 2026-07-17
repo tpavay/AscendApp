@@ -3,6 +3,10 @@ import Foundation
 enum HeadphoneMotionSessionStopReason: String, Codable, Sendable {
     case userStopped = "user_stopped"
     case targetReached = "target_reached"
+    /// The session ran to the end of its plan, but the climber skipped ahead of at least one
+    /// segment instead of stepping through it. Only `targetReached` earns competitive credit,
+    /// so a skipped session logs its real steps without publishing or counting as a completion.
+    case skipped = "skipped"
     case discarded = "discarded"
     case interrupted = "interrupted"
 }

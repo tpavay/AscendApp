@@ -59,6 +59,32 @@ struct WorkoutParticipationServiceTests {
     }
 
     @Test
+    func skippedTemplateRoutineParticipationIsNotLeaderboardEligible() throws {
+        let modelContext = try makeModelContext()
+        let workout = makeWorkout(source: .headphoneMotion)
+        modelContext.insert(workout)
+
+        try WorkoutParticipationService.addRoutineParticipationIfNeeded(
+            for: workout,
+            attribution: RoutineWorkoutAttribution(
+                routineId: UUID(uuidString: "33333333-3333-3333-3333-333333333333")!,
+                routineSource: .builtin,
+                templateId: "pyramid_climb",
+                didCompleteAsPlanned: false
+            ),
+            userId: "user-123",
+            modelContext: modelContext
+        )
+
+        try modelContext.save()
+
+        let participation = try #require(workout.participations.first)
+        #expect(participation.contextType == .routineTemplate)
+        #expect(participation.contextId == "pyramid_climb")
+        #expect(participation.leaderboardEligible == false)
+    }
+
+    @Test
     func remoteSyncSnapshotIncludesParticipationContext() throws {
         let modelContext = try makeModelContext()
         let workout = makeWorkout(source: .headphoneMotion)

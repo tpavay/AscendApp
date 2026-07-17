@@ -5,6 +5,22 @@ struct RoutineWorkoutAttribution: Equatable {
     let routineId: UUID
     let routineSource: RoutineSource
     let templateId: String?
+    /// False when the climber skipped ahead of intervals instead of stepping through them.
+    /// A skipped session still logs its real steps, but it is not a completion, so it must not
+    /// carry leaderboard eligibility into any future routine publisher.
+    let didCompleteAsPlanned: Bool
+
+    init(
+        routineId: UUID,
+        routineSource: RoutineSource,
+        templateId: String?,
+        didCompleteAsPlanned: Bool = true
+    ) {
+        self.routineId = routineId
+        self.routineSource = routineSource
+        self.templateId = templateId
+        self.didCompleteAsPlanned = didCompleteAsPlanned
+    }
 
     var contextType: WorkoutParticipationContextType {
         routineSource.isTemplate && templateId?.isEmpty == false
@@ -21,7 +37,7 @@ struct RoutineWorkoutAttribution: Equatable {
     }
 
     var isLeaderboardEligible: Bool {
-        contextType == .routineTemplate
+        contextType == .routineTemplate && didCompleteAsPlanned
     }
 }
 

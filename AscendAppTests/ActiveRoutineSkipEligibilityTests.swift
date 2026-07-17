@@ -1,0 +1,160 @@
+import Foundation
+import SwiftData
+import Testing
+@testable import AscendApp
+
+/// Skipping intervals burns the routine clock without taking steps. A skipped session must not
+/// finish as `.targetReached`, because that is the stop reason the replay indexer treats as a
+/// publishable completion.
+@MainActor
+struct ActiveRoutineSkipEligibilityTests {
+    @Test
+    func untouchedSessionCompletesAsTargetReached() {
+        let viewModel = makeViewModel()
+
+        #expect(viewModel.skippedIntervalCount == 0)
+        #expect(viewModel.didSkipInterval == false)
+        #expect(viewModel.completionStopReason == .targetReached)
+        #expect(viewModel.countsAsCompletion)
+    }
+
+    @Test
+    func skippingEveryIntervalDoesNotEmitTargetReached() {
+        let viewModel = makeViewModel()
+
+        for _ in 0..<3 {
+            viewModel.skipInterval()
+        }
+
+        #expect(viewModel.completionStopReason != .targetReached)
+        #expect(viewModel.completionStopReason == .skipped)
+        #expect(viewModel.countsAsCompletion == false)
+        #expect(viewModel.skippedIntervalCount == 3)
+    }
+
+    @Test
+    func skippingASingleIntervalTaintsTheWholeSession() {
+        let viewModel = makeViewModel()
+
+        viewModel.skipInterval()
+
+        #expect(viewModel.didSkipInterval)
+        #expect(viewModel.completionStopReason == .skipped)
+        #expect(viewModel.countsAsCompletion == false)
+    }
+
+    @Test
+    func skippingAdvancesToTheNextIntervalAndTimeline() {
+        let viewModel = makeViewModel()
+
+        viewModel.skipInterval()
+
+        #expect(viewModel.currentIntervalIndex == 1)
+        #expect(viewModel.currentInterval?.intensityValue == 12)
+        #expect(viewModel.elapsedInInterval == 0)
+        #expect(viewModel.timelineElapsed == 60)
+
+        viewModel.skipInterval()
+
+        #expect(viewModel.currentIntervalIndex == 2)
+        #expect(viewModel.currentInterval?.intensityValue == 16)
+        #expect(viewModel.timelineElapsed == 150)
+    }
+
+    @Test
+    func skippingPastTheFinalIntervalStopsAdvancing() {
+        let viewModel = makeViewModel()
+
+        for _ in 0..<5 {
+            viewModel.skipInterval()
+        }
+
+        #expect(viewModel.currentIntervalIndex == 3)
+        #expect(viewModel.currentInterval == nil)
+        #expect(viewModel.skippedIntervalCount == 3)
+        #expect(viewModel.completionStopReason == .skipped)
+    }
+
+    @Test
+    func skippedSessionMetadataCarriesSkippedStopReason() throws {
+        let metadata = HeadphoneMotionWorkoutMetadata(
+            sampleCount: 0,
+            trackingMode: .routine,
+            climbId: nil,
+            routineId: UUID().uuidString,
+            targetStepCount: 900,
+            stopReason: .skipped
+        )
+
+        let json = try #require(metadata.jsonString)
+        let decoded = try JSONDecoder().decode(
+            HeadphoneMotionWorkoutMetadata.self,
+            from: Data(json.utf8)
+        )
+
+        #expect(decoded.stopReason == .skipped)
+        #expect(decoded.stopReason != .targetReached)
+        #expect(json.contains("\"stopReason\":\"skipped\""))
+    }
+
+    @Test
+    func resumedDraftRestoresSkippedIntervalCount() throws {
+        let container = try ModelContainer(
+            for: ActiveHeadphoneWorkoutDraft.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let modelContext = ModelContext(container)
+        let routine = makeRoutine()
+
+        let draft = ActiveHeadphoneWorkoutDraft(
+            sessionID: "session-1",
+            kind: .routine,
+            title: routine.name,
+            subtitle: "",
+            workoutName: routine.name,
+            targetStepCount: 900,
+            targetDurationSeconds: routine.totalDuration,
+            routineId: routine.id,
+            routineSource: routine.source,
+            routineTemplateId: routine.templateId
+        )
+        modelContext.insert(draft)
+        draft.applyCheckpoint(
+            steps: 0,
+            durationSeconds: 60,
+            sampleCount: 0,
+            splitCurve: nil,
+            trackingIntegrity: .verified,
+            stepCorrections: [],
+            skippedIntervalCount: 2
+        )
+
+        #expect(draft.routineSkippedIntervalCount == 2)
+
+        let viewModel = ActiveRoutineViewModel(routine: routine, recoveredDraft: draft)
+        viewModel.startSession(modelContext: modelContext)
+        viewModel.stopTimer()
+
+        #expect(viewModel.skippedIntervalCount == 2)
+        #expect(viewModel.completionStopReason == .skipped)
+        #expect(viewModel.countsAsCompletion == false)
+    }
+
+    private func makeViewModel() -> ActiveRoutineViewModel {
+        ActiveRoutineViewModel(routine: makeRoutine())
+    }
+
+    private func makeRoutine() -> Routine {
+        Routine(
+            id: UUID(uuidString: "55555555-5555-5555-5555-555555555555")!,
+            name: "Pyramid Climb",
+            source: .builtin,
+            intervals: [
+                RoutineInterval(duration: 60, intensityValue: 8, order: 0),
+                RoutineInterval(duration: 90, intensityValue: 12, order: 1),
+                RoutineInterval(duration: 60, intensityValue: 16, order: 2)
+            ],
+            templateId: "pyramid_climb"
+        )
+    }
+}
