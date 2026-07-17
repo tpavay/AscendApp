@@ -72,7 +72,9 @@ console.log(
     `Repeat climbers collapsed: ${result.repeatClimbersCollapsed}`,
     `Attempts promoted to best: ${result.attemptsPromoted}`,
     `Attempts demoted: ${result.attemptsDemoted}`,
-    `Entry writes planned: ${result.entryWritesPlanned}`,
+    `Attempts with unknown bucket span: ${result.attemptsWithUnknownSpan}`,
+    `Entry writes expected to land (estimate): ${result.entryWritesExpected}`,
+    `Entry writes attempted (upper bound): ${result.entryWritesPlanned}`,
     `Entry writes applied: ${result.entryWritesApplied}`,
     `Entry writes skipped (bucket absent): ${result.entryWritesSkipped}`,
     `Entry writes failed: ${result.entryWritesFailed}`,
@@ -184,7 +186,9 @@ async function backfillBestPerUserFlags(firestore, options) {
     repeatClimbersCollapsed: 0,
     attemptsPromoted: 0,
     attemptsDemoted: 0,
+    attemptsWithUnknownSpan: 0,
     entryWritesPlanned: 0,
+    entryWritesExpected: 0,
     entryWritesApplied: 0,
     entryWritesSkipped: 0,
     entryWritesFailed: 0,
@@ -277,11 +281,16 @@ async function applyEntryUpdates(
   options,
   counters
 ) {
-  if (options.dryRun) {
-    for (const update of updates) {
-      counters.entryWritesPlanned += update.splitBucketCount;
-    }
+  for (const update of updates) {
+    counters.entryWritesPlanned += update.splitBucketCount;
+    counters.entryWritesExpected += update.estimatedEntryCount;
 
+    if (!update.hasKnownBucketSpan) {
+      counters.attemptsWithUnknownSpan += 1;
+    }
+  }
+
+  if (options.dryRun) {
     return;
   }
 
@@ -303,7 +312,6 @@ async function applyEntryUpdates(
         .doc(String(index))
         .collection(ENTRIES_COLLECTION)
         .doc(update.workoutId);
-      counters.entryWritesPlanned += 1;
 
       // update() rather than set(): a bucket this attempt never published into
       // must stay absent, not appear as a flag-only row the counts would see.
@@ -332,7 +340,9 @@ async function applyEntryUpdates(
  * helpers below are a deliberate port of it, because scripts/ and functions/
  * are separate npm packages and importing that module would register its
  * Firestore triggers. Both must pick the same winner or the backfill and the
- * trigger will flag different attempts, so keep them in lockstep.
+ * trigger will flag different attempts, so keep them in lockstep. The
+ * estimatedEntryCount / hasKnownBucketSpan fields are script-local dry-run
+ * reporting and have no bearing on which attempt wins.
  */
 
 /**
@@ -380,6 +390,8 @@ function bestForUserFlagUpdates(attempts) {
     updates.push({
       workoutId: attempt.workoutId,
       splitBucketCount: attempt.splitBucketCount,
+      estimatedEntryCount: attempt.estimatedEntryCount,
+      hasKnownBucketSpan: attempt.hasKnownBucketSpan,
       isBestForUser,
     });
   }
@@ -408,6 +420,8 @@ function userAttemptEntry(data, documentId) {
     userId,
     completionDurationSeconds,
     splitBucketCount: attemptSplitBucketCount(data),
+    estimatedEntryCount: estimatedPublishedBucketCount(data),
+    hasKnownBucketSpan: hasStoredBucketSpan(data),
     isBestForUser: data.isBestForUser === true,
   };
 }
@@ -431,6 +445,44 @@ function attemptSplitBucketCount(data) {
   }
 
   return Math.min(storedCount, MAX_REPLAY_SPLIT_CHECKPOINTS);
+}
+
+/**
+ * Whether an entry records the bucket span it actually published into.
+ * @param {Record<string, unknown>} data Bucket-zero entry data.
+ * @return {boolean} True when the span is known rather than speculative.
+ */
+function hasStoredBucketSpan(data) {
+  return positiveIntegerValue(data.splitBucketCount) !== null;
+}
+
+/**
+ * Best estimate of how many buckets an attempt really published into.
+ *
+ * Reporting only: never drive writes from this. attemptSplitBucketCount errs
+ * high on purpose so a promoted climber's final bucket always gets flagged, but
+ * a dry run that credited the whole sweep would overstate a production run
+ * several times over. A stored span is exact; a legacy entry can only be
+ * estimated from the interval math the publisher used at the time.
+ * @param {Record<string, unknown>} data Bucket-zero entry data.
+ * @return {number} Estimated number of buckets holding this attempt.
+ */
+function estimatedPublishedBucketCount(data) {
+  const storedCount = positiveIntegerValue(data.splitBucketCount);
+
+  if (storedCount !== null) {
+    return Math.min(storedCount, MAX_REPLAY_SPLIT_CHECKPOINTS);
+  }
+
+  const durationSeconds = nonNegativeNumberValue(
+    data.completionDurationSeconds
+  ) ?? 0;
+  const intervalSeconds = positiveIntegerValue(data.splitIntervalSeconds) ?? 1;
+
+  return Math.min(
+    Math.floor(durationSeconds / intervalSeconds) + 1,
+    MAX_REPLAY_SPLIT_CHECKPOINTS
+  );
 }
 
 /**
