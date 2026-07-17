@@ -71,8 +71,9 @@ Secrets/
 # iOS simulator artifacts
 *.simstate
 
-# Claude Code settings (user-specific)
-.claude/
+# Claude Code settings (user-specific). Project skills in .claude/skills/ are tracked.
+.claude/*
+!.claude/skills/
 
 # Codex/local agent tooling
 .agents/
