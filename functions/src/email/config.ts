@@ -6,6 +6,7 @@ export const transactionalEmailConfig =
 export const DEFAULT_MARKETING_WEBSITE_URL = "https://ascendstepper.com";
 export const DEFAULT_TRANSACTIONAL_REPLY_TO_EMAIL =
   "support@ascendstepper.com";
+export const MIN_UNSUBSCRIBE_SIGNING_KEY_LENGTH = 32;
 
 /**
  * Normalizes a public-facing HTTPS URL from config.
@@ -60,6 +61,18 @@ export function getTransactionalEmailConfig(): TransactionalEmailConfig {
     );
   }
 
+  // Required so a misconfigured secret fails loudly instead of quietly
+  // sending mail that carries no working unsubscribe path.
+  if (
+    !config.unsubscribeSigningKey ||
+    config.unsubscribeSigningKey.length < MIN_UNSUBSCRIBE_SIGNING_KEY_LENGTH
+  ) {
+    throw new Error(
+      "TRANSACTIONAL_EMAIL_CONFIG.unsubscribeSigningKey must be at least " +
+      `${MIN_UNSUBSCRIBE_SIGNING_KEY_LENGTH} characters`
+    );
+  }
+
   return {
     provider: config.provider,
     apiKey: config.apiKey,
@@ -68,8 +81,17 @@ export function getTransactionalEmailConfig(): TransactionalEmailConfig {
     fromEmail: config.fromEmail,
     fromName: config.fromName,
     replyTo: config.replyTo,
+    unsubscribeSigningKey: config.unsubscribeSigningKey,
     websiteUrl: config.websiteUrl,
   };
+}
+
+/**
+ * Returns the HMAC signing key used for one-click unsubscribe tokens.
+ * @return {string} Unsubscribe signing key
+ */
+export function getUnsubscribeSigningKey(): string {
+  return getTransactionalEmailConfig().unsubscribeSigningKey;
 }
 
 /**

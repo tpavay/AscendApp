@@ -11,12 +11,16 @@ import {
 import type {
   EmailJobDocument,
   EmailJobPayload,
+  EmailRenderContext,
   EmailType,
   TransactionalEmailRenderResult,
 } from "./types";
 
 export interface EmailTypeDefinition {
-  render: (payload: EmailJobPayload) => TransactionalEmailRenderResult;
+  render: (
+    payload: EmailJobPayload,
+    context: EmailRenderContext
+  ) => TransactionalEmailRenderResult;
   retryDelaysMs: number[];
   sendPolicy: "send_now";
 }
@@ -74,10 +78,12 @@ export const emailTypeConfigs: Record<EmailType, EmailTypeDefinition> = {
 /**
  * Renders email content for a queued job using the type config map.
  * @param {EmailJobDocument} job - Queued email job
+ * @param {EmailRenderContext} context - Per-recipient render context
  * @return {TransactionalEmailRenderResult} Subject and rendered bodies
  */
 export function renderEmailContentForJob(
-  job: EmailJobDocument
+  job: EmailJobDocument,
+  context: EmailRenderContext = {}
 ): TransactionalEmailRenderResult {
-  return emailTypeConfigs[job.type].render(job.payload);
+  return emailTypeConfigs[job.type].render(job.payload, context);
 }

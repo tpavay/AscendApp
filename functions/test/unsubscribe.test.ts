@@ -1,0 +1,303 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {Timestamp} from "firebase-admin/firestore";
+import {
+  buildUnsubscribeToken,
+  buildUnsubscribeUrl,
+  verifyUnsubscribeToken,
+} from "../src/email/unsubscribeToken";
+import {buildUnsubscribeHeaders} from "../src/email/provider";
+import {renderUnsubscribePage} from "../src/email/unsubscribe";
+import {buildNextCommunicationPreferences} from "../src/lifecycle";
+import {isLifecycleEmailAllowed} from "../src/email/automation";
+import {
+  renderRatingPositiveFollowupEmail,
+  renderFirstAscentClaimedEmail,
+} from "../src/email/templates";
+
+const SIGNING_KEY = "test-unsubscribe-signing-key-0123456789";
+const OTHER_SIGNING_KEY = "another-unsubscribe-signing-key-987654321";
+
+// =============================================================================
+// Unsubscribe Tokens
+// =============================================================================
+
+test("unsubscribe tokens round-trip the signed uid", () => {
+  const token = buildUnsubscribeToken("user_123", SIGNING_KEY);
+
+  assert.equal(verifyUnsubscribeToken(token, SIGNING_KEY), "user_123");
+});
+
+test("unsubscribe tokens are deterministic for the same uid and key", () => {
+  assert.equal(
+    buildUnsubscribeToken("user_123", SIGNING_KEY),
+    buildUnsubscribeToken("user_123", SIGNING_KEY)
+  );
+});
+
+test("unsubscribe tokens differ per uid", () => {
+  assert.notEqual(
+    buildUnsubscribeToken("user_123", SIGNING_KEY),
+    buildUnsubscribeToken("user_456", SIGNING_KEY)
+  );
+});
+
+test("unsubscribe tokens never expose the raw uid", () => {
+  const token = buildUnsubscribeToken("user_123", SIGNING_KEY);
+
+  assert.doesNotMatch(token, /user_123/);
+});
+
+test("unsubscribe tokens require a uid and a signing key", () => {
+  assert.throws(() => buildUnsubscribeToken("", SIGNING_KEY));
+  assert.throws(() => buildUnsubscribeToken("user_123", ""));
+});
+
+test("unsubscribe token verification rejects a forged signature", () => {
+  const token = buildUnsubscribeToken("user_123", SIGNING_KEY);
+  const [version, encodedUid] = token.split(".");
+  const forged = `${version}.${encodedUid}.not-a-real-signature`;
+
+  assert.equal(verifyUnsubscribeToken(forged, SIGNING_KEY), null);
+});
+
+test("unsubscribe token verification rejects a swapped uid", () => {
+  // The attack this blocks: re-encoding someone else's uid onto a signature
+  // that was issued for your own token.
+  const own = buildUnsubscribeToken("attacker", SIGNING_KEY);
+  const signature = own.split(".")[2];
+  const victimUid = Buffer.from("victim", "utf8").toString("base64url");
+  const tampered = `v1.${victimUid}.${signature}`;
+
+  assert.equal(verifyUnsubscribeToken(tampered, SIGNING_KEY), null);
+});
+
+test("unsubscribe token verification rejects another key's token", () => {
+  const token = buildUnsubscribeToken("user_123", OTHER_SIGNING_KEY);
+
+  assert.equal(verifyUnsubscribeToken(token, SIGNING_KEY), null);
+});
+
+test("unsubscribe token verification rejects malformed input", () => {
+  for (const candidate of [
+    undefined,
+    null,
+    42,
+    "",
+    "v1",
+    "v1.abc",
+    "v1.abc.def.ghi",
+    "v2.abc.def",
+  ]) {
+    assert.equal(
+      verifyUnsubscribeToken(candidate, SIGNING_KEY),
+      null,
+      `expected ${JSON.stringify(candidate)} to be rejected`
+    );
+  }
+});
+
+test("unsubscribe token verification rejects an empty signing key", () => {
+  const token = buildUnsubscribeToken("user_123", SIGNING_KEY);
+
+  assert.equal(verifyUnsubscribeToken(token, ""), null);
+});
+
+test("unsubscribe urls carry the token on the public api route", () => {
+  const token = buildUnsubscribeToken("user_123", SIGNING_KEY);
+  const url = new URL(
+    buildUnsubscribeUrl("https://ascendstepper.com", token)
+  );
+
+  assert.equal(url.origin, "https://ascendstepper.com");
+  assert.equal(url.pathname, "/api/unsubscribe");
+  assert.equal(url.searchParams.get("token"), token);
+});
+
+// =============================================================================
+// List-Unsubscribe Headers
+// =============================================================================
+
+test("one-click unsubscribe headers travel together", () => {
+  const headers = buildUnsubscribeHeaders(
+    "https://ascendstepper.com/api/unsubscribe?token=abc"
+  );
+
+  assert.equal(
+    headers["List-Unsubscribe"],
+    "<https://ascendstepper.com/api/unsubscribe?token=abc>"
+  );
+  assert.equal(headers["List-Unsubscribe-Post"], "List-Unsubscribe=One-Click");
+});
+
+test("unsubscribe headers are omitted without an unsubscribe url", () => {
+  for (const candidate of [null, undefined, ""]) {
+    assert.deepEqual(buildUnsubscribeHeaders(candidate), {});
+  }
+});
+
+// =============================================================================
+// Footer Rendering
+// =============================================================================
+
+test("lifecycle emails render an unsubscribe link in the footer", () => {
+  const unsubscribeUrl =
+    "https://ascendstepper.com/api/unsubscribe?token=abc123";
+  const rendered = renderRatingPositiveFollowupEmail({}, {unsubscribeUrl});
+
+  assert.match(rendered.html, /<a href="[^"]*token=abc123"[^>]*>Unsubscribe/);
+  assert.match(rendered.html, /Privacy Policy/);
+  assert.ok(rendered.text.includes(`Unsubscribe: ${unsubscribeUrl}`));
+});
+
+test("lifecycle emails omit the unsubscribe link without a url", () => {
+  const rendered = renderRatingPositiveFollowupEmail();
+
+  assert.doesNotMatch(rendered.html, /Unsubscribe/);
+  assert.doesNotMatch(rendered.text, /Unsubscribe/);
+  assert.match(rendered.html, /Privacy Policy/);
+});
+
+test("unsubscribe urls are escaped into the footer markup", () => {
+  const rendered = renderFirstAscentClaimedEmail(
+    {climbName: "Everest", climbUrl: "https://ascendstepper.com/climbs/everest"},
+    {unsubscribeUrl: "https://ascendstepper.com/api/unsubscribe?a=1&b=\"x\""}
+  );
+
+  assert.doesNotMatch(rendered.html, /token[^"]*"x"/);
+  assert.match(rendered.html, /a=1&amp;b=&quot;x&quot;/);
+});
+
+// =============================================================================
+// Unsubscribe Page
+// =============================================================================
+
+test("unsubscribe confirmation page posts the token back", () => {
+  const page = renderUnsubscribePage("Unsubscribe?", "Body copy.", "v1.a.b");
+
+  assert.match(page, /<form method="post" action="\/api\/unsubscribe\?token=/);
+  assert.match(page, /v1\.a\.b/);
+  assert.match(page, /<button type="submit"/);
+});
+
+test("unsubscribe result page has no confirmation form", () => {
+  const page = renderUnsubscribePage("You're unsubscribed.", "Body copy.");
+
+  assert.doesNotMatch(page, /<form/);
+  assert.match(page, /You&#39;re unsubscribed\./);
+});
+
+test("unsubscribe page escapes injected content", () => {
+  const page = renderUnsubscribePage(
+    "<script>alert('x')</script>",
+    "<img onerror=alert(1)>"
+  );
+
+  assert.doesNotMatch(page, /<script>/);
+  assert.doesNotMatch(page, /<img/);
+});
+
+test("unsubscribe page keeps crawlers out", () => {
+  assert.match(
+    renderUnsubscribePage("Heading", "Body."),
+    /<meta name="robots" content="noindex"/
+  );
+});
+
+// =============================================================================
+// Preference Gate
+// =============================================================================
+
+test("unsubscribing blocks further lifecycle email sends", () => {
+  const preferences = buildNextCommunicationPreferences(
+    {},
+    {lifecycleEmailsEnabled: false},
+    stubTimestamp(1000)
+  );
+
+  assert.equal(isLifecycleEmailAllowed(preferences), false);
+});
+
+test("resubscribing re-opens lifecycle email sends", () => {
+  const unsubscribed = buildNextCommunicationPreferences(
+    {},
+    {lifecycleEmailsEnabled: false},
+    stubTimestamp(1000)
+  );
+  const resubscribed = buildNextCommunicationPreferences(
+    unsubscribed,
+    {lifecycleEmailsEnabled: true},
+    stubTimestamp(2000)
+  );
+
+  assert.equal(isLifecycleEmailAllowed(resubscribed), true);
+});
+
+// =============================================================================
+// Communication Preference Merge (E6)
+// =============================================================================
+
+test("changing an email preference preserves the push preference", () => {
+  // Regression: the preferences document is shared with
+  // updatePushNotificationPreferences, so a non-merging write here would
+  // silently opt the user out of climb-drop push notifications.
+  const existing = {
+    createdAt: stubTimestamp(500),
+    pushClimbDropsEnabled: true,
+    schemaVersion: 1,
+  };
+
+  const next = buildNextCommunicationPreferences(
+    existing,
+    {lifecycleEmailsEnabled: false},
+    stubTimestamp(1000)
+  );
+
+  assert.equal(next.pushClimbDropsEnabled, true);
+  assert.equal(next.lifecycleEmailsEnabled, false);
+});
+
+test("communication preferences keep the original createdAt", () => {
+  const createdAt = stubTimestamp(500);
+  const now = stubTimestamp(1000);
+  const next = buildNextCommunicationPreferences(
+    {createdAt, pushClimbDropsEnabled: false},
+    {lifecycleEmailsEnabled: false},
+    now
+  );
+
+  assert.equal(next.createdAt, createdAt);
+  assert.equal(next.updatedAt, now);
+});
+
+test("communication preferences stamp createdAt on first write", () => {
+  const now = stubTimestamp(1000);
+  const next = buildNextCommunicationPreferences(
+    {},
+    {lifecycleEmailsEnabled: false},
+    now
+  );
+
+  assert.equal(next.createdAt, now);
+  assert.equal(next.schemaVersion, 1);
+});
+
+test("communication preferences only change the supplied keys", () => {
+  const next = buildNextCommunicationPreferences(
+    {climbDropEmailsEnabled: true, lifecycleEmailsEnabled: true},
+    {lifecycleEmailsEnabled: false},
+    stubTimestamp(1000)
+  );
+
+  assert.equal(next.climbDropEmailsEnabled, true);
+  assert.equal(next.lifecycleEmailsEnabled, false);
+});
+
+/**
+ * Builds a fixed Timestamp for pure preference merging.
+ * @param {number} millis - Millisecond value
+ * @return {Timestamp} Firestore timestamp
+ */
+function stubTimestamp(millis: number): Timestamp {
+  return Timestamp.fromMillis(millis);
+}

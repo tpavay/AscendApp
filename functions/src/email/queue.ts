@@ -33,6 +33,7 @@ export function buildEmailJobId(dedupeKey: string): string {
  * @param {EmailJobPayload} payload - Template payload
  * @param {Timestamp} scheduledFor - Scheduled send time
  * @param {string | null} sourceRef - Source Firestore reference string
+ * @param {string | null} recipientUid - Recipient uid when user-addressed
  * @return {EmailJobDocument} Firestore-ready queued job
  */
 export function createQueuedEmailJob(
@@ -42,7 +43,8 @@ export function createQueuedEmailJob(
   dedupeKey: string,
   payload: EmailJobPayload,
   scheduledFor: admin.firestore.Timestamp,
-  sourceRef: string | null
+  sourceRef: string | null,
+  recipientUid: string | null = null
 ): EmailJobDocument {
   return {
     attemptCount: 0,
@@ -57,6 +59,7 @@ export function createQueuedEmailJob(
     readyAt: scheduledFor,
     recipientEmail,
     recipientHash,
+    recipientUid,
     scheduledFor,
     sentAt: null,
     sourceRef,

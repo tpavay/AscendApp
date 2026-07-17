@@ -1,9 +1,17 @@
 import * as admin from "firebase-admin";
 import {onSchedule} from "firebase-functions/v2/scheduler";
-import {transactionalEmailConfig} from "./config";
+import {
+  getMarketingWebsiteUrl,
+  getUnsubscribeSigningKey,
+  transactionalEmailConfig,
+} from "./config";
 import {renderEmailContentForJob} from "./catalog";
 import {sendTransactionalEmail, EmailDeliveryError} from "./provider";
 import {getNextRetryDelayMs} from "./retry";
+import {
+  buildUnsubscribeToken,
+  buildUnsubscribeUrl,
+} from "./unsubscribeToken";
 import type {EmailJobDocument} from "./types";
 
 const JOB_BATCH_SIZE = 25;
@@ -29,6 +37,26 @@ function serializeErrorMessage(error: unknown): string {
   }
 
   return "unknown_error";
+}
+
+/**
+ * Builds the signed unsubscribe URL for a job's recipient.
+ *
+ * Only user-addressed mail gets a link: waitlist and admin notifications have
+ * no uid whose preference an unsubscribe could flip.
+ * @param {EmailJobDocument} job - Claimed email job
+ * @return {string | null} Signed unsubscribe URL, or null when not applicable
+ */
+function unsubscribeUrlForJob(job: EmailJobDocument): string | null {
+  if (!job.recipientUid) {
+    return null;
+  }
+
+  const token = buildUnsubscribeToken(
+    job.recipientUid,
+    getUnsubscribeSigningKey()
+  );
+  return buildUnsubscribeUrl(getMarketingWebsiteUrl(), token);
 }
 
 /**
@@ -201,10 +229,14 @@ async function processClaimedJob(
   nowTimestamp: admin.firestore.Timestamp
 ): Promise<"sent" | "retried" | "failed"> {
   const nextAttemptCount = job.attemptCount + 1;
+  // A signing-key failure is a deploy-config problem, not a bad payload, so
+  // let it throw: the job stays claimed and is reclaimed for a later retry
+  // instead of being dead-lettered as unrenderable.
+  const unsubscribeUrl = unsubscribeUrlForJob(job);
   let renderedEmail;
 
   try {
-    renderedEmail = renderEmailContentForJob(job);
+    renderedEmail = renderEmailContentForJob(job, {unsubscribeUrl});
   } catch (error) {
     await markJobFailed(
       jobRef,
@@ -228,6 +260,7 @@ async function processClaimedJob(
       subject: renderedEmail.subject,
       text: renderedEmail.text,
       to: [job.recipientEmail],
+      unsubscribeUrl,
     });
 
     await jobRef.update({

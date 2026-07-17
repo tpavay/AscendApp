@@ -178,7 +178,8 @@ async function queueRatingPromptEmail(input: {
       dedupeKey,
       {},
       now,
-      input.sourceRef
+      input.sourceRef,
+      input.uid
     );
     transaction.set(jobRef, job);
     return "queued";

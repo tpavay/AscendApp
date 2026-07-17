@@ -86,11 +86,17 @@ export const recordLifecycleEvent = onCall(async (request) => {
     .collection("communication_preferences")
     .doc("current");
 
+  const updatesPreferences = event.type === "communication_preferences_updated";
+
   await firestore.runTransaction(async (transaction) => {
-    const [stateSnapshot, eventSnapshot] = await Promise.all([
-      transaction.get(stateRef),
-      transaction.get(eventRef),
-    ]);
+    // Firestore requires every read before the first write. The preferences
+    // document is only read for the event that rewrites it.
+    const [stateSnapshot, eventSnapshot, preferencesSnapshot] =
+      await Promise.all([
+        transaction.get(stateRef),
+        transaction.get(eventRef),
+        updatesPreferences ? transaction.get(preferencesRef) : null,
+      ]);
 
     const currentState = stateSnapshot.exists ?
       stateSnapshot.data() as PlainObject :
@@ -125,20 +131,22 @@ export const recordLifecycleEvent = onCall(async (request) => {
       updatedAt: now,
     });
 
-    if (event.type == "communication_preferences_updated") {
-      const currentPreferences = currentState.communicationPreferences;
-      const preferences = mergePlainObjects(
-        isPlainObject(currentPreferences) ? currentPreferences : {},
-        {
-          ...event.payload,
-          schemaVersion: 1,
-          updatedAt: now,
-        }
+    if (updatesPreferences) {
+      const existingPreferences = preferencesSnapshot?.exists ?
+        preferencesSnapshot.data() as PlainObject :
+        {};
+      transaction.set(
+        preferencesRef,
+        buildNextCommunicationPreferences(
+          existingPreferences ?? {},
+          event.payload,
+          now
+        ),
+        // Merge so preferences owned by other writers, notably the push
+        // preference from updatePushNotificationPreferences, survive an
+        // email preference change.
+        {merge: true}
       );
-      if (!preferences.createdAt) {
-        preferences.createdAt = now;
-      }
-      transaction.set(preferencesRef, preferences);
     }
   });
 
@@ -147,6 +155,30 @@ export const recordLifecycleEvent = onCall(async (request) => {
     ok: true,
   };
 });
+
+/**
+ * Builds the next communication preferences document from the stored one.
+ *
+ * The document is shared with updatePushNotificationPreferences, so only the
+ * keys in the payload change and unrelated stored keys are carried forward.
+ * @param {PlainObject} existing Stored preferences document.
+ * @param {PlainObject} payload Validated preference payload.
+ * @param {admin.firestore.Timestamp} now Server timestamp for this write.
+ * @return {PlainObject} Preferences document to write.
+ */
+export function buildNextCommunicationPreferences(
+  existing: PlainObject,
+  payload: PlainObject,
+  now: admin.firestore.Timestamp
+): PlainObject {
+  return {
+    ...existing,
+    ...payload,
+    createdAt: existing.createdAt ?? now,
+    schemaVersion: 1,
+    updatedAt: now,
+  };
+}
 
 /**
  * Normalizes untrusted callable input into a server-owned event document.

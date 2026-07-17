@@ -729,6 +729,19 @@ Website source lives in `web/` and is built to `web/dist/` before deploy.
 - `joinWaitlist` rate limits public submissions using hashed requester IPs stored in `email_rate_limits`, calls Beehiiv, and mirrors normalized email hash + Beehiiv subscription metadata in the `waitlist` collection for dedupe/debugging.
 - Transactional emails for feedback and future non-Beehiiv product triggers must be sent server-side from Cloud Functions, never directly from the website or iOS client.
 - Cloud Functions email provider config lives in the `TRANSACTIONAL_EMAIL_CONFIG` Secret Manager JSON secret, with `functions/.secret.local` used only for local emulator overrides.
+- `TRANSACTIONAL_EMAIL_CONFIG.unsubscribeSigningKey` is **required** (min 32 chars) and signs unsubscribe tokens.
+  A missing or short key makes `getTransactionalEmailConfig()` throw, which fails every transactional send, so add the key to each environment's secret *before* deploying functions.
+  It fails loudly by design: mail must never go out without a working opt-out path.
+  Rotating the key invalidates unsubscribe links in already-delivered mail, so treat it as long-lived.
+- Every user-addressed email carries RFC 8058 one-click `List-Unsubscribe` headers plus a footer unsubscribe link, both derived from the job's `recipientUid`.
+  Waitlist mail (Beehiiv owns its own opt-out) and admin feedback notifications have no `recipientUid` and intentionally get neither.
+- The unsubscribe endpoint (`/api/unsubscribe` hosting rewrite to `unsubscribeFromEmails`) answers GET with a confirmation page and only acts on POST.
+  Keep that split: link scanners and mail-client prefetchers follow GETs, and a GET that unsubscribes would opt users out without their knowledge.
+- `users/{uid}/communication_preferences/current` has two writers: `recordLifecycleEvent` (email prefs) and `updatePushNotificationPreferences` (push prefs).
+  Any write to it must merge, or one feature silently clears the other's preference.
+- The Functions emulator proxies the `firebase-admin` namespace and strips its statics: inside it, `admin.firestore` is a function but `admin.firestore.Timestamp` and `.FieldValue` are `undefined`, so code using them throws only under the emulator and works in production.
+  Import from the modular entry point instead (`import {Timestamp} from "firebase-admin/firestore"`) for anything that needs to run under `firebase emulators:start`.
+  The Firestore emulator's REST API also enforces `firestore.rules`; seed fixtures with an `Authorization: Bearer owner` header to get the admin bypass.
 - Legacy queued transactional emails are delivered in the background by the scheduled `processEmailJobs` worker. Do not reintroduce waitlist welcome emails through `email_jobs` unless product explicitly moves off Beehiiv.
 - In-app feedback submissions (`feedback` collection) trigger `onFeedbackCreated`, which sends an admin notification email directly via Resend (not queued). The recipient is `feedbackNotificationEmail` from the secret config (falls back to `replyTo` → `fromEmail`). Reply-to is set to the submitting user's email. Notification delivery metadata is written back onto the feedback document.
 - Email copy, templates, lifecycle automations, Beehiiv campaigns, and subject lines must follow the Ascend Email Playbook. Codex has this as the `ascend-email-playbook` skill at `~/.codex/skills/ascend-email-playbook`; other agents should apply the same rule set: app-triggered emails go through Cloud Functions/Resend with deterministic dedupe, broadcasts go through Beehiiv, copy is competitive/stair-stepper-specific, and each email has one primary CTA.

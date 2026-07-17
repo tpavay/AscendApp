@@ -83,6 +83,28 @@ export function classifyResendStatus(
 }
 
 /**
+ * Builds the RFC 8058 one-click unsubscribe headers for a message.
+ *
+ * Both headers must travel together: mailbox providers only treat the list
+ * URL as one-click when List-Unsubscribe-Post is present, and without it a
+ * POST from Gmail would be indistinguishable from a link prefetch.
+ * @param {string | null | undefined} unsubscribeUrl - Signed unsubscribe URL
+ * @return {Record<string, string>} Headers to attach to the outgoing message
+ */
+export function buildUnsubscribeHeaders(
+  unsubscribeUrl: string | null | undefined
+): Record<string, string> {
+  if (!unsubscribeUrl) {
+    return {};
+  }
+
+  return {
+    "List-Unsubscribe": `<${unsubscribeUrl}>`,
+    "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+  };
+}
+
+/**
  * Safely parses a JSON HTTP response body.
  * @param {Response} response - Fetch response
  * @return {Promise<ResendEmailResponse | null>} Parsed JSON or null
@@ -117,6 +139,7 @@ export async function sendTransactionalEmail(
       },
       body: JSON.stringify({
         from: formatSender(config.fromName, config.fromEmail),
+        headers: buildUnsubscribeHeaders(message.unsubscribeUrl),
         html: message.html,
         reply_to: message.replyTo ?? config.replyTo,
         subject: message.subject,

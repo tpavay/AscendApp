@@ -170,6 +170,7 @@ test("waitlist template includes beta invite CTA when configured", () => {
     fromEmail: "hello@updates.ascendstepper.com",
     fromName: "Ascend",
     replyTo: "support@ascendstepper.com",
+    unsubscribeSigningKey: "test-unsubscribe-signing-key-0123456789",
     websiteUrl: "https://ascendstepper.com",
     betaInviteUrl: "https://testflight.apple.com/join/ZZ1zUmBf",
   });

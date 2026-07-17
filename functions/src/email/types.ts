@@ -20,6 +20,7 @@ export interface TransactionalEmailConfig {
   fromEmail: string;
   fromName: string;
   replyTo?: string;
+  unsubscribeSigningKey: string;
   websiteUrl?: string;
 }
 
@@ -30,6 +31,15 @@ export interface TransactionalEmailMessage {
   subject: string;
   text: string;
   to: string[];
+  unsubscribeUrl?: string | null;
+}
+
+/**
+ * Per-recipient context threaded into templates at render time. Values are
+ * resolved from the job, never stored on the template payload.
+ */
+export interface EmailRenderContext {
+  unsubscribeUrl?: string | null;
 }
 
 export interface TransactionalEmailDelivery {
@@ -86,6 +96,9 @@ export interface EmailJobDocument {
   readyAt: admin.firestore.Timestamp;
   recipientEmail: string;
   recipientHash: string;
+  // Present only for emails addressed to a signed-in user. Drives the
+  // per-recipient unsubscribe link; null for waitlist and admin mail.
+  recipientUid: string | null;
   scheduledFor: admin.firestore.Timestamp;
   sentAt: admin.firestore.Timestamp | null;
   sourceRef: string | null;

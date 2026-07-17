@@ -6,6 +6,7 @@ struct NotificationSettingsView: View {
     @State private var authorizationStatus: UNAuthorizationStatus = .notDetermined
     @State private var isClimbDropEnabled = ClimbDropNotificationPreferenceStore.isEnabled
     @State private var isUpdating = false
+    @State private var emailPreferences = EmailPreferencesViewModel()
 
     var body: some View {
         ScrollView {
@@ -13,6 +14,12 @@ struct NotificationSettingsView: View {
                 ProfileSection(title: "Climb Drops") {
                     ProfileCardSurface {
                         climbDropRow
+                    }
+                }
+
+                ProfileSection(title: "Emails") {
+                    ProfileCardSurface {
+                        emailRow
                     }
                 }
 
@@ -39,6 +46,9 @@ struct NotificationSettingsView: View {
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         .task {
             await refreshAuthorizationStatus()
+        }
+        .task {
+            await emailPreferences.load()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             Task {
@@ -88,6 +98,69 @@ struct NotificationSettingsView: View {
         .padding(.vertical, 18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .opacity(isUpdating ? 0.68 : 1)
+    }
+
+    private var emailRow: some View {
+        HStack(spacing: 16) {
+            AppIcon(token: .settingsContactUs, pointSize: 22, weight: .medium)
+                .foregroundStyle(.accent)
+                .frame(width: 28, height: 28)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Climb and progress emails")
+                    .font(.montserratSemiBold(size: 16))
+                    .foregroundStyle(.white)
+
+                Text(emailSubtitle)
+                    .font(.montserratRegular(size: 13))
+                    .foregroundStyle(emailSubtitleColor)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            // The view model stays the single source of truth for the switch:
+            // it reverts itself when a write fails, and the unsubscribe link
+            // can change the stored value from outside the app.
+            Toggle(
+                "Climb and progress emails",
+                isOn: Binding(
+                    get: { emailPreferences.isLifecycleEmailsEnabled },
+                    set: { isEnabled in
+                        Task {
+                            await emailPreferences
+                                .setLifecycleEmailsEnabled(isEnabled)
+                        }
+                    }
+                )
+            )
+            .labelsHidden()
+            .tint(.accent)
+            .disabled(emailPreferences.isToggleDisabled)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .opacity(emailPreferences.isUpdating ? 0.68 : 1)
+    }
+
+    private var emailSubtitle: String {
+        if let errorMessage = emailPreferences.errorMessage {
+            return errorMessage
+        }
+
+        switch emailPreferences.loadState {
+        case .loading:
+            return "Checking your email settings…"
+        case .ready, .failed:
+            return "Account and security emails always come through."
+        }
+    }
+
+    private var emailSubtitleColor: Color {
+        emailPreferences.errorMessage == nil
+            ? .white.opacity(0.64)
+            : .orange
     }
 
     private var permissionStatusRow: some View {
