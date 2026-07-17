@@ -329,6 +329,10 @@ Live Climbs is the hero competitive experience: a user picks a real-world landma
 - Catalog climbs are *single-session challenges*: the live attempt must reach the target step count to count as a completion. Ending early saves a failed attempt in personal history; only target-reached completions count publicly (leaderboard, First Ascent eligibility).
 - Live Climb completions come only from the live headphone-motion attempt flow. Manual entries, external imports, and routine completions cannot progress or complete a Live Climb. (Integrity gate; cross-referenced from Workout Source + Context.)
 - The live attempt creates a workout only after the live session stops with recorded steps. The workout flows through the normal workout mutation pipeline so leaderboards, Best Efforts, and remote backup stay on one path.
+- Reaching the climb's step target *is* the finish, and `LiveClimbCompletionPolicy` is the only place that decides it.
+  `stopReason` describes *how* a session ended, never whether it counted - a climber who taps End one step past the target finished.
+  `ClimbService.apply` normalizes the saved `stopReason` to `.targetReached` so rehydration and the replay Cloud Function agree with the status set at save time.
+  Never add a second finish definition: readers ask the policy, they don't re-derive.
 - Saved Live Climb attempts are immutable competitive history. Discard during the live session if the attempt shouldn't count; once saved, workout-log delete affordances do not erase the underlying attempt.
 
 **First Ascent (World First) prestige**

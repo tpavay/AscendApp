@@ -229,11 +229,12 @@ final class ClimbService {
         return attempt
     }
 
-    func apply(workouts: [Workout], modelContext: ModelContext) throws {
+    @discardableResult
+    func apply(workouts: [Workout], modelContext: ModelContext) throws -> ClimbAttempt? {
         guard !workouts.isEmpty,
               let activeAttempt = storedActiveAttempt(modelContext: modelContext),
               let climb = try climb(for: activeAttempt.climbId) else {
-            return
+            return nil
         }
 
         let sortedWorkouts = workouts.sorted {
@@ -263,7 +264,12 @@ final class ClimbService {
                 modelContext: modelContext
             )
 
-            if workout.steps >= climb.referenceStepCount {
+            Self.normalizeStopReason(on: workout, targetStepCount: climb.referenceStepCount)
+
+            if LiveClimbCompletionPolicy.isCompletion(
+                steps: workout.steps,
+                targetStepCount: climb.referenceStepCount
+            ) {
                 activeAttempt.status = .completed
                 activeAttempt.endedAt = Self.sessionEndDate(for: workout)
                 activeAttempt.completedAt = Self.sessionEndDate(for: workout)
@@ -284,10 +290,30 @@ final class ClimbService {
             break
         }
 
-        guard didChange else { return }
+        guard didChange else { return activeAttempt }
 
         try modelContext.save()
         postStateChangeNotification()
+        return activeAttempt
+    }
+
+    /// Records the finish on the workout itself so every later reader of the saved metadata -
+    /// rehydration after a reinstall, the replay leaderboard Cloud Function - agrees with the
+    /// status set here. Without it, ending a climb manually one step past the target leaves
+    /// `stopReason` saying the user quit while the attempt says they finished.
+    private static func normalizeStopReason(on workout: Workout, targetStepCount: Int) {
+        guard var metadata = LiveClimbWorkoutSummaryData.metadata(for: workout) else { return }
+
+        let resolvedStopReason = LiveClimbCompletionPolicy.resolvedStopReason(
+            metadata.stopReason,
+            steps: workout.steps,
+            targetStepCount: targetStepCount
+        )
+        guard resolvedStopReason != metadata.stopReason else { return }
+
+        metadata.stopReason = resolvedStopReason
+        guard let jsonString = metadata.jsonString else { return }
+        workout.sourceMetadata = jsonString
     }
 
     static func isEligibleForActiveClimb(_ workout: Workout, startedAt: Date) -> Bool {

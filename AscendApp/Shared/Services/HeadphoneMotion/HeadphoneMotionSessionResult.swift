@@ -123,7 +123,8 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
     let targetStepCount: Int?
     let climbTargetStepCount: Int?
     let targetDurationSeconds: TimeInterval?
-    let stopReason: HeadphoneMotionSessionStopReason
+    /// Normalized against the step target once a session is saved. See `LiveClimbCompletionPolicy`.
+    var stopReason: HeadphoneMotionSessionStopReason
     let splitIntervalSeconds: Int?
     let splitSteps: [Int]?
     let trackingUnavailableDurationSeconds: TimeInterval?

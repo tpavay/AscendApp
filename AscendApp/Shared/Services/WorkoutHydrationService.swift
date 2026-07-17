@@ -217,7 +217,7 @@ enum WorkoutHydrationService {
             return
         }
 
-        let status: ClimbAttemptStatus = metadata.stopReason == .targetReached ? .completed : .failed
+        let status = LiveClimbCompletionPolicy.attemptStatus(for: metadata, steps: workout.steps)
         let endedAt = workout.date.addingTimeInterval(workout.duration)
         let descriptor = FetchDescriptor<ClimbAttempt>(
             predicate: #Predicate<ClimbAttempt> { attempt in
