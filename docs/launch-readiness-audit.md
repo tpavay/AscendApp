@@ -9,16 +9,18 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
 |---|---|
 | Live Climb hero loop | **Ship-ready** — wired end-to-end, zero TODO/fatalError on the critical path |
 | Monetization | **Plumbing wired; commerce config + trial promise missing** |
-| Auth & account lifecycle | **Two App Review blockers in account deletion** |
+| Auth & account lifecycle | ~~Two App Review blockers in account deletion~~ - **both fixed** (see blockers 1-2) |
 | Environments & release pipeline | **Solid** — one bundling verification + secrets checklist |
 
 ---
 
 ## 🔴 Launch blockers (code)
 
-1. **Account deletion leaves public mirrors behind.** `AccountDeletionService.swift` deletes the auth user, `users/{uid}`, workout backups, Storage prefixes, and local data — but not `users/{uid}/public_profile`, `profile_stats`, `profile_workouts`, `achievements`. Deleted users persist as ghosts on leaderboards/profiles. Worse: rules only allow the *owner* to delete those docs, and the auth user is deleted last — after that, the mirrors are orphaned forever (no client can ever delete them). Apple 5.1.1(v) risk. Fix: delete mirrors before `user.delete()`.
-2. **No Sign in with Apple token revocation on account deletion.** Required by Apple since 2022 (5.1.1(v)). The Apple re-auth flow before deletion already exists (`AuthenticationService.swift:355-407`) — capture the `authorizationCode` there and call `Auth.auth().revokeToken(withAuthorizationCode:)` before `user.delete()`.
+1. ~~**Account deletion leaves public mirrors behind.**~~ **Fixed** (issue #197). Mirrors are deleted before `user.delete()`, and the server-owned remainder is swept by the `cleanupDeletedUserData` Cloud Function.
+2. ~~**No Sign in with Apple token revocation on account deletion.**~~ **Fixed** (issue #197). The `authorizationCode` is captured during Apple re-auth and revoked before the account goes away.
 3. **Verify `PrivacyInfo.xcprivacy` lands in the Release bundle.** The manifest exists and is comprehensive (12 collected data types; UserDefaults CA92.1, FileTimestamp C617.1, DiskSpace E174.1, SystemBootTime 35F9.1; `NSPrivacyTracking=false`) but is **not referenced in project.pbxproj**. Build Release and `find` the file in the built .app; if absent, add to Copy Bundle Resources.
+
+> Blockers 1-2 are resolved. The deletion ordering contract, the revocation rules, and what deliberately outlives an account are owned by **CLAUDE.md → Account Deletion (Apple 5.1.1(v))**; the ordering itself is locked in by `AscendAppTests/AccountDeletionServiceTests.swift`. Consult those rather than this dated snapshot.
 
 ## 🟡 Commerce configuration (dashboards — not auditable from code)
 
@@ -53,7 +55,7 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
 - Cloud Function `onWorkoutReplaySplitsWritten` (functions/src/liveReplayLeaderboard.ts) is exported, validated (source=headphone_motion, target reached), tested, and handles FA claims + entry replacement. Confirmed good.
 
 **Auth/account**
-- Client-side deletion has a **90-second timeout** (`DeleteAccountConfirmationView.swift:29`) — large media libraries could partially delete. Recommended: server-side cleanup Cloud Function as a safety net (none exists in functions/src today); would also mop up blocker #1's orphans for any user who deleted before the fix.
+- Client-side deletion has a **90-second timeout** (`DeleteAccountConfirmationView.swift:29`) — large media libraries could partially delete. The recommended server-side cleanup now exists (`functions/src/accountCleanup.ts`), triggered by the delete of `users/{uid}`; it is the authoritative sweep for server-owned data, not merely a safety net. Note it only fires once `users/{uid}` is actually deleted, so a client that times out before that step still leaves work for a later deletion attempt.
 - Sign-out, re-auth flows (Apple + Google), and Internal QA gating (DEBUG/STAGING + project-ID allowlist) all confirmed correct.
 
 **Config/release**

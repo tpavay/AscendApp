@@ -59,12 +59,28 @@ extension AuthenticationError {
     }
 }
 
+/// Outcome of a successful reauthentication, carrying anything the caller needs
+/// for follow-up work that must happen while the user is still signed in.
+struct ReauthenticationResult: Sendable {
+    /// Apple's single-use authorization code, present only for Sign in with Apple.
+    /// Apple requires this to revoke the user's token on account deletion
+    /// (App Store guideline 5.1.1(v)).
+    var appleAuthorizationCode: String?
+}
+
 @MainActor
 class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
 
+    /// An Apple authorization resolved for reauthentication, before it is
+    /// exchanged with Firebase.
+    private struct AppleAuthorization {
+        let credential: AuthCredential
+        let authorizationCode: String?
+    }
+
     private var currentNonce: String?
     private var signInContinuation: CheckedContinuation<User, Error>?
-    private var credentialContinuation: CheckedContinuation<AuthCredential, Error>?
+    private var appleReauthContinuation: CheckedContinuation<AppleAuthorization, Error>?
 
     func signInWithGoogle() async throws -> User {
         // Get Firebase client ID
@@ -211,14 +227,14 @@ class AuthenticationService: NSObject, ASAuthorizationControllerDelegate {
 extension AuthenticationService {
     func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
         // Check if this is a reauthentication flow (credential-only)
-        if let credentialContinuation = credentialContinuation {
+        if let appleReauthContinuation = appleReauthContinuation {
             do {
-                let credential = try handleAppleAuthorizationForReauth(authorization)
-                self.credentialContinuation = nil
-                credentialContinuation.resume(returning: credential)
+                let appleAuthorization = try handleAppleAuthorizationForReauth(authorization)
+                self.appleReauthContinuation = nil
+                appleReauthContinuation.resume(returning: appleAuthorization)
             } catch {
-                self.credentialContinuation = nil
-                credentialContinuation.resume(throwing: error)
+                self.appleReauthContinuation = nil
+                appleReauthContinuation.resume(throwing: error)
             }
             return
         }
@@ -287,9 +303,9 @@ extension AuthenticationService {
         }
 
         // Resume whichever continuation is active
-        if let credentialContinuation = credentialContinuation {
-            self.credentialContinuation = nil
-            credentialContinuation.resume(throwing: errorToThrow)
+        if let appleReauthContinuation = appleReauthContinuation {
+            self.appleReauthContinuation = nil
+            appleReauthContinuation.resume(throwing: errorToThrow)
         } else {
             signInContinuation?.resume(throwing: errorToThrow)
         }
@@ -309,7 +325,7 @@ extension AuthenticationService {
     // MARK: - Reauthentication
 
     /// Reauthenticate the current user with Google
-    func reauthenticateWithGoogle() async throws {
+    func reauthenticateWithGoogle() async throws -> ReauthenticationResult {
         guard let user = Auth.auth().currentUser else {
             throw AuthenticationError.signInFailed("No authenticated user found")
         }
@@ -342,6 +358,7 @@ extension AuthenticationService {
 
             try await user.reauthenticate(with: credential)
             debugLog("User reauthenticated with Google")
+            return ReauthenticationResult(appleAuthorizationCode: nil)
         } catch let error as GIDSignInError where error.code == .canceled {
             throw CancellationError()
         } catch let error as AuthenticationError {
@@ -352,20 +369,40 @@ extension AuthenticationService {
     }
 
     /// Reauthenticate the current user with Apple
-    func reauthenticateWithApple() async throws {
+    ///
+    /// Returns the fresh authorization code alongside the reauthentication so
+    /// callers can revoke the user's Sign in with Apple token before deleting
+    /// their account. The code is single-use and short-lived, so it is only
+    /// useful to the caller that requested this reauthentication.
+    func reauthenticateWithApple() async throws -> ReauthenticationResult {
         guard let user = Auth.auth().currentUser else {
             throw AuthenticationError.signInFailed("No authenticated user found")
         }
 
         // Get fresh Apple credential
-        let credential = try await getAppleCredential()
+        let appleAuthorization = try await getAppleAuthorization()
 
-        try await user.reauthenticate(with: credential)
+        try await user.reauthenticate(with: appleAuthorization.credential)
         debugLog("User reauthenticated with Apple")
+
+        return ReauthenticationResult(
+            appleAuthorizationCode: appleAuthorization.authorizationCode
+        )
     }
 
-    /// Get Apple credential without signing in (for reauthentication)
-    private func getAppleCredential() async throws -> AuthCredential {
+    /// Revokes the user's Sign in with Apple token.
+    ///
+    /// Apple has required this on account deletion since 2022 (App Store
+    /// guideline 5.1.1(v)). Without it the app keeps appearing under
+    /// Settings > Apple ID > Sign in with Apple after the account is gone.
+    /// The authorization code must be fresh: Apple rejects reused codes.
+    func revokeAppleToken(authorizationCode: String) async throws {
+        try await Auth.auth().revokeToken(withAuthorizationCode: authorizationCode)
+        debugLog("Revoked Sign in with Apple token")
+    }
+
+    /// Get an Apple authorization without signing in (for reauthentication)
+    private func getAppleAuthorization() async throws -> AppleAuthorization {
         return try await withCheckedThrowingContinuation { continuation in
             do {
                 let nonce = try randomNonceString()
@@ -377,7 +414,7 @@ extension AuthenticationService {
                 request.nonce = sha256(nonce)
 
                 // Store continuation for credential-only flow
-                self.credentialContinuation = continuation
+                self.appleReauthContinuation = continuation
 
                 let authorizationController = ASAuthorizationController(authorizationRequests: [request])
                 authorizationController.delegate = self
@@ -389,7 +426,7 @@ extension AuthenticationService {
     }
 
     /// Helper to handle Apple authorization for reauthentication
-    private func handleAppleAuthorizationForReauth(_ authorization: ASAuthorization) throws -> AuthCredential {
+    private func handleAppleAuthorizationForReauth(_ authorization: ASAuthorization) throws -> AppleAuthorization {
         guard let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential else {
             throw AuthenticationError.invalidAppleCredential
         }
@@ -403,10 +440,16 @@ extension AuthenticationService {
             throw AuthenticationError.appleSignInFailed("Unable to fetch identity token")
         }
 
-        return OAuthProvider.credential(
+        let credential = OAuthProvider.credential(
             providerID: AuthProviderID.apple,
             idToken: idTokenString,
             rawNonce: nonce
+        )
+
+        return AppleAuthorization(
+            credential: credential,
+            authorizationCode: appleIDCredential.authorizationCode
+                .flatMap { String(data: $0, encoding: .utf8) }
         )
     }
 }
