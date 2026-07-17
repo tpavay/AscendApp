@@ -533,12 +533,12 @@ function touchedReplayPayloads(
 }
 
 /**
- * Selects the workout owning a user's best (fastest) completion in a context.
+ * Selects a user's best (fastest) completion in a context.
  * Equal durations resolve on workout ID so every caller picks the same winner.
  * @param {UserAttemptEntry[]} attempts Published attempts for one user.
- * @return {string | null} Winning workout ID, or null when there are none.
+ * @return {UserAttemptEntry | null} Winner, or null when there are none.
  */
-function bestAttemptWorkoutId(attempts: UserAttemptEntry[]): string | null {
+function bestAttempt(attempts: UserAttemptEntry[]): UserAttemptEntry | null {
   let best: UserAttemptEntry | null = null;
 
   for (const attempt of attempts) {
@@ -553,7 +553,16 @@ function bestAttemptWorkoutId(attempts: UserAttemptEntry[]): string | null {
     }
   }
 
-  return best?.workoutId ?? null;
+  return best;
+}
+
+/**
+ * Selects the workout owning a user's best (fastest) completion in a context.
+ * @param {UserAttemptEntry[]} attempts Published attempts for one user.
+ * @return {string | null} Winning workout ID, or null when there are none.
+ */
+function bestAttemptWorkoutId(attempts: UserAttemptEntry[]): string | null {
+  return bestAttempt(attempts)?.workoutId ?? null;
 }
 
 /**
@@ -587,28 +596,24 @@ function bestForUserFlagUpdates(
 }
 
 /**
- * Bucket span of a published attempt.
- * Entries written before best-per-user collapse carry no stored span, so fall
- * back to the interval math normalizeReplaySplitSteps used at publish time.
+ * Bucket span to sweep when re-flagging a published attempt.
+ * Entries written before best-per-user collapse carry no stored span, and
+ * normalizeReplaySplitSteps sized the curve on the raw sample count as well as
+ * the duration, so duration alone can undercount the real span. Legacy attempts
+ * therefore sweep the whole checkpoint range: flags are written with update(),
+ * so buckets an attempt never published into fail NOT_FOUND and are skipped,
+ * whereas undercounting would strand the final bucket of a promoted climber.
  * @param {Record<string, unknown>} data Bucket-zero entry data.
- * @return {number} Number of buckets the attempt published into.
+ * @return {number} Number of buckets to sweep for the attempt.
  */
 function attemptSplitBucketCount(data: Record<string, unknown>): number {
   const storedCount = positiveIntegerValue(data.splitBucketCount);
 
-  if (storedCount !== null) {
-    return Math.min(storedCount, MAX_REPLAY_SPLIT_CHECKPOINTS);
+  if (storedCount === null) {
+    return MAX_REPLAY_SPLIT_CHECKPOINTS;
   }
 
-  const durationSeconds = nonNegativeNumberValue(
-    data.completionDurationSeconds
-  ) ?? 0;
-  const intervalSeconds = positiveIntegerValue(data.splitIntervalSeconds) ?? 1;
-
-  return Math.min(
-    Math.floor(durationSeconds / intervalSeconds) + 1,
-    MAX_REPLAY_SPLIT_CHECKPOINTS
-  );
+  return Math.min(storedCount, MAX_REPLAY_SPLIT_CHECKPOINTS);
 }
 
 /**
@@ -656,6 +661,12 @@ async function reconcileUserBestEntries(
   const attempts = snapshot.docs
     .map((doc) => userAttemptEntry(doc.data(), doc.id))
     .filter((attempt): attempt is UserAttemptEntry => attempt !== null);
+  const winner = bestAttempt(attempts);
+
+  if (winner !== null) {
+    await repairFinisherBestAttempt(payload, userId, winner);
+  }
+
   const updates = bestForUserFlagUpdates(attempts);
 
   if (updates.length === 0) {
@@ -663,6 +674,7 @@ async function reconcileUserBestEntries(
   }
 
   const writer = admin.firestore().bulkWriter();
+  const failures: unknown[] = [];
   writer.onWriteError((error) => {
     if (error.code === FIRESTORE_NOT_FOUND_CODE) {
       return false;
@@ -680,11 +692,79 @@ async function reconcileUserBestEntries(
           entryReference(payload, index, update.workoutId),
           {isBestForUser: update.isBestForUser}
         )
-        .catch(() => undefined);
+        .catch((error) => {
+          if (!isNotFoundWriteError(error)) {
+            failures.push(error);
+          }
+        });
     }
   }
 
   await writer.close();
+
+  if (failures.length > 0) {
+    // A dropped flag write leaves a climber duplicated in the live field, so
+    // fail the trigger and let its retry re-derive rather than report success.
+    throw new Error(
+      `Failed to reconcile ${failures.length} best-per-user entry ` +
+      `write(s) for user ${userId} in ${payload.contextKey}: ${
+        String(failures[0])
+      }`
+    );
+  }
+}
+
+/**
+ * Skips writes to buckets an attempt never published into.
+ * @param {unknown} error Rejected BulkWriter write error.
+ * @return {boolean} Whether the write failed because the entry is absent.
+ */
+function isNotFoundWriteError(error: unknown): boolean {
+  return typeof error === "object" &&
+    error !== null &&
+    (error as {code?: unknown}).code === FIRESTORE_NOT_FOUND_CODE;
+}
+
+/**
+ * Realigns a finisher's stored best fields with the re-derived winner.
+ *
+ * publishReplayEntries seeds isBestForUser from these fields, and nothing else
+ * repairs them once the standing best is deleted. Leaving them stale demotes
+ * the surviving attempt on every later edit. Writes only on disagreement so a
+ * settled context still costs no writes.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @param {string} userId Owner user ID.
+ * @param {UserAttemptEntry} winner Re-derived best attempt.
+ */
+async function repairFinisherBestAttempt(
+  payload: LiveReplayIndexPayload,
+  userId: string,
+  winner: UserAttemptEntry
+): Promise<void> {
+  const finisherRef = finisherReference(payload, userId);
+  const snapshot = await finisherRef.get();
+
+  if (!snapshot.exists) {
+    return;
+  }
+
+  const data = snapshot.data();
+  const storedWorkoutId = stringValue(data?.bestWorkoutId);
+  const storedDuration = nonNegativeNumberValue(
+    data?.bestCompletionDurationSeconds
+  );
+
+  if (
+    storedWorkoutId === winner.workoutId &&
+    storedDuration === winner.completionDurationSeconds
+  ) {
+    return;
+  }
+
+  await finisherRef.update({
+    bestCompletionDurationSeconds: winner.completionDurationSeconds,
+    bestWorkoutId: winner.workoutId,
+  });
 }
 
 /**

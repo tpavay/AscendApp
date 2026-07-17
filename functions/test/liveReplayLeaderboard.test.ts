@@ -555,13 +555,13 @@ test("leaves a single completion flagged as its own best", () => {
   );
 });
 
-test("derives bucket span for entries predating the flag", () => {
+test("sweeps every bucket for entries predating the flag", () => {
   assert.equal(
     liveReplayLeaderboardTestHooks.attemptSplitBucketCount({
       completionDurationSeconds: 738,
       splitIntervalSeconds: 10,
     }),
-    74
+    360
   );
   assert.equal(
     liveReplayLeaderboardTestHooks.attemptSplitBucketCount({
@@ -570,6 +570,14 @@ test("derives bucket span for entries predating the flag", () => {
       splitBucketCount: 80,
     }),
     80
+  );
+  assert.equal(
+    liveReplayLeaderboardTestHooks.attemptSplitBucketCount({
+      completionDurationSeconds: 738,
+      splitIntervalSeconds: 10,
+      splitBucketCount: 4_000,
+    }),
+    360
   );
 });
 

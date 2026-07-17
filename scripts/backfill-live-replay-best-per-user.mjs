@@ -74,10 +74,21 @@ console.log(
     `Attempts demoted: ${result.attemptsDemoted}`,
     `Entry writes planned: ${result.entryWritesPlanned}`,
     `Entry writes applied: ${result.entryWritesApplied}`,
-    `Entry writes skipped: ${result.entryWritesSkipped}`,
+    `Entry writes skipped (bucket absent): ${result.entryWritesSkipped}`,
+    `Entry writes failed: ${result.entryWritesFailed}`,
     `Attempts unreadable: ${result.attemptsSkipped}`,
   ].join("\n")
 );
+
+if (result.entryWritesFailed > 0) {
+  // A dropped flag write leaves a climber duplicated in the live field, so the
+  // run must not report success just because the rest of the writes landed.
+  console.error(
+    `\n${result.entryWritesFailed} entry write(s) failed. Re-run the backfill ` +
+    `to reconcile the remaining entries.\nFirst error: ${result.firstWriteError}`
+  );
+  process.exitCode = 1;
+}
 
 /**
  * Parses command-line arguments.
@@ -176,6 +187,8 @@ async function backfillBestPerUserFlags(firestore, options) {
     entryWritesPlanned: 0,
     entryWritesApplied: 0,
     entryWritesSkipped: 0,
+    entryWritesFailed: 0,
+    firstWriteError: null,
     attemptsSkipped: 0,
   };
 
@@ -299,14 +312,28 @@ async function applyEntryUpdates(
         .then(() => {
           counters.entryWritesApplied += 1;
         })
-        .catch(() => {
-          counters.entryWritesSkipped += 1;
+        .catch((error) => {
+          if (isNotFoundWriteError(error)) {
+            counters.entryWritesSkipped += 1;
+            return;
+          }
+
+          counters.entryWritesFailed += 1;
+          counters.firstWriteError ??= String(error);
         });
     }
   }
 
   await writer.close();
 }
+
+/*
+ * functions/src/liveReplayLeaderboard.ts owns the best-per-user rule; the
+ * helpers below are a deliberate port of it, because scripts/ and functions/
+ * are separate npm packages and importing that module would register its
+ * Firestore triggers. Both must pick the same winner or the backfill and the
+ * trigger will flag different attempts, so keep them in lockstep.
+ */
 
 /**
  * Selects the workout owning a user's best (fastest) completion in a context.
@@ -367,10 +394,12 @@ function bestForUserFlagUpdates(attempts) {
  * @return {object | null} Parsed attempt, or null when unusable.
  */
 function userAttemptEntry(data, documentId) {
-  const completionDurationSeconds = data.completionDurationSeconds;
+  const completionDurationSeconds = nonNegativeNumberValue(
+    data.completionDurationSeconds
+  );
   const userId = typeof data.userId === "string" ? data.userId : null;
 
-  if (typeof completionDurationSeconds !== "number" || userId === null) {
+  if (completionDurationSeconds === null || userId === null) {
     return null;
   }
 
@@ -384,26 +413,59 @@ function userAttemptEntry(data, documentId) {
 }
 
 /**
- * Bucket span of a published attempt.
- * Entries written before best-per-user collapse carry no stored span, so fall
- * back to the interval math normalizeReplaySplitSteps used at publish time.
+ * Bucket span to sweep when re-flagging a published attempt.
+ * Entries written before best-per-user collapse carry no stored span, and the
+ * curve length the Cloud Function sized the attempt with cannot be recovered
+ * from the entry, so legacy attempts sweep the whole checkpoint range. Flags
+ * are written with update(), so buckets an attempt never published into fail
+ * NOT_FOUND and are skipped, whereas undercounting would strand the final
+ * bucket of a promoted climber.
  * @param {Record<string, unknown>} data Bucket-zero entry data.
- * @return {number} Number of buckets the attempt published into.
+ * @return {number} Number of buckets to sweep for the attempt.
  */
 function attemptSplitBucketCount(data) {
-  if (Number.isInteger(data.splitBucketCount) && data.splitBucketCount > 0) {
-    return Math.min(data.splitBucketCount, MAX_REPLAY_SPLIT_CHECKPOINTS);
+  const storedCount = positiveIntegerValue(data.splitBucketCount);
+
+  if (storedCount === null) {
+    return MAX_REPLAY_SPLIT_CHECKPOINTS;
   }
 
-  const durationSeconds = typeof data.completionDurationSeconds === "number" ?
-    data.completionDurationSeconds :
-    0;
-  const hasInterval = Number.isInteger(data.splitIntervalSeconds) &&
-    data.splitIntervalSeconds > 0;
-  const intervalSeconds = hasInterval ? data.splitIntervalSeconds : 1;
+  return Math.min(storedCount, MAX_REPLAY_SPLIT_CHECKPOINTS);
+}
 
-  return Math.min(
-    Math.floor(durationSeconds / intervalSeconds) + 1,
-    MAX_REPLAY_SPLIT_CHECKPOINTS
-  );
+/**
+ * Returns a non-negative finite number.
+ * @param {unknown} value Raw value.
+ * @return {number | null} Parsed number, if valid.
+ */
+function nonNegativeNumberValue(value) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return null;
+  }
+
+  return value;
+}
+
+/**
+ * Returns a positive integer.
+ * @param {unknown} value Raw value.
+ * @return {number | null} Parsed integer, if valid.
+ */
+function positiveIntegerValue(value) {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    return null;
+  }
+
+  return value;
+}
+
+/**
+ * Skips writes to buckets an attempt never published into.
+ * @param {unknown} error Rejected BulkWriter write error.
+ * @return {boolean} Whether the write failed because the entry is absent.
+ */
+function isNotFoundWriteError(error) {
+  return typeof error === "object" &&
+    error !== null &&
+    error.code === FIRESTORE_NOT_FOUND_CODE;
 }
