@@ -328,7 +328,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             bucketIndex: bucketIndex,
             currentSteps: currentSteps
         )
-        async let totalBucketCount = optionalCountRows(
+        async let totalBucketCount = optionalCountBestPerUserRows(
             context: context,
             bucketIndex: bucketIndex
         )
@@ -384,7 +384,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
     ) async throws -> [LiveReplayLeaderboardRow] {
         guard limit > 0 else { return [] }
 
-        let collection = entriesCollection(context: context, bucketIndex: bucketIndex)
+        let collection = bestPerUserEntries(context: context, bucketIndex: bucketIndex)
         let query: Query
 
         switch direction {
@@ -415,18 +415,30 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         bucketIndex: Int,
         currentSteps: Int
     ) async throws -> Int {
-        let query = entriesCollection(context: context, bucketIndex: bucketIndex)
+        let query = bestPerUserEntries(context: context, bucketIndex: bucketIndex)
             .whereField("stepsAtBucket", isGreaterThanOrEqualTo: currentSteps)
 
         let snapshot = try await query.count.getAggregation(source: .server)
         return snapshot.count.intValue
     }
 
+    /// Counts every completed attempt, matching the static board's one row per completion.
     private func countRows(
         context: LiveReplayLeaderboardContext,
         bucketIndex: Int
     ) async throws -> Int {
         let query = entriesCollection(context: context, bucketIndex: bucketIndex)
+
+        let snapshot = try await query.count.getAggregation(source: .server)
+        return snapshot.count.intValue
+    }
+
+    /// Counts distinct climbers, so a repeat finisher anchors live rank once.
+    private func countBestPerUserRows(
+        context: LiveReplayLeaderboardContext,
+        bucketIndex: Int
+    ) async throws -> Int {
+        let query = bestPerUserEntries(context: context, bucketIndex: bucketIndex)
 
         let snapshot = try await query.count.getAggregation(source: .server)
         return snapshot.count.intValue
@@ -484,12 +496,12 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         }
     }
 
-    private func optionalCountRows(
+    private func optionalCountBestPerUserRows(
         context: LiveReplayLeaderboardContext,
         bucketIndex: Int
     ) async -> Int? {
         do {
-            return try await countRows(
+            return try await countBestPerUserRows(
                 context: context,
                 bucketIndex: bucketIndex
             )
@@ -662,6 +674,20 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             .collection("splitBuckets")
             .document("\(max(bucketIndex, 0))")
             .collection("entries")
+    }
+
+    /// Entries narrowed to one row per opponent: each climber's fastest completion.
+    ///
+    /// The live race is a field of climbers, not of attempts, so a repeat finisher
+    /// races as a single rival on their best time. The server owns the flag; the
+    /// static completion board reads the same entries unfiltered to keep showing
+    /// every completion.
+    private func bestPerUserEntries(
+        context: LiveReplayLeaderboardContext,
+        bucketIndex: Int
+    ) -> Query {
+        entriesCollection(context: context, bucketIndex: bucketIndex)
+            .whereField("isBestForUser", isEqualTo: true)
     }
 
     private func finisherDocument(

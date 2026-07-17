@@ -153,6 +153,34 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "isBestForUser",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "stepsAtBucket",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "isBestForUser",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "stepsAtBucket",
+          "order": "DESCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []

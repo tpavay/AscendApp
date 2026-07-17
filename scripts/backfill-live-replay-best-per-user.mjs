@@ -1,0 +1,409 @@
+#!/usr/bin/env node
+
+/**
+ * Backfills the best-per-user flag on Live Replay bucket entries.
+ *
+ * The live race ranks one row per opponent, so exactly one of a user's attempts
+ * in a context may carry isBestForUser. New completions get the flag from the
+ * Cloud Function; this script covers entries published before it existed.
+ * Without it the live race filter matches nothing and the field looks empty.
+ *
+ * Only each climber's fastest attempt is written. Firestore's equality filter
+ * never matches a document missing the field, so slower attempts are already
+ * excluded from the live race and are left untouched.
+ *
+ * The static completion leaderboard reads these same entries unfiltered and
+ * still shows every completion. This script never adds or removes an entry.
+ *
+ * Usage:
+ *   node scripts/backfill-live-replay-best-per-user.mjs --project dev --dry-run
+ *   node scripts/backfill-live-replay-best-per-user.mjs --project staging
+ *   node scripts/backfill-live-replay-best-per-user.mjs --project prod --confirm-production
+ *   node scripts/backfill-live-replay-best-per-user.mjs --project dev --context-key live_climb__burj-khalifa
+ *
+ * Prerequisites:
+ *   Node.js 20+
+ *   cd scripts && npm install
+ *   gcloud auth application-default login
+ */
+
+import {applicationDefault, initializeApp} from "firebase-admin/app";
+import {getFirestore} from "firebase-admin/firestore";
+
+const DEV_PROJECT_ID = "ascend-f2e4f";
+const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
+const PROD_PROJECT_ID = "ascend-prod-9c8f2";
+const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
+const SPLIT_BUCKETS_COLLECTION = "splitBuckets";
+const ENTRIES_COLLECTION = "entries";
+const BUCKET_ZERO_DOC_ID = "0";
+const MAX_REPLAY_SPLIT_CHECKPOINTS = 360;
+const FIRESTORE_NOT_FOUND_CODE = 5;
+const BULK_WRITER_MAX_ATTEMPTS = 3;
+const PROJECT_ALIASES = new Map([
+  ["dev", DEV_PROJECT_ID],
+  ["staging", STAGING_PROJECT_ID],
+  ["prod", PROD_PROJECT_ID],
+  ["production", PROD_PROJECT_ID],
+]);
+
+const args = parseArgs(process.argv);
+const projectId = resolveProjectId(args.project);
+
+if (projectId === PROD_PROJECT_ID && !args.dryRun && !args.confirmProduction) {
+  throw new Error("Production backfill requires --confirm-production.");
+}
+
+initializeApp({
+  credential: applicationDefault(),
+  projectId,
+});
+
+const db = getFirestore();
+const result = await backfillBestPerUserFlags(db, args);
+
+console.log(
+  [
+    `Project: ${projectId}`,
+    `Mode: ${args.dryRun ? "dry run" : "write"}`,
+    `Contexts scanned: ${result.contextsScanned}`,
+    `Attempts scanned: ${result.attemptsScanned}`,
+    `Climbers scanned: ${result.climbersScanned}`,
+    `Repeat climbers collapsed: ${result.repeatClimbersCollapsed}`,
+    `Attempts promoted to best: ${result.attemptsPromoted}`,
+    `Attempts demoted: ${result.attemptsDemoted}`,
+    `Entry writes planned: ${result.entryWritesPlanned}`,
+    `Entry writes applied: ${result.entryWritesApplied}`,
+    `Entry writes skipped: ${result.entryWritesSkipped}`,
+    `Attempts unreadable: ${result.attemptsSkipped}`,
+  ].join("\n")
+);
+
+/**
+ * Parses command-line arguments.
+ * @param {string[]} argv Process argv.
+ * @return {object} Parsed arguments.
+ */
+function parseArgs(argv) {
+  const parsed = {
+    project: "dev",
+    dryRun: false,
+    confirmProduction: false,
+    contextKey: null,
+  };
+
+  for (let index = 2; index < argv.length; index += 1) {
+    const value = argv[index];
+    switch (value) {
+      case "--project":
+        parsed.project = requireValue(argv, ++index, "--project");
+        break;
+      case "--context-key":
+        parsed.contextKey = requireValue(argv, ++index, "--context-key");
+        break;
+      case "--dry-run":
+        parsed.dryRun = true;
+        break;
+      case "--confirm-production":
+        parsed.confirmProduction = true;
+        break;
+      case "--help":
+      case "-h":
+        printUsageAndExit();
+        break;
+      default:
+        throw new Error(`Unknown argument: ${value}`);
+    }
+  }
+
+  return parsed;
+}
+
+/**
+ * Resolves a project alias or returns an explicit Firebase project ID.
+ * @param {string} value Project alias or ID.
+ * @return {string} Firebase project ID.
+ */
+function resolveProjectId(value) {
+  return PROJECT_ALIASES.get(value) ?? value;
+}
+
+/**
+ * Requires an argv value after a flag.
+ * @param {string[]} argv Process argv.
+ * @param {number} index Value index.
+ * @param {string} flag Flag name.
+ * @return {string} Flag value.
+ */
+function requireValue(argv, index, flag) {
+  const value = argv[index];
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${flag} requires a value.`);
+  }
+  return value;
+}
+
+function printUsageAndExit() {
+  console.log(`
+Usage:
+  node scripts/backfill-live-replay-best-per-user.mjs --project dev --dry-run
+  node scripts/backfill-live-replay-best-per-user.mjs --project staging
+  node scripts/backfill-live-replay-best-per-user.mjs --project prod --confirm-production
+
+Options:
+  --project <dev|staging|prod|projectId>
+  --context-key <live_replay_context_key>
+  --dry-run
+  --confirm-production
+`);
+  process.exit(0);
+}
+
+/**
+ * Backfills best-per-user flags across every matching replay context.
+ * @param {FirebaseFirestore.Firestore} firestore Firestore instance.
+ * @param {object} options Backfill options.
+ * @return {Promise<object>} Backfill counts.
+ */
+async function backfillBestPerUserFlags(firestore, options) {
+  const counters = {
+    contextsScanned: 0,
+    attemptsScanned: 0,
+    climbersScanned: 0,
+    repeatClimbersCollapsed: 0,
+    attemptsPromoted: 0,
+    attemptsDemoted: 0,
+    entryWritesPlanned: 0,
+    entryWritesApplied: 0,
+    entryWritesSkipped: 0,
+    attemptsSkipped: 0,
+  };
+
+  const leaderboardRefs = options.contextKey ?
+    [firestore.collection(LIVE_REPLAY_COLLECTION).doc(options.contextKey)] :
+    (await firestore.collection(LIVE_REPLAY_COLLECTION).get()).docs.map(
+      (doc) => doc.ref
+    );
+
+  for (const leaderboardRef of leaderboardRefs) {
+    const summarySnapshot = await leaderboardRef.get();
+    if (!summarySnapshot.exists) {
+      continue;
+    }
+
+    counters.contextsScanned += 1;
+    await backfillContext(firestore, leaderboardRef, options, counters);
+  }
+
+  return counters;
+}
+
+/**
+ * Backfills one replay context.
+ * @param {FirebaseFirestore.Firestore} firestore Firestore instance.
+ * @param {FirebaseFirestore.DocumentReference} leaderboardRef Context document.
+ * @param {object} options Backfill options.
+ * @param {object} counters Mutated counters.
+ */
+async function backfillContext(firestore, leaderboardRef, options, counters) {
+  const entriesSnapshot = await leaderboardRef
+    .collection(SPLIT_BUCKETS_COLLECTION)
+    .doc(BUCKET_ZERO_DOC_ID)
+    .collection(ENTRIES_COLLECTION)
+    .get();
+  const attemptsByUserId = new Map();
+
+  for (const doc of entriesSnapshot.docs) {
+    const attempt = userAttemptEntry(doc.data() ?? {}, doc.id);
+
+    if (attempt === null) {
+      counters.attemptsSkipped += 1;
+      continue;
+    }
+
+    counters.attemptsScanned += 1;
+    const attempts = attemptsByUserId.get(attempt.userId) ?? [];
+    attempts.push(attempt);
+    attemptsByUserId.set(attempt.userId, attempts);
+  }
+
+  counters.climbersScanned += attemptsByUserId.size;
+  const updates = [];
+
+  for (const attempts of attemptsByUserId.values()) {
+    if (attempts.length > 1) {
+      counters.repeatClimbersCollapsed += 1;
+    }
+
+    updates.push(...bestForUserFlagUpdates(attempts));
+  }
+
+  for (const update of updates) {
+    if (update.isBestForUser) {
+      counters.attemptsPromoted += 1;
+    } else {
+      counters.attemptsDemoted += 1;
+    }
+  }
+
+  await applyEntryUpdates(firestore, leaderboardRef, updates, options, counters);
+}
+
+/**
+ * Writes flag updates across every bucket each attempt published into.
+ * @param {FirebaseFirestore.Firestore} firestore Firestore instance.
+ * @param {FirebaseFirestore.DocumentReference} leaderboardRef Context document.
+ * @param {object[]} updates Attempt flag updates.
+ * @param {object} options Backfill options.
+ * @param {object} counters Mutated counters.
+ */
+async function applyEntryUpdates(
+  firestore,
+  leaderboardRef,
+  updates,
+  options,
+  counters
+) {
+  if (options.dryRun) {
+    for (const update of updates) {
+      counters.entryWritesPlanned += update.splitBucketCount;
+    }
+
+    return;
+  }
+
+  // BulkWriter rather than a batch: a batch is atomic, so one entry deleted
+  // mid-run would drop every other write with it.
+  const writer = firestore.bulkWriter();
+  writer.onWriteError((error) => {
+    if (error.code === FIRESTORE_NOT_FOUND_CODE) {
+      return false;
+    }
+
+    return error.failedAttempts < BULK_WRITER_MAX_ATTEMPTS;
+  });
+
+  for (const update of updates) {
+    for (let index = 0; index < update.splitBucketCount; index += 1) {
+      const entryRef = leaderboardRef
+        .collection(SPLIT_BUCKETS_COLLECTION)
+        .doc(String(index))
+        .collection(ENTRIES_COLLECTION)
+        .doc(update.workoutId);
+      counters.entryWritesPlanned += 1;
+
+      // update() rather than set(): a bucket this attempt never published into
+      // must stay absent, not appear as a flag-only row the counts would see.
+      writer
+        .update(entryRef, {isBestForUser: update.isBestForUser})
+        .then(() => {
+          counters.entryWritesApplied += 1;
+        })
+        .catch(() => {
+          counters.entryWritesSkipped += 1;
+        });
+    }
+  }
+
+  await writer.close();
+}
+
+/**
+ * Selects the workout owning a user's best (fastest) completion in a context.
+ * Equal durations resolve on workout ID so every caller picks the same winner.
+ * @param {object[]} attempts Published attempts for one user.
+ * @return {string | null} Winning workout ID, or null when there are none.
+ */
+function bestAttemptWorkoutId(attempts) {
+  let best = null;
+
+  for (const attempt of attempts) {
+    const isFaster = best === null ||
+      attempt.completionDurationSeconds < best.completionDurationSeconds;
+    const breaksTie = best !== null &&
+      attempt.completionDurationSeconds === best.completionDurationSeconds &&
+      attempt.workoutId < best.workoutId;
+
+    if (isFaster || breaksTie) {
+      best = attempt;
+    }
+  }
+
+  return best?.workoutId ?? null;
+}
+
+/**
+ * Diffs a user's published attempts against the best-per-user rule.
+ * Attempts already carrying the right flag are omitted, so a second run of the
+ * backfill writes nothing.
+ * @param {object[]} attempts Published attempts for one user.
+ * @return {object[]} Attempts whose flag must change.
+ */
+function bestForUserFlagUpdates(attempts) {
+  const winningWorkoutId = bestAttemptWorkoutId(attempts);
+  const updates = [];
+
+  for (const attempt of attempts) {
+    const isBestForUser = attempt.workoutId === winningWorkoutId;
+
+    if (isBestForUser === attempt.isBestForUser) {
+      continue;
+    }
+
+    updates.push({
+      workoutId: attempt.workoutId,
+      splitBucketCount: attempt.splitBucketCount,
+      isBestForUser,
+    });
+  }
+
+  return updates;
+}
+
+/**
+ * Reads one published attempt from its bucket-zero entry document.
+ * @param {Record<string, unknown>} data Bucket-zero entry data.
+ * @param {string} documentId Entry document ID.
+ * @return {object | null} Parsed attempt, or null when unusable.
+ */
+function userAttemptEntry(data, documentId) {
+  const completionDurationSeconds = data.completionDurationSeconds;
+  const userId = typeof data.userId === "string" ? data.userId : null;
+
+  if (typeof completionDurationSeconds !== "number" || userId === null) {
+    return null;
+  }
+
+  return {
+    workoutId: typeof data.workoutId === "string" ? data.workoutId : documentId,
+    userId,
+    completionDurationSeconds,
+    splitBucketCount: attemptSplitBucketCount(data),
+    isBestForUser: data.isBestForUser === true,
+  };
+}
+
+/**
+ * Bucket span of a published attempt.
+ * Entries written before best-per-user collapse carry no stored span, so fall
+ * back to the interval math normalizeReplaySplitSteps used at publish time.
+ * @param {Record<string, unknown>} data Bucket-zero entry data.
+ * @return {number} Number of buckets the attempt published into.
+ */
+function attemptSplitBucketCount(data) {
+  if (Number.isInteger(data.splitBucketCount) && data.splitBucketCount > 0) {
+    return Math.min(data.splitBucketCount, MAX_REPLAY_SPLIT_CHECKPOINTS);
+  }
+
+  const durationSeconds = typeof data.completionDurationSeconds === "number" ?
+    data.completionDurationSeconds :
+    0;
+  const hasInterval = Number.isInteger(data.splitIntervalSeconds) &&
+    data.splitIntervalSeconds > 0;
+  const intervalSeconds = hasInterval ? data.splitIntervalSeconds : 1;
+
+  return Math.min(
+    Math.floor(durationSeconds / intervalSeconds) + 1,
+    MAX_REPLAY_SPLIT_CHECKPOINTS
+  );
+}

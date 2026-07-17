@@ -381,6 +381,7 @@ Live Climbs is the hero competitive experience: a user picks a real-world landma
 - The replay leaderboard is a context-agnostic system reusable for Live Climbs and future race surfaces (challenge climbs). Don't clone climb-specific comparison logic per surface — share the context / sampler / service abstractions.
 - Replay rank compares the live user's current steps against completed eligible attempts at the same elapsed-time bucket. Failed, abandoned, and partial attempts never publish into replay indexes. Tied completed attempts rank ahead of the live user (a new attempt starts at the bottom of the completed field).
 - Per-climb replay contexts rank the live climber against **one row per opponent — each opponent's best (fastest) completion on that climb**. Multiple completions by the same user collapse to their best for the live race; chasing a rival three times (their slow, middling, and fast attempts) is clutter, not competition. The static per-climb leaderboard separately preserves the full completion history (see Leaderboard UX Flow). Only target-reached completions feed the replay context.
+- Best-per-user collapse is server-owned: each bucket entry carries an `isBestForUser` flag, re-derived from the entries themselves whenever a workout publishes, changes, or is deleted (`reconcileUserBestEntries` in `functions/src/liveReplayLeaderboard.ts`). Live-race reads filter on that flag; the static completion board reads the same entries unfiltered. Do not collapse repeats by filtering rows on the client: live rank and climber counts come from Firestore aggregation counts, which only a server-side filter can make count climbers instead of attempts. Backfill existing entries with `scripts/backfill-live-replay-best-per-user.mjs`.
 - Post-completion share / summary rank is computed against completed bucket-zero replay entries with `completedCount` as the denominator. Don't reuse in-session time-window rank or total-climber count for completed share surfaces.
 - Step timeline checkpoints are source-neutral. Sensor producers emit cumulative step samples into a shared recorder so result / replay UI doesn't depend on one sensor source.
 - The replay index is server-published — clients write zero leaderboard data during a live session. A Cloud Function publishes from saved attempts after the session ends and normalizes degenerate curves (e.g. all-zero-until-final-bucket) into conservative monotonic curves so replay rows don't appear stationary.
@@ -770,3 +771,12 @@ Website source lives in `web/` and is built to `web/dist/` before deploy.
 - `.github/workflows/deploy-staging.yml` — staging deploy pipeline
 - `.github/workflows/deploy-production.yml` — production deploy pipeline (gated)
 - `Gemfile`, `fastlane/Appfile`, `fastlane/Fastfile`, `fastlane/Matchfile` — iOS build/signing/TestFlight automation
+
+---
+
+## Maintaining this file
+
+Keep this file for knowledge useful to almost every future agent session in this project.
+Do not repeat what the codebase already shows; point to the authoritative file or command instead.
+Prefer rewriting or pruning existing entries over appending new ones.
+When updating this file, preserve this bar for all agents and keep entries concise.

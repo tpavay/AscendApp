@@ -765,9 +765,12 @@ async function addReplayWrites(db, writes, user, liveContexts, args) {
           completionDurationSeconds: context.durationSeconds,
           displayName: user.displayName,
           finalSteps: context.finalSteps,
+          // One seeded completion per context, so it is the user's best.
+          isBestForUser: true,
           isPersonalBest: true,
           photoURL: user.photoURL,
           schemaVersion: REPLAY_SCHEMA_VERSION,
+          splitBucketCount: context.splitSteps.length,
           splitIntervalSeconds: SPLIT_INTERVAL_SECONDS,
           stepsAtBucket: context.splitSteps[index],
           updatedAt: FieldValue.serverTimestamp(),
