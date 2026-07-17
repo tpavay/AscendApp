@@ -2,7 +2,6 @@ import SwiftUI
 
 struct LandingScreen: View {
     @State private var isShowingValueCarousel = false
-    @State private var didRecordScreenView = false
 
     var body: some View {
         ZStack {
@@ -55,18 +54,7 @@ struct LandingScreen: View {
         .navigationDestination(isPresented: $isShowingValueCarousel) {
             PreAuthOnboardingValueCarouselScreen()
         }
-        .onAppear {
-            recordScreenViewIfNeeded()
-        }
-    }
-
-    private func recordScreenViewIfNeeded() {
-        guard !didRecordScreenView else { return }
-
-        didRecordScreenView = true
-        TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.screenViewed(context: OnboardingAnalyticsEvent.welcomeContext)
-        )
+        .trackOnboardingScreenView(OnboardingAnalyticsEvent.welcomeContext)
     }
 
     private func startOnboarding() {

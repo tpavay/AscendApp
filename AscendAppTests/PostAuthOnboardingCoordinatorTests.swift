@@ -233,6 +233,90 @@ struct PostAuthOnboardingCoordinatorTests {
 
     @MainActor
     @Test
+    func remoteProfileCompletionClosesTheFunnelThatWasStarted() {
+        let defaults = makeDefaults()
+        let store = PostAuthOnboardingStore(userDefaults: defaults)
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let userId = "user-remote-profile"
+
+        // A reinstall/second-device user resolves into onboarding (starting the funnel) and is
+        // then flipped straight to complete once the remote profile loads.
+        let coordinator = PostAuthOnboardingCoordinator(store: store, telemetry: makeTelemetry(sink: sink))
+        coordinator.resolve(userId: userId)
+        coordinator.markCurrentUserComplete()
+
+        #expect(coordinator.phase == .complete)
+        #expect(sink.records.filter { $0.name == "onboarding_flow_started" }.count == 1)
+
+        let completed = sink.records.filter { $0.name == "onboarding_flow_completed" }
+        #expect(completed.count == 1)
+        #expect(completed.first?.parameters["step_id"] == .string("first_climb"))
+        #expect(completed.first?.parameters["flow_id"] == .string("post_auth_onboarding"))
+    }
+
+    @MainActor
+    @Test
+    func returningCompleteUserNeverClosesAFunnelItNeverStarted() {
+        let defaults = makeDefaults()
+        let store = PostAuthOnboardingStore(userDefaults: defaults)
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let userId = "user-already-complete"
+        store.markComplete(for: userId)
+
+        let coordinator = PostAuthOnboardingCoordinator(store: store, telemetry: makeTelemetry(sink: sink))
+        coordinator.resolve(userId: userId)
+        coordinator.markCurrentUserComplete()
+
+        #expect(coordinator.phase == .complete)
+        #expect(sink.records.filter { $0.name == "onboarding_flow_completed" }.isEmpty)
+    }
+
+    @MainActor
+    @Test
+    func markingCompleteAfterFinishingTheFlowDoesNotEmitASecondCompletion() {
+        let defaults = makeDefaults()
+        let store = PostAuthOnboardingStore(userDefaults: defaults)
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let userId = "user-complete-then-profile-check"
+
+        let coordinator = PostAuthOnboardingCoordinator(store: store, telemetry: makeTelemetry(sink: sink))
+        coordinator.resolve(userId: userId)
+        for _ in PostAuthOnboardingStage.allCases {
+            coordinator.completeCurrentStage()
+        }
+
+        // The remote profile check runs after a genuine finish; starts and completions stay 1:1.
+        coordinator.markCurrentUserComplete()
+
+        #expect(sink.records.filter { $0.name == "onboarding_flow_started" }.count == 1)
+        #expect(sink.records.filter { $0.name == "onboarding_flow_completed" }.count == 1)
+    }
+
+    @MainActor
+    @Test
+    func bothCompletionPathsReportTheSameFinalStep() {
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let telemetry = makeTelemetry(sink: sink)
+
+        let fullRunStore = PostAuthOnboardingStore(userDefaults: makeDefaults())
+        let fullRun = PostAuthOnboardingCoordinator(store: fullRunStore, telemetry: telemetry)
+        fullRun.resolve(userId: "user-full-run")
+        for _ in PostAuthOnboardingStage.allCases {
+            fullRun.completeCurrentStage()
+        }
+
+        let remoteStore = PostAuthOnboardingStore(userDefaults: makeDefaults())
+        let remote = PostAuthOnboardingCoordinator(store: remoteStore, telemetry: telemetry)
+        remote.resolve(userId: "user-remote")
+        remote.markCurrentUserComplete()
+
+        let completed = sink.records.filter { $0.name == "onboarding_flow_completed" }
+        #expect(completed.count == 2)
+        #expect(completed[0].parameters == completed[1].parameters)
+    }
+
+    @MainActor
+    @Test
     func movingBackReportsTheStageBeingLeft() {
         let defaults = makeDefaults()
         let store = PostAuthOnboardingStore(userDefaults: defaults)

@@ -6,7 +6,6 @@ struct OnboardingValueCarouselView: View {
     @Binding var selectedIndex: Int
     @State private var scrollPositionID: String?
     @State private var didRecordFlowStart = false
-    @State private var viewedPageIDs: Set<String> = []
 
     let pages: [OnboardingValuePage]
     var analyticsFlowID = defaultAnalyticsFlowID
@@ -51,20 +50,18 @@ struct OnboardingValueCarouselView: View {
                     clampSelectedIndex()
                     syncScrollPositionToSelectedIndex()
                     recordFlowStartIfNeeded()
-                    recordCurrentPageViewedIfNeeded()
                 }
                 .onChange(of: pages.count) { _, _ in
                     clampSelectedIndex()
                     syncScrollPositionToSelectedIndex()
-                    recordCurrentPageViewedIfNeeded()
                 }
                 .onChange(of: selectedIndex) { _, _ in
                     syncScrollPositionToSelectedIndex()
-                    recordCurrentPageViewedIfNeeded()
                 }
                 .onChange(of: scrollPositionID) { _, newID in
                     updateSelectedIndex(for: newID)
                 }
+                .trackOnboardingScreenView(currentAnalyticsContext())
             }
         }
         .background(Color.black)
@@ -167,19 +164,6 @@ struct OnboardingValueCarouselView: View {
         didRecordFlowStart = true
         TelemetryManager.shared.track(
             OnboardingAnalyticsEvent.flowStarted(context: context)
-        )
-    }
-
-    private func recordCurrentPageViewedIfNeeded() {
-        guard pages.indices.contains(selectedIndex) else { return }
-
-        let page = pages[selectedIndex]
-        guard !viewedPageIDs.contains(page.id),
-              let context = currentAnalyticsContext() else { return }
-
-        viewedPageIDs.insert(page.id)
-        TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.screenViewed(context: context)
         )
     }
 

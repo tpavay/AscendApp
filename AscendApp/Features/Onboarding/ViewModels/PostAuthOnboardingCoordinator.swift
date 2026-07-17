@@ -67,9 +67,7 @@ final class PostAuthOnboardingCoordinator {
             OnboardingAnalyticsUserProperties.setOnboardingCompleted()
             phase = .complete
             recordLifecycleSnapshot(snapshot)
-            telemetry.track(
-                OnboardingAnalyticsEvent.flowCompleted(context: stage.analyticsContext)
-            )
+            recordFlowCompleted()
         }
     }
 
@@ -128,12 +126,31 @@ final class PostAuthOnboardingCoordinator {
 
     func markCurrentUserComplete() {
         guard let userId = currentUserId else { return }
+
+        // Read before `markComplete` overwrites it: a user who is flipped straight to `.complete`
+        // still has to close the funnel `resolve` opened, and a user who never opened one must
+        // not emit a completion, or starts and completions stop being 1:1 per user.
+        let wasIncompleteAfterFlowStart = store.hasRecordedFlowStart(for: userId)
+            && !store.snapshot(for: userId).isComplete
+
         store.markComplete(for: userId)
         let snapshot = store.snapshot(for: userId)
         SettingsManager.shared.hasCompletedBaseLevelOnboarding = true
         phase = .complete
         recordLifecycleSnapshot(snapshot)
+
+        if wasIncompleteAfterFlowStart {
+            recordFlowCompleted()
+        }
+
         NotificationCenter.default.post(name: .postAuthOnboardingStateDidChange, object: nil)
+    }
+
+    /// Both completion paths report the final stage so `onboarding_flow_completed` has one shape.
+    private func recordFlowCompleted() {
+        telemetry.track(
+            OnboardingAnalyticsEvent.flowCompleted(context: PostAuthOnboardingStage.last.analyticsContext)
+        )
     }
 
     private func recordFlowStartIfNeeded(userId: String, stage: PostAuthOnboardingStage) {
