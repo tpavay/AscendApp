@@ -565,16 +565,16 @@ final class LiveClimbSessionViewModel {
                 status: .stopped,
                 force: true
             )
-            let workout = try saveWorkout(
+            let savedSession = try saveWorkout(
                 from: result,
                 splitCurve: finalSplitCurve,
                 modelContext: modelContext
             )
-            savedWorkout = workout
+            savedWorkout = savedSession.workout
             recordedResult = result
             hasSavedSession = true
 
-            let savedStatus = savedAttemptStatus(modelContext: modelContext)
+            let savedStatus = savedSession.attemptStatus
             trackSavedAttempt(result: result, status: savedStatus)
             phase = .saved(savedStatus)
             clearDraft(modelContext: modelContext)
@@ -1002,13 +1002,19 @@ final class LiveClimbSessionViewModel {
         totalProgressFraction
     }
 
+    private struct SavedLiveClimbSession {
+        let workout: Workout
+        let attemptStatus: ClimbAttemptStatus
+    }
+
     private func saveWorkout(
         from result: HeadphoneMotionSessionResult,
         splitCurve: LiveReplaySplitCurve,
         modelContext: ModelContext
-    ) throws -> Workout {
+    ) throws -> SavedLiveClimbSession {
+        var attempt: ClimbAttempt?
         if let climb = mode.climb {
-            _ = try climbService.prepareLiveClimbAttempt(
+            attempt = try climbService.prepareLiveClimbAttempt(
                 for: climb,
                 startedAt: result.startedAt,
                 modelContext: modelContext
@@ -1052,8 +1058,9 @@ final class LiveClimbSessionViewModel {
         modelContext.insert(workout)
         try modelContext.save()
 
+        var settledAttempt: ClimbAttempt?
         if mode.isLandmarkClimb {
-            try climbService.apply(workouts: [workout], modelContext: modelContext)
+            settledAttempt = try climbService.apply(workouts: [workout], modelContext: modelContext)
         }
 
         try WorkoutMutationHandler.shared.workoutsDidChange(
@@ -1069,19 +1076,11 @@ final class LiveClimbSessionViewModel {
             )
         }
 
-        return workout
-    }
-
-    private func savedAttemptStatus(modelContext: ModelContext) -> ClimbAttemptStatus {
-        guard let climb = mode.climb else {
-            return .completed
-        }
-
-        return climbService
-            .historySummary(for: climb, modelContext: modelContext)
-            .recentEntries
-            .first?
-            .status ?? .completed
+        // Just Climb sessions have no attempt to rank - saving one is the finish.
+        return SavedLiveClimbSession(
+            workout: workout,
+            attemptStatus: settledAttempt?.status ?? attempt?.status ?? .completed
+        )
     }
 
     private func trackSavedAttempt(

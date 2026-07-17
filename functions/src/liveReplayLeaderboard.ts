@@ -344,7 +344,15 @@ function parseReplayPayloadParts(
 }
 
 /**
- * Returns whether a live climb workout represents a full completed climb.
+ * Returns whether a live climb workout may publish a replay row. This is a
+ * publication gate, not the definition of finishing a climb: the client owns
+ * that in LiveClimbCompletionPolicy, which reads steps against the target and
+ * never reads stopReason. Requiring target_reached here deliberately declines
+ * some attempts the client counts as finished. A recovered draft is saved as
+ * interrupted and carries a hand-typed step count, and a First Ascent is
+ * permanent and never reclaimable, so a typed number must never claim one. The
+ * client normalizes a manual stop past the target to target_reached at save
+ * time, so that path agrees with this gate without a change here.
  * @param {ParsedReplayPayloadParts} parsed Parsed replay payload parts.
  * @return {boolean} True when the row may be published publicly.
  */

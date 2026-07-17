@@ -165,6 +165,78 @@ struct ClimbServiceTests {
     }
 
     @Test
+    func endingManuallyPastTheTargetRecordsTheClimbAsTargetReached() throws {
+        let climb = makeClimb(id: "manual-end-past-target", requiredSteps: 1_000)
+        let service = ClimbService(catalogRepository: TestClimbCatalogRepository(climbs: [climb]))
+        let modelContext = try makeModelContext()
+        let climbStartedAt = Date(timeIntervalSince1970: 1_775_217_600)
+
+        modelContext.insert(ClimbAttempt(climbId: climb.id, startedAt: climbStartedAt))
+        try modelContext.save()
+
+        let metadata = HeadphoneMotionWorkoutMetadata(
+            sampleCount: 500,
+            climbId: climb.id,
+            targetStepCount: climb.referenceStepCount,
+            climbTargetStepCount: climb.referenceStepCount,
+            stopReason: .userStopped
+        )
+        let workout = Workout(
+            name: "Ended On The Target",
+            date: climbStartedAt.addingTimeInterval(60),
+            duration: 900,
+            steps: 1_010,
+            floors: 63,
+            stepsPerFloor: 16,
+            source: .headphoneMotion,
+            sourceMetadata: metadata.jsonString
+        )
+        modelContext.insert(workout)
+        try modelContext.save()
+
+        let attempt = try #require(try service.apply(workouts: [workout], modelContext: modelContext))
+
+        #expect(attempt.status == .completed)
+        #expect(LiveClimbWorkoutSummaryData.metadata(for: workout)?.stopReason == .targetReached)
+    }
+
+    @Test
+    func endingManuallyShortOfTheTargetKeepsTheRecordedStopReason() throws {
+        let climb = makeClimb(id: "manual-end-short-of-target", requiredSteps: 1_000)
+        let service = ClimbService(catalogRepository: TestClimbCatalogRepository(climbs: [climb]))
+        let modelContext = try makeModelContext()
+        let climbStartedAt = Date(timeIntervalSince1970: 1_775_217_600)
+
+        modelContext.insert(ClimbAttempt(climbId: climb.id, startedAt: climbStartedAt))
+        try modelContext.save()
+
+        let metadata = HeadphoneMotionWorkoutMetadata(
+            sampleCount: 500,
+            climbId: climb.id,
+            targetStepCount: climb.referenceStepCount,
+            climbTargetStepCount: climb.referenceStepCount,
+            stopReason: .userStopped
+        )
+        let workout = Workout(
+            name: "Gave Up Early",
+            date: climbStartedAt.addingTimeInterval(60),
+            duration: 900,
+            steps: 800,
+            floors: 50,
+            stepsPerFloor: 16,
+            source: .headphoneMotion,
+            sourceMetadata: metadata.jsonString
+        )
+        modelContext.insert(workout)
+        try modelContext.save()
+
+        let attempt = try #require(try service.apply(workouts: [workout], modelContext: modelContext))
+
+        #expect(attempt.status == .failed)
+        #expect(LiveClimbWorkoutSummaryData.metadata(for: workout)?.stopReason == .userStopped)
+    }
+
+    @Test
     func laterWorkoutDoesNotAccumulateTowardPriorAttempt() throws {
         let climb = makeClimb(id: "restart-required-climb", requiredSteps: 1_000)
         let service = ClimbService(catalogRepository: TestClimbCatalogRepository(climbs: [climb]))
