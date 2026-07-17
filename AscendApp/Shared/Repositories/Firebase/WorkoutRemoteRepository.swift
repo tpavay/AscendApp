@@ -10,17 +10,48 @@ final class WorkoutRemoteRepository: WorkoutRemoteRepositoryProtocol, @unchecked
 
     func fetchWorkouts(userId: String) async throws -> [RemoteWorkoutRecord] {
         let snapshot = try await workoutCollectionReference(userId: userId).getDocuments()
+        return decodeRecords(
+            from: snapshot.documents.map { (id: $0.documentID, data: $0.data()) }
+        )
+    }
 
-        return try snapshot.documents.compactMap { snapshot in
-            guard let workoutId = UUID(uuidString: snapshot.documentID) else {
+    /// Decodes each raw backup independently. One un-decodable document (a missing or mistyped
+    /// field) must cost only that record, never zero the whole restore, so a bad row is skipped
+    /// with a diagnostic and every document that decodes is returned. Kept separate from the
+    /// Firestore fetch so the resilience is testable without a live backend.
+    func decodeRecords(
+        from documents: [(id: String, data: [String: Any])],
+        diagnostics: AppDiagnosticsRecorder = .shared
+    ) -> [RemoteWorkoutRecord] {
+        documents.compactMap { document in
+            guard let workoutId = UUID(uuidString: document.id) else {
                 return nil
             }
 
-            return RemoteWorkoutRecord(
-                workoutId: workoutId,
-                document: try firestoreDocument(from: snapshot.data())
-            )
+            do {
+                return RemoteWorkoutRecord(
+                    workoutId: workoutId,
+                    document: try firestoreDocument(from: document.data)
+                )
+            } catch {
+                diagnostics.record(
+                    "workout_backup_decode_failed",
+                    level: .warning,
+                    details: [
+                        "workout_id": document.id,
+                        "reason": decodeFailureReason(error)
+                    ]
+                )
+                return nil
+            }
         }
+    }
+
+    private func decodeFailureReason(_ error: Error) -> String {
+        if case let WorkoutRemoteRepositoryDecodingError.missingField(field) = error {
+            return "missing_field:\(field)"
+        }
+        return String(describing: type(of: error))
     }
 
     func upsertWorkout(

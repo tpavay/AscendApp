@@ -51,7 +51,7 @@ final class HomeDashboardViewModel {
     }
 
     func refreshLocalData(modelContext: ModelContext, referenceDate: Date = Date()) {
-        let completedClimbCount = fetchCompletedClimbCount(modelContext: modelContext)
+        let completedClimbCount = Self.fetchCompletedClimbCount(modelContext: modelContext)
         if self.completedClimbCount != completedClimbCount {
             self.completedClimbCount = completedClimbCount
         }
@@ -148,7 +148,10 @@ final class HomeDashboardViewModel {
         }
     }
 
-    private func fetchCompletedClimbCount(modelContext: ModelContext) -> Int {
+    /// The Home "climbs completed" surface: distinct landmarks with a completed attempt. Pure over
+    /// the store (no instance state), so a restore path can be asserted without a SwiftUI view tree
+    /// or a configured Firebase.
+    static func fetchCompletedClimbCount(modelContext: ModelContext) -> Int {
         let completedStatus = ClimbAttemptStatus.completed.rawValue
         let descriptor = FetchDescriptor<ClimbAttempt>(
             predicate: #Predicate<ClimbAttempt> { attempt in
