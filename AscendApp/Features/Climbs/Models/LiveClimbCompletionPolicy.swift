@@ -20,6 +20,21 @@ enum LiveClimbCompletionPolicy {
         isCompletion(steps: steps, targetStepCount: targetStepCount) ? .completed : .failed
     }
 
+    /// The step target a workout's metadata records, resolved the way the replay Cloud Function
+    /// resolves it (`climbTargetStepCount` first, then `targetStepCount`). Metadata written before
+    /// the target was recorded carries neither.
+    static func targetStepCount(for metadata: HeadphoneMotionWorkoutMetadata) -> Int? {
+        metadata.climbTargetStepCount ?? metadata.targetStepCount
+    }
+
+    /// The steps to record on an attempt. A climb stops counting at its target, so an attempt's
+    /// recorded steps must not depend on which reader built it — saving and rehydrating the same
+    /// session have to land on the same number.
+    static func recordedSteps(steps: Int, targetStepCount: Int?) -> Int {
+        guard let targetStepCount, targetStepCount > 0 else { return steps }
+        return min(targetStepCount, steps)
+    }
+
     /// The stop reason to persist alongside a saved live climb workout.
     ///
     /// A session that passed the target reached it, whether the auto-finish fired or the user
@@ -35,14 +50,13 @@ enum LiveClimbCompletionPolicy {
 
     /// Resolves the status of an attempt reconstructed from a workout's stored metadata.
     ///
-    /// Mirrors the Cloud Function's target resolution (`climbTargetStepCount` first, then
-    /// `targetStepCount`). Metadata written before the target was recorded carries no step
-    /// target, so those workouts fall back to the reason the session ended.
+    /// Metadata written before the target was recorded carries no step target, so those workouts
+    /// fall back to the reason the session ended.
     static func attemptStatus(
         for metadata: HeadphoneMotionWorkoutMetadata,
         steps: Int
     ) -> ClimbAttemptStatus {
-        guard let targetStepCount = metadata.climbTargetStepCount ?? metadata.targetStepCount else {
+        guard let targetStepCount = targetStepCount(for: metadata) else {
             return metadata.stopReason == .targetReached ? .completed : .failed
         }
 

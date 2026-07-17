@@ -251,7 +251,10 @@ final class ClimbService {
 
             appliedWorkoutIds.append(workoutIdentifier)
             activeAttempt.appliedWorkoutIds = appliedWorkoutIds
-            activeAttempt.accumulatedSteps = min(climb.referenceStepCount, workout.steps)
+            activeAttempt.accumulatedSteps = LiveClimbCompletionPolicy.recordedSteps(
+                steps: workout.steps,
+                targetStepCount: climb.referenceStepCount
+            )
             activeAttempt.accumulatedDurationSeconds = Int(workout.duration.rounded())
             activeAttempt.sessionsCount = 1
             didChange = true

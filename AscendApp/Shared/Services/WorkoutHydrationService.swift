@@ -218,6 +218,10 @@ enum WorkoutHydrationService {
         }
 
         let status = LiveClimbCompletionPolicy.attemptStatus(for: metadata, steps: workout.steps)
+        let recordedSteps = LiveClimbCompletionPolicy.recordedSteps(
+            steps: workout.steps,
+            targetStepCount: LiveClimbCompletionPolicy.targetStepCount(for: metadata)
+        )
         let endedAt = workout.date.addingTimeInterval(workout.duration)
         let descriptor = FetchDescriptor<ClimbAttempt>(
             predicate: #Predicate<ClimbAttempt> { attempt in
@@ -231,7 +235,7 @@ enum WorkoutHydrationService {
             startedAt: workout.date,
             endedAt: endedAt,
             completedAt: status == .completed ? endedAt : nil,
-            accumulatedSteps: workout.steps,
+            accumulatedSteps: recordedSteps,
             accumulatedDurationSeconds: Int(workout.duration.rounded()),
             sessionsCount: 1,
             appliedWorkoutIds: [workout.id.uuidString],
@@ -244,7 +248,7 @@ enum WorkoutHydrationService {
         attempt.startedAt = workout.date
         attempt.endedAt = endedAt
         attempt.completedAt = status == .completed ? endedAt : nil
-        attempt.accumulatedSteps = workout.steps
+        attempt.accumulatedSteps = recordedSteps
         attempt.accumulatedDurationSeconds = Int(workout.duration.rounded())
         attempt.sessionsCount = 1
         attempt.appliedWorkoutIds = [workout.id.uuidString]

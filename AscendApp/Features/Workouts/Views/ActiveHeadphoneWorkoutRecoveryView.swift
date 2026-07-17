@@ -120,8 +120,10 @@ struct ActiveHeadphoneWorkoutRecoveryView: View {
     }
 
     private var hasReachedTarget: Bool {
-        guard let targetStepCount = draft.targetStepCount else { return false }
-        return effectiveStepCount >= targetStepCount
+        LiveClimbCompletionPolicy.isCompletion(
+            steps: effectiveStepCount,
+            targetStepCount: draft.targetStepCount
+        )
     }
 
     private var saveButtonTitle: String {

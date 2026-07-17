@@ -86,6 +86,41 @@ struct LiveClimbCompletionPolicyTests {
         #expect(LiveClimbCompletionPolicy.attemptStatus(for: stopped, steps: 1_000) == .failed)
     }
 
+    @Test
+    func recordedStepsStopAtTheTarget() {
+        #expect(LiveClimbCompletionPolicy.recordedSteps(steps: 1_010, targetStepCount: 1_000) == 1_000)
+        #expect(LiveClimbCompletionPolicy.recordedSteps(steps: 800, targetStepCount: 1_000) == 800)
+    }
+
+    @Test
+    func recordedStepsKeepTheRawCountWhenNoTargetWasRecorded() {
+        #expect(LiveClimbCompletionPolicy.recordedSteps(steps: 1_010, targetStepCount: nil) == 1_010)
+        #expect(LiveClimbCompletionPolicy.recordedSteps(steps: 1_010, targetStepCount: 0) == 1_010)
+    }
+
+    @Test
+    func metadataTargetPrefersTheClimbTargetOverTheSessionTarget() {
+        let metadata = makeMetadata(
+            stopReason: .userStopped,
+            targetStepCount: 400,
+            climbTargetStepCount: 1_000
+        )
+        let sessionOnly = makeMetadata(
+            stopReason: .userStopped,
+            targetStepCount: 400,
+            climbTargetStepCount: nil
+        )
+        let untargeted = makeMetadata(
+            stopReason: .userStopped,
+            targetStepCount: nil,
+            climbTargetStepCount: nil
+        )
+
+        #expect(LiveClimbCompletionPolicy.targetStepCount(for: metadata) == 1_000)
+        #expect(LiveClimbCompletionPolicy.targetStepCount(for: sessionOnly) == 400)
+        #expect(LiveClimbCompletionPolicy.targetStepCount(for: untargeted) == nil)
+    }
+
     private func makeMetadata(
         stopReason: HeadphoneMotionSessionStopReason,
         targetStepCount: Int? = 1_000,

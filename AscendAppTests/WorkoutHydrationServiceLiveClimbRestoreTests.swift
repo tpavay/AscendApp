@@ -42,7 +42,48 @@ struct WorkoutHydrationServiceLiveClimbRestoreTests {
         #expect(restoredAttempt.id == backup.attemptId)
         #expect(restoredAttempt.status == .completed)
         #expect(restoredAttempt.completedAt != nil)
-        #expect(restoredAttempt.accumulatedSteps == 1_010)
+        // A climb stops counting at its target, so rehydrating must not restate the steps.
+        #expect(restoredAttempt.accumulatedSteps == 1_000)
+        #expect(restoredAttempt.accumulatedSteps == backup.localAttemptSteps)
+    }
+
+    /// A backup written by a build that predates save-time stop reason normalization: the stored
+    /// reason still says the user stopped even though the session passed the target.
+    @Test
+    func legacyBackupWithAStaleStopReasonRestoresAsCompleted() async throws {
+        let userId = "reinstall-legacy-reason-user"
+        let climb = makeClimb(id: "reinstall-legacy-reason-climb", requiredSteps: 1_000)
+
+        let backup = try makeRemoteBackup(
+            for: climb,
+            userId: userId,
+            steps: 1_010,
+            stopReason: .userStopped
+        )
+        let legacyDocument = try rewritingStopReason(on: backup.record.document, to: .userStopped)
+
+        #expect(try decodedMetadata(from: legacyDocument).stopReason == .userStopped)
+
+        let restoredContext = try makeModelContext()
+        _ = try await WorkoutHydrationService.hydrateIfNeeded(
+            modelContext: restoredContext,
+            currentUserId: userId,
+            remoteRepository: StubWorkoutRemoteRepository(
+                records: [
+                    RemoteWorkoutRecord(
+                        workoutId: backup.record.workoutId,
+                        document: legacyDocument
+                    )
+                ]
+            )
+        )
+
+        let restoredAttempt = try #require(
+            try restoredContext.fetch(FetchDescriptor<ClimbAttempt>()).first
+        )
+        #expect(restoredAttempt.status == .completed)
+        #expect(restoredAttempt.completedAt != nil)
+        #expect(restoredAttempt.accumulatedSteps == 1_000)
     }
 
     @Test
@@ -77,6 +118,39 @@ struct WorkoutHydrationServiceLiveClimbRestoreTests {
         let record: RemoteWorkoutRecord
         let attemptId: UUID
         let localAttemptStatus: ClimbAttemptStatus
+        let localAttemptSteps: Int
+    }
+
+    /// Rewrites the stored stop reason on an already-serialized backup, so a fixture can carry a
+    /// reason that save-time normalization would never leave behind.
+    private func rewritingStopReason(
+        on document: FirestoreWorkoutDocument,
+        to stopReason: HeadphoneMotionSessionStopReason
+    ) throws -> FirestoreWorkoutDocument {
+        var metadata = try decodedMetadata(from: document)
+        metadata.stopReason = stopReason
+
+        var json = try #require(
+            try JSONSerialization.jsonObject(
+                with: try JSONEncoder().encode(document)
+            ) as? [String: Any]
+        )
+        json["sourceMetadata"] = try #require(metadata.jsonString)
+
+        return try JSONDecoder().decode(
+            FirestoreWorkoutDocument.self,
+            from: try JSONSerialization.data(withJSONObject: json)
+        )
+    }
+
+    private func decodedMetadata(
+        from document: FirestoreWorkoutDocument
+    ) throws -> HeadphoneMotionWorkoutMetadata {
+        let json = try #require(document.sourceMetadata)
+        return try JSONDecoder().decode(
+            HeadphoneMotionWorkoutMetadata.self,
+            from: try #require(json.data(using: .utf8))
+        )
     }
 
     /// Saves a live climb the way the live session does, then serializes it through the real
@@ -126,7 +200,8 @@ struct WorkoutHydrationServiceLiveClimbRestoreTests {
         return RemoteBackup(
             record: RemoteWorkoutRecord(workoutId: snapshot.workoutId, document: snapshot.document),
             attemptId: attempt.id,
-            localAttemptStatus: attempt.status
+            localAttemptStatus: attempt.status,
+            localAttemptSteps: attempt.accumulatedSteps
         )
     }
 
