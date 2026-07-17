@@ -140,6 +140,33 @@ struct ProfileAchievementCounts: Equatable {
         self.top100 = max(top100, self.top10, 0)
     }
 
+    /// Reads the band counts out of a published `profile_stats` document.
+    init(statsDocument data: [String: Any]) {
+        self.init(
+            top1: Self.finishCount(band: "1", in: data),
+            top3: Self.finishCount(band: "3", in: data),
+            top10: Self.finishCount(band: "10", in: data),
+            top100: Self.finishCount(band: "100", in: data)
+        )
+    }
+
+    /// Reads a band's finish count, falling back to the misnamed `_weeks` key so profiles
+    /// published before the rename keep their badges until their next publication rewrites
+    /// them. Remove the fallback after 2026-10-01.
+    private static func finishCount(band: String, in data: [String: Any]) -> Int {
+        intValue(for: "top_\(band)_finishes", in: data)
+            ?? intValue(for: "top_\(band)_weeks", in: data)
+            ?? 0
+    }
+
+    private static func intValue(for key: String, in data: [String: Any]) -> Int? {
+        if let value = data[key] as? Int { return value }
+        if let value = data[key] as? Int64 { return Int(value) }
+        if let value = data[key] as? Double { return Int(value) }
+        if let value = data[key] as? NSNumber { return value.intValue }
+        return nil
+    }
+
     init(records: [ProfileAchievementRecord]) {
         var top1 = 0
         var top3 = 0

@@ -206,12 +206,7 @@ final class ProfileRepository: Sendable {
         ProfileStatsSnapshot(
             totalClimbsCompleted: intValue(for: "total_climbs_completed", in: data) ?? 0,
             totalFirstAscents: intValue(for: "total_first_ascents", in: data) ?? 0,
-            achievementCounts: ProfileAchievementCounts(
-                top1: achievementCountValue(band: "1", in: data),
-                top3: achievementCountValue(band: "3", in: data),
-                top10: achievementCountValue(band: "10", in: data),
-                top100: achievementCountValue(band: "100", in: data)
-            ),
+            achievementCounts: ProfileAchievementCounts(statsDocument: data),
             mostCompletedClimbId: nonEmptyStringValue(for: "most_completed_climb_id", in: data),
             currentStreakWeeks: intValue(for: "current_streak_weeks", in: data) ?? 0,
             bestStreakWeeks: intValue(for: "best_streak_weeks", in: data) ?? 0,
@@ -316,15 +311,6 @@ final class ProfileRepository: Sendable {
             return nil
         }
         return value
-    }
-
-    /// Reads a band's finish count, falling back to the misnamed `_weeks` key so profiles
-    /// published before the rename keep their badges until their next publication rewrites
-    /// them. Remove the fallback after 2026-10-01.
-    private func achievementCountValue(band: String, in data: [String: Any]) -> Int {
-        intValue(for: "top_\(band)_finishes", in: data)
-            ?? intValue(for: "top_\(band)_weeks", in: data)
-            ?? 0
     }
 
     private func intValue(for key: String, in data: [String: Any]) -> Int? {
