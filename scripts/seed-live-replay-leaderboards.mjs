@@ -85,6 +85,7 @@ const WARM_CLIMBS = [
   {id: "elizabeth-tower", totalClimbers: 34, replayEntries: 20, completionRate: 0.58},
   {id: "tokyo-tower", totalClimbers: 32, replayEntries: 20, completionRate: 0.40},
   {id: "shanghai-tower", totalClimbers: 29, replayEntries: 18, completionRate: 0.34},
+  {id: "taipei-101", totalClimbers: 28, replayEntries: 18, completionRate: 0.34},
   {id: "canton-tower", totalClimbers: 27, replayEntries: 18, completionRate: 0.34},
   {id: "leaning-tower-of-pisa", totalClimbers: 24, replayEntries: 16, completionRate: 0.56},
   {id: "cairo-tower", totalClimbers: 23, replayEntries: 16, completionRate: 0.44},
@@ -557,8 +558,9 @@ function buildSeedPlan(climbsById, paceSamples, args, avatarURLs) {
       (_, index) => seedAttemptId(args.seedPackId, climb.id, index)
     );
 
-    // The First Ascent is the earliest completion, and attempts are generated in
-    // completion order, so the slot belongs to the first one.
+    // Attempts carry a completion duration but no wall-clock completion time, so
+    // none of them is the earliest. The holder is an arbitrary but deterministic
+    // pick, which is all a fixture needs; `firstAscentClaimedAt` dates the claim.
     const firstAscentAttempt = attempts[0] ?? null;
 
     // Checked at plan time so a bad fixture fails the dry run, before any writes.

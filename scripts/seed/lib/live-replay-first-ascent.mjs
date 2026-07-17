@@ -39,9 +39,10 @@ export const FIRST_ASCENT_FIELD_NAMES = Object.freeze([
 /**
  * `activityTier` marking a summary seeded with an open First Ascent slot.
  *
- * Seeded summaries declare their intent through this tier, so the seed writer
- * and the audit agree on which climbs are supposed to carry zero completions
- * rather than each inferring it from the counts they are meant to be checking.
+ * Records what the seed intended for the climb, and nothing more. It is not the
+ * slot's state: the seed writes the tier once and the Cloud Function's summary
+ * merge never resets it, so a climb seeded open still reads "open" after a real
+ * climber claims it. Read the state with `isOpenFirstAscentSummary`.
  */
 export const FIRST_ASCENT_OPEN_ACTIVITY_TIER = "open";
 
@@ -127,12 +128,56 @@ export function clearedFirstAscentFields(deleteSentinel) {
 }
 
 /**
- * Throws when a seeded climb is in a First Ascent state the app can never
- * produce.
+ * Reports whether a climb's First Ascent slot is still open.
+ *
+ * Derived from the counts and the holder, never from `activityTier`: those are
+ * the only fields both the seed and the Cloud Function maintain, so they are the
+ * only ones that still describe the slot after a real climber claims it.
+ * @param {object} state First Ascent state.
+ * @param {number} state.completedCount Completions recorded for the climb.
+ * @param {boolean} state.hasFirstAscent Whether a holder is recorded.
+ * @return {boolean} True when the next finisher would claim the slot.
+ */
+export function isOpenFirstAscentSummary({completedCount, hasFirstAscent}) {
+  return completedCount === 0 && !hasFirstAscent;
+}
+
+/**
+ * Describes why a climb's First Ascent state is one the app can never produce,
+ * or returns null when the state is reachable.
+ *
+ * The single definition of the contract. Both dead states are unreachable *and*
+ * unleavable, so the seed asserts against this while building its plan and the
+ * audit reports against it - one of them throwing and the other accumulating is
+ * a difference in reporting, not in what counts as valid.
  *
  * Takes the state explicitly rather than reading it back off a write map: a
  * cleared summary carries delete sentinels rather than absent fields, so the
  * written values cannot distinguish "no holder" from "holder" on their own.
+ * @param {object} state First Ascent state.
+ * @param {string} state.climbId Climb identifier, for the message.
+ * @param {number} state.completedCount Completions recorded for the climb.
+ * @param {boolean} state.hasFirstAscent Whether a holder is recorded.
+ * @return {string | null} Failure message, or null when the state is reachable.
+ */
+export function firstAscentInvariantFailure({climbId, completedCount, hasFirstAscent}) {
+  if (completedCount > 0 && !hasFirstAscent) {
+    return `${climbId}: ${completedCount} completions but no First Ascent ` +
+      "holder. The slot would render as neither held nor open and could " +
+      "never be claimed.";
+  }
+
+  if (completedCount === 0 && hasFirstAscent) {
+    return `${climbId}: First Ascent holder with 0 completions. The slot ` +
+      "would render as open but the server would refuse the claim.";
+  }
+
+  return null;
+}
+
+/**
+ * Throws when a seeded climb is in a First Ascent state the app can never
+ * produce.
  *
  * Run for every seeded climb while building the plan, so a bad fixture fails the
  * dry run rather than silently killing that climb's First Ascent slot.
@@ -141,19 +186,9 @@ export function clearedFirstAscentFields(deleteSentinel) {
  * @param {number} state.completedCount Seeded completions for the climb.
  * @param {boolean} state.hasFirstAscent Whether a holder is being seeded.
  */
-export function assertFirstAscentInvariant({climbId, completedCount, hasFirstAscent}) {
-  if (completedCount > 0 && !hasFirstAscent) {
-    throw new Error(
-      `${climbId}: ${completedCount} seeded completions but no First Ascent ` +
-        "holder. The slot would render as neither held nor open and could " +
-        "never be claimed."
-    );
-  }
-
-  if (completedCount === 0 && hasFirstAscent) {
-    throw new Error(
-      `${climbId}: First Ascent holder with 0 completions. The slot would ` +
-        "render as open but the server would refuse the claim."
-    );
+export function assertFirstAscentInvariant(state) {
+  const failure = firstAscentInvariantFailure(state);
+  if (failure) {
+    throw new Error(failure);
   }
 }

@@ -9,11 +9,27 @@ import {
   assertFirstAscentInvariant,
   clearedFirstAscentFields,
   firstAscentClaimedAt,
+  firstAscentInvariantFailure,
   firstAscentSeedFields,
+  isOpenFirstAscentSummary,
   summaryHasFirstAscent,
 } from "../seed/lib/live-replay-first-ascent.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+function readScript(relativePath) {
+  return readFileSync(resolve(REPO_ROOT, relativePath), "utf8");
+}
+
+function arrayLiteralIds(source, constName, key) {
+  const literal = source.match(
+    new RegExp(`const ${constName} = \\[([\\s\\S]*?)\\n\\];`)
+  )?.[1];
+  assert.ok(literal, `could not locate ${constName}`);
+
+  return [...literal.matchAll(new RegExp(`${key}:\\s*"([^"]+)"`, "g"))]
+    .map((match) => match[1]);
+}
 
 const attempt = {
   id: "seed-attempt-1",
@@ -75,6 +91,55 @@ test("seed script publishes the same First Ascent fields as the Cloud Function",
     .sort();
 
   assert.deepEqual(serverFields, [...FIRST_ASCENT_FIELD_NAMES].sort());
+});
+
+test("every climb the demo user completes is seeded a First Ascent holder", () => {
+  // seed-demo-user merges completions into the same summary the replay seed
+  // owns, but only claims the slot for its one --first-ascent-climb. A climb it
+  // completes that no list gives a holder to lands in the dead state this
+  // module exists to prevent - which is how taipei-101 kept one.
+  const demoSource = readScript("scripts/seed-demo-user.mjs");
+  const replaySource = readScript("scripts/seed-live-replay-leaderboards.mjs");
+
+  const demoClimbIds = arrayLiteralIds(demoSource, "LIVE_CLIMB_SPECS", "climbId");
+  assert.ok(demoClimbIds.length > 0, "expected demo user live climb specs");
+
+  const demoFirstAscentClimbId = demoSource.match(
+    /const DEFAULT_FIRST_ASCENT_CLIMB_ID = "([^"]+)"/
+  )?.[1];
+  assert.ok(demoFirstAscentClimbId, "could not locate DEFAULT_FIRST_ASCENT_CLIMB_ID");
+
+  const holderClimbIds = new Set([
+    ...arrayLiteralIds(replaySource, "ACTIVE_CLIMBS", "id"),
+    ...arrayLiteralIds(replaySource, "WARM_CLIMBS", "id"),
+    demoFirstAscentClimbId,
+  ]);
+
+  for (const climbId of demoClimbIds) {
+    assert.ok(
+      holderClimbIds.has(climbId),
+      `${climbId} gets demo completions but no script seeds it a First Ascent holder`
+    );
+  }
+});
+
+test("open First Ascent climbs are disjoint from the demo user's climbs", () => {
+  // Both scripts merge into the same summary, so a shared climb would have
+  // whichever ran last strand the other's state: demo completions with no
+  // holder, or an open slot the demo user already filled.
+  const replaySource = readScript("scripts/seed-live-replay-leaderboards.mjs");
+  const demoClimbIds = new Set(
+    arrayLiteralIds(readScript("scripts/seed-demo-user.mjs"), "LIVE_CLIMB_SPECS", "climbId")
+  );
+  const openClimbIds = arrayLiteralIds(replaySource, "FIRST_ASCENT_OPEN_CLIMBS", "id");
+
+  assert.ok(openClimbIds.length > 0, "expected open First Ascent climbs");
+  for (const climbId of openClimbIds) {
+    assert.ok(
+      !demoClimbIds.has(climbId),
+      `${climbId} seeds an open First Ascent but the demo user completes it`
+    );
+  }
 });
 
 test("every seed script that publishes a holder routes through the module", () => {
@@ -203,4 +268,64 @@ test("the two reachable First Ascent states are accepted", () => {
     completedCount: 0,
     hasFirstAscent: false,
   }));
+});
+
+test("the assert and the audit report against one definition of the contract", () => {
+  // The seed throws while building its plan and the audit accumulates failures.
+  // That is a difference in reporting, not in what counts as valid.
+  const dead = {climbId: "mount-everest", completedCount: 89, hasFirstAscent: false};
+
+  assert.match(firstAscentInvariantFailure(dead), /no First Ascent holder/);
+  assert.throws(() => assertFirstAscentInvariant(dead), new RegExp(firstAscentInvariantFailure(dead)));
+
+  assert.equal(
+    firstAscentInvariantFailure({climbId: "mount-everest", completedCount: 89, hasFirstAscent: true}),
+    null
+  );
+  assert.equal(
+    firstAscentInvariantFailure({climbId: "sky-tower-auckland", completedCount: 0, hasFirstAscent: false}),
+    null
+  );
+});
+
+test("a summary is open only with zero completions and no holder", () => {
+  assert.equal(isOpenFirstAscentSummary({completedCount: 0, hasFirstAscent: false}), true);
+  assert.equal(isOpenFirstAscentSummary({completedCount: 89, hasFirstAscent: true}), false);
+  assert.equal(isOpenFirstAscentSummary({completedCount: 0, hasFirstAscent: true}), false);
+  assert.equal(isOpenFirstAscentSummary({completedCount: 89, hasFirstAscent: false}), false);
+});
+
+test("a QA climber claiming a seeded open slot reads as held, not open", () => {
+  // Sky Tower is seeded cheapest so a QA session can finish it and claim the
+  // First Ascent end to end. The server merges the completion and the holder but
+  // never resets activityTier, so the summary keeps reading tier "open" while
+  // being legitimately held - auditing the tier would fail the one flow the
+  // fixture exists for.
+  const claimed = {
+    activityTier: "open",
+    completedCount: 1,
+    ...firstAscentSeedFields(attempt, new Date("2026-02-01T00:00:00Z")),
+  };
+  const state = {
+    climbId: "sky-tower-auckland",
+    completedCount: claimed.completedCount,
+    hasFirstAscent: summaryHasFirstAscent(claimed),
+  };
+
+  assert.equal(isOpenFirstAscentSummary(state), false);
+  assert.equal(firstAscentInvariantFailure(state), null);
+});
+
+test("the audit reads the First Ascent state off the data, not activityTier", () => {
+  // activityTier is stale by design: the seed writes it once and the Cloud
+  // Function's summary merge never resets it.
+  const source = readScript("scripts/audit-seed-data.mjs");
+
+  assert.match(source, /isOpenFirstAscentSummary\(/);
+  assert.match(source, /firstAscentInvariantFailure\(/);
+  assert.doesNotMatch(
+    source,
+    /activityTier/,
+    "the audit must not branch on activityTier"
+  );
 });
