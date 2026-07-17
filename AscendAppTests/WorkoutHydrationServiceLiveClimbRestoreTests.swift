@@ -148,11 +148,82 @@ struct WorkoutHydrationServiceLiveClimbRestoreTests {
         #expect(restoredAttempt.completedAt == nil)
     }
 
+    /// The bug in the terms the user feels it: the climb they finished has to still be theirs
+    /// after a reinstall. The attempt record is what rehydration writes; these are the surfaces
+    /// that record reaches - the Collection card's claimed state and the Climb Detail history.
+    @Test
+    func aFinishedClimbIsStillClaimedAcrossItsSurfacesAfterReinstall() async throws {
+        let userId = "reinstall-surfaces-user"
+        let climb = makeClimb(id: "reinstall-surfaces-climb", requiredSteps: 1_000)
+
+        let backup = try makeRemoteBackup(
+            for: climb,
+            userId: userId,
+            steps: 1_010,
+            stopReason: .userStopped
+        )
+        let before = describeSurfaces(
+            service: backup.service,
+            climb: climb,
+            modelContext: backup.sourceContext
+        )
+
+        let restoredContext = try makeModelContext()
+        _ = try await WorkoutHydrationService.hydrateIfNeeded(
+            modelContext: restoredContext,
+            currentUserId: userId,
+            remoteRepository: StubWorkoutRemoteRepository(records: [backup.record])
+        )
+        let restoredService = ClimbService(catalogRepository: TestCatalogRepository(climbs: [climb]))
+        let after = describeSurfaces(
+            service: restoredService,
+            climb: climb,
+            modelContext: restoredContext
+        )
+
+        // Compared as a whole so a regression reports every surface the user lost at once.
+        #expect(after == before)
+
+        // Collection: the card keeps its claimed checkmark.
+        #expect(restoredService.previewSummary(for: climb, modelContext: restoredContext).isCompleted)
+        #expect(restoredService.collectionCount(modelContext: restoredContext) == 1)
+
+        // Climb Detail history: a completion, not a failed attempt.
+        let history = restoredService.historySummary(for: climb, modelContext: restoredContext)
+        #expect(history.completionsCount == 1)
+        #expect(history.failedAttemptsCount == 0)
+        let entry = try #require(history.recentEntries.first)
+        #expect(entry.status == .completed)
+        #expect(entry.recordedSteps == 1_000)
+    }
+
+    /// Renders the climb's user-facing state from the same service surfaces the Collection and
+    /// Climb Detail screens read, so a reinstall's effect is legible without a device.
+    private func describeSurfaces(
+        service: ClimbService,
+        climb: Climb,
+        modelContext: ModelContext
+    ) -> String {
+        let isClaimed = service.previewSummary(for: climb, modelContext: modelContext).isCompleted
+        let history = service.historySummary(for: climb, modelContext: modelContext)
+        let entry = history.recentEntries.first
+
+        return """
+          Collection card ....... \(isClaimed ? "CLAIMED (checkmark badge)" : "UNCLAIMED (no badge)")
+          Collection count ...... \(service.collectionCount(modelContext: modelContext)) climb(s)
+          Climb Detail history .. \(history.completionsCount) completion(s), \
+        \(history.failedAttemptsCount) failed attempt(s)
+          History row ........... \(entry.map { "\($0.status) - \($0.recordedSteps.formatted()) of \($0.totalSteps.formatted()) steps" } ?? "none")
+        """
+    }
+
     private struct RemoteBackup {
         let record: RemoteWorkoutRecord
         let attemptId: UUID
         let localAttemptStatus: ClimbAttemptStatus
         let localAttemptSteps: Int
+        let sourceContext: ModelContext
+        let service: ClimbService
     }
 
     /// Rewrites the stored stop reason on an already-serialized backup, so a fixture can carry a
@@ -235,7 +306,9 @@ struct WorkoutHydrationServiceLiveClimbRestoreTests {
             record: RemoteWorkoutRecord(workoutId: snapshot.workoutId, document: snapshot.document),
             attemptId: attempt.id,
             localAttemptStatus: attempt.status,
-            localAttemptSteps: attempt.accumulatedSteps
+            localAttemptSteps: attempt.accumulatedSteps,
+            sourceContext: modelContext,
+            service: service
         )
     }
 
