@@ -40,8 +40,9 @@ test("rejects skipped attempts", () => {
   assert.equal(payload, null);
 });
 
-// Parsed with `requireEligibleParticipation: false` so the tracking-mode gate is the only thing
-// that can reject the row. The eligibility gate would otherwise mask a regression here.
+// Parsed with `requireEligibleParticipation: false` so the tracking-mode gate
+// is the only thing that can reject the row. The eligibility gate would
+// otherwise mask a regression here.
 test("rejects routine tracking mode from the Just Climb replay context", () => {
   const document = makeWorkoutDocument({
     participations: [makeParticipation({contextType: "routine_template"})],
@@ -61,26 +62,31 @@ test("rejects routine tracking mode from the Just Climb replay context", () => {
   );
 });
 
-// Parsed with `requireEligibleParticipation: false` so the missing climbId is the only thing that
-// can reject the row: a routine session has no landmark to publish against.
-test("rejects routine sessions without a climb id from the per-climb replay context", () => {
-  const document = makeWorkoutDocument({
-    participations: [makeParticipation({contextType: "routine_template"})],
-    sourceMetadata: makeSourceMetadata({
-      climbId: undefined,
-      routineTemplateId: "pyramid_climb",
-      stopReason: "target_reached",
-      trackingMode: "routine",
-    }),
-  });
+// Parsed with `requireEligibleParticipation: false` so the missing climbId is
+// the only thing that can reject the row: a routine session has no landmark to
+// publish against.
+test(
+  "rejects routine sessions without a climb id from the per-climb replay " +
+    "context",
+  () => {
+    const document = makeWorkoutDocument({
+      participations: [makeParticipation({contextType: "routine_template"})],
+      sourceMetadata: makeSourceMetadata({
+        climbId: undefined,
+        routineTemplateId: "pyramid_climb",
+        stopReason: "target_reached",
+        trackingMode: "routine",
+      }),
+    });
 
-  assert.equal(
-    liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload(document, {
-      requireEligibleParticipation: false,
-    }),
-    null
-  );
-});
+    assert.equal(
+      liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload(document, {
+        requireEligibleParticipation: false,
+      }),
+      null
+    );
+  }
+);
 
 test("rejects resumed partial target hits", () => {
   const payload = liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload(

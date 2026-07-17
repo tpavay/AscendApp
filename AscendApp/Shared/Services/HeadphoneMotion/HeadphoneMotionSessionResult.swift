@@ -4,15 +4,16 @@ enum HeadphoneMotionSessionStopReason: String, Codable, Sendable {
     case userStopped = "user_stopped"
     case targetReached = "target_reached"
     /// The session ran to the end of its plan, but the climber skipped ahead of at least one
-    /// segment instead of stepping through it. Only `targetReached` earns competitive credit,
-    /// so a skipped session logs its real steps without publishing or counting as a completion.
+    /// segment instead of stepping through it, so it logs the steps really taken without
+    /// standing as a completion. See `earnsCompetitiveCredit`.
     case skipped = "skipped"
     case discarded = "discarded"
     case interrupted = "interrupted"
 
-    /// The single definition of whether a session counted. `targetReached` is the only reason
-    /// that earns credit: it is the gate the server-side replay indexer publishes on, so the
-    /// participation record and the summary UI must both read this rather than re-deriving it.
+    /// The single definition of whether a routine session counted, so the participation record
+    /// and the summary UI must both read this rather than re-deriving a verdict that could
+    /// disagree. A climb attempt does not use it: `LiveClimbCompletionPolicy` owns that finish
+    /// and reads steps against the target, never a stop reason.
     var earnsCompetitiveCredit: Bool {
         self == .targetReached
     }
