@@ -136,6 +136,7 @@ final class PostAuthOnboardingCoordinator {
         store.markComplete(for: userId)
         let snapshot = store.snapshot(for: userId)
         SettingsManager.shared.hasCompletedBaseLevelOnboarding = true
+        OnboardingAnalyticsUserProperties.setOnboardingCompleted()
         phase = .complete
         recordLifecycleSnapshot(snapshot)
 

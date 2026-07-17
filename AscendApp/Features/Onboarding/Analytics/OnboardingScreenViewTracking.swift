@@ -5,17 +5,13 @@ extension View {
     /// Navigating back to an already-viewed step re-emits nothing, so the funnel counts each step
     /// once per user regardless of how many times they pass through it. A `nil` context emits
     /// nothing, which lets callers whose step is index-derived pass an out-of-bounds state through.
-    func trackOnboardingScreenView(
-        _ context: OnboardingAnalyticsContext?,
-        telemetry: TelemetryManager = .shared
-    ) -> some View {
-        modifier(OnboardingScreenViewTracker(context: context, telemetry: telemetry))
+    func trackOnboardingScreenView(_ context: OnboardingAnalyticsContext?) -> some View {
+        modifier(OnboardingScreenViewTracker(context: context))
     }
 }
 
 private struct OnboardingScreenViewTracker: ViewModifier {
     let context: OnboardingAnalyticsContext?
-    let telemetry: TelemetryManager
 
     @State private var viewedStepIDs: Set<String> = []
 
@@ -33,7 +29,7 @@ private struct OnboardingScreenViewTracker: ViewModifier {
         guard let context, !viewedStepIDs.contains(context.stepID) else { return }
 
         viewedStepIDs.insert(context.stepID)
-        telemetry.track(
+        TelemetryManager.shared.track(
             OnboardingAnalyticsEvent.screenViewed(context: context)
         )
     }
