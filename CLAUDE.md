@@ -329,6 +329,9 @@ When evaluating new providers, justify them by what they uniquely measure that t
 - Log from logic layers (view models, coordinators, services), not from view bodies. SwiftUI screen tracking is the exception — it belongs on the view via a shared modifier.
 - Parameters stay low-cardinality and privacy-safe: never log raw user input, email, DOB, exact location, exact health samples, or any PII. Bucket continuous values into categories before logging.
 - Event contracts are verifiable. Tests should exercise event-emission paths without requiring a live analytics runtime.
+- Telemetry collection is force-disabled under XCTest (see `TelemetryManager.shouldEnableCollection`), so `TelemetryManager.shared` never emits in tests and assertions against it pass vacuously.
+  To assert emission, inject a `TelemetryManager` built with `InMemoryTelemetrySink` and `collectionEnabledOverride: true`, and call `configure()` on it — the override only applies there.
+  This is why emitters like `PostAuthOnboardingCoordinator` take an injected `TelemetryManager` instead of reaching for the singleton.
 
 **Local inspection**
 

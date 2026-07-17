@@ -5,16 +5,18 @@ struct PreAuthOnboardingValueCarouselScreen: View {
     @State private var selectedIndex = 0
     @State private var isShowingSignUp = false
 
+    private let pages = OnboardingValuePages.all
+
     var body: some View {
         OnboardingScaffold(
-            backAction: { dismiss() },
+            backAction: handleBack,
             background: {
                 Color.black
             },
             content: { _ in
                 OnboardingValueCarouselView(
                     selectedIndex: $selectedIndex,
-                    pages: OnboardingValuePages.all,
+                    pages: pages,
                     onFinish: { isShowingSignUp = true }
                 )
                 .ignoresSafeArea()
@@ -23,6 +25,16 @@ struct PreAuthOnboardingValueCarouselScreen: View {
         .navigationDestination(isPresented: $isShowingSignUp) {
             SignUpView()
         }
+    }
+
+    private func handleBack() {
+        if let context = OnboardingValueCarouselView.analyticsContext(pages: pages, index: selectedIndex) {
+            TelemetryManager.shared.track(
+                OnboardingAnalyticsEvent.backTapped(context: context)
+            )
+        }
+
+        dismiss()
     }
 }
 
@@ -418,7 +430,6 @@ struct OnboardingFeatureGuideFlowScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var stepIndex = 0
     @State private var didRecordFlowStart = false
-    @State private var viewedScreenIDs: Set<String> = []
 
     let flowID: String
     let onBackFromFirstScreen: (() -> Void)?
@@ -446,11 +457,8 @@ struct OnboardingFeatureGuideFlowScreen: View {
         .navigationBarBackButtonHidden(true)
         .onAppear {
             recordFlowStartIfNeeded()
-            recordCurrentScreenViewedIfNeeded()
         }
-        .onChange(of: stepIndex) { _, _ in
-            recordCurrentScreenViewedIfNeeded()
-        }
+        .trackOnboardingScreenView(analyticsContext(for: currentScreen, index: stepIndex))
     }
 
     private var currentScreen: PreAuthGuideScreen {
@@ -493,18 +501,6 @@ struct OnboardingFeatureGuideFlowScreen: View {
         didRecordFlowStart = true
         TelemetryManager.shared.track(
             OnboardingAnalyticsEvent.flowStarted(context: analyticsContext(for: currentScreen, index: stepIndex))
-        )
-    }
-
-    private func recordCurrentScreenViewedIfNeeded() {
-        let screen = currentScreen
-        guard !viewedScreenIDs.contains(screen.id) else { return }
-
-        viewedScreenIDs.insert(screen.id)
-        TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.screenViewed(
-                context: analyticsContext(for: screen, index: stepIndex)
-            )
         )
     }
 

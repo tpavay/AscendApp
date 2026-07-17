@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct LandingScreen: View {
+    @State private var isShowingValueCarousel = false
+
     var body: some View {
         ZStack {
             OnboardingWelcomeBackground()
@@ -28,7 +30,7 @@ struct LandingScreen: View {
                         .frame(width: 334 * scaleX, height: 36 * scaleY, alignment: .top)
                         .position(x: centerX, y: 270 * scaleY)
 
-                    NavigationLink(destination: PreAuthOnboardingValueCarouselScreen()) {
+                    Button(action: startOnboarding) {
                         Text("GET STARTED")
                     }
                     .buttonStyle(
@@ -49,6 +51,21 @@ struct LandingScreen: View {
         }
         .background(Color.black)
         .toolbar(.hidden, for: .navigationBar)
+        .navigationDestination(isPresented: $isShowingValueCarousel) {
+            PreAuthOnboardingValueCarouselScreen()
+        }
+        .trackOnboardingScreenView(OnboardingAnalyticsEvent.welcomeContext)
+    }
+
+    private func startOnboarding() {
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.screenCompleted(
+                context: OnboardingAnalyticsEvent.welcomeContext,
+                inputType: "button",
+                properties: [:]
+            )
+        )
+        isShowingValueCarousel = true
     }
 
     private func welcomeHeadline(typeScale: CGFloat) -> Text {

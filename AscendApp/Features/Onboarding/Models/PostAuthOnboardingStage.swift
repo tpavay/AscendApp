@@ -55,6 +55,10 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
         .displayName
     }
 
+    static var last: PostAuthOnboardingStage {
+        allCases.last ?? first
+    }
+
     var analyticsContext: OnboardingAnalyticsContext {
         OnboardingAnalyticsContext(
             flowID: Self.flowID,

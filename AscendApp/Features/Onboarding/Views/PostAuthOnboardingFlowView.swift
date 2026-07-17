@@ -5,8 +5,6 @@ struct PostAuthOnboardingFlowView: View {
     let onBack: () -> Void
     let onContinue: () -> Void
 
-    @State private var viewedStageIDs: Set<PostAuthOnboardingStage> = []
-
     var body: some View {
         Group {
             switch stage {
@@ -74,20 +72,7 @@ struct PostAuthOnboardingFlowView: View {
         .background(PostAuthProfilePalette.background)
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
-        .onAppear {
-            recordStageViewedIfNeeded(stage)
-        }
-        .onChange(of: stage) { _, newStage in
-            recordStageViewedIfNeeded(newStage)
-        }
-    }
-
-    private func recordStageViewedIfNeeded(_ stage: PostAuthOnboardingStage) {
-        guard !viewedStageIDs.contains(stage) else { return }
-        viewedStageIDs.insert(stage)
-        TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.screenViewed(context: stage.analyticsContext)
-        )
+        .trackOnboardingScreenView(stage.analyticsContext)
     }
 }
 
@@ -172,6 +157,7 @@ private struct PostAuthSurveyQuestionStageScreen: View {
             context: stage.analyticsContext,
             selectedOptionIDs: selectedOptionIDs
         )
+        trackPostAuthInput(stage: stage)
         onContinue()
     }
 }
@@ -829,6 +815,7 @@ private struct PostAuthNotificationScreen: View {
             )
             TelemetryManager.shared.setUserProperty("notifications_inputted", value: "true")
             OnboardingAnalyticsUserProperties.setNotificationChoice(isAllowed ? "allow" : "decline")
+            trackPostAuthInput(stage: stage)
             onContinue()
         }
     }
@@ -849,6 +836,7 @@ private struct PostAuthNotificationScreen: View {
             )
             TelemetryManager.shared.setUserProperty("notifications_inputted", value: "true")
             OnboardingAnalyticsUserProperties.setNotificationChoice("skip")
+            trackPostAuthInput(stage: stage)
             onContinue()
         }
     }
@@ -1447,6 +1435,7 @@ private struct PostAuthFirstClimbRevealScreen: View {
                         climbName: firstClimb.name
                     )
                 )
+                trackPostAuthInput(stage: stage)
                 onContinue()
             }
         }
