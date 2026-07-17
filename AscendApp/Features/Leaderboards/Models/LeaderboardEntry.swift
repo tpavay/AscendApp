@@ -33,6 +33,21 @@ struct LeaderboardEntry: Identifiable, Equatable, Sendable {
         self.isCurrentUser = isCurrentUser
         self.isTied = isTied
     }
+
+    /// A copy carrying a refreshed profile identity. Every ranking field is preserved:
+    /// a profile edit must never move the climber's rank or drop their tie marker.
+    func withProfile(displayName: String, photoURL: URL?) -> LeaderboardEntry {
+        LeaderboardEntry(
+            userId: userId,
+            displayName: displayName,
+            photoURL: photoURL,
+            rank: rank,
+            value: value,
+            formattedValue: formattedValue,
+            isCurrentUser: isCurrentUser,
+            isTied: isTied
+        )
+    }
 }
 
 struct FirestoreLeaderboardStats: Codable, Equatable, Sendable {

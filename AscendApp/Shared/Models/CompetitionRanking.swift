@@ -58,25 +58,6 @@ enum CompetitionRanking {
         return ranks
     }
 
-    /// The continuation to hand to the next page after ranking `items` with `ranks`.
-    /// Returns `nil` when there is nothing to carry forward.
-    static func continuation<Item, Key: Equatable>(
-        after items: [Item],
-        ranks: [Int],
-        continuing continuation: Continuation<Key>? = nil,
-        key: (Item) -> Key
-    ) -> Continuation<Key>? {
-        guard let lastItem = items.last, let lastRank = ranks.last else {
-            return continuation
-        }
-
-        return Continuation(
-            lastKey: key(lastItem),
-            lastRank: lastRank,
-            rankedCount: (continuation?.rankedCount ?? 0) + items.count
-        )
-    }
-
     /// Display token for a rank. A tie takes a "T" prefix — the sports-leaderboard
     /// convention — so a shared rank is obvious at a glance rather than reading as an
     /// ordinary ordering. Tied and untied labels stay the same width.
@@ -126,19 +107,5 @@ enum CompetitionRanking {
         }
 
         return rank
-    }
-
-    /// Whether the row at `index` shares its rank with at least one other row.
-    static func isTied<Item, Key: Equatable>(
-        at index: Int,
-        in items: [Item],
-        key: (Item) -> Key
-    ) -> Bool {
-        guard items.indices.contains(index) else { return false }
-
-        let target = key(items[index])
-        if index > 0, key(items[index - 1]) == target { return true }
-        if index < items.count - 1, key(items[index + 1]) == target { return true }
-        return false
     }
 }

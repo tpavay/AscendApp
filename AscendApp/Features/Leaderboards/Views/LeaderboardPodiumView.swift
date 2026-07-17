@@ -48,21 +48,13 @@ struct LeaderboardPodiumView: View {
                     seedPhotoURL: entry.photoURL
                 )
             } label: {
-                LeaderboardPodiumSlotView(
-                    position: slot.position,
-                    entry: slot.entry,
-                    metric: metric
-                )
+                LeaderboardPodiumSlotView(slot: slot, metric: metric)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .bottom)
         } else {
-            LeaderboardPodiumSlotView(
-                position: slot.position,
-                entry: slot.entry,
-                metric: metric
-            )
-            .frame(maxWidth: .infinity, alignment: .bottom)
+            LeaderboardPodiumSlotView(slot: slot, metric: metric)
+                .frame(maxWidth: .infinity, alignment: .bottom)
         }
     }
 }
@@ -70,18 +62,25 @@ struct LeaderboardPodiumView: View {
 private struct LeaderboardPodiumSlotView: View {
     @Environment(\.colorScheme) private var colorScheme
 
-    /// Which pedestal this is (1 centre, 2 left, 3 right). Drives geometry only.
-    let position: Int
-    let entry: LeaderboardEntry?
+    let slot: LeaderboardPodiumLayout.Slot
     let metric: LeaderboardMetric
+
+    /// Which pedestal this is (1 centre, 2 left, 3 right). Drives geometry only.
+    private var position: Int {
+        slot.position
+    }
+
+    private var entry: LeaderboardEntry? {
+        slot.entry
+    }
 
     /// The climber's true competition rank — what the label and medal reflect.
     private var rank: Int {
-        LeaderboardPodiumLayout.Slot(position: position, entry: entry).displayedRank
+        slot.displayedRank
     }
 
     private var isTied: Bool {
-        entry?.isTied ?? false
+        slot.isTied
     }
 
     private var avatarSize: CGFloat {

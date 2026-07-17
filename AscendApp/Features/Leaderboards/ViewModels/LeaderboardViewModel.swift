@@ -335,28 +335,14 @@ final class LeaderboardViewModel {
         guard let userId else { return }
 
         if let index = leaderboardEntries.firstIndex(where: { $0.userId == userId }) {
-            let existing = leaderboardEntries[index]
-            leaderboardEntries[index] = LeaderboardEntry(
-                userId: existing.userId,
+            leaderboardEntries[index] = leaderboardEntries[index].withProfile(
                 displayName: displayName,
-                photoURL: photoURL,
-                rank: existing.rank,
-                value: existing.value,
-                formattedValue: existing.formattedValue,
-                isCurrentUser: true
+                photoURL: photoURL
             )
         }
 
         if let entry = userEntry, entry.userId == userId {
-            userEntry = LeaderboardEntry(
-                userId: entry.userId,
-                displayName: displayName,
-                photoURL: photoURL,
-                rank: entry.rank,
-                value: entry.value,
-                formattedValue: entry.formattedValue,
-                isCurrentUser: true
-            )
+            userEntry = entry.withProfile(displayName: displayName, photoURL: photoURL)
         }
 
         let sessionCache = sessionCache

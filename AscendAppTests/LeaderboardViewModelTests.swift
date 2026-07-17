@@ -93,6 +93,40 @@ struct LeaderboardViewModelTests {
     }
 
     @Test
+    func profileSyncKeepsTheTiedCurrentUsersRankAndTieMarker() async {
+        // Renaming or re-photographing yourself must not reset your rank or drop your
+        // tie marker — that would put "2" next to a rival still reading "T2".
+        let cache = LeaderboardSessionCache()
+
+        let viewModel = LeaderboardViewModel(sessionCache: cache)
+        viewModel.selectedMetric = .climb
+        viewModel.selectedTimeFrame = .weekly
+
+        let stats = [
+            makeRemoteStat(userId: "aaa", displayName: "Leader", totalSteps: 9_000),
+            makeRemoteStat(userId: "mmm", displayName: "Rival", totalSteps: 5_000),
+            makeRemoteStat(userId: "zzz", displayName: "You", totalSteps: 5_000)
+        ]
+        await cache.setDetailEntries(stats, for: .climb, timeFrame: .weekly)
+
+        await viewModel.loadLeaderboard(userId: "zzz")
+        viewModel.updateCurrentUserProfile(
+            userId: "zzz",
+            displayName: "Renamed",
+            photoURL: URL(string: "https://example.com/avatar.jpg")
+        )
+
+        let listEntry = viewModel.leaderboardEntries.first { $0.userId == "zzz" }
+        #expect(listEntry?.displayName == "Renamed")
+        #expect(listEntry?.rank == 2)
+        #expect(listEntry?.isTied == true)
+        #expect(listEntry?.isCurrentUser == true)
+        #expect(viewModel.userEntry?.rank == listEntry?.rank)
+        #expect(viewModel.userEntry?.isTied == listEntry?.isTied)
+        #expect(viewModel.userEntry?.displayName == "Renamed")
+    }
+
+    @Test
     func tiedTopStepTotalsBothRankFirst() async {
         let cache = LeaderboardSessionCache()
 

@@ -63,10 +63,10 @@ struct CompetitionRankingTests {
     func continuationKeepsOneRankForATieGroupSplitAcrossPages() {
         let firstPage = [30, 20]
         let firstRanks = CompetitionRanking.ranks(for: firstPage) { $0 }
-        let continuation = CompetitionRanking.continuation(
-            after: firstPage,
-            ranks: firstRanks,
-            key: { $0 }
+        let continuation = CompetitionRanking.Continuation(
+            lastKey: firstPage[1],
+            lastRank: firstRanks[1],
+            rankedCount: firstPage.count
         )
 
         // The next page opens with the same value the previous page ended on.
@@ -91,40 +91,6 @@ struct CompetitionRankingTests {
         let ranks = CompetitionRanking.ranks(for: [10, 5], continuing: continuation) { $0 }
 
         #expect(ranks == [4, 5])
-    }
-
-    @Test
-    func continuationAfterAnEmptyPageIsUnchanged() {
-        let continuation = CompetitionRanking.Continuation(
-            lastKey: 20,
-            lastRank: 2,
-            rankedCount: 3
-        )
-
-        let next = CompetitionRanking.continuation(
-            after: [Int](),
-            ranks: [],
-            continuing: continuation,
-            key: { $0 }
-        )
-
-        #expect(next == continuation)
-    }
-
-    @Test
-    func continuationAccumulatesRankedCountAcrossPages() {
-        let page = [20, 10]
-        let ranks = CompetitionRanking.ranks(for: page) { $0 }
-        let first = CompetitionRanking.continuation(after: page, ranks: ranks, key: { $0 })
-        let second = CompetitionRanking.continuation(
-            after: page,
-            ranks: ranks,
-            continuing: first,
-            key: { $0 }
-        )
-
-        #expect(first?.rankedCount == 2)
-        #expect(second?.rankedCount == 4)
     }
 
     // MARK: - Single-row lookups
@@ -154,16 +120,6 @@ struct CompetitionRankingTests {
     func rankAtOutOfBoundsIndexIsNil() {
         #expect(CompetitionRanking.rank(at: 3, in: [30, 20], key: { $0 }) == nil)
         #expect(CompetitionRanking.rank(at: -1, in: [30, 20], key: { $0 }) == nil)
-    }
-
-    @Test
-    func isTiedDetectsNeighboursOnEitherSide() {
-        let values = [30, 20, 20, 10]
-
-        #expect(CompetitionRanking.isTied(at: 0, in: values, key: { $0 }) == false)
-        #expect(CompetitionRanking.isTied(at: 1, in: values, key: { $0 }))
-        #expect(CompetitionRanking.isTied(at: 2, in: values, key: { $0 }))
-        #expect(CompetitionRanking.isTied(at: 3, in: values, key: { $0 }) == false)
     }
 
     // MARK: - Tie flags
