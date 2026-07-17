@@ -545,7 +545,7 @@ Leaderboard UX in Ascend covers two distinct surfaces — the global tab (commun
 - Don't break ties with submission timestamp. First-to-submit is a property of when the user happened to climb, not how well they climbed.
 - Match precision to perception. Per-climb completion times rank at second granularity; sub-second tiebreakers feel arbitrary and don't reflect anything users perceived during the attempt.
 - Tied ranks must be visually obvious in the UI — same rank number on each tied row, "T" prefix or equivalent treatment. Don't render ties as if they were ordered.
-- Podium display must handle tied top ranks (e.g. three users tied for #1) — multiple users may share a podium slot. The podium is a *visual* surface; the ranking rule is the source of truth.
+- Podium display must handle tied top ranks (e.g. three users tied for #1) by giving each climber their own pedestal, filled in leaderboard order. A pedestal's position drives geometry only; the climber standing on it carries their own rank, so two climbers tied for gold both read "T1" in gold even though only one pedestal stands centre. `LeaderboardPodiumLayout` owns the slot assignment and the podium/list split - never key pedestals by rank or partition on `rank <= 3`, because repeated ranks silently drop climbers off both surfaces. The podium is a *visual* surface; the ranking rule is the source of truth.
 - First Ascent is exempt — it's keyed on submission timestamp and is unambiguous by design. Two users may tie on the leaderboard, but only one submission reached the backend first.
 
 ### Design System
