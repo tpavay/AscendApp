@@ -8,6 +8,10 @@ struct RoutineCompletionSummaryPresentation: Equatable {
     let unrankedValueText: String
     let unrankedDetailText: String
     let showsPendingRankingState: Bool
+    /// `nil` leaves the summary's own achievement copy in place. A forfeited session replaces it so
+    /// the card cannot announce a completion the ranking card just denied.
+    let achievementTitleOverride: String?
+    let achievementIconNameOverride: String?
 
     init(stopReason: HeadphoneMotionSessionStopReason, hasRoutineLeaderboard: Bool) {
         guard stopReason.earnsCompetitiveCredit else {
@@ -16,6 +20,8 @@ struct RoutineCompletionSummaryPresentation: Equatable {
             unrankedValueText = "Incomplete"
             unrankedDetailText = "SESSION ENDED"
             showsPendingRankingState = false
+            achievementTitleOverride = "SESSION ENDED"
+            achievementIconNameOverride = "clock.arrow.circlepath"
             return
         }
 
@@ -24,5 +30,7 @@ struct RoutineCompletionSummaryPresentation: Equatable {
         unrankedValueText = "Complete"
         unrankedDetailText = "ROUTINE COMPLETE"
         showsPendingRankingState = hasRoutineLeaderboard
+        achievementTitleOverride = nil
+        achievementIconNameOverride = nil
     }
 }

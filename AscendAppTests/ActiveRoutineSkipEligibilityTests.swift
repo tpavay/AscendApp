@@ -192,6 +192,10 @@ struct ActiveRoutineSkipEligibilityTests {
         #expect(presentation.completedDetail == "ROUTINE COMPLETE")
         #expect(presentation.unrankedValueText == "Complete")
         #expect(presentation.showsPendingRankingState)
+
+        // No override: the achievement card keeps the summary's own completion copy and seal.
+        #expect(presentation.achievementTitleOverride == nil)
+        #expect(presentation.achievementIconNameOverride == nil)
     }
 
     /// The summary reads the same stop reason the participation record is built from, so a session
@@ -215,6 +219,37 @@ struct ActiveRoutineSkipEligibilityTests {
         #expect(presentation.unrankedDetailText == "SESSION ENDED")
         #expect(presentation.rankingLabel != "ROUTINE RANK")
         #expect(presentation.showsPendingRankingState == false)
+
+        // The achievement card sits directly under the ranking card, so it has to forfeit too.
+        #expect(presentation.achievementTitleOverride == "SESSION ENDED")
+        #expect(presentation.achievementIconNameOverride != nil)
+    }
+
+    /// Both cards resolve from one stop reason, so neither can drift into contradicting the other.
+    /// Asserting each card alone is what let the achievement card keep claiming a completion the
+    /// ranking card had already denied.
+    @Test(arguments: [
+        HeadphoneMotionSessionStopReason.targetReached,
+        .skipped,
+        .userStopped,
+        .interrupted,
+        .discarded
+    ])
+    func bothSummaryCardsAgreeOnWhetherTheSessionCounted(
+        stopReason: HeadphoneMotionSessionStopReason
+    ) {
+        let presentation = RoutineCompletionSummaryPresentation(
+            stopReason: stopReason,
+            hasRoutineLeaderboard: true
+        )
+
+        // A nil override leaves the achievement card on its "CLIMB COMPLETE" default, which is the
+        // claim; supplying one replaces it.
+        let achievementCardClaimsCompletion = presentation.achievementTitleOverride == nil
+        let rankingCardClaimsCompletion = presentation.completedDetail == "ROUTINE COMPLETE"
+
+        #expect(achievementCardClaimsCompletion == rankingCardClaimsCompletion)
+        #expect(rankingCardClaimsCompletion == stopReason.earnsCompetitiveCredit)
     }
 
     /// The funnel reads the stop reason off the record, so a session the record calls forfeited can

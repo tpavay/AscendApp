@@ -354,6 +354,8 @@ struct ActiveRoutineView: View {
             unrankedValueText: presentation.unrankedValueText,
             unrankedDetailText: presentation.unrankedDetailText,
             showsPendingRankingState: presentation.showsPendingRankingState,
+            achievementTitleOverride: presentation.achievementTitleOverride,
+            achievementIconNameOverride: presentation.achievementIconNameOverride,
             onDone: {
                 dismiss()
             }

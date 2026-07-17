@@ -13,6 +13,8 @@ struct LiveClimbCompletionSummaryView: View {
     let unrankedValueText: String
     let unrankedDetailText: String
     let showsPendingRankingState: Bool
+    let achievementTitleOverride: String?
+    let achievementIconNameOverride: String?
     let onDone: () -> Void
 
     @Environment(\.modelContext) private var modelContext
@@ -40,6 +42,8 @@ struct LiveClimbCompletionSummaryView: View {
         unrankedValueText: String = "Checking",
         unrankedDetailText: String = "LOOKING FOR YOUR RANK",
         showsPendingRankingState: Bool = true,
+        achievementTitleOverride: String? = nil,
+        achievementIconNameOverride: String? = nil,
         onDone: @escaping () -> Void
     ) {
         self.climb = climb
@@ -53,6 +57,8 @@ struct LiveClimbCompletionSummaryView: View {
         self.unrankedValueText = unrankedValueText
         self.unrankedDetailText = unrankedDetailText
         self.showsPendingRankingState = showsPendingRankingState
+        self.achievementTitleOverride = achievementTitleOverride
+        self.achievementIconNameOverride = achievementIconNameOverride
         self.onDone = onDone
     }
 
@@ -518,15 +524,17 @@ struct LiveClimbCompletionSummaryView: View {
     }
 
     private var achievementIconName: String {
-        "checkmark.seal.fill"
+        achievementIconNameOverride ?? "checkmark.seal.fill"
     }
 
+    /// A Best Effort survives the override: it is derived from the steps the climber really took, so
+    /// it stands on its own without asserting that the session counted.
     private var achievementTitle: String {
         if primaryBestEffort != nil {
             return "BEST EFFORT"
         }
 
-        return "CLIMB COMPLETE"
+        return achievementTitleOverride ?? "CLIMB COMPLETE"
     }
 
     private var achievementSubtitle: String {
