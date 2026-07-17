@@ -36,9 +36,11 @@ import {hashString, mulberry32} from "./seed/lib/deterministic.mjs";
 import {
   FIRST_ASCENT_OPEN_ACTIVITY_TIER,
   assertFirstAscentInvariant,
+  clearOpenFirstAscentEntries,
   clearedFirstAscentFields,
   firstAscentClaimedAt,
   firstAscentSeedFields,
+  isOpenFirstAscentSummary,
 } from "./seed/lib/live-replay-first-ascent.mjs";
 
 const DEV_PROJECT_ID = "ascend-f2e4f";
@@ -729,7 +731,7 @@ function printPlan(seedPlan, args, avatarFileCount, avatarURLCount) {
 
 async function clearSeedPack(db, seedPlan, args) {
   const writer = bulkWriter(db);
-  let deleted = clearSeedEntriesFromPlan(db, writer, seedPlan);
+  let deleted = await clearSeedEntriesFromPlan(db, writer, seedPlan);
   const activeContextKeys = contextKeysForPlan(seedPlan);
   deleted += await clearStaleSeedContexts(
     db,
@@ -808,10 +810,21 @@ async function clearStaleSeedContexts(db, writer, seedPackId, activeContextKeys)
   return deleted;
 }
 
-function clearSeedEntriesFromPlan(db, writer, seedPlan) {
+async function clearSeedEntriesFromPlan(db, writer, seedPlan) {
   let deleted = 0;
 
   for (const plan of seedPlan.climbPlans) {
+    if (isOpenFirstAscentSummary({
+      completedCount: plan.completedCount,
+      hasFirstAscent: plan.firstAscentAttempt !== null,
+    })) {
+      deleted += await clearOpenFirstAscentEntries(
+        splitBucketsCollection(db, plan.climb.id),
+        writer
+      );
+      continue;
+    }
+
     for (let bucketIndex = 0; bucketIndex <= MAX_BUCKET_INDEX; bucketIndex += 1) {
       for (const attemptId of plan.clearAttemptIds) {
         writer.delete(entriesCollection(db, plan.climb.id, bucketIndex).doc(attemptId));
@@ -1037,6 +1050,10 @@ function contextLeaderboardRef(db, contextType, contextId) {
   return db
     .collection(LIVE_REPLAY_COLLECTION)
     .doc(contextKey(contextType, contextId));
+}
+
+function splitBucketsCollection(db, climbId) {
+  return leaderboardRef(db, climbId).collection("splitBuckets");
 }
 
 function entriesCollection(db, climbId, bucketIndex) {

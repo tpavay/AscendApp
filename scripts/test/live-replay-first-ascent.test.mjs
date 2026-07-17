@@ -7,6 +7,7 @@ import {test} from "node:test";
 import {
   FIRST_ASCENT_FIELD_NAMES,
   assertFirstAscentInvariant,
+  clearOpenFirstAscentEntries,
   clearedFirstAscentFields,
   firstAscentClaimedAt,
   firstAscentInvariantFailure,
@@ -371,6 +372,79 @@ test("a QA climber claiming a seeded open slot reads as held, not open", () => {
 
   assert.equal(isOpenFirstAscentSummary(state), false);
   assert.equal(firstAscentInvariantFailure(state), null);
+});
+
+// Split buckets holding entries keyed the way the Cloud Function keys them: by
+// workoutId, one document per bucket. `entries` deliberately exposes no `where`,
+// so a seedPackId-filtered read throws rather than quietly skipping the real
+// climber rows this clear exists to remove.
+function fakeSplitBuckets(bucketsById) {
+  return {
+    listDocuments: async () => Object.entries(bucketsById).map(([bucketId, entryIds]) => ({
+      id: bucketId,
+      collection: (name) => {
+        assert.equal(name, "entries", "open climbs must clear the entries collection");
+        return {
+          get: async () => ({
+            docs: entryIds.map((entryId) => ({
+              id: entryId,
+              ref: {path: `splitBuckets/${bucketId}/entries/${entryId}`},
+            })),
+          }),
+        };
+      },
+    })),
+  };
+}
+
+test("clearing an open First Ascent climb deletes every entry in every bucket", async () => {
+  // The Cloud Function writes one entry per split bucket, so a QA climber who
+  // claims the seeded open slot leaves rows well past bucket zero. Clearing only
+  // bucket zero would green the audit - it inspects bucket zero alone - while the
+  // phantom opponent still shows up mid-race.
+  const deletedPaths = [];
+  const writer = {delete: (ref) => deletedPaths.push(ref.path)};
+
+  const deleted = await clearOpenFirstAscentEntries(
+    fakeSplitBuckets({0: ["qa-workout-1"], 7: ["qa-workout-1"], 14: ["qa-workout-1"]}),
+    writer
+  );
+
+  assert.equal(deleted, 3);
+  assert.deepEqual(deletedPaths, [
+    "splitBuckets/0/entries/qa-workout-1",
+    "splitBuckets/7/entries/qa-workout-1",
+    "splitBuckets/14/entries/qa-workout-1",
+  ]);
+});
+
+test("clearing an open First Ascent climb reports zero when nothing was seeded", async () => {
+  const writer = {delete: () => assert.fail("nothing to delete")};
+
+  assert.equal(await clearOpenFirstAscentEntries(fakeSplitBuckets({}), writer), 0);
+});
+
+test("the seed clears open First Ascent climbs by query, not by seeded ID", () => {
+  // A real climber's entry IDs are their workoutId and are unknown to the seed,
+  // and an open climb seeds zero attempts, so `clearAttemptIds` is empty for it.
+  // Delete-by-seeded-id therefore deletes nothing and re-seeding strands the
+  // claimed rows next to a summary reset to zero completions.
+  const source = readScript("scripts/seed-live-replay-leaderboards.mjs");
+  const clearBody = source.match(
+    /async function clearSeedEntriesFromPlan\([\s\S]*?\n\}/
+  )?.[0];
+  assert.ok(clearBody, "could not locate clearSeedEntriesFromPlan in the seed script");
+
+  assert.match(
+    clearBody,
+    /isOpenFirstAscentSummary\(/,
+    "the clear path must branch on the plan's First Ascent state"
+  );
+  assert.match(
+    clearBody,
+    /clearOpenFirstAscentEntries\(/,
+    "open climbs must have their entries cleared by query"
+  );
 });
 
 test("the audit reads the First Ascent state off the data, not activityTier", () => {

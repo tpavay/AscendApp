@@ -128,6 +128,35 @@ export function clearedFirstAscentFields(deleteSentinel) {
 }
 
 /**
+ * Deletes every replay entry under a climb seeded with an open First Ascent.
+ *
+ * The seed can address its own rows by their deterministic IDs, but a real
+ * climber's it cannot: the Cloud Function keys each entry by workoutId and
+ * writes one per split bucket. Re-seeding by known ID would leave those rows
+ * beside a summary reset to zero completions - the inverse dead state, on the
+ * one fixture whose whole purpose is to be claimed and reset. So an open climb's
+ * entries are found by query and dropped wholesale, which is safe precisely
+ * because the fixture promises the climb has no completions at all.
+ * @param {object} splitBucketsRef `splitBuckets` collection reference.
+ * @param {object} writer BulkWriter that performs the deletes.
+ * @return {Promise<number>} Count of entry documents deleted.
+ */
+export async function clearOpenFirstAscentEntries(splitBucketsRef, writer) {
+  let deleted = 0;
+  const bucketRefs = await splitBucketsRef.listDocuments();
+
+  for (const bucketRef of bucketRefs) {
+    const entries = await bucketRef.collection("entries").get();
+    for (const entry of entries.docs) {
+      writer.delete(entry.ref);
+      deleted += 1;
+    }
+  }
+
+  return deleted;
+}
+
+/**
  * Reports whether a climb's First Ascent slot is still open.
  *
  * Derived from the counts and the holder, never from `activityTier`: those are
