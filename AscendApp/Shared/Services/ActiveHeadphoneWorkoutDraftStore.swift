@@ -200,6 +200,10 @@ final class ActiveHeadphoneWorkoutRuntimeRegistry {
 
 @MainActor
 enum ActiveHeadphoneWorkoutDraftSaver {
+    /// A recovered draft is a session the climber never finished in the app, so it can never
+    /// stand as a completion.
+    private static let recoveredStopReason: HeadphoneMotionSessionStopReason = .interrupted
+
     static func save(
         _ draft: ActiveHeadphoneWorkoutDraft,
         modelContext: ModelContext
@@ -218,7 +222,7 @@ enum ActiveHeadphoneWorkoutDraftSaver {
             targetStepCount: draft.targetStepCount,
             climbTargetStepCount: climbTargetStepCount(for: draft),
             targetDurationSeconds: draft.targetDurationSeconds,
-            stopReason: .interrupted,
+            stopReason: recoveredStopReason,
             splitCurve: splitCurve,
             trackingIntegrity: draft.trackingIntegrity,
             stepCorrections: draft.stepCorrections
@@ -300,13 +304,14 @@ enum ActiveHeadphoneWorkoutDraftSaver {
         return try? ClimbService.shared.climb(for: climbId)
     }
 
-    private static func routineAttribution(for draft: ActiveHeadphoneWorkoutDraft) -> RoutineWorkoutAttribution? {
+    static func routineAttribution(for draft: ActiveHeadphoneWorkoutDraft) -> RoutineWorkoutAttribution? {
         guard let routineId = draft.routineId else { return nil }
         let routineSource = draft.routineSourceRawValue.flatMap(RoutineSource.init(rawValue:)) ?? .userCreated
         return RoutineWorkoutAttribution(
             routineId: routineId,
             routineSource: routineSource,
-            templateId: draft.routineTemplateId
+            templateId: draft.routineTemplateId,
+            origin: .liveSession(stopReason: recoveredStopReason)
         )
     }
 }

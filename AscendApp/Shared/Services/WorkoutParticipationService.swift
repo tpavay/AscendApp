@@ -1,10 +1,22 @@
 import Foundation
 import SwiftData
 
+/// How a routine workout came to exist. Routine completions come only from the live routine
+/// flow, so manual entries and external imports can never earn competitive credit.
+enum RoutineAttributionOrigin: Equatable, Sendable {
+    case liveSession(stopReason: HeadphoneMotionSessionStopReason)
+
+    /// Retained without a current producer on purpose. Collapsing this enum to a bare stop reason
+    /// would leave a future manual-entry caller no way to say "not a live session" except inventing
+    /// a live stop reason, which is the fail-open trap the `didCompleteAsPlanned` default was.
+    case manualEntry
+}
+
 struct RoutineWorkoutAttribution: Equatable {
     let routineId: UUID
     let routineSource: RoutineSource
     let templateId: String?
+    let origin: RoutineAttributionOrigin
 
     var contextType: WorkoutParticipationContextType {
         routineSource.isTemplate && templateId?.isEmpty == false
@@ -21,7 +33,14 @@ struct RoutineWorkoutAttribution: Equatable {
     }
 
     var isLeaderboardEligible: Bool {
-        contextType == .routineTemplate
+        guard contextType == .routineTemplate else { return false }
+
+        switch origin {
+        case .liveSession(let stopReason):
+            return stopReason.earnsCompetitiveCredit
+        case .manualEntry:
+            return false
+        }
     }
 }
 

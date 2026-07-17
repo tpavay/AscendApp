@@ -357,7 +357,7 @@ Live Climbs is the hero competitive experience: a user picks a real-world landma
 - Reaching the climb's step target *is* the finish, and `LiveClimbCompletionPolicy` is the only place that decides it.
   Status always reads steps, never `stopReason`.
   Never add a second finish definition: readers ask the policy, they don't re-derive.
-- `stopReason` describes *how* a session ended, never whether it counted.
+- For a climb attempt, `stopReason` describes *how* a session ended, never whether it counted; a routine session deliberately inverts that, so read **Routines** before reusing the enum's rules here.
   `ClimbService.apply` upgrades it to `.targetReached` for the manual-stop case only - a climber who tapped End past the target finished - so rehydration and the replay Cloud Function agree on that path.
   Every other stop reason is deliberately left as recorded.
 - An interrupted recovered draft past the target counts locally as a completion but is deliberately never published by the replay Cloud Function, because a recovered draft's step count is typed by hand.
@@ -490,6 +490,10 @@ Both have their own browse, detail, live, and leaderboard surfaces. Don't fold o
 **Live routine sessions:**
 - Routine completions come only from the live routine flow (analogous to how Live Climb completions come only from the live climb flow). Manual entries and external imports cannot complete a routine.
 - The live experience is routine-specific: current interval, target level, time remaining in interval, progress through the full routine, real-time step count. It is NOT the same UI as a Live Climb (which is structured around a step-target race), even though both share the headphone-motion sensor pipeline.
+- Skipping an interval advances the session but forfeits completion credit for the whole session. Skipping burns the routine clock without taking steps, so a session containing any skip is not a completion: it finishes with the `skipped` stop reason rather than `target_reached`, does not increment the routine's completion count, and carries no leaderboard eligibility on its participation record. It still saves a normal workout with the steps the user actually took. The skip count is checkpointed onto the active draft so resuming an interrupted session cannot launder away earlier skips.
+- `target_reached` is the only routine stop reason that earns competitive credit, and `HeadphoneMotionSessionStopReason.earnsCompetitiveCredit` is the only place that decides it - the participation record and the completion summary both read it rather than each re-deriving a verdict that could disagree.
+  Routine sessions publish to no replay index today, because the server-side indexer accepts only the `live_climb` and `just_climb` tracking modes.
+  Any future routine leaderboard publisher must gate on `target_reached` rather than invent a parallel eligibility rule.
 
 **Routines vs. challenge climbs:**
 - The "challenge climb" concept stays alive but as a **subtype of climbs**, not a way to absorb routines. A challenge climb is a regular climb (target step count tied to a landmark) with additional constraints layered on — e.g. "you must sustain level 12+ for the final 5,000 steps." Challenges live inside the climbs feature; they do not replace or absorb routines.

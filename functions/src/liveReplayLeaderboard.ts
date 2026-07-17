@@ -1403,6 +1403,7 @@ export const liveReplayLeaderboardTestHooks = {
   liveClimbPublishStatusPublishedWrite,
   liveClimbPublishStatusPublishingWrite,
   nextGlobalCompletionOrder,
+  parseJustClimbReplayPayload,
   parseLiveClimbReplayPayload,
   replayEntryWrite,
   replaySummaryWrite,

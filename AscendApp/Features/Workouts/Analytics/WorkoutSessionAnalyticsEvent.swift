@@ -59,7 +59,8 @@ enum WorkoutSessionAnalyticsEvent: TelemetryEvent {
         context: RoutineSessionAnalyticsContext,
         durationSeconds: Int,
         steps: Int,
-        progressFraction: Double
+        progressFraction: Double,
+        stopReason: String
     )
     case routineLogTapped(
         context: RoutineSessionAnalyticsContext,
@@ -128,11 +129,18 @@ enum WorkoutSessionAnalyticsEvent: TelemetryEvent {
                 parameters: routineParameters(context)
             )
 
-        case .routineCompleted(let context, let durationSeconds, let steps, let progressFraction):
+        case .routineCompleted(
+            let context,
+            let durationSeconds,
+            let steps,
+            let progressFraction,
+            let stopReason
+        ):
             var parameters = routineParameters(context)
             parameters["duration_bucket"] = .string(DurationBucket(durationSeconds).rawValue)
             parameters["steps_bucket"] = .string(CountBucket(steps).rawValue)
             parameters["progress_bucket"] = .string(ProgressBucket(progressFraction).rawValue)
+            parameters["stop_reason"] = .string(stopReason)
             return TelemetryRecord(
                 name: "routine_completed",
                 parameters: parameters

@@ -38,6 +38,9 @@ final class ActiveHeadphoneWorkoutDraft {
     var routineTemplateId: String?
     var routineDifficulty: Int?
     var routineIntervalCount: Int?
+    /// Checkpointed so a session resumed from this draft cannot launder away skips it already
+    /// made and finish as a clean completion.
+    var routineSkippedIntervalCount: Int?
     var routineWeightConfigurationData: Data?
     var splitCurveData: Data?
     var trackingIntegrityData: Data?
@@ -130,6 +133,7 @@ final class ActiveHeadphoneWorkoutDraft {
         self.routineTemplateId = routineTemplateId
         self.routineDifficulty = routineDifficulty
         self.routineIntervalCount = routineIntervalCount
+        self.routineSkippedIntervalCount = nil
         self.routineWeightConfiguration = routineWeightConfiguration
         self.trackingIntegrity = .verified
         self.stepCorrections = []
@@ -143,6 +147,7 @@ final class ActiveHeadphoneWorkoutDraft {
         trackingIntegrity: HeadphoneMotionTrackingIntegrity,
         stepCorrections: [HeadphoneMotionStepCorrection],
         status: ActiveHeadphoneWorkoutDraftStatus = .recording,
+        skippedIntervalCount: Int? = nil,
         checkpointedAt: Date = Date()
     ) {
         self.steps = max(steps, 0)
@@ -152,6 +157,9 @@ final class ActiveHeadphoneWorkoutDraft {
         self.trackingIntegrity = trackingIntegrity
         self.stepCorrections = stepCorrections
         self.status = status
+        if let skippedIntervalCount {
+            self.routineSkippedIntervalCount = max(skippedIntervalCount, 0)
+        }
         self.lastCheckpointAt = checkpointedAt
     }
 

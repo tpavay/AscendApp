@@ -57,8 +57,8 @@ struct ActiveRoutineView: View {
             if isShowing {
                 Task {
                     await saveRoutineForSummary(
-                        reason: .targetReached,
-                        recordCompletion: true
+                        reason: viewModel.completionStopReason,
+                        recordCompletion: viewModel.countsAsCompletion
                     )
                 }
             }
@@ -340,7 +340,7 @@ struct ActiveRoutineView: View {
     }
 
     private func routineCompletionSummary(workout: Workout) -> some View {
-        let hasRoutineLeaderboard = viewModel.completionLeaderboardContext != nil
+        let presentation = viewModel.completionSummaryPresentation
 
         return LiveClimbCompletionSummaryView(
             climb: nil,
@@ -349,11 +349,13 @@ struct ActiveRoutineView: View {
             leaderboardTotal: viewModel.completionLeaderboardTotal,
             allowsRatingPrompt: false,
             leaderboardContext: viewModel.completionLeaderboardContext,
-            rankingLabelOverride: hasRoutineLeaderboard ? "ROUTINE RANK" : "ROUTINE",
-            completedDetailOverride: "ROUTINE COMPLETE",
-            unrankedValueText: "Complete",
-            unrankedDetailText: "ROUTINE COMPLETE",
-            showsPendingRankingState: hasRoutineLeaderboard,
+            rankingLabelOverride: presentation.rankingLabel,
+            completedDetailOverride: presentation.completedDetail,
+            unrankedValueText: presentation.unrankedValueText,
+            unrankedDetailText: presentation.unrankedDetailText,
+            showsPendingRankingState: presentation.showsPendingRankingState,
+            achievementTitleOverride: presentation.achievementTitleOverride,
+            achievementIconNameOverride: presentation.achievementIconNameOverride,
             onDone: {
                 dismiss()
             }
@@ -500,35 +502,6 @@ struct ActiveRoutineView: View {
 
     private var stepSyncInputSteps: Int? {
         Int(stepSyncValue)
-    }
-
-    private var workoutFormSheet: some View {
-        WorkoutFormView(
-            showingWorkoutForm: Binding(
-                get: { viewModel.showWorkoutForm },
-                set: { viewModel.showWorkoutForm = $0 }
-            ),
-            onWorkoutCompleted: { workout in
-                viewModel.trackWorkoutSaved(workout)
-                viewModel.showWorkoutForm = false
-            },
-            routinePrefill: RoutinePrefillData(
-                name: routine.name,
-                startedAt: routineWorkoutStartedAt,
-                duration: viewModel.actualElapsed,
-                weightConfiguration: routine.defaultWeightConfiguration,
-                difficulty: routine.difficulty,
-                attribution: RoutineWorkoutAttribution(
-                    routineId: routine.id,
-                    routineSource: routine.source,
-                    templateId: routine.templateId
-                )
-            )
-        )
-    }
-
-    private var routineWorkoutStartedAt: Date {
-        viewModel.sessionStartedAt ?? Date().addingTimeInterval(-max(viewModel.actualElapsed, 0))
     }
 
     private var shouldKeepScreenAwake: Bool {

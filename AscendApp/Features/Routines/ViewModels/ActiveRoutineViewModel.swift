@@ -26,13 +26,12 @@ final class ActiveRoutineViewModel {
     var isPaused = false
     var showStopConfirmation = false
     var showCompletionSheet = false
-    var showWorkoutForm = false
-    var shouldDismissAfterForm = false
     var errorMessage: String?
     private(set) var leaderboardWindow: LiveReplayLeaderboardWindow?
     private(set) var leaderboardFetchFailed = false
     private(set) var recordedResult: HeadphoneMotionSessionResult?
     private(set) var savedWorkout: Workout?
+    private(set) var skippedIntervalCount = 0
     private(set) var stepSyncPrompt: RoutineStepSyncPrompt?
     private(set) var stepSyncConfirmation: RoutineStepSyncConfirmation?
 
@@ -155,20 +154,44 @@ final class ActiveRoutineViewModel {
         return min(max(Double(currentSteps) / Double(leaderboardProgressScale), 0), 1)
     }
 
+    /// A forfeited session never holds a standing, so it must not render one.
+    private var earnsRoutineStanding: Bool {
+        routine.source.isTemplate && countsAsCompletion
+    }
+
     var completionLeaderboardContext: LiveReplayLeaderboardContext? {
-        routine.source.isTemplate ? replayContext : nil
+        earnsRoutineStanding ? replayContext : nil
     }
 
     var completionLeaderboardRank: Int? {
-        guard routine.source.isTemplate else { return nil }
+        guard earnsRoutineStanding else { return nil }
         return leaderboardWindow?.currentUserRank ?? leaderboardRows.first(where: \.isCurrentUser)?.rank
     }
 
     var completionLeaderboardTotal: Int? {
-        guard routine.source.isTemplate,
+        guard earnsRoutineStanding,
               let leaderboardWindow else { return nil }
         let total = max(leaderboardWindow.totalClimbers, leaderboardRows.count)
         return total > 0 ? total : nil
+    }
+
+    var completionSummaryPresentation: RoutineCompletionSummaryPresentation {
+        RoutineCompletionSummaryPresentation(
+            stopReason: resolvedStopReason,
+            hasRoutineLeaderboard: completionLeaderboardContext != nil
+        )
+    }
+
+    /// Reads `resolvedStopReason` so the funnel reports the same outcome the participation record
+    /// and the summary were built from, rather than a second derivation that can disagree.
+    var sessionCompletionAnalyticsEvent: WorkoutSessionAnalyticsEvent {
+        .routineCompleted(
+            context: analyticsContext,
+            durationSeconds: analyticsDurationSeconds,
+            steps: currentSteps,
+            progressFraction: progress,
+            stopReason: resolvedStopReason.rawValue
+        )
     }
 
     var currentIntervalPositionText: String {
@@ -179,6 +202,27 @@ final class ActiveRoutineViewModel {
 
     var isNearIntervalEnd: Bool {
         remainingInInterval <= 3 && remainingInInterval > 0
+    }
+
+    var didSkipInterval: Bool {
+        skippedIntervalCount > 0
+    }
+
+    /// Reaching the end of the interval list only earns competitive credit when the climber
+    /// actually stepped through every interval. Skipping burns the clock without steps, so a
+    /// session containing any skip finishes as `.skipped` and stays out of the replay index.
+    var completionStopReason: HeadphoneMotionSessionStopReason {
+        didSkipInterval ? .skipped : .targetReached
+    }
+
+    /// The stop reason the session actually ended on, which is the same value the participation
+    /// record is built from. Reading it here keeps the summary from contradicting the record.
+    var resolvedStopReason: HeadphoneMotionSessionStopReason {
+        recordedResult?.stopReason ?? completionStopReason
+    }
+
+    var countsAsCompletion: Bool {
+        resolvedStopReason.earnsCompetitiveCredit
     }
 
     func startSession(modelContext: ModelContext) {
@@ -199,6 +243,7 @@ final class ActiveRoutineViewModel {
             sessionStartedAt = activeDraft.startedAt
             recordedResult = nil
             savedWorkout = nil
+            skippedIntervalCount = activeDraft.routineSkippedIntervalCount ?? 0
             if let splitCurve = activeDraft.splitCurve {
                 stepTimelineRecorder.restore(curve: splitCurve)
             }
@@ -210,6 +255,7 @@ final class ActiveRoutineViewModel {
             sessionStartedAt = nil
             recordedResult = nil
             savedWorkout = nil
+            skippedIntervalCount = 0
             stepTimelineRecorder.reset()
             stepTimelineRecorder.record(
                 elapsedSeconds: 0,
@@ -219,8 +265,6 @@ final class ActiveRoutineViewModel {
         }
         isPaused = false
         showCompletionSheet = false
-        showWorkoutForm = false
-        shouldDismissAfterForm = false
         errorMessage = nil
         leaderboardWindow = nil
         leaderboardFetchFailed = false
@@ -278,6 +322,7 @@ final class ActiveRoutineViewModel {
         elapsedInInterval = 0
         lastWarningSecond = nil
         currentIntervalIndex += 1
+        skippedIntervalCount += 1
         lastTickDate = Date()
 
         if currentIntervalIndex >= intervals.count {
@@ -458,7 +503,8 @@ final class ActiveRoutineViewModel {
             attribution: RoutineWorkoutAttribution(
                 routineId: routine.id,
                 routineSource: routine.source,
-                templateId: routine.templateId
+                templateId: routine.templateId,
+                origin: .liveSession(stopReason: result.stopReason)
             ),
             userId: workout.ownerUserId,
             modelContext: modelContext
@@ -614,7 +660,7 @@ final class ActiveRoutineViewModel {
         lastTickDate = nil
         lastWarningSecond = nil
         Task { @MainActor in
-            await finishRecording(reason: .targetReached, showCompletion: true)
+            await finishRecording(reason: completionStopReason, showCompletion: true)
         }
     }
 
@@ -807,6 +853,7 @@ final class ActiveRoutineViewModel {
             trackingIntegrity: result?.trackingIntegrity ?? motionSession.trackingIntegrity,
             stepCorrections: result?.stepCorrections ?? motionSession.stepCorrectionsSnapshot,
             status: status,
+            skippedIntervalCount: skippedIntervalCount,
             checkpointedAt: now
         )
 
@@ -885,14 +932,7 @@ final class ActiveRoutineViewModel {
     private func trackSessionCompletionIfNeeded() {
         guard !hasTrackedSessionCompletion else { return }
         hasTrackedSessionCompletion = true
-        TelemetryManager.shared.track(
-            WorkoutSessionAnalyticsEvent.routineCompleted(
-                context: analyticsContext,
-                durationSeconds: analyticsDurationSeconds,
-                steps: currentSteps,
-                progressFraction: progress
-            )
-        )
+        TelemetryManager.shared.track(sessionCompletionAnalyticsEvent)
     }
 
     private func startTimer() {
