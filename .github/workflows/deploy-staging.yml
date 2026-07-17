@@ -1,10 +1,22 @@
 name: Deploy Staging
 
-# Staging deploys are manual until staging gets a trigger that cannot collide
-# with production. deploy-production.yml already runs on pushes to main, so
-# pointing staging at main would deploy both on one event. See issue #203.
 on:
   workflow_dispatch:
+  push:
+    branches: [develop]
+    paths:
+      - "AscendApp/**"
+      - "AscendApp.xcodeproj/**"
+      - "fastlane/**"
+      - "Gemfile"
+      - "Gemfile.lock"
+      - "functions/**"
+      - "web/**"
+      - "firebase.json"
+      - "firestore.rules"
+      - "storage.rules"
+      - ".firebaserc"
+      - ".github/workflows/deploy-staging.yml"
 
 concurrency:
   group: deploy-staging-${{ github.ref }}
