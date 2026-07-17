@@ -28,7 +28,7 @@ enum LiveClimbCompletionPolicy {
     }
 
     /// The steps to record on an attempt. A climb stops counting at its target, so an attempt's
-    /// recorded steps must not depend on which reader built it — saving and rehydrating the same
+    /// recorded steps must not depend on which reader built it - saving and rehydrating the same
     /// session have to land on the same number.
     static func recordedSteps(steps: Int, targetStepCount: Int?) -> Int {
         guard let targetStepCount, targetStepCount > 0 else { return steps }
