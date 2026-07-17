@@ -1,25 +1,29 @@
 import Foundation
 import SwiftData
 
+/// How a routine workout came to exist. Routine completions come only from the live routine
+/// flow, so manual entries and external imports can never earn competitive credit.
+enum RoutineAttributionOrigin: Equatable, Sendable {
+    case liveSession(stopReason: HeadphoneMotionSessionStopReason)
+    case manualEntry
+}
+
 struct RoutineWorkoutAttribution: Equatable {
     let routineId: UUID
     let routineSource: RoutineSource
     let templateId: String?
-    /// False when the climber skipped ahead of intervals instead of stepping through them.
-    /// A skipped session still logs its real steps, but it is not a completion, so it must not
-    /// carry leaderboard eligibility into any future routine publisher.
-    let didCompleteAsPlanned: Bool
+    let origin: RoutineAttributionOrigin
 
     init(
         routineId: UUID,
         routineSource: RoutineSource,
         templateId: String?,
-        didCompleteAsPlanned: Bool = true
+        origin: RoutineAttributionOrigin
     ) {
         self.routineId = routineId
         self.routineSource = routineSource
         self.templateId = templateId
-        self.didCompleteAsPlanned = didCompleteAsPlanned
+        self.origin = origin
     }
 
     var contextType: WorkoutParticipationContextType {
@@ -36,8 +40,17 @@ struct RoutineWorkoutAttribution: Equatable {
         return routineId.uuidString
     }
 
+    /// `targetReached` is the only stop reason that earns competitive credit: it is the gate the
+    /// server-side replay indexer publishes on, and skipping burns the routine clock without steps.
     var isLeaderboardEligible: Bool {
-        contextType == .routineTemplate && didCompleteAsPlanned
+        guard contextType == .routineTemplate else { return false }
+
+        switch origin {
+        case .liveSession(let stopReason):
+            return stopReason == .targetReached
+        case .manualEntry:
+            return false
+        }
     }
 }
 

@@ -340,7 +340,7 @@ struct ActiveRoutineView: View {
     }
 
     private func routineCompletionSummary(workout: Workout) -> some View {
-        let hasRoutineLeaderboard = viewModel.completionLeaderboardContext != nil
+        let presentation = viewModel.completionSummaryPresentation
 
         return LiveClimbCompletionSummaryView(
             climb: nil,
@@ -349,11 +349,11 @@ struct ActiveRoutineView: View {
             leaderboardTotal: viewModel.completionLeaderboardTotal,
             allowsRatingPrompt: false,
             leaderboardContext: viewModel.completionLeaderboardContext,
-            rankingLabelOverride: hasRoutineLeaderboard ? "ROUTINE RANK" : "ROUTINE",
-            completedDetailOverride: "ROUTINE COMPLETE",
-            unrankedValueText: "Complete",
-            unrankedDetailText: "ROUTINE COMPLETE",
-            showsPendingRankingState: hasRoutineLeaderboard,
+            rankingLabelOverride: presentation.rankingLabel,
+            completedDetailOverride: presentation.completedDetail,
+            unrankedValueText: presentation.unrankedValueText,
+            unrankedDetailText: presentation.unrankedDetailText,
+            showsPendingRankingState: presentation.showsPendingRankingState,
             onDone: {
                 dismiss()
             }
@@ -521,7 +521,8 @@ struct ActiveRoutineView: View {
                 attribution: RoutineWorkoutAttribution(
                     routineId: routine.id,
                     routineSource: routine.source,
-                    templateId: routine.templateId
+                    templateId: routine.templateId,
+                    origin: .manualEntry
                 )
             )
         )

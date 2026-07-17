@@ -156,20 +156,32 @@ final class ActiveRoutineViewModel {
         return min(max(Double(currentSteps) / Double(leaderboardProgressScale), 0), 1)
     }
 
+    /// A forfeited session never holds a standing, so it must not render one.
+    private var earnsRoutineStanding: Bool {
+        routine.source.isTemplate && countsAsCompletion
+    }
+
     var completionLeaderboardContext: LiveReplayLeaderboardContext? {
-        routine.source.isTemplate ? replayContext : nil
+        earnsRoutineStanding ? replayContext : nil
     }
 
     var completionLeaderboardRank: Int? {
-        guard routine.source.isTemplate else { return nil }
+        guard earnsRoutineStanding else { return nil }
         return leaderboardWindow?.currentUserRank ?? leaderboardRows.first(where: \.isCurrentUser)?.rank
     }
 
     var completionLeaderboardTotal: Int? {
-        guard routine.source.isTemplate,
+        guard earnsRoutineStanding,
               let leaderboardWindow else { return nil }
         let total = max(leaderboardWindow.totalClimbers, leaderboardRows.count)
         return total > 0 ? total : nil
+    }
+
+    var completionSummaryPresentation: RoutineCompletionSummaryPresentation {
+        RoutineCompletionSummaryPresentation(
+            countsAsCompletion: countsAsCompletion,
+            hasRoutineLeaderboard: completionLeaderboardContext != nil
+        )
     }
 
     var currentIntervalPositionText: String {
@@ -478,7 +490,7 @@ final class ActiveRoutineViewModel {
                 routineId: routine.id,
                 routineSource: routine.source,
                 templateId: routine.templateId,
-                didCompleteAsPlanned: countsAsCompletion
+                origin: .liveSession(stopReason: result.stopReason)
             ),
             userId: workout.ownerUserId,
             modelContext: modelContext

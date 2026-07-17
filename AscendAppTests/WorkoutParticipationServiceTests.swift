@@ -16,7 +16,8 @@ struct WorkoutParticipationServiceTests {
             attribution: RoutineWorkoutAttribution(
                 routineId: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
                 routineSource: .builtin,
-                templateId: "pyramid_climb"
+                templateId: "pyramid_climb",
+                origin: .liveSession(stopReason: .targetReached)
             ),
             userId: "user-123",
             modelContext: modelContext
@@ -44,7 +45,8 @@ struct WorkoutParticipationServiceTests {
             attribution: RoutineWorkoutAttribution(
                 routineId: routineId,
                 routineSource: .userCreated,
-                templateId: nil
+                templateId: nil,
+                origin: .liveSession(stopReason: .targetReached)
             ),
             userId: "user-123",
             modelContext: modelContext
@@ -58,8 +60,15 @@ struct WorkoutParticipationServiceTests {
         #expect(participation.leaderboardEligible == false)
     }
 
-    @Test
-    func skippedTemplateRoutineParticipationIsNotLeaderboardEligible() throws {
+    @Test(arguments: [
+        HeadphoneMotionSessionStopReason.skipped,
+        .userStopped,
+        .interrupted,
+        .discarded
+    ])
+    func templateRoutineIsIneligibleForEveryStopReasonButTargetReached(
+        stopReason: HeadphoneMotionSessionStopReason
+    ) throws {
         let modelContext = try makeModelContext()
         let workout = makeWorkout(source: .headphoneMotion)
         modelContext.insert(workout)
@@ -70,7 +79,7 @@ struct WorkoutParticipationServiceTests {
                 routineId: UUID(uuidString: "33333333-3333-3333-3333-333333333333")!,
                 routineSource: .builtin,
                 templateId: "pyramid_climb",
-                didCompleteAsPlanned: false
+                origin: .liveSession(stopReason: stopReason)
             ),
             userId: "user-123",
             modelContext: modelContext
@@ -82,6 +91,52 @@ struct WorkoutParticipationServiceTests {
         #expect(participation.contextType == .routineTemplate)
         #expect(participation.contextId == "pyramid_climb")
         #expect(participation.leaderboardEligible == false)
+    }
+
+    /// Routine completions come only from the live routine flow, so a hand-typed template routine
+    /// entry never earns competitive credit no matter how it is filled in.
+    @Test
+    func manuallyEnteredTemplateRoutineIsNotLeaderboardEligible() throws {
+        let modelContext = try makeModelContext()
+        let workout = makeWorkout(source: .manual)
+        modelContext.insert(workout)
+
+        try WorkoutParticipationService.addRoutineParticipationIfNeeded(
+            for: workout,
+            attribution: RoutineWorkoutAttribution(
+                routineId: UUID(uuidString: "44444444-4444-4444-4444-444444444444")!,
+                routineSource: .builtin,
+                templateId: "pyramid_climb",
+                origin: .manualEntry
+            ),
+            userId: "user-123",
+            modelContext: modelContext
+        )
+
+        try modelContext.save()
+
+        let participation = try #require(workout.participations.first)
+        #expect(participation.contextType == .routineTemplate)
+        #expect(participation.leaderboardEligible == false)
+    }
+
+    @Test(arguments: [
+        HeadphoneMotionSessionStopReason.targetReached,
+        .skipped,
+        .userStopped,
+        .interrupted
+    ])
+    func userCreatedRoutineIsNeverLeaderboardEligible(
+        stopReason: HeadphoneMotionSessionStopReason
+    ) {
+        let attribution = RoutineWorkoutAttribution(
+            routineId: UUID(uuidString: "66666666-6666-6666-6666-666666666666")!,
+            routineSource: .userCreated,
+            templateId: nil,
+            origin: .liveSession(stopReason: stopReason)
+        )
+
+        #expect(attribution.isLeaderboardEligible == false)
     }
 
     @Test

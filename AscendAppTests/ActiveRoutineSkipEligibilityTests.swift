@@ -140,6 +140,77 @@ struct ActiveRoutineSkipEligibilityTests {
         #expect(viewModel.countsAsCompletion == false)
     }
 
+    /// A recovered draft is a session the climber never finished in the app, so it can never be
+    /// saved as a completion regardless of whether it had already skipped intervals.
+    @Test(arguments: [nil, 0, 2] as [Int?])
+    func recoveredRoutineDraftIsNeverLeaderboardEligible(skippedIntervalCount: Int?) throws {
+        let container = try ModelContainer(
+            for: ActiveHeadphoneWorkoutDraft.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let modelContext = ModelContext(container)
+        let routine = makeRoutine()
+
+        let draft = ActiveHeadphoneWorkoutDraft(
+            sessionID: "session-recovered",
+            kind: .routine,
+            title: routine.name,
+            subtitle: "",
+            workoutName: routine.name,
+            targetStepCount: 900,
+            targetDurationSeconds: routine.totalDuration,
+            routineId: routine.id,
+            routineSource: routine.source,
+            routineTemplateId: routine.templateId
+        )
+        modelContext.insert(draft)
+        draft.applyCheckpoint(
+            steps: 1_200,
+            durationSeconds: 600,
+            sampleCount: 0,
+            splitCurve: nil,
+            trackingIntegrity: .verified,
+            stepCorrections: [],
+            skippedIntervalCount: skippedIntervalCount
+        )
+
+        let attribution = try #require(ActiveHeadphoneWorkoutDraftSaver.routineAttribution(for: draft))
+
+        #expect(attribution.contextType == .routineTemplate)
+        #expect(attribution.origin == .liveSession(stopReason: .interrupted))
+        #expect(attribution.isLeaderboardEligible == false)
+    }
+
+    @Test
+    func completedSessionSummaryClaimsTheCompletion() {
+        let presentation = RoutineCompletionSummaryPresentation(
+            countsAsCompletion: true,
+            hasRoutineLeaderboard: true
+        )
+
+        #expect(presentation.rankingLabel == "ROUTINE RANK")
+        #expect(presentation.completedDetail == "ROUTINE COMPLETE")
+        #expect(presentation.unrankedValueText == "Complete")
+        #expect(presentation.showsPendingRankingState)
+    }
+
+    @Test
+    func skippedSessionSummaryNeverClaimsACompletionOrRank() {
+        let viewModel = makeViewModel()
+        viewModel.skipInterval()
+
+        let presentation = viewModel.completionSummaryPresentation
+
+        #expect(presentation.completedDetail == "SESSION ENDED")
+        #expect(presentation.unrankedValueText == "Incomplete")
+        #expect(presentation.unrankedDetailText == "SESSION ENDED")
+        #expect(presentation.rankingLabel != "ROUTINE RANK")
+        #expect(presentation.showsPendingRankingState == false)
+        #expect(viewModel.completionLeaderboardContext == nil)
+        #expect(viewModel.completionLeaderboardRank == nil)
+        #expect(viewModel.completionLeaderboardTotal == nil)
+    }
+
     private func makeViewModel() -> ActiveRoutineViewModel {
         ActiveRoutineViewModel(routine: makeRoutine())
     }
