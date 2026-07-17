@@ -649,10 +649,10 @@ Load these skills before writing or reviewing code in their domains. Each listin
 - PRs should target `main` and include `Closes #<number>` in the PR body.
 
 ### Workflows
-- `.github/workflows/ci.yml` runs on PRs to `main` and gates each verify job on the changed paths, so a functions-only PR skips the iOS jobs and an iOS-only PR skips the functions job.
-  `Functions Verify` installs `functions/` and runs its test suite.
-  `iOS Verify (Staging)` runs the `AscendAppTests` suite on an iPhone simulator with the `AscendApp-Staging` scheme and `ENABLE_TESTABILITY=YES`.
-  `iOS Verify (Release)` builds the `AscendApp` scheme unsigned for `iphoneos` with `CODE_SIGNING_ALLOWED=NO`.
+- `.github/workflows/ci.yml` runs on PRs to `main`. A `changes` job gates each verify job on the changed paths, so a functions-only PR skips the iOS jobs and an iOS-only PR skips the functions job:
+  - `functions-verify` installs `functions/` and runs its test suite.
+  - `ios-verify` builds the `AscendApp-Staging` scheme in the `Staging` configuration on an iPhone simulator with `ENABLE_TESTABILITY=YES` and runs the `AscendAppTests` suite. It picks the simulator at runtime from `xcodebuild -showdestinations`, preferring recent iPhone models and failing if none are available.
+  - `ios-verify-release` builds the `AscendApp` scheme in the `Release` configuration against `-sdk iphoneos` with `CODE_SIGNING_ALLOWED=NO`. It only builds, and exists so Release-only and device-only compile errors surface on the PR instead of first appearing in the production deploy.
 - CI is the only automated gate before `main`, so a workflow trigger that points at a branch which no longer exists silently disables it. When the branching model changes, change this trigger in the same PR.
 - `.github/workflows/deploy-staging.yml` runs on manual dispatch only, and executes sequential jobs (stop on failure):
   1. Build iOS app (Staging scheme, produce IPA)
@@ -662,7 +662,7 @@ Load these skills before writing or reviewing code in their domains. Each listin
   5. Deploy Storage Rules
   6. Deploy Firebase Hosting
   7. Upload to TestFlight (last — hardest to reverse)
-- Staging has no automatic trigger. It cannot simply run on pushes to `main`, because `deploy-production.yml` already does, and one push would deploy both. Giving staging its own non-colliding trigger is tracked in issue #201.
+- Staging has no automatic trigger. It cannot simply run on pushes to `main`, because `deploy-production.yml` already does, and one push would deploy both. Giving staging its own non-colliding trigger is tracked in issue #203.
 - `.github/workflows/deploy-production.yml` runs on pushes to `main` and manual dispatch. It mirrors the staging pipeline, including Firestore index deploys, with Release configuration and remains gated behind `PRODUCTION_READY=true` plus GitHub `production` environment protection.
 
 ### Deploy Authentication (OIDC)
