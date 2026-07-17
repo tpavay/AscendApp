@@ -1,5 +1,6 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import {buildNextCommunicationPreferences} from "./email/preferences";
 
 type LifecycleEventType =
   | "rating_prompt_answered"
@@ -86,11 +87,17 @@ export const recordLifecycleEvent = onCall(async (request) => {
     .collection("communication_preferences")
     .doc("current");
 
+  const updatesPreferences = event.type === "communication_preferences_updated";
+
   await firestore.runTransaction(async (transaction) => {
-    const [stateSnapshot, eventSnapshot] = await Promise.all([
-      transaction.get(stateRef),
-      transaction.get(eventRef),
-    ]);
+    // Firestore requires every read before the first write. The preferences
+    // document is only read for the event that rewrites it.
+    const [stateSnapshot, eventSnapshot, preferencesSnapshot] =
+      await Promise.all([
+        transaction.get(stateRef),
+        transaction.get(eventRef),
+        updatesPreferences ? transaction.get(preferencesRef) : null,
+      ]);
 
     const currentState = stateSnapshot.exists ?
       stateSnapshot.data() as PlainObject :
@@ -125,20 +132,22 @@ export const recordLifecycleEvent = onCall(async (request) => {
       updatedAt: now,
     });
 
-    if (event.type == "communication_preferences_updated") {
-      const currentPreferences = currentState.communicationPreferences;
-      const preferences = mergePlainObjects(
-        isPlainObject(currentPreferences) ? currentPreferences : {},
-        {
-          ...event.payload,
-          schemaVersion: 1,
-          updatedAt: now,
-        }
+    if (updatesPreferences) {
+      const existingPreferences = preferencesSnapshot?.exists ?
+        preferencesSnapshot.data() as PlainObject :
+        {};
+      transaction.set(
+        preferencesRef,
+        buildNextCommunicationPreferences(
+          existingPreferences ?? {},
+          event.payload,
+          now
+        ),
+        // Merge so preferences owned by other writers, notably the push
+        // preference from updatePushNotificationPreferences, survive an
+        // email preference change.
+        {merge: true}
       );
-      if (!preferences.createdAt) {
-        preferences.createdAt = now;
-      }
-      transaction.set(preferencesRef, preferences);
     }
   });
 
@@ -293,9 +302,10 @@ function statePatchForEvent(
     };
 
   case "communication_preferences_updated":
-    return {
-      communicationPreferences: event.payload,
-    };
+    // No mirror here: communication_preferences/current is the only source of
+    // truth, and unsubscribeFromEmails writes it without touching this state
+    // document, so a copy here would go stale.
+    return {};
   }
 }
 

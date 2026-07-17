@@ -198,8 +198,48 @@ jobs:
             )"
           fi
 
+          # The runner image installs the iOS runtimes but does not always
+          # pre-create simulator devices from them, and -showdestinations only
+          # reports devices that already exist. Create one from an installed
+          # runtime rather than failing on an image that can still run tests.
           if [ -z "$simulator_id" ]; then
-            echo "::error::No available iPhone simulator destination found."
+            echo "No pre-created iPhone simulator destination. xcodebuild reported:"
+            printf '%s\n' "$destinations"
+
+            # Newest installed runtime: it is the one that still satisfies the
+            # app's deployment target.
+            runtime="$(
+              xcrun simctl list runtimes available \
+                | sed -n 's/^iOS \([0-9.]*\) .*- \(com\.apple\.CoreSimulator\.SimRuntime\.iOS-[0-9-]*\)$/\1 \2/p' \
+                | sort -V \
+                | tail -1 \
+                | cut -d' ' -f2
+            )"
+
+            for name in "${preferred_names[@]}"; do
+              device_type="$(
+                xcrun simctl list devicetypes \
+                  | sed -n "s/^${name} (\(com\.apple\.CoreSimulator\.SimDeviceType\.[^)]*\))\$/\1/p"
+              )"
+
+              if [ -z "$device_type" ] || [ -z "$runtime" ]; then
+                continue
+              fi
+
+              # Not every device type is offered by every runtime, so let
+              # simctl reject the pairing and move on to the next candidate.
+              if simulator_id="$(xcrun simctl create "ascend-ci-iphone" "$device_type" "$runtime" 2>/dev/null)"; then
+                echo "Created simulator $simulator_id ($name on $runtime)."
+                break
+              fi
+
+              simulator_id=""
+            done
+          fi
+
+          if [ -z "$simulator_id" ]; then
+            echo "::error::No iPhone simulator destination found, and no installed iOS runtime to create one from."
+            xcrun simctl list runtimes
             exit 1
           fi
 

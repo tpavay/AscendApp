@@ -12,6 +12,7 @@ admin.initializeApp();
 export {cleanupDeletedUserData} from "./accountCleanup";
 export {processEmailJobs} from "./email/processor";
 export {onLifecycleEventEmailAutomation} from "./email/automation";
+export {unsubscribeFromEmails} from "./email/unsubscribe";
 export {onFeedbackCreated} from "./feedback";
 export {recordLifecycleEvent} from "./lifecycle";
 export {finalizeLeaderboardAchievements} from "./leaderboardAchievements";

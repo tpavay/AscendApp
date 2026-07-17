@@ -94,11 +94,13 @@ final class LifecycleEventRecorder {
         )
     }
 
+    /// Unlike the other lifecycle events, this one backs a settings control the
+    /// user is watching, so it reports failure instead of swallowing it.
     func recordCommunicationPreferences(
         lifecycleEmailsEnabled: Bool? = nil,
         productUpdatesEnabled: Bool? = nil,
         climbDropEmailsEnabled: Bool? = nil
-    ) {
+    ) async throws {
         var payload: [String: Any] = [:]
         if let lifecycleEmailsEnabled {
             payload["lifecycleEmailsEnabled"] = lifecycleEmailsEnabled
@@ -111,7 +113,10 @@ final class LifecycleEventRecorder {
         }
         guard !payload.isEmpty else { return }
 
-        record(type: "communication_preferences_updated", payload: payload)
+        try await sendLifecycleEvent(
+            type: "communication_preferences_updated",
+            payload: payload
+        )
     }
 
     private func recordPaywallEvent(
@@ -126,31 +131,57 @@ final class LifecycleEventRecorder {
         record(type: type, payload: payload)
     }
 
+    /// Fire-and-forget recording for observational events, where a failed send
+    /// is not worth interrupting the user over.
     private func record(type: String, payload: sending [String: Any]) {
+        Task {
+            do {
+                try await sendLifecycleEvent(type: type, payload: payload)
+            } catch {
+                guard !Self.isExpectedTransportNoise(error) else { return }
+
+                TelemetryManager.shared.recordError(
+                    error,
+                    context: .network,
+                    code: "lifecycle_event_record_failed",
+                    additionalInfo: ["type": type]
+                )
+            }
+        }
+    }
+
+    private func sendLifecycleEvent(
+        type: String,
+        payload: sending [String: Any]
+    ) async throws {
         // Lifecycle events are per-user server state; the callable rejects
         // unauthenticated requests, so don't send them while signed out.
-        guard Auth.auth().currentUser != nil else { return }
+        guard Auth.auth().currentUser != nil else {
+            throw LifecycleEventRecorderError.signedOut
+        }
 
         let eventData: [String: Any] = [
             "type": type,
             "payload": payload
         ]
 
-        functions.httpsCallable("recordLifecycleEvent").call(eventData) { _, error in
-            guard let error, !Self.isExpectedTransportNoise(error) else { return }
-
-            TelemetryManager.shared.recordError(
-                error,
-                context: .network,
-                code: "lifecycle_event_record_failed",
-                additionalInfo: ["type": type]
-            )
-        }
+        _ = try await functions
+            .httpsCallable("recordLifecycleEvent")
+            .call(eventData)
     }
 
     /// Errors that are part of normal operation — a request cancelled by the
     /// system mid-flight, or auth racing sign-out — not defects worth alerting on.
     private nonisolated static func isExpectedTransportNoise(_ error: Error) -> Bool {
+        if let recorderError = error as? LifecycleEventRecorderError {
+            // Exhaustive on purpose: a new case must decide for itself whether
+            // it is noise rather than inheriting silence.
+            switch recorderError {
+            case .signedOut:
+                return true
+            }
+        }
+
         let nsError = error as NSError
         if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
             return true

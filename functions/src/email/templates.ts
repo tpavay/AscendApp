@@ -3,8 +3,10 @@ import {
   getMarketingWebsiteUrl,
   getTransactionalReplyToEmail,
 } from "./config";
+import {escapeHtml} from "./html";
 import type {
   EmailJobPayload,
+  EmailRenderContext,
   EmptyEmailPayload,
   FeedbackAdminNotifyPayload,
   FirstAscentClaimedPayload,
@@ -24,21 +26,8 @@ interface BrandedEmailContent {
   headline: string;
   preheader: string;
   subject: string;
+  unsubscribeUrl?: string | null;
   whyReceived: string;
-}
-
-/**
- * Escapes untrusted HTML content for safe email rendering.
- * @param {string} value - Raw user-provided content
- * @return {string} Escaped HTML string
- */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 /**
@@ -169,6 +158,7 @@ function renderBrandedEmail(
   const escapedPrivacyPolicyUrl = escapeHtml(privacyPolicyUrl);
   const ctaUrl = content.ctaUrl ?? replyCtaUrl(content.subject);
   const escapedCtaUrl = escapeHtml(ctaUrl);
+  const unsubscribeUrl = content.unsubscribeUrl ?? null;
   const escapedBody = content.bodyParagraphs.map((paragraph) =>
     escapeHtml(paragraph)
   );
@@ -183,6 +173,7 @@ function renderBrandedEmail(
     "",
     content.whyReceived,
     `Privacy Policy: ${privacyPolicyUrl}`,
+    ...(unsubscribeUrl ? [`Unsubscribe: ${unsubscribeUrl}`] : []),
   ].join("\n");
 
   const bodyHtml = escapedBody.map((paragraph) => [
@@ -191,6 +182,18 @@ function renderBrandedEmail(
     paragraph,
     "</p>",
   ].join("")).join("");
+
+  const footerLinksHtml = [
+    "<a href=\"",
+    escapedPrivacyPolicyUrl,
+    "\" style=\"color:#6b7280;text-decoration:underline;\">Privacy Policy</a>",
+    ...(unsubscribeUrl ? [
+      "<span style=\"color:#9ca3af;\"> &middot; </span><a href=\"",
+      escapeHtml(unsubscribeUrl),
+      // eslint-disable-next-line max-len
+      "\" style=\"color:#6b7280;text-decoration:underline;\">Unsubscribe</a>",
+    ] : []),
+  ].join("");
 
   const ctaHtml = [
     "<a href=\"",
@@ -243,10 +246,9 @@ function renderBrandedEmail(
       "<tr><td style=\"padding:0 30px 34px;\"><div style=\"border-top:1px solid rgba(17,17,17,0.08);padding-top:22px;text-align:center;\"><p style=\"margin:0 0 10px;font-size:13px;line-height:1.6;color:#9ca3af;\">",
       escapeHtml(content.whyReceived),
       // eslint-disable-next-line max-len
-      "</p><p style=\"margin:0 0 10px;font-size:13px;line-height:1.6;color:#9ca3af;\">Need help? Reply to this email.</p><p style=\"margin:0;font-size:13px;line-height:1.6;\"><a href=\"",
-      escapedPrivacyPolicyUrl,
-      // eslint-disable-next-line max-len
-      "\" style=\"color:#6b7280;text-decoration:underline;\">Privacy Policy</a></p></div></td></tr>",
+      "</p><p style=\"margin:0 0 10px;font-size:13px;line-height:1.6;color:#9ca3af;\">Need help? Reply to this email.</p><p style=\"margin:0;font-size:13px;line-height:1.6;\">",
+      footerLinksHtml,
+      "</p></div></td></tr>",
       "</table></td></tr></table></body></html>",
     ].join(""),
   };
@@ -404,14 +406,17 @@ export function renderWaitlistWelcomeEmailFromPayload(
 /**
  * Renders the positive rating follow-up email.
  * @param {EmptyEmailPayload} payload - Optional template payload
+ * @param {EmailRenderContext} context - Per-recipient render context
  * @return {TransactionalEmailRenderResult} Rendered email
  */
 export function renderRatingPositiveFollowupEmail(
-  payload: EmptyEmailPayload = {}
+  payload: EmptyEmailPayload = {},
+  context: EmailRenderContext = {}
 ): TransactionalEmailRenderResult {
   void payload;
 
   return renderBrandedEmail({
+    unsubscribeUrl: context.unsubscribeUrl,
     subject: "Thanks for climbing with Ascend",
     preheader: "Your feedback helps shape what we build next.",
     eyebrow: "Founder Note",
@@ -435,25 +440,33 @@ export function renderRatingPositiveFollowupEmail(
 /**
  * Validates and renders the positive rating follow-up email.
  * @param {EmailJobPayload} payload - Stored job payload
+ * @param {EmailRenderContext} context - Per-recipient render context
  * @return {TransactionalEmailRenderResult} Rendered email
  */
 export function renderRatingPositiveFollowupEmailFromPayload(
-  payload: EmailJobPayload
+  payload: EmailJobPayload,
+  context: EmailRenderContext = {}
 ): TransactionalEmailRenderResult {
-  return renderRatingPositiveFollowupEmail(parseEmptyEmailPayload(payload));
+  return renderRatingPositiveFollowupEmail(
+    parseEmptyEmailPayload(payload),
+    context
+  );
 }
 
 /**
  * Renders the negative rating feedback email.
  * @param {EmptyEmailPayload} payload - Optional template payload
+ * @param {EmailRenderContext} context - Per-recipient render context
  * @return {TransactionalEmailRenderResult} Rendered email
  */
 export function renderRatingNegativeFeedbackEmail(
-  payload: EmptyEmailPayload = {}
+  payload: EmptyEmailPayload = {},
+  context: EmailRenderContext = {}
 ): TransactionalEmailRenderResult {
   void payload;
 
   return renderBrandedEmail({
+    unsubscribeUrl: context.unsubscribeUrl,
     subject: "Tell me what missed",
     preheader: "One reply helps make Ascend better.",
     eyebrow: "Founder Note",
@@ -477,25 +490,33 @@ export function renderRatingNegativeFeedbackEmail(
 /**
  * Validates and renders the negative rating feedback email.
  * @param {EmailJobPayload} payload - Stored job payload
+ * @param {EmailRenderContext} context - Per-recipient render context
  * @return {TransactionalEmailRenderResult} Rendered email
  */
 export function renderRatingNegativeFeedbackEmailFromPayload(
-  payload: EmailJobPayload
+  payload: EmailJobPayload,
+  context: EmailRenderContext = {}
 ): TransactionalEmailRenderResult {
-  return renderRatingNegativeFeedbackEmail(parseEmptyEmailPayload(payload));
+  return renderRatingNegativeFeedbackEmail(
+    parseEmptyEmailPayload(payload),
+    context
+  );
 }
 
 /**
  * Renders the onboarding abandonment email before paywall.
  * @param {EmptyEmailPayload} payload - Optional template payload
+ * @param {EmailRenderContext} context - Per-recipient render context
  * @return {TransactionalEmailRenderResult} Rendered email
  */
 export function renderOnboardingAbandonedBeforePaywallEmail(
-  payload: EmptyEmailPayload = {}
+  payload: EmptyEmailPayload = {},
+  context: EmailRenderContext = {}
 ): TransactionalEmailRenderResult {
   const appUrl = appUrlFromPayload(payload);
 
   return renderBrandedEmail({
+    unsubscribeUrl: context.unsubscribeUrl,
     subject: "Your first climb is waiting",
     preheader: "Pick a landmark. Put your steps on the board.",
     eyebrow: "First Climb",
@@ -516,27 +537,33 @@ export function renderOnboardingAbandonedBeforePaywallEmail(
 /**
  * Validates and renders the onboarding abandonment email before paywall.
  * @param {EmailJobPayload} payload - Stored job payload
+ * @param {EmailRenderContext} context - Per-recipient render context
  * @return {TransactionalEmailRenderResult} Rendered email
  */
 export function renderOnboardingAbandonedBeforePaywallEmailFromPayload(
-  payload: EmailJobPayload
+  payload: EmailJobPayload,
+  context: EmailRenderContext = {}
 ): TransactionalEmailRenderResult {
   return renderOnboardingAbandonedBeforePaywallEmail(
-    parseEmptyEmailPayload(payload)
+    parseEmptyEmailPayload(payload),
+    context
   );
 }
 
 /**
  * Renders the onboarding abandonment email after paywall.
  * @param {EmptyEmailPayload} payload - Optional template payload
+ * @param {EmailRenderContext} context - Per-recipient render context
  * @return {TransactionalEmailRenderResult} Rendered email
  */
 export function renderOnboardingAbandonedAfterPaywallEmail(
-  payload: EmptyEmailPayload = {}
+  payload: EmptyEmailPayload = {},
+  context: EmailRenderContext = {}
 ): TransactionalEmailRenderResult {
   const appUrl = appUrlFromPayload(payload);
 
   return renderBrandedEmail({
+    unsubscribeUrl: context.unsubscribeUrl,
     subject: "Race real climbs",
     preheader: [
       "Leaderboards, First Ascents, and stair-stepper records",
@@ -563,13 +590,16 @@ export function renderOnboardingAbandonedAfterPaywallEmail(
 /**
  * Validates and renders the onboarding abandonment email after paywall.
  * @param {EmailJobPayload} payload - Stored job payload
+ * @param {EmailRenderContext} context - Per-recipient render context
  * @return {TransactionalEmailRenderResult} Rendered email
  */
 export function renderOnboardingAbandonedAfterPaywallEmailFromPayload(
-  payload: EmailJobPayload
+  payload: EmailJobPayload,
+  context: EmailRenderContext = {}
 ): TransactionalEmailRenderResult {
   return renderOnboardingAbandonedAfterPaywallEmail(
-    parseEmptyEmailPayload(payload)
+    parseEmptyEmailPayload(payload),
+    context
   );
 }
 
@@ -602,16 +632,19 @@ function parseFirstClimbCompletedPayload(
 /**
  * Renders the first climb completed email.
  * @param {FirstClimbCompletedPayload} payload - Template payload
+ * @param {EmailRenderContext} context - Per-recipient render context
  * @return {TransactionalEmailRenderResult} Rendered email
  */
 export function renderFirstClimbCompletedEmail(
-  payload: FirstClimbCompletedPayload
+  payload: FirstClimbCompletedPayload,
+  context: EmailRenderContext = {}
 ): TransactionalEmailRenderResult {
   const resultLine = payload.climbName ?
     `Your first Ascend climb, ${payload.climbName}, is logged.` :
     "Your first Ascend climb is logged.";
 
   return renderBrandedEmail({
+    unsubscribeUrl: context.unsubscribeUrl,
     subject: "First climb logged",
     preheader: "Your stair-stepper work is on the board.",
     eyebrow: "First Result",
@@ -632,13 +665,16 @@ export function renderFirstClimbCompletedEmail(
 /**
  * Validates and renders the first climb completed email.
  * @param {EmailJobPayload} payload - Stored job payload
+ * @param {EmailRenderContext} context - Per-recipient render context
  * @return {TransactionalEmailRenderResult} Rendered email
  */
 export function renderFirstClimbCompletedEmailFromPayload(
-  payload: EmailJobPayload
+  payload: EmailJobPayload,
+  context: EmailRenderContext = {}
 ): TransactionalEmailRenderResult {
   return renderFirstClimbCompletedEmail(
-    parseFirstClimbCompletedPayload(payload)
+    parseFirstClimbCompletedPayload(payload),
+    context
   );
 }
 
@@ -671,12 +707,15 @@ function parseFirstAscentClaimedPayload(
 /**
  * Renders the First Ascent claimed email.
  * @param {FirstAscentClaimedPayload} payload - Template payload
+ * @param {EmailRenderContext} context - Per-recipient render context
  * @return {TransactionalEmailRenderResult} Rendered email
  */
 export function renderFirstAscentClaimedEmail(
-  payload: FirstAscentClaimedPayload
+  payload: FirstAscentClaimedPayload,
+  context: EmailRenderContext = {}
 ): TransactionalEmailRenderResult {
   return renderBrandedEmail({
+    unsubscribeUrl: context.unsubscribeUrl,
     subject: "You claimed it first",
     preheader: "That First Ascent is yours.",
     eyebrow: "First Ascent",
@@ -700,13 +739,16 @@ export function renderFirstAscentClaimedEmail(
 /**
  * Validates and renders the First Ascent claimed email.
  * @param {EmailJobPayload} payload - Stored job payload
+ * @param {EmailRenderContext} context - Per-recipient render context
  * @return {TransactionalEmailRenderResult} Rendered email
  */
 export function renderFirstAscentClaimedEmailFromPayload(
-  payload: EmailJobPayload
+  payload: EmailJobPayload,
+  context: EmailRenderContext = {}
 ): TransactionalEmailRenderResult {
   return renderFirstAscentClaimedEmail(
-    parseFirstAscentClaimedPayload(payload)
+    parseFirstAscentClaimedPayload(payload),
+    context
   );
 }
 
@@ -739,12 +781,15 @@ function parseLeaderboardFirstPlacePayload(
 /**
  * Renders the leaderboard first place email.
  * @param {LeaderboardFirstPlacePayload} payload - Template payload
+ * @param {EmailRenderContext} context - Per-recipient render context
  * @return {TransactionalEmailRenderResult} Rendered email
  */
 export function renderLeaderboardFirstPlaceEmail(
-  payload: LeaderboardFirstPlacePayload
+  payload: LeaderboardFirstPlacePayload,
+  context: EmailRenderContext = {}
 ): TransactionalEmailRenderResult {
   return renderBrandedEmail({
+    unsubscribeUrl: context.unsubscribeUrl,
     subject: "You own the board",
     preheader: "You moved into #1.",
     eyebrow: "Leaderboard",
@@ -765,13 +810,16 @@ export function renderLeaderboardFirstPlaceEmail(
 /**
  * Validates and renders the leaderboard first place email.
  * @param {EmailJobPayload} payload - Stored job payload
+ * @param {EmailRenderContext} context - Per-recipient render context
  * @return {TransactionalEmailRenderResult} Rendered email
  */
 export function renderLeaderboardFirstPlaceEmailFromPayload(
-  payload: EmailJobPayload
+  payload: EmailJobPayload,
+  context: EmailRenderContext = {}
 ): TransactionalEmailRenderResult {
   return renderLeaderboardFirstPlaceEmail(
-    parseLeaderboardFirstPlacePayload(payload)
+    parseLeaderboardFirstPlacePayload(payload),
+    context
   );
 }
 

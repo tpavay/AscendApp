@@ -1,13 +1,25 @@
 import * as admin from "firebase-admin";
 import {onSchedule} from "firebase-functions/v2/scheduler";
-import {transactionalEmailConfig} from "./config";
+import {
+  assertTransactionalEmailConfig,
+  getMarketingWebsiteUrl,
+  getUnsubscribeSigningKey,
+  transactionalEmailConfig,
+} from "./config";
 import {renderEmailContentForJob} from "./catalog";
+import {isEmailJobSuppressed} from "./preferences";
 import {sendTransactionalEmail, EmailDeliveryError} from "./provider";
 import {getNextRetryDelayMs} from "./retry";
+import {
+  buildUnsubscribeToken,
+  buildUnsubscribeUrl,
+} from "./unsubscribeToken";
 import type {EmailJobDocument} from "./types";
 
 const JOB_BATCH_SIZE = 25;
 const STALE_PROCESSING_MS = 15 * 60 * 1000;
+
+type JobOutcome = "sent" | "retried" | "failed" | "skipped";
 
 /**
  * Creates a Firestore timestamp from a Date instance.
@@ -29,6 +41,26 @@ function serializeErrorMessage(error: unknown): string {
   }
 
   return "unknown_error";
+}
+
+/**
+ * Builds the signed unsubscribe URL for a job's recipient.
+ *
+ * Only user-addressed mail gets a link: waitlist and admin notifications have
+ * no uid whose preference an unsubscribe could flip.
+ * @param {EmailJobDocument} job - Claimed email job
+ * @return {string | null} Signed unsubscribe URL, or null when not applicable
+ */
+function unsubscribeUrlForJob(job: EmailJobDocument): string | null {
+  if (!job.recipientUid) {
+    return null;
+  }
+
+  const token = buildUnsubscribeToken(
+    job.recipientUid,
+    getUnsubscribeSigningKey()
+  );
+  return buildUnsubscribeUrl(getMarketingWebsiteUrl(), token);
 }
 
 /**
@@ -154,6 +186,26 @@ async function markJobFailed(
 }
 
 /**
+ * Marks an email job as intentionally not delivered.
+ *
+ * Distinct from "failed": nothing went wrong and there is nothing to retry,
+ * so attemptCount and the last error stay untouched.
+ * @param {DocumentReference} jobRef - Email job document reference
+ * @param {Timestamp} nowTimestamp - Current timestamp
+ * @return {Promise<void>}
+ */
+async function markJobSkipped(
+  jobRef: admin.firestore.DocumentReference,
+  nowTimestamp: admin.firestore.Timestamp
+): Promise<void> {
+  await jobRef.update({
+    processingStartedAt: null,
+    status: "skipped",
+    updatedAt: nowTimestamp,
+  });
+}
+
+/**
  * Requeues an email job after a retryable failure.
  * @param {DocumentReference} jobRef - Email job document reference
  * @param {Timestamp} nowTimestamp - Current timestamp
@@ -193,18 +245,31 @@ async function requeueEmailJob(
  * @param {DocumentReference} jobRef - Email job document reference
  * @param {EmailJobDocument} job - Claimed email job
  * @param {Timestamp} nowTimestamp - Current timestamp
- * @return {Promise<"sent" | "retried" | "failed">} Processing outcome
+ * @return {Promise<JobOutcome>} Processing outcome
  */
 async function processClaimedJob(
   jobRef: admin.firestore.DocumentReference,
   job: EmailJobDocument,
   nowTimestamp: admin.firestore.Timestamp
-): Promise<"sent" | "retried" | "failed"> {
+): Promise<JobOutcome> {
+  // Re-read the preference the job was queued under: a retrying job can be
+  // hours old, and the user may have unsubscribed in the meantime. A read
+  // failure throws rather than falling through to a send, leaving the job
+  // claimed for reclaim and a later retry.
+  if (await isEmailJobSuppressed(job)) {
+    await markJobSkipped(jobRef, nowTimestamp);
+    console.log("processEmailJobs skipped by preferences", {
+      jobId: jobRef.id,
+    });
+    return "skipped";
+  }
+
   const nextAttemptCount = job.attemptCount + 1;
+  const unsubscribeUrl = unsubscribeUrlForJob(job);
   let renderedEmail;
 
   try {
-    renderedEmail = renderEmailContentForJob(job);
+    renderedEmail = renderEmailContentForJob(job, {unsubscribeUrl});
   } catch (error) {
     await markJobFailed(
       jobRef,
@@ -228,6 +293,7 @@ async function processClaimedJob(
       subject: renderedEmail.subject,
       text: renderedEmail.text,
       to: [job.recipientEmail],
+      unsubscribeUrl,
     });
 
     await jobRef.update({
@@ -298,6 +364,12 @@ export const processEmailJobs = onSchedule(
     timeZone: "Etc/UTC",
   },
   async () => {
+    // A batch-level precondition, checked before anything is claimed: without
+    // a valid secret no job in this run can be delivered, and mail must never
+    // go out without a working opt-out path. Throwing here fails the
+    // invocation, which is the signal a mis-ordered deploy needs to raise.
+    assertTransactionalEmailConfig();
+
     const startedAt = new Date();
     const startedAtTimestamp = toTimestamp(startedAt);
     const reclaimedCount = await reclaimStaleJobs(startedAtTimestamp);
@@ -311,6 +383,8 @@ export const processEmailJobs = onSchedule(
     let sentCount = 0;
     let retriedCount = 0;
     let failedCount = 0;
+    let skippedCount = 0;
+    let erroredCount = 0;
 
     for (const document of dueJobsSnapshot.docs) {
       const claimedJob = await claimEmailJob(document.ref, startedAtTimestamp);
@@ -318,26 +392,46 @@ export const processEmailJobs = onSchedule(
         continue;
       }
 
-      const outcome = await processClaimedJob(
-        document.ref,
-        claimedJob,
-        startedAtTimestamp
-      );
+      let outcome: JobOutcome;
+      try {
+        outcome = await processClaimedJob(
+          document.ref,
+          claimedJob,
+          startedAtTimestamp
+        );
+      } catch (error) {
+        // Scoped to faults affecting this job alone, such as its own
+        // preference read failing: they must not end the run and stall the
+        // rest of the batch. The job stays claimed and unsent, so the
+        // stale-processing reclaim requeues it rather than dead-lettering it.
+        erroredCount += 1;
+        console.error("processEmailJobs job error", {
+          errorCode: "job_processing_error",
+          errorMessage: serializeErrorMessage(error),
+          jobId: document.ref.id,
+        });
+        continue;
+      }
+
       if (outcome === "sent") {
         sentCount += 1;
       } else if (outcome === "retried") {
         retriedCount += 1;
+      } else if (outcome === "skipped") {
+        skippedCount += 1;
       } else {
         failedCount += 1;
       }
     }
 
     console.log("processEmailJobs summary", {
+      erroredCount,
       failedCount,
       queuedCount: dueJobsSnapshot.size,
       reclaimedCount,
       retriedCount,
       sentCount,
+      skippedCount,
     });
   }
 );

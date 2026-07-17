@@ -6,6 +6,7 @@ export const transactionalEmailConfig =
 export const DEFAULT_MARKETING_WEBSITE_URL = "https://ascendstepper.com";
 export const DEFAULT_TRANSACTIONAL_REPLY_TO_EMAIL =
   "support@ascendstepper.com";
+export const MIN_UNSUBSCRIBE_SIGNING_KEY_LENGTH = 32;
 
 /**
  * Normalizes a public-facing HTTPS URL from config.
@@ -60,6 +61,29 @@ export function getTransactionalEmailConfig(): TransactionalEmailConfig {
     );
   }
 
+  // Required so a misconfigured secret fails loudly instead of quietly
+  // sending mail that carries no working unsubscribe path.
+  if (
+    !config.unsubscribeSigningKey ||
+    config.unsubscribeSigningKey.length < MIN_UNSUBSCRIBE_SIGNING_KEY_LENGTH
+  ) {
+    throw new Error(
+      "TRANSACTIONAL_EMAIL_CONFIG.unsubscribeSigningKey must be at least " +
+      `${MIN_UNSUBSCRIBE_SIGNING_KEY_LENGTH} characters`
+    );
+  }
+
+  // Required for the same reason as the signing key: this host is what the
+  // unsubscribe link points at, and the token is signed with this
+  // environment's key. Falling back to the production host would emit staging
+  // links that verify against the wrong key and never work.
+  const websiteUrl = normalizePublicUrl(config.websiteUrl);
+  if (!websiteUrl) {
+    throw new Error(
+      "TRANSACTIONAL_EMAIL_CONFIG.websiteUrl must be an https URL"
+    );
+  }
+
   return {
     provider: config.provider,
     apiKey: config.apiKey,
@@ -68,13 +92,37 @@ export function getTransactionalEmailConfig(): TransactionalEmailConfig {
     fromEmail: config.fromEmail,
     fromName: config.fromName,
     replyTo: config.replyTo,
-    websiteUrl: config.websiteUrl,
+    unsubscribeSigningKey: config.unsubscribeSigningKey,
+    websiteUrl,
   };
 }
 
 /**
+ * Throws unless the transactional email secret is present and valid.
+ *
+ * Lets a sender check the deploy config up front and fail on it directly,
+ * instead of leaving it to surface deeper in a render or send path that would
+ * misread it as a problem with the individual message.
+ */
+export function assertTransactionalEmailConfig(): void {
+  getTransactionalEmailConfig();
+}
+
+/**
+ * Returns the HMAC signing key used for one-click unsubscribe tokens.
+ * @return {string} Unsubscribe signing key
+ */
+export function getUnsubscribeSigningKey(): string {
+  return getTransactionalEmailConfig().unsubscribeSigningKey;
+}
+
+/**
  * Returns the public marketing website used in customer-facing email copy.
- * Falls back to the primary marketing site when the secret is unavailable.
+ *
+ * The fallback covers only render paths that never set the secret, such as
+ * template tests. A secret that is present but invalid throws instead: it is
+ * the host the unsubscribe link points at, so guessing it wrong would emit
+ * links that verify against another environment's key and never work.
  * @return {string} Normalized website URL
  */
 export function getMarketingWebsiteUrl(): string {
@@ -82,18 +130,7 @@ export function getMarketingWebsiteUrl(): string {
     return DEFAULT_MARKETING_WEBSITE_URL;
   }
 
-  try {
-    const configuredUrl = normalizePublicUrl(
-      getTransactionalEmailConfig().websiteUrl
-    );
-    if (configuredUrl) {
-      return configuredUrl;
-    }
-  } catch {
-    // Ignore missing secret access in test-only render paths.
-  }
-
-  return DEFAULT_MARKETING_WEBSITE_URL;
+  return getTransactionalEmailConfig().websiteUrl;
 }
 
 /**
