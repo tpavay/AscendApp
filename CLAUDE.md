@@ -264,7 +264,8 @@ Sharing in Ascend is a **user-composed canvas**, not a gallery of pre-designed c
 - Business logic for profile section visibility, achievement counting, ranking subtitles, comparison state, and stat derivation belongs in models/services that can be unit tested without a SwiftUI view tree.
 
 ### Firestore Schema-Change Rule
-- `firestore.rules` uses strict `hasOnly` + `hasAll` field validation on every collection. Adding, removing, or renaming a field in the app **requires a matching update to `firestore.rules`** — otherwise writes will be rejected at the server.
+- `firestore.rules` uses strict `hasOnly` + `hasAll` field validation on every client-writable collection. Adding, removing, or renaming a field in the app **requires a matching update to `firestore.rules`** — otherwise writes will be rejected at the server.
+- Server-owned collections are the exception: they are `allow write: if false` and validate no fields, because no client can write them at all. Adding a field to one (for example the `live_replay_leaderboards` subtree, written only by Cloud Functions and Admin SDK scripts) needs no rules change.
 - The same `firestore.rules` file must be deployed to all environments (dev, staging, production) to catch schema mismatches early. Never test against loose rules in dev while production has strict ones.
 - When changing Firestore document schemas, always update in this order:
   1. Update `firestore.rules` to allow the new/changed fields
@@ -772,12 +773,3 @@ Website source lives in `web/` and is built to `web/dist/` before deploy.
 - `.github/workflows/deploy-staging.yml` — staging deploy pipeline
 - `.github/workflows/deploy-production.yml` — production deploy pipeline (gated)
 - `Gemfile`, `fastlane/Appfile`, `fastlane/Fastfile`, `fastlane/Matchfile` — iOS build/signing/TestFlight automation
-
----
-
-## Maintaining this file
-
-Keep this file for knowledge useful to almost every future agent session in this project.
-Do not repeat what the codebase already shows; point to the authoritative file or command instead.
-Prefer rewriting or pruning existing entries over appending new ones.
-When updating this file, preserve this bar for all agents and keep entries concise.
