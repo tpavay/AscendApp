@@ -86,6 +86,40 @@ struct WorkoutHydrationServiceLiveClimbRestoreTests {
         #expect(restoredAttempt.accumulatedSteps == 1_000)
     }
 
+    /// A recovered draft saves `.interrupted`, which save-time normalization deliberately leaves
+    /// alone so it stays out of public results. Status still comes from steps, so the climb must
+    /// survive a reinstall as a completion regardless of that reason.
+    @Test
+    func interruptedBackupPastTheTargetSurvivesReinstallAsCompleted() async throws {
+        let userId = "reinstall-interrupted-user"
+        let climb = makeClimb(id: "reinstall-interrupted-climb", requiredSteps: 1_000)
+
+        let backup = try makeRemoteBackup(
+            for: climb,
+            userId: userId,
+            steps: 1_010,
+            stopReason: .interrupted
+        )
+
+        // The climb counted before the reinstall, and the reason was left untouched.
+        #expect(backup.localAttemptStatus == .completed)
+        #expect(try decodedMetadata(from: backup.record.document).stopReason == .interrupted)
+
+        let restoredContext = try makeModelContext()
+        _ = try await WorkoutHydrationService.hydrateIfNeeded(
+            modelContext: restoredContext,
+            currentUserId: userId,
+            remoteRepository: StubWorkoutRemoteRepository(records: [backup.record])
+        )
+
+        let restoredAttempt = try #require(
+            try restoredContext.fetch(FetchDescriptor<ClimbAttempt>()).first
+        )
+        #expect(restoredAttempt.status == .completed)
+        #expect(restoredAttempt.completedAt != nil)
+        #expect(restoredAttempt.accumulatedSteps == 1_000)
+    }
+
     @Test
     func attemptShortOfTheTargetStillRestoresAsFailed() async throws {
         let userId = "reinstall-short-attempt-user"

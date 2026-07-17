@@ -300,10 +300,12 @@ final class ClimbService {
         return activeAttempt
     }
 
-    /// Records the finish on the workout itself so every later reader of the saved metadata -
-    /// rehydration after a reinstall, the replay leaderboard Cloud Function - agrees with the
-    /// status set here. Without it, ending a climb manually one step past the target leaves
-    /// `stopReason` saying the user quit while the attempt says they finished.
+    /// Records a manual stop past the target as the finish it was, so later readers of the saved
+    /// metadata - rehydration after a reinstall, the replay leaderboard Cloud Function - agree
+    /// with the status set here. Without it, ending a climb manually one step past the target
+    /// leaves `stopReason` saying the user quit while the attempt says they finished. Only the
+    /// manual-stop case is normalized; see `LiveClimbCompletionPolicy.resolvedStopReason`. The
+    /// attempt's status never depends on this value.
     private static func normalizeStopReason(on workout: Workout, targetStepCount: Int) {
         guard var metadata = LiveClimbWorkoutSummaryData.metadata(for: workout) else { return }
 

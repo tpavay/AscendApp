@@ -22,7 +22,7 @@ struct LiveClimbCompletionPolicyTests {
     }
 
     @Test
-    func passingTheTargetResolvesAManualStopToTargetReached() {
+    func passingTheTargetResolvesOnlyAManualStopToTargetReached() {
         #expect(
             LiveClimbCompletionPolicy.resolvedStopReason(
                 .userStopped,
@@ -30,13 +30,42 @@ struct LiveClimbCompletionPolicyTests {
                 targetStepCount: 1_000
             ) == .targetReached
         )
+    }
+
+    /// Publication is gated on this value, so a hand-typed recovery step count must not be able
+    /// to turn an interrupted session into a First Ascent claim.
+    @Test
+    func passingTheTargetLeavesANonManualStopReasonAlone() {
         #expect(
             LiveClimbCompletionPolicy.resolvedStopReason(
                 .interrupted,
                 steps: 1_200,
                 targetStepCount: 1_000
+            ) == .interrupted
+        )
+        #expect(
+            LiveClimbCompletionPolicy.resolvedStopReason(
+                .discarded,
+                steps: 1_200,
+                targetStepCount: 1_000
+            ) == .discarded
+        )
+        #expect(
+            LiveClimbCompletionPolicy.resolvedStopReason(
+                .targetReached,
+                steps: 1_200,
+                targetStepCount: 1_000
             ) == .targetReached
         )
+    }
+
+    /// Narrowing the reason upgrade must not narrow what counts: an interrupted session past the
+    /// target is still a finish, because status reads steps rather than the stop reason.
+    @Test
+    func anInterruptedSessionPastTheTargetIsStillACompletion() {
+        let metadata = makeMetadata(stopReason: .interrupted, climbTargetStepCount: 1_000)
+
+        #expect(LiveClimbCompletionPolicy.attemptStatus(for: metadata, steps: 1_200) == .completed)
     }
 
     @Test

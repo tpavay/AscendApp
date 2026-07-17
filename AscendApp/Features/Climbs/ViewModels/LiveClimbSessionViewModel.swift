@@ -1058,8 +1058,9 @@ final class LiveClimbSessionViewModel {
         modelContext.insert(workout)
         try modelContext.save()
 
+        var settledAttempt: ClimbAttempt?
         if mode.isLandmarkClimb {
-            try climbService.apply(workouts: [workout], modelContext: modelContext)
+            settledAttempt = try climbService.apply(workouts: [workout], modelContext: modelContext)
         }
 
         try WorkoutMutationHandler.shared.workoutsDidChange(
@@ -1075,12 +1076,10 @@ final class LiveClimbSessionViewModel {
             )
         }
 
-        // `apply` above settled this attempt's status, so read it off the attempt rather than
-        // searching history for a row that may not be the one we just saved. Just Climb sessions
-        // have no attempt to rank - saving one is the finish.
+        // Just Climb sessions have no attempt to rank - saving one is the finish.
         return SavedLiveClimbSession(
             workout: workout,
-            attemptStatus: attempt?.status ?? .completed
+            attemptStatus: settledAttempt?.status ?? attempt?.status ?? .completed
         )
     }
 

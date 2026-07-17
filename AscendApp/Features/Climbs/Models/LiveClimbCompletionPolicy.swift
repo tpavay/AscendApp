@@ -37,15 +37,20 @@ enum LiveClimbCompletionPolicy {
 
     /// The stop reason to persist alongside a saved live climb workout.
     ///
-    /// A session that passed the target reached it, whether the auto-finish fired or the user
-    /// tapped End first. Normalizing here keeps the stored metadata true for every later reader,
-    /// including the replay Cloud Function, which additionally gates publication on this value.
+    /// Only a manual stop is upgraded: a user who tapped End past the target reached it, the
+    /// auto-finish just did not fire first. Every other reason is left exactly as recorded.
+    /// `.interrupted` in particular must never be upgraded - a recovered draft's step count is
+    /// typed by hand in a free-entry field, and the replay Cloud Function gates publication on
+    /// this value, so upgrading it would let a typed number claim a First Ascent, which is
+    /// permanent and can never be reclaimed. Recovered drafts past the target still count
+    /// locally: `attemptStatus` reads steps, never this reason.
     static func resolvedStopReason(
         _ stopReason: HeadphoneMotionSessionStopReason,
         steps: Int,
         targetStepCount: Int
     ) -> HeadphoneMotionSessionStopReason {
-        isCompletion(steps: steps, targetStepCount: targetStepCount) ? .targetReached : stopReason
+        guard stopReason == .userStopped else { return stopReason }
+        return isCompletion(steps: steps, targetStepCount: targetStepCount) ? .targetReached : stopReason
     }
 
     /// Resolves the status of an attempt reconstructed from a workout's stored metadata.
