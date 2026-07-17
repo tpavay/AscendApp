@@ -14,18 +14,6 @@ struct RoutineWorkoutAttribution: Equatable {
     let templateId: String?
     let origin: RoutineAttributionOrigin
 
-    init(
-        routineId: UUID,
-        routineSource: RoutineSource,
-        templateId: String?,
-        origin: RoutineAttributionOrigin
-    ) {
-        self.routineId = routineId
-        self.routineSource = routineSource
-        self.templateId = templateId
-        self.origin = origin
-    }
-
     var contextType: WorkoutParticipationContextType {
         routineSource.isTemplate && templateId?.isEmpty == false
             ? .routineTemplate
@@ -40,14 +28,12 @@ struct RoutineWorkoutAttribution: Equatable {
         return routineId.uuidString
     }
 
-    /// `targetReached` is the only stop reason that earns competitive credit: it is the gate the
-    /// server-side replay indexer publishes on, and skipping burns the routine clock without steps.
     var isLeaderboardEligible: Bool {
         guard contextType == .routineTemplate else { return false }
 
         switch origin {
         case .liveSession(let stopReason):
-            return stopReason == .targetReached
+            return stopReason.earnsCompetitiveCredit
         case .manualEntry:
             return false
         }

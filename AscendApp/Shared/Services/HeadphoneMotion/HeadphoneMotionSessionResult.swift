@@ -9,6 +9,13 @@ enum HeadphoneMotionSessionStopReason: String, Codable, Sendable {
     case skipped = "skipped"
     case discarded = "discarded"
     case interrupted = "interrupted"
+
+    /// The single definition of whether a session counted. `targetReached` is the only reason
+    /// that earns credit: it is the gate the server-side replay indexer publishes on, so the
+    /// participation record and the summary UI must both read this rather than re-deriving it.
+    var earnsCompetitiveCredit: Bool {
+        self == .targetReached
+    }
 }
 
 enum HeadphoneMotionWorkoutTrackingMode: String, Codable, Sendable {

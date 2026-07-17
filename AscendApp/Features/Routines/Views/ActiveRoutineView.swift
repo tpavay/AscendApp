@@ -502,36 +502,6 @@ struct ActiveRoutineView: View {
         Int(stepSyncValue)
     }
 
-    private var workoutFormSheet: some View {
-        WorkoutFormView(
-            showingWorkoutForm: Binding(
-                get: { viewModel.showWorkoutForm },
-                set: { viewModel.showWorkoutForm = $0 }
-            ),
-            onWorkoutCompleted: { workout in
-                viewModel.trackWorkoutSaved(workout)
-                viewModel.showWorkoutForm = false
-            },
-            routinePrefill: RoutinePrefillData(
-                name: routine.name,
-                startedAt: routineWorkoutStartedAt,
-                duration: viewModel.actualElapsed,
-                weightConfiguration: routine.defaultWeightConfiguration,
-                difficulty: routine.difficulty,
-                attribution: RoutineWorkoutAttribution(
-                    routineId: routine.id,
-                    routineSource: routine.source,
-                    templateId: routine.templateId,
-                    origin: .manualEntry
-                )
-            )
-        )
-    }
-
-    private var routineWorkoutStartedAt: Date {
-        viewModel.sessionStartedAt ?? Date().addingTimeInterval(-max(viewModel.actualElapsed, 0))
-    }
-
     private var shouldKeepScreenAwake: Bool {
         switch viewModel.phase {
         case .countdown, .active:

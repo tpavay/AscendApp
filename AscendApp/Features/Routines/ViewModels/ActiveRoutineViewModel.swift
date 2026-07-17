@@ -26,8 +26,6 @@ final class ActiveRoutineViewModel {
     var isPaused = false
     var showStopConfirmation = false
     var showCompletionSheet = false
-    var showWorkoutForm = false
-    var shouldDismissAfterForm = false
     var errorMessage: String?
     private(set) var leaderboardWindow: LiveReplayLeaderboardWindow?
     private(set) var leaderboardFetchFailed = false
@@ -179,7 +177,7 @@ final class ActiveRoutineViewModel {
 
     var completionSummaryPresentation: RoutineCompletionSummaryPresentation {
         RoutineCompletionSummaryPresentation(
-            countsAsCompletion: countsAsCompletion,
+            stopReason: resolvedStopReason,
             hasRoutineLeaderboard: completionLeaderboardContext != nil
         )
     }
@@ -205,8 +203,14 @@ final class ActiveRoutineViewModel {
         didSkipInterval ? .skipped : .targetReached
     }
 
+    /// The stop reason the session actually ended on, which is the same value the participation
+    /// record is built from. Reading it here keeps the summary from contradicting the record.
+    var resolvedStopReason: HeadphoneMotionSessionStopReason {
+        recordedResult?.stopReason ?? completionStopReason
+    }
+
     var countsAsCompletion: Bool {
-        !didSkipInterval
+        resolvedStopReason.earnsCompetitiveCredit
     }
 
     func startSession(modelContext: ModelContext) {
@@ -249,8 +253,6 @@ final class ActiveRoutineViewModel {
         }
         isPaused = false
         showCompletionSheet = false
-        showWorkoutForm = false
-        shouldDismissAfterForm = false
         errorMessage = nil
         leaderboardWindow = nil
         leaderboardFetchFailed = false

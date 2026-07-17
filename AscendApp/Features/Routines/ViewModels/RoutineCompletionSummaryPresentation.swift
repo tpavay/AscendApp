@@ -1,7 +1,7 @@
 import Foundation
 
-/// Copy and ranking state for the routine completion summary. A session that skipped an interval
-/// forfeits credit, so it must not claim a completion or show a standing it will never hold.
+/// Copy and ranking state for the routine completion summary. A session that forfeited credit
+/// must not claim a completion or show a standing it will never hold.
 struct RoutineCompletionSummaryPresentation: Equatable {
     let rankingLabel: String
     let completedDetail: String
@@ -9,8 +9,8 @@ struct RoutineCompletionSummaryPresentation: Equatable {
     let unrankedDetailText: String
     let showsPendingRankingState: Bool
 
-    init(countsAsCompletion: Bool, hasRoutineLeaderboard: Bool) {
-        guard countsAsCompletion else {
+    init(stopReason: HeadphoneMotionSessionStopReason, hasRoutineLeaderboard: Bool) {
+        guard stopReason.earnsCompetitiveCredit else {
             rankingLabel = "ROUTINE"
             completedDetail = "SESSION ENDED"
             unrankedValueText = "Incomplete"

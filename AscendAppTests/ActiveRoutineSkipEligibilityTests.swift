@@ -182,9 +182,9 @@ struct ActiveRoutineSkipEligibilityTests {
     }
 
     @Test
-    func completedSessionSummaryClaimsTheCompletion() {
+    func targetReachedSessionSummaryClaimsTheCompletionAndItsRank() {
         let presentation = RoutineCompletionSummaryPresentation(
-            countsAsCompletion: true,
+            stopReason: .targetReached,
             hasRoutineLeaderboard: true
         )
 
@@ -194,21 +194,50 @@ struct ActiveRoutineSkipEligibilityTests {
         #expect(presentation.showsPendingRankingState)
     }
 
-    @Test
-    func skippedSessionSummaryNeverClaimsACompletionOrRank() {
-        let viewModel = makeViewModel()
-        viewModel.skipInterval()
-
-        let presentation = viewModel.completionSummaryPresentation
+    /// The summary reads the same stop reason the participation record is built from, so a session
+    /// that forfeited credit can never be told it completed.
+    @Test(arguments: [
+        HeadphoneMotionSessionStopReason.skipped,
+        .userStopped,
+        .interrupted,
+        .discarded
+    ])
+    func forfeitedSessionSummaryNeverClaimsACompletionOrRank(
+        stopReason: HeadphoneMotionSessionStopReason
+    ) {
+        let presentation = RoutineCompletionSummaryPresentation(
+            stopReason: stopReason,
+            hasRoutineLeaderboard: true
+        )
 
         #expect(presentation.completedDetail == "SESSION ENDED")
         #expect(presentation.unrankedValueText == "Incomplete")
         #expect(presentation.unrankedDetailText == "SESSION ENDED")
         #expect(presentation.rankingLabel != "ROUTINE RANK")
         #expect(presentation.showsPendingRankingState == false)
+    }
+
+    @Test
+    func skippedSessionSuppressesStandingOnTheViewModel() {
+        let viewModel = makeViewModel()
+        viewModel.skipInterval()
+
+        #expect(viewModel.resolvedStopReason == .skipped)
+        #expect(viewModel.countsAsCompletion == false)
+        #expect(viewModel.completionSummaryPresentation.completedDetail == "SESSION ENDED")
         #expect(viewModel.completionLeaderboardContext == nil)
         #expect(viewModel.completionLeaderboardRank == nil)
         #expect(viewModel.completionLeaderboardTotal == nil)
+    }
+
+    /// Only `.targetReached` earns credit, and both the record and the UI read that one rule.
+    @Test
+    func targetReachedIsTheOnlyStopReasonEarningCredit() {
+        #expect(HeadphoneMotionSessionStopReason.targetReached.earnsCompetitiveCredit)
+
+        for stopReason: HeadphoneMotionSessionStopReason in [.skipped, .userStopped, .interrupted, .discarded] {
+            #expect(stopReason.earnsCompetitiveCredit == false)
+        }
     }
 
     private func makeViewModel() -> ActiveRoutineViewModel {
