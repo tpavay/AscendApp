@@ -1,12 +1,17 @@
 #!/usr/bin/env node
 
 /**
- * Backfills the best-per-user flag on Live Replay bucket entries.
+ * Backfills the best-per-user flag on per-climb Live Replay bucket entries.
  *
- * The live race ranks one row per opponent, so exactly one of a user's attempts
- * in a context may carry isBestForUser. New completions get the flag from the
- * Cloud Function; this script covers entries published before it existed.
- * Without it the live race filter matches nothing and the field looks empty.
+ * A per-climb race ranks one row per opponent, so exactly one of a user's
+ * attempts in a context may carry isBestForUser. New completions get the flag
+ * from the Cloud Function; this script covers entries published before it
+ * existed. Without it the live race filter matches nothing and the field looks
+ * empty.
+ *
+ * Only live_climb contexts are touched. Every other context races each
+ * completed attempt as its own opponent and carries no flag, so collapsing
+ * their entries on fastest-wins would pick the wrong attempt.
  *
  * Only each climber's fastest attempt is written. Firestore's equality filter
  * never matches a document missing the field, so slower attempts are already
@@ -34,6 +39,7 @@ const DEV_PROJECT_ID = "ascend-f2e4f";
 const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
 const PROD_PROJECT_ID = "ascend-prod-9c8f2";
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
+const LIVE_CLIMB_CONTEXT_TYPE = "live_climb";
 const SPLIT_BUCKETS_COLLECTION = "splitBuckets";
 const ENTRIES_COLLECTION = "entries";
 const BUCKET_ZERO_DOC_ID = "0";
@@ -66,7 +72,8 @@ console.log(
   [
     `Project: ${projectId}`,
     `Mode: ${args.dryRun ? "dry run" : "write"}`,
-    `Contexts scanned: ${result.contextsScanned}`,
+    `Contexts scanned (live_climb): ${result.contextsScanned}`,
+    `Contexts skipped (races every attempt): ${result.contextsSkipped}`,
     `Attempts scanned: ${result.attemptsScanned}`,
     `Climbers scanned: ${result.climbersScanned}`,
     `Repeat climbers collapsed: ${result.repeatClimbersCollapsed}`,
@@ -181,6 +188,7 @@ Options:
 async function backfillBestPerUserFlags(firestore, options) {
   const counters = {
     contextsScanned: 0,
+    contextsSkipped: 0,
     attemptsScanned: 0,
     climbersScanned: 0,
     repeatClimbersCollapsed: 0,
@@ -208,11 +216,36 @@ async function backfillBestPerUserFlags(firestore, options) {
       continue;
     }
 
+    const summaryData = summarySnapshot.data() ?? {};
+
+    if (!collapsesRepeatFinishers(summaryData, leaderboardRef.id)) {
+      counters.contextsSkipped += 1;
+      continue;
+    }
+
     counters.contextsScanned += 1;
     await backfillContext(firestore, leaderboardRef, options, counters);
   }
 
   return counters;
+}
+
+/**
+ * Whether a context races one row per climber rather than one per attempt.
+ *
+ * Only per-climb contexts collapse repeats, so only they carry the flag. The
+ * summary records its own context type; a summary written before that field
+ * existed falls back to the context key, which is prefixed with the type.
+ * @param {Record<string, unknown>} summaryData Context summary data.
+ * @param {string} contextKey Context document ID.
+ * @return {boolean} True when the context collapses repeat finishers.
+ */
+function collapsesRepeatFinishers(summaryData, contextKey) {
+  const contextType = typeof summaryData.contextType === "string" ?
+    summaryData.contextType :
+    contextKey.split("__")[0];
+
+  return contextType === LIVE_CLIMB_CONTEXT_TYPE;
 }
 
 /**

@@ -765,8 +765,7 @@ async function addReplayWrites(db, writes, user, liveContexts, args) {
           completionDurationSeconds: context.durationSeconds,
           displayName: user.displayName,
           finalSteps: context.finalSteps,
-          // One seeded completion per context, so it is the user's best.
-          isBestForUser: true,
+          ...bestForUserField(context),
           isPersonalBest: true,
           photoURL: user.photoURL,
           schemaVersion: REPLAY_SCHEMA_VERSION,
@@ -808,6 +807,19 @@ async function addCommunityStatsWrites(db, writes, user, liveContexts) {
     statsData.uniqueCompletedUserCount = FieldValue.increment(1);
   }
   writes.push([statsRef, statsData]);
+}
+
+/**
+ * Best-per-user flag for a seeded entry, or nothing when the context has none.
+ *
+ * Only per-climb contexts collapse a climber's repeat completions into one live
+ * race row, so only they carry the flag. There is one seeded completion per
+ * context, so that completion is the user's best.
+ * @param {object} context Seeded replay context.
+ * @return {object} Flag field, or an empty object.
+ */
+function bestForUserField(context) {
+  return context.contextType === "live_climb" ? {isBestForUser: true} : {};
 }
 
 function liveContextForWorkout(workout) {

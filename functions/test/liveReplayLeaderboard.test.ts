@@ -462,6 +462,109 @@ test("preserves finisher order on later attempts", () => {
   });
 });
 
+test("collapses repeat finishers only in per-climb contexts", () => {
+  const collapsesFor = (contextType: string) =>
+    liveReplayLeaderboardTestHooks.collapsesRepeatFinishers({
+      contextType,
+    } as Parameters<
+      typeof liveReplayLeaderboardTestHooks.collapsesRepeatFinishers
+    >[0]);
+
+  assert.equal(collapsesFor("live_climb"), true);
+  assert.equal(collapsesFor("just_climb"), false);
+  assert.equal(collapsesFor("routine_template"), false);
+  assert.equal(collapsesFor("routine"), false);
+});
+
+test("races every Just Climb attempt as its own opponent", () => {
+  const payload = liveReplayLeaderboardTestHooks.parseJustClimbReplayPayload(
+    makeWorkoutDocument(),
+    {requireEligibleParticipation: true}
+  );
+  assert.ok(payload);
+  assert.equal(payload.contextType, "just_climb");
+
+  // An open Just Climb session has no step target, so its shortest attempt is
+  // the one the climber quit earliest. Flagging it would race their weakest
+  // curve and drop their stronger session out of the field entirely.
+  assert.equal(
+    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {
+      bestCompletionDurationSeconds: 900,
+      bestWorkoutId: "workout-b",
+    }),
+    null
+  );
+  assert.equal(
+    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {}),
+    null
+  );
+});
+
+test("leaves the flag field off entries that race every attempt", () => {
+  const payload = liveReplayLeaderboardTestHooks.parseJustClimbReplayPayload(
+    makeWorkoutDocument(),
+    {requireEligibleParticipation: true}
+  );
+  assert.ok(payload);
+
+  const write = liveReplayLeaderboardTestHooks.replayEntryWrite({
+    payload,
+    userId: "user-a",
+    entryId: "workout-a",
+    publicUser: {
+      avatarToken: "MC",
+      displayName: "Maya C.",
+      photoURL: null,
+    },
+    stepsAtBucket: 420,
+    isBestForUser: liveReplayLeaderboardTestHooks.seedBestForUser(
+      payload,
+      "workout-a",
+      undefined
+    ),
+    updatedAt: "server-timestamp",
+  });
+
+  // Absent rather than false: Firestore equality never matches a missing field,
+  // so an unflagged context cannot be filtered into a wrong winner.
+  assert.equal("isBestForUser" in write, false);
+});
+
+test("seeds the flag on a per-climb attempt without demoting the best", () => {
+  const payload = liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload(
+    makeWorkoutDocument(),
+    {requireEligibleParticipation: true}
+  );
+  assert.ok(payload);
+  assert.equal(payload.finalDurationSeconds, 738);
+
+  assert.equal(
+    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {}),
+    true
+  );
+  assert.equal(
+    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {
+      bestCompletionDurationSeconds: 900,
+      bestWorkoutId: "workout-b",
+    }),
+    true
+  );
+  assert.equal(
+    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {
+      bestCompletionDurationSeconds: 738,
+      bestWorkoutId: "workout-a",
+    }),
+    true
+  );
+  assert.equal(
+    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {
+      bestCompletionDurationSeconds: 700,
+      bestWorkoutId: "workout-b",
+    }),
+    false
+  );
+});
+
 test("races a repeat finisher as one opponent on their fastest attempt", () => {
   const attempts = [
     makeAttemptEntry({workoutId: "workout-slow", durationSeconds: 900}),

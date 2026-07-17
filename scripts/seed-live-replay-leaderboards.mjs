@@ -849,8 +849,9 @@ async function writeSeedPlan(db, seedPlan, args) {
         contextType: JUST_CLIMB_CONTEXT_TYPE,
         displayName: attempt.displayName,
         finalSteps: attempt.finalSteps,
-        // Every synthetic attempt is its own climber, so each is its own best.
-        isBestForUser: true,
+        // No isBestForUser: the open Just Climb race has no step target, so it
+        // races every completed attempt as its own opponent rather than
+        // collapsing a climber's repeats onto a "fastest" one.
         isSynthetic: true,
         photoURL: attempt.photoURL ?? "",
         schemaVersion: 1,

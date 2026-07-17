@@ -69,7 +69,8 @@ interface ReplayEntryWriteInput {
   entryId: string;
   publicUser: PublicUserSnapshot;
   stepsAtBucket: number;
-  isBestForUser: boolean;
+  /** Null in contexts that publish no flag, so the field stays absent. */
+  isBestForUser: boolean | null;
   updatedAt: unknown;
 }
 
@@ -533,6 +534,51 @@ function touchedReplayPayloads(
 }
 
 /**
+ * Whether a context races one row per climber rather than one per attempt.
+ *
+ * Only per-climb contexts collapse repeats. Every completion there reaches the
+ * same step target, so the fastest attempt is genuinely that climber's best. An
+ * open Just Climb session has no target and publishes on any stop with steps,
+ * so its shortest attempt is the one the climber quit earliest: their weakest
+ * curve, not their best. Contexts outside the allowlist carry no flag at all,
+ * so nothing can filter them into a wrong winner.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @return {boolean} True when the context collapses repeat finishers.
+ */
+function collapsesRepeatFinishers(payload: LiveReplayIndexPayload): boolean {
+  return payload.contextType === LIVE_CLIMB_CONTEXT_TYPE;
+}
+
+/**
+ * Seeds the best-per-user flag for an attempt about to publish.
+ *
+ * reconcileUserBestEntries is the authority; this seed only lets a new best
+ * race immediately. Republishing the standing best (a workout edit fires this
+ * trigger too) must not demote it out of the live field.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @param {string} entryId Public row document ID.
+ * @param {Record<string, unknown> | undefined} finisherData Finisher document.
+ * @return {boolean | null} Seed flag, or null when the context carries none.
+ */
+function seedBestForUser(
+  payload: LiveReplayIndexPayload,
+  entryId: string,
+  finisherData: Record<string, unknown> | undefined
+): boolean | null {
+  if (!collapsesRepeatFinishers(payload)) {
+    return null;
+  }
+
+  const existingBestDuration = nonNegativeNumberValue(
+    finisherData?.bestCompletionDurationSeconds
+  );
+
+  return existingBestDuration === null ||
+    payload.finalDurationSeconds < existingBestDuration ||
+    stringValue(finisherData?.bestWorkoutId) === entryId;
+}
+
+/**
  * Selects a user's best (fastest) completion in a context.
  * Equal durations resolve on workout ID so every caller picks the same winner.
  * @param {UserAttemptEntry[]} attempts Published attempts for one user.
@@ -645,9 +691,10 @@ function userAttemptEntry(
 /**
  * Re-derives which of a user's attempts is their best in one replay context.
  *
- * The live race ranks one row per opponent, so at most one of a user's attempts
- * may carry isBestForUser. Publishes, edits and deletes all funnel through here
- * so the flag heals itself from the entries rather than from flip bookkeeping.
+ * A per-climb race ranks one row per opponent, so at most one of a user's
+ * attempts may carry isBestForUser. Publishes, edits and deletes all funnel
+ * through here so the flag heals itself from the entries rather than from flip
+ * bookkeeping. Contexts that race every attempt return before any read.
  * @param {LiveReplayIndexPayload} payload Replay payload.
  * @param {string} userId Owner user ID.
  */
@@ -655,6 +702,10 @@ async function reconcileUserBestEntries(
   payload: LiveReplayIndexPayload,
   userId: string
 ): Promise<void> {
+  if (!collapsesRepeatFinishers(payload)) {
+    return;
+  }
+
   const snapshot = await entriesCollectionReference(payload, 0)
     .where("userId", "==", userId)
     .get();
@@ -817,15 +868,11 @@ async function publishReplayEntries(
     ) ?? 0;
     const hasFirstAscent = leaderboardHasFirstAscent(leaderboardData);
     const canClaimFirstAscent = !hasFirstAscent && previousCompletedCount === 0;
-    const existingBestDuration = nonNegativeNumberValue(
-      existingFinisherData?.bestCompletionDurationSeconds
+    const isBestForUser = seedBestForUser(
+      payload,
+      entryId,
+      existingFinisherData
     );
-    // Seeds the flag so a new best races immediately; reconcileUserBestEntries
-    // is the authority. Republishing the standing best (a workout edit fires
-    // this trigger too) must not demote it out of the live field.
-    const isBestForUser = existingBestDuration === null ||
-      payload.finalDurationSeconds < existingBestDuration ||
-      stringValue(existingFinisherData?.bestWorkoutId) === entryId;
     const globalCompletionOrder = nextGlobalCompletionOrder({
       existingOrder,
       previousCompletedCount,
@@ -1145,13 +1192,13 @@ function replayEntryWrite(
 ): Record<string, unknown> {
   return {
     ...publicUserDemographicFields(input.publicUser),
+    ...bestForUserFields(input.isBestForUser),
     avatarToken: input.publicUser.avatarToken,
     completionDurationSeconds: input.payload.finalDurationSeconds,
     contextId: input.payload.contextId,
     contextType: input.payload.contextType,
     displayName: input.publicUser.displayName,
     finalSteps: input.payload.finalSteps,
-    isBestForUser: input.isBestForUser,
     photoURL: input.publicUser.photoURL ?? "",
     schemaVersion: 1,
     splitBucketCount: input.payload.splitSteps.length,
@@ -1469,6 +1516,21 @@ async function publicUserSnapshot(userId: string): Promise<PublicUserSnapshot> {
 }
 
 /**
+ * Returns the best-per-user flag field, or nothing in contexts without one.
+ *
+ * A context that races every attempt must leave the field absent rather than
+ * store false: Firestore equality never matches a missing field, so an absent
+ * flag cannot be filtered on by mistake, while a stored false could be.
+ * @param {boolean | null} isBestForUser Seed flag, or null for no flag.
+ * @return {Record<string, unknown>} Flag field, or an empty object.
+ */
+function bestForUserFields(
+  isBestForUser: boolean | null
+): Record<string, unknown> {
+  return isBestForUser === null ? {} : {isBestForUser};
+}
+
+/**
  * Returns the public demographic fields allowed on replay rows.
  * @param {PublicUserSnapshot} publicUser Public display snapshot.
  * @return {Record<string, unknown>} Compact demographic fields.
@@ -1694,6 +1756,7 @@ export const liveReplayLeaderboardTestHooks = {
   attemptSplitBucketCount,
   bestAttemptWorkoutId,
   bestForUserFlagUpdates,
+  collapsesRepeatFinishers,
   completionRankSnapshotWrite,
   finisherStatusWrite,
   firstAscentWrite,
@@ -1706,6 +1769,7 @@ export const liveReplayLeaderboardTestHooks = {
   parseLiveClimbReplayPayload,
   replayEntryWrite,
   replaySummaryWrite,
+  seedBestForUser,
   shouldDeleteCompletionRankSnapshot,
   userAttemptEntry,
 };
