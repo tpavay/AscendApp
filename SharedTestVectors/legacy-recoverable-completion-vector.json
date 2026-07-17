@@ -1,0 +1,104 @@
+{
+  "description": "Canonical test vector for isRecoverableLegacyCompletion. The same cases pin the Swift implementation (AscendApp/Features/Climbs/Models/LegacyClimbCompletionPredicate.swift) and the TypeScript implementation (functions/src/legacyClimbCompletion.ts) so the two languages cannot drift. Inputs are the already-resolved predicate fields: source, climbId, stopReason, steps, and targetStepCount (climbTargetStepCount ?? targetStepCount). Five staging positives model the captain's exact reinstall shape (headphone_motion, non-empty climbId, target_reached, no recorded step target); the negatives are the known ambiguous shapes the predicate must reject.",
+  "cases": [
+    {
+      "name": "staging-marina-bay-sands",
+      "source": "headphone_motion",
+      "climbId": "marina-bay-sands",
+      "stopReason": "target_reached",
+      "steps": 1970,
+      "targetStepCount": null,
+      "expected": true
+    },
+    {
+      "name": "staging-empire-state-building",
+      "source": "headphone_motion",
+      "climbId": "empire-state-building",
+      "stopReason": "target_reached",
+      "steps": 1576,
+      "targetStepCount": null,
+      "expected": true
+    },
+    {
+      "name": "staging-burj-khalifa",
+      "source": "headphone_motion",
+      "climbId": "burj-khalifa",
+      "stopReason": "target_reached",
+      "steps": 2909,
+      "targetStepCount": null,
+      "expected": true
+    },
+    {
+      "name": "staging-sagrada-familia",
+      "source": "headphone_motion",
+      "climbId": "sagrada-familia",
+      "stopReason": "target_reached",
+      "steps": 1417,
+      "targetStepCount": null,
+      "expected": true
+    },
+    {
+      "name": "staging-cn-tower",
+      "source": "headphone_motion",
+      "climbId": "cn-tower",
+      "stopReason": "target_reached",
+      "steps": 2579,
+      "targetStepCount": null,
+      "expected": true
+    },
+    {
+      "name": "target-present-and-reached",
+      "source": "headphone_motion",
+      "climbId": "burj-khalifa",
+      "stopReason": "user_stopped",
+      "steps": 2909,
+      "targetStepCount": 2909,
+      "expected": true
+    },
+    {
+      "name": "negative-just-climb-has-no-climb-id",
+      "source": "headphone_motion",
+      "climbId": null,
+      "stopReason": "target_reached",
+      "steps": 3000,
+      "targetStepCount": null,
+      "expected": false
+    },
+    {
+      "name": "negative-routine-has-no-climb-id",
+      "source": "headphone_motion",
+      "climbId": "",
+      "stopReason": "target_reached",
+      "steps": 4000,
+      "targetStepCount": null,
+      "expected": false
+    },
+    {
+      "name": "negative-interrupted-draft-not-target-reached",
+      "source": "headphone_motion",
+      "climbId": "burj-khalifa",
+      "stopReason": "interrupted",
+      "steps": 5000,
+      "targetStepCount": null,
+      "expected": false
+    },
+    {
+      "name": "negative-steps-short-of-target",
+      "source": "headphone_motion",
+      "climbId": "cn-tower",
+      "stopReason": "target_reached",
+      "steps": 900,
+      "targetStepCount": 1000,
+      "expected": false
+    },
+    {
+      "name": "negative-non-headphone-source",
+      "source": "manual",
+      "climbId": "burj-khalifa",
+      "stopReason": "target_reached",
+      "steps": 2909,
+      "targetStepCount": null,
+      "expected": false
+    }
+  ]
+}

@@ -4,6 +4,10 @@ import {
   MAX_REPLAY_SPLIT_CHECKPOINTS,
   normalizeReplaySplitSteps,
 } from "./liveReplaySplitNormalization.js";
+import {
+  HEADPHONE_MOTION_SOURCE,
+  isRecoverableLegacyCompletion,
+} from "./legacyClimbCompletion.js";
 
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
 const COMPLETION_SNAPSHOTS_COLLECTION = "completionSnapshots";
@@ -30,6 +34,13 @@ interface LiveReplayIndexPayload {
   finalDurationSeconds: number;
   finalSteps: number;
   targetStepCount: number | null;
+  /**
+   * Whether this row may claim an unheld First Ascent. Modern completions that
+   * clear the strict gate are eligible; rows recovered through the legacy-shape
+   * fallback never are, because a First Ascent is permanent and
+   * hand-derived/backfilled data must never claim one.
+   */
+  firstAscentEligible: boolean;
 }
 
 interface PublicUserSnapshot {
@@ -243,23 +254,58 @@ function parseLiveClimbReplayPayload(
     return null;
   }
 
-  if (
-    options.requireEligibleParticipation &&
-    !hasCompletedLiveClimbAttempt(parsed)
-  ) {
+  const climbId = stringValue(parsed.metadata.climbId);
+  if (!climbId) {
     return null;
   }
 
-  const climbId = stringValue(parsed.metadata.climbId);
-  if (!climbId) {
+  // Two publication paths: the strict modern gate (participation + trackingMode
+  // + target_reached), which is First Ascent eligible, and a narrow legacy
+  // fallback gated on the shared isRecoverableLegacyCompletion contract, which
+  // publishes rows/finishers but is NOT First Ascent eligible. Legacy backups
+  // lack the participation/trackingMode the modern gate needs, so without this
+  // fallback their earned completions have zero public presence.
+  const modernCompleted = hasCompletedLiveClimbAttempt(parsed);
+  const legacyCompleted = !modernCompleted &&
+    !parsed.hasClimbAttemptParticipation &&
+    isLegacyRecoverableLiveClimb(parsed, climbId);
+
+  if (
+    options.requireEligibleParticipation &&
+    !modernCompleted &&
+    !legacyCompleted
+  ) {
     return null;
   }
 
   return replayPayload(
     parsed,
     LIVE_CLIMB_CONTEXT_TYPE,
-    climbId
+    climbId,
+    {firstAscentEligible: modernCompleted}
   );
+}
+
+/**
+ * Returns whether a headphone-motion backup is a trusted legacy landmark
+ * completion, using the shared contract mirrored from the Swift guard. This
+ * never implies First Ascent eligibility - the caller withholds First Ascent
+ * for every legacy-recovered row.
+ * @param {ParsedReplayPayloadParts} parsed Parsed replay payload parts.
+ * @param {string} climbId Non-empty landmark id from the metadata.
+ * @return {boolean} True when the backup may publish a replay row.
+ */
+function isLegacyRecoverableLiveClimb(
+  parsed: ParsedReplayPayloadParts,
+  climbId: string
+): boolean {
+  return isRecoverableLegacyCompletion({
+    source: HEADPHONE_MOTION_SOURCE,
+    climbId,
+    stopReason: stringValue(parsed.metadata.stopReason) ?? "",
+    steps: parsed.finalSteps,
+    targetStepCount: parsed.targetStepCount,
+  });
 }
 
 /**
@@ -305,6 +351,7 @@ function parseJustClimbReplayPayload(
 interface ParsedReplayPayloadParts {
   metadata: Record<string, unknown>;
   hasEligibleClimbAttempt: boolean;
+  hasClimbAttemptParticipation: boolean;
   splitIntervalSeconds: number;
   splitSteps: number[];
   finalDurationSeconds: number;
@@ -360,6 +407,9 @@ function parseReplayPayloadParts(
   return {
     metadata,
     hasEligibleClimbAttempt: hasEligibleClimbAttemptParticipation(
+      data.participations
+    ),
+    hasClimbAttemptParticipation: hasClimbAttemptParticipation(
       data.participations
     ),
     splitIntervalSeconds,
@@ -436,7 +486,7 @@ function replayPayload(
   parsed: ParsedReplayPayloadParts,
   contextType: string,
   contextId: string,
-  options: {targetStepCount?: number | null} = {}
+  options: {targetStepCount?: number | null; firstAscentEligible?: boolean} = {}
 ): LiveReplayIndexPayload {
   const splitSteps = normalizeReplaySplitSteps({
     splitIntervalSeconds: parsed.splitIntervalSeconds,
@@ -456,6 +506,7 @@ function replayPayload(
     targetStepCount: options.targetStepCount !== undefined ?
       options.targetStepCount :
       parsed.targetStepCount,
+    firstAscentEligible: options.firstAscentEligible !== false,
   };
 }
 
@@ -477,6 +528,28 @@ function hasEligibleClimbAttemptParticipation(value: unknown): boolean {
     const participation = item as Record<string, unknown>;
     return participation.contextType === "climb_attempt" &&
       participation.leaderboardEligible === true;
+  });
+}
+
+/**
+ * Returns whether a workout carries any climb-attempt participation, eligible
+ * or not. The legacy-shape fallback only fires when none exists: a workout with
+ * a climb-attempt participation is governed by the modern gate, so an
+ * explicitly ineligible one stays deliberately unpublished, not resurrected.
+ * @param {unknown} value Raw participations value.
+ * @return {boolean} True when a climb-attempt participation is present.
+ */
+function hasClimbAttemptParticipation(value: unknown): boolean {
+  if (!Array.isArray(value)) {
+    return false;
+  }
+
+  return value.some((item) => {
+    if (!item || typeof item !== "object") {
+      return false;
+    }
+
+    return (item as Record<string, unknown>).contextType === "climb_attempt";
   });
 }
 
@@ -867,7 +940,9 @@ async function publishReplayEntries(
       leaderboardData?.completedCount
     ) ?? 0;
     const hasFirstAscent = leaderboardHasFirstAscent(leaderboardData);
-    const canClaimFirstAscent = !hasFirstAscent && previousCompletedCount === 0;
+    const canClaimFirstAscent = payload.firstAscentEligible &&
+      !hasFirstAscent &&
+      previousCompletedCount === 0;
     const isBestForUser = seedBestForUser(
       payload,
       entryId,

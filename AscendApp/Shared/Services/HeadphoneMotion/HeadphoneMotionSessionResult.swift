@@ -124,6 +124,10 @@ struct HeadphoneMotionSessionResult: Equatable, Sendable {
 }
 
 struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
+    /// The `source` marker every headphone-motion workout carries. Shared with the legacy-completion
+    /// predicate so both read the same constant instead of a scattered literal.
+    static let headphoneMotionSource = "headphone_motion"
+
     let source: String
     let algorithmVersion: Int
     let sampleRateAssumptionHz: Int
@@ -158,7 +162,7 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
         trackingIntegrity: HeadphoneMotionTrackingIntegrity = .verified,
         stepCorrections: [HeadphoneMotionStepCorrection] = []
     ) {
-        self.source = "headphone_motion"
+        self.source = HeadphoneMotionWorkoutMetadata.headphoneMotionSource
         self.algorithmVersion = HeadphoneMotionStepDetector.algorithmVersion
         self.sampleRateAssumptionHz = 50
         self.sampleCount = sampleCount
