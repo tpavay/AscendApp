@@ -18,6 +18,7 @@ final class EmailPreferencesViewModel {
 
     private let service: EmailPreferencesProviding
     private var isLoading = false
+    private var writeGeneration = 0
 
     init(service: EmailPreferencesProviding = EmailPreferencesService()) {
         self.service = service
@@ -44,10 +45,16 @@ final class EmailPreferencesViewModel {
             errorMessage = nil
         }
 
+        let generationAtReadStart = writeGeneration
+
         do {
             let serverValue = try await service.loadLifecycleEmailsEnabled()
-            // A write that started mid-read owns the value; this read is stale.
-            guard !isUpdating else { return }
+            // A write that started mid-read still owns the value, and so does
+            // one that both started and finished while this read was in
+            // flight: either way the write is newer than what this read saw.
+            guard !isUpdating, writeGeneration == generationAtReadStart else {
+                return
+            }
 
             isLifecycleEmailsEnabled = serverValue
             loadState = .ready
@@ -69,7 +76,12 @@ final class EmailPreferencesViewModel {
         // Move the switch immediately, then put it back if the write fails, so
         // the control never shows a state the server did not accept.
         isLifecycleEmailsEnabled = isEnabled
-        defer { isUpdating = false }
+        // A revert counts too: it settles the value just as a save does, so a
+        // read that started before it is equally out of date.
+        defer {
+            writeGeneration += 1
+            isUpdating = false
+        }
 
         do {
             try await service.setLifecycleEmailsEnabled(isEnabled)

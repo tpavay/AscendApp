@@ -113,7 +113,7 @@ final class LifecycleEventRecorder {
         }
         guard !payload.isEmpty else { return }
 
-        try await record(
+        try await sendLifecycleEvent(
             type: "communication_preferences_updated",
             payload: payload
         )
@@ -136,7 +136,7 @@ final class LifecycleEventRecorder {
     private func record(type: String, payload: sending [String: Any]) {
         Task {
             do {
-                try await record(type: type, payload: payload)
+                try await sendLifecycleEvent(type: type, payload: payload)
             } catch {
                 guard !Self.isExpectedTransportNoise(error) else { return }
 
@@ -150,7 +150,7 @@ final class LifecycleEventRecorder {
         }
     }
 
-    private func record(
+    private func sendLifecycleEvent(
         type: String,
         payload: sending [String: Any]
     ) async throws {

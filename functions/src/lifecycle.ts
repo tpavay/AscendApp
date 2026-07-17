@@ -302,9 +302,10 @@ function statePatchForEvent(
     };
 
   case "communication_preferences_updated":
-    return {
-      communicationPreferences: event.payload,
-    };
+    // No mirror here: communication_preferences/current is the only source of
+    // truth, and unsubscribeFromEmails writes it without touching this state
+    // document, so a copy here would go stale.
+    return {};
   }
 }
 

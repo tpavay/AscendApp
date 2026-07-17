@@ -87,6 +87,54 @@ struct EmailPreferencesViewModelTests {
     }
 
     @Test
+    func aWriteThatLandsDuringARefreshSurvivesIt() async {
+        // The refresh read the value before the user turned the toggle off, so
+        // resolving it afterwards must not put the toggle back on while the
+        // server holds off.
+        let service = SuspendingEmailPreferencesService(storedValue: true)
+        let viewModel = EmailPreferencesViewModel(service: service)
+        await viewModel.load()
+        #expect(viewModel.isLifecycleEmailsEnabled == true)
+
+        await service.startSuspendingLoads()
+        async let refresh: Void = viewModel.load()
+        await service.waitForSuspendedLoad()
+
+        await viewModel.setLifecycleEmailsEnabled(false)
+        #expect(viewModel.isLifecycleEmailsEnabled == false)
+
+        await service.resumeSuspendedLoad(returning: true)
+        await refresh
+
+        #expect(viewModel.isLifecycleEmailsEnabled == false)
+        #expect(viewModel.loadState == .ready)
+        #expect(viewModel.errorMessage == nil)
+    }
+
+    @Test
+    func aFailedWriteThatRevertsDuringARefreshKeepsItsMessage() async {
+        // The revert settles the value too, so a read that started earlier must
+        // not overwrite it or clear the failure the user needs to see.
+        let service = SuspendingEmailPreferencesService(storedValue: true)
+        let viewModel = EmailPreferencesViewModel(service: service)
+        await viewModel.load()
+
+        await service.startSuspendingLoads()
+        await service.setSaveError(StubError.offline)
+        async let refresh: Void = viewModel.load()
+        await service.waitForSuspendedLoad()
+
+        await viewModel.setLifecycleEmailsEnabled(false)
+
+        await service.resumeSuspendedLoad(returning: false)
+        await refresh
+
+        #expect(viewModel.isLifecycleEmailsEnabled == true)
+        #expect(viewModel.errorMessage != nil)
+        #expect(viewModel.loadState == .ready)
+    }
+
+    @Test
     func togglingOffWritesThePreference() async {
         let service = StubEmailPreferencesService(storedValue: true)
         let viewModel = EmailPreferencesViewModel(service: service)
@@ -163,6 +211,61 @@ struct EmailPreferencesViewModelTests {
 
 private enum StubError: Error {
     case offline
+}
+
+/// Parks a read on a continuation so a test can land a write in the middle of
+/// it without depending on timing.
+private actor SuspendingEmailPreferencesService: EmailPreferencesProviding {
+    private var storedValue: Bool
+    private var saveError: Error?
+    private var isSuspendingLoads = false
+    private var suspendedLoad: CheckedContinuation<Bool, Error>?
+    private var loadObserver: CheckedContinuation<Void, Never>?
+
+    init(storedValue: Bool) {
+        self.storedValue = storedValue
+    }
+
+    func setSaveError(_ error: Error?) {
+        saveError = error
+    }
+
+    func startSuspendingLoads() {
+        isSuspendingLoads = true
+    }
+
+    func waitForSuspendedLoad() async {
+        guard suspendedLoad == nil else { return }
+
+        await withCheckedContinuation { continuation in
+            loadObserver = continuation
+        }
+    }
+
+    func resumeSuspendedLoad(returning value: Bool) {
+        let continuation = suspendedLoad
+        suspendedLoad = nil
+        continuation?.resume(returning: value)
+    }
+
+    func loadLifecycleEmailsEnabled() async throws -> Bool {
+        guard isSuspendingLoads else { return storedValue }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            suspendedLoad = continuation
+            let observer = loadObserver
+            loadObserver = nil
+            observer?.resume()
+        }
+    }
+
+    func setLifecycleEmailsEnabled(_ isEnabled: Bool) async throws {
+        if let saveError {
+            throw saveError
+        }
+
+        storedValue = isEnabled
+    }
 }
 
 private actor StubEmailPreferencesService: EmailPreferencesProviding {
