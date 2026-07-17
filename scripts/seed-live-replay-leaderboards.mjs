@@ -32,6 +32,13 @@ import {fileURLToPath} from "node:url";
 import {applicationDefault, initializeApp} from "firebase-admin/app";
 import {FieldValue, getFirestore} from "firebase-admin/firestore";
 import {getStorage} from "firebase-admin/storage";
+import {hashString, mulberry32} from "./seed/lib/deterministic.mjs";
+import {
+  assertFirstAscentInvariant,
+  clearedFirstAscentFields,
+  firstAscentClaimedAt,
+  firstAscentSeedFields,
+} from "./seed/lib/live-replay-first-ascent.mjs";
 
 const DEV_PROJECT_ID = "ascend-f2e4f";
 const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
@@ -82,6 +89,33 @@ const WARM_CLIMBS = [
   {id: "cairo-tower", totalClimbers: 23, replayEntries: 16, completionRate: 0.44},
   {id: "sydney-tower", totalClimbers: 21, replayEntries: 16, completionRate: 0.56},
 ];
+
+/**
+ * Climbs seeded with a summary but no completions, so their First Ascent slot is
+ * genuinely open.
+ *
+ * A climb with no summary document at all is not equivalent: the open-First
+ * Ascent surfaces key off an existing summary (`ProfileFirstAscentService`
+ * requires `updatedAt != nil && completedCount == 0`), so an unseeded climb
+ * never renders as a claimable opportunity. These give the open state a real
+ * document to read.
+ *
+ * The spread covers gold/diamond/legendary/mythic tiers across five continents.
+ * Sky Tower is deliberately the cheapest (1,804 steps) so a QA session can
+ * actually finish it and claim a First Ascent end to end.
+ */
+const FIRST_ASCENT_OPEN_CLIMBS = [
+  {id: "sky-tower-auckland"},
+  {id: "berlin-tv-tower"},
+  {id: "taipei-101"},
+  {id: "table-mountain"},
+  {id: "machu-picchu"},
+].map((config) => ({
+  ...config,
+  totalClimbers: 0,
+  replayEntries: 0,
+  completionRate: 0,
+}));
 
 const SEEDED_DISPLAY_NAMES = [
   "Sarah K.", "Marcus T.", "Jenny W.", "Alex M.", "Priya S.", "Jordan L.",
@@ -478,6 +512,7 @@ function buildSeedPlan(climbsById, paceSamples, args, avatarURLs) {
   const configs = [
     ...ACTIVE_CLIMBS.map((config) => ({...config, activityTier: "active"})),
     ...WARM_CLIMBS.map((config) => ({...config, activityTier: "warm"})),
+    ...FIRST_ASCENT_OPEN_CLIMBS.map((config) => ({...config, activityTier: "open"})),
   ];
 
   const missingConfigs = configs.filter((config) => !climbsById.has(config.id));
@@ -503,11 +538,26 @@ function buildSeedPlan(climbsById, paceSamples, args, avatarURLs) {
       args.seedPackId,
       avatarURLs
     );
-    const maxBucketIndex = bucketLimitForAttempts(attempts);
+    // A climb with no completions has no buckets to publish, and the bucket
+    // limit is undefined over an empty duration set.
+    const maxBucketIndex = attempts.length > 0 ?
+      bucketLimitForAttempts(attempts) :
+      -1;
     const clearAttemptIds = Array.from(
       {length: Math.max(config.replayEntries, completedCount)},
       (_, index) => seedAttemptId(args.seedPackId, climb.id, index)
     );
+
+    // The First Ascent is the earliest completion, and attempts are generated in
+    // completion order, so the slot belongs to the first one.
+    const firstAscentAttempt = attempts[0] ?? null;
+
+    // Checked at plan time so a bad fixture fails the dry run, before any writes.
+    assertFirstAscentInvariant({
+      climbId: climb.id,
+      completedCount,
+      hasFirstAscent: firstAscentAttempt !== null,
+    });
 
     return [{
       config,
@@ -516,6 +566,7 @@ function buildSeedPlan(climbsById, paceSamples, args, avatarURLs) {
       completedCount,
       clearAttemptIds,
       maxBucketIndex,
+      firstAscentAttempt,
       entryDocumentCount: attempts.length * (maxBucketIndex + 1),
     }];
   });
@@ -647,6 +698,9 @@ function printPlan(seedPlan, args, avatarFileCount, avatarURLCount) {
         `${plan.completedCount} completed`,
         `${plan.attempts.length} replay rows`,
         `${plan.maxBucketIndex + 1} buckets`,
+        plan.firstAscentAttempt ?
+          `FA held by ${plan.firstAscentAttempt.displayName}` :
+          "FA open",
       ].join(" | ")
     );
   }
@@ -683,6 +737,9 @@ async function clearSeedPack(db, seedPlan, args) {
       seededAttemptCount: 0,
       totalClimbers: 0,
       updatedAt: now,
+      // Zeroing completions without dropping the holder would leave the slot
+      // readable as open while the server still refuses to claim it.
+      ...clearedFirstAscentFields(FieldValue.delete()),
     }, {merge: true});
   }
 
@@ -770,7 +827,7 @@ async function writeSeedPlan(db, seedPlan, args) {
   for (const plan of seedPlan.climbPlans) {
     const targetSteps = referenceStepCount(plan.climb);
     const summaryRef = leaderboardRef(db, plan.climb.id);
-    writer.set(summaryRef, {
+    const summary = {
       activityTier: plan.config.activityTier,
       bucketIntervalSeconds: BUCKET_INTERVAL_SECONDS,
       completedCount: plan.completedCount,
@@ -784,7 +841,18 @@ async function writeSeedPlan(db, seedPlan, args) {
       targetStepCount: targetSteps,
       totalClimbers: plan.attempts.length,
       updatedAt: now,
-    }, {merge: true});
+    };
+
+    Object.assign(summary, plan.firstAscentAttempt ?
+      firstAscentSeedFields(
+        plan.firstAscentAttempt,
+        firstAscentClaimedAt(args.seedPackId, plan.climb.id)
+      ) :
+      // An earlier seed may have left a holder here; an open slot has to be
+      // genuinely empty for the next finisher to claim it.
+      clearedFirstAscentFields(FieldValue.delete()));
+
+    writer.set(summaryRef, summary, {merge: true});
     writes += 1;
 
     for (let bucketIndex = 0; bucketIndex <= plan.maxBucketIndex; bucketIndex += 1) {
@@ -1061,24 +1129,6 @@ function avatarToken(displayName) {
     .toUpperCase();
 
   return token || "A";
-}
-
-function hashString(value) {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-function mulberry32(seed) {
-  return function random() {
-    let value = seed += 0x6D2B79F5;
-    value = Math.imul(value ^ value >>> 15, value | 1);
-    value ^= value + Math.imul(value ^ value >>> 7, value | 61);
-    return ((value ^ value >>> 14) >>> 0) / 4294967296;
-  };
 }
 
 function randomInRange(rng, min, max) {

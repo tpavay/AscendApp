@@ -33,6 +33,9 @@ paths:
 - `scripts/seed-live-replay-leaderboards.mjs` may write only to dev (`ascend-f2e4f`) or staging (`ascend-staging-fa7d5`) and must hard-refuse production or any unknown project; use environment-specific seed packs for repeatable active/warm Live Climb replay fixtures.
 - Live replay seed entries must carry `isSynthetic`, `source`, and `seedPackId` so synthetic replay data can be filtered, cleared, or phased out later. Do not claim seeded replay rows are users climbing right now.
 - Live replay seed data must not reuse the same synthetic profile name or photo within a climb. Duplicate profiles make the replay look like one person appears multiple times.
+- Seeded replay summaries must stay on a First Ascent state the app can actually reach: completions imply a holder, and an open slot implies zero completions.
+  Seeding completions without `firstAscent*` fields permanently kills the slot, because the server only claims it when there are no completions and no holder.
+  `scripts/seed/lib/live-replay-first-ascent.mjs` owns this contract and fails the seed plan when it is violated; keep its field list in sync with `firstAscentWrite` in `functions/src/liveReplayLeaderboard.ts`.
 - Seeded replay curves should be calibrated from historical workout pace distributions when available. Apple Health-derived step counts should be conservatively reduced before shaping synthetic attempts because imported stair-stepper data can overestimate steps.
 
 ## Script Dependency Policy
