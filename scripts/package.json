@@ -35,6 +35,8 @@
     "seed:live-replay:staging": "node seed-live-replay-leaderboards.mjs seed --project staging",
     "backfill:live-replay-completion-snapshots": "node backfill-live-replay-completion-snapshots.mjs --project dev --dry-run",
     "backfill:live-replay-completion-snapshots:staging": "node backfill-live-replay-completion-snapshots.mjs --project staging --dry-run",
+    "backfill:live-replay-best-per-user": "node backfill-live-replay-best-per-user.mjs --project dev --dry-run",
+    "backfill:live-replay-best-per-user:staging": "node backfill-live-replay-best-per-user.mjs --project staging --dry-run",
     "clear:live-replay": "node seed-live-replay-leaderboards.mjs clear --project dev",
     "clear:live-replay:staging": "node seed-live-replay-leaderboards.mjs clear --project staging",
     "seed:routine-templates": "node seed-routine-templates.mjs seed --project dev",
