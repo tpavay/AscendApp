@@ -264,12 +264,6 @@ async function processClaimedJob(
     return "skipped";
   }
 
-  // Every job, uid or not, resolves the config here rather than lazily inside
-  // the render below: a deploy-config problem is not a bad payload, and the
-  // render path dead-letters what it cannot render. Throwing leaves the job
-  // claimed for reclaim and a later retry.
-  assertTransactionalEmailConfig();
-
   const nextAttemptCount = job.attemptCount + 1;
   const unsubscribeUrl = unsubscribeUrlForJob(job);
   let renderedEmail;
@@ -370,6 +364,12 @@ export const processEmailJobs = onSchedule(
     timeZone: "Etc/UTC",
   },
   async () => {
+    // A batch-level precondition, checked before anything is claimed: without
+    // a valid secret no job in this run can be delivered, and mail must never
+    // go out without a working opt-out path. Throwing here fails the
+    // invocation, which is the signal a mis-ordered deploy needs to raise.
+    assertTransactionalEmailConfig();
+
     const startedAt = new Date();
     const startedAtTimestamp = toTimestamp(startedAt);
     const reclaimedCount = await reclaimStaleJobs(startedAtTimestamp);
@@ -400,8 +400,9 @@ export const processEmailJobs = onSchedule(
           startedAtTimestamp
         );
       } catch (error) {
-        // One job's config or Firestore failure must not end the run and stall
-        // the rest of the batch. The job stays claimed and unsent, so the
+        // Scoped to faults affecting this job alone, such as its own
+        // preference read failing: they must not end the run and stall the
+        // rest of the batch. The job stays claimed and unsent, so the
         // stale-processing reclaim requeues it rather than dead-lettering it.
         erroredCount += 1;
         console.error("processEmailJobs job error", {

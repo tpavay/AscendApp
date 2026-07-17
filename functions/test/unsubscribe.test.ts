@@ -8,6 +8,7 @@ import {
 } from "../src/email/unsubscribeToken";
 import {buildUnsubscribeHeaders} from "../src/email/provider";
 import {
+  assertTransactionalEmailConfig,
   DEFAULT_MARKETING_WEBSITE_URL,
   getMarketingWebsiteUrl,
 } from "../src/email/config";
@@ -282,6 +283,35 @@ test("render paths with no secret fall back to the marketing host", () => {
   withTransactionalEmailConfig(undefined, () => {
     assert.equal(getMarketingWebsiteUrl(), DEFAULT_MARKETING_WEBSITE_URL);
   });
+});
+
+// =============================================================================
+// Send Precondition
+// =============================================================================
+
+test("a valid secret passes the send precondition", () => {
+  withTransactionalEmailConfig(VALID_CONFIG, () => {
+    assert.doesNotThrow(() => assertTransactionalEmailConfig());
+  });
+});
+
+test("a mis-ordered deploy trips the send precondition", () => {
+  // The tripwire the required fields exist for: a sender checks this before
+  // claiming work, so a bad secret fails the run instead of quietly
+  // delivering nothing.
+  for (const broken of [
+    {...VALID_CONFIG, unsubscribeSigningKey: undefined},
+    {...VALID_CONFIG, unsubscribeSigningKey: "too-short"},
+    {...VALID_CONFIG, websiteUrl: undefined},
+    {...VALID_CONFIG, apiKey: undefined},
+  ]) {
+    withTransactionalEmailConfig(broken, () => {
+      assert.throws(
+        () => assertTransactionalEmailConfig(),
+        /TRANSACTIONAL_EMAIL_CONFIG/
+      );
+    });
+  }
 });
 
 // =============================================================================

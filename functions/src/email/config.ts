@@ -100,9 +100,9 @@ export function getTransactionalEmailConfig(): TransactionalEmailConfig {
 /**
  * Throws unless the transactional email secret is present and valid.
  *
- * Callers that render before sending use this to surface a deploy-config
- * problem as its own failure, rather than letting it reach a render path that
- * would misread it as an unrenderable payload.
+ * Lets a sender check the deploy config up front and fail on it directly,
+ * instead of leaving it to surface deeper in a render or send path that would
+ * misread it as a problem with the individual message.
  */
 export function assertTransactionalEmailConfig(): void {
   getTransactionalEmailConfig();
