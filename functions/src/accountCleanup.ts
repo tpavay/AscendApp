@@ -7,6 +7,14 @@ import {buildEmailJobId} from "./email/queue";
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
 
 /**
+ * Display name a First Ascent slot falls back to once its holder deletes their
+ * account. The slot stays claimed forever, so it always needs a name to render;
+ * an empty one would read as a bug, and the client's generic "Climber" fallback
+ * means "no name was stored" rather than "this climber is gone".
+ */
+export const ANONYMIZED_FIRST_ASCENT_NAME = "Anonymous Climber";
+
+/**
  * Firestore work the cleanup sweep needs, narrowed to a port so the sweep
  * logic can be tested without the Admin SDK or an emulator.
  */
@@ -15,6 +23,7 @@ export interface DeletedUserCleanupPort {
   deleteSubcollection(userId: string, collectionId: string): Promise<void>;
   deleteLeaderboardStats(userId: string): Promise<number>;
   deleteReplayFinisherStatuses(userId: string): Promise<number>;
+  anonymizeFirstAscents(userId: string): Promise<number>;
   deleteFeedbackDocuments(userId: string): Promise<number>;
   deleteLifecycleEmailJobs(userId: string): Promise<number>;
   deleteRateLimitDocument(userId: string): Promise<void>;
@@ -24,6 +33,7 @@ export interface CleanupSummary {
   deletedSubcollections: string[];
   deletedLeaderboardEntries: number;
   deletedReplayFinisherStatuses: number;
+  anonymizedFirstAscents: number;
   deletedFeedbackDocuments: number;
   deletedLifecycleEmailJobs: number;
   failures: string[];
@@ -49,11 +59,17 @@ export interface CleanupSummary {
  * `message` is free text the user typed, so it can hold anything they chose to
  * disclose; the admin notification email already carries the report itself.
  *
- * Two records are deliberately left behind. The `firstAscent*` fields on a
- * replay context root outlive the account by product design, and
- * waitlist-welcome email_jobs are keyed by email hash rather than uid because
- * they belong to the newsletter relationship, which has its own unsubscribe
- * path and is not granted or revoked by owning an account.
+ * A First Ascent is de-identified rather than deleted. The claim outlives the
+ * account by product design - the slot can never be reclaimed - so the holder's
+ * uid, workout id and completion date stay, while the name, photo and avatar
+ * token that identify a person are stripped. The uid is kept deliberately: it
+ * no longer resolves to anyone once users/{uid} and the auth user are gone, and
+ * the client still reads it to decide whether the viewer holds the slot.
+ *
+ * Waitlist-welcome email_jobs are deliberately left behind: they are keyed by
+ * email hash rather than uid because they belong to the newsletter
+ * relationship, which has its own unsubscribe path and is not granted or
+ * revoked by owning an account.
  *
  * Each step is isolated: one failure must not abandon the rest of the PII.
  * @param {string} userId The uid of the deleted user.
@@ -99,6 +115,13 @@ export async function cleanupDeletedUser(
     failures.push(`live_replay_finishers: ${errorMessage(error)}`);
   }
 
+  let anonymizedFirstAscents = 0;
+  try {
+    anonymizedFirstAscents = await port.anonymizeFirstAscents(userId);
+  } catch (error) {
+    failures.push(`live_replay_first_ascents: ${errorMessage(error)}`);
+  }
+
   let deletedFeedbackDocuments = 0;
   try {
     deletedFeedbackDocuments = await port.deleteFeedbackDocuments(userId);
@@ -120,6 +143,7 @@ export async function cleanupDeletedUser(
   }
 
   return {
+    anonymizedFirstAscents,
     deletedFeedbackDocuments,
     deletedLeaderboardEntries,
     deletedLifecycleEmailJobs,
@@ -211,6 +235,30 @@ export function makeAdminPort(
       return deleted;
     },
 
+    async anonymizeFirstAscents(userId) {
+      // firstAscentUserId sits on the context root of a top-level collection,
+      // so Firestore's automatic single-field index already serves this. The
+      // finisher sweep above cannot do the same because those documents are in
+      // a subcollection, where matching on a field would need its own index.
+      const snapshot = await firestore
+        .collection(LIVE_REPLAY_COLLECTION)
+        .where("firstAscentUserId", "==", userId)
+        .get();
+
+      for (const document of snapshot.docs) {
+        // firstAscentUserId, firstAscentWorkoutId and firstAscentCompletedAt
+        // are left alone: they keep the slot claimed and dated, which is the
+        // permanent prestige the climb is meant to carry.
+        await document.ref.update({
+          firstAscentAvatarToken: "",
+          firstAscentDisplayName: ANONYMIZED_FIRST_ASCENT_NAME,
+          firstAscentPhotoURL: "",
+        });
+      }
+
+      return snapshot.size;
+    },
+
     async deleteFeedbackDocuments(userId) {
       const snapshot = await firestore
         .collection("feedback")
@@ -276,6 +324,7 @@ export const cleanupDeletedUserData = onDocumentDeleted(
     const summary = await cleanupDeletedUser(userId, makeAdminPort());
 
     logger.info("Swept deleted user data", {
+      anonymizedFirstAscents: summary.anonymizedFirstAscents,
       deletedFeedbackDocuments: summary.deletedFeedbackDocuments,
       deletedLeaderboardEntries: summary.deletedLeaderboardEntries,
       deletedLifecycleEmailJobs: summary.deletedLifecycleEmailJobs,

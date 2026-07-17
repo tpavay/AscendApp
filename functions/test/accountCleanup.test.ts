@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as admin from "firebase-admin";
 import {
+  ANONYMIZED_FIRST_ASCENT_NAME,
   cleanupDeletedUser,
   DeletedUserCleanupPort,
   makeAdminPort,
@@ -11,6 +12,7 @@ interface FakePortOptions {
   subcollections?: string[];
   leaderboardEntries?: number;
   replayFinisherStatuses?: number;
+  firstAscents?: number;
   feedbackDocuments?: number;
   lifecycleEmailJobs?: number;
   failOn?: string[];
@@ -58,6 +60,14 @@ function makeFakePort(options: FakePortOptions = {}): {
       }
       deleted.push("live_replay_finishers");
       return options.replayFinisherStatuses ?? 0;
+    },
+
+    async anonymizeFirstAscents() {
+      if (failOn.has("live_replay_first_ascents")) {
+        throw new Error("cannot anonymize live_replay_first_ascents");
+      }
+      deleted.push("live_replay_first_ascents");
+      return options.firstAscents ?? 0;
     },
 
     async deleteFeedbackDocuments() {
@@ -142,6 +152,60 @@ function makeLeaderboardFirestore(
   return firestore as unknown as admin.firestore.Firestore;
 }
 
+/**
+ * Builds a Firestore stand-in holding one replay context whose First Ascent is
+ * held by `holderId`, and records the merge the sweep applies to it.
+ * @param {string} holderId Uid stored in firstAscentUserId.
+ * @return {object} The stand-in plus the context's current fields.
+ */
+function makeFirstAscentFirestore(holderId: string): {
+  firestore: admin.firestore.Firestore;
+  context: Record<string, unknown>;
+  queriedField: () => string | null;
+} {
+  const context: Record<string, unknown> = {
+    firstAscentAvatarToken: "TP",
+    firstAscentCompletedAt: "2026-06-11T00:00:00.000Z",
+    firstAscentDisplayName: "Tyler Pavay",
+    firstAscentPhotoURL: "https://example.com/tyler.jpg",
+    firstAscentUserId: holderId,
+    firstAscentWorkoutId: "workout-1",
+  };
+
+  let queriedField: string | null = null;
+  const ref = {
+    async update(fields: Record<string, unknown>) {
+      Object.assign(context, fields);
+    },
+  };
+
+  const firestore = {
+    collection() {
+      return {
+        where(field: string, _op: string, value: string) {
+          queriedField = field;
+          const docs = context.firstAscentUserId === value ? [{ref}] : [];
+          return {
+            get() {
+              return Promise.resolve({
+                docs,
+                empty: docs.length === 0,
+                size: docs.length,
+              });
+            },
+          };
+        },
+      };
+    },
+  };
+
+  return {
+    context,
+    firestore: firestore as unknown as admin.firestore.Firestore,
+    queriedField: () => queriedField,
+  };
+}
+
 test("sweeps server-owned subcollections a client cannot delete", async () => {
   const {deleted, port} = makeFakePort({
     subcollections: [
@@ -212,6 +276,66 @@ test("removes replay finishers living outside users/{uid}", async () => {
   // subcollection discovery under users/{uid} can never reach it.
   assert.equal(summary.deletedReplayFinisherStatuses, 2);
   assert.ok(deleted.includes("live_replay_finishers"));
+});
+
+test("de-identifies a First Ascent the deleted user holds", async () => {
+  const {context, firestore} = makeFirstAscentFirestore("user-a");
+  const port = makeAdminPort(firestore);
+
+  assert.equal(await port.anonymizeFirstAscents("user-a"), 1);
+
+  // The person is gone from the record; the claim is not.
+  assert.equal(context.firstAscentDisplayName, ANONYMIZED_FIRST_ASCENT_NAME);
+  assert.equal(context.firstAscentPhotoURL, "");
+  assert.equal(context.firstAscentAvatarToken, "");
+});
+
+test("a de-identified First Ascent keeps its slot and date", async () => {
+  const {context, firestore} = makeFirstAscentFirestore("user-a");
+
+  await makeAdminPort(firestore).anonymizeFirstAscents("user-a");
+
+  // firestoreLiveReplayLeaderboardRepository gates the whole First Ascent on
+  // firstAscentCompletedAt, so dropping it would reopen a slot that can never
+  // be reclaimed. The uid stays as a pseudonymous key that resolves to nobody.
+  assert.equal(context.firstAscentCompletedAt, "2026-06-11T00:00:00.000Z");
+  assert.equal(context.firstAscentUserId, "user-a");
+  assert.equal(context.firstAscentWorkoutId, "workout-1");
+});
+
+test("leaves First Ascents held by other climbers untouched", async () => {
+  const {context, firestore} = makeFirstAscentFirestore("user-b");
+  const port = makeAdminPort(firestore);
+
+  assert.equal(await port.anonymizeFirstAscents("user-a"), 0);
+
+  assert.equal(context.firstAscentDisplayName, "Tyler Pavay");
+  assert.equal(context.firstAscentPhotoURL, "https://example.com/tyler.jpg");
+});
+
+test("finds First Ascents without needing a new Firestore index", async () => {
+  const {firestore, queriedField} = makeFirstAscentFirestore("user-a");
+
+  await makeAdminPort(firestore).anonymizeFirstAscents("user-a");
+
+  // A single-field equality match on a top-level collection is served by the
+  // automatic index; a collection group query would need one deployed first.
+  assert.equal(queriedField(), "firstAscentUserId");
+});
+
+test("a failing First Ascent sweep is reported for retry", async () => {
+  const {deleted, port} = makeFakePort({failOn: ["live_replay_first_ascents"]});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.anonymizedFirstAscents, 0);
+  assert.equal(summary.failures.length, 1);
+  assert.match(
+    summary.failures[0],
+    /live_replay_first_ascents: cannot anonymize live_replay_first_ascents/
+  );
+  assert.ok(deleted.includes("feedback"));
+  assert.ok(deleted.includes("userRateLimits"));
 });
 
 test("removes feedback carrying the user's email and message", async () => {
