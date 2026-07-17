@@ -127,5 +127,8 @@ final class MonetizationManager {
                 source: source
             )
         )
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.screenViewed(context: OnboardingAnalyticsEvent.paywallContext)
+        )
     }
 }

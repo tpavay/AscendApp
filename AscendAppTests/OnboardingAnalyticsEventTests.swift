@@ -159,6 +159,136 @@ struct OnboardingAnalyticsEventTests {
         expectStringParameter(record, "placement", "onboarding_paywall")
         expectStringParameter(record, "source", "post_auth_onboarding")
     }
+
+    @Test
+    func welcomeScreenViewedUsesUniqueWelcomeStep() {
+        let record = OnboardingAnalyticsEvent.screenViewed(
+            context: OnboardingAnalyticsEvent.welcomeContext
+        ).record
+
+        #expect(record.name == "onboarding_screen_viewed")
+        expectStringParameter(record, "flow_id", "pre_auth_welcome")
+        expectStringParameter(record, "step_id", "welcome")
+        expectStringParameter(record, "screen_id", "welcome")
+        expectBoolParameter(record, "viewed", true)
+    }
+
+    @Test
+    func welcomeScreenCompletedRecordsGetStartedTap() {
+        let record = OnboardingAnalyticsEvent.screenCompleted(
+            context: OnboardingAnalyticsEvent.welcomeContext,
+            inputType: "button",
+            properties: [:]
+        ).record
+
+        #expect(record.name == "onboarding_screen_completed")
+        expectStringParameter(record, "step_id", "welcome")
+        expectStringParameter(record, "input_type", "button")
+        expectBoolParameter(record, "completed", true)
+    }
+
+    @Test
+    func authScreenViewedUsesStableAuthContext() {
+        let record = OnboardingAnalyticsEvent.screenViewed(
+            context: OnboardingAnalyticsEvent.authContext
+        ).record
+
+        #expect(record.name == "onboarding_screen_viewed")
+        expectStringParameter(record, "flow_id", "pre_auth_auth")
+        expectStringParameter(record, "step_id", "auth")
+        expectStringParameter(record, "screen_id", "auth")
+    }
+
+    @Test
+    func paywallScreenViewedJoinsPostAuthOnboardingFunnel() {
+        let record = OnboardingAnalyticsEvent.screenViewed(
+            context: OnboardingAnalyticsEvent.paywallContext
+        ).record
+
+        #expect(record.name == "onboarding_screen_viewed")
+        expectStringParameter(record, "flow_id", "post_auth_onboarding")
+        expectStringParameter(record, "step_id", "paywall")
+        expectStringParameter(record, "screen_id", "paywall")
+        expectIntParameter(record, "step_index", PostAuthOnboardingStage.plannedStepCount)
+    }
+
+    @Test
+    func paywallFollowsTheLastPostAuthStage() {
+        #expect(
+            OnboardingAnalyticsEvent.paywallContext.stepIndex > PostAuthOnboardingStage.firstClimb.progressIndex
+        )
+    }
+
+    @Test
+    func flowStartedUsesStableEventName() {
+        let record = OnboardingAnalyticsEvent.flowStarted(
+            context: PostAuthOnboardingStage.displayName.analyticsContext
+        ).record
+
+        #expect(record.name == "onboarding_flow_started")
+        expectStringParameter(record, "flow_id", "post_auth_onboarding")
+        expectStringParameter(record, "step_id", "displayName")
+        expectIntParameter(record, "step_index", 0)
+    }
+
+    @Test
+    func backTappedNamesTheStepBeingLeft() {
+        let record = OnboardingAnalyticsEvent.backTapped(
+            context: PostAuthOnboardingStage.gender.analyticsContext
+        ).record
+
+        #expect(record.name == "onboarding_back_tapped")
+        expectStringParameter(record, "flow_id", "post_auth_onboarding")
+        expectStringParameter(record, "step_id", "gender")
+        expectStringParameter(record, "from_step", "gender")
+    }
+
+    @Test
+    func preAuthBackTapNamesTheValuePageBeingLeft() throws {
+        let pages = OnboardingValuePages.all
+        let context = try #require(
+            OnboardingValueCarouselView.analyticsContext(pages: pages, index: 1)
+        )
+
+        let record = OnboardingAnalyticsEvent.backTapped(context: context).record
+
+        #expect(record.name == "onboarding_back_tapped")
+        expectStringParameter(record, "flow_id", "pre_auth_value_onboarding")
+        expectStringParameter(record, "from_step", pages[1].id)
+    }
+}
+
+struct OnboardingValueCarouselAnalyticsContextTests {
+    @Test
+    func contextUsesPageIdentityAndPosition() throws {
+        let pages = OnboardingValuePages.all
+        let context = try #require(OnboardingValueCarouselView.analyticsContext(pages: pages, index: 0))
+
+        #expect(context.flowID == "pre_auth_value_onboarding")
+        #expect(context.stepID == pages[0].id)
+        #expect(context.stepIndex == 0)
+        #expect(context.stepCount == pages.count)
+    }
+
+    @Test
+    func everyValuePageHasAUniqueStepID() {
+        let pages = OnboardingValuePages.all
+        let stepIDs = pages.indices.compactMap {
+            OnboardingValueCarouselView.analyticsContext(pages: pages, index: $0)?.stepID
+        }
+
+        #expect(stepIDs.count == pages.count)
+        #expect(Set(stepIDs).count == pages.count)
+    }
+
+    @Test
+    func outOfRangeIndexHasNoContext() {
+        let pages = OnboardingValuePages.all
+
+        #expect(OnboardingValueCarouselView.analyticsContext(pages: pages, index: pages.count) == nil)
+        #expect(OnboardingValueCarouselView.analyticsContext(pages: pages, index: -1) == nil)
+        #expect(OnboardingValueCarouselView.analyticsContext(pages: [], index: 0) == nil)
+    }
 }
 
 private func expectStringParameter(_ record: TelemetryRecord, _ key: String, _ expected: String) {

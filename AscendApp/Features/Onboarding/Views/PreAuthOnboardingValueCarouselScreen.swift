@@ -5,16 +5,18 @@ struct PreAuthOnboardingValueCarouselScreen: View {
     @State private var selectedIndex = 0
     @State private var isShowingSignUp = false
 
+    private let pages = OnboardingValuePages.all
+
     var body: some View {
         OnboardingScaffold(
-            backAction: { dismiss() },
+            backAction: handleBack,
             background: {
                 Color.black
             },
             content: { _ in
                 OnboardingValueCarouselView(
                     selectedIndex: $selectedIndex,
-                    pages: OnboardingValuePages.all,
+                    pages: pages,
                     onFinish: { isShowingSignUp = true }
                 )
                 .ignoresSafeArea()
@@ -23,6 +25,16 @@ struct PreAuthOnboardingValueCarouselScreen: View {
         .navigationDestination(isPresented: $isShowingSignUp) {
             SignUpView()
         }
+    }
+
+    private func handleBack() {
+        if let context = OnboardingValueCarouselView.analyticsContext(pages: pages, index: selectedIndex) {
+            TelemetryManager.shared.track(
+                OnboardingAnalyticsEvent.backTapped(context: context)
+            )
+        }
+
+        dismiss()
     }
 }
 

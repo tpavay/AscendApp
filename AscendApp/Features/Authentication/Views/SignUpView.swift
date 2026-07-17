@@ -6,10 +6,11 @@ struct SignUpView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var hasAttemptedInteractiveSignIn = false
     @State private var isShowingInternalQA = false
+    @State private var didRecordScreenView = false
 
     var body: some View {
         OnboardingScaffold(
-            backAction: { dismiss() },
+            backAction: handleBack,
             background: {
                 AuthStaircaseBackground()
             },
@@ -32,10 +33,27 @@ struct SignUpView: View {
         .onAppear {
             hasAttemptedInteractiveSignIn = false
             authVM.errorMessage = nil
+            recordScreenViewIfNeeded()
         }
         .navigationDestination(isPresented: $isShowingInternalQA) {
             InternalQASignInView()
         }
+    }
+
+    private func recordScreenViewIfNeeded() {
+        guard !didRecordScreenView else { return }
+
+        didRecordScreenView = true
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.screenViewed(context: OnboardingAnalyticsEvent.authContext)
+        )
+    }
+
+    private func handleBack() {
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.backTapped(context: OnboardingAnalyticsEvent.authContext)
+        )
+        dismiss()
     }
 
     private func signInWithGoogle() {

@@ -172,6 +172,7 @@ private struct PostAuthSurveyQuestionStageScreen: View {
             context: stage.analyticsContext,
             selectedOptionIDs: selectedOptionIDs
         )
+        trackPostAuthInput(stage: stage)
         onContinue()
     }
 }
@@ -829,6 +830,7 @@ private struct PostAuthNotificationScreen: View {
             )
             TelemetryManager.shared.setUserProperty("notifications_inputted", value: "true")
             OnboardingAnalyticsUserProperties.setNotificationChoice(isAllowed ? "allow" : "decline")
+            trackPostAuthInput(stage: stage)
             onContinue()
         }
     }
@@ -849,6 +851,7 @@ private struct PostAuthNotificationScreen: View {
             )
             TelemetryManager.shared.setUserProperty("notifications_inputted", value: "true")
             OnboardingAnalyticsUserProperties.setNotificationChoice("skip")
+            trackPostAuthInput(stage: stage)
             onContinue()
         }
     }
@@ -1447,6 +1450,7 @@ private struct PostAuthFirstClimbRevealScreen: View {
                         climbName: firstClimb.name
                     )
                 )
+                trackPostAuthInput(stage: stage)
                 onContinue()
             }
         }

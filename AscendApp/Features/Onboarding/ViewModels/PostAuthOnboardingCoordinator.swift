@@ -5,11 +5,16 @@ import Observation
 @Observable
 final class PostAuthOnboardingCoordinator {
     private let store: PostAuthOnboardingStore
+    private let telemetry: TelemetryManager
     private var currentUserId: String?
     private(set) var phase: PostAuthOnboardingPhase = .signedOut
 
-    init(store: PostAuthOnboardingStore = PostAuthOnboardingStore()) {
+    init(
+        store: PostAuthOnboardingStore = PostAuthOnboardingStore(),
+        telemetry: TelemetryManager = .shared
+    ) {
         self.store = store
+        self.telemetry = telemetry
     }
 
     func resolve(userId: String?, force: Bool = false) {
@@ -33,6 +38,10 @@ final class PostAuthOnboardingCoordinator {
 
         phase = snapshot.isComplete ? .complete : .onboarding(snapshot.currentStage)
         recordLifecycleSnapshot(snapshot)
+
+        if !snapshot.isComplete {
+            recordFlowStartIfNeeded(userId: userId, stage: snapshot.currentStage)
+        }
     }
 
     func completeCurrentStage() {
@@ -58,7 +67,7 @@ final class PostAuthOnboardingCoordinator {
             OnboardingAnalyticsUserProperties.setOnboardingCompleted()
             phase = .complete
             recordLifecycleSnapshot(snapshot)
-            TelemetryManager.shared.track(
+            telemetry.track(
                 OnboardingAnalyticsEvent.flowCompleted(context: stage.analyticsContext)
             )
         }
@@ -85,7 +94,7 @@ final class PostAuthOnboardingCoordinator {
               let currentIndex = PostAuthOnboardingStage.allCases.firstIndex(of: stage),
               currentIndex > PostAuthOnboardingStage.allCases.startIndex else { return }
 
-        TelemetryManager.shared.track(
+        telemetry.track(
             OnboardingAnalyticsEvent.backTapped(context: stage.analyticsContext)
         )
 
@@ -125,6 +134,15 @@ final class PostAuthOnboardingCoordinator {
         phase = .complete
         recordLifecycleSnapshot(snapshot)
         NotificationCenter.default.post(name: .postAuthOnboardingStateDidChange, object: nil)
+    }
+
+    private func recordFlowStartIfNeeded(userId: String, stage: PostAuthOnboardingStage) {
+        guard !store.hasRecordedFlowStart(for: userId) else { return }
+
+        store.markFlowStartRecorded(for: userId)
+        telemetry.track(
+            OnboardingAnalyticsEvent.flowStarted(context: stage.analyticsContext)
+        )
     }
 
     private func recordLifecycleSnapshot(_ snapshot: PostAuthOnboardingSnapshot) {
