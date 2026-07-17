@@ -235,6 +235,16 @@ function achievementType(
   return `${timeFrame}_top_100`;
 }
 
+/**
+ * These counters are deliberately time-frame agnostic: a weekly, monthly, or
+ * yearly finish all land on the same band counter, because the profile badges
+ * show one total per band (CHAMPION / TOP 3 / TOP 10 / TOP 100) with no period
+ * noun. The per-frame breakdown lives on the achievement records themselves,
+ * which is what the achievement history sheet reads. Counting is cumulative:
+ * a Top 1 finish also counts toward Top 3, Top 10, and Top 100.
+ * @param {number} rank Final leaderboard rank for the closed period.
+ * @return {Record<string, unknown>} Merge payload for the profile stats doc.
+ */
 function profileStatsIncrement(
   rank: number
 ): Record<string, unknown> {
@@ -243,10 +253,10 @@ function profileStatsIncrement(
     lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
   };
 
-  if (rank === 1) data.top_1_weeks = increment;
-  if (rank <= 3) data.top_3_weeks = increment;
-  if (rank <= 10) data.top_10_weeks = increment;
-  if (rank <= 100) data.top_100_weeks = increment;
+  if (rank === 1) data.top_1_finishes = increment;
+  if (rank <= 3) data.top_3_finishes = increment;
+  if (rank <= 10) data.top_10_finishes = increment;
+  if (rank <= 100) data.top_100_finishes = increment;
   return data;
 }
 
@@ -290,6 +300,11 @@ function previousPeriod(
   }
   }
 }
+
+export const leaderboardAchievementsTestHooks = {
+  achievementType,
+  profileStatsIncrement,
+};
 
 function timestampDate(value: unknown): Date | null {
   if (value instanceof admin.firestore.Timestamp) {

@@ -131,17 +131,25 @@ final class ProfileRepository: Sendable {
             "lifetime_duration_seconds": stats.lifetimeDurationSeconds,
             "total_climbs": stats.totalClimbs,
             "average_steps_per_minute": stats.averageStepsPerMinute,
-            "top_1_weeks": stats.achievementCounts.top1,
-            "top_3_weeks": stats.achievementCounts.top3,
-            "top_10_weeks": stats.achievementCounts.top10,
-            "top_100_weeks": stats.achievementCounts.top100,
+            "top_1_finishes": stats.achievementCounts.top1,
+            "top_3_finishes": stats.achievementCounts.top3,
+            "top_10_finishes": stats.achievementCounts.top10,
+            "top_100_finishes": stats.achievementCounts.top100,
             "most_completed_climb_id": stats.mostCompletedClimbId ?? "",
             "current_streak_weeks": stats.currentStreakWeeks,
             "best_streak_weeks": stats.bestStreakWeeks,
             "pr_most_steps": stats.prMostSteps,
             "pr_longest_climb_seconds": stats.prLongestClimbSeconds,
             "pr_highest_spm": stats.prHighestSPM,
-            "lastUpdated": FieldValue.serverTimestamp()
+            "lastUpdated": FieldValue.serverTimestamp(),
+            // Migration: drop the misnamed `_weeks` keys these counts used to live under.
+            // Rules validate the merged document with `hasOnly`, so leaving them behind
+            // would make every write fail. Remove after 2026-10-01, once published
+            // profiles have all been rewritten.
+            "top_1_weeks": FieldValue.delete(),
+            "top_3_weeks": FieldValue.delete(),
+            "top_10_weeks": FieldValue.delete(),
+            "top_100_weeks": FieldValue.delete()
         ], merge: true)
     }
 
@@ -199,10 +207,10 @@ final class ProfileRepository: Sendable {
             totalClimbsCompleted: intValue(for: "total_climbs_completed", in: data) ?? 0,
             totalFirstAscents: intValue(for: "total_first_ascents", in: data) ?? 0,
             achievementCounts: ProfileAchievementCounts(
-                top1: intValue(for: "top_1_weeks", in: data) ?? 0,
-                top3: intValue(for: "top_3_weeks", in: data) ?? 0,
-                top10: intValue(for: "top_10_weeks", in: data) ?? 0,
-                top100: intValue(for: "top_100_weeks", in: data) ?? 0
+                top1: achievementCountValue(band: "1", in: data),
+                top3: achievementCountValue(band: "3", in: data),
+                top10: achievementCountValue(band: "10", in: data),
+                top100: achievementCountValue(band: "100", in: data)
             ),
             mostCompletedClimbId: nonEmptyStringValue(for: "most_completed_climb_id", in: data),
             currentStreakWeeks: intValue(for: "current_streak_weeks", in: data) ?? 0,
@@ -308,6 +316,15 @@ final class ProfileRepository: Sendable {
             return nil
         }
         return value
+    }
+
+    /// Reads a band's finish count, falling back to the misnamed `_weeks` key so profiles
+    /// published before the rename keep their badges until their next publication rewrites
+    /// them. Remove the fallback after 2026-10-01.
+    private func achievementCountValue(band: String, in data: [String: Any]) -> Int {
+        intValue(for: "top_\(band)_finishes", in: data)
+            ?? intValue(for: "top_\(band)_weeks", in: data)
+            ?? 0
     }
 
     private func intValue(for key: String, in data: [String: Any]) -> Int? {

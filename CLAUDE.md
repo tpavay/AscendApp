@@ -528,6 +528,10 @@ Leaderboard UX in Ascend covers two distinct surfaces — the global tab (commun
 - The climb's First Ascent holder is surfaced as a quiet, persistent annotation — permanent prestige, but visually secondary to the active leaderboard chase. See the First Ascent principle in the Live Climbs section.
 - Achievement terminology is locked to **Top 1**, **Top 3**, **Top 10**, and **Top 100**. Top 1 may be swapped to a product-approved label later, but it must be centralized as a single string constant.
 - Achievement counts use cumulative inclusive counting: a Top 1 finish also counts toward Top 3, Top 10, and Top 100. Do not render these as mutually exclusive medal bands.
+- Achievement counts are also **time-frame agnostic**: a weekly, monthly, and yearly Top 10 finish all count toward the same Top 10 badge, because the badge shows one total per band with no period noun.
+  The time frame is preserved on the individual achievement record (`weekly_top_1`, `monthly_top_1`, …), which is what the achievement history sheet reads.
+  The counters live in `profile_stats` as `top_N_finishes` - they were once named `top_N_weeks`, which read like a weekly-only tally and got the frame-agnostic behavior mis-filed as a bug.
+  Changing what a badge counts is a product decision, not a bug fix.
 - Per-climb leaderboards rank *completed attempts on one climb*, not aggregate community totals. They don't share a layout with the global aggregate leaderboards.
 - The static per-climb leaderboard shows **every completed attempt**, not best-per-user. A user appears as many times as they've completed the climb; this surface is the historical record of completions. Contrast with the in-session live race, which ranks against best-per-user (see Replay leaderboard architecture in Live Climbs).
 
