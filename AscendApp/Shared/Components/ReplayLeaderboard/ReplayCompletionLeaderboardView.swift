@@ -285,17 +285,30 @@ private struct ReplayCompletionLeaderboardRowView: View {
     @ViewBuilder
     private func rankView(for rank: Int?) -> some View {
         if rank == 1 {
+            // A shared crown reads as a tie on its own; the label says so out loud.
             Image(systemName: "crown.fill")
                 .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(leaderboardGold)
                 .frame(width: 34, alignment: .leading)
-                .accessibilityLabel("Rank 1")
-        } else {
-            Text("#\(rank?.formatted() ?? "--")")
+                .accessibilityLabel(
+                    CompetitionRanking.rankAccessibilityLabel(1, isTied: row.isTied)
+                )
+        } else if let rank {
+            Text(CompetitionRanking.rankLabel(rank, isTied: row.isTied, untiedPrefix: "#"))
                 .font(.montserratBold(size: 15))
                 .foregroundStyle(leaderboardAccentColor(for: rank))
                 .frame(width: 34, alignment: .leading)
                 .monospacedDigit()
+                .accessibilityLabel(
+                    CompetitionRanking.rankAccessibilityLabel(rank, isTied: row.isTied)
+                )
+        } else {
+            Text("--")
+                .font(.montserratBold(size: 15))
+                .foregroundStyle(leaderboardAccentColor(for: rank))
+                .frame(width: 34, alignment: .leading)
+                .monospacedDigit()
+                .accessibilityLabel("Rank unavailable")
         }
     }
 

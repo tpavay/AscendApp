@@ -174,9 +174,14 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             context: context,
             bucketIndex: 0
         )
+        async let sameDurationCompletionCount = countRowsMatching(
+            context: context,
+            completionDurationSeconds: completionDurationSeconds
+        )
 
         let fasterCount = try await fasterCompletionCount
         let publishedCount = try await publishedCompletionCount
+        let sameDurationCount = try await sameDurationCompletionCount
         let completedCount = max(publishedCount, fasterCount + 1)
 
         return LiveReplayCurrentUserCompletion(
@@ -184,7 +189,8 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             completedCount: completedCount,
             completionDurationSeconds: completionDurationSeconds,
             workoutId: stringValue(for: "workoutId", in: bestDocument.data()) ?? bestDocument.documentID,
-            updatedAt: timestampValue(for: "updatedAt", in: bestDocument.data())
+            updatedAt: timestampValue(for: "updatedAt", in: bestDocument.data()),
+            isTied: sameDurationCount > 1
         )
     }
 
@@ -217,7 +223,6 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         forceRefresh: Bool
     ) async throws -> LiveReplayCompletionLeaderboard {
         let resolvedLimit = max(limit, 1)
-        let startRank = cursor?.nextRank ?? 1
         var query: Query = entriesCollection(context: context, bucketIndex: 0)
             .order(by: "completionDurationSeconds", descending: false)
             .order(by: FieldPath.documentID(), descending: false)
@@ -246,17 +251,41 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
 
         let snapshot = try await rowSnapshot
         let currentUserId = Auth.auth().currentUser?.uid
-        let rows = snapshot.documents.enumerated().compactMap { offset, document in
-            parseCompletionRow(
+
+        // Rank on the raw duration, matching the server's strict `<` count in
+        // functions/src/liveReplayLeaderboard.ts (completionRankForPayload) — and so
+        // matching the pinned row, which derives its rank from countRowsFasterThan.
+        let rankable = snapshot.documents.compactMap { document -> RankableCompletion? in
+            guard let durationSeconds = doubleValue(
+                for: "completionDurationSeconds",
+                in: document.data()
+            ) else {
+                return nil
+            }
+
+            return RankableCompletion(
                 id: document.documentID,
                 data: document.data(),
-                rank: startRank + offset,
+                durationSeconds: durationSeconds
+            )
+        }
+
+        let ranks = CompetitionRanking.ranks(
+            for: rankable,
+            continuing: cursor?.rankingContinuation,
+            key: \.durationSeconds
+        )
+        let rows = zip(rankable, ranks).compactMap { completion, rank in
+            parseCompletionRow(
+                id: completion.id,
+                data: completion.data,
+                rank: rank,
                 currentUserId: currentUserId
             )
         }
         let completedCount = max(
             resolvedCompletedCount,
-            startRank + max(rows.count - 1, 0)
+            (cursor?.rankedCount ?? 0) + rows.count
         )
 
         return LiveReplayCompletionLeaderboard(
@@ -266,10 +295,17 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             nextCursor: nextCompletionLeaderboardCursor(
                 documents: snapshot.documents,
                 rows: rows,
+                rankedCount: (cursor?.rankedCount ?? 0) + rows.count,
                 completedCount: completedCount,
                 pageSize: resolvedLimit
             )
         )
+    }
+
+    private struct RankableCompletion {
+        let id: String
+        let data: [String: Any]
+        let durationSeconds: TimeInterval
     }
 
     func fetchWindow(
@@ -402,6 +438,17 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
     ) async throws -> Int {
         let query = entriesCollection(context: context, bucketIndex: 0)
             .whereField("completionDurationSeconds", isLessThan: max(completionDurationSeconds, 0))
+
+        let snapshot = try await query.count.getAggregation(source: .server)
+        return snapshot.count.intValue
+    }
+
+    private func countRowsMatching(
+        context: LiveReplayLeaderboardContext,
+        completionDurationSeconds: TimeInterval
+    ) async throws -> Int {
+        let query = entriesCollection(context: context, bucketIndex: 0)
+            .whereField("completionDurationSeconds", isEqualTo: max(completionDurationSeconds, 0))
 
         let snapshot = try await query.count.getAggregation(source: .server)
         return snapshot.count.intValue
@@ -576,6 +623,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
     private func nextCompletionLeaderboardCursor(
         documents: [QueryDocumentSnapshot],
         rows: [LiveReplayLeaderboardRow],
+        rankedCount: Int,
         completedCount: Int,
         pageSize: Int
     ) -> LiveReplayCompletionLeaderboardCursor? {
@@ -586,15 +634,16 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
                 for: "completionDurationSeconds",
                 in: lastDocument.data()
               ) ?? rows.last?.completionDurationSeconds,
-              let nextRank = rows.last?.rank.map({ $0 + 1 }),
-              nextRank <= completedCount else {
+              let lastRank = rows.last?.rank,
+              rankedCount < completedCount else {
             return nil
         }
 
         return LiveReplayCompletionLeaderboardCursor(
             completionDurationSeconds: durationSeconds,
             rowID: lastDocument.documentID,
-            nextRank: nextRank
+            lastRank: lastRank,
+            rankedCount: rankedCount
         )
     }
 

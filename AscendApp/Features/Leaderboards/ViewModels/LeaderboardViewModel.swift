@@ -381,16 +381,20 @@ final class LeaderboardViewModel {
 
     private func reapplyCurrentStats(userId: String) {
         let filteredStats = filtered(rawLeaderboardStats)
+        let metric = selectedMetric
+        let ranks = CompetitionRanking.ranks(for: filteredStats) { $0.value(for: metric) }
+        let tieFlags = CompetitionRanking.tieFlags(for: ranks)
         let entries = filteredStats.enumerated().map { index, stat in
-            let value = stat.value(for: selectedMetric)
+            let value = stat.value(for: metric)
             return LeaderboardEntry(
                 userId: stat.userId,
                 displayName: stat.displayName,
                 photoURL: stat.photoURL.flatMap(URL.init(string:)),
-                rank: index + 1,
+                rank: ranks[index],
                 value: value,
-                formattedValue: formatValue(value, for: selectedMetric),
-                isCurrentUser: stat.userId == userId
+                formattedValue: formatValue(value, for: metric),
+                isCurrentUser: stat.userId == userId,
+                isTied: tieFlags[index]
             )
         }
 

@@ -59,36 +59,45 @@ private extension String {
 }
 
 struct LiveReplayCompletionRank: Equatable, Sendable {
+    /// Standard competition rank — one more than the number of strictly faster attempts.
     let rank: Int
     let completedCount: Int
     let updatedAt: Date?
+    /// Whether another attempt shares this exact completion time, and so this rank.
+    let isTied: Bool
 
-    init(rank: Int, completedCount: Int, updatedAt: Date?) {
+    init(rank: Int, completedCount: Int, updatedAt: Date?, isTied: Bool = false) {
         self.rank = max(rank, 1)
         self.completedCount = max(completedCount, 1)
         self.updatedAt = updatedAt
+        self.isTied = isTied
     }
 }
 
 struct LiveReplayCurrentUserCompletion: Equatable, Sendable {
+    /// Standard competition rank — one more than the number of strictly faster attempts.
     let rank: Int
     let completedCount: Int
     let completionDurationSeconds: TimeInterval
     let workoutId: String
     let updatedAt: Date?
+    /// Whether another attempt shares this exact completion time, and so this rank.
+    let isTied: Bool
 
     init(
         rank: Int,
         completedCount: Int,
         completionDurationSeconds: TimeInterval,
         workoutId: String,
-        updatedAt: Date?
+        updatedAt: Date?,
+        isTied: Bool = false
     ) {
         self.rank = max(rank, 1)
         self.completedCount = max(completedCount, 1)
         self.completionDurationSeconds = max(completionDurationSeconds, 0)
         self.workoutId = workoutId.trimmingCharacters(in: .whitespacesAndNewlines)
         self.updatedAt = updatedAt
+        self.isTied = isTied
     }
 }
 
@@ -189,18 +198,33 @@ struct LiveReplayPublishStatus: Equatable, Sendable {
 }
 
 struct LiveReplayCompletionLeaderboardCursor: Equatable, Sendable {
+    /// Sort key of the last fetched row — the Firestore pagination position.
     let completionDurationSeconds: TimeInterval
     let rowID: String
-    let nextRank: Int
+    /// Competition rank of the last ranked row. Carried so a tie group split across a
+    /// page boundary keeps one rank instead of restarting at the next position.
+    let lastRank: Int
+    /// How many rows have been ranked across every page so far.
+    let rankedCount: Int
 
     init(
         completionDurationSeconds: TimeInterval,
         rowID: String,
-        nextRank: Int
+        lastRank: Int,
+        rankedCount: Int
     ) {
         self.completionDurationSeconds = max(completionDurationSeconds, 0)
         self.rowID = rowID.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.nextRank = max(nextRank, 1)
+        self.lastRank = max(lastRank, 1)
+        self.rankedCount = max(rankedCount, 0)
+    }
+
+    var rankingContinuation: CompetitionRanking.Continuation<TimeInterval> {
+        CompetitionRanking.Continuation(
+            lastKey: completionDurationSeconds,
+            lastRank: lastRank,
+            rankedCount: rankedCount
+        )
     }
 }
 
@@ -210,16 +234,34 @@ struct LiveReplayCompletionLeaderboard: Equatable, Sendable {
     let updatedAt: Date?
     let nextCursor: LiveReplayCompletionLeaderboardCursor?
 
+    /// Rows arrive already carrying their competition rank — only the repository knows
+    /// the full ordering and the pagination continuation needed to assign one. Tie flags
+    /// are derived here instead, so a tie group split across a page boundary corrects
+    /// itself the moment `appending(_:)` merges the neighbouring page.
     init(
         rows: [LiveReplayLeaderboardRow],
         completedCount: Int,
         updatedAt: Date?,
         nextCursor: LiveReplayCompletionLeaderboardCursor? = nil
     ) {
-        self.rows = rows
+        self.rows = Self.flaggingTies(in: rows)
         self.completedCount = max(completedCount, rows.count, 0)
         self.updatedAt = updatedAt
         self.nextCursor = nextCursor
+    }
+
+    private static func flaggingTies(
+        in rows: [LiveReplayLeaderboardRow]
+    ) -> [LiveReplayLeaderboardRow] {
+        var countsByRank: [Int: Int] = [:]
+        for rank in rows.compactMap(\.rank) {
+            countsByRank[rank, default: 0] += 1
+        }
+
+        return rows.map { row in
+            let isTied = row.rank.map { (countsByRank[$0] ?? 0) > 1 } ?? false
+            return row.isTied == isTied ? row : row.updating(isTied: isTied)
+        }
     }
 
     var hasMoreRows: Bool {
@@ -250,6 +292,7 @@ struct LiveReplayCompletionLeaderboard: Equatable, Sendable {
 
 struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
     let id: String
+    /// Standard competition rank ("1, 2, 2, 4") — tied rows share a rank.
     let rank: Int?
     let displayName: String
     let avatarToken: String
@@ -264,6 +307,8 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
     let gender: String?
     let age: Int?
     let locationCity: String?
+    /// Whether at least one other row shares this rank.
+    let isTied: Bool
 
     init(
         id: String,
@@ -280,7 +325,8 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
         userId: String? = nil,
         gender: String? = nil,
         age: Int? = nil,
-        locationCity: String? = nil
+        locationCity: String? = nil,
+        isTied: Bool = false
     ) {
         self.id = id
         self.rank = rank
@@ -297,7 +343,9 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
         self.gender = Self.cleanedString(gender)
         self.age = Self.validAge(age)
         self.locationCity = Self.cleanedString(locationCity)
+        self.isTied = isTied
     }
+
 
     var averageStepsPerMinute: Double? {
         guard let completionDurationSeconds,
@@ -394,7 +442,8 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
     func updating(
         rank: Int? = nil,
         stepsAtBucket: Int? = nil,
-        deltaFromUser: Int? = nil
+        deltaFromUser: Int? = nil,
+        isTied: Bool? = nil
     ) -> LiveReplayLeaderboardRow {
         LiveReplayLeaderboardRow(
             id: id,
@@ -411,7 +460,8 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
             userId: userId,
             gender: gender,
             age: age,
-            locationCity: locationCity
+            locationCity: locationCity,
+            isTied: isTied ?? self.isTied
         )
     }
 

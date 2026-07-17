@@ -39,6 +39,13 @@ Principles:
 - `CLAUDE.md` is the canonical project context file. `AGENTS.md` is a symlink to `CLAUDE.md` — editing one edits both. There is exactly one source of truth.
 - All AI providers used on this repo (Codex, Claude, Cursor, Copilot, etc.) should read from this file. Do not break the symlink by replacing `AGENTS.md` with a separate file or duplicating content between them.
 
+### Maintaining this file
+
+Keep this file for knowledge useful to almost every future agent session in this project.
+Do not repeat what the codebase already shows; point to the authoritative file or command instead.
+Prefer rewriting or pruning existing entries over appending new ones.
+When updating this file, preserve this bar for all agents and keep entries concise.
+
 ---
 
 ## Tech Stack
@@ -533,6 +540,7 @@ Leaderboard UX in Ascend covers two distinct surfaces — the global tab (commun
 
 **Tie handling (applies to global and per-climb)**
 - Ties are ranked using **standard competition ranking** ("1, 2, 2, 4"). Tied users share the same rank; the next rank is skipped by the count of tied users. This matches the sports convention and honors the honest outcome.
+- `CompetitionRanking` (`AscendApp/Shared/Models/`) is the only client-side definition of rank, and it mirrors the Cloud Functions ranking. Rank every client surface through it rather than by list position - a positional rank silently disagrees with the rank the server used to award achievements. A sort tiebreak (uid, document ID) exists to make ordering stable and must never influence rank.
 - Don't break ties with secondary metrics (steps tie ≠ floors tiebreaker; time tie ≠ cadence tiebreaker). Adding a secondary criterion quietly changes what the leaderboard measures.
 - Don't break ties with submission timestamp. First-to-submit is a property of when the user happened to climb, not how well they climbed.
 - Match precision to perception. Per-climb completion times rank at second granularity; sub-second tiebreakers feel arbitrary and don't reflect anything users perceived during the attempt.

@@ -43,13 +43,105 @@ struct LeaderboardViewModelTests {
         #expect(viewModel.leaderboardEntries.first?.formattedValue == "176:12:12")
     }
 
+    @Test
+    func tiedStepTotalsShareARankAndSkipTheNextOne() async {
+        let cache = LeaderboardSessionCache()
+
+        let viewModel = LeaderboardViewModel(sessionCache: cache)
+        viewModel.selectedMetric = .climb
+        viewModel.selectedTimeFrame = .weekly
+
+        // Descending by steps, then uid — the ordering the repository and the Cloud
+        // Function both produce. The uid tiebreak must not leak into the rank.
+        let stats = [
+            makeRemoteStat(userId: "aaa", displayName: "Leader", totalSteps: 9_000),
+            makeRemoteStat(userId: "mmm", displayName: "Tied A", totalSteps: 5_000),
+            makeRemoteStat(userId: "zzz", displayName: "Tied B", totalSteps: 5_000),
+            makeRemoteStat(userId: "bbb", displayName: "Trailer", totalSteps: 1_000)
+        ]
+        await cache.setDetailEntries(stats, for: .climb, timeFrame: .weekly)
+
+        await viewModel.loadLeaderboard(userId: "mmm")
+
+        #expect(viewModel.leaderboardEntries.map(\.rank) == [1, 2, 2, 4])
+        #expect(viewModel.leaderboardEntries.map(\.isTied) == [false, true, true, false])
+    }
+
+    @Test
+    func tiedCurrentUserSeesTheSameRankOnTheirPinnedRowAsInTheList() async {
+        // The reported bug: the pinned row and the list row disagreed for a tied user.
+        let cache = LeaderboardSessionCache()
+
+        let viewModel = LeaderboardViewModel(sessionCache: cache)
+        viewModel.selectedMetric = .climb
+        viewModel.selectedTimeFrame = .weekly
+
+        let stats = [
+            makeRemoteStat(userId: "aaa", displayName: "Leader", totalSteps: 9_000),
+            makeRemoteStat(userId: "mmm", displayName: "Rival", totalSteps: 5_000),
+            makeRemoteStat(userId: "zzz", displayName: "You", totalSteps: 5_000)
+        ]
+        await cache.setDetailEntries(stats, for: .climb, timeFrame: .weekly)
+
+        await viewModel.loadLeaderboard(userId: "zzz")
+
+        let listEntry = viewModel.leaderboardEntries.first { $0.userId == "zzz" }
+        #expect(listEntry?.rank == 2)
+        #expect(listEntry?.isTied == true)
+        #expect(viewModel.userEntry?.rank == listEntry?.rank)
+        #expect(viewModel.userEntry?.isTied == listEntry?.isTied)
+    }
+
+    @Test
+    func tiedTopStepTotalsBothRankFirst() async {
+        let cache = LeaderboardSessionCache()
+
+        let viewModel = LeaderboardViewModel(sessionCache: cache)
+        viewModel.selectedMetric = .climb
+        viewModel.selectedTimeFrame = .weekly
+
+        let stats = [
+            makeRemoteStat(userId: "aaa", displayName: "Tied A", totalSteps: 9_000),
+            makeRemoteStat(userId: "bbb", displayName: "Tied B", totalSteps: 9_000),
+            makeRemoteStat(userId: "ccc", displayName: "Third", totalSteps: 1_000)
+        ]
+        await cache.setDetailEntries(stats, for: .climb, timeFrame: .weekly)
+
+        await viewModel.loadLeaderboard(userId: "aaa")
+
+        #expect(viewModel.leaderboardEntries.map(\.rank) == [1, 1, 3])
+        #expect(viewModel.leaderboardEntries.map(\.isTied) == [true, true, false])
+    }
+
+    @Test
+    func untiedBoardFlagsNobodyAsTied() async {
+        let cache = LeaderboardSessionCache()
+
+        let viewModel = LeaderboardViewModel(sessionCache: cache)
+        viewModel.selectedMetric = .climb
+        viewModel.selectedTimeFrame = .weekly
+
+        let stats = [
+            makeRemoteStat(userId: "aaa", displayName: "First", totalSteps: 9_000),
+            makeRemoteStat(userId: "bbb", displayName: "Second", totalSteps: 5_000),
+            makeRemoteStat(userId: "ccc", displayName: "Third", totalSteps: 1_000)
+        ]
+        await cache.setDetailEntries(stats, for: .climb, timeFrame: .weekly)
+
+        await viewModel.loadLeaderboard(userId: "aaa")
+
+        #expect(viewModel.leaderboardEntries.map(\.rank) == [1, 2, 3])
+        #expect(viewModel.leaderboardEntries.allSatisfy { $0.isTied == false })
+    }
+
     private func makeRemoteStat(
         userId: String,
         displayName: String,
-        totalDuration: Double = 1_800
+        totalDuration: Double = 1_800,
+        totalSteps: Int = 1_200
     ) -> FirestoreLeaderboardStats {
         let period = LeaderboardTimeFrame.weekly.currentPeriod(referenceDate: utcDate(year: 2026, month: 4, day: 10))
-        let aggregate = LeaderboardAggregate(totalSteps: 1_200, totalFloors: 75, totalWorkouts: 2, totalDuration: totalDuration)
+        let aggregate = LeaderboardAggregate(totalSteps: totalSteps, totalFloors: 75, totalWorkouts: 2, totalDuration: totalDuration)
 
         return FirestoreLeaderboardStats(
             userId: userId,

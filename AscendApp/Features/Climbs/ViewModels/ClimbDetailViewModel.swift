@@ -242,7 +242,8 @@ final class ClimbDetailViewModel {
             personalCurrentCompletionRank = LiveReplayCompletionRank(
                 rank: currentUserBestCompletion.rank,
                 completedCount: currentUserBestCompletion.completedCount,
-                updatedAt: currentUserBestCompletion.updatedAt
+                updatedAt: currentUserBestCompletion.updatedAt,
+                isTied: currentUserBestCompletion.isTied
             )
         } else {
             personalCurrentCompletionRank = nil

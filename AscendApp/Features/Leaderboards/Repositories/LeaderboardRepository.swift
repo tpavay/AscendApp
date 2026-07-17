@@ -123,6 +123,8 @@ final class LeaderboardRepository: Sendable {
             }
         }
 
+        // userId only breaks ties in the *ordering* — it never breaks ties in rank.
+        // Matches the server's ordering in functions/src/leaderboardAchievements.ts.
         let stats = statsByUserId.values.sorted {
             let lhs = $0.value(for: metric)
             let rhs = $1.value(for: metric)
@@ -144,11 +146,13 @@ final class LeaderboardRepository: Sendable {
             limit: 1000
         )
 
-        guard let index = allStats.firstIndex(where: { $0.userId == userId }) else {
+        guard let index = allStats.firstIndex(where: { $0.userId == userId }),
+              let rank = CompetitionRanking.rank(at: index, in: allStats, key: { $0.value(for: metric) })
+        else {
             return nil
         }
 
-        return (rank: index + 1, total: allStats.count)
+        return (rank: rank, total: allStats.count)
     }
 
     func updateProfilePictureURL(userId: String, photoURL: String) async throws {

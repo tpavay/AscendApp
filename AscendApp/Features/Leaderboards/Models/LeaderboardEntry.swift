@@ -5,10 +5,13 @@ struct LeaderboardEntry: Identifiable, Equatable, Sendable {
     let userId: String
     let displayName: String
     let photoURL: URL?
+    /// Standard competition rank ("1, 2, 2, 4") — tied entries share a rank.
     let rank: Int
     let value: Double
     let formattedValue: String
     let isCurrentUser: Bool
+    /// Whether at least one other entry shares this rank.
+    let isTied: Bool
 
     init(
         userId: String,
@@ -17,7 +20,8 @@ struct LeaderboardEntry: Identifiable, Equatable, Sendable {
         rank: Int,
         value: Double,
         formattedValue: String,
-        isCurrentUser: Bool = false
+        isCurrentUser: Bool = false,
+        isTied: Bool = false
     ) {
         self.id = userId
         self.userId = userId
@@ -27,6 +31,7 @@ struct LeaderboardEntry: Identifiable, Equatable, Sendable {
         self.value = value
         self.formattedValue = formattedValue
         self.isCurrentUser = isCurrentUser
+        self.isTied = isTied
     }
 }
 

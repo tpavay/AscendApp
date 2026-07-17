@@ -12,28 +12,13 @@ struct LeaderboardPodiumView: View {
     let metric: LeaderboardMetric
     var usesContainerBackground: Bool = false
 
-    private struct PodiumSlot: Identifiable {
-        let rank: Int
-        let entry: LeaderboardEntry?
-
-        var id: Int { rank }
-    }
-
-    private var podiumSlots: [PodiumSlot] {
-        let topRanks = entries
-            .filter { $0.rank <= 3 }
-            .reduce(into: [Int: LeaderboardEntry]()) { partialResult, entry in
-                partialResult[entry.rank] = entry
-            }
-
-        return [2, 1, 3].map { rank in
-            PodiumSlot(rank: rank, entry: topRanks[rank])
-        }
+    private var layout: LeaderboardPodiumLayout {
+        LeaderboardPodiumLayout(entries: entries)
     }
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 10) {
-            ForEach(podiumSlots) { slot in
+            ForEach(layout.slots) { slot in
                 podiumSlot(slot)
             }
         }
@@ -54,7 +39,7 @@ struct LeaderboardPodiumView: View {
     }
 
     @ViewBuilder
-    private func podiumSlot(_ slot: PodiumSlot) -> some View {
+    private func podiumSlot(_ slot: LeaderboardPodiumLayout.Slot) -> some View {
         if let entry = slot.entry, !entry.isCurrentUser {
             NavigationLink {
                 OtherUserProfileView(
@@ -64,7 +49,7 @@ struct LeaderboardPodiumView: View {
                 )
             } label: {
                 LeaderboardPodiumSlotView(
-                    rank: slot.rank,
+                    position: slot.position,
                     entry: slot.entry,
                     metric: metric
                 )
@@ -73,7 +58,7 @@ struct LeaderboardPodiumView: View {
             .frame(maxWidth: .infinity, alignment: .bottom)
         } else {
             LeaderboardPodiumSlotView(
-                rank: slot.rank,
+                position: slot.position,
                 entry: slot.entry,
                 metric: metric
             )
@@ -85,16 +70,26 @@ struct LeaderboardPodiumView: View {
 private struct LeaderboardPodiumSlotView: View {
     @Environment(\.colorScheme) private var colorScheme
 
-    let rank: Int
+    /// Which pedestal this is (1 centre, 2 left, 3 right). Drives geometry only.
+    let position: Int
     let entry: LeaderboardEntry?
     let metric: LeaderboardMetric
 
+    /// The climber's true competition rank — what the label and medal reflect.
+    private var rank: Int {
+        LeaderboardPodiumLayout.Slot(position: position, entry: entry).displayedRank
+    }
+
+    private var isTied: Bool {
+        entry?.isTied ?? false
+    }
+
     private var avatarSize: CGFloat {
-        rank == 1 ? 88 : 68
+        position == 1 ? 88 : 68
     }
 
     private var topInset: CGFloat {
-        rank == 1 ? 0 : 26
+        position == 1 ? 0 : 26
     }
 
     private var medalColor: Color {
@@ -175,10 +170,15 @@ private struct LeaderboardPodiumSlotView: View {
             crownedAvatar
                 .frame(width: avatarSize, height: avatarSize)
 
-            Text("\(rank)")
-                .font(.montserratBold(size: rank == 1 ? 38 : 32))
+            Text(CompetitionRanking.rankLabel(rank, isTied: isTied))
+                .font(.montserratBold(size: position == 1 ? 38 : 32))
                 .foregroundStyle(medalColor)
                 .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .monospacedDigit()
+                .accessibilityLabel(
+                    CompetitionRanking.rankAccessibilityLabel(rank, isTied: isTied)
+                )
 
             Text(displayName.uppercased())
                 .font(.montserratBold(size: 11))
@@ -200,7 +200,7 @@ private struct LeaderboardPodiumSlotView: View {
                     .lineLimit(1)
             }
         }
-        .frame(minHeight: rank == 1 ? 184 : 176, alignment: .bottom)
+        .frame(minHeight: position == 1 ? 184 : 176, alignment: .bottom)
     }
 
     private var crownedAvatar: some View {
@@ -249,11 +249,11 @@ private struct LeaderboardPodiumSlotView: View {
                     placeholderAvatar
                 }
             }
-            .podiumRing(gradient: ringGradient, glow: glowColor, lineWidth: rank == 1 ? 4 : 3, colorScheme: colorScheme)
+            .podiumRing(gradient: ringGradient, glow: glowColor, lineWidth: position == 1 ? 4 : 3, colorScheme: colorScheme)
             .id(photoURL)
         } else {
             placeholderAvatar
-                .podiumRing(gradient: ringGradient, glow: glowColor, lineWidth: rank == 1 ? 4 : 3, colorScheme: colorScheme)
+                .podiumRing(gradient: ringGradient, glow: glowColor, lineWidth: position == 1 ? 4 : 3, colorScheme: colorScheme)
         }
     }
 
@@ -262,7 +262,7 @@ private struct LeaderboardPodiumSlotView: View {
             .fill(colorScheme == .dark ? .white.opacity(0.10) : .black.opacity(0.08))
             .overlay(
                 Image(systemName: entry == nil ? "sparkles" : "person.fill")
-                    .font(.system(size: rank == 1 ? 24 : 20, weight: .semibold))
+                    .font(.system(size: position == 1 ? 24 : 20, weight: .semibold))
                     .foregroundStyle(colorScheme == .dark ? .white.opacity(0.56) : .black.opacity(0.42))
             )
     }
