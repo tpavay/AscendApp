@@ -18,6 +18,10 @@ on:
       - ".firebaserc"
       - ".github/workflows/deploy-staging.yml"
 
+# Never cancel a staging deploy in flight. Every push to develop now triggers
+# one, so back-to-back pushes would abort a run partway through the Firebase
+# deploy or the TestFlight upload and leave staging half-deployed. Overlapping
+# runs queue behind the running one instead.
 concurrency:
   group: deploy-staging-${{ github.ref }}
   cancel-in-progress: false
