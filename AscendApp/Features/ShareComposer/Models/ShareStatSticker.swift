@@ -3,7 +3,7 @@ import Foundation
 
 /// A stat that can be dropped onto the share canvas as a draggable sticker.
 ///
-/// Per CLAUDE.md's Share Composer Architecture: stat stickers are typed,
+/// Per the `ascend-share-composer` skill: stat stickers are typed,
 /// parameterized values — NOT per-stat bespoke layouts. Adding a new stat is
 /// data (a new case + how to read it from the workout/climb), never a new code
 /// path. The visual treatment is decided separately by `ShareStickerStyle`.

@@ -3,9 +3,9 @@ import Foundation
 /// The three live effort zones shown while climbing.
 ///
 /// Product-defined absolute bands over percent of estimated max heart rate —
-/// deliberately NOT a per-user calibrated effort model (see CLAUDE.md →
-/// Workout Measurement). Blue is conversational effort, green is aerobic work,
-/// amber is pushing hard.
+/// deliberately NOT a per-user calibrated effort model (see the
+/// `ascend-workout-model` skill → Workout Measurement). Blue is conversational
+/// effort, green is aerobic work, amber is pushing hard.
 enum HeartRateZone: String, CaseIterable, Sendable {
     case recovery
     case aerobic

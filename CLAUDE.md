@@ -220,5 +220,6 @@ This file is the always-on core, loaded on every turn of every session. Keep it 
 
 - Add here only what is true for **almost every** session: identity, scope, stack, structure, build/test, environments, tokens, engineering baseline, tripwires, routing.
 - Domain detail belongs in a skill under `.claude/skills/`, with a `description` and (where it maps to files) `paths:` globs so it auto-activates. Add a Skill Router row.
+- **`paths:` makes a skill conditional** - it stays out of the skill listing until a matching file is touched. So a skill named by a **tripwire** must have no `paths:` globs, or it won't be loadable from the context where its tripwire fires. Give those skills a `description` that names their real trigger contexts instead.
 - Add a **tripwire** only for a rule that fires from a context that doesn't look like its own domain - the agent would violate it before thinking to load the skill. One line, pointing at the skill with the full version.
 - Prefer a pointer to the authoritative file, command, or doc over copying detail that will drift. Never hand-maintain an index of code (component lists, file inventories) - it rots on the next commit.
