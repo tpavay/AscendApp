@@ -53,6 +53,9 @@ struct NotificationSettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             Task {
                 await refreshAuthorizationStatus()
+                // The unsubscribe link changes this preference outside the app,
+                // so the server value is re-read rather than trusted from launch.
+                await emailPreferences.load()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .climbDropNotificationPreferenceDidChange)) { _ in

@@ -3,6 +3,7 @@ import {
   getMarketingWebsiteUrl,
   getTransactionalReplyToEmail,
 } from "./config";
+import {escapeHtml} from "./html";
 import type {
   EmailJobPayload,
   EmailRenderContext,
@@ -27,20 +28,6 @@ interface BrandedEmailContent {
   subject: string;
   unsubscribeUrl?: string | null;
   whyReceived: string;
-}
-
-/**
- * Escapes untrusted HTML content for safe email rendering.
- * @param {string} value - Raw user-provided content
- * @return {string} Escaped HTML string
- */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 /**

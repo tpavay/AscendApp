@@ -73,6 +73,17 @@ export function getTransactionalEmailConfig(): TransactionalEmailConfig {
     );
   }
 
+  // Required for the same reason as the signing key: this host is what the
+  // unsubscribe link points at, and the token is signed with this
+  // environment's key. Falling back to the production host would emit staging
+  // links that verify against the wrong key and never work.
+  const websiteUrl = normalizePublicUrl(config.websiteUrl);
+  if (!websiteUrl) {
+    throw new Error(
+      "TRANSACTIONAL_EMAIL_CONFIG.websiteUrl must be an https URL"
+    );
+  }
+
   return {
     provider: config.provider,
     apiKey: config.apiKey,
@@ -82,7 +93,7 @@ export function getTransactionalEmailConfig(): TransactionalEmailConfig {
     fromName: config.fromName,
     replyTo: config.replyTo,
     unsubscribeSigningKey: config.unsubscribeSigningKey,
-    websiteUrl: config.websiteUrl,
+    websiteUrl,
   };
 }
 
@@ -96,7 +107,9 @@ export function getUnsubscribeSigningKey(): string {
 
 /**
  * Returns the public marketing website used in customer-facing email copy.
- * Falls back to the primary marketing site when the secret is unavailable.
+ * Falls back to the primary marketing site only in test-only render paths
+ * where the secret is unavailable; a configured secret must carry a valid
+ * websiteUrl or getTransactionalEmailConfig throws before any send.
  * @return {string} Normalized website URL
  */
 export function getMarketingWebsiteUrl(): string {
@@ -105,17 +118,10 @@ export function getMarketingWebsiteUrl(): string {
   }
 
   try {
-    const configuredUrl = normalizePublicUrl(
-      getTransactionalEmailConfig().websiteUrl
-    );
-    if (configuredUrl) {
-      return configuredUrl;
-    }
+    return getTransactionalEmailConfig().websiteUrl;
   } catch {
-    // Ignore missing secret access in test-only render paths.
+    return DEFAULT_MARKETING_WEBSITE_URL;
   }
-
-  return DEFAULT_MARKETING_WEBSITE_URL;
 }
 
 /**

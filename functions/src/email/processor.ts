@@ -6,6 +6,7 @@ import {
   transactionalEmailConfig,
 } from "./config";
 import {renderEmailContentForJob} from "./catalog";
+import {isEmailJobSuppressed} from "./preferences";
 import {sendTransactionalEmail, EmailDeliveryError} from "./provider";
 import {getNextRetryDelayMs} from "./retry";
 import {
@@ -16,6 +17,8 @@ import type {EmailJobDocument} from "./types";
 
 const JOB_BATCH_SIZE = 25;
 const STALE_PROCESSING_MS = 15 * 60 * 1000;
+
+type JobOutcome = "sent" | "retried" | "failed" | "skipped";
 
 /**
  * Creates a Firestore timestamp from a Date instance.
@@ -182,6 +185,26 @@ async function markJobFailed(
 }
 
 /**
+ * Marks an email job as intentionally not delivered.
+ *
+ * Distinct from "failed": nothing went wrong and there is nothing to retry,
+ * so attemptCount and the last error stay untouched.
+ * @param {DocumentReference} jobRef - Email job document reference
+ * @param {Timestamp} nowTimestamp - Current timestamp
+ * @return {Promise<void>}
+ */
+async function markJobSkipped(
+  jobRef: admin.firestore.DocumentReference,
+  nowTimestamp: admin.firestore.Timestamp
+): Promise<void> {
+  await jobRef.update({
+    processingStartedAt: null,
+    status: "skipped",
+    updatedAt: nowTimestamp,
+  });
+}
+
+/**
  * Requeues an email job after a retryable failure.
  * @param {DocumentReference} jobRef - Email job document reference
  * @param {Timestamp} nowTimestamp - Current timestamp
@@ -221,13 +244,25 @@ async function requeueEmailJob(
  * @param {DocumentReference} jobRef - Email job document reference
  * @param {EmailJobDocument} job - Claimed email job
  * @param {Timestamp} nowTimestamp - Current timestamp
- * @return {Promise<"sent" | "retried" | "failed">} Processing outcome
+ * @return {Promise<JobOutcome>} Processing outcome
  */
 async function processClaimedJob(
   jobRef: admin.firestore.DocumentReference,
   job: EmailJobDocument,
   nowTimestamp: admin.firestore.Timestamp
-): Promise<"sent" | "retried" | "failed"> {
+): Promise<JobOutcome> {
+  // Re-read the preference the job was queued under: a retrying job can be
+  // hours old, and the user may have unsubscribed in the meantime. A read
+  // failure throws rather than falling through to a send, leaving the job
+  // claimed for reclaim and a later retry.
+  if (await isEmailJobSuppressed(job)) {
+    await markJobSkipped(jobRef, nowTimestamp);
+    console.log("processEmailJobs skipped by preferences", {
+      jobId: jobRef.id,
+    });
+    return "skipped";
+  }
+
   const nextAttemptCount = job.attemptCount + 1;
   // A signing-key failure is a deploy-config problem, not a bad payload, so
   // let it throw: the job stays claimed and is reclaimed for a later retry
@@ -344,6 +379,7 @@ export const processEmailJobs = onSchedule(
     let sentCount = 0;
     let retriedCount = 0;
     let failedCount = 0;
+    let skippedCount = 0;
 
     for (const document of dueJobsSnapshot.docs) {
       const claimedJob = await claimEmailJob(document.ref, startedAtTimestamp);
@@ -360,6 +396,8 @@ export const processEmailJobs = onSchedule(
         sentCount += 1;
       } else if (outcome === "retried") {
         retriedCount += 1;
+      } else if (outcome === "skipped") {
+        skippedCount += 1;
       } else {
         failedCount += 1;
       }
@@ -371,6 +409,7 @@ export const processEmailJobs = onSchedule(
       reclaimedCount,
       retriedCount,
       sentCount,
+      skippedCount,
     });
   }
 );

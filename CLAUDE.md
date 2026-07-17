@@ -733,16 +733,25 @@ Website source lives in `web/` and is built to `web/dist/` before deploy.
   A missing or short key makes `getTransactionalEmailConfig()` throw, which fails every transactional send, so add the key to each environment's secret *before* deploying functions.
   It fails loudly by design: mail must never go out without a working opt-out path.
   Rotating the key invalidates unsubscribe links in already-delivered mail, so treat it as long-lived.
+- `TRANSACTIONAL_EMAIL_CONFIG.websiteUrl` is **required** and must be an https URL, and it carries the same before-deploy secret-ordering requirement as `unsubscribeSigningKey`: set it in each environment's secret *before* deploying functions or every transactional send fails.
+  It is required rather than defaulted because it is the host the unsubscribe link points at, and the token in that link is signed with the *current* environment's key.
+  A silent fallback to the production host would make staging emails carry links that verify against the production key and never work.
 - Every user-addressed email carries RFC 8058 one-click `List-Unsubscribe` headers plus a footer unsubscribe link, both derived from the job's `recipientUid`.
   Waitlist mail (Beehiiv owns its own opt-out) and admin feedback notifications have no `recipientUid` and intentionally get neither.
 - The unsubscribe endpoint (`/api/unsubscribe` hosting rewrite to `unsubscribeFromEmails`) answers GET with a confirmation page and only acts on POST.
   Keep that split: link scanners and mail-client prefetchers follow GETs, and a GET that unsubscribes would opt users out without their knowledge.
-- `users/{uid}/communication_preferences/current` has two writers: `recordLifecycleEvent` (email prefs) and `updatePushNotificationPreferences` (push prefs).
+- `users/{uid}/communication_preferences/current` has three writers: `recordLifecycleEvent` (email prefs), `updatePushNotificationPreferences` (push prefs), and `unsubscribeFromEmails` (the email unsubscribe endpoint).
   Any write to it must merge, or one feature silently clears the other's preference.
+  `recordLifecycleEvent` and `unsubscribeFromEmails` merge by passing `{merge: true}` and building the document through the shared `buildNextCommunicationPreferences` helper; `updatePushNotificationPreferences` does not pass `{merge: true}` and is safe only because it does a transactional read-modify-write that spreads `...existing`.
+  Route new writers through `buildNextCommunicationPreferences` rather than hand-rolling the document shape.
 - The Functions emulator proxies the `firebase-admin` namespace and strips its statics: inside it, `admin.firestore` is a function but `admin.firestore.Timestamp` and `.FieldValue` are `undefined`, so code using them throws only under the emulator and works in production.
   Import from the modular entry point instead (`import {Timestamp} from "firebase-admin/firestore"`) for anything that needs to run under `firebase emulators:start`.
   The Firestore emulator's REST API also enforces `firestore.rules`; seed fixtures with an `Authorization: Bearer owner` header to get the admin bypass.
 - Legacy queued transactional emails are delivered in the background by the scheduled `processEmailJobs` worker. Do not reintroduce waitlist welcome emails through `email_jobs` unless product explicitly moves off Beehiiv.
+- The lifecycle email preference is gated twice: once when the job is queued and again in `processEmailJobs` right before it sends.
+  Both gates are required. A retrying job backs off up to ~14 hours, so a queue-time-only check would still deliver mail to someone who unsubscribed in that window.
+  A job suppressed at send time gets the terminal `skipped` status, never `failed` - nothing went wrong and there is nothing to retry.
+  The gate applies only to jobs carrying a `recipientUid`; waitlist and admin feedback mail have no uid and always send.
 - In-app feedback submissions (`feedback` collection) trigger `onFeedbackCreated`, which sends an admin notification email directly via Resend (not queued). The recipient is `feedbackNotificationEmail` from the secret config (falls back to `replyTo` → `fromEmail`). Reply-to is set to the submitting user's email. Notification delivery metadata is written back onto the feedback document.
 - Email copy, templates, lifecycle automations, Beehiiv campaigns, and subject lines must follow the Ascend Email Playbook. Codex has this as the `ascend-email-playbook` skill at `~/.codex/skills/ascend-email-playbook`; other agents should apply the same rule set: app-triggered emails go through Cloud Functions/Resend with deterministic dedupe, broadcasts go through Beehiiv, copy is competitive/stair-stepper-specific, and each email has one primary CTA.
 

@@ -173,8 +173,13 @@ final class LifecycleEventRecorder {
     /// Errors that are part of normal operation — a request cancelled by the
     /// system mid-flight, or auth racing sign-out — not defects worth alerting on.
     private nonisolated static func isExpectedTransportNoise(_ error: Error) -> Bool {
-        if error is LifecycleEventRecorderError {
-            return true
+        if let recorderError = error as? LifecycleEventRecorderError {
+            // Exhaustive on purpose: a new case must decide for itself whether
+            // it is noise rather than inheriting silence.
+            switch recorderError {
+            case .signedOut:
+                return true
+            }
         }
 
         let nsError = error as NSError

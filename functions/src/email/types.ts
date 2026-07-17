@@ -10,7 +10,14 @@ export type EmailType =
   | "first_climb_completed"
   | "first_ascent_claimed"
   | "leaderboard_first_place";
-export type EmailJobStatus = "queued" | "processing" | "sent" | "failed";
+export type EmailJobStatus =
+  | "queued"
+  | "processing"
+  | "sent"
+  | "failed"
+  // Deliberately not delivered, e.g. the recipient unsubscribed after the job
+  // was queued. A terminal outcome with nothing to retry and no error.
+  | "skipped";
 
 export interface TransactionalEmailConfig {
   provider: TransactionalEmailProvider;
@@ -21,7 +28,7 @@ export interface TransactionalEmailConfig {
   fromName: string;
   replyTo?: string;
   unsubscribeSigningKey: string;
-  websiteUrl?: string;
+  websiteUrl: string;
 }
 
 export interface TransactionalEmailMessage {

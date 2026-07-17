@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import {
   buildRatingPromptEmailDedupeKey,
   emailTypeForRatingPromptResponse,
-  isLifecycleEmailAllowed,
 } from "../src/email/automation";
+import {isLifecycleEmailAllowed} from "../src/email/preferences";
 import {
   buildEmailJobId,
   buildWaitlistWelcomeDedupeKey,

@@ -9,7 +9,10 @@ import {
 import {buildUnsubscribeHeaders} from "../src/email/provider";
 import {renderUnsubscribePage} from "../src/email/unsubscribe";
 import {buildNextCommunicationPreferences} from "../src/lifecycle";
-import {isLifecycleEmailAllowed} from "../src/email/automation";
+import {
+  isEmailJobSuppressed,
+  isLifecycleEmailAllowed,
+} from "../src/email/preferences";
 import {
   renderRatingPositiveFollowupEmail,
   renderFirstAscentClaimedEmail,
@@ -231,6 +234,69 @@ test("resubscribing re-opens lifecycle email sends", () => {
   );
 
   assert.equal(isLifecycleEmailAllowed(resubscribed), true);
+});
+
+// =============================================================================
+// Send-Time Preference Gate
+// =============================================================================
+
+test("a job unsubscribed after queueing is suppressed", async () => {
+  // The queue-time gate cannot cover this: a retrying job backs off for hours,
+  // and the unsubscribe click lands in that window.
+  const suppressed = await isEmailJobSuppressed(
+    {recipientUid: "user_123"},
+    async () => ({lifecycleEmailsEnabled: false})
+  );
+
+  assert.equal(suppressed, true);
+});
+
+test("a job for a still-subscribed user sends", async () => {
+  const suppressed = await isEmailJobSuppressed(
+    {recipientUid: "user_123"},
+    async () => ({lifecycleEmailsEnabled: true})
+  );
+
+  assert.equal(suppressed, false);
+});
+
+test("a job for a user with no stored preferences sends", async () => {
+  const suppressed = await isEmailJobSuppressed(
+    {recipientUid: "user_123"},
+    async () => null
+  );
+
+  assert.equal(suppressed, false);
+});
+
+test("mail with no recipient uid sends unconditionally", async () => {
+  // Waitlist and admin feedback mail: Beehiiv owns the waitlist opt-out, and
+  // admin notifications are not user mail, so neither has a uid to gate on.
+  let readCount = 0;
+  const suppressed = await isEmailJobSuppressed(
+    {recipientUid: null},
+    async () => {
+      readCount += 1;
+      return {lifecycleEmailsEnabled: false};
+    }
+  );
+
+  assert.equal(suppressed, false);
+  assert.equal(readCount, 0);
+});
+
+test("a failed preference read never falls through to a send", async () => {
+  // The job must stay claimed for reclaim and retry rather than being
+  // delivered on a transient Firestore error.
+  await assert.rejects(
+    () => isEmailJobSuppressed(
+      {recipientUid: "user_123"},
+      async () => {
+        throw new Error("firestore_unavailable");
+      }
+    ),
+    /firestore_unavailable/
+  );
 });
 
 // =============================================================================

@@ -5,7 +5,9 @@ import * as admin from "firebase-admin";
 // endpoint untestable locally.
 import {Timestamp} from "firebase-admin/firestore";
 import {onRequest} from "firebase-functions/v2/https";
+import {buildNextCommunicationPreferences} from "../lifecycle";
 import {getUnsubscribeSigningKey, transactionalEmailConfig} from "./config";
+import {escapeHtml} from "./html";
 import {verifyUnsubscribeToken} from "./unsubscribeToken";
 
 const BRAND_ACCENT_COLOR = "#86D30A";
@@ -13,20 +15,6 @@ const BRAND_ACCENT_COLOR = "#86D30A";
 export type UnsubscribeOutcome =
   | "already_unsubscribed"
   | "unsubscribed";
-
-/**
- * Escapes untrusted content before it is interpolated into the page.
- * @param {string} value - Raw string value
- * @return {string} HTML-escaped value
- */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 /**
  * Renders a standalone confirmation or error page.
@@ -109,14 +97,19 @@ export async function disableLifecycleEmails(
     }
 
     const now = Timestamp.now();
-    transaction.set(preferencesRef, {
-      createdAt: existing.createdAt ?? now,
-      lifecycleEmailsEnabled: false,
-      schemaVersion: 1,
-      unsubscribedAt: now,
-      unsubscribedVia: "email_link",
-      updatedAt: now,
-    }, {merge: true});
+    transaction.set(
+      preferencesRef,
+      buildNextCommunicationPreferences(
+        existing,
+        {
+          lifecycleEmailsEnabled: false,
+          unsubscribedAt: now,
+          unsubscribedVia: "email_link",
+        },
+        now
+      ),
+      {merge: true}
+    );
 
     return "unsubscribed";
   });

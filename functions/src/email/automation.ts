@@ -1,6 +1,7 @@
 import * as admin from "firebase-admin";
 import {onDocumentWritten} from "firebase-functions/v2/firestore";
 import {normalizeEmail, sha256Hex} from "./crypto";
+import {isLifecycleEmailAllowed} from "./preferences";
 import {buildEmailJobId, createQueuedEmailJob} from "./queue";
 import type {EmailType} from "./types";
 
@@ -39,17 +40,6 @@ export function emailTypeForRatingPromptResponse(
  */
 export function buildRatingPromptEmailDedupeKey(uid: string): string {
   return `rating-prompt-answer-email:${uid}`;
-}
-
-/**
- * Determines whether lifecycle emails are currently allowed.
- * @param {PlainObject | null} preferences Stored communication preferences.
- * @return {boolean} True unless lifecycle emails were explicitly disabled.
- */
-export function isLifecycleEmailAllowed(
-  preferences: PlainObject | null
-): boolean {
-  return preferences?.lifecycleEmailsEnabled !== false;
 }
 
 /**
