@@ -649,7 +649,10 @@ Load these skills before writing or reviewing code in their domains. Each listin
 - PRs should target `develop` by default and include `Closes #<number>` in the PR body.
 
 ### Workflows
-- `.github/workflows/ci.yml` runs on PRs to `develop`, verifies the iOS app builds with the `AscendApp-Staging` scheme using `CODE_SIGNING_ALLOWED=NO`, and runs the `AscendAppTests` suite on an iPhone simulator with `ENABLE_TESTABILITY=YES`.
+- `.github/workflows/ci.yml` runs on PRs to `develop` and gates each verify job on the changed paths, so a functions-only PR skips the iOS jobs and an iOS-only PR skips the functions job.
+  `Functions Verify` installs `functions/` and runs its test suite.
+  `iOS Verify (Staging)` runs the `AscendAppTests` suite on an iPhone simulator with the `AscendApp-Staging` scheme and `ENABLE_TESTABILITY=YES`.
+  `iOS Verify (Release)` builds the `AscendApp` scheme unsigned for `iphoneos` with `CODE_SIGNING_ALLOWED=NO`.
 - `.github/workflows/deploy-staging.yml` runs on pushes to `develop` and manual dispatch, and executes sequential jobs (stop on failure):
   1. Build iOS app (Staging scheme, produce IPA)
   2. Deploy Firebase Functions
