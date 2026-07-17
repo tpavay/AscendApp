@@ -1,9 +1,6 @@
 ---
 name: ascend-privacy-manifest
-description: Use when Ascend collects a new data type, calls a required-reason API, adds or upgrades a third-party SDK, or starts ATT-sense tracking - and when preparing App Store submission. Covers PrivacyInfo.xcprivacy maintenance, the four artifacts that must agree (manifest, privacy policy, App Store questionnaire, Info.plist usage strings), and when to flip NSPrivacyTracking.
-paths:
-  - AscendApp/PrivacyInfo.xcprivacy
-  - AscendApp/Info.plist
+description: Use when Ascend collects a new data type - any new Firestore field, HealthKit metric read, or profile/onboarding input captured from the user - calls a required-reason API (UserDefaults, file timestamps, boot time, disk space, active keyboards), adds or upgrades a third-party SDK or Swift package, or starts ATT-sense tracking, and when preparing App Store submission. These triggers fire while editing Swift sources or project.pbxproj, not just while editing the manifest itself. Covers PrivacyInfo.xcprivacy maintenance, the four artifacts that must agree (manifest, privacy policy, App Store questionnaire, Info.plist usage strings), and when to flip NSPrivacyTracking.
 ---
 
 # Privacy Manifest Maintenance

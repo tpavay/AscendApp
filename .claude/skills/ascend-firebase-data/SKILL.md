@@ -1,12 +1,6 @@
 ---
 name: ascend-firebase-data
-description: Use when changing Firestore document schemas or security rules, writing user media to Firebase Storage, deleting an account or sweeping its data, or handling offline/connectivity state in Ascend. Covers the strict hasOnly/hasAll rules contract, the required rules-first change order, user-scoped Storage prefixes, the account-deletion ordering contract, and the single-source-of-truth connectivity rule.
-paths:
-  - firestore.rules
-  - storage.rules
-  - firestore.indexes.json
-  - AscendApp/Shared/Repositories/**
-  - tests/firebase-rules/**
+description: Use when adding, renaming, or removing any Firestore field - including from a Swift model or repository, which requires a matching firestore.rules update first - and when changing security rules or indexes, writing user media to Firebase Storage, deleting an account or sweeping its data, or handling offline/connectivity state in Ascend. Covers the strict hasOnly/hasAll rules contract, the required rules-first change order, user-scoped Storage prefixes, the account-deletion ordering contract, and the single-source-of-truth connectivity rule.
 ---
 
 # Ascend Firestore + Storage

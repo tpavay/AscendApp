@@ -1,10 +1,6 @@
 ---
 name: ascend-workout-model
-description: Use when working on the canonical Ascend Workout model - workout durability and cloud backup, sync state and the sync coordinator, workout source vs participation separation, sensor capture, plausibility validation, workout measurement (steps, duration, SPM, StairMaster level mapping, historical percentile), or the deprecated base-level/effort-score legacy. Covers the local-first SwiftData + Firestore contract and the workout schema open/closed rule.
-paths:
-  - AscendApp/Shared/Models/Workout*
-  - AscendApp/Shared/Services/Workout*
-  - AscendApp/Features/Workouts/**
+description: Use when working on the canonical Ascend Workout model, or when wiring any new workout origin - manual entry, external import, or sensor capture - into it, which fires from integration and feature code outside the Workouts folder. Covers workout durability and cloud backup, sync state and the sync coordinator, workout source vs participation separation, plausibility validation, workout measurement (steps, duration, SPM, StairMaster level mapping, historical percentile), the integrity gate keeping Live Climb and routine completions exclusive to their live sensor flows, the deprecated base-level/effort-score legacy, and the local-first SwiftData + Firestore contract with the workout schema open/closed rule.
 ---
 
 # Workout Model
