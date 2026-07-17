@@ -37,6 +37,32 @@ export const FIRST_ASCENT_FIELD_NAMES = Object.freeze([
 ]);
 
 /**
+ * `activityTier` marking a summary seeded with an open First Ascent slot.
+ *
+ * Seeded summaries declare their intent through this tier, so the seed writer
+ * and the audit agree on which climbs are supposed to carry zero completions
+ * rather than each inferring it from the counts they are meant to be checking.
+ */
+export const FIRST_ASCENT_OPEN_ACTIVITY_TIER = "open";
+
+/**
+ * Reports whether a summary already carries a First Ascent holder.
+ *
+ * Mirrors `leaderboardHasFirstAscent` in the Cloud Function, which is the
+ * predicate that decides whether a finisher can still claim the slot. Reading
+ * the state any other way would pass a summary the server would refuse.
+ * @param {Record<string, unknown> | undefined} summary Replay summary fields.
+ * @return {boolean} True when the slot is already held.
+ */
+export function summaryHasFirstAscent(summary) {
+  if (!summary) return false;
+
+  return summary.firstAscentCompletedAt !== undefined ||
+    (typeof summary.firstAscentUserId === "string" &&
+      summary.firstAscentUserId.length > 0);
+}
+
+/**
  * Anchor for synthetic First Ascent dates.
  *
  * A First Ascent is a permanent historical fact, so seeded holders get a fixed
@@ -66,19 +92,26 @@ export function firstAscentClaimedAt(seedPackId, climbId) {
  * Builds the First Ascent fields for a seeded holder.
  *
  * Mirrors the server's `firstAscentWrite` payload so seeded holders are
- * indistinguishable from claimed ones on the client.
- * @param {object} attempt Seeded attempt that holds the First Ascent.
- * @param {Date} claimedAt Permanent claim date.
+ * indistinguishable from claimed ones on the client. Every seed script that
+ * publishes a holder goes through here - a hand-rolled literal is another copy
+ * of the contract that drifts silently.
+ * @param {object} holder Completion that holds the First Ascent.
+ * @param {string} holder.id Workout/entry ID of the holding completion.
+ * @param {string} holder.userId Holder's user ID.
+ * @param {string} holder.displayName Holder's public display name.
+ * @param {string} holder.avatarToken Holder's avatar token.
+ * @param {string} [holder.photoURL] Holder's public photo URL, if any.
+ * @param {Date|object} claimedAt Permanent claim date.
  * @return {Record<string, unknown>} Firestore fields to merge.
  */
-export function firstAscentSeedFields(attempt, claimedAt) {
+export function firstAscentSeedFields(holder, claimedAt) {
   return {
-    firstAscentAvatarToken: attempt.avatarToken,
+    firstAscentAvatarToken: holder.avatarToken,
     firstAscentCompletedAt: claimedAt,
-    firstAscentDisplayName: attempt.displayName,
-    firstAscentPhotoURL: attempt.photoURL ?? "",
-    firstAscentUserId: attempt.userId,
-    firstAscentWorkoutId: attempt.id,
+    firstAscentDisplayName: holder.displayName,
+    firstAscentPhotoURL: holder.photoURL ?? "",
+    firstAscentUserId: holder.userId,
+    firstAscentWorkoutId: holder.id,
   };
 }
 

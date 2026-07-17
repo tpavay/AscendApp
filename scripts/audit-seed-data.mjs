@@ -19,6 +19,10 @@ import {
   resolveProjectId,
 } from "./seed/lib/environments.mjs";
 import {
+  FIRST_ASCENT_OPEN_ACTIVITY_TIER,
+  summaryHasFirstAscent,
+} from "./seed/lib/live-replay-first-ascent.mjs";
+import {
   buildLeaderboardSeedWrites,
   currentPeriod,
   expectedLeaderboardDocIds,
@@ -306,12 +310,18 @@ async function auditLiveReplay(db, projectId, failures) {
     requirePresent(data, "replayEntryCount", path, failures);
     requirePresent(data, "bucketIntervalSeconds", path, failures);
 
+    const bucketZero = await doc.ref.collection("splitBuckets").doc("0").collection("entries").get();
+    bucketZeroEntries += bucketZero.size;
+
+    if (data.activityTier === FIRST_ASCENT_OPEN_ACTIVITY_TIER) {
+      auditOpenFirstAscentSummary(data, path, bucketZero, failures);
+      continue;
+    }
+
     if (!positiveNumber(data.completedCount)) failures.push(`${path} completedCount must be positive`);
     if (!positiveNumber(data.totalClimbers)) failures.push(`${path} totalClimbers must be positive`);
     if (!positiveNumber(data.replayEntryCount)) failures.push(`${path} replayEntryCount must be positive`);
 
-    const bucketZero = await doc.ref.collection("splitBuckets").doc("0").collection("entries").get();
-    bucketZeroEntries += bucketZero.size;
     if (bucketZero.empty) {
       failures.push(`${path}/splitBuckets/0 has no entries`);
       continue;
@@ -330,6 +340,36 @@ async function auditLiveReplay(db, projectId, failures) {
   }
 
   return `live-replay: ${snapshot.size} summaries, ${bucketZeroEntries} bucket-zero entries checked`;
+}
+
+/**
+ * Audits a summary seeded with an open First Ascent slot.
+ *
+ * An open slot is only claimable while the climb has zero completions and no
+ * holder, so these summaries carry deliberate zeros rather than the seeded
+ * traffic every other climb has. They stay strictly audited: a count or a holder
+ * that leaked in - from a stale seed, or another script merging a completion
+ * into the same summary - puts the climb back in the dead state where the UI
+ * reads "open" but the server refuses the claim.
+ * @param {Record<string, unknown>} data Summary fields.
+ * @param {string} path Summary document path, for failure messages.
+ * @param {object} bucketZero Bucket-zero entries snapshot.
+ * @param {string[]} failures Accumulated audit failures.
+ */
+function auditOpenFirstAscentSummary(data, path, bucketZero, failures) {
+  for (const field of ["completedCount", "totalClimbers", "replayEntryCount"]) {
+    if (Number(data[field]) !== 0) {
+      failures.push(`${path} has an open First Ascent but ${field} is ${data[field]}; the slot could never be claimed`);
+    }
+  }
+
+  if (summaryHasFirstAscent(data)) {
+    failures.push(`${path} has an open First Ascent but already carries a holder; clear/reseed live-replay`);
+  }
+
+  if (!bucketZero.empty) {
+    failures.push(`${path}/splitBuckets/0 has ${bucketZero.size} entries but the climb seeds no completions`);
+  }
 }
 
 async function auditRoutineTemplates(db, projectId, failures) {

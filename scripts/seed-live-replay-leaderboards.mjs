@@ -34,6 +34,7 @@ import {FieldValue, getFirestore} from "firebase-admin/firestore";
 import {getStorage} from "firebase-admin/storage";
 import {hashString, mulberry32} from "./seed/lib/deterministic.mjs";
 import {
+  FIRST_ASCENT_OPEN_ACTIVITY_TIER,
   assertFirstAscentInvariant,
   clearedFirstAscentFields,
   firstAscentClaimedAt,
@@ -100,14 +101,19 @@ const WARM_CLIMBS = [
  * never renders as a claimable opportunity. These give the open state a real
  * document to read.
  *
- * The spread covers gold/diamond/legendary/mythic tiers across five continents.
+ * The spread covers gold/diamond/legendary/mythic tiers across four continents.
  * Sky Tower is deliberately the cheapest (1,804 steps) so a QA session can
  * actually finish it and claim a First Ascent end to end.
+ *
+ * Exactly four, and no climb that `seed-demo-user.mjs` completes. Four because
+ * `ProfileFirstAscentService` fills its open list in catalog order and caps at
+ * four, so a fifth would push out whichever climb sorts last - Sky Tower, the
+ * one QA needs. Disjoint from the demo user's climbs because both scripts merge
+ * into the same summary, and whichever runs last would strand the other's state.
  */
 const FIRST_ASCENT_OPEN_CLIMBS = [
   {id: "sky-tower-auckland"},
-  {id: "berlin-tv-tower"},
-  {id: "taipei-101"},
+  {id: "oriental-pearl-tower"},
   {id: "table-mountain"},
   {id: "machu-picchu"},
 ].map((config) => ({
@@ -512,7 +518,10 @@ function buildSeedPlan(climbsById, paceSamples, args, avatarURLs) {
   const configs = [
     ...ACTIVE_CLIMBS.map((config) => ({...config, activityTier: "active"})),
     ...WARM_CLIMBS.map((config) => ({...config, activityTier: "warm"})),
-    ...FIRST_ASCENT_OPEN_CLIMBS.map((config) => ({...config, activityTier: "open"})),
+    ...FIRST_ASCENT_OPEN_CLIMBS.map((config) => ({
+      ...config,
+      activityTier: FIRST_ASCENT_OPEN_ACTIVITY_TIER,
+    })),
   ];
 
   const missingConfigs = configs.filter((config) => !climbsById.has(config.id));

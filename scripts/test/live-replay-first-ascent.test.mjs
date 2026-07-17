@@ -10,6 +10,7 @@ import {
   clearedFirstAscentFields,
   firstAscentClaimedAt,
   firstAscentSeedFields,
+  summaryHasFirstAscent,
 } from "../seed/lib/live-replay-first-ascent.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -74,6 +75,57 @@ test("seed script publishes the same First Ascent fields as the Cloud Function",
     .sort();
 
   assert.deepEqual(serverFields, [...FIRST_ASCENT_FIELD_NAMES].sort());
+});
+
+test("every seed script that publishes a holder routes through the module", () => {
+  // A second hand-rolled literal is a copy of the contract the cross-file test
+  // above cannot see: it would keep passing while the copy drifts.
+  for (const script of ["scripts/seed-demo-user.mjs", "scripts/seed-live-replay-leaderboards.mjs"]) {
+    const source = readFileSync(resolve(REPO_ROOT, script), "utf8");
+
+    assert.match(
+      source,
+      /import\s*\{[^}]*firstAscentSeedFields[^}]*\}\s*from\s*["'][^"']*live-replay-first-ascent\.mjs["']/,
+      `${script} must build First Ascent fields through the shared module`
+    );
+
+    for (const field of FIRST_ASCENT_FIELD_NAMES) {
+      assert.doesNotMatch(
+        source,
+        new RegExp(`${field}\\s*:`),
+        `${script} re-declares ${field} instead of using firstAscentSeedFields`
+      );
+    }
+  }
+});
+
+test("holder detection matches the predicate the server claims against", () => {
+  // canClaimFirstAscent keys off leaderboardHasFirstAscent, so reading the state
+  // any other way would pass a summary the server would refuse to hand over.
+  const source = readFileSync(
+    resolve(REPO_ROOT, "functions/src/liveReplayLeaderboard.ts"),
+    "utf8"
+  );
+  const predicateBody = source.match(
+    /function leaderboardHasFirstAscent\([\s\S]*?\n\}/
+  )?.[0];
+  assert.ok(predicateBody, "could not locate leaderboardHasFirstAscent in the Cloud Function");
+
+  const serverFields = [...new Set(
+    [...predicateBody.matchAll(/data\.(firstAscent\w+)/g)].map((match) => match[1])
+  )].sort();
+
+  assert.deepEqual(serverFields, ["firstAscentCompletedAt", "firstAscentUserId"]);
+
+  assert.equal(summaryHasFirstAscent(undefined), false);
+  assert.equal(summaryHasFirstAscent({}), false);
+  assert.equal(summaryHasFirstAscent({firstAscentUserId: ""}), false);
+  assert.equal(summaryHasFirstAscent({firstAscentUserId: "user-1"}), true);
+  assert.equal(summaryHasFirstAscent({firstAscentCompletedAt: new Date()}), true);
+  assert.equal(
+    summaryHasFirstAscent(firstAscentSeedFields(attempt, new Date("2026-01-01T00:00:00Z"))),
+    true
+  );
 });
 
 test("clearing removes every First Ascent field", () => {
