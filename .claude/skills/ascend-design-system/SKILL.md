@@ -2,6 +2,7 @@
 name: ascend-design-system
 description: Use when building or reviewing Ascend UI conventions - branding and the Ascend wordmark, onboarding/auth screen chrome, sheets and AppSheetPreset, keyboard toolbars, level sliders, integrations cards, icons, climb card treatment, achievement motifs, or the spacing / corner-radius / animation-duration scales. Covers which shared component to reuse instead of rebuilding a screen-specific one.
 paths:
+  - AscendApp/Features/**
   - AscendApp/Shared/Components/**
   - AscendApp/Shared/Views/**
   - AscendApp/Shared/Managers/ThemeManager.swift

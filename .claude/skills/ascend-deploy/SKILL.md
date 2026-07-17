@@ -1,6 +1,6 @@
 ---
 name: ascend-deploy
-description: Use when working on Ascend CI/CD - GitHub Actions workflows, the staging and production deploy pipelines, Firebase deploy ordering, OIDC / Workload Identity Federation deploy auth, Fastlane lanes, match code signing, or TestFlight upload. Covers the required secrets, the deprecated ones, and the pipeline job order.
+description: Use when working on Ascend CI/CD - GitHub Actions workflows, the staging and production deploy pipelines, Firebase deploy ordering, deploy authentication, Fastlane lanes, match code signing, or TestFlight upload. Covers the required secrets, the deprecated ones, the real job graph, and the open OIDC / Workload Identity Federation migration.
 paths:
   - .github/workflows/**
   - fastlane/**
@@ -10,29 +10,40 @@ paths:
 # Deploy
 
 ## Workflows
-- `.github/workflows/ci.yml` runs on PRs to `main`. A `changes` job gates each verify job on the changed paths, so a functions-only PR skips the iOS jobs and an iOS-only PR skips the functions job:
-  - `functions-verify` installs `functions/` and runs its test suite.
-  - `ios-verify` builds the `AscendApp-Staging` scheme in the `Staging` configuration on an iPhone simulator with `ENABLE_TESTABILITY=YES` and runs the `AscendAppTests` suite. It picks the simulator at runtime from `xcodebuild -showdestinations`, preferring recent iPhone models and failing if none are available.
-  - `ios-verify-release` builds the `AscendApp` scheme in the `Release` configuration against `-sdk iphoneos` with `CODE_SIGNING_ALLOWED=NO`. It only builds, and exists so Release-only and device-only compile errors surface on the PR instead of first appearing in the production deploy.
-- CI is the only automated gate before `main`, so a workflow trigger that points at a branch which no longer exists silently disables it. When the branching model changes, change this trigger in the same PR.
-- `.github/workflows/deploy-staging.yml` runs on manual dispatch only, and has three jobs:
-  1. Build iOS app (Staging scheme, produce IPA)
-  2. Deploy Firebase in one step (Functions, Firestore rules, Firestore indexes, Storage rules, Hosting). This runs in parallel with the IPA build: the backend deploy does not depend on the iOS binary, and staging tolerates the backend landing even when the app build fails.
-  3. Upload to TestFlight. It needs both jobs above, so it runs last (hardest to reverse).
-- Staging has no automatic trigger. It cannot simply run on pushes to `main`, because `deploy-production.yml` already does, and one push would deploy both. Giving staging its own non-colliding trigger is tracked in issue #203.
-- `.github/workflows/deploy-production.yml` runs on pushes to `main` and manual dispatch. It deploys the same targets as staging, including Firestore indexes, with Release configuration. Unlike staging, it stays strictly sequential (stop on failure) - every job needs the one before it - and remains gated behind `PRODUCTION_READY=true` plus GitHub `production` environment protection.
 
-## Deploy Authentication (OIDC)
-- GitHub Actions deploys to Firebase must use OIDC + GCP Workload Identity Federation.
-- Do not use long-lived Firebase/GCP JSON key secrets for deploy auth.
-- Required staging secrets:
-  - `GCP_WORKLOAD_IDENTITY_PROVIDER`
-  - `GCP_SERVICE_ACCOUNT_EMAIL`
-- Required production secrets:
-  - `GCP_WORKLOAD_IDENTITY_PROVIDER_PRODUCTION`
-  - `GCP_SERVICE_ACCOUNT_EMAIL_PRODUCTION`
-- Deprecated for deploy auth:
-  - `FIREBASE_SERVICE_ACCOUNT_STAGING`
+Read the workflow file before changing it - the job graph below is the contract, and it is not the same on staging and production.
+
+`.github/workflows/ci.yml` runs on PRs to `main`, and is the only automated gate before `main`. Every verify job is gated on the changed paths, so a functions-only PR skips the iOS jobs and an iOS-only PR skips the functions job:
+- `changes` - a `dorny/paths-filter` job that resolves the `ios` and `functions` outputs. Every other job declares `needs: changes` and an `if:` on one of those outputs, so a new verify job is skipped by default until you add it to the filter.
+- `functions-verify` - installs `functions/` and runs its test suite (`npm --prefix functions ci`, then `npm --prefix functions test`).
+- `ios-verify` - runs `test` only (no build step) with `-scheme "AscendApp-Staging" -configuration Staging ENABLE_TESTABILITY=YES`. It picks the simulator at runtime from `xcodebuild -showdestinations`, preferring recent iPhone models and failing if none are available. It does not pass `CODE_SIGNING_ALLOWED=NO`.
+- `ios-verify-release` - the only job that compiles Release and the only place `CODE_SIGNING_ALLOWED=NO` appears, paired with `-scheme "AscendApp" -configuration Release -sdk iphoneos -destination "generic/platform=iOS"`. It exists so Release-only build errors surface on the PR instead of on the production deploy.
+
+A trigger pointing at a branch that no longer exists silently disables the workflow rather than failing. When the branching model changes, change the trigger in the same PR.
+
+`.github/workflows/deploy-staging.yml` runs on manual dispatch only. Three jobs, **not** a sequential chain:
+- `build-ios` - Staging scheme, produces the IPA.
+- `deploy-firebase` - has **no `needs:`**, so it runs in parallel with `build-ios` and will deploy even if the app build fails. Steps 2-6 of the old "sequential" story are in fact one command: `--only functions,firestore:rules,firestore:indexes,storage,hosting`. The workflow comment frames this as tolerated, but it is a known CI safety gap tracked in issue #202 - treat it as a gap, not as settled design.
+- `upload-testflight` - the only gated job here: `needs: [build-ios, deploy-firebase]`. Last because it is hardest to reverse.
+
+Staging has no automatic trigger, which is a known gap rather than the end state. It cannot simply run on pushes to `main`, because `deploy-production.yml` already does and one push would deploy both. Choosing a non-colliding trigger is tracked in issue #203.
+
+`.github/workflows/deploy-production.yml` runs on pushes to `main` and manual dispatch. It is **stricter** than staging, not a mirror of it: every job is gated behind `PRODUCTION_READY=true` plus GitHub `production` environment protection, and `deploy-firebase` keeps `needs: [production-gate, build-ios]`, so a failed build stops the deploy. Same combined `--only` deploy command, Release configuration.
+
+## Deploy Authentication
+
+**Today (what the workflows actually do):** both pipelines authenticate to Firebase with a single long-lived `FIREBASE_TOKEN` repository secret, passed as `--token "$FIREBASE_TOKEN"` on the `firebase-tools` deploy step (`deploy-staging.yml`, `deploy-production.yml`). Both deploy jobs declare only `permissions: contents: read`. Commit a3c4021 moved deploys to this token and removed the `google-github-actions/auth@v2` steps. If you are editing a deploy step now, this is the mechanism you are working with.
+
+**Target (not yet implemented):** move deploys to OIDC + GCP Workload Identity Federation and retire the standing long-lived credential. This is a real open security gap, not a settled decision - `FIREBASE_TOKEN` is a broad, non-expiring credential that OIDC's short-lived tokens would replace.
+
+The migration needs work that does not exist yet, so do not assume any of it is in place:
+- No OIDC or WIF reference exists anywhere in `.github/`.
+- These secrets are **not currently configured** - do not reference them from a workflow until they are provisioned: `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT_EMAIL`, and the `_PRODUCTION` variants of both.
+- The deploy jobs would additionally need `permissions: id-token: write`.
+
+Deprecated for deploy auth: `FIREBASE_SERVICE_ACCOUNT_STAGING`.
+
+Do not introduce a *new* long-lived JSON service-account key for deploy auth; that moves away from the target.
 
 ## Fastlane
 - `Gemfile` and `fastlane/` define lanes for:

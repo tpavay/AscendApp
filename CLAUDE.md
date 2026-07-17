@@ -135,7 +135,7 @@ Baseline for every change. If a loaded skill prescribes something more specific,
 - **Render path stays cheap.** No filter/reduce/sort over large arrays and no SwiftData queries inside `body`. Cache derived state.
 - **Don't fight SwiftUI's diff.** Stable identities; don't pass freshly-recreated objects into deep children.
 - **Clarity over cleverness.** If a future reader won't immediately understand a line, the code is wrong.
-- **Delete before you defend.** Dead code, commented-out experiments, "just in case" abstractions - remove them. Git history is the backup.
+- **Delete before you defend.** Dead code, commented-out experiments, "just in case" abstractions - remove them; a deprecated path may only stay if it carries a written deprecation/removal date. Git history is the backup.
 - **Comments explain WHY, not WHAT.** They earn space only for a non-obvious constraint, workaround, or invariant.
 
 ## Tripwires
