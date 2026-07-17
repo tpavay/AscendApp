@@ -325,10 +325,17 @@ struct WorkoutSyncCoordinatorTests {
             }
         )
         let heartRateRepository = FakeWorkoutHeartRateStorageRepository()
+        // onUpsert re-enters the coordinator, so the sync only finishes once it
+        // can hop back to the main actor - which CI saturates for tens of seconds
+        // by running this @MainActor suite alongside every other one. A timeout
+        // short enough to lose that race fails the first pass, and the coalesced
+        // pass then correctly retries it, producing a second upsert that reads as
+        // a coalescing bug. Coalescing is what's under test, so pin a timeout the
+        // run can never reach instead of one that is merely usually long enough.
         let coordinator = WorkoutSyncCoordinator(
             remoteRepository: remoteRepository,
             heartRateStorageRepository: heartRateRepository,
-            operationTimeoutSeconds: 5
+            operationTimeoutSeconds: 3600
         )
         coordinatorReference.value = coordinator
 
