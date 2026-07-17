@@ -30,10 +30,6 @@ struct ProfileSnapshot {
         stats.totalFirstAscents
     }
 
-    var totalMedalWeeks: Int {
-        achievements.total
-    }
-
     var totalClimbsCollected: Int {
         collection.collectedCount
     }

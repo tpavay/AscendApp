@@ -189,10 +189,10 @@ service cloud.firestore {
           "lifetime_duration_seconds",
           "total_climbs",
           "average_steps_per_minute",
-          "top_1_weeks",
-          "top_3_weeks",
-          "top_10_weeks",
-          "top_100_weeks",
+          "top_1_finishes",
+          "top_3_finishes",
+          "top_10_finishes",
+          "top_100_finishes",
           "most_completed_climb_id",
           "current_streak_weeks",
           "best_streak_weeks",
@@ -208,10 +208,10 @@ service cloud.firestore {
           "lifetime_duration_seconds",
           "total_climbs",
           "average_steps_per_minute",
-          "top_1_weeks",
-          "top_3_weeks",
-          "top_10_weeks",
-          "top_100_weeks",
+          "top_1_finishes",
+          "top_3_finishes",
+          "top_10_finishes",
+          "top_100_finishes",
           "most_completed_climb_id",
           "current_streak_weeks",
           "best_streak_weeks",
@@ -231,14 +231,14 @@ service cloud.firestore {
         request.resource.data.total_climbs is int &&
         request.resource.data.total_climbs >= 0 &&
         isNonNegativeNumber(request.resource.data.average_steps_per_minute) &&
-        request.resource.data.top_1_weeks is int &&
-        request.resource.data.top_1_weeks >= 0 &&
-        request.resource.data.top_3_weeks is int &&
-        request.resource.data.top_3_weeks >= request.resource.data.top_1_weeks &&
-        request.resource.data.top_10_weeks is int &&
-        request.resource.data.top_10_weeks >= request.resource.data.top_3_weeks &&
-        request.resource.data.top_100_weeks is int &&
-        request.resource.data.top_100_weeks >= request.resource.data.top_10_weeks &&
+        request.resource.data.top_1_finishes is int &&
+        request.resource.data.top_1_finishes >= 0 &&
+        request.resource.data.top_3_finishes is int &&
+        request.resource.data.top_3_finishes >= request.resource.data.top_1_finishes &&
+        request.resource.data.top_10_finishes is int &&
+        request.resource.data.top_10_finishes >= request.resource.data.top_3_finishes &&
+        request.resource.data.top_100_finishes is int &&
+        request.resource.data.top_100_finishes >= request.resource.data.top_10_finishes &&
         request.resource.data.most_completed_climb_id is string &&
         request.resource.data.most_completed_climb_id.size() <= 160 &&
         request.resource.data.current_streak_weeks is int &&
