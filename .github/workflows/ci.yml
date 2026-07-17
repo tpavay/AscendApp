@@ -7,6 +7,7 @@ on:
       - "AscendApp/**"
       - "AscendAppTests/**"
       - "AscendApp.xcodeproj/**"
+      - "functions/**"
       - ".github/workflows/**"
       - ".github/workflows/ci.yml"
 
@@ -16,10 +17,63 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
+  changes:
+    name: Detect Changed Areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ios: ${{ steps.filter.outputs.ios }}
+      functions: ${{ steps.filter.outputs.functions }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Filter changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            ios:
+              - "AscendApp/**"
+              - "AscendAppTests/**"
+              - "AscendApp.xcodeproj/**"
+              - ".github/workflows/**"
+            functions:
+              - "functions/**"
+              - ".github/workflows/**"
+
+  functions-verify:
+    name: Functions Verify
+    needs: changes
+    if: needs.changes.outputs.functions == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      - name: Install dependencies
+        run: npm --prefix functions ci
+
+      - name: Run tests
+        run: npm --prefix functions test
+
   ios-verify:
     name: iOS Verify (Staging)
+    needs: changes
+    if: needs.changes.outputs.ios == 'true'
     runs-on: macos-15
     timeout-minutes: 45
 
@@ -164,6 +218,8 @@ jobs:
 
   ios-verify-release:
     name: iOS Verify (Release)
+    needs: changes
+    if: needs.changes.outputs.ios == 'true'
     runs-on: macos-15
     timeout-minutes: 45
 
