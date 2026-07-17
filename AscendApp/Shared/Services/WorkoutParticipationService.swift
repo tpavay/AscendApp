@@ -5,6 +5,10 @@ import SwiftData
 /// flow, so manual entries and external imports can never earn competitive credit.
 enum RoutineAttributionOrigin: Equatable, Sendable {
     case liveSession(stopReason: HeadphoneMotionSessionStopReason)
+
+    /// Retained without a current producer on purpose. Collapsing this enum to a bare stop reason
+    /// would leave a future manual-entry caller no way to say "not a live session" except inventing
+    /// a live stop reason, which is the fail-open trap the `didCompleteAsPlanned` default was.
     case manualEntry
 }
 

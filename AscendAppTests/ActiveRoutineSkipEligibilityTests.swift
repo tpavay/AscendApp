@@ -217,6 +217,69 @@ struct ActiveRoutineSkipEligibilityTests {
         #expect(presentation.showsPendingRankingState == false)
     }
 
+    /// The funnel reads the stop reason off the record, so a session the record calls forfeited can
+    /// never be reported as a completion. A skip taints the session before anything is recorded.
+    @Test
+    func skippedSessionTracksTheSkippedStopReason() {
+        let viewModel = makeViewModel()
+        viewModel.skipInterval()
+
+        let parameters = viewModel.sessionCompletionAnalyticsEvent.record.parameters
+
+        #expect(parameters["stop_reason"]?.stringValue == viewModel.resolvedStopReason.rawValue)
+        #expect(parameters["stop_reason"]?.stringValue == "skipped")
+    }
+
+    /// The climber taps Stop while the final interval is still running, so the recorded result says
+    /// `.userStopped` even though the unskipped interval list would derive `.targetReached`. The
+    /// funnel must follow the record, not re-derive.
+    @Test
+    func stoppedSessionTracksTheRecordedStopReasonNotTheDerivedOne() async throws {
+        let container = try ModelContainer(
+            for: ActiveHeadphoneWorkoutDraft.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let modelContext = ModelContext(container)
+        let routine = makeRoutine()
+
+        let draft = ActiveHeadphoneWorkoutDraft(
+            sessionID: "session-stopped",
+            kind: .routine,
+            title: routine.name,
+            subtitle: "",
+            workoutName: routine.name,
+            targetStepCount: 900,
+            targetDurationSeconds: routine.totalDuration,
+            routineId: routine.id,
+            routineSource: routine.source,
+            routineTemplateId: routine.templateId
+        )
+        modelContext.insert(draft)
+
+        let viewModel = ActiveRoutineViewModel(routine: routine, recoveredDraft: draft)
+        viewModel.startSession(modelContext: modelContext)
+        viewModel.stopTimer()
+
+        #expect(viewModel.completionStopReason == .targetReached)
+
+        await #expect(throws: ActiveRoutineSessionError.self) {
+            _ = try await viewModel.saveRecordedWorkout(
+                modelContext: modelContext,
+                reason: .userStopped
+            )
+        }
+
+        #expect(viewModel.recordedResult?.stopReason == .userStopped)
+        #expect(viewModel.resolvedStopReason == .userStopped)
+        #expect(viewModel.countsAsCompletion == false)
+
+        let parameters = viewModel.sessionCompletionAnalyticsEvent.record.parameters
+
+        #expect(parameters["stop_reason"]?.stringValue == viewModel.resolvedStopReason.rawValue)
+        #expect(parameters["stop_reason"]?.stringValue == "user_stopped")
+        #expect(parameters["stop_reason"]?.stringValue != "target_reached")
+    }
+
     @Test
     func skippedSessionSuppressesStandingOnTheViewModel() {
         let viewModel = makeViewModel()

@@ -182,6 +182,18 @@ final class ActiveRoutineViewModel {
         )
     }
 
+    /// Reads `resolvedStopReason` so the funnel reports the same outcome the participation record
+    /// and the summary were built from, rather than a second derivation that can disagree.
+    var sessionCompletionAnalyticsEvent: WorkoutSessionAnalyticsEvent {
+        .routineCompleted(
+            context: analyticsContext,
+            durationSeconds: analyticsDurationSeconds,
+            steps: currentSteps,
+            progressFraction: progress,
+            stopReason: resolvedStopReason.rawValue
+        )
+    }
+
     var currentIntervalPositionText: String {
         guard !intervals.isEmpty else { return "No intervals" }
         let displayIndex = min(max(currentIntervalIndex + 1, 1), intervals.count)
@@ -920,15 +932,7 @@ final class ActiveRoutineViewModel {
     private func trackSessionCompletionIfNeeded() {
         guard !hasTrackedSessionCompletion else { return }
         hasTrackedSessionCompletion = true
-        TelemetryManager.shared.track(
-            WorkoutSessionAnalyticsEvent.routineCompleted(
-                context: analyticsContext,
-                durationSeconds: analyticsDurationSeconds,
-                steps: currentSteps,
-                progressFraction: progress,
-                stopReason: completionStopReason.rawValue
-            )
-        )
+        TelemetryManager.shared.track(sessionCompletionAnalyticsEvent)
     }
 
     private func startTimer() {
