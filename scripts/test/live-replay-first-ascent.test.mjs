@@ -21,11 +21,49 @@ function readScript(relativePath) {
   return readFileSync(resolve(REPO_ROOT, relativePath), "utf8");
 }
 
+// Matches the array literal to its own closing bracket rather than to a
+// terminator guessed in advance: the seed lists end in both `];` and
+// `].map(...)`, and a lazy regex for one of them runs on into the next
+// declaration and quietly reads the wrong array.
+function arrayLiteralSource(source, constName) {
+  const declaration = `const ${constName} = [`;
+  const start = source.indexOf(declaration);
+  assert.notEqual(start, -1, `could not locate ${constName}`);
+
+  const open = start + declaration.length - 1;
+  let depth = 0;
+  let quote = null;
+
+  for (let index = open; index < source.length; index += 1) {
+    const character = source[index];
+
+    if (quote) {
+      if (character === "\\") index += 1;
+      else if (character === quote) quote = null;
+      continue;
+    }
+
+    if (character === "\"" || character === "'" || character === "`") {
+      quote = character;
+    } else if (character === "[") {
+      depth += 1;
+    } else if (character === "]") {
+      depth -= 1;
+      if (depth === 0) return source.slice(open + 1, index);
+    }
+  }
+
+  throw new Error(`${constName} array literal is unterminated`);
+}
+
 function arrayLiteralIds(source, constName, key) {
-  const literal = source.match(
-    new RegExp(`const ${constName} = \\[([\\s\\S]*?)\\n\\];`)
-  )?.[1];
-  assert.ok(literal, `could not locate ${constName}`);
+  const literal = arrayLiteralSource(source, constName);
+
+  assert.doesNotMatch(
+    literal,
+    /\nconst /,
+    `${constName} extraction ran past the literal into a later declaration`
+  );
 
   return [...literal.matchAll(new RegExp(`${key}:\\s*"([^"]+)"`, "g"))]
     .map((match) => match[1]);
@@ -121,6 +159,25 @@ test("every climb the demo user completes is seeded a First Ascent holder", () =
       `${climbId} gets demo completions but no script seeds it a First Ascent holder`
     );
   }
+});
+
+test("exactly four climbs seed an open First Ascent slot", () => {
+  // ProfileFirstAscentService caps its open list at four while iterating in
+  // catalog order and sorts by targetSteps only afterwards, so a fifth would
+  // push out whichever sorts last - sky-tower-auckland, the cheap-to-claim pick
+  // a QA session needs to take a First Ascent end to end.
+  const openClimbIds = arrayLiteralIds(
+    readScript("scripts/seed-live-replay-leaderboards.mjs"),
+    "FIRST_ASCENT_OPEN_CLIMBS",
+    "id"
+  );
+
+  assert.deepEqual(openClimbIds, [
+    "sky-tower-auckland",
+    "oriental-pearl-tower",
+    "table-mountain",
+    "machu-picchu",
+  ]);
 });
 
 test("open First Ascent climbs are disjoint from the demo user's climbs", () => {
@@ -325,7 +382,7 @@ test("the audit reads the First Ascent state off the data, not activityTier", ()
   assert.match(source, /firstAscentInvariantFailure\(/);
   assert.doesNotMatch(
     source,
-    /activityTier/,
-    "the audit must not branch on activityTier"
+    /\.activityTier\b/,
+    "the audit must not read activityTier off a summary"
   );
 });

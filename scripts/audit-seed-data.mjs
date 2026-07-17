@@ -315,6 +315,10 @@ async function auditLiveReplay(db, projectId, failures) {
     const bucketZero = await doc.ref.collection("splitBuckets").doc("0").collection("entries").get();
     bucketZeroEntries += bucketZero.size;
 
+    // Read off the counts and the holder, never off activityTier: the seed
+    // script is the only writer of that tier and the Cloud Function's summary
+    // merge never resets it, so it stays "open" on a climb a real climber has
+    // legitimately claimed. It records what the seed intended, not the state.
     const firstAscentState = {
       climbId: path,
       completedCount: numberValue(data.completedCount),
