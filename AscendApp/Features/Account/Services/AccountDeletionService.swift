@@ -109,6 +109,16 @@ final class AccountDeletionService {
 
         // ── From this point on, every step is non-interactive. ──
 
+        // Revoke the Sign in with Apple token now, while the authorization code
+        // captured during reauth is freshest. Apple codes expire in ~5 minutes
+        // and the Storage/Firestore sweeps below can outlast that window for
+        // heavy accounts on slow connections, so revoking here (rather than just
+        // before deleteAuthAccount) avoids a silently-expired code defeating
+        // 5.1.1(v). Revoking the Apple grant does not invalidate the Firebase
+        // ID token, so the owner-gated deletes that follow still succeed.
+        await revokeAppleTokenIfNeeded(reauthentication)
+        try Task.checkCancellation()
+
         // Step 2: Delete all user-scoped Storage data (storage-level sweep)
         updateProgress("Deleting stored files...")
         try await deleteAllUserStorage(userId: userId)
@@ -169,10 +179,9 @@ final class AccountDeletionService {
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 10: Revoke the Sign in with Apple token, then delete the Firebase
-        // Auth account (credentials already fresh from Step 1).
+        // Step 10: Delete the Firebase Auth account (credentials already fresh
+        // from Step 1, Apple token already revoked right after reauth).
         updateProgress("Deleting account...")
-        await revokeAppleTokenIfNeeded(reauthentication)
         try await deleteAuthAccount()
         completedSteps += 1
         try Task.checkCancellation()
@@ -225,6 +234,12 @@ final class AccountDeletionService {
             try await gateway.revokeAppleToken(authorizationCode: authorizationCode)
         } catch {
             debugLog("Sign in with Apple token revocation failed: \(error.localizedDescription)")
+            TelemetryManager.shared.recordError(
+                error,
+                context: .auth,
+                code: "apple_token_revocation_failed",
+                additionalInfo: ["provider": "apple"]
+            )
         }
     }
 

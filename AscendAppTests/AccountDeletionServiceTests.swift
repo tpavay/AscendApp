@@ -110,7 +110,7 @@ struct AccountDeletionServiceTests {
     // MARK: - Sign in with Apple token revocation
 
     @Test
-    func revokesTheAppleTokenBeforeDeletingTheAuthAccount() async throws {
+    func revokesTheAppleTokenBeforeTheStorageSweepAndAuthDeletion() async throws {
         let gateway = RecordingAccountDeletionGateway()
         gateway.reauthenticationResult = .success(
             ReauthenticationResult(appleAuthorizationCode: "apple-auth-code")
@@ -121,9 +121,13 @@ struct AccountDeletionServiceTests {
 
         #expect(gateway.revokedAuthorizationCodes == ["apple-auth-code"])
 
-        // Apple rejects revocation once the user is deleted, so order matters.
+        // Apple authorization codes expire in ~5 minutes, so revocation runs
+        // right after reauth — before the sequential Storage sweep and every
+        // later delete — rather than letting the sweep age the code out.
         let revokeIndex = try #require(gateway.steps.firstIndex(of: .revokeAppleToken))
+        let storageIndex = try #require(gateway.steps.firstIndex(of: .deleteAllUserStorage))
         let authIndex = try #require(gateway.steps.firstIndex(of: .deleteAuthAccount))
+        #expect(revokeIndex < storageIndex)
         #expect(revokeIndex < authIndex)
     }
 

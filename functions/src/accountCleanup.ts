@@ -270,7 +270,7 @@ function errorMessage(error: unknown): string {
  * collections that are already empty, so re-running only deletes what remains.
  */
 export const cleanupDeletedUserData = onDocumentDeleted(
-  {document: "users/{userId}", retry: true},
+  {document: "users/{userId}", retry: true, timeoutSeconds: 540},
   async (event) => {
     const userId = event.params.userId;
     const summary = await cleanupDeletedUser(userId, makeAdminPort());
