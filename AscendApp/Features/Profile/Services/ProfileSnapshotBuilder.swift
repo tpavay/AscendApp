@@ -6,6 +6,7 @@ enum ProfileSnapshotBuilder {
         identity: ProfileUserIdentity,
         workouts: [Workout],
         climbAttempts: [ClimbAttempt],
+        completedClimbSet: CompletedClimbSet? = nil,
         bestEffortCacheEntries: [BestEffortCacheEntry],
         achievements: ProfileAchievementCounts,
         achievementRecords: [ProfileAchievementRecord] = [],
@@ -19,9 +20,15 @@ enum ProfileSnapshotBuilder {
         let completedAttempts = climbAttempts
             .filter { $0.status == .completed }
             .sorted { ClimbService.attemptSortDate(for: $0) > ClimbService.attemptSortDate(for: $1) }
+        // The distinct completed-climb count and the Collection claimed set both
+        // read one definition. Own profile passes the repository's
+        // server-authoritative set; other callers derive it from their attempts.
+        let resolvedCompletedSet = completedClimbSet
+            ?? ClimbCompletionRepository.completedClimbSet(from: climbAttempts)
         let stats = statsSnapshot(
             workouts: ownedWorkouts,
             completedAttempts: completedAttempts,
+            completedCount: resolvedCompletedSet.completedCount,
             achievements: achievements
         )
         let summaries = workoutSummaries(
@@ -40,7 +47,7 @@ enum ProfileSnapshotBuilder {
             standings: standings,
             activityWorkouts: summaries,
             collection: collectionSummary(
-                completedAttempts: completedAttempts,
+                completedClimbSet: resolvedCompletedSet,
                 climbs: climbs,
                 fitnessLevel: fitnessLevel
             ),
@@ -232,6 +239,7 @@ enum ProfileSnapshotBuilder {
     static func statsSnapshot(
         workouts: [Workout],
         completedAttempts: [ClimbAttempt],
+        completedCount: Int,
         achievements: ProfileAchievementCounts
     ) -> ProfileStatsSnapshot {
         let firstAscentCount = completedAttempts.filter { ($0.globalCompletionOrder ?? 0) == 1 }.count
@@ -246,7 +254,7 @@ enum ProfileSnapshotBuilder {
             : 0
 
         return ProfileStatsSnapshot(
-            totalClimbsCompleted: completedAttempts.count,
+            totalClimbsCompleted: completedCount,
             totalFirstAscents: max(firstAscentCount, achievementsFromFirstAscents(achievements)),
             achievementCounts: achievements,
             mostCompletedClimbId: mostCompletedClimbId,
@@ -292,14 +300,14 @@ enum ProfileSnapshotBuilder {
     }
 
     private static func collectionSummary(
-        completedAttempts: [ClimbAttempt],
+        completedClimbSet: CompletedClimbSet,
         climbs: [Climb],
         fitnessLevel: FitnessLevel
     ) -> ProfileCollectionSummary {
         let availableClimbs = climbs.filter(\.isAvailable)
         let comingSoonClimbs = climbs.filter(\.isComingSoon)
         let completedClimbs = claimedClimbs(
-            from: completedAttempts,
+            from: completedClimbSet,
             availableClimbs: availableClimbs
         )
         let launchedCards = collectionCards(
@@ -350,25 +358,17 @@ enum ProfileSnapshotBuilder {
     }
 
     private static func claimedClimbs(
-        from completedAttempts: [ClimbAttempt],
+        from completedClimbSet: CompletedClimbSet,
         availableClimbs: [Climb]
     ) -> [ProfileCollectionClaimedClimb] {
         let climbsByID = Dictionary(uniqueKeysWithValues: availableClimbs.map { ($0.id, $0) })
-        var claimedAtByClimbID: [String: Date] = [:]
 
-        for attempt in completedAttempts {
-            guard climbsByID[attempt.climbId] != nil else { continue }
-            let claimedAt = attempt.completedAt ?? attempt.endedAt ?? attempt.startedAt
-            if let existing = claimedAtByClimbID[attempt.climbId] {
-                claimedAtByClimbID[attempt.climbId] = min(existing, claimedAt)
-            } else {
-                claimedAtByClimbID[attempt.climbId] = claimedAt
-            }
-        }
-
-        return claimedAtByClimbID.compactMap { climbId, claimedAt in
-            guard let climb = climbsByID[climbId] else { return nil }
-            return ProfileCollectionClaimedClimb(climb: climb, claimedAt: claimedAt)
+        return completedClimbSet.climbs.compactMap { completed in
+            guard let climb = climbsByID[completed.climbId] else { return nil }
+            return ProfileCollectionClaimedClimb(
+                climb: climb,
+                claimedAt: completed.firstCompletedAt
+            )
         }
         .sorted { lhs, rhs in
             if lhs.claimedAt != rhs.claimedAt {

@@ -144,6 +144,15 @@ let functionsURL = "https://\(region)-\(projectId).cloudfunctions.net"
 - Trend surfaces are insight-first: compare volume / pace / consistency / time against the previous matching period. Show one chart at a time, not a stack of every possible metric.
 - Reserve full achievement sentences (e.g. *"2nd fastest 3,000 steps all-time"*) for surfaces where the effort appears out of record-category context — workout list, workout summary, Live Climb completion, share cards.
 
+### Completed-Climb Projection (globe / Collection / `totalClimbsCompleted`)
+
+A completed climb is **1:1 with a `Workout`** (the sole canonical record; verdict in `data/verify-workout-climb-cardinality-m2`). There is no separate canonical climb collection.
+
+- The `onWorkoutWritten` Cloud Function (`functions/src/climbCompletions.ts`) is the single site that derives the server projection `users/{uid}/landmarkResults/{climbId}` FROM the workout. It validates-before-writes (reads the existing doc and returns success without a duplicate write when the event is already reflected in `computedThroughEvent`), so the live trigger, re-delivery, and the backfill converge idempotently. It writes only the private projection and never claims a First Ascent — that stays in the replay path (`liveReplayLeaderboard.ts`).
+- `ClimbCompletionRepository` (`AscendApp/Shared/Repositories/`) is the ONLY read surface for the completed set: `read` serves the local `ClimbAttempt` cache distinct-per-`climbId`; `refresh(userId:modelContext:)` pulls `landmarkResults` into the cache losslessly (only ever adds, never shows less than earned) and runs on authenticated bootstrap (`RootView.bootstrapAuthenticatedLocalState`). This makes the count correct on an in-place UPDATE, not just a reinstall.
+- The globe numerator, Collection claimed state, and `totalClimbsCompleted` all read this one distinct-climb set — never a raw `@Query ClimbAttempt` for the completed set, never a `max(local, server)`. `ClimbAttempt` (SwiftData) is the repository's device cache row, not a canonical server collection.
+- `landmarkResults` rules are server-derived, read-own / `write: if false` (`firestore.rules`). The idempotent, prod-refusing backfill is `scripts/backfill-landmark-results.mjs`. The completion predicate is the shared vector-pinned `isRecoverableLegacyCompletion` (Swift / TS / mjs, pinned by `SharedTestVectors/legacy-recoverable-completion-vector.json`) — do not author a fourth copy.
+
 ### Firebase Storage Pathing + Rules
 - User-generated media must be stored under user-scoped prefixes:
   - `users/{uid}/photos/...`

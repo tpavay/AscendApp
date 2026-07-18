@@ -129,7 +129,10 @@ final class GlobeViewModel {
     }
 
     func refresh(modelContext: ModelContext) {
-        completedClimbIds = climbService.completedClimbIds(modelContext: modelContext)
+        // The globe's claimed set is the repository's one completed-set
+        // definition (server-authoritative after refresh), not a raw cache read.
+        completedClimbIds = ClimbCompletionRepository.completedClimbSet(modelContext: modelContext)
+            .completedClimbIds
         lastCompletedSummary = try? climbService.lastCompletedSummary(modelContext: modelContext)
         homeCardState = (try? climbService.homeCardState(modelContext: modelContext)) ?? .neverClimbed(totalClimbs: availableClimbs.count)
         refreshDailyRecommendedClimb()

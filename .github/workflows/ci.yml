@@ -8,6 +8,8 @@ on:
       - "AscendAppTests/**"
       - "AscendApp.xcodeproj/**"
       - "functions/**"
+      - "scripts/**"
+      - "SharedTestVectors/**"
       - ".github/workflows/**"
 
 concurrency:
@@ -26,6 +28,7 @@ jobs:
     outputs:
       ios: ${{ steps.filter.outputs.ios }}
       functions: ${{ steps.filter.outputs.functions }}
+      scripts: ${{ steps.filter.outputs.scripts }}
 
     steps:
       - name: Checkout repository
@@ -43,6 +46,11 @@ jobs:
               - ".github/workflows/**"
             functions:
               - "functions/**"
+              - "SharedTestVectors/**"
+              - ".github/workflows/**"
+            scripts:
+              - "scripts/**"
+              - "SharedTestVectors/**"
               - ".github/workflows/**"
 
   functions-verify:
@@ -68,6 +76,28 @@ jobs:
 
       - name: Run tests
         run: npm --prefix functions test
+
+  scripts-verify:
+    name: Scripts Verify
+    needs: changes
+    if: needs.changes.outputs.scripts == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      # The migration-discipline libraries and the shared vector-pinned
+      # predicate/derivation are pure Node with no external deps at test time,
+      # so the suite runs without installing firebase-admin.
+      - name: Run tests
+        run: node --test scripts/test/*.test.mjs
 
   ios-verify:
     name: iOS Verify (Staging)

@@ -931,6 +931,16 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // Server-derived completed-climb projection. One Cloud Function
+      // (onWorkoutWritten) derives it from the canonical private workouts and
+      // writes it via the Admin SDK, which bypasses these rules; clients only
+      // ever read their own. Same "client reads its own, only the server
+      // writer writes" shape as achievements / liveClimbPublishStatuses.
+      match /landmarkResults/{landmarkId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
       match /public_profile/{docId} {
         allow read: if isSignedIn() && docId == "current";
         allow create, update: if isOwner(userId) &&

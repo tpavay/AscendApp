@@ -60,6 +60,7 @@ struct OwnProfileView: View {
             identity: identity,
             workouts: workouts,
             climbAttempts: climbAttempts,
+            completedClimbSet: ClimbCompletionRepository.shared.read(modelContext: modelContext),
             bestEffortCacheEntries: bestEffortCacheEntries,
             achievements: viewModel.achievements,
             achievementRecords: viewModel.achievementRecords,

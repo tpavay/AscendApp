@@ -148,22 +148,13 @@ final class HomeDashboardViewModel {
         }
     }
 
-    /// The Home "climbs completed" surface: distinct landmarks with a completed attempt. Pure over
-    /// the store (no instance state), so a restore path can be asserted without a SwiftUI view tree
-    /// or a configured Firebase.
+    /// The Home "climbs completed" surface: the distinct completed-climb count,
+    /// read through `ClimbCompletionRepository` (the one completed-set
+    /// definition, server-authoritative after refresh). Pure over the repo's
+    /// cache, so a restore path can be asserted without a SwiftUI view tree or a
+    /// configured Firebase.
     static func fetchCompletedClimbCount(modelContext: ModelContext) -> Int {
-        let completedStatus = ClimbAttemptStatus.completed.rawValue
-        let descriptor = FetchDescriptor<ClimbAttempt>(
-            predicate: #Predicate<ClimbAttempt> { attempt in
-                attempt.statusRawValue == completedStatus
-            }
-        )
-
-        guard let attempts = try? modelContext.fetch(descriptor) else {
-            return 0
-        }
-
-        return Set(attempts.map(\.climbId)).count
+        ClimbCompletionRepository.completedClimbSet(modelContext: modelContext).completedCount
     }
 
     private func fetchWorkoutCount(modelContext: ModelContext) -> Int {

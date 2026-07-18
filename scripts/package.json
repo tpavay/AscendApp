@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node --test test/*.test.mjs",
     "db:plan": "node dev-db.mjs plan",
     "db:seed": "node dev-db.mjs seed --project dev",
     "db:seed:staging": "node dev-db.mjs seed --project staging",
