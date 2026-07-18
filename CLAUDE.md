@@ -82,6 +82,7 @@ xcodebuild -project AscendApp.xcodeproj -scheme "AscendApp" \
   CODE_SIGNING_ALLOWED=NO build
 
 npm run test:firebase-rules            # Firestore/Storage rules (emulator)
+node --test scripts/test/*.test.mjs    # scripts + shared migration vectors
 cd functions && npm run lint && npm test   # Cloud Functions
 cd web && npm run build                    # Website -> web/dist/
 
@@ -188,16 +189,16 @@ If a task spans domains, load every match. If a request is ambiguous but clearly
 
 ## Branching & Issue-First Workflow
 
-- `main` - the default branch, production-ready, and the base for all work.
-- `feature/*`, `fix/*`, `chore/*` - branch off `main`, PR into `main`.
-- There is no long-lived integration branch. `develop` was merged into `main` and deleted; do not recreate it or target it.
+- `main` - production-ready. Only receives merges from `develop` when ready to ship.
+- `develop` - long-lived staging integration branch. Contains everything `main` has plus in-progress work; pushes here auto-trigger staging builds.
+- `feature/*`, `fix/*`, `chore/*` - branch off `develop`, PR into `develop`.
 
 Resolve work to a GitHub issue before implementing:
 - If the user provides an issue number, use it.
 - Otherwise search open issues. One clear match -> confirm it with the user. No clear match -> propose creating one and get approval first.
 - Don't start implementation until an issue is confirmed, unless the user explicitly says to proceed without one.
 - Branch names include the issue number: `feature/issue-<number>-<short-slug>`.
-- PRs target `main` and include `Closes #<number>`.
+- PRs target `develop` and include `Closes #<number>`.
 
 ## Key Config Files
 

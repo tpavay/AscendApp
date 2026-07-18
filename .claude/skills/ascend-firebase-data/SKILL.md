@@ -9,7 +9,9 @@ Load the `vibe-security` skill for any auth/authz/trust-boundary change, and `fi
 
 ## Schema changes (rules first - writes are rejected server-side otherwise)
 
-`firestore.rules` uses strict `hasOnly` + `hasAll` field validation on every collection. Adding, removing, or renaming a field in the app **requires a matching update to `firestore.rules`** - otherwise writes will be rejected at the server.
+`firestore.rules` uses strict `hasOnly` + `hasAll` field validation on every client-writable collection. Adding, removing, or renaming a field in the app **requires a matching update to `firestore.rules`** - otherwise writes will be rejected at the server.
+
+Server-owned collections are the exception: they are `allow write: if false` and validate no fields, because no client can write them at all. Adding a field to one (for example the `live_replay_leaderboards` subtree, written only by Cloud Functions and Admin SDK scripts) needs no rules change.
 
 When changing Firestore document schemas, always update in this order:
 1. Update `firestore.rules` to allow the new/changed fields

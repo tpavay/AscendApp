@@ -13,20 +13,21 @@ paths:
 
 Read the workflow file before changing it - the job graph below is the contract, and it is not the same on staging and production.
 
-`.github/workflows/ci.yml` runs on PRs to `main`, and is the only automated gate before `main`. Every verify job is gated on the changed paths, so a functions-only PR skips the iOS jobs and an iOS-only PR skips the functions job:
-- `changes` - a `dorny/paths-filter` job that resolves the `ios` and `functions` outputs. Every other job declares `needs: changes` and an `if:` on one of those outputs, so a new verify job is skipped by default until you add it to the filter.
+`.github/workflows/ci.yml` runs on PRs to `develop` and `main`, and is the only automated gate before either. Every verify job is gated on the changed paths, so a functions-only PR skips the iOS jobs and an iOS-only PR skips the functions job:
+- `changes` - a `dorny/paths-filter` job that resolves the `ios`, `functions`, and `scripts` outputs. Every other job declares `needs: changes` and an `if:` on one of those outputs, so a new verify job is skipped by default until you add it to the filter.
 - `functions-verify` - installs `functions/` and runs its test suite (`npm --prefix functions ci`, then `npm --prefix functions test`).
-- `ios-verify` - runs `test` only (no build step) with `-scheme "AscendApp-Staging" -configuration Staging ENABLE_TESTABILITY=YES`. It picks the simulator at runtime from `xcodebuild -showdestinations`, preferring recent iPhone models and failing if none are available. It does not pass `CODE_SIGNING_ALLOWED=NO`.
+- `scripts-verify` - runs the `scripts/test/*.test.mjs` suite with `node --test` (no dependency install - the migration-discipline libraries and the shared vector-pinned predicate/derivation are pure Node). Gated on changes to `scripts/**` or `SharedTestVectors/**`.
+- `ios-verify` - runs `test` only (no build step) with `-scheme "AscendApp-Staging" -configuration Staging ENABLE_TESTABILITY=YES`. It provisions the simulator at runtime via `xcrun simctl` against the newest installed iOS runtime - downloading the runtime if the image ships none - then reuses a preferred iPhone model, falls back to any iPhone, and finally creates one, failing only when the runtime supports no iPhone device type. It does not pass `CODE_SIGNING_ALLOWED=NO`.
 - `ios-verify-release` - the only job that compiles Release and the only place `CODE_SIGNING_ALLOWED=NO` appears, paired with `-scheme "AscendApp" -configuration Release -sdk iphoneos -destination "generic/platform=iOS"`. It exists so Release-only build errors surface on the PR instead of on the production deploy.
 
 A trigger pointing at a branch that no longer exists silently disables the workflow rather than failing. When the branching model changes, change the trigger in the same PR.
 
-`.github/workflows/deploy-staging.yml` runs on manual dispatch only. Three jobs, **not** a sequential chain:
+`.github/workflows/deploy-staging.yml` runs on pushes to `develop` and on manual dispatch. Three jobs, **not** a sequential chain:
 - `build-ios` - Staging scheme, produces the IPA.
 - `deploy-firebase` - has **no `needs:`**, so it runs in parallel with `build-ios` and will deploy even if the app build fails. Steps 2-6 of the old "sequential" story are in fact one command: `--only functions,firestore:rules,firestore:indexes,storage,hosting`. The workflow comment frames this as tolerated, but it is a known CI safety gap tracked in issue #202 - treat it as a gap, not as settled design.
 - `upload-testflight` - the only gated job here: `needs: [build-ios, deploy-firebase]`. Last because it is hardest to reverse.
 
-Staging has no automatic trigger, which is a known gap rather than the end state. It cannot simply run on pushes to `main`, because `deploy-production.yml` already does and one push would deploy both. Choosing a non-colliding trigger is tracked in issue #203.
+`develop` is what makes the staging trigger safe: staging cannot run on pushes to `main`, because `deploy-production.yml` already does and one push would deploy both. Keep the two deploy workflows on disjoint branches - pointing either at the other's branch reintroduces the double-deploy.
 
 `.github/workflows/deploy-production.yml` runs on pushes to `main` and manual dispatch. It is **stricter** than staging, not a mirror of it: every job is gated behind `PRODUCTION_READY=true` plus GitHub `production` environment protection, and `deploy-firebase` keeps `needs: [production-gate, build-ios]`, so a failed build stops the deploy. Same combined `--only` deploy command, Release configuration.
 
