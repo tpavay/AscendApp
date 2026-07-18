@@ -81,13 +81,15 @@ final class ClimbCompletionRepository {
 
         let climbs = Dictionary(grouping: completed, by: \.climbId).map {
             climbId, group -> CompletedClimb in
-            // `firstCompletedAt` reads `startedAt`: the reconcile row anchors it to
+            // `firstCompletedAt` reads the completion date (`completedAt`), which is
+            // the claim moment for a real attempt - its `startedAt` is the session
+            // start, minutes earlier. The reconcile row anchors its `completedAt` to
             // the projection's first completion, so a climb rebuilt purely from the
-            // server projection reports the FIRST claim date (what `claimedAt`
-            // consumes), not the latest. `latestCompletedAt` reads the completion
-            // date so a real multi-attempt group still spans its true window.
-            let startDates = group.map(\.startedAt)
+            // server projection reports the FIRST claim date too. `latestCompletedAt`
+            // reads the ended date (`endedAt`), which the reconcile row anchors to the
+            // projection's latest completion, so a group still spans its true window.
             let completionDates = group.map(completionDate(for:))
+            let endedDates = group.map(endedDate(for:))
             let bestElapsed = group
                 .compactMap { attempt -> Int? in
                     if let best = attempt.bestCompletionDurationSeconds {
@@ -100,8 +102,8 @@ final class ClimbCompletionRepository {
                 .min()
             return CompletedClimb(
                 climbId: climbId,
-                firstCompletedAt: startDates.min() ?? Date(),
-                latestCompletedAt: completionDates.max() ?? Date(),
+                firstCompletedAt: completionDates.min() ?? Date(),
+                latestCompletedAt: endedDates.max() ?? Date(),
                 attemptCount: group.count,
                 bestElapsedSeconds: bestElapsed
             )
@@ -140,12 +142,15 @@ final class ClimbCompletionRepository {
                 continue
             }
 
+            // `completedAt` carries the FIRST completion so the claim date the
+            // Collection reads is the first, not the latest; `endedAt` keeps the
+            // latest so the completed set still spans the true window.
             let attempt = ClimbAttempt(
                 climbId: result.climbId,
                 status: .completed,
                 startedAt: result.firstCompletedAt,
                 endedAt: result.latestCompletedAt,
-                completedAt: result.latestCompletedAt,
+                completedAt: result.firstCompletedAt,
                 accumulatedSteps: 0,
                 accumulatedDurationSeconds: result.bestElapsedSeconds ?? 0,
                 sessionsCount: max(result.attemptCount, 1),
@@ -166,6 +171,10 @@ final class ClimbCompletionRepository {
 
     private static func completionDate(for attempt: ClimbAttempt) -> Date {
         attempt.completedAt ?? attempt.endedAt ?? attempt.startedAt
+    }
+
+    private static func endedDate(for attempt: ClimbAttempt) -> Date {
+        attempt.endedAt ?? attempt.completedAt ?? attempt.startedAt
     }
 
     /// The stable id for a synthetic cache row. Keyed off the best workout id
