@@ -1,1 +1,34 @@
-/Users/tylerpavay/.config/ascend/firebase/GoogleService-Info-Dev.plist
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CLIENT_ID</key>
+	<string>808186881002-2nbeopa7sltss4mndm75s37o0var3c8n.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.808186881002-2nbeopa7sltss4mndm75s37o0var3c8n</string>
+	<key>API_KEY</key>
+	<string>AIzaSyAfmN2CbHp0LHH_5gZaydhwWMgQmPI9aus</string>
+	<key>GCM_SENDER_ID</key>
+	<string>808186881002</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.TylerPavay.AscendApp.dev</string>
+	<key>PROJECT_ID</key>
+	<string>ascend-f2e4f</string>
+	<key>STORAGE_BUCKET</key>
+	<string>ascend-f2e4f.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:808186881002:ios:4524144d6c8e677357c893</string>
+</dict>
+</plist>
