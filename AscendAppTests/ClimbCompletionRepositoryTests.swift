@@ -136,6 +136,35 @@ struct ClimbCompletionRepositoryTests {
         #expect(afterSecond == 5)
     }
 
+    // A climb rebuilt purely from the projection reports the FIRST completion as
+    // its claim date, not the latest. The reconcile row collapses first/latest
+    // into one attempt, so the read must resolve `firstCompletedAt` back to the
+    // projection's `firstCompletedAt` for Collection `claimedAt` to be correct.
+    @Test
+    func projectionMaterializedClimbClaimsFirstCompletion() async throws {
+        let context = try makeContext()
+        let first = Date(timeIntervalSince1970: 1_700_000_000)
+        let latest = Date(timeIntervalSince1970: 1_700_000_600)
+        let remote = StubRemote(results: [
+            RemoteLandmarkResult(
+                climbId: "burj-khalifa",
+                completed: true,
+                firstCompletedAt: first,
+                latestCompletedAt: latest,
+                attemptCount: 3,
+                bestWorkoutId: nil,
+                bestElapsedSeconds: 600
+            )
+        ])
+        let repository = ClimbCompletionRepository(remoteRepository: remote)
+
+        let set = await repository.refresh(userId: userId, modelContext: context)
+
+        let completed = try #require(set.climbs.first { $0.climbId == "burj-khalifa" })
+        #expect(completed.firstCompletedAt == first)
+        #expect(completed.latestCompletedAt == latest)
+    }
+
     // Test 6 (FA integrity): a materialized completion never carries a First
     // Ascent - the repository writes no globalCompletionOrder. First Ascent
     // stays owned by the replay path.

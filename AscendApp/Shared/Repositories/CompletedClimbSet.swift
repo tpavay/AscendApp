@@ -30,9 +30,4 @@ struct CompletedClimbSet: Equatable, Sendable {
     var completedCount: Int {
         completedClimbIds.count
     }
-
-    /// When the given landmark was first completed, if it is completed.
-    func firstCompletedAt(for climbId: String) -> Date? {
-        climbs.first { $0.climbId == climbId }?.firstCompletedAt
-    }
 }

@@ -81,6 +81,12 @@ final class ClimbCompletionRepository {
 
         let climbs = Dictionary(grouping: completed, by: \.climbId).map {
             climbId, group -> CompletedClimb in
+            // `firstCompletedAt` reads `startedAt`: the reconcile row anchors it to
+            // the projection's first completion, so a climb rebuilt purely from the
+            // server projection reports the FIRST claim date (what `claimedAt`
+            // consumes), not the latest. `latestCompletedAt` reads the completion
+            // date so a real multi-attempt group still spans its true window.
+            let startDates = group.map(\.startedAt)
             let completionDates = group.map(completionDate(for:))
             let bestElapsed = group
                 .compactMap { attempt -> Int? in
@@ -94,7 +100,7 @@ final class ClimbCompletionRepository {
                 .min()
             return CompletedClimb(
                 climbId: climbId,
-                firstCompletedAt: completionDates.min() ?? Date(),
+                firstCompletedAt: startDates.min() ?? Date(),
                 latestCompletedAt: completionDates.max() ?? Date(),
                 attemptCount: group.count,
                 bestElapsedSeconds: bestElapsed
