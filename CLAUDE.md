@@ -34,7 +34,7 @@ Full playbook: `ascend-brand-voice`. Design patterns: `product-design-playbook`.
 
 ## Tech Stack
 
-- **iOS 17.0+**, Swift 6, SwiftUI
+- **iOS 26.0+**, Swift 6, SwiftUI
 - **Data**: Local-first with cloud sync - SwiftData on device, Firebase Firestore for backup/sync/sharing
 - **Backend**: Firebase (Auth, Firestore, Storage, Cloud Functions, Hosting, Analytics, Crashlytics)
 - **Subscriptions / Paywall**: RevenueCat for subscription management and entitlements; SuperWall for paywall presentation and onboarding/conversion analytics
@@ -154,7 +154,7 @@ Rules that fire from contexts that don't look like their own domain. Each names 
 
 ## Ascend-Specific Overrides
 
-- **Targeting**: iOS 17.0+, Swift 6, strict concurrency. If a newer iOS API meaningfully improves a feature, mention it and gate it with `@available` rather than silently raising the baseline.
+- **Targeting**: iOS 26.0+, Swift 6, strict concurrency. If a newer iOS API meaningfully improves a feature, mention it and gate it with `@available` rather than silently raising the baseline.
 - **State management**: SwiftUI with `@Observable` for shared state; mark shared `@Observable` classes with `@MainActor`.
 - **Local style conventions**: prefer modern Swift idioms - `replacing("a", with: "b")`, `URL.documentsDirectory`, `url.appending(path:)`, `.formatted()` or `Text(..., format:)`, and `localizedStandardContains()` for user-facing filtering.
 
