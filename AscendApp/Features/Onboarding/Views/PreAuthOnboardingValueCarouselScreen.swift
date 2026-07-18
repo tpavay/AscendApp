@@ -885,8 +885,8 @@ private struct PreAuthGuideScreen: Identifiable {
         PreAuthGuideScreen(
             id: "real_time",
             kind: .liveTracking,
-            headline: "Track your climb in\nreal time",
-            subtitle: "Connect your AirPods Pro or Max to track your climbs in real time."
+            headline: "Your headphones\nare the tracker",
+            subtitle: "Not your watch, not your phone. Motion sensors in most AirPods and Beats count every step in real time."
         ),
         PreAuthGuideScreen(
             id: "daily_climbs",
