@@ -713,8 +713,8 @@ struct LiveClimbSessionView: View {
             iconName: "airpodspro",
             title: "Headphones required",
             message: viewModel.mode.isLandmarkClimb
-                ? "Motion sensors in your headphones count your steps. Connect a compatible pair to start this live climb."
-                : "Motion sensors in your headphones count your steps. Connect a compatible pair to start climbing.",
+                ? "Ascend counts your steps from motion sensors in your AirPods or Beats. An Apple Watch or phone won't track a climb. Connect a compatible pair to start this live climb."
+                : "Ascend counts your steps from motion sensors in your AirPods or Beats. An Apple Watch or phone won't track a session. Connect a compatible pair to start climbing.",
             primaryTitle: "Try Again",
             primaryAction: retryHeadphoneCountdown,
             secondaryTitle: "Close",

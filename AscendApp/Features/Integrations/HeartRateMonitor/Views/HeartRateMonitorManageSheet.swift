@@ -27,6 +27,11 @@ struct HeartRateMonitorManageSheet: View {
                 Spacer()
             }
 
+            Text("Live heart rate needs a Bluetooth chest strap. An Apple Watch can't stream live heart rate to Ascend, though it can add heart rate to a climb afterward through Apple Health.")
+                .font(.montserratMedium(size: 13))
+                .foregroundStyle(.white.opacity(0.6))
+                .fixedSize(horizontal: false, vertical: true)
+
             content
 
             Button("Close") {
