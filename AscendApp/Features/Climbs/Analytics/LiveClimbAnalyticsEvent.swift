@@ -15,6 +15,8 @@ enum LiveClimbAnalyticsEvent: TelemetryEvent {
         canStart: Bool
     )
     case detailStartBlocked(climb: Climb, entryPoint: EntryPoint, reason: BlockedReason)
+    case headphoneHelpOpened(climb: Climb?, entryPoint: EntryPoint, surface: HeadphoneHelpSurface)
+    case browseHelpOpened
     case attemptStarted(
         climb: Climb,
         entryPoint: EntryPoint
@@ -123,6 +125,21 @@ enum LiveClimbAnalyticsEvent: TelemetryEvent {
                     "blocked_reason": .string(reason.rawValue)
                 ]
             )
+
+        case .headphoneHelpOpened(let climb, let entryPoint, let surface):
+            let parameters: [String: TelemetryValue] = [
+                "entry_point": .string(entryPoint.rawValue),
+                "surface": .string(surface.rawValue)
+            ]
+
+            if let climb {
+                return record(name: "live_climb_headphone_help_open", climb: climb, parameters: parameters)
+            }
+
+            return record(name: "live_climb_headphone_help_open", parameters: parameters)
+
+        case .browseHelpOpened:
+            return record(name: "live_climb_browse_help_open")
 
         case .attemptStarted(let climb, let entryPoint):
             return record(
@@ -285,6 +302,11 @@ extension LiveClimbAnalyticsEvent {
 
     enum BlockedReason: String {
         case headphonesUnavailable = "headphones_unavailable"
+    }
+
+    enum HeadphoneHelpSurface: String {
+        case detailHelpButton = "detail_help_button"
+        case sessionGate = "session_gate"
     }
 
     enum AttemptOutcome: String {
