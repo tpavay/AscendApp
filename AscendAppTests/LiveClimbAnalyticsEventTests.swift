@@ -74,6 +74,21 @@ struct LiveClimbAnalyticsEventTests {
     }
 
     @Test
+    func headphoneHelpOpenFromPersistentTrackingRowRecordsSurface() {
+        let record = LiveClimbAnalyticsEvent
+            .headphoneHelpOpened(
+                climb: .preview,
+                entryPoint: .detailBrowse,
+                surface: .detailTrackingRow
+            )
+            .record
+
+        #expect(record.name == "live_climb_headphone_help_open")
+        #expect(record.parameters["entry_point"] == .string("detail_browse"))
+        #expect(record.parameters["surface"] == .string("detail_tracking_row"))
+    }
+
+    @Test
     func headphoneHelpOpenWithoutClimbOmitsClimbParameters() {
         let record = LiveClimbAnalyticsEvent
             .headphoneHelpOpened(

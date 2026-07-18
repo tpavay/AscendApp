@@ -18,7 +18,7 @@ For adding, editing, releasing, or validating catalog content and images, use th
 - Browse treats the globe and bottom drawer as distinct navigation modes: globe pin taps open a compact preview card; search/list/section taps open Climb Detail directly. Search lives in the drawer and expands above the keyboard when focused. Globe state (zoom, preview, search) clears when re-entering Browse from elsewhere.
 - Climb Detail uses a flippable hero card (landmark image on the front, tier + fun fact on the back) and three swipeable pages: overview, personal history, per-climb leaderboard. The leaderboard page uses the per-climb leaderboard pattern defined in the `ascend-leaderboards` skill.
 - Globe pins are state-driven: hollow outline for available climbs, filled with double-pin glow for the active climb, filled check badge for completed climbs.
-- Hardware-capability gating (headphones required) belongs at the *start-attempt* moment, not as warnings on Home or Browse. Surface help inline at the gate, not as ambient warnings.
+- Hardware-capability gating (headphones required) belongs at the *start-attempt* moment, not as warnings on Home or Browse. The blocking gate stays inline at start-attempt, but headphone-tracking education (headphones track steps, not a watch or phone) is a persistent, worded row on the Climb Detail overview so it reaches every navigation path, not only the onboarding first-climb coach mark.
 
 ## Attempt model
 - The climb attempt is the source of truth for progress and history. It replaces any older completion-only model.

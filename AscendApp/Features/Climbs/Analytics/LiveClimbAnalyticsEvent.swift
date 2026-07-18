@@ -306,6 +306,7 @@ extension LiveClimbAnalyticsEvent {
 
     enum HeadphoneHelpSurface: String {
         case detailHelpButton = "detail_help_button"
+        case detailTrackingRow = "detail_tracking_row"
         case sessionGate = "session_gate"
     }
 

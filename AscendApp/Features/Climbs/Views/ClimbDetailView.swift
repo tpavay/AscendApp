@@ -887,6 +887,8 @@ struct ClimbDetailView: View {
             }
 
             primaryActionRow
+
+            trackingExplainerRow
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
@@ -1782,47 +1784,71 @@ struct ClimbDetailView: View {
     }
 
     private var primaryActionRow: some View {
-        HStack(spacing: 10) {
-            Button(action: handlePrimaryAction) {
-                Text(primaryActionTitle)
-                    .font(.montserratBold(size: 18))
-                    .foregroundStyle(isPrimaryActionEnabled ? .black : .white.opacity(0.7))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 18)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(isPrimaryActionEnabled ? Color.accent : .white.opacity(0.08))
-                    )
-            }
-            .buttonStyle(.plain)
-            .disabled(!isPrimaryActionEnabled)
-            .background(coachTargetFrameReader(for: .start))
-            .overlay {
-                coachTargetRoundedHighlight(for: .start, cornerRadius: 22)
-            }
-
-            Button {
-                TelemetryManager.shared.track(
-                    LiveClimbAnalyticsEvent.headphoneHelpOpened(
-                        climb: viewModel.climb,
-                        entryPoint: analyticsEntryPoint,
-                        surface: .detailHelpButton
-                    )
+        Button(action: handlePrimaryAction) {
+            Text(primaryActionTitle)
+                .font(.montserratBold(size: 18))
+                .foregroundStyle(isPrimaryActionEnabled ? .black : .white.opacity(0.7))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 18)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(isPrimaryActionEnabled ? Color.accent : .white.opacity(0.08))
                 )
-                showingHeadphoneHelp = true
-            } label: {
-                Image(systemName: "questionmark")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.82) : .black.opacity(0.68))
-                    .frame(width: 54, height: 54)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(.white.opacity(0.06))
-                    )
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Live climb headphone help")
         }
+        .buttonStyle(.plain)
+        .disabled(!isPrimaryActionEnabled)
+        .background(coachTargetFrameReader(for: .start))
+        .overlay {
+            coachTargetRoundedHighlight(for: .start, cornerRadius: 22)
+        }
+    }
+
+    /// Persistent, worded explanation of how live tracking works. Unlike the
+    /// first-climb coach mark (which only fires via the onboarding handoff),
+    /// this row is always visible on the overview, so climbers arriving from
+    /// Browse, Home, or a push climb drop still learn that their headphones -
+    /// not a watch or phone - are the step tracker before their first attempt.
+    private var trackingExplainerRow: some View {
+        Button {
+            TelemetryManager.shared.track(
+                LiveClimbAnalyticsEvent.headphoneHelpOpened(
+                    climb: viewModel.climb,
+                    entryPoint: analyticsEntryPoint,
+                    surface: .detailTrackingRow
+                )
+            )
+            showingHeadphoneHelp = true
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "airpodspro")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.accent)
+
+                Text("Your headphones track your steps, not a watch or phone.")
+                    .font(.montserratMedium(size: 13))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.72) : .black.opacity(0.62))
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 6)
+
+                Text("How it works")
+                    .font(.montserratSemiBold(size: 13))
+                    .foregroundStyle(.accent)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 12)
+            .padding(.horizontal, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(.white.opacity(0.05))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("How live climb tracking works. Your headphones track your steps, not a watch or phone.")
+        .accessibilityHint("Opens the compatible headphones list.")
     }
 
     private var primaryActionTitle: String {
