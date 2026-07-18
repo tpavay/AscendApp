@@ -1,6 +1,5 @@
 import Foundation
 @preconcurrency import HealthKit
-import UIKit
 
 @MainActor
 final class LiveClimbBackgroundSessionService: NSObject {
@@ -9,7 +8,6 @@ final class LiveClimbBackgroundSessionService: NSObject {
     private let healthStore: HKHealthStore
     private var workoutSession: HKWorkoutSession?
     private var workoutBuilder: AnyObject?
-    private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     private var lastBuilderDataDiagnosticAt: Date?
 
     private(set) var lastFailureMessage: String?
@@ -24,7 +22,6 @@ final class LiveClimbBackgroundSessionService: NSObject {
             "headphone_background_session_start_requested",
             details: ["started_at_unix": String(Int(startedAt.timeIntervalSince1970))]
         )
-        beginBackgroundTask()
         startWorkoutSessionIfAvailable(at: startedAt)
     }
 
@@ -41,15 +38,11 @@ final class LiveClimbBackgroundSessionService: NSObject {
         workoutSession?.delegate = nil
         workoutSession = nil
         lastBuilderDataDiagnosticAt = nil
-        if #available(iOS 26.0, *) {
-            stopWorkoutBuilder(at: endedAt)
-        }
-        endBackgroundTask()
+        stopWorkoutBuilder(at: endedAt)
     }
 
     func recoverActiveWorkoutSessionIfAvailable() async {
-        guard #available(iOS 26.0, *),
-              workoutSession == nil,
+        guard workoutSession == nil,
               HKHealthStore.isHealthDataAvailable() else {
             return
         }
@@ -72,30 +65,6 @@ final class LiveClimbBackgroundSessionService: NSObject {
         }
     }
 
-    private func beginBackgroundTask() {
-        guard backgroundTaskID == .invalid else { return }
-
-        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "Live Climb") { [weak self] in
-            Task { @MainActor in
-                self?.lastFailureMessage = "Background task expired before workout processing took over."
-                AppDiagnosticsRecorder.shared.record(
-                    "headphone_background_task_expired",
-                    level: .warning
-                )
-                self?.endBackgroundTask()
-            }
-        }
-        AppDiagnosticsRecorder.shared.record("headphone_background_task_started")
-    }
-
-    private func endBackgroundTask() {
-        guard backgroundTaskID != .invalid else { return }
-
-        UIApplication.shared.endBackgroundTask(backgroundTaskID)
-        backgroundTaskID = .invalid
-        AppDiagnosticsRecorder.shared.record("headphone_background_task_ended")
-    }
-
     private func startWorkoutSessionIfAvailable(at startedAt: Date) {
         if workoutSession != nil {
             AppDiagnosticsRecorder.shared.record(
@@ -103,7 +72,6 @@ final class LiveClimbBackgroundSessionService: NSObject {
                 level: .warning,
                 details: ["reason": "already_running"]
             )
-            endBackgroundTask()
             return
         }
 
@@ -112,14 +80,6 @@ final class LiveClimbBackgroundSessionService: NSObject {
                 "hk_workout_session_unavailable",
                 level: .warning,
                 details: ["reason": "health_data_unavailable"]
-            )
-            return
-        }
-
-        guard #available(iOS 26.0, *) else {
-            AppDiagnosticsRecorder.shared.record(
-                "hk_workout_session_unavailable",
-                details: ["reason": "ios_version_below_26"]
             )
             return
         }
@@ -154,7 +114,6 @@ final class LiveClimbBackgroundSessionService: NSObject {
         }
     }
 
-    @available(iOS 26.0, *)
     private func configureLiveWorkoutBuilderIfAvailable(
         for session: HKWorkoutSession,
         configuration: HKWorkoutConfiguration,
@@ -188,7 +147,6 @@ final class LiveClimbBackgroundSessionService: NSObject {
         }
     }
 
-    @available(iOS 26.0, *)
     private func stopWorkoutBuilder(at endedAt: Date) {
         guard let builder = workoutBuilder as? HKLiveWorkoutBuilder else { return }
 
@@ -215,7 +173,6 @@ final class LiveClimbBackgroundSessionService: NSObject {
         }
     }
 
-    @available(iOS 26.0, *)
     private func recoverActiveWorkoutSession() async throws -> HKWorkoutSession? {
         try await withCheckedThrowingContinuation { continuation in
             healthStore.recoverActiveWorkoutSession { session, error in
@@ -228,7 +185,6 @@ final class LiveClimbBackgroundSessionService: NSObject {
         }
     }
 
-    @available(iOS 26.0, *)
     private func attachRecoveredWorkoutSession(_ session: HKWorkoutSession) {
         session.delegate = self
         workoutSession = session
@@ -271,17 +227,12 @@ extension LiveClimbBackgroundSessionService: HKWorkoutSessionDelegate {
                 ]
             )
             switch toState {
-            case .running:
-                endBackgroundTask()
             case .ended:
                 if self.workoutSession === workoutSession {
                     self.workoutSession?.delegate = nil
                     self.workoutSession = nil
                 }
-                if #available(iOS 26.0, *) {
-                    stopWorkoutBuilder(at: date)
-                }
-                endBackgroundTask()
+                stopWorkoutBuilder(at: date)
             default:
                 break
             }
@@ -303,15 +254,11 @@ extension LiveClimbBackgroundSessionService: HKWorkoutSessionDelegate {
                 self.workoutSession?.delegate = nil
                 self.workoutSession = nil
             }
-            if #available(iOS 26.0, *) {
-                stopWorkoutBuilder(at: Date())
-            }
-            endBackgroundTask()
+            stopWorkoutBuilder(at: Date())
         }
     }
 }
 
-@available(iOS 26.0, *)
 extension LiveClimbBackgroundSessionService: HKLiveWorkoutBuilderDelegate {
     nonisolated func workoutBuilderDidCollectEvent(
         _ workoutBuilder: HKLiveWorkoutBuilder
