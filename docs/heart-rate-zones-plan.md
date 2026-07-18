@@ -137,15 +137,15 @@ Broadcast; Garmin ANT+/BLE broadcast limitations).
 
 ## Ascend architecture intersections (added at capture — check before building)
 
-How this plan collides with existing CLAUDE.md rules and the codebase:
+How this plan collides with existing CLAUDE.md / project skill rules and the codebase:
 
-1. **Watch companion vs. the no-HealthKit-writes rule.** CLAUDE.md: the live-session
-   background-execution helper "must not write HealthKit workouts or request new Health
-   permissions." A watchOS `HKWorkoutSession` *writes a workout to Health by design*. Different
-   component, so not a direct contradiction — but the watch-written workout will look exactly
-   like an Apple Health stair workout to the existing import facade. It must carry a provenance
-   link / dedupe guard so it can't re-import as a separate session or double-enrich the Live
-   Climb. Update the enrichment matching rules in the same change.
+1. **Watch companion vs. the no-HealthKit-writes rule.** Per the `ascend-live-climbs` skill, the
+   live-session background-execution helper "must not write HealthKit workouts or request new
+   Health permissions." A watchOS `HKWorkoutSession` *writes a workout to Health by design*.
+   Different component, so not a direct contradiction — but the watch-written workout will look
+   exactly like an Apple Health stair workout to the existing import facade. It must carry a
+   provenance link / dedupe guard so it can't re-import as a separate session or double-enrich
+   the Live Climb. Update the enrichment matching rules in the same change.
 2. **BLE HR is a new sensor source — use the existing seams.** Sensor capture lives behind the
    shared service layer; checkpoints are source-neutral. HR samples should flow through the same
    source-neutral recorder pattern into the existing heart-rate sidecar
@@ -154,7 +154,7 @@ How this plan collides with existing CLAUDE.md rules and the codebase:
 3. **Compliance ripple (same-PR rule).** CoreBluetooth requires `NSBluetoothAlwaysUsageDescription`
    in Info.plist — not present today (confirmed absent in the launch audit; nothing uses BLE yet).
    Privacy manifest + App Store privacy labels + privacy policy must move in the same PR per the
-   Privacy Manifest Maintenance Rule. Heart-rate collection is already declared via HealthKit
+   `ascend-privacy-manifest` skill. Heart-rate collection is already declared via HealthKit
    types; verify Bluetooth-sourced HR doesn't change the declared sources.
 4. **watchOS target = real maintenance surface.** Third target: match provisioning, CI lanes,
    its own privacy manifest, App Store screenshots for Watch. This supports the note's lean —

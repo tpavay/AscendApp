@@ -46,7 +46,7 @@ Typical prompt:
 Assess unresolved production Sentry errors from the past 14 days. Prioritize them, explain likely root causes, and fix the top actionable issue.
 ```
 
-Use `.agents/skills/ascend-error-triage/SKILL.md` for the triage rubric.
+Use `.claude/skills/sentry/SKILL.md` for the triage rubric.
 
 ## Debug Symbols
 

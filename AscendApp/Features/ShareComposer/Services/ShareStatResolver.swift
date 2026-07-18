@@ -4,8 +4,8 @@ import Foundation
 ///
 /// Pure value type (no SwiftUI, no side effects) so the stat catalog and its
 /// formatting are unit-testable without a view tree — per CLAUDE.md's
-/// testability and "stat values are read from canonical data, never recomputed
-/// or stored on a share model" rules.
+/// testability rule and the `ascend-share-composer` skill's "stat values are
+/// read from canonical data, never recomputed or stored on a share model" rule.
 struct ShareStatResolver {
     let workout: Workout
     let measurementSystem: MeasurementSystem
