@@ -206,6 +206,15 @@ struct RootView: View {
                 debugLog("Workout hydration failed: \(error)")
             }
 
+            // Pull the server-derived completed-climb projection into the cache
+            // so the globe / Collection / totalClimbsCompleted are correct on an
+            // in-place UPDATE too, not just a reinstall - independent of whether
+            // the legacy hydration path ran on this install.
+            await ClimbCompletionRepository.shared.refresh(
+                userId: currentUserId,
+                modelContext: modelContext
+            )
+
             await WorkoutSyncCoordinator.shared.processPendingWorkouts(
                 modelContext: modelContext,
                 currentUserId: currentUserId

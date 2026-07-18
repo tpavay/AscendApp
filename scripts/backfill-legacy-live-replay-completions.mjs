@@ -39,11 +39,12 @@ import {
   initFirestore,
   beginRun,
 } from "./lib/migration-discipline.mjs";
+import {
+  isRecoverableLegacyCompletionForWorkout,
+} from "./lib/legacy-climb-completion.mjs";
 
 const OPERATION_ID = "migration/legacy-live-replay-completions";
 const OPERATION_VERSION = 1;
-const HEADPHONE_MOTION_SOURCE = "headphone_motion";
-const TARGET_REACHED_STOP_REASON = "target_reached";
 const SPLIT_INTERVAL_SECONDS = 10;
 const MAX_SPLIT_CHECKPOINTS = 360;
 
@@ -116,7 +117,7 @@ async function planReconstructions(firestore) {
       continue;
     }
 
-    if (!isRecoverableLegacyCompletion(data, metadata)) {
+    if (!isRecoverableLegacyCompletionForWorkout(data, metadata)) {
       continue;
     }
     recoverable += 1;
@@ -166,31 +167,6 @@ async function applyReconstructions(firestore, reconstructions) {
     written += 1;
   }
   return written;
-}
-
-/**
- * The shared legacy-completion contract, mirrored from
- * functions/src/legacyClimbCompletion.ts and the Swift predicate.
- * @param {Record<string, unknown>} data Workout data.
- * @param {Record<string, unknown>} metadata Parsed source metadata.
- * @return {boolean} True when this is a trusted legacy completion.
- */
-function isRecoverableLegacyCompletion(data, metadata) {
-  if (stringValue(metadata.source) !== HEADPHONE_MOTION_SOURCE) {
-    return false;
-  }
-  const climbId = stringValue(metadata.climbId);
-  if (!climbId) {
-    return false;
-  }
-
-  const steps = integerValue(data.steps) ?? 0;
-  const target = integerValue(metadata.climbTargetStepCount) ??
-    integerValue(metadata.targetStepCount);
-  if (target !== null && target > 0) {
-    return steps >= target;
-  }
-  return stringValue(metadata.stopReason) === TARGET_REACHED_STOP_REASON;
 }
 
 /**
@@ -306,16 +282,5 @@ function numberValue(value) {
 function integerValue(value) {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ?
     value :
-    null;
-}
-
-/**
- * Parses a non-empty string.
- * @param {unknown} value Raw value.
- * @return {string | null} Parsed string.
- */
-function stringValue(value) {
-  return typeof value === "string" && value.trim().length > 0 ?
-    value.trim() :
     null;
 }
