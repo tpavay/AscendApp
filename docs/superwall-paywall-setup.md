@@ -47,7 +47,7 @@ Copy:
 
 - Headline: `Try 7 Days Free`
 - Benefits:
-  - `Choose from 100+ landmarks to climb`
+  - `Choose from 75 landmarks to climb`
   - `Improve with personalized climbing plan`
   - `Track records and ascents`
 - Yearly plan:
