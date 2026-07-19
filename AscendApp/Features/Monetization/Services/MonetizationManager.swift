@@ -87,12 +87,26 @@ final class MonetizationManager {
         try await entitlementService.restorePurchases()
     }
 
-    func presentPaywall(_ placement: SuperwallPlacement, params: [String: Any]? = nil) {
+    func presentPaywall(
+        _ placement: SuperwallPlacement,
+        params: [String: Any]? = nil,
+        onOutcome: @escaping @MainActor (PaywallPresentationOutcome) -> Void = { _ in }
+    ) {
         LifecycleEventRecorder.shared.recordPaywallReached(
             placement: placement.rawValue
         )
         trackPaywallReached(placement, params: params)
-        paywallPresenter.register(placement: placement, params: params)
+
+        guard paywallPresenter.isConfigured else {
+            onOutcome(.failed(message: "Superwall is not configured for this build."))
+            return
+        }
+
+        paywallPresenter.register(
+            placement: placement,
+            params: params,
+            onOutcome: onOutcome
+        )
     }
 
     #if DEBUG
