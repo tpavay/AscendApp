@@ -886,9 +886,9 @@ struct ClimbDetailView: View {
                 communityStatsRow
             }
 
-            primaryActionRow
-
             trackingExplainerRow
+
+            primaryActionRow
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
@@ -1808,6 +1808,9 @@ struct ClimbDetailView: View {
     /// this row is always visible on the overview, so climbers arriving from
     /// Browse, Home, or a push climb drop still learn that their headphones -
     /// not a watch or phone - are the step tracker before their first attempt.
+    /// It renders directly *above* `primaryActionRow` so it lands before the
+    /// Start Live Climb button in scroll order - a climber reads how tracking
+    /// works without scrolling past the CTA. Keep it above the button.
     private var trackingExplainerRow: some View {
         Button {
             TelemetryManager.shared.track(
