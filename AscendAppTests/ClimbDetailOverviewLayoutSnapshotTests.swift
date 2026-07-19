@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import Testing
 import UIKit
@@ -28,10 +29,13 @@ struct ClimbDetailOverviewLayoutSnapshotTests {
         let image = try #require(renderer.uiImage, "ImageRenderer produced no image")
         let png = try #require(image.pngData(), "UIImage produced no PNG data")
 
-        let dir = URL(fileURLWithPath:
-            "/var/folders/m3/qgj4gq85293_kqsxz93qlp3m0000gn/T/no-mistakes-evidence/01KXVST5X9PQZRHQMXV49WQHYY")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        try png.write(to: dir.appendingPathComponent("climb-detail-overview-ordering.png"))
+        // Write to a portable evidence directory: the harness-provided override when
+        // present, otherwise the always-writable temp dir. Never a hardcoded machine
+        // path - that exists only on one Mac and fails on CI runners.
+        let directory = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
+            ?? NSTemporaryDirectory()
+        let url = URL(filePath: directory).appending(path: "climb-detail-overview-ordering.png")
+        try png.write(to: url)
 
         #expect(image.size.width > 0)
         #expect(image.size.height > 0)
