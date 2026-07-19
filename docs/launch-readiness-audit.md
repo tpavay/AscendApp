@@ -8,7 +8,7 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
 | Area | Verdict |
 |---|---|
 | Live Climb hero loop | **Ship-ready** — wired end-to-end, zero TODO/fatalError on the critical path |
-| Monetization | **Plumbing wired; commerce config + trial promise missing** |
+| Monetization | **Plumbing wired; commerce configuration pending** |
 | Auth & account lifecycle | ~~Two App Review blockers in account deletion~~ - **both fixed** (see blockers 1-2) |
 | Environments & release pipeline | **Solid** — one bundling verification + secrets checklist |
 
@@ -31,7 +31,8 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
 
 ## 🟠 Promise vs. reality
 
-8. **Trial-extension ("trial extends as you complete climbs") has zero implementation** — no model, no extension call on workout completion, no UI. Cut the claim for v1 or scope the feature. (Same overclaim class as the paywall's "100+ landmarks" line — see superwall-paywall notes.)
+8. **Paywall overclaims removed.** Repo-controlled paywall and onboarding copy now use the exact 75-landmark catalog count and make no climb-earned trial promise.
+   Verify the same copy in the Superwall dashboard before launch.
 9. **No paywall-priming stage** in `PostAuthOnboardingStage` (stages: displayName, gender, age, weight, location, notifications, planLoading, firstClimb). Flow hits the hard gate cold after onboarding. Conversion polish, not a blocker.
 10. **No fallback UI** on `AppAccessPaywallPlaceholderView` if Superwall config fails — users would see "unavailable" with no purchase path.
 

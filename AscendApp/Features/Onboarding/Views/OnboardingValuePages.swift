@@ -14,7 +14,7 @@ enum OnboardingValuePages {
         OnboardingValuePage(
             id: "reason_to_come_back",
             headline: "Never get bored on the climb",
-            subtitle: "Choose from hundreds of landmarks to climb and compete against others.",
+            subtitle: "Choose from 75 landmarks to climb and compete against others.",
             heroImageName: "OnboardingConsistencyHero",
             background: .solid(Color(red: 0x11 / 255, green: 0x11 / 255, blue: 0x11 / 255)),
             heroPresentation: .fullBleed,

@@ -57,7 +57,7 @@ First Ascent slot. This is the core retention loop.
 ## Monetization (relevant to onboarding)
 
 **Hard paywall, no freemium tier.** Two paths: a discounted **yearly** plan with a free
-trial that *extends as the user completes climbs*, and a shorter recurring plan
+trial, and a shorter recurring plan
 (monthly/weekly, TBD). Onboarding is a **conversion funnel that ends at a hard paywall** —
 not a tutorial.
 
