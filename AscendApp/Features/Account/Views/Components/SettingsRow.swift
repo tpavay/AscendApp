@@ -21,6 +21,7 @@ struct SettingsRow: View {
                     rowContent
                 }
                 .buttonStyle(.plain)
+                .disabled(!option.isEnabled)
             } else {
                 rowContent
             }
@@ -41,13 +42,19 @@ struct SettingsRow: View {
             
             Spacer()
             
-            // Chevron
-            AppIcon(token: .disclosureChevronRight, pointSize: 14, weight: .medium)
-                .foregroundStyle(option.isDestructive ? .red.opacity(0.6) : .white.opacity(0.6))
+            if option.isLoading {
+                ProgressView()
+                    .tint(.white)
+                    .accessibilityLabel("Restoring purchases")
+            } else {
+                AppIcon(token: .disclosureChevronRight, pointSize: 14, weight: .medium)
+                    .foregroundStyle(option.isDestructive ? .red.opacity(0.6) : .white.opacity(0.6))
+            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
         .contentShape(Rectangle())
+        .opacity(option.isEnabled ? 1 : 0.6)
     }
 }
 
