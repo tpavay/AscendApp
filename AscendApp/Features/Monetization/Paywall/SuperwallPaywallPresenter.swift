@@ -38,9 +38,13 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
         Superwall.shared.reset()
     }
 
-    func register(placement: SuperwallPlacement, params: [String: Any]? = nil) {
+    func register(
+        placement: SuperwallPlacement,
+        params: [String: Any]? = nil,
+        onOutcome: @escaping @MainActor (PaywallPresentationOutcome) -> Void
+    ) {
         guard isConfigured else { return }
-        let handler = makePresentationHandler(for: placement)
+        let handler = makePresentationHandler(for: placement, onOutcome: onOutcome)
 
         Superwall.shared.register(
             placement: placement.rawValue,
@@ -50,8 +54,26 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
         )
     }
 
-    private func makePresentationHandler(for placement: SuperwallPlacement) -> PaywallPresentationHandler {
+    private func makePresentationHandler(
+        for placement: SuperwallPlacement,
+        onOutcome: @escaping @MainActor (PaywallPresentationOutcome) -> Void
+    ) -> PaywallPresentationHandler {
         let handler = PaywallPresentationHandler()
+
+        handler.onPresent { _ in
+            onOutcome(.presented)
+        }
+
+        handler.onDismiss { _, result in
+            switch result {
+            case .purchased:
+                onOutcome(.purchased)
+            case .restored:
+                onOutcome(.restored)
+            case .declined:
+                onOutcome(.dismissedWithoutPurchase)
+            }
+        }
 
         handler.onSkip { reason in
             Self.logger.warning("Superwall skipped placement \(placement.rawValue, privacy: .public): \(String(describing: reason), privacy: .public)")
@@ -64,6 +86,7 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
                     ]
                 )
             )
+            onOutcome(.skipped(reason: String(describing: reason)))
         }
 
         handler.onError { error in
@@ -77,6 +100,7 @@ final class SuperwallPaywallPresenter: PaywallPresenting {
                     ]
                 )
             )
+            onOutcome(.failed(message: error.localizedDescription))
         }
 
         return handler

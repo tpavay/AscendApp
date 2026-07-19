@@ -3,7 +3,8 @@ import SwiftUI
 struct AppAccessPaywallPlaceholderView: View {
     @Environment(MonetizationManager.self) private var monetizationManager
 
-    @State private var didPresentPaywall = false
+    @State private var hasAttemptedAutomaticPresentation = false
+    @State private var presentationState = AppAccessPaywallPresentationState.ready
     @State private var restoreState: RestoreState?
 
     private enum RestoreState: Equatable {
@@ -37,19 +38,29 @@ struct AppAccessPaywallPlaceholderView: View {
 
             VStack(spacing: 12) {
                 Button(action: presentPaywall) {
-                    Text(monetizationManager.isSuperwallConfigured ? "Continue" : "Paywall Unavailable")
+                    Text(presentationState.primaryButtonTitle)
                         .font(.montserratBold(size: 16))
-                        .foregroundStyle(.black.opacity(monetizationManager.isSuperwallConfigured ? 0.9 : 0.48))
+                        .foregroundStyle(.black.opacity(presentationState.isPrimaryButtonEnabled ? 0.9 : 0.48))
                         .frame(maxWidth: .infinity)
                         .frame(height: 54)
                         .background(
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(Color.ascendAccent.opacity(monetizationManager.isSuperwallConfigured ? 1 : 0.52))
+                                .fill(Color.ascendAccent.opacity(presentationState.isPrimaryButtonEnabled ? 1 : 0.52))
                         )
                 }
                 .buttonStyle(.plain)
-                .disabled(!monetizationManager.isSuperwallConfigured)
+                .disabled(!presentationState.isPrimaryButtonEnabled)
                 .accessibilityHint("Presents the Ascend subscription paywall.")
+
+                if let statusMessage = presentationState.statusMessage {
+                    Text(statusMessage)
+                        .font(.montserratMedium(size: 13))
+                        .foregroundStyle(.white.opacity(0.68))
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("appAccessPaywallStatus")
+                }
 
                 Button(action: restorePurchases) {
                     Text(restoreButtonTitle)
@@ -85,25 +96,25 @@ struct AppAccessPaywallPlaceholderView: View {
         .padding(.horizontal, 28)
         .themedBackground()
         .onAppear {
-            presentPaywall()
+            presentPaywallAutomaticallyIfNeeded()
         }
     }
 
-    private func presentPaywall() {
-        guard monetizationManager.isSuperwallConfigured else { return }
-        guard !didPresentPaywall else {
-            monetizationManager.presentPaywall(
-                .appAccessGate,
-                params: ["source": "paywall_placeholder_retry"]
-            )
-            return
-        }
+    private func presentPaywallAutomaticallyIfNeeded() {
+        guard !hasAttemptedAutomaticPresentation else { return }
+        hasAttemptedAutomaticPresentation = true
+        presentPaywall()
+    }
 
-        didPresentPaywall = true
+    private func presentPaywall() {
+        let source = presentationState == .ready ? "app_access_gate" : "paywall_placeholder_retry"
+        presentationState.beginPresentation()
         monetizationManager.presentPaywall(
             .appAccessGate,
-            params: ["source": "app_access_gate"]
-        )
+            params: ["source": source]
+        ) { outcome in
+            presentationState.handle(outcome)
+        }
     }
 
     private var restoreButtonTitle: String {
