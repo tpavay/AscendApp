@@ -31,6 +31,9 @@ Local-first with cloud backup. SwiftData is the editing surface and source of tr
 
 ### Identity and storage
 - Each workout has *one* durable identity - a stable UUID shared across the local `Workout`, its Firestore document at `users/{uid}/workouts/{workoutId}`, its heart-rate sidecar in Storage, and any associated media. One identity = cleanup and repair flows can act on all resources at once.
+- That identity has exactly one document-id spelling: the uppercase UUID string.
+  `firestore.rules` rejects any other casing on `users/{uid}/workouts/{workoutId}`, the client builds every workout document reference through `WorkoutDocumentID`, and Admin SDK scripts go through `scripts/lib/workout-document-id.mjs`.
+  Mixed casing silently forks one workout into two documents, so restore-time collisions are deduplicated newest-wins and recorded as `workout_backup_case_variant_duplicate`; existing dev/staging twins are merged by `scripts/cleanup-case-variant-workout-ids.mjs` (dry-run by default, production refused).
 - Firestore stores the workout's metadata and summary fields (averages, max HR, totals). Large time-series data (heart-rate samples) goes to Storage as a compressed sidecar - never embedded in Firestore documents. Firestore holds only pointers and summaries.
 - A workout is *fully synced* only when every component (Firestore document + Storage sidecar + media uploads) has succeeded. Partial success is not success.
 
