@@ -18,15 +18,17 @@
  * already exists is dropped when the payloads agree and otherwise resolved newest-first
  * through that collection's own recency field; a pair no timestamp can order blocks the
  * apply instead of being guessed at, and a non-canonical id with no surviving workout is
- * reported, never rewritten. Dropping a duplicate row removes a climber the leaderboard
- * summary already counted, so an affected context is recounted from its finishers and any
- * completion order left above that total is renumbered.
+ * reported, never rewritten. Dropping a duplicate bucket-zero row removes a climber the
+ * leaderboard summary already counted, so that context's completedCount and totalClimbers
+ * drop by exactly the number of rows removed - nothing is recounted from another
+ * collection, and permanent completion orders and rank snapshots are never touched.
  *
  * Writes are chunked, so a run can die with the workout renames committed and the
- * reference repairs, leaderboard recounts, or landmarkResults rebuild outstanding. The
- * projections, the renames, and the contexts this run owes a recount are all recorded on
- * the ledger before the first write and cleared only on success, so the next run folds them
- * back into its own plan and cannot report success on a vacuous verification. Reference repairs are also re-derived from live data - any id
+ * reference repairs, leaderboard decrements, or landmarkResults rebuild outstanding. The
+ * projections, the renames, and the exact counts this run owes each summary are all
+ * recorded on the ledger before the first write and cleared only on success, so the next
+ * run folds them back into its own plan and cannot report success on a vacuous
+ * verification. Reference repairs are also re-derived from live data - any id
  * still spelled non-canonically whose canonical workout exists is repaired - so a lost
  * ledger cannot strand them either. If a run fails and the operator will not re-run it,
  * `scripts/backfill-landmark-results.mjs` rebuilds the same projections. A carried repair
@@ -101,9 +103,13 @@ const carriedRepairs = pendingRepairs.filter((repair) => (
 const carriedRenames = pendingRepairs.filter(
   (repair) => repair.kind === WORKOUT_ID_RENAME_REPAIR_KIND
 );
-const carriedContextKeys = pendingRepairs
+const carriedSummaryRepairs = pendingRepairs
   .filter((repair) => repair.kind === REPLAY_SUMMARY_REPAIR_KIND)
-  .map((repair) => repair.contextKey);
+  .map(({contextKey, completedCount, totalClimbers}) => ({
+    contextKey,
+    completedCount,
+    totalClimbers,
+  }));
 const deleteCount = plan.merges.reduce((sum, merge) => sum + merge.deleteWorkoutIds.length, 0);
 const renames = planWorkoutIdReferenceRenames(
   plan.merges,
@@ -115,7 +121,7 @@ const referencePlan = planWorkoutIdReferenceRepairs(renames, references);
 const summaryPlan = planReplaySummaryRepairs(
   referencePlan.moves,
   references,
-  carriedContextKeys
+  carriedSummaryRepairs
 );
 
 console.log([
@@ -131,12 +137,10 @@ console.log([
   `Reference rows to move onto a canonical id: ${referencePlan.moves.length}`,
   `Reference fields to rewrite: ${referencePlan.fieldUpdates.length}`,
   `Blocked conflicting reference rows: ${referencePlan.conflicts.length}`,
-  `Replay contexts losing a duplicate row: ${summaryPlan.contextKeys.length}`,
-  `Leaderboard summaries to recount: ${summaryPlan.summaryUpdates.length}`,
-  `Finisher completion orders to renumber: ${summaryPlan.finisherUpdates.length}`,
+  `Leaderboard summaries to decrement: ${summaryPlan.summaryUpdates.length}`,
   `landmarkResults owed by an earlier unfinished run: ${carriedRepairs.length}`,
   `Workout id renames owed by an earlier unfinished run: ${carriedRenames.length}`,
-  `Replay recounts owed by an earlier unfinished run: ${carriedContextKeys.length}`,
+  `Summary decrements owed by an earlier unfinished run: ${carriedSummaryRepairs.length}`,
 ].join("\n"));
 
 for (const merge of plan.merges) {
@@ -169,15 +173,9 @@ for (const update of referencePlan.fieldUpdates) {
 }
 for (const update of summaryPlan.summaryUpdates) {
   console.log(
-    `SUMMARY ${update.contextKey}: completedCount ${update.previousCompletedCount} -> ` +
-      `${update.updates.completedCount}` +
-      `${"totalClimbers" in update.updates ? ", totalClimbers realigned" : ""}`
-  );
-}
-for (const update of summaryPlan.finisherUpdates) {
-  console.log(
-    `FINISHER ${update.parentPath}/${update.documentId}: globalCompletionOrder ` +
-      `${update.previousOrder} -> ${update.updates.globalCompletionOrder}`
+    `SUMMARY ${update.contextKey}: -${update.droppedRows} duplicate row(s) -> ` +
+      `completedCount ${update.updates.completedCount}, ` +
+      `totalClimbers ${update.updates.totalClimbers}`
   );
 }
 for (const note of summaryPlan.notes) {
@@ -259,9 +257,9 @@ try {
       workoutId,
       canonicalWorkoutId,
     })),
-    ...summaryPlan.contextKeys.map((contextKey) => ({
+    ...summaryPlan.owedRepairs.map((repair) => ({
       kind: REPLAY_SUMMARY_REPAIR_KIND,
-      contextKey,
+      ...repair,
     })),
   ]);
   await commitUnits(db, units, batchSizes);
@@ -280,8 +278,8 @@ try {
     referenceRowsMoved: referencePlan.moves.length,
     referenceFieldsRewritten: referencePlan.fieldUpdates.length,
     unresolvedReferences: referencePlan.unresolved.length,
-    replaySummariesRecounted: summaryPlan.summaryUpdates.length,
-    finisherOrdersRenumbered: summaryPlan.finisherUpdates.length,
+    replaySummariesDecremented: summaryPlan.summaryUpdates.length,
+    replaySummariesLeftForBackfill: summaryPlan.notes.length,
     landmarkResultsWritten: affectedProjections.length - staleProjections.length,
     landmarkResultsDeleted: staleProjections.length,
   });
@@ -469,13 +467,6 @@ function buildMigrationUnits(
       merge: true,
     }]);
   }
-  for (const update of summaryPlan.finisherUpdates) {
-    units.push([{
-      ref: firestore.collection(update.parentPath).doc(update.documentId),
-      data: update.updates,
-      merge: true,
-    }]);
-  }
   for (const item of affectedProjections) {
     units.push([{
       ref: landmarkResultRef(firestore, item),
@@ -520,11 +511,15 @@ async function verifyWorkoutIdReferences(firestore, renames, summaryPlan) {
     );
   }
 
-  const summaryVerification = planReplaySummaryRepairs([], references, summaryPlan.contextKeys);
+  const summaryVerification = planReplaySummaryRepairs(
+    [],
+    references,
+    summaryPlan.owedRepairs
+  );
   if (summaryVerification.summaryUpdates.length > 0) {
     throw new Error(
-      `Verification still found ${summaryVerification.summaryUpdates.length} replay ` +
-        "summary(ies) counting more climbers than the context has finishers."
+      `Verification found ${summaryVerification.summaryUpdates.length} replay summary(ies) ` +
+        "that did not land on the counts this run removed duplicate rows from."
     );
   }
 }

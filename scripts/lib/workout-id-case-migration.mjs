@@ -249,7 +249,7 @@ export const WORKOUT_ID_REFERENCE_SHAPES = Object.freeze([
     keyedByWorkoutId: false,
     workoutIdFields: Object.freeze(["bestWorkoutId", "firstWorkoutId"]),
     recencyFields: Object.freeze(["updatedAt"]),
-    plannerFields: Object.freeze(["globalCompletionOrder", "userId"]),
+    plannerFields: Object.freeze([]),
   }),
   Object.freeze({
     segments: Object.freeze(["live_replay_leaderboards", "*", "userBestAttempts", "*"]),
@@ -452,136 +452,126 @@ function resolveDuplicateReference(staleData, canonicalData, recencyFields = [])
 /**
  * Plans the leaderboard-summary repair owed by dropping duplicate split-bucket rows.
  *
- * Deleting a stale twin removes a row the summary already counted, so a context that loses
- * one can be left claiming more climbers than it has. The surviving canonical source for
- * that count is the finisher collection - the server increments `completedCount` once per
- * new finisher - so an affected context is recounted from its finishers, and any
- * `globalCompletionOrder` left above the recounted total is renumbered densely, preserving
- * the existing chronological order.
+ * Deleting a stale twin removes a bucket-zero row the summary already counted, so the only
+ * change this migration can prove is that exact removal: each dropped duplicate lowers the
+ * owning context's `completedCount` and `totalClimbers` by one. Nothing is recomputed from
+ * scratch - the synthetic replay seed writes summaries with no finishers at all and keeps
+ * `totalClimbers` above `completedCount` on purpose, so any total inferred from another
+ * collection would overwrite real fixture data. A move that merely renames a row onto its
+ * canonical id changes no count and is ignored here.
  *
- * The recount only ever removes inflation. A summary already at or below the finisher count
- * is drift this migration did not cause, so it is reported and left alone rather than
- * silently rewritten, as is a context whose orders cannot be renumbered unambiguously.
+ * A summary that cannot absorb the delta - missing, non-integer, or smaller than the number
+ * of rows removed - is reported and left untouched. Completion orders and the point-in-time
+ * rank snapshots derived from them are never rewritten; they are permanent.
  * @param {object[]} moves Planned reference moves.
  * @param {object[]} references Scanned workout-id references.
- * @param {string[]} carriedContextKeys Contexts an earlier unfinished run owes a recount.
- * @return {{contextKeys: string[], summaryUpdates: object[], finisherUpdates: object[], notes: object[]}}
- *   Planned recounts and the contexts left for an operator to look at.
+ * @param {{contextKey: string, completedCount: number, totalClimbers: number}[]} carriedRepairs
+ *   Expected counts an earlier unfinished run owes.
+ * @return {{summaryUpdates: object[], owedRepairs: object[], notes: object[]}}
+ *   Planned decrements, what to record on the ledger, and contexts left for an operator.
  */
-export function planReplaySummaryRepairs(moves, references, carriedContextKeys = []) {
-  const contextKeys = new Set(carriedContextKeys);
+export function planReplaySummaryRepairs(moves, references, carriedRepairs = []) {
+  const droppedRowsByContext = new Map();
   for (const move of moves) {
-    const contextKey = entriesParentContextKey(move.parentPath);
+    const contextKey = bucketZeroEntriesContextKey(move.parentPath);
     if (move.duplicate && contextKey) {
-      contextKeys.add(contextKey);
+      droppedRowsByContext.set(contextKey, (droppedRowsByContext.get(contextKey) ?? 0) + 1);
     }
   }
 
   const summaries = new Map();
-  const finishersByContext = new Map();
   for (const reference of references) {
     if (reference.parentPath === REPLAY_COLLECTION) {
       summaries.set(reference.documentId, reference);
-      continue;
-    }
-    const contextKey = childCollectionContextKey(reference.parentPath, "finishers");
-    if (contextKey) {
-      finishersByContext.set(contextKey, [...(finishersByContext.get(contextKey) ?? []), reference]);
     }
   }
 
   const summaryUpdates = [];
-  const finisherUpdates = [];
+  const owedRepairs = [];
   const notes = [];
-  for (const contextKey of [...contextKeys].sort()) {
+
+  for (const [contextKey, droppedRows] of [...droppedRowsByContext].sort()) {
     const summary = summaries.get(contextKey);
     if (!summary) {
-      notes.push({contextKey, reason: "no leaderboard summary document to recount"});
-      continue;
-    }
-
-    const finishers = finishersByContext.get(contextKey) ?? [];
-    const storedCount = positiveIntegerOrNull(summary.data.completedCount);
-    const recountedTotal = finishers.length;
-    if (storedCount === null || storedCount <= recountedTotal) {
       notes.push({
         contextKey,
-        reason: `completedCount ${String(summary.data.completedCount)} is not above the ` +
-          `${recountedTotal} surviving finisher(s) - left for the replay backfill`,
+        reason: `${droppedRows} duplicate row(s) removed but no leaderboard summary exists`,
       });
       continue;
     }
 
-    const updates = {completedCount: recountedTotal};
-    if (positiveIntegerOrNull(summary.data.totalClimbers) !== recountedTotal) {
-      updates.totalClimbers = recountedTotal;
-    }
-    summaryUpdates.push({contextKey, updates, previousCompletedCount: storedCount});
-
-    const renumbered = renumberFinishers(finishers, recountedTotal);
-    if (!renumbered) {
+    const expected = countsAfterRemoving(summary.data, droppedRows);
+    if (!expected) {
       notes.push({
         contextKey,
-        reason: "finisher completion orders are missing or duplicated - left unrenumbered",
+        reason: `completedCount ${String(summary.data.completedCount)} / totalClimbers ` +
+          `${String(summary.data.totalClimbers)} cannot absorb ${droppedRows} removed ` +
+          "row(s) - left for the replay backfill",
       });
       continue;
     }
-    finisherUpdates.push(...renumbered.map((update) => ({contextKey, ...update})));
+
+    summaryUpdates.push({contextKey, updates: expected, droppedRows});
+    owedRepairs.push({contextKey, ...expected});
+  }
+
+  for (const carried of carriedRepairs) {
+    if (droppedRowsByContext.has(carried.contextKey)) {
+      continue;
+    }
+    owedRepairs.push(carried);
+
+    const summary = summaries.get(carried.contextKey);
+    const expected = {
+      completedCount: carried.completedCount,
+      totalClimbers: carried.totalClimbers,
+    };
+    if (!summary) {
+      notes.push({contextKey: carried.contextKey, reason: "owed summary no longer exists"});
+      continue;
+    }
+    if (
+      summary.data.completedCount !== expected.completedCount ||
+      summary.data.totalClimbers !== expected.totalClimbers
+    ) {
+      summaryUpdates.push({contextKey: carried.contextKey, updates: expected, droppedRows: 0});
+    }
   }
 
   return {
-    contextKeys: [...contextKeys].sort(),
-    summaryUpdates,
-    finisherUpdates,
+    summaryUpdates: summaryUpdates.sort((lhs, rhs) => lhs.contextKey.localeCompare(rhs.contextKey)),
+    owedRepairs: owedRepairs.sort((lhs, rhs) => lhs.contextKey.localeCompare(rhs.contextKey)),
     notes: notes.sort((lhs, rhs) => lhs.contextKey.localeCompare(rhs.contextKey)),
   };
 }
 
-function renumberFinishers(finishers, recountedTotal) {
-  const orders = finishers.map((finisher) => ({
-    finisher,
-    order: positiveIntegerOrNull(finisher.data.globalCompletionOrder),
-  }));
-  if (orders.some((entry) => entry.order === null)) {
+function countsAfterRemoving(data, droppedRows) {
+  const completedCount = nonNegativeIntegerOrNull(data.completedCount);
+  const totalClimbers = nonNegativeIntegerOrNull(data.totalClimbers);
+  if (completedCount === null || totalClimbers === null) {
     return null;
   }
-  if (orders.every((entry) => entry.order <= recountedTotal)) {
-    return [];
-  }
-  if (new Set(orders.map((entry) => entry.order)).size !== orders.length) {
+  if (completedCount < droppedRows || totalClimbers < droppedRows) {
     return null;
   }
-
-  return orders
-    .sort((lhs, rhs) => lhs.order - rhs.order)
-    .map((entry, index) => ({
-      parentPath: entry.finisher.parentPath,
-      documentId: entry.finisher.documentId,
-      updates: {globalCompletionOrder: index + 1},
-      previousOrder: entry.order,
-    }))
-    .filter((update) => update.updates.globalCompletionOrder !== update.previousOrder);
+  return {
+    completedCount: completedCount - droppedRows,
+    totalClimbers: totalClimbers - droppedRows,
+  };
 }
 
-function entriesParentContextKey(parentPath) {
+function bucketZeroEntriesContextKey(parentPath) {
   const segments = parentPath.split("/");
-  const isEntriesPath = segments.length === 5 &&
+  const isBucketZeroEntriesPath = segments.length === 5 &&
     segments[0] === REPLAY_COLLECTION &&
     segments[2] === "splitBuckets" &&
+    segments[3] === "0" &&
     segments[4] === "entries";
-  return isEntriesPath ? segments[1] : null;
+  return isBucketZeroEntriesPath ? segments[1] : null;
 }
 
-function childCollectionContextKey(parentPath, collectionId) {
-  const segments = parentPath.split("/");
-  const matches = segments.length === 3 &&
-    segments[0] === REPLAY_COLLECTION &&
-    segments[2] === collectionId;
-  return matches ? segments[1] : null;
-}
-
-function positiveIntegerOrNull(value) {
-  return Number.isInteger(value) && value > 0 ? value : null;
+function nonNegativeIntegerOrNull(value) {
+  return Number.isInteger(value) && value >= 0 ? value : null;
 }
 
 function assertCompleteSource(reference) {

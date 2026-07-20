@@ -408,11 +408,10 @@ test("a reference scanned without its full payload can never be moved", () => {
   );
 });
 
-test("dropping a duplicate row recounts the summary and renumbers finishers", () => {
+test("dropping a duplicate row lowers the summary by exactly that row", () => {
   const references = [
-    summaryReference({completedCount: 3, totalClimbers: 3}),
-    finisherReference("user-1", 1),
-    finisherReference("user-2", 3),
+    summaryReference({completedCount: 89, totalClimbers: 96}),
+    finisherReference("user-1", 89),
     entryReference(LOWERCASE_ID),
     entryReference(UPPERCASE_ID),
   ];
@@ -423,22 +422,61 @@ test("dropping a duplicate row recounts the summary and renumbers finishers", ()
 
   const summaryPlan = planReplaySummaryRepairs(repairs.moves, references);
 
-  assert.deepEqual(summaryPlan.contextKeys, ["live_climb_empire"]);
   assert.deepEqual(summaryPlan.summaryUpdates, [{
     contextKey: "live_climb_empire",
-    updates: {completedCount: 2, totalClimbers: 2},
-    previousCompletedCount: 3,
+    updates: {completedCount: 88, totalClimbers: 95},
+    droppedRows: 1,
   }]);
-  assert.equal(summaryPlan.finisherUpdates.length, 1);
-  assert.equal(summaryPlan.finisherUpdates[0].documentId, "user-2");
-  assert.equal(summaryPlan.finisherUpdates[0].updates.globalCompletionOrder, 2);
+  assert.deepEqual(summaryPlan.notes, []);
 });
 
-test("a summary already at or below its finisher count is reported, not rewritten", () => {
+test("a seeded context with no finishers keeps its counts apart from the delta", () => {
   const references = [
-    summaryReference({completedCount: 2, totalClimbers: 2}),
-    finisherReference("user-1", 1),
-    finisherReference("user-2", 2),
+    summaryReference({completedCount: 89, totalClimbers: 96}),
+    entryReference(LOWERCASE_ID),
+    entryReference(UPPERCASE_ID),
+  ];
+  const repairs = planWorkoutIdReferenceRepairs(
+    [{workoutId: LOWERCASE_ID, canonicalWorkoutId: UPPERCASE_ID}],
+    references
+  );
+
+  const summaryPlan = planReplaySummaryRepairs(repairs.moves, references);
+
+  assert.deepEqual(summaryPlan.summaryUpdates[0].updates, {
+    completedCount: 88,
+    totalClimbers: 95,
+  });
+});
+
+test("duplicates outside bucket zero never touch the summary", () => {
+  const bucketFivePath = "live_replay_leaderboards/live_climb_empire/splitBuckets/5/entries";
+  const references = [
+    summaryReference({completedCount: 89, totalClimbers: 96}),
+    referenceFor(`${bucketFivePath}/${LOWERCASE_ID}`, {
+      updatedAt: fakeTimestamp(100),
+      workoutId: LOWERCASE_ID,
+    }),
+    referenceFor(`${bucketFivePath}/${UPPERCASE_ID}`, {
+      updatedAt: fakeTimestamp(100),
+      workoutId: UPPERCASE_ID,
+    }),
+  ];
+  const repairs = planWorkoutIdReferenceRepairs(
+    [{workoutId: LOWERCASE_ID, canonicalWorkoutId: UPPERCASE_ID}],
+    references
+  );
+
+  const summaryPlan = planReplaySummaryRepairs(repairs.moves, references);
+
+  assert.equal(repairs.moves.length, 1);
+  assert.deepEqual(summaryPlan.summaryUpdates, []);
+  assert.deepEqual(summaryPlan.owedRepairs, []);
+});
+
+test("a summary too small to absorb the delta is reported, not rewritten", () => {
+  const references = [
+    summaryReference({completedCount: 0, totalClimbers: 0}),
     entryReference(LOWERCASE_ID),
     entryReference(UPPERCASE_ID),
   ];
@@ -450,29 +488,35 @@ test("a summary already at or below its finisher count is reported, not rewritte
   const summaryPlan = planReplaySummaryRepairs(repairs.moves, references);
 
   assert.deepEqual(summaryPlan.summaryUpdates, []);
-  assert.deepEqual(summaryPlan.finisherUpdates, []);
   assert.equal(summaryPlan.notes.length, 1);
 });
 
-test("a recount owed by an earlier run is carried without any new duplicate", () => {
-  const references = [
-    summaryReference({completedCount: 4, totalClimbers: 4}),
-    finisherReference("user-1", 1),
-  ];
+test("a decrement owed by an earlier run is reapplied only when it did not land", () => {
+  const owed = {contextKey: "live_climb_empire", completedCount: 88, totalClimbers: 95};
 
-  const summaryPlan = planReplaySummaryRepairs([], references, ["live_climb_empire"]);
+  const outstanding = planReplaySummaryRepairs(
+    [],
+    [summaryReference({completedCount: 89, totalClimbers: 96})],
+    [owed]
+  );
+  const landed = planReplaySummaryRepairs(
+    [],
+    [summaryReference({completedCount: 88, totalClimbers: 95})],
+    [owed]
+  );
 
-  assert.deepEqual(summaryPlan.summaryUpdates[0].updates, {
-    completedCount: 1,
-    totalClimbers: 1,
-  });
-  assert.equal(summaryPlan.finisherUpdates.length, 0);
+  assert.deepEqual(outstanding.summaryUpdates, [{
+    contextKey: "live_climb_empire",
+    updates: {completedCount: 88, totalClimbers: 95},
+    droppedRows: 0,
+  }]);
+  assert.deepEqual(landed.summaryUpdates, []);
+  assert.deepEqual(landed.owedRepairs, [owed]);
 });
 
 test("renaming a row without a twin leaves the summary alone", () => {
   const references = [
     summaryReference({completedCount: 3, totalClimbers: 3}),
-    finisherReference("user-1", 1),
     entryReference(LOWERCASE_ID),
   ];
   const repairs = planWorkoutIdReferenceRepairs(
@@ -483,7 +527,7 @@ test("renaming a row without a twin leaves the summary alone", () => {
   const summaryPlan = planReplaySummaryRepairs(repairs.moves, references);
 
   assert.equal(repairs.moves[0].duplicate, false);
-  assert.deepEqual(summaryPlan.contextKeys, []);
+  assert.deepEqual(summaryPlan.owedRepairs, []);
   assert.deepEqual(summaryPlan.summaryUpdates, []);
 });
 
