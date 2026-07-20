@@ -368,7 +368,6 @@
 				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_PATH)",
 				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Resources/DWARF/${PRODUCT_NAME}.debug.dylib",
 				"$(SRCROOT)/scripts/link-firebase-plists.sh",
-				"$(SRCROOT)/scripts/upload-sentry-dsyms.sh",
 				"$(SRCROOT)/AscendApp/Info.plist",
 				"$(SRCROOT)/AscendApp/App/Firebase/GoogleService-Info-Dev.plist",
 				"$(SRCROOT)/AscendApp/App/Firebase/GoogleService-Info-Staging.plist",
@@ -381,7 +380,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -eu\n\n# Ensure local Firebase config plists are linked into this worktree.\n\"${SRCROOT}/scripts/link-firebase-plists.sh\"\n\n# Determine which GoogleService-Info plist to use\ncase \"${CONFIGURATION}\" in\n    \"Debug\")\n        GOOGLE_SERVICE_PLIST=\"${SRCROOT}/AscendApp/App/Firebase/GoogleService-Info-Dev.plist\"\n        ;;\n    \"Staging\")\n        GOOGLE_SERVICE_PLIST=\"${SRCROOT}/AscendApp/App/Firebase/GoogleService-Info-Staging.plist\"\n        ;;\n    \"Release\")\n        GOOGLE_SERVICE_PLIST=\"${SRCROOT}/AscendApp/App/Firebase/GoogleService-Info-Production.plist\"\n        ;;\nesac\n\n# Run Crashlytics with the correct plist\n\"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\" -gsp \"${GOOGLE_SERVICE_PLIST}\"\n\n# Upload dSYMs to Sentry when CI or the local shell provides SENTRY_AUTH_TOKEN.\n\"${SRCROOT}/scripts/upload-sentry-dsyms.sh\"\n";
+			shellScript = "set -eu\n\n# Ensure local Firebase config plists are linked into this worktree.\n\"${SRCROOT}/scripts/link-firebase-plists.sh\"\n\n# Determine which GoogleService-Info plist to use\ncase \"${CONFIGURATION}\" in\n    \"Debug\")\n        GOOGLE_SERVICE_PLIST=\"${SRCROOT}/AscendApp/App/Firebase/GoogleService-Info-Dev.plist\"\n        ;;\n    \"Staging\")\n        GOOGLE_SERVICE_PLIST=\"${SRCROOT}/AscendApp/App/Firebase/GoogleService-Info-Staging.plist\"\n        ;;\n    \"Release\")\n        GOOGLE_SERVICE_PLIST=\"${SRCROOT}/AscendApp/App/Firebase/GoogleService-Info-Production.plist\"\n        ;;\nesac\n\n# Run Crashlytics with the correct plist\n\"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\" -gsp \"${GOOGLE_SERVICE_PLIST}\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
