@@ -3,6 +3,7 @@ name: ascend-deploy
 description: Use when working on Ascend CI/CD - GitHub Actions workflows, the staging and production deploy pipelines, Firebase deploy ordering, deploy authentication, Fastlane lanes, match code signing, or TestFlight upload. Covers the required secrets, the deprecated ones, the real job graph, and the open OIDC / Workload Identity Federation migration.
 paths:
   - .github/workflows/**
+  - scripts/ci/**
   - fastlane/**
   - Gemfile
 ---
@@ -21,6 +22,15 @@ Read the workflow file before changing it - the job graph below is the contract,
 - `root-npm-verify` - audits the committed root lockfile with `--package-lock-only` (no install). Gated on changes to `package.json` / `package-lock.json`.
 - `ios-verify` - runs `test` only (no build step) with `-scheme "AscendApp-Staging" -configuration Staging ENABLE_TESTABILITY=YES`. It provisions the simulator at runtime via `xcrun simctl` against the newest installed iOS runtime - downloading the runtime if the image ships none - then reuses a preferred iPhone model, falls back to any iPhone, and finally creates one, failing only when the runtime supports no iPhone device type. It does not pass `CODE_SIGNING_ALLOWED=NO`.
 - `ios-verify-release` - the only job that compiles Release and the only place `CODE_SIGNING_ALLOWED=NO` appears, paired with `-scheme "AscendApp" -configuration Release -sdk iphoneos -destination "generic/platform=iOS"`. It exists so Release-only build errors surface on the PR instead of on the production deploy.
+
+`ios-verify` is the **only** job anywhere that compiles `AscendAppTests`. `ios-verify-release` builds the app target alone, and both deploy pipelines only build the IPA. So a test target that stops compiling shows up on exactly one check, and "Release passed" or "Deploy Staging on develop passed" is not evidence that the tree is healthy. That asymmetry is what made the 2026-07-20 `develop` breakage read as CI infrastructure flake.
+
+Two PRs that are each green on their own base can still break `develop` together: #248 added a call site and #251 added a parameter to the callee, merging 13 seconds apart. Nothing in CI re-verifies the merged result, so the next PR to rebase inherits the break. When a job starts failing on several unrelated branches at once, suspect the shared base before suspecting the runner.
+
+Both iOS jobs pipe `xcodebuild` through `tee`, then run `scripts/ci/summarize-xcodebuild-failure.sh` and upload `build-logs/` as an artifact. Only `ios-verify` passes `-resultBundlePath`, so only its artifact carries an `.xcresult` bundle alongside the raw log - `ios-verify-release` is a build with no test results to bundle.
+Both steps carry the same guard: `always()` plus an `xcodebuild` step outcome that is not `success`, not `skipped`, and not empty.
+`always()` is what covers a job killed by `timeout-minutes`, which reports `cancelled` rather than `failure` - the exact case the logs exist to explain.
+The outcome checks keep green runs from paying the upload, and keep the summarizer from annotating a log that was never written when an earlier step (simulator provisioning) failed first. `xcodebuild` interleaves diagnostics with the build commands of every target still in flight, so a compiler error routinely lands ~900 lines before the end of a 16,000-line log; read from the tail, the job looks like it died mid-copy of an SPM dependency with no diagnostic at all. The summarizer re-emits compiler errors and test failures as annotations, prints a resource snapshot, and says so explicitly when there genuinely is no diagnostic. Run it locally against a log downloaded with `gh api .../logs` - it strips the API's timestamp prefix.
 
 Every npm project is audit-gated at `--audit-level=low`, so any newly published advisory fails its verify job. In the jobs that install and prove code (`functions-verify`, `web-verify`) the audit runs last on purpose, so an advisory cannot hide the lint/test/build results that prove the code itself. Deliberate pins and overrides that keep those audits clean are documented in `docs/dependency-security.md`.
 

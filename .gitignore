@@ -5,6 +5,7 @@
 
 # Xcode
 build/
+build-logs/
 DerivedData/
 *.pbxuser
 !default.pbxuser
