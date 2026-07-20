@@ -131,6 +131,7 @@ struct WorkoutDetailView: View {
             }
         }
         .task(id: workout.id) {
+            refreshAppleHealthHeartRateStatus()
             await loadLiveClimbCompletionRankIfNeeded()
             await retryAppleHealthEnrichmentIfNeeded()
         }
@@ -942,7 +943,7 @@ struct WorkoutDetailView: View {
     private func retryAppleHealthEnrichmentIfNeeded() async {
         refreshAppleHealthHeartRateStatus()
 
-        switch appleHealthHeartRateStatus {
+        switch importCoordinator.appleHealthEnrichmentStatus(for: workout) {
         case .linkPending, .metricsPending:
             await importCoordinator.enrichInAppWorkoutWithAppleHealthIfPossible(
                 workout,

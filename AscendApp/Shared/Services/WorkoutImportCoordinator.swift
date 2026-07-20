@@ -537,15 +537,6 @@ final class WorkoutImportCoordinator {
         return appleHealthEnrichmentStatus(for: workout)
     }
 
-    func hasPendingAppleHealthHeartRateEnrichment(for workout: Workout) -> Bool {
-        switch appleHealthHeartRateEnrichmentStatus(for: workout) {
-        case .linkPending, .metricsPending:
-            return true
-        case .notPending, .metricsStalled, .complete:
-            return false
-        }
-    }
-
     private func performAppleHealthRefreshIfNeeded(trigger: ImportRefreshTrigger) async -> Bool {
         guard authorizationController.isHealthDataAvailable else { return false }
 
