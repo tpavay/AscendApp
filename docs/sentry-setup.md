@@ -56,6 +56,9 @@ The staging and production workflows install a pinned Sentry CLI before invoking
 The upload waits for Sentry to process the files under an explicit bounded timeout, so a degraded Sentry queue fails fast with a Sentry-specific error instead of consuming the release job's timeout.
 Any missing token, CLI, archive dSYM directory, or upload failure stops the CI build before an unreadable IPA can reach TestFlight.
 
+The script takes the dSYM directory to upload as its first argument; the lanes pass the archive's `dSYMs` folder.
+With no argument it falls back to `DWARF_DSYM_FOLDER_PATH`.
+
 Required CI/build environment:
 
 - `SENTRY_AUTH_TOKEN`: secret token used by `sentry-cli`.
