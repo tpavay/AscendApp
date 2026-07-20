@@ -15,7 +15,8 @@ const storageRules = readFileSync(new URL('../../storage.rules', import.meta.url
 
 const userId = 'user-123';
 const otherUserId = 'user-456';
-const workoutId = '550e8400-e29b-41d4-a716-446655440000';
+const workoutId = '550E8400-E29B-41D4-A716-446655440000';
+const lowercaseWorkoutId = workoutId.toLowerCase();
 const mediaId = '11111111-1111-1111-1111-111111111111';
 const secondMediaId = '22222222-2222-2222-2222-222222222222';
 const weightEntryId = '33333333-3333-3333-3333-333333333333';
@@ -150,6 +151,20 @@ test('owner can write a valid workout backup document', async () => {
     },
     heartRateSeries: makeHeartRateSeriesReference(userId, workoutId),
   })));
+});
+
+test('workout document ids must be the uppercase canonical UUID', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${lowercaseWorkoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument()));
+});
+
+test('workout document ids must match the UUID group shape', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${'-'.repeat(36)}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument()));
 });
 
 test('owner can write a workout with routine template participation', async () => {

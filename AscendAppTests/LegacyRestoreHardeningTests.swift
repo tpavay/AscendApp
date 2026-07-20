@@ -3,6 +3,7 @@
 //  AscendAppTests
 //
 
+import FirebaseFirestore
 import Foundation
 import SwiftData
 import Testing
@@ -149,6 +150,57 @@ struct LegacyRestoreHardeningTests {
         let decodeFailure = recorder.recentEvents().first { $0.name == "workout_backup_decode_failed" }
         #expect(decodeFailure != nil)
         #expect(decodeFailure?.details["workout_id"] == bad)
+    }
+
+    @Test
+    func caseVariantBackupsDecodeAsOneWorkoutAndRecordAnError() throws {
+        let suiteName = "case-variant-workout-id-\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { userDefaults.removePersistentDomain(forName: suiteName) }
+        let recorder = AppDiagnosticsRecorder(userDefaults: userDefaults)
+        let lowercase = "51c91094-5475-4b25-ab8f-a5d809f90a2f"
+        let uppercase = lowercase.uppercased()
+        let data = Self.validWorkoutData(steps: 2_096)
+
+        let records = WorkoutRemoteRepository.shared.decodeRecords(
+            from: [(lowercase, data), (uppercase, data)],
+            diagnostics: recorder
+        )
+
+        let record = try #require(records.first)
+        #expect(records.count == 1)
+        #expect(record.workoutId.uuidString == uppercase)
+
+        let duplicate = recorder.recentEvents().first {
+            $0.name == "workout_backup_case_variant_duplicate"
+        }
+        #expect(duplicate?.level == .error)
+        #expect(duplicate?.details["canonical_workout_id"] == uppercase)
+        #expect(duplicate?.details["document_ids"] == [uppercase, lowercase].sorted().joined(separator: ","))
+    }
+
+    @Test
+    func caseVariantBackupDedupKeepsTheNewestPayload() throws {
+        let suiteName = "case-variant-workout-id-dedup-\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { userDefaults.removePersistentDomain(forName: suiteName) }
+        let recorder = AppDiagnosticsRecorder(userDefaults: userDefaults)
+        let lowercase = "51c91094-5475-4b25-ab8f-a5d809f90a2f"
+        let uppercase = lowercase.uppercased()
+        var olderCanonical = Self.validWorkoutData(steps: 1_000)
+        olderCanonical["updatedAt"] = Timestamp(date: Date(timeIntervalSince1970: 100))
+        var newerAlias = Self.validWorkoutData(steps: 2_000)
+        newerAlias["updatedAt"] = Timestamp(date: Date(timeIntervalSince1970: 200))
+
+        let records = WorkoutRemoteRepository.shared.decodeRecords(
+            from: [(uppercase, olderCanonical), (lowercase, newerAlias)],
+            diagnostics: recorder
+        )
+
+        let record = try #require(records.first)
+        #expect(records.count == 1)
+        #expect(record.document.steps == 2_000)
+        #expect(record.document.updatedAt == Date(timeIntervalSince1970: 200))
     }
 
     // MARK: Predicate parity - Swift matches the shared vector
