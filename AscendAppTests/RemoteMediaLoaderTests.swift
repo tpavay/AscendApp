@@ -75,7 +75,14 @@ struct RemoteMediaLoaderTests {
                 throw URLError(.badServerResponse)
             },
             videoPlayableRequest: { _ in
-                try await Task.sleep(for: .seconds(5))
+                // Readiness that never finishes on its own. A bounded sleep would
+                // race the loader's timeout, and on a loaded machine both can
+                // elapse - leaving the result up to whichever child the scheduler
+                // resumes first. Only cancellation ends this wait, so the timeout
+                // is the sole thing that can resolve the call.
+                while true {
+                    try await Task.sleep(for: .seconds(60))
+                }
             },
             errorRecorder: { _, _ in }
         )
