@@ -217,6 +217,7 @@ private struct RoutineHeartRateProof: View {
                 WorkoutHeartRateRecoveryCard(
                     connectionState: .connected,
                     isFetching: false,
+                    hasStoppedAutomaticChecks: false,
                     message: nil,
                     effectiveColorScheme: .dark,
                     onFetch: {}
