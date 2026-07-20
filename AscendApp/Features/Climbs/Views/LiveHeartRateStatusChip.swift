@@ -7,7 +7,7 @@ struct LiveHeartRateStatusChip: View {
         switch status {
         case .connected(_, let zone):
             return zone.color
-        case .connecting, .signalLost, .failed:
+        case .connecting, .reconnecting, .signalLost, .failed:
             return .white.opacity(0.52)
         }
     }
@@ -38,7 +38,7 @@ struct LiveHeartRateStatusChip: View {
 
     private var systemImage: String {
         switch status {
-        case .connecting:
+        case .connecting, .reconnecting:
             return "dot.radiowaves.left.and.right"
         case .failed:
             return "heart.slash.fill"

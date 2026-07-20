@@ -19,12 +19,14 @@ struct LiveHeartRateStatusTests {
                 == .connected(beatsPerMinute: 150, zone: .aerobic)
         )
         #expect(resolve(connectionState: .connected) == .signalLost)
+        #expect(resolve(connectionState: .reconnecting) == .reconnecting)
         #expect(resolve(connectionState: .failed) == .failed)
     }
 
     @Test("Live UI copy stays calm and explicit")
     func displayCopy() {
         #expect(LiveHeartRateStatus.connecting.displayText == "Connecting strap")
+        #expect(LiveHeartRateStatus.reconnecting.displayText == "Reconnecting")
         #expect(LiveHeartRateStatus.signalLost.displayText == "Signal lost")
         #expect(LiveHeartRateStatus.failed.displayText == "No heart rate")
         #expect(

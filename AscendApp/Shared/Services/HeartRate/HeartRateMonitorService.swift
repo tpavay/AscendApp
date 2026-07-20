@@ -18,6 +18,11 @@ final class HeartRateMonitorService {
         case disconnected
         case scanning
         case connecting
+        /// An established connection dropped unexpectedly (range, contact,
+        /// interference) and the transport is waiting for the strap to return.
+        /// Distinct from `.connecting` because it is unbounded by design and
+        /// must never be reported as a failed connect attempt.
+        case reconnecting
         case connected
         case failed
     }
@@ -32,6 +37,8 @@ final class HeartRateMonitorService {
     static let sampleFreshnessWindow: TimeInterval = 5
     /// connect() never times out natively; without this a strap whose slots
     /// are held by another device (Polar H10 ships single-slot) hangs forever.
+    /// Bounds the initial connect attempt only — an unexpected mid-session drop
+    /// keeps the transport's persistent reconnect pending indefinitely.
     static let connectTimeout: Duration = .seconds(15)
 
     private static let rememberedIDDefaultsKey = "heartRateMonitor.rememberedDeviceID"
@@ -105,7 +112,7 @@ final class HeartRateMonitorService {
     func startPairingScan() {
         didLastConnectAttemptTimeOut = false
         discoveredDevices = []
-        if connectionState != .connected {
+        if connectionState != .connected, connectionState != .reconnecting {
             connectionState = .scanning
         }
         ensureClient().startScanning()
@@ -201,7 +208,8 @@ final class HeartRateMonitorService {
         switch event {
         case .availabilityChanged(let availability):
             self.availability = availability
-            if availability != .poweredOn, connectionState == .connected {
+            if availability != .poweredOn,
+               connectionState == .connected || connectionState == .reconnecting {
                 connectionState = .disconnected
                 connectedDeviceName = nil
             }
@@ -228,10 +236,12 @@ final class HeartRateMonitorService {
             guard !wasRequested else { return }
             connectedDeviceName = nil
             // The client keeps a persistent reconnect pending for unexpected
-            // drops; reflect that so the UI can show "reconnecting".
+            // drops; reflect that so the UI can show "reconnecting". Never arm
+            // the connect timeout here — firing it would disconnect the client
+            // and throw that pending reconnect away for the rest of the climb.
+            connectTimeoutTask?.cancel()
             if rememberedDevice?.id == id {
-                connectionState = .connecting
-                scheduleConnectionTimeout()
+                connectionState = .reconnecting
             } else {
                 connectionState = .disconnected
             }
