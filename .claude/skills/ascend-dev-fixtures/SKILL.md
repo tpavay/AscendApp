@@ -35,6 +35,10 @@ paths:
 - Live replay seed data must not reuse the same synthetic profile name or photo within a climb. Duplicate profiles make the replay look like one person appears multiple times.
 - Seeded replay curves should be calibrated from historical workout pace distributions when available. Apple Health-derived step counts should be conservatively reduced before shaping synthetic attempts because imported stair-stepper data can overestimate steps.
 
+## Script Dependency Policy
+- `scripts/` stays on `firebase-admin` 13.x. Do not bump to 14.x - 13.x is what preserves the declared Node 20 support (`engines.node: >=20`).
+- `scripts/package.json` overrides `uuid` to `^11.1.1`. `google-gax`, `gaxios`, and `teeny-request` still request uuid 9, but the only surface those consumers exercise is the v4 API, which is unchanged across the major. Keep the override; dropping it reintroduces the vulnerable uuid 9 tree.
+
 ## Workout Seeding Policy (Debug)
 - Debug Tools includes local SwiftData workout seeding presets for Simulator workflows (`App Store Screenshots`, `Quick Demo`).
 - Seeded workout metadata is stored in `Workout.sourceMetadata` with `isTestData=true`, `seedSource="debug-tools"`, and `preset` for targeted cleanup.
