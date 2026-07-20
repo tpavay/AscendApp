@@ -126,7 +126,8 @@ struct MonetizationManagerPaywallTests {
 }
 
 @MainActor
-private final class PaywallPresenterSpy: PaywallPresenting {
+/// Shared with the funnel transcript tests, which drive the same paywall entry point.
+final class PaywallPresenterSpy: PaywallPresenting {
     var isConfigured: Bool
     private(set) var registeredPlacement: SuperwallPlacement?
     private(set) var registeredSource: String?
@@ -158,7 +159,7 @@ private final class PaywallPresenterSpy: PaywallPresenting {
 }
 
 @MainActor
-private final class EntitlementServiceStub: EntitlementServicing {
+final class EntitlementServiceStub: EntitlementServicing {
     var entitlementState = MonetizationEntitlementState.inactive
     var isConfigured = true
 
