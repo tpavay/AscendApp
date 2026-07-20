@@ -5,7 +5,12 @@ import {
   groupCompletions,
 } from "../lib/landmark-result-derivation.mjs";
 import {canonicalWorkoutDocumentId} from "../lib/workout-document-id.mjs";
-import {planCaseVariantWorkoutMerges} from "../lib/workout-id-case-migration.mjs";
+import {
+  BATCH_WRITE_LIMIT,
+  packBatchSizes,
+  planCaseVariantWorkoutMerges,
+  plannedUnitSizes,
+} from "../lib/workout-id-case-migration.mjs";
 
 const LOWERCASE_ID = "51c91094-5475-4b25-ab8f-a5d809f90a2f";
 const UPPERCASE_ID = LOWERCASE_ID.toUpperCase();
@@ -89,6 +94,35 @@ test("cleanup plan blocks payload conflicts instead of deleting data", () => {
   assert.equal(plan.merges.length, 0);
   assert.equal(plan.conflicts.length, 1);
   assert.deepEqual(plan.conflicts[0].conflictingFields, ["steps"]);
+});
+
+test("apply plan chunks past the Firestore batch limit without splitting a group", () => {
+  const merges = Array.from({length: 400}, () => ({deleteWorkoutIds: ["a"]}));
+  const affectedProjections = Array.from({length: 120}, () => ({}));
+
+  const sizes = packBatchSizes(plannedUnitSizes(merges, affectedProjections));
+
+  assert.equal(sizes.reduce((sum, size) => sum + size, 0), 920);
+  assert.ok(sizes.every((size) => size <= BATCH_WRITE_LIMIT));
+  assert.deepEqual(sizes, [500, 420]);
+});
+
+test("apply plan fits a small run in one batch", () => {
+  const sizes = packBatchSizes(plannedUnitSizes(
+    [{deleteWorkoutIds: ["a"]}, {deleteWorkoutIds: ["b", "c"]}],
+    [{}]
+  ));
+
+  assert.deepEqual(sizes, [6]);
+});
+
+test("apply plan refuses a single group larger than one batch", () => {
+  const oversized = [{deleteWorkoutIds: Array.from({length: BATCH_WRITE_LIMIT}, () => "a")}];
+
+  assert.throws(
+    () => packBatchSizes(plannedUnitSizes(oversized, [])),
+    /above Firestore's 500-write batch limit/
+  );
 });
 
 test("invalid workout ids are rejected at the canonical boundary", () => {

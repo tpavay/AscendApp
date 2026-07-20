@@ -1,5 +1,49 @@
 import {canonicalWorkoutDocumentId} from "./workout-document-id.mjs";
 
+export const BATCH_WRITE_LIMIT = 500;
+
+/**
+ * Write counts per atomic unit. A canonicalization group must land in one batch so a
+ * workout can never lose its non-canonical document without gaining its canonical one;
+ * each rebuilt landmarkResult stands alone.
+ * @param {object[]} merges Planned canonicalization groups.
+ * @param {object[]} affectedProjections Landmark projections to rebuild.
+ * @return {number[]} Write count for each atomic unit, in apply order.
+ */
+export function plannedUnitSizes(merges, affectedProjections) {
+  return [
+    ...merges.map((merge) => 1 + merge.deleteWorkoutIds.length),
+    ...affectedProjections.map(() => 1),
+  ];
+}
+
+/**
+ * Packs atomic units into Firestore batches without ever splitting a unit.
+ * @param {number[]} unitSizes Write count for each atomic unit, in apply order.
+ * @return {number[]} Write count for each batch, in commit order.
+ */
+export function packBatchSizes(unitSizes) {
+  const batches = [];
+  let current = 0;
+  for (const size of unitSizes) {
+    if (size > BATCH_WRITE_LIMIT) {
+      throw new Error(
+        `Refusing apply: one group needs ${size} atomic writes, ` +
+          `above Firestore's ${BATCH_WRITE_LIMIT}-write batch limit.`
+      );
+    }
+    if (current + size > BATCH_WRITE_LIMIT) {
+      batches.push(current);
+      current = 0;
+    }
+    current += size;
+  }
+  if (current > 0) {
+    batches.push(current);
+  }
+  return batches;
+}
+
 /**
  * Plans conservative canonicalizations for workout documents stored under a non-canonical
  * UUID id. Case-variant twins are merged into the canonical id; a lone non-canonical

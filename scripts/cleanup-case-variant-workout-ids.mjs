@@ -34,7 +34,12 @@ import {
   parseCompletedLandmarkWorkout,
   shouldSkipLandmarkResultWrite,
 } from "./lib/landmark-result-derivation.mjs";
-import {planCaseVariantWorkoutMerges} from "./lib/workout-id-case-migration.mjs";
+import {
+  BATCH_WRITE_LIMIT,
+  packBatchSizes,
+  planCaseVariantWorkoutMerges,
+  plannedUnitSizes,
+} from "./lib/workout-id-case-migration.mjs";
 
 const OPERATION_ID = "migration/case-variant-workout-ids";
 const OPERATION_VERSION = 1;
@@ -51,6 +56,9 @@ const environment = resolveEnvironment(args.env);
 const db = initFirestore(environment);
 const documents = await readWorkoutDocuments(db);
 const plan = planCaseVariantWorkoutMerges(documents);
+const affectedProjections = deriveAffectedLandmarkProjections(documents, plan.merges);
+const batchSizes = packBatchSizes(plannedUnitSizes(plan.merges, affectedProjections));
+const operationCount = batchSizes.reduce((sum, size) => sum + size, 0);
 
 console.log([
   `Operation: ${OPERATION_ID} v${OPERATION_VERSION}`,
@@ -60,6 +68,8 @@ console.log([
   `Safe canonicalization groups: ${plan.merges.length}`,
   `Blocked conflicting groups: ${plan.conflicts.length}`,
   `Non-canonical documents to delete: ${plan.merges.reduce((sum, merge) => sum + merge.deleteWorkoutIds.length, 0)}`,
+  `landmarkResults to rebuild: ${affectedProjections.length}`,
+  `Firestore operations: ${operationCount} in ${batchSizes.length} batch(es) of at most ${BATCH_WRITE_LIMIT}`,
 ].join("\n"));
 
 for (const merge of plan.merges) {
@@ -92,7 +102,6 @@ const run = await beginRun(db, {
 });
 
 try {
-  const affectedProjections = deriveAffectedLandmarkProjections(documents, plan.merges);
   const deleted = await applyMerges(db, plan.merges, affectedProjections);
   const verificationDocuments = await readWorkoutDocuments(db);
   const verificationPlan = planCaseVariantWorkoutMerges(verificationDocuments);
@@ -128,33 +137,41 @@ async function readWorkoutDocuments(firestore) {
 }
 
 async function applyMerges(firestore, merges, affectedProjections) {
-  const operationCount = merges.reduce(
-    (count, merge) => count + 1 + merge.deleteWorkoutIds.length,
-    affectedProjections.length
-  );
-  if (operationCount > 500) {
-    throw new Error(
-      `Refusing apply: ${operationCount} atomic writes exceed Firestore's 500-write batch limit.`
-    );
-  }
-  if (operationCount === 0) {
-    return 0;
-  }
-
-  const batch = firestore.batch();
+  const units = [];
   let deleted = 0;
   for (const merge of merges) {
     const collection = firestore.collection("users").doc(merge.userId).collection("workouts");
-    batch.set(collection.doc(merge.canonicalWorkoutId), merge.targetData);
+    const unit = [{ref: collection.doc(merge.canonicalWorkoutId), data: merge.targetData}];
     for (const workoutId of merge.deleteWorkoutIds) {
-      batch.delete(collection.doc(workoutId));
+      unit.push({ref: collection.doc(workoutId), data: null});
       deleted += 1;
     }
+    units.push(unit);
   }
   for (const item of affectedProjections) {
-    batch.set(landmarkResultRef(firestore, item), toFirestoreProjection(item.projection));
+    units.push([{
+      ref: landmarkResultRef(firestore, item),
+      data: toFirestoreProjection(item.projection),
+    }]);
   }
-  await batch.commit();
+
+  let unitIndex = 0;
+  for (const batchSize of packBatchSizes(units.map((unit) => unit.length))) {
+    const batch = firestore.batch();
+    let written = 0;
+    while (written < batchSize) {
+      for (const operation of units[unitIndex]) {
+        if (operation.data === null) {
+          batch.delete(operation.ref);
+        } else {
+          batch.set(operation.ref, operation.data);
+        }
+      }
+      written += units[unitIndex].length;
+      unitIndex += 1;
+    }
+    await batch.commit();
+  }
   return deleted;
 }
 

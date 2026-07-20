@@ -14,6 +14,10 @@ enum WorkoutDocumentID {
     }
 
     /// Legacy non-canonical document-id spellings the same workout may still exist under.
+    ///
+    /// Deprecated: this only ever matches dev/staging fixture documents. Remove it, and the
+    /// alias delete in `WorkoutRemoteRepository.deleteWorkout`, by 2026-10-01 once
+    /// `scripts/cleanup-case-variant-workout-ids.mjs` has been applied in both dev and staging.
     static func aliasStrings(for workoutID: UUID) -> [String] {
         let canonical = canonicalString(for: workoutID)
         return [canonical.lowercased()].filter { $0 != canonical }

@@ -160,6 +160,13 @@ test('workout document ids must be the uppercase canonical UUID', async () => {
   await assertFails(setDoc(workoutRef, makeWorkoutDocument()));
 });
 
+test('workout document ids must match the UUID group shape', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${'-'.repeat(36)}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument()));
+});
+
 test('owner can write a workout with routine template participation', async () => {
   const context = testEnv.authenticatedContext(userId);
   const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
