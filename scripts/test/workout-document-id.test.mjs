@@ -53,6 +53,33 @@ test("cleanup plan safely merges seed and client variants", () => {
   assert.equal(plan.merges[0].targetData.updatedAt.toMillis(), 200);
 });
 
+test("cleanup plan renames a lone non-canonical document", () => {
+  const plan = planCaseVariantWorkoutMerges([
+    {
+      userId: "user-1",
+      workoutId: LOWERCASE_ID,
+      data: completedWorkout({
+        participations: [{workoutId: LOWERCASE_ID, contextType: "climb_attempt"}],
+      }),
+    },
+  ]);
+
+  assert.equal(plan.conflicts.length, 0);
+  assert.equal(plan.merges.length, 1);
+  assert.equal(plan.merges[0].canonicalWorkoutId, UPPERCASE_ID);
+  assert.deepEqual(plan.merges[0].deleteWorkoutIds, [LOWERCASE_ID]);
+  assert.equal(plan.merges[0].targetData.participations[0].workoutId, UPPERCASE_ID);
+});
+
+test("cleanup plan leaves already-canonical documents alone", () => {
+  const plan = planCaseVariantWorkoutMerges([
+    {userId: "user-1", workoutId: UPPERCASE_ID, data: completedWorkout()},
+  ]);
+
+  assert.equal(plan.merges.length, 0);
+  assert.equal(plan.conflicts.length, 0);
+});
+
 test("cleanup plan blocks payload conflicts instead of deleting data", () => {
   const plan = planCaseVariantWorkoutMerges([
     {userId: "user-1", workoutId: LOWERCASE_ID, data: completedWorkout({steps: 2_096})},

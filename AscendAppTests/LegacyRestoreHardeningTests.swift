@@ -181,6 +181,10 @@ struct LegacyRestoreHardeningTests {
 
     @Test
     func caseVariantBackupDedupKeepsTheNewestPayload() throws {
+        let suiteName = "case-variant-workout-id-dedup-\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { userDefaults.removePersistentDomain(forName: suiteName) }
+        let recorder = AppDiagnosticsRecorder(userDefaults: userDefaults)
         let lowercase = "51c91094-5475-4b25-ab8f-a5d809f90a2f"
         let uppercase = lowercase.uppercased()
         var olderCanonical = Self.validWorkoutData(steps: 1_000)
@@ -189,7 +193,8 @@ struct LegacyRestoreHardeningTests {
         newerAlias["updatedAt"] = Timestamp(date: Date(timeIntervalSince1970: 200))
 
         let records = WorkoutRemoteRepository.shared.decodeRecords(
-            from: [(uppercase, olderCanonical), (lowercase, newerAlias)]
+            from: [(uppercase, olderCanonical), (lowercase, newerAlias)],
+            diagnostics: recorder
         )
 
         let record = try #require(records.first)

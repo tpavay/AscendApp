@@ -12,4 +12,10 @@ enum WorkoutDocumentID {
     static func isCanonical(_ rawValue: String) -> Bool {
         canonicalString(from: rawValue) == rawValue
     }
+
+    /// Legacy non-canonical document-id spellings the same workout may still exist under.
+    static func aliasStrings(for workoutID: UUID) -> [String] {
+        let canonical = canonicalString(for: workoutID)
+        return [canonical.lowercased()].filter { $0 != canonical }
+    }
 }

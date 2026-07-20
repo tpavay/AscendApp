@@ -3,11 +3,13 @@
 /**
  * Canonicalizes existing dev/staging private workout document ids to uppercase UUIDs.
  *
- * Only case-variant groups whose payloads can be merged without conflicting fields
- * are eligible. A payload conflict blocks the entire apply before any workout is
- * changed. The canonical document is written and aliases are deleted atomically per
- * group. Affected landmarkResults are then rebuilt through the existing shared
- * derivation so removing an alias cannot leave attemptCount inflated.
+ * Only groups whose payloads can be merged without conflicting fields are eligible.
+ * A payload conflict blocks the entire apply before any workout is changed. The
+ * canonical document is written and non-canonical ids are deleted atomically per
+ * group; a workout that only exists under a non-canonical id is renamed the same way,
+ * so a later app write cannot recreate a case-variant twin. Affected landmarkResults
+ * are then rebuilt through the existing shared derivation so removing a non-canonical
+ * document cannot leave attemptCount inflated.
  *
  * This migration is author-only. Running it is captain-gated operations work.
  *
@@ -55,9 +57,9 @@ console.log([
   `Environment: ${environment.env} (${environment.projectId})`,
   `Mode: ${args.apply ? "apply" : "dry-run (plan only)"}`,
   `Workout documents scanned: ${documents.length}`,
-  `Safe case-variant groups: ${plan.merges.length}`,
+  `Safe canonicalization groups: ${plan.merges.length}`,
   `Blocked conflicting groups: ${plan.conflicts.length}`,
-  `Alias documents to delete: ${plan.merges.reduce((sum, merge) => sum + merge.deleteWorkoutIds.length, 0)}`,
+  `Non-canonical documents to delete: ${plan.merges.reduce((sum, merge) => sum + merge.deleteWorkoutIds.length, 0)}`,
 ].join("\n"));
 
 for (const merge of plan.merges) {

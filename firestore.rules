@@ -406,6 +406,12 @@ service cloud.firestore {
       return workoutId.matches("^[0-9a-fA-F-]{36}$");
     }
 
+    // A workout document id has exactly one spelling: the uppercase UUID string. Any other
+    // casing creates a second document for the same workout, so the server rejects it.
+    function isCanonicalWorkoutId(workoutId) {
+      return workoutId.matches("^[0-9A-F-]{36}$");
+    }
+
     function isValidWorkoutMediaId(mediaId) {
       return isValidWorkoutId(mediaId);
     }
@@ -690,7 +696,7 @@ service cloud.firestore {
     }
 
     function isValidWorkoutDocument(userId, workoutId) {
-      return isValidWorkoutId(workoutId) &&
+      return isCanonicalWorkoutId(workoutId) &&
         request.resource.data.keys().hasOnly([
           "userId",
           "schemaVersion",

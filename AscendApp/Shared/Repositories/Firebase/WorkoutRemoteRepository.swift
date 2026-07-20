@@ -123,7 +123,13 @@ final class WorkoutRemoteRepository: WorkoutRemoteRepositoryProtocol, @unchecked
         userId: String,
         workoutId: UUID
     ) async throws {
-        try await workoutDocumentReference(userId: userId, workoutId: workoutId).delete()
+        let collection = workoutCollectionReference(userId: userId)
+        let batch = db.batch()
+        batch.deleteDocument(workoutDocumentReference(userId: userId, workoutId: workoutId))
+        for alias in WorkoutDocumentID.aliasStrings(for: workoutId) {
+            batch.deleteDocument(collection.document(alias))
+        }
+        try await batch.commit()
     }
 }
 

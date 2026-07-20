@@ -1,7 +1,9 @@
 import {canonicalWorkoutDocumentId} from "./workout-document-id.mjs";
 
 /**
- * Plans conservative merges for workout documents whose UUID ids differ only by case.
+ * Plans conservative canonicalizations for workout documents stored under a non-canonical
+ * UUID id. Case-variant twins are merged into the canonical id; a lone non-canonical
+ * document is renamed onto it, so a later app write cannot recreate the twin.
  * Documents with conflicting payload fields are reported and never planned for deletion.
  * @param {{userId: string, workoutId: string, data: Record<string, unknown>}[]} documents
  *   Raw private workout documents.
@@ -28,7 +30,7 @@ export function planCaseVariantWorkoutMerges(documents) {
   const conflicts = [];
   for (const group of groups.values()) {
     const sourceIDs = [...new Set(group.map((document) => document.workoutId))];
-    if (sourceIDs.length < 2) {
+    if (sourceIDs.every((workoutId) => workoutId === group[0].canonicalWorkoutId)) {
       continue;
     }
 

@@ -281,6 +281,7 @@ async function main() {
     return;
   }
 
+  await commitDeletes(db, seedPlan.deletes);
   await commitWrites(db, seedPlan.writes);
   console.log(
     `Seeded demo account ${seedPlan.user.uid} with ` +
@@ -341,6 +342,7 @@ async function buildSeedPlan(db, catalog, authUser, args) {
   const user = userSnapshot(authUser, args);
   const joinedAt = args.joinedAt ?? new Date(now.getTime() - 46 * 24 * 60 * 60 * 1000);
   const writes = [];
+  const deletes = [];
   const liveContexts = [];
   const workouts = [];
   const userRef = db.collection("users").doc(user.uid);
@@ -376,10 +378,11 @@ async function buildSeedPlan(db, catalog, authUser, args) {
   ]);
 
   for (const workout of workouts) {
-    writes.push([
-      db.collection("users").doc(user.uid).collection("profile_workouts").doc(workout.id),
-      profileWorkoutData(workout),
-    ]);
+    const profileWorkoutsRef = db.collection("users").doc(user.uid).collection("profile_workouts");
+    writes.push([profileWorkoutsRef.doc(workout.id), profileWorkoutData(workout)]);
+    for (const staleId of staleDocumentIds(workout.id)) {
+      deletes.push(profileWorkoutsRef.doc(staleId));
+    }
   }
 
   for (const achievement of achievementRecords(user.uid, now, args.seedFirstAscent ? args.firstAscentClimbId : null)) {
@@ -398,23 +401,36 @@ async function buildSeedPlan(db, catalog, authUser, args) {
     ]);
   }
 
-  await addReplayWrites(db, writes, user, liveContexts, args);
+  await addReplayWrites(db, writes, deletes, user, liveContexts, args);
   await addCommunityStatsWrites(db, writes, user, liveContexts);
 
   for (const workout of workouts) {
-    writes.push([
-      db.collection("users").doc(user.uid).collection("workouts").doc(workout.id),
-      workout.document,
-    ]);
+    const workoutsRef = db.collection("users").doc(user.uid).collection("workouts");
+    writes.push([workoutsRef.doc(workout.id), workout.document]);
+    for (const staleId of staleDocumentIds(workout.id)) {
+      deletes.push(workoutsRef.doc(staleId));
+    }
   }
 
   return {
     user,
     writes,
+    deletes,
     workouts,
     liveContexts,
     stats,
   };
+}
+
+/**
+ * Document ids an earlier seed run wrote for the same fixture entity before ids were
+ * canonicalized to uppercase. Re-seeding must remove them or every consumer keyed by
+ * document id keeps a ghost row alongside the canonical one.
+ * @param {string} canonicalId Uppercase canonical UUID document id.
+ * @return {string[]} Stale ids to delete, empty when none can exist.
+ */
+function staleDocumentIds(canonicalId) {
+  return [canonicalId.toLowerCase()].filter((id) => id !== canonicalId);
 }
 
 function userSnapshot(authUser, args) {
@@ -683,7 +699,7 @@ function participationRecord(input) {
   };
 }
 
-async function addReplayWrites(db, writes, user, liveContexts, args) {
+async function addReplayWrites(db, writes, deletes, user, liveContexts, args) {
   for (const context of liveContexts) {
     const contextKey = replayContextKey(context.contextType, context.contextId);
     const leaderboardRef = db.collection("live_replay_leaderboards").doc(contextKey);
@@ -693,10 +709,15 @@ async function addReplayWrites(db, writes, user, liveContexts, args) {
       finisherRef.get(),
       bucketZeroEntriesRef.get(),
     ]);
+    const staleEntryIds = staleDocumentIds(context.workoutId);
+    const staleRowCount = bucketZeroSnapshot.docs.filter(
+      (document) => staleEntryIds.includes(document.id)
+    ).length;
     const hasExistingCompletionRow = bucketZeroSnapshot.docs.some(
       (document) => document.id === context.workoutId
-    );
-    const completedCount = bucketZeroSnapshot.size + (hasExistingCompletionRow ? 0 : 1);
+    ) || staleRowCount > 0;
+    const completedCount =
+      bucketZeroSnapshot.size - staleRowCount + (hasExistingCompletionRow ? 0 : 1);
     const existingFinisher = finisherSnapshot.exists;
     const existingFinisherOrder = nonNegativeInteger(
       finisherSnapshot.data()?.globalCompletionOrder
@@ -759,8 +780,12 @@ async function addReplayWrites(db, writes, user, liveContexts, args) {
     ]);
 
     for (let index = 0; index < context.splitSteps.length; index += 1) {
+      const entriesRef = leaderboardRef.collection("splitBuckets").doc(String(index)).collection("entries");
+      for (const staleEntryId of staleEntryIds) {
+        deletes.push(entriesRef.doc(staleEntryId));
+      }
       writes.push([
-        leaderboardRef.collection("splitBuckets").doc(String(index)).collection("entries").doc(context.workoutId),
+        entriesRef.doc(context.workoutId),
         {
           avatarToken: user.avatarToken,
           completionDurationSeconds: context.durationSeconds,
@@ -1216,6 +1241,16 @@ function deterministicId(input) {
   return createHash("sha256").update(input).digest("hex").slice(0, 24);
 }
 
+async function commitDeletes(db, deletes) {
+  for (let index = 0; index < deletes.length; index += BATCH_LIMIT) {
+    const batch = db.batch();
+    for (const ref of deletes.slice(index, index + BATCH_LIMIT)) {
+      batch.delete(ref);
+    }
+    await batch.commit();
+  }
+}
+
 async function commitWrites(db, writes) {
   for (let index = 0; index < writes.length; index += BATCH_LIMIT) {
     const batch = db.batch();
@@ -1239,6 +1274,7 @@ function printPlan(projectId, seedPlan, args) {
     workouts: seedPlan.workouts.length,
     liveReplayContexts: seedPlan.liveContexts.length,
     writes: seedPlan.writes.length,
+    staleCaseVariantDeletes: seedPlan.deletes.length,
     firstAscentClimb: args.seedFirstAscent ? args.firstAscentClimbId : null,
     totalClimbsCompleted: seedPlan.stats.totalClimbsCompleted,
   };
