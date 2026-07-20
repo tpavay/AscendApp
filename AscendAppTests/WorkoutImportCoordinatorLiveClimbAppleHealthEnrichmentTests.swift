@@ -283,11 +283,15 @@ struct WorkoutImportCoordinatorLiveClimbAppleHealthEnrichmentTests {
       resetHealthKitSyncStateForTest()
 
       let oldStart = Date().addingTimeInterval(-(80 * 60 * 60))
+      let recentStart = Date().addingTimeInterval(-(2 * 60 * 60))
       let unlinkedWorkout = makeLiveClimbWorkout(start: oldStart, duration: 1_200, steps: 1_600)
-      let linkedWorkout = makeLiveClimbWorkout(start: oldStart, duration: 1_200, steps: 1_600)
-      linkedWorkout.healthKitUUID = UUID().uuidString
+      let staleLinkedWorkout = makeLiveClimbWorkout(start: oldStart, duration: 1_200, steps: 1_600)
+      staleLinkedWorkout.healthKitUUID = UUID().uuidString
+      let recentLinkedWorkout = makeLiveClimbWorkout(start: recentStart, duration: 1_200, steps: 1_600)
+      recentLinkedWorkout.healthKitUUID = UUID().uuidString
       modelContext.insert(unlinkedWorkout)
-      modelContext.insert(linkedWorkout)
+      modelContext.insert(staleLinkedWorkout)
+      modelContext.insert(recentLinkedWorkout)
       try modelContext.save()
 
       let coordinator = WorkoutImportCoordinator(
@@ -298,8 +302,144 @@ struct WorkoutImportCoordinatorLiveClimbAppleHealthEnrichmentTests {
 
       #expect(coordinator.appleHealthEnrichmentStatus(for: unlinkedWorkout) == .notPending)
       #expect(coordinator.hasPendingAppleHealthHeartRateEnrichment(for: unlinkedWorkout) == false)
-      #expect(coordinator.appleHealthEnrichmentStatus(for: linkedWorkout) == .metricsPending)
-      #expect(coordinator.hasPendingAppleHealthHeartRateEnrichment(for: linkedWorkout))
+      #expect(coordinator.appleHealthEnrichmentStatus(for: recentLinkedWorkout) == .metricsPending)
+      #expect(coordinator.hasPendingAppleHealthHeartRateEnrichment(for: recentLinkedWorkout))
+      #expect(coordinator.appleHealthEnrichmentStatus(for: staleLinkedWorkout) == .metricsStalled)
+      #expect(coordinator.hasPendingAppleHealthHeartRateEnrichment(for: staleLinkedWorkout) == false)
+      #expect(
+        coordinator.appleHealthHeartRateEnrichmentStatus(for: staleLinkedWorkout) == .metricsStalled)
+    }
+  }
+
+  @Test
+  func manualFetchStillResolvesLinkedWorkoutAfterAutomaticWindowExpires() async throws {
+    try await HealthKitImportCoordinatorTestIsolation.shared.run {
+      let modelContext = try makeModelContext()
+      let stateSnapshot = LiveClimbHealthKitSyncStateSnapshot.capture()
+      let settingsSnapshot = LiveClimbSettingsSnapshot.capture()
+      defer {
+        stateSnapshot.restore()
+        settingsSnapshot.restore()
+      }
+      resetHealthKitSyncStateForTest()
+      SettingsManager.shared.appleHealthAutoImportEnabled = false
+
+      let liveStart = Date().addingTimeInterval(-(80 * 60 * 60))
+      let liveWorkout = makeLiveClimbWorkout(start: liveStart, duration: 1_200, steps: 1_600)
+      modelContext.insert(liveWorkout)
+      modelContext.insert(makeLiveClimbParticipation(for: liveWorkout, climbId: "stalled-fetch"))
+      try modelContext.save()
+
+      let appleWorkout = HKWorkout(
+        activityType: .stairClimbing,
+        start: liveStart,
+        end: liveStart.addingTimeInterval(1_200)
+      )
+      let appleSample = makeAppleHealthSample(from: appleWorkout)
+      liveWorkout.healthKitUUID = appleSample.externalRecordID
+      try modelContext.save()
+
+      let metricsReader = LiveClimbHealthKitMetricsReader(
+        metrics: WorkoutMetrics(
+          avgHeartRate: 148,
+          maxHeartRate: 172,
+          caloriesBurned: 210,
+          heartRateTimeSeries: [
+            HeartRateDataPoint(timestamp: liveStart.addingTimeInterval(600), heartRate: 149)
+          ],
+          averageMETs: 7.2
+        )
+      )
+      let coordinator = WorkoutImportCoordinator(
+        authorizationController: LiveClimbHealthKitAuthorizationController(),
+        workoutReader: LiveClimbHealthKitWorkoutReader(
+          workouts: [appleWorkout],
+          addedSamples: [appleSample]
+        ),
+        metricsReader: metricsReader
+      )
+      coordinator.configure(modelContext: modelContext)
+
+      #expect(coordinator.appleHealthEnrichmentStatus(for: liveWorkout) == .metricsStalled)
+
+      await coordinator.refreshPendingImports(trigger: .backgroundObserver)
+      #expect(metricsReader.requestedWorkoutIDs.isEmpty)
+      #expect(liveWorkout.avgHeartRate == nil)
+
+      let didFetch = await coordinator.enrichInAppWorkoutWithAppleHealthIfPossible(
+        liveWorkout,
+        modelContext: modelContext,
+        forceRangeDiscovery: true
+      )
+
+      #expect(didFetch)
+      #expect(metricsReader.requestedWorkoutIDs == [appleSample.externalRecordID])
+      #expect(liveWorkout.avgHeartRate == 148)
+      #expect(liveWorkout.maxHeartRate == 172)
+      #expect(coordinator.appleHealthEnrichmentStatus(for: liveWorkout) == .complete)
+    }
+  }
+
+  @Test
+  func linkedMetricRefreshFailureDoesNotAbortRemainingEnrichment() async throws {
+    try await HealthKitImportCoordinatorTestIsolation.shared.run {
+      let modelContext = try makeModelContext()
+      let stateSnapshot = LiveClimbHealthKitSyncStateSnapshot.capture()
+      let settingsSnapshot = LiveClimbSettingsSnapshot.capture()
+      defer {
+        stateSnapshot.restore()
+        settingsSnapshot.restore()
+      }
+      resetHealthKitSyncStateForTest()
+      SettingsManager.shared.appleHealthAutoImportEnabled = false
+
+      let liveStart = Date().addingTimeInterval(-60 * 60)
+      let failingWorkout = makeLiveClimbWorkout(start: liveStart, duration: 1_200, steps: 1_600)
+      failingWorkout.healthKitUUID = "failing-external-record"
+      modelContext.insert(failingWorkout)
+      modelContext.insert(makeLiveClimbParticipation(for: failingWorkout, climbId: "failing-link"))
+
+      let recoverableStart = liveStart.addingTimeInterval(-(4 * 60 * 60))
+      let recoverableWorkout = makeLiveClimbWorkout(
+        start: recoverableStart, duration: 1_200, steps: 1_600)
+      modelContext.insert(recoverableWorkout)
+      modelContext.insert(
+        makeLiveClimbParticipation(for: recoverableWorkout, climbId: "recoverable-link"))
+      try modelContext.save()
+
+      let appleWorkout = HKWorkout(
+        activityType: .stairClimbing,
+        start: recoverableStart,
+        end: recoverableStart.addingTimeInterval(1_200)
+      )
+      let appleSample = makeAppleHealthSample(from: appleWorkout)
+      let metricsReader = LiveClimbHealthKitMetricsReader(
+        metrics: WorkoutMetrics(
+          avgHeartRate: 144,
+          maxHeartRate: 168,
+          caloriesBurned: 205,
+          heartRateTimeSeries: [
+            HeartRateDataPoint(timestamp: recoverableStart.addingTimeInterval(600), heartRate: 145)
+          ],
+          averageMETs: 7.1
+        )
+      )
+      let coordinator = WorkoutImportCoordinator(
+        authorizationController: LiveClimbHealthKitAuthorizationController(),
+        workoutReader: LiveClimbHealthKitWorkoutReader(
+          workouts: [appleWorkout],
+          addedSamples: [appleSample],
+          failingExternalRecordIDs: ["failing-external-record"]
+        ),
+        metricsReader: metricsReader
+      )
+      coordinator.configure(modelContext: modelContext)
+
+      await coordinator.refreshPendingImports(trigger: .backgroundObserver)
+
+      #expect(recoverableWorkout.avgHeartRate == 144)
+      #expect(recoverableWorkout.healthKitUUID == appleSample.externalRecordID)
+      #expect(failingWorkout.avgHeartRate == nil)
     }
   }
 
@@ -900,22 +1040,29 @@ struct WorkoutImportCoordinatorLiveClimbAppleHealthEnrichmentTests {
   }
 }
 
+private enum LiveClimbHealthKitReaderError: Error {
+  case lookupFailed
+}
+
 @MainActor
 private final class LiveClimbHealthKitWorkoutReader: HealthKitWorkoutReading {
   let isHealthDataAvailable = true
   private let workoutsByID: [String: HKWorkout]
   private let addedSamples: [HealthKitWorkoutSample]
   private let dateRangeSamples: [HealthKitWorkoutSample]
+  private let failingExternalRecordIDs: Set<String>
   private(set) var requestedDateRanges: [ClosedRange<Date>] = []
 
   init(
     workouts: [HKWorkout],
     addedSamples: [HealthKitWorkoutSample],
-    dateRangeSamples: [HealthKitWorkoutSample]? = nil
+    dateRangeSamples: [HealthKitWorkoutSample]? = nil,
+    failingExternalRecordIDs: Set<String> = []
   ) {
     self.workoutsByID = Dictionary(uniqueKeysWithValues: workouts.map { ($0.uuid.uuidString, $0) })
     self.addedSamples = addedSamples
     self.dateRangeSamples = dateRangeSamples ?? addedSamples
+    self.failingExternalRecordIDs = failingExternalRecordIDs
   }
 
   func fetchAnchoredStairStepperWorkouts(anchorData: Data?) async throws
@@ -929,7 +1076,11 @@ private final class LiveClimbHealthKitWorkoutReader: HealthKitWorkoutReading {
   }
 
   func fetchWorkout(withExternalRecordID externalRecordID: String) async throws -> HKWorkout? {
-    workoutsByID[externalRecordID]
+    if failingExternalRecordIDs.contains(externalRecordID) {
+      throw LiveClimbHealthKitReaderError.lookupFailed
+    }
+
+    return workoutsByID[externalRecordID]
   }
 
   func fetchStairStepperWorkouts(in dateRange: ClosedRange<Date>) async throws

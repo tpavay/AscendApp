@@ -35,6 +35,7 @@ struct WorkoutDetailView: View {
     @State private var copyConfirmationText: String?
     @State private var isFetchingAppleHealthHeartRate = false
     @State private var appleHealthHeartRateMessage: String?
+    @State private var appleHealthHeartRateStatus = WorkoutImportCoordinator.AppleHealthEnrichmentStatus.notPending
 
     // Media layout state
     @State private var sheetPosition: SheetPosition = .middle
@@ -618,6 +619,7 @@ struct WorkoutDetailView: View {
             WorkoutHeartRateRecoveryCard(
                 connectionState: importCoordinator.appleHealthConnectionState,
                 isFetching: isFetchingAppleHealthHeartRate,
+                hasStoppedAutomaticChecks: appleHealthHeartRateStatus == .metricsStalled,
                 message: appleHealthHeartRateMessage,
                 effectiveColorScheme: effectiveColorScheme,
                 onFetch: fetchAppleHealthHeartRate
@@ -636,7 +638,12 @@ struct WorkoutDetailView: View {
     }
 
     private var shouldShowAppleHealthHeartRateRecovery: Bool {
-        importCoordinator.hasPendingAppleHealthHeartRateEnrichment(for: workout)
+        switch appleHealthHeartRateStatus {
+        case .linkPending, .metricsPending, .metricsStalled:
+            return true
+        case .notPending, .complete:
+            return false
+        }
     }
 
     private var workoutPaceSplits: [LiveClimbPaceSplit] {
@@ -933,10 +940,23 @@ struct WorkoutDetailView: View {
 
     @MainActor
     private func retryAppleHealthEnrichmentIfNeeded() async {
-        await importCoordinator.enrichInAppWorkoutWithAppleHealthIfPossible(
-            workout,
-            modelContext: modelContext
-        )
+        refreshAppleHealthHeartRateStatus()
+
+        switch appleHealthHeartRateStatus {
+        case .linkPending, .metricsPending:
+            await importCoordinator.enrichInAppWorkoutWithAppleHealthIfPossible(
+                workout,
+                modelContext: modelContext
+            )
+            refreshAppleHealthHeartRateStatus()
+        case .notPending, .metricsStalled, .complete:
+            break
+        }
+    }
+
+    @MainActor
+    private func refreshAppleHealthHeartRateStatus() {
+        appleHealthHeartRateStatus = importCoordinator.appleHealthHeartRateEnrichmentStatus(for: workout)
     }
 
     private func fetchAppleHealthHeartRate() {
@@ -968,6 +988,8 @@ struct WorkoutDetailView: View {
                 modelContext: modelContext,
                 forceRangeDiscovery: true
             )
+
+            refreshAppleHealthHeartRateStatus()
 
             if hasHeartRateData {
                 appleHealthHeartRateMessage = nil

@@ -137,6 +137,7 @@ final class WorkoutImportCoordinator {
         case notPending
         case linkPending
         case metricsPending
+        case metricsStalled
         case complete
     }
 
@@ -519,7 +520,7 @@ final class WorkoutImportCoordinator {
         guard needsAppleHealthEnrichment(workout) else { return .complete }
 
         if appleHealthExternalRecordID(for: workout) != nil {
-            return .metricsPending
+            return enrichmentRetryStore.isWithinRetryWindow(for: workout) ? .metricsPending : .metricsStalled
         }
 
         if enrichmentRetryStore.isWithinRetryWindow(for: workout) ||
@@ -530,13 +531,17 @@ final class WorkoutImportCoordinator {
         return .notPending
     }
 
-    func hasPendingAppleHealthHeartRateEnrichment(for workout: Workout) -> Bool {
-        guard needsAppleHealthHeartRateEnrichment(workout) else { return false }
+    func appleHealthHeartRateEnrichmentStatus(for workout: Workout) -> AppleHealthEnrichmentStatus {
+        guard needsAppleHealthHeartRateEnrichment(workout) else { return .complete }
 
-        switch appleHealthEnrichmentStatus(for: workout) {
+        return appleHealthEnrichmentStatus(for: workout)
+    }
+
+    func hasPendingAppleHealthHeartRateEnrichment(for workout: Workout) -> Bool {
+        switch appleHealthHeartRateEnrichmentStatus(for: workout) {
         case .linkPending, .metricsPending:
             return true
-        case .notPending, .complete:
+        case .notPending, .metricsStalled, .complete:
             return false
         }
     }
@@ -681,12 +686,16 @@ final class WorkoutImportCoordinator {
         var linkedMetricUpdates: [Workout] = []
         for workout in linkedMetricWorkouts {
             guard let externalRecordID = appleHealthExternalRecordID(for: workout) else { continue }
-            if try await enrichLinkedInAppWorkoutWithAppleHealthIfPossible(
-                workout,
-                externalRecordID: externalRecordID,
-                modelContext: modelContext
-            ) {
-                linkedMetricUpdates.append(workout)
+            do {
+                if try await enrichLinkedInAppWorkoutWithAppleHealthIfPossible(
+                    workout,
+                    externalRecordID: externalRecordID,
+                    modelContext: modelContext
+                ) {
+                    linkedMetricUpdates.append(workout)
+                }
+            } catch {
+                lastErrorMessage = error.localizedDescription
             }
         }
 
@@ -742,7 +751,13 @@ final class WorkoutImportCoordinator {
             enrichmentRetryStore.clear(workoutID: match.workout.id)
         }
 
-        guard !updatedWorkouts.isEmpty else { return [] }
+        guard !updatedWorkouts.isEmpty else {
+            let heartRateUpdates = try await enrichInAppWorkoutsWithAppleHealthHeartRateByTimeWindowIfPossible(
+                heartRateFallbackWorkouts,
+                modelContext: modelContext
+            )
+            return linkedMetricUpdates + heartRateUpdates
+        }
 
         try WorkoutMutationHandler.shared.workoutsDidChange(
             modelContext: modelContext,

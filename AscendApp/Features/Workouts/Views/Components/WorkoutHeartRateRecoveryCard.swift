@@ -3,6 +3,7 @@ import SwiftUI
 struct WorkoutHeartRateRecoveryCard: View {
     let connectionState: AppleHealthConnectionState
     let isFetching: Bool
+    let hasStoppedAutomaticChecks: Bool
     let message: String?
     let effectiveColorScheme: ColorScheme
     let onFetch: () -> Void
@@ -26,7 +27,7 @@ struct WorkoutHeartRateRecoveryCard: View {
     private var title: String {
         switch connectionState {
         case .connected:
-            return "Waiting for heart-rate data"
+            return hasStoppedAutomaticChecks ? "Stopped checking" : "Waiting for heart-rate data"
         case .neverConnected:
             return "Connect Apple Health"
         case .revoked:
@@ -43,6 +44,9 @@ struct WorkoutHeartRateRecoveryCard: View {
 
         switch connectionState {
         case .connected:
+            if hasStoppedAutomaticChecks {
+                return "Ascend no longer checks Apple Health for this workout automatically. Fetch to look one more time."
+            }
             return "Apple Watch workouts can take a few minutes to sync. Fetch again after Health finishes writing the workout."
         case .neverConnected:
             return "Connect Apple Health to pull heart-rate data from your Watch workout."
@@ -138,6 +142,16 @@ struct WorkoutHeartRateRecoveryCard: View {
         WorkoutHeartRateRecoveryCard(
             connectionState: .connected,
             isFetching: false,
+            hasStoppedAutomaticChecks: false,
+            message: nil,
+            effectiveColorScheme: .dark,
+            onFetch: {}
+        )
+
+        WorkoutHeartRateRecoveryCard(
+            connectionState: .connected,
+            isFetching: false,
+            hasStoppedAutomaticChecks: true,
             message: nil,
             effectiveColorScheme: .dark,
             onFetch: {}
@@ -146,6 +160,7 @@ struct WorkoutHeartRateRecoveryCard: View {
         WorkoutHeartRateRecoveryCard(
             connectionState: .neverConnected,
             isFetching: true,
+            hasStoppedAutomaticChecks: false,
             message: nil,
             effectiveColorScheme: .dark,
             onFetch: {}
