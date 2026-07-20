@@ -57,30 +57,20 @@ import {
   resolveEnvironment,
 } from "./lib/migration-discipline.mjs";
 import {shouldSkipLandmarkResultWrite} from "./lib/landmark-result-derivation.mjs";
-import {canonicalWorkoutDocumentId} from "./lib/workout-document-id.mjs";
 import {
   BATCH_WRITE_LIMIT,
   finalWorkoutDocuments,
-  matchWorkoutIdReferenceShape,
   packBatchSizes,
   planAffectedLandmarkProjections,
   planCaseVariantWorkoutMerges,
   planReplaySummaryRepairs,
   planWorkoutIdReferenceRenames,
   planWorkoutIdReferenceRepairs,
+  scanWorkoutIdReferences,
 } from "./lib/workout-id-case-migration.mjs";
 
 const OPERATION_ID = "migration/case-variant-workout-ids";
 const OPERATION_VERSION = 2;
-const TWIN_READ_CHUNK = 100;
-const REFERENCE_COLLECTION_GROUPS = Object.freeze([
-  "entries",
-  "completionSnapshots",
-  "finishers",
-  "userBestAttempts",
-  "liveClimbPublishStatuses",
-  "profile_workouts",
-]);
 const WORKOUT_ID_RENAME_REPAIR_KIND = "workoutIdRename";
 const REPLAY_SUMMARY_REPAIR_KIND = "replaySummaryRecount";
 
@@ -95,7 +85,7 @@ if (args.contextKey || args.rest.size > 0) {
 const environment = resolveEnvironment(args.env);
 const db = initFirestore(environment);
 const documents = await readWorkoutDocuments(db);
-const references = await readWorkoutIdReferences(db);
+const references = await scanWorkoutIdReferences(db);
 const plan = planCaseVariantWorkoutMerges(documents);
 const pendingRepairs = await readPendingRepairs(db, OPERATION_ID);
 const carriedRepairs = pendingRepairs.filter((repair) => (
@@ -316,108 +306,6 @@ async function readWorkoutDocuments(firestore) {
 }
 
 /**
- * Reads every document outside `users/{uid}/workouts` that keys on, or stores, a private
- * workout document id, so canonicalizing an id can move each of them with it.
- *
- * `entries` alone holds one document per climber per split bucket, so the scan streams and
- * keeps a whole payload only for the rows that can actually be rewritten wholesale - the
- * ones spelled non-canonically. Every other row is trimmed to the fields the planner reads.
- * A trimmed row that turns out to be the canonical twin of a stale one is re-read in full
- * afterwards, because deciding between twins compares their entire payloads.
- * @param {FirebaseFirestore.Firestore} firestore Firestore instance.
- * @return {Promise<object[]>} Scanned references, in shape-planner form.
- */
-async function readWorkoutIdReferences(firestore) {
-  const references = [];
-  const queries = [
-    firestore.collection("live_replay_leaderboards"),
-    ...REFERENCE_COLLECTION_GROUPS.map((collectionId) => firestore.collectionGroup(collectionId)),
-  ];
-
-  for (const query of queries) {
-    for await (const document of query.stream()) {
-      const shape = matchWorkoutIdReferenceShape(document.ref.path);
-      if (shape) {
-        references.push(scannedReference(document, shape));
-      }
-    }
-  }
-
-  await restoreCanonicalTwinPayloads(firestore, references);
-  return references;
-}
-
-function scannedReference(document, shape) {
-  const data = document.data();
-  const complete = shape.keyedByWorkoutId && !isCanonicalDocumentId(document.id);
-  return {
-    parentPath: document.ref.parent.path,
-    documentId: document.id,
-    keyedByWorkoutId: shape.keyedByWorkoutId,
-    workoutIdFields: shape.workoutIdFields,
-    recencyFields: shape.recencyFields,
-    partial: !complete,
-    data: complete ? data : plannerFieldsOnly(data, shape),
-  };
-}
-
-function plannerFieldsOnly(data, shape) {
-  const retained = {};
-  for (const field of [...shape.workoutIdFields, ...shape.recencyFields, ...shape.plannerFields]) {
-    if (field in data) {
-      retained[field] = data[field];
-    }
-  }
-  return retained;
-}
-
-function isCanonicalDocumentId(documentId) {
-  try {
-    return canonicalWorkoutDocumentId(documentId) === documentId;
-  } catch {
-    return false;
-  }
-}
-
-async function restoreCanonicalTwinPayloads(firestore, references) {
-  const byLocation = new Map(
-    references.map((reference) => [`${reference.parentPath}/${reference.documentId}`, reference])
-  );
-  const twins = new Set();
-  for (const reference of references) {
-    if (!reference.keyedByWorkoutId || !reference.partial) {
-      continue;
-    }
-    const canonicalId = canonicalTwinId(reference.documentId);
-    if (canonicalId && byLocation.has(`${reference.parentPath}/${canonicalId}`)) {
-      twins.add(`${reference.parentPath}/${canonicalId}`);
-    }
-  }
-
-  const locations = [...twins];
-  for (let index = 0; index < locations.length; index += TWIN_READ_CHUNK) {
-    const chunk = locations.slice(index, index + TWIN_READ_CHUNK);
-    const snapshots = await firestore.getAll(...chunk.map((path) => firestore.doc(path)));
-    for (const snapshot of snapshots) {
-      const reference = byLocation.get(snapshot.ref.path);
-      if (reference && snapshot.exists) {
-        reference.data = snapshot.data();
-        reference.partial = false;
-      }
-    }
-  }
-}
-
-function canonicalTwinId(documentId) {
-  try {
-    const canonical = canonicalWorkoutDocumentId(documentId);
-    return canonical === documentId ? null : canonical;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Builds every write this migration will make, grouped into atomic units. A
  * canonicalization group must land in one batch so a workout can never lose its
  * non-canonical document without gaining its canonical one, and a reference row move is
@@ -502,7 +390,7 @@ async function commitUnits(firestore, units, batchSizes) {
 }
 
 async function verifyWorkoutIdReferences(firestore, renames, summaryPlan) {
-  const references = await readWorkoutIdReferences(firestore);
+  const references = await scanWorkoutIdReferences(firestore);
   const verificationPlan = planWorkoutIdReferenceRepairs(renames, references);
   const outstanding = verificationPlan.moves.length +
     verificationPlan.fieldUpdates.length +

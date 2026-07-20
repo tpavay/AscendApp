@@ -19,6 +19,7 @@ import {
   planReplaySummaryRepairs,
   planWorkoutIdReferenceRenames,
   planWorkoutIdReferenceRepairs,
+  scanWorkoutIdReferences,
 } from "../lib/workout-id-case-migration.mjs";
 
 const LOWERCASE_ID = "51c91094-5475-4b25-ab8f-a5d809f90a2f";
@@ -408,6 +409,40 @@ test("a reference scanned without its full payload can never be moved", () => {
   );
 });
 
+test("scanning a twinned entry pair re-reads the canonical row in full", async () => {
+  const parentPath = "live_replay_leaderboards/live_climb_empire/splitBuckets/0/entries";
+  const firestore = fakeFirestore({
+    [`${parentPath}/${LOWERCASE_ID}`]: scannedEntry(LOWERCASE_ID, 90),
+    [`${parentPath}/${UPPERCASE_ID}`]: scannedEntry(UPPERCASE_ID, 100),
+  });
+
+  const references = await scanWorkoutIdReferences(firestore);
+
+  const canonical = references.find((reference) => reference.documentId === UPPERCASE_ID);
+  assert.equal(canonical.partial, false);
+  assert.equal(canonical.data.finalSteps, 2_096);
+  assert.deepEqual(
+    planWorkoutIdReferenceRepairs(
+      [{workoutId: LOWERCASE_ID, canonicalWorkoutId: UPPERCASE_ID}],
+      references
+    ).conflicts,
+    []
+  );
+});
+
+test("scanning a canonical row with no stale twin keeps it trimmed", async () => {
+  const parentPath = "live_replay_leaderboards/live_climb_empire/splitBuckets/0/entries";
+  const firestore = fakeFirestore({
+    [`${parentPath}/${UPPERCASE_ID}`]: scannedEntry(UPPERCASE_ID, 100),
+  });
+
+  const references = await scanWorkoutIdReferences(firestore);
+
+  assert.equal(references.length, 1);
+  assert.equal(references[0].partial, true);
+  assert.equal("finalSteps" in references[0].data, false);
+});
+
 test("dropping a duplicate row lowers the summary by exactly that row", () => {
   const references = [
     summaryReference({completedCount: 89, totalClimbers: 96}),
@@ -680,6 +715,49 @@ function finisherReference(userId, globalCompletionOrder) {
     updatedAt: fakeTimestamp(100),
     userId,
   });
+}
+
+function scannedEntry(documentId, updatedAtSeconds) {
+  return {
+    finalSteps: 2_096,
+    updatedAt: fakeTimestamp(updatedAtSeconds),
+    userId: "user-1",
+    workoutId: documentId,
+  };
+}
+
+/**
+ * Minimal stand-in for the Firestore surface `scanWorkoutIdReferences` uses: streamed
+ * collection and collection-group queries, plus the `getAll` re-read of canonical twins.
+ * @param {Record<string, object>} documents Document data keyed by full path.
+ * @return {object} Fake Firestore instance.
+ */
+function fakeFirestore(documents) {
+  const snapshotFor = (path) => ({
+    id: path.split("/").at(-1),
+    ref: {path, parent: {path: path.split("/").slice(0, -1).join("/")}},
+    exists: path in documents,
+    data: () => documents[path],
+  });
+  const streamOf = (paths) => ({
+    async* stream() {
+      for (const path of paths) {
+        yield snapshotFor(path);
+      }
+    },
+  });
+  const paths = Object.keys(documents);
+
+  return {
+    collection: (collectionId) => streamOf(
+      paths.filter((path) => path.split("/").length === 2 && path.startsWith(`${collectionId}/`))
+    ),
+    collectionGroup: (collectionId) => streamOf(
+      paths.filter((path) => path.split("/").at(-2) === collectionId)
+    ),
+    doc: (path) => path,
+    getAll: async (...refs) => refs.map((path) => snapshotFor(path)),
+  };
 }
 
 function referenceFor(path, data) {
