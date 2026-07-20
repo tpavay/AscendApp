@@ -11,6 +11,13 @@
  * are then rebuilt through the existing shared derivation so removing a non-canonical
  * document cannot leave attemptCount inflated.
  *
+ * Writes are chunked, so a run can die with the workout renames committed and the
+ * landmarkResults rebuild outstanding. The projections this run owes are recorded on the
+ * ledger before the first write and cleared only on success, so the next run folds them
+ * back into its own plan and cannot report success on a vacuous verification. If a run
+ * fails and the operator will not re-run it, `scripts/backfill-landmark-results.mjs`
+ * rebuilds the same projections.
+ *
  * This migration is author-only. Running it is captain-gated operations work.
  *
  * Usage:
@@ -26,6 +33,7 @@ import {
   beginRun,
   initFirestore,
   parseCommonArgs,
+  readPendingRepairs,
   resolveEnvironment,
 } from "./lib/migration-discipline.mjs";
 import {
@@ -38,7 +46,6 @@ import {
   BATCH_WRITE_LIMIT,
   packBatchSizes,
   planCaseVariantWorkoutMerges,
-  plannedUnitSizes,
 } from "./lib/workout-id-case-migration.mjs";
 
 const OPERATION_ID = "migration/case-variant-workout-ids";
@@ -56,9 +63,8 @@ const environment = resolveEnvironment(args.env);
 const db = initFirestore(environment);
 const documents = await readWorkoutDocuments(db);
 const plan = planCaseVariantWorkoutMerges(documents);
-const affectedProjections = deriveAffectedLandmarkProjections(documents, plan.merges);
-const batchSizes = packBatchSizes(plannedUnitSizes(plan.merges, affectedProjections));
-const operationCount = batchSizes.reduce((sum, size) => sum + size, 0);
+const carriedRepairs = await readPendingRepairs(db, OPERATION_ID);
+const deleteCount = plan.merges.reduce((sum, merge) => sum + merge.deleteWorkoutIds.length, 0);
 
 console.log([
   `Operation: ${OPERATION_ID} v${OPERATION_VERSION}`,
@@ -67,9 +73,8 @@ console.log([
   `Workout documents scanned: ${documents.length}`,
   `Safe canonicalization groups: ${plan.merges.length}`,
   `Blocked conflicting groups: ${plan.conflicts.length}`,
-  `Non-canonical documents to delete: ${plan.merges.reduce((sum, merge) => sum + merge.deleteWorkoutIds.length, 0)}`,
-  `landmarkResults to rebuild: ${affectedProjections.length}`,
-  `Firestore operations: ${operationCount} in ${batchSizes.length} batch(es) of at most ${BATCH_WRITE_LIMIT}`,
+  `Non-canonical documents to delete: ${deleteCount}`,
+  `landmarkResults owed by an earlier unfinished run: ${carriedRepairs.length}`,
 ].join("\n"));
 
 for (const merge of plan.merges) {
@@ -77,12 +82,29 @@ for (const merge of plan.merges) {
     `SAFE ${merge.userId}: ${merge.sourceWorkoutIds.join(", ")} -> ${merge.canonicalWorkoutId}`
   );
 }
+for (const repair of carriedRepairs) {
+  console.log(`CARRIED landmarkResult ${repair.userId}/${repair.climbId}`);
+}
 for (const conflict of plan.conflicts) {
   console.error(
     `BLOCKED ${conflict.userId}: ${conflict.sourceWorkoutIds.join(", ")} ` +
       `conflict in ${conflict.conflictingFields.join(", ")}`
   );
 }
+
+const affectedProjections = deriveAffectedLandmarkProjections(
+  documents,
+  plan.merges,
+  carriedRepairs
+);
+const units = buildMigrationUnits(db, plan.merges, affectedProjections);
+const batchSizes = packBatchSizes(units.map((unit) => unit.length));
+const operationCount = batchSizes.reduce((sum, size) => sum + size, 0);
+
+console.log([
+  `landmarkResults to rebuild: ${affectedProjections.length}`,
+  `Firestore operations: ${operationCount} in ${batchSizes.length} batch(es) of at most ${BATCH_WRITE_LIMIT}`,
+].join("\n"));
 
 if (!args.apply) {
   console.log("\nDry-run only. Re-run with --apply after reviewing every planned merge.");
@@ -102,7 +124,10 @@ const run = await beginRun(db, {
 });
 
 try {
-  const deleted = await applyMerges(db, plan.merges, affectedProjections);
+  await run.recordPending(
+    affectedProjections.map(({userId, climbId}) => ({userId, climbId}))
+  );
+  await commitUnits(db, units, batchSizes);
   const verificationDocuments = await readWorkoutDocuments(db);
   const verificationPlan = planCaseVariantWorkoutMerges(verificationDocuments);
   if (verificationPlan.merges.length > 0 || verificationPlan.conflicts.length > 0) {
@@ -113,15 +138,21 @@ try {
   await run.finish({
     workoutDocumentsScanned: documents.length,
     duplicateGroupsMerged: plan.merges.length,
-    aliasDocumentsDeleted: deleted,
+    aliasDocumentsDeleted: deleteCount,
     landmarkResultsWritten: affectedProjections.length,
   });
   console.log(
-    `\nMerged ${plan.merges.length} group(s), deleted ${deleted} alias document(s), ` +
+    `\nMerged ${plan.merges.length} group(s), deleted ${deleteCount} alias document(s), ` +
       `and verified ${affectedProjections.length} landmark projection(s).`
   );
 } catch (error) {
   await run.fail(error);
+  console.error(
+    `\nThis run did not finish. ${affectedProjections.length} landmarkResult(s) are ` +
+      "recorded as owed on the ledger; re-run this migration with --apply to rebuild " +
+      "them, or run scripts/backfill-landmark-results.mjs. Do not treat the operation " +
+      "as complete until one of those succeeds."
+  );
   throw error;
 }
 
@@ -136,15 +167,25 @@ async function readWorkoutDocuments(firestore) {
   });
 }
 
-async function applyMerges(firestore, merges, affectedProjections) {
+/**
+ * Builds every write this migration will make, grouped into atomic units. A
+ * canonicalization group must land in one batch so a workout can never lose its
+ * non-canonical document without gaining its canonical one; each rebuilt landmarkResult
+ * stands alone. The reported plan and the committed plan are both derived from this one
+ * list so they cannot drift.
+ * @param {FirebaseFirestore.Firestore} firestore Firestore instance.
+ * @param {object[]} merges Planned canonicalization groups.
+ * @param {object[]} affectedProjections Landmark projections to rebuild.
+ * @return {{ref: FirebaseFirestore.DocumentReference, data: object|null}[][]} Atomic units;
+ *   a null payload means delete.
+ */
+function buildMigrationUnits(firestore, merges, affectedProjections) {
   const units = [];
-  let deleted = 0;
   for (const merge of merges) {
     const collection = firestore.collection("users").doc(merge.userId).collection("workouts");
     const unit = [{ref: collection.doc(merge.canonicalWorkoutId), data: merge.targetData}];
     for (const workoutId of merge.deleteWorkoutIds) {
       unit.push({ref: collection.doc(workoutId), data: null});
-      deleted += 1;
     }
     units.push(unit);
   }
@@ -154,9 +195,12 @@ async function applyMerges(firestore, merges, affectedProjections) {
       data: toFirestoreProjection(item.projection),
     }]);
   }
+  return units;
+}
 
+async function commitUnits(firestore, units, batchSizes) {
   let unitIndex = 0;
-  for (const batchSize of packBatchSizes(units.map((unit) => unit.length))) {
+  for (const batchSize of batchSizes) {
     const batch = firestore.batch();
     let written = 0;
     while (written < batchSize) {
@@ -172,12 +216,17 @@ async function applyMerges(firestore, merges, affectedProjections) {
     }
     await batch.commit();
   }
-  return deleted;
 }
 
-function deriveAffectedLandmarkProjections(documents, merges) {
+function deriveAffectedLandmarkProjections(documents, merges, carriedRepairs = []) {
   const keys = new Map();
   const replacedDocumentKeys = new Set();
+  for (const repair of carriedRepairs) {
+    keys.set(`${repair.userId}/${repair.climbId}`, {
+      userId: repair.userId,
+      climbId: repair.climbId,
+    });
+  }
   for (const merge of merges) {
     for (const document of merge.sourceDocuments) {
       replacedDocumentKeys.add(`${document.userId}/${document.workoutId}`);

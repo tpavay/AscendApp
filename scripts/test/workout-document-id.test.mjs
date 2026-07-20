@@ -9,7 +9,6 @@ import {
   BATCH_WRITE_LIMIT,
   packBatchSizes,
   planCaseVariantWorkoutMerges,
-  plannedUnitSizes,
 } from "../lib/workout-id-case-migration.mjs";
 
 const LOWERCASE_ID = "51c91094-5475-4b25-ab8f-a5d809f90a2f";
@@ -97,10 +96,12 @@ test("cleanup plan blocks payload conflicts instead of deleting data", () => {
 });
 
 test("apply plan chunks past the Firestore batch limit without splitting a group", () => {
-  const merges = Array.from({length: 400}, () => ({deleteWorkoutIds: ["a"]}));
-  const affectedProjections = Array.from({length: 120}, () => ({}));
+  const unitSizes = [
+    ...Array.from({length: 400}, () => 2),
+    ...Array.from({length: 120}, () => 1),
+  ];
 
-  const sizes = packBatchSizes(plannedUnitSizes(merges, affectedProjections));
+  const sizes = packBatchSizes(unitSizes);
 
   assert.equal(sizes.reduce((sum, size) => sum + size, 0), 920);
   assert.ok(sizes.every((size) => size <= BATCH_WRITE_LIMIT));
@@ -108,19 +109,16 @@ test("apply plan chunks past the Firestore batch limit without splitting a group
 });
 
 test("apply plan fits a small run in one batch", () => {
-  const sizes = packBatchSizes(plannedUnitSizes(
-    [{deleteWorkoutIds: ["a"]}, {deleteWorkoutIds: ["b", "c"]}],
-    [{}]
-  ));
+  assert.deepEqual(packBatchSizes([2, 3, 1]), [6]);
+});
 
-  assert.deepEqual(sizes, [6]);
+test("apply plan commits nothing when there is nothing to do", () => {
+  assert.deepEqual(packBatchSizes([]), []);
 });
 
 test("apply plan refuses a single group larger than one batch", () => {
-  const oversized = [{deleteWorkoutIds: Array.from({length: BATCH_WRITE_LIMIT}, () => "a")}];
-
   assert.throws(
-    () => packBatchSizes(plannedUnitSizes(oversized, [])),
+    () => packBatchSizes([BATCH_WRITE_LIMIT + 1]),
     /above Firestore's 500-write batch limit/
   );
 });
