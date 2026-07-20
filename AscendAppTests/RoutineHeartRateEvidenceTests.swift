@@ -251,3 +251,10 @@ private struct RoutineHeartRateProof: View {
         }
     }
 }
+
+// DELIBERATE COMPILE ERROR - disposable branch used only to prove the CI
+// failure-path diagnostics. This branch is never merged.
+private func ciFailurePathProof() {
+    let value: Int = "this is deliberately not an Int"
+    _ = value
+}
