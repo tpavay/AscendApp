@@ -4,6 +4,7 @@ import {
   climbCompletionsTestHooks,
   LandmarkResultProjection,
   LandmarkResultStore,
+  LandmarkResultTransaction,
 } from "../src/climbCompletions.js";
 
 const {
@@ -125,12 +126,14 @@ test("recompute writes once, then skips the re-delivered event", async () => {
   const first = await recomputeLandmarkResult(store, "u1", ESB);
   assert.equal(first, "written");
   assert.equal(store.writes, 1);
+  const firstDocument = store.readLandmarkResult(ESB);
 
   // Second delivery of the same completion: the stored projection already
   // reflects the event, so the guard returns success without a duplicate write.
   const second = await recomputeLandmarkResult(store, "u1", ESB);
   assert.equal(second, "skipped");
   assert.equal(store.writes, 1);
+  assert.deepEqual(store.readLandmarkResult(ESB), firstDocument);
 });
 
 test("recompute rewrites when a new completion arrives", async () => {
@@ -140,11 +143,14 @@ test("recompute rewrites when a new completion arrives", async () => {
   await recomputeLandmarkResult(store, "u1", ESB);
   assert.equal(store.writes, 1);
 
-  store.workouts.w2 = makeWorkoutDocument({steps: 2200, durationSeconds: 500});
+  store.setWorkout(
+    "w2",
+    makeWorkoutDocument({steps: 2200, durationSeconds: 500})
+  );
   const outcome = await recomputeLandmarkResult(store, "u1", ESB);
   assert.equal(outcome, "written");
   assert.equal(store.writes, 2);
-  const stored = await store.getLandmarkResult("u1", ESB);
+  const stored = store.readLandmarkResult(ESB);
   assert.equal(stored?.attemptCount, 2);
 });
 
@@ -154,10 +160,109 @@ test("recompute deletes the projection when no completion left", async () => {
   });
   await recomputeLandmarkResult(store, "u1", ESB);
 
-  delete store.workouts.w1;
+  store.deleteWorkout("w1");
   const outcome = await recomputeLandmarkResult(store, "u1", ESB);
   assert.equal(outcome, "deleted");
-  assert.equal(await store.getLandmarkResult("u1", ESB), null);
+  assert.equal(store.readLandmarkResult(ESB), null);
+});
+
+test("concurrent completions cannot let the older snapshot win", async () => {
+  const olderSnapshotRead = deferred<void>();
+  const releaseOlderSnapshot = deferred<void>();
+  const store = makeFakeStore(
+    {w1: makeWorkoutDocument({steps: 2096, durationSeconds: 900})},
+    {
+      async afterWorkoutList(call) {
+        if (call === 1) {
+          olderSnapshotRead.resolve();
+          await releaseOlderSnapshot.promise;
+        }
+      },
+    }
+  );
+
+  const older = recomputeLandmarkResult(store, "u1", ESB);
+  await olderSnapshotRead.promise;
+
+  store.setWorkout(
+    "w2",
+    makeWorkoutDocument({
+      steps: 2200,
+      durationSeconds: 500,
+      startedAtMillis: 1_700_000_100_000,
+    })
+  );
+  const newer = await recomputeLandmarkResult(store, "u1", ESB);
+  releaseOlderSnapshot.resolve();
+  await older;
+
+  const stored = store.readLandmarkResult(ESB);
+  assert.equal(newer, "written");
+  assert.equal(stored?.attemptCount, 2);
+  assert.equal(stored?.bestWorkoutId, "w2");
+  assert.equal(stored?.bestElapsedSeconds, 500);
+});
+
+test(
+  "completion races converge regardless of which invocation resumes first",
+  async () => {
+    const newerFirst = await runCompletionRace(true);
+    const olderFirst = await runCompletionRace(false);
+
+    assert.deepEqual(olderFirst, newerFirst);
+    assert.equal(newerFirst?.attemptCount, 2);
+    assert.equal(newerFirst?.bestWorkoutId, "w2");
+    assert.equal(newerFirst?.bestElapsedSeconds, 500);
+  }
+);
+
+test("stale deletion cannot erase a concurrent completion", async () => {
+  const emptySnapshotRead = deferred<void>();
+  const releaseEmptySnapshot = deferred<void>();
+  const store = makeFakeStore({}, {
+    async afterWorkoutList(call) {
+      if (call === 1) {
+        emptySnapshotRead.resolve();
+        await releaseEmptySnapshot.promise;
+      }
+    },
+  });
+
+  const staleDelete = recomputeLandmarkResult(store, "u1", ESB);
+  await emptySnapshotRead.promise;
+  store.setWorkout("w1", makeWorkoutDocument({steps: 2096}));
+  await recomputeLandmarkResult(store, "u1", ESB);
+  releaseEmptySnapshot.resolve();
+  await staleDelete;
+
+  const stored = store.readLandmarkResult(ESB);
+  assert.equal(stored?.attemptCount, 1);
+  assert.equal(stored?.bestWorkoutId, "w1");
+});
+
+test("concurrent duplicate delivery writes only once", async () => {
+  const bothProjectionReads = deferred<void>();
+  const releaseProjectionReads = deferred<void>();
+  const store = makeFakeStore(
+    {w1: makeWorkoutDocument({steps: 2096})},
+    {
+      async afterResultRead(call) {
+        if (call === 2) {
+          bothProjectionReads.resolve();
+        }
+        await releaseProjectionReads.promise;
+      },
+    }
+  );
+
+  const first = recomputeLandmarkResult(store, "u1", ESB);
+  const duplicate = recomputeLandmarkResult(store, "u1", ESB);
+  await bothProjectionReads.promise;
+  releaseProjectionReads.resolve();
+  const outcomes = await Promise.all([first, duplicate]);
+
+  assert.equal(store.writes, 1);
+  assert.deepEqual(outcomes.sort(), ["skipped", "written"]);
 });
 
 test("shouldSkip is false when nothing is stored yet", () => {
@@ -234,40 +339,176 @@ function makeWorkoutDocument(
 
 interface FakeStore extends LandmarkResultStore {
   writes: number;
-  workouts: Record<string, Record<string, unknown>>;
+  transactionAttempts: number;
+  setWorkout(id: string, data: Record<string, unknown>): void;
+  deleteWorkout(id: string): void;
+  readLandmarkResult(climbId: string): LandmarkResultProjection | null;
+}
+
+interface FakeStoreOptions {
+  afterWorkoutList?: (call: number) => Promise<void>;
+  afterResultRead?: (call: number) => Promise<void>;
 }
 
 /**
  * An in-memory store that records how many writes occurred.
  * @param {Record<string, Record<string, unknown>>} workouts Seed workouts.
+ * @param {FakeStoreOptions} options Deterministic interleaving hooks.
  * @return {FakeStore} Fake store.
  */
 function makeFakeStore(
-  workouts: Record<string, Record<string, unknown>>
+  workouts: Record<string, Record<string, unknown>>,
+  options: FakeStoreOptions = {}
 ): FakeStore {
+  const canonicalWorkouts = {...workouts};
   const results = new Map<string, LandmarkResultProjection>();
+  let workoutListCalls = 0;
+  let resultReadCalls = 0;
+  let version = 0;
 
   const store: FakeStore = {
     writes: 0,
-    workouts,
-    async listUserWorkouts() {
-      return Object.entries(store.workouts).map(([id, data]) => ({id, data}));
+    transactionAttempts: 0,
+    setWorkout(id, data) {
+      canonicalWorkouts[id] = data;
+      version += 1;
     },
-    async getLandmarkResult(_userId: string, climbId: string) {
+    deleteWorkout(id) {
+      delete canonicalWorkouts[id];
+      version += 1;
+    },
+    readLandmarkResult(climbId) {
       return results.get(climbId) ?? null;
     },
-    async writeLandmarkResult(
-      _userId: string,
-      climbId: string,
-      projection: LandmarkResultProjection
-    ) {
-      store.writes += 1;
-      results.set(climbId, projection);
-    },
-    async deleteLandmarkResult(_userId: string, climbId: string) {
-      results.delete(climbId);
+    async runTransaction<T>(
+      operation: (transaction: LandmarkResultTransaction) => Promise<T>
+    ): Promise<T> {
+      for (let retry = 0; retry < 20; retry += 1) {
+        store.transactionAttempts += 1;
+        const readVersion = version;
+        const workoutSnapshot = Object.entries(canonicalWorkouts).map(
+          ([id, data]) => ({id, data})
+        );
+        const resultSnapshot = new Map(results);
+        const mutation: {value: {
+            kind: "write" | "delete";
+            climbId: string;
+            projection?: LandmarkResultProjection;
+          } | null} = {value: null};
+
+        const outcome = await operation({
+          async listUserWorkouts() {
+            workoutListCalls += 1;
+            await options.afterWorkoutList?.(workoutListCalls);
+            return workoutSnapshot;
+          },
+          async getLandmarkResult(_userId: string, climbId: string) {
+            const snapshot = resultSnapshot.get(climbId) ?? null;
+            resultReadCalls += 1;
+            await options.afterResultRead?.(resultReadCalls);
+            return snapshot;
+          },
+          async writeLandmarkResult(
+            _userId: string,
+            climbId: string,
+            projection: LandmarkResultProjection
+          ) {
+            mutation.value = {kind: "write", climbId, projection};
+          },
+          async deleteLandmarkResult(_userId: string, climbId: string) {
+            mutation.value = {kind: "delete", climbId};
+          },
+        });
+
+        if (version !== readVersion) {
+          continue;
+        }
+        const pending = mutation.value;
+        if (pending?.kind === "write" && pending.projection) {
+          results.set(pending.climbId, pending.projection);
+          store.writes += 1;
+          version += 1;
+        } else if (pending?.kind === "delete") {
+          results.delete(pending.climbId);
+          version += 1;
+        }
+        return outcome;
+      }
+      throw new Error("fake transaction exceeded retry limit");
     },
   };
 
   return store;
+}
+
+/**
+ * Runs the same two completion events with either invocation released first.
+ * @param {boolean} releaseNewerFirst Whether the newer read resumes first.
+ * @return {Promise<LandmarkResultProjection | null>} Stored projection.
+ */
+async function runCompletionRace(
+  releaseNewerFirst: boolean
+): Promise<LandmarkResultProjection | null> {
+  const olderRead = deferred<void>();
+  const newerRead = deferred<void>();
+  const releaseOlder = deferred<void>();
+  const releaseNewer = deferred<void>();
+  const store = makeFakeStore(
+    {w1: makeWorkoutDocument({steps: 2096, durationSeconds: 900})},
+    {
+      async afterWorkoutList(call) {
+        if (call === 1) {
+          olderRead.resolve();
+          await releaseOlder.promise;
+        } else if (call === 2) {
+          newerRead.resolve();
+          await releaseNewer.promise;
+        }
+      },
+    }
+  );
+
+  const older = recomputeLandmarkResult(store, "u1", ESB);
+  await olderRead.promise;
+  store.setWorkout(
+    "w2",
+    makeWorkoutDocument({
+      steps: 2200,
+      durationSeconds: 500,
+      startedAtMillis: 1_700_000_100_000,
+    })
+  );
+  const newer = recomputeLandmarkResult(store, "u1", ESB);
+  await newerRead.promise;
+
+  if (releaseNewerFirst) {
+    releaseNewer.resolve();
+    await newer;
+    releaseOlder.resolve();
+    await older;
+  } else {
+    releaseOlder.resolve();
+    await older;
+    releaseNewer.resolve();
+    await newer;
+  }
+
+  return store.readLandmarkResult(ESB);
+}
+
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+}
+
+/**
+ * Creates a manually-resolvable promise for deterministic interleavings.
+ * @return {Deferred<T>} Promise and resolver.
+ */
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((fulfill) => {
+    resolve = fulfill;
+  });
+  return {promise, resolve};
 }

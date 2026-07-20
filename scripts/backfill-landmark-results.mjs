@@ -10,9 +10,9 @@
  * functions/src/climbCompletions.ts) over each user's completed landmark
  * workouts and writes `users/{uid}/landmarkResults/{climbId}`. It is the
  * migration trigger of the one Projection Builder (CANONICAL §1), and it goes
- * through the same validate-before-write guard, so the live trigger, a rerun,
- * and this backfill all converge on byte-identical docs -> idempotent, no
- * duplicates.
+ * through the same transaction and validate-before-write guard, so the live
+ * trigger, a rerun, and this backfill all converge on byte-identical docs ->
+ * idempotent, no duplicates or stale-plan overwrites.
  *
  * Completion evidence is the SHARED, vector-pinned contract
  * isRecoverableLegacyCompletion (scripts/lib/legacy-climb-completion.mjs) - the
@@ -29,6 +29,8 @@
  * dry-run by default, `_migrations` ledger-gated, idempotent (a second apply
  * writes nothing). AUTHOR-ONLY in the PR - running it is captain-gated ops, per
  * env, after the rules + CF deploy. Prod is empty, so it is a no-op there.
+ * Version 2 also scans stored projection identities, allowing an authorized run
+ * to delete an orphaned result left by the pre-fix race.
  *
  * Usage:
  *   node scripts/backfill-landmark-results.mjs --env dev            # plan (dry-run)
@@ -49,11 +51,12 @@ import {
 import {
   groupCompletions,
   deriveLandmarkResult,
+  recomputeLandmarkResult,
   shouldSkipLandmarkResultWrite,
 } from "./lib/landmark-result-derivation.mjs";
 
 const OPERATION_ID = "migration/landmark-results";
-const OPERATION_VERSION = 1;
+const OPERATION_VERSION = 2;
 
 const args = parseCommonArgs(process.argv);
 if (args.rest.has("help")) {
@@ -71,8 +74,11 @@ console.log(
     `Mode: ${args.apply ? "apply" : "dry-run (plan only)"}`,
     `Workouts scanned: ${plan.scanned}`,
     `Users with completions: ${plan.userCount}`,
-    `Distinct landmark results: ${plan.projections.length}`,
-    `Writes needed (not already materialized): ${plan.pendingWrites}`,
+    `Stored landmark results scanned: ${plan.storedResultCount}`,
+    `Canonical landmark results: ${plan.canonicalResultCount}`,
+    `Candidate reconciliations: ${plan.candidates.length}`,
+    `Writes needed: ${plan.pendingWrites}`,
+    `Deletes needed: ${plan.pendingDeletes}`,
   ].join("\n")
 );
 
@@ -89,35 +95,49 @@ const run = await beginRun(db, {
 });
 
 try {
-  const written = await applyMaterializations(db, plan.projections);
+  const applied = await applyMaterializations(db, plan.candidates);
   const verification = await planMaterializations(db);
-  if (verification.pendingWrites !== 0) {
+  if (
+    verification.pendingWrites !== 0 ||
+    verification.pendingDeletes !== 0
+  ) {
     throw new Error(
-      `Verification found ${verification.pendingWrites} pending writes; ` +
+      `Verification found ${verification.pendingWrites} pending writes and ` +
+      `${verification.pendingDeletes} pending deletes; ` +
       "the backfill did not converge."
     );
   }
   await run.finish({
-    landmarkResultsWritten: written,
-    distinctLandmarkResults: plan.projections.length,
+    landmarkResultsWritten: applied.written,
+    landmarkResultsDeleted: applied.deleted,
+    candidateReconciliations: plan.candidates.length,
+    canonicalLandmarkResults: plan.canonicalResultCount,
     scanned: plan.scanned,
   });
-  console.log(`\nWrote ${written} landmarkResults. Verified convergent.`);
+  console.log(
+    `\nWrote ${applied.written} and deleted ${applied.deleted} ` +
+    "landmarkResults. Verified convergent."
+  );
 } catch (error) {
   await run.fail(error);
   throw error;
 }
 
 /**
- * Scans every private workout, groups completed landmark workouts per user and
- * landmark, and derives the projection each one should hold. A projection whose
- * stored doc already reflects it (validate-before-write) is not a pending write.
+ * Scans canonical workouts and stored landmark results. The union of their
+ * user/climb identities is the repair set: canonical-only identities need a
+ * write, stored-only identities need deletion, and shared identities reconcile.
  * @param {FirebaseFirestore.Firestore} firestore Firestore instance.
- * @return {Promise<{projections: object[], scanned: number, userCount: number, pendingWrites: number}>}
+ * @return {Promise<{candidates: object[], scanned: number, userCount: number,
+ *   storedResultCount: number, canonicalResultCount: number,
+ *   pendingWrites: number, pendingDeletes: number}>}
  *   The plan.
  */
 async function planMaterializations(firestore) {
-  const snapshot = await firestore.collectionGroup("workouts").get();
+  const [snapshot, storedResultsSnapshot] = await Promise.all([
+    firestore.collectionGroup("workouts").get(),
+    firestore.collectionGroup("landmarkResults").get(),
+  ]);
   const workouts = [];
   for (const doc of snapshot.docs) {
     const userId = doc.ref.parent.parent?.id;
@@ -128,66 +148,136 @@ async function planMaterializations(firestore) {
   }
 
   const byUser = groupCompletions(workouts);
-  const projections = [];
+  const candidatesByKey = new Map();
   for (const [userId, byClimb] of byUser) {
     for (const [climbId, completions] of byClimb) {
       const projection = deriveLandmarkResult(climbId, completions);
       if (projection) {
-        projections.push({userId, climbId, projection});
+        const item = {userId, climbId, projection, existing: null};
+        candidatesByKey.set(candidateKey(item), item);
       }
     }
   }
-  projections.sort((lhs, rhs) => (
+
+  for (const document of storedResultsSnapshot.docs) {
+    const userReference = document.ref.parent.parent;
+    if (!userReference || userReference.parent.id !== "users") {
+      continue;
+    }
+    const identity = {userId: userReference.id, climbId: document.id};
+    const key = candidateKey(identity);
+    const existingItem = candidatesByKey.get(key);
+    candidatesByKey.set(key, {
+      ...identity,
+      projection: existingItem?.projection ?? null,
+      existing: normalizeStoredProjection(identity, document),
+    });
+  }
+
+  const candidates = [...candidatesByKey.values()];
+  candidates.sort((lhs, rhs) => (
     lhs.userId.localeCompare(rhs.userId) ||
     lhs.climbId.localeCompare(rhs.climbId)
   ));
 
   let pendingWrites = 0;
-  for (const item of projections) {
-    const existing = await readStoredProjection(firestore, item);
-    if (!shouldSkipLandmarkResultWrite(existing, item.projection)) {
+  let pendingDeletes = 0;
+  for (const item of candidates) {
+    if (!item.projection) {
+      pendingDeletes += 1;
+    } else if (
+      !shouldSkipLandmarkResultWrite(item.existing, item.projection)
+    ) {
       pendingWrites += 1;
     }
   }
 
   return {
-    projections,
+    candidates,
     scanned: snapshot.size,
     userCount: byUser.size,
+    storedResultCount: storedResultsSnapshot.size,
+    canonicalResultCount: [...candidatesByKey.values()]
+      .filter((item) => item.projection !== null).length,
     pendingWrites,
+    pendingDeletes,
   };
 }
 
 /**
- * Writes each planned projection, skipping any already materialized.
+ * Atomically reconciles each planned projection from the current workouts.
+ * The plan identifies candidate user/climb pairs only. Re-deriving inside the
+ * transaction prevents a stale plan from overwriting a concurrent live trigger.
  * @param {FirebaseFirestore.Firestore} firestore Firestore instance.
- * @param {object[]} projections Planned projections.
- * @return {Promise<number>} Count of documents written.
+ * @param {object[]} candidates Planned user/climb identities.
+ * @return {Promise<{written: number, deleted: number}>} Mutation counts.
  */
-async function applyMaterializations(firestore, projections) {
+async function applyMaterializations(firestore, candidates) {
   let written = 0;
-  for (const item of projections) {
-    const existing = await readStoredProjection(firestore, item);
-    if (shouldSkipLandmarkResultWrite(existing, item.projection)) {
-      continue; // Already materialized (rerun / concurrent / live trigger).
-    }
-    await landmarkResultRef(firestore, item).set(
-      toFirestoreProjection(item.projection)
+  let deleted = 0;
+  const store = makeTransactionalStore(firestore);
+  for (const item of candidates) {
+    const outcome = await recomputeLandmarkResult(
+      store,
+      item.userId,
+      item.climbId
     );
-    written += 1;
+    if (outcome === "written") {
+      written += 1;
+    } else if (outcome === "deleted") {
+      deleted += 1;
+    }
   }
-  return written;
+  return {written, deleted};
 }
 
 /**
- * Reads the stored projection and normalizes timestamps back to millis so the
- * shared validate-before-write guard compares like with like.
+ * Adapts the Admin SDK to the shared transactional derivation boundary.
  * @param {FirebaseFirestore.Firestore} firestore Firestore instance.
- * @param {{userId: string, climbId: string}} item The plan item.
- * @return {Promise<object|null>} Comparable stored projection.
+ * @return {object} Transactional landmark-result store.
  */
-async function readStoredProjection(firestore, item) {
-  const snapshot = await landmarkResultRef(firestore, item).get();
+function makeTransactionalStore(firestore) {
+  return {
+    async runTransaction(operation) {
+      return firestore.runTransaction(async (transaction) => operation({
+        async listUserWorkouts(userId) {
+          const query = firestore
+            .collection("users")
+            .doc(userId)
+            .collection("workouts");
+          const snapshot = await transaction.get(query);
+          return snapshot.docs.map((doc) => ({id: doc.id, data: doc.data()}));
+        },
+        async getLandmarkResult(userId, climbId) {
+          const item = {userId, climbId};
+          const snapshot = await transaction.get(
+            landmarkResultRef(firestore, item)
+          );
+          return normalizeStoredProjection(item, snapshot);
+        },
+        async writeLandmarkResult(userId, climbId, projection) {
+          transaction.set(
+            landmarkResultRef(firestore, {userId, climbId}),
+            toFirestoreProjection(projection)
+          );
+        },
+        async deleteLandmarkResult(userId, climbId) {
+          transaction.delete(
+            landmarkResultRef(firestore, {userId, climbId})
+          );
+        },
+      }));
+    },
+  };
+}
+
+/**
+ * Normalizes a stored snapshot into the derivation's comparable millis shape.
+ * @param {{climbId: string}} item Projection identity.
+ * @param {FirebaseFirestore.DocumentSnapshot} snapshot Stored document.
+ * @return {object|null} Comparable projection.
+ */
+function normalizeStoredProjection(item, snapshot) {
   if (!snapshot.exists) {
     return null;
   }
@@ -217,6 +307,15 @@ function landmarkResultRef(firestore, item) {
     .doc(item.userId)
     .collection("landmarkResults")
     .doc(item.climbId);
+}
+
+/**
+ * Builds a collision-safe in-memory key for one user/climb identity.
+ * @param {{userId: string, climbId: string}} item Projection identity.
+ * @return {string} Candidate map key.
+ */
+function candidateKey(item) {
+  return JSON.stringify([item.userId, item.climbId]);
 }
 
 /**

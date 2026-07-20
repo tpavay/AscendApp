@@ -132,6 +132,47 @@ export function shouldSkipLandmarkResultWrite(existing, next) {
 }
 
 /**
+ * Recomputes one landmark projection atomically from its canonical workouts.
+ * The store must retry the callback when any transactional read changes, which
+ * prevents a stale workout snapshot from committing after a newer projection.
+ * @param {object} store Transactional persistence boundary.
+ * @param {string} userId Owning user id.
+ * @param {string} climbId Landmark id.
+ * @return {Promise<"written"|"skipped"|"deleted">} Reconciliation outcome.
+ */
+export async function recomputeLandmarkResult(store, userId, climbId) {
+  return store.runTransaction(async (transaction) => {
+    const workouts = await transaction.listUserWorkouts(userId);
+    const completions = [];
+    for (const workout of workouts) {
+      const parsed = parseCompletedLandmarkWorkout(workout.id, workout.data);
+      if (parsed && parsed.climbId === climbId) {
+        completions.push(parsed);
+      }
+    }
+
+    // Firestore requires every read before the first write. Changes to either
+    // this document or the workout query cause the entire callback to retry.
+    const existing = await transaction.getLandmarkResult(userId, climbId);
+    const next = deriveLandmarkResult(climbId, completions);
+    if (!next) {
+      if (!existing) {
+        return "skipped";
+      }
+      await transaction.deleteLandmarkResult(userId, climbId);
+      return "deleted";
+    }
+
+    if (shouldSkipLandmarkResultWrite(existing, next)) {
+      return "skipped";
+    }
+
+    await transaction.writeLandmarkResult(userId, climbId, next);
+    return "written";
+  });
+}
+
+/**
  * Groups a flat list of raw workouts into completions keyed by user then climb.
  * @param {{userId: string, workoutId: string, data: Record<string, unknown>}[]} workouts
  *   Raw workouts with their owning user id.
