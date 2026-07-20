@@ -73,6 +73,237 @@ struct WorkoutImportCoordinatorLiveClimbAppleHealthEnrichmentTests {
   }
 
   @Test
+  func refreshRevisitsLinkedWorkoutWhenHeartRateSamplesArriveLater() async throws {
+    try await HealthKitImportCoordinatorTestIsolation.shared.run {
+      let modelContext = try makeModelContext()
+      let stateSnapshot = LiveClimbHealthKitSyncStateSnapshot.capture()
+      let settingsSnapshot = LiveClimbSettingsSnapshot.capture()
+      defer {
+        stateSnapshot.restore()
+        settingsSnapshot.restore()
+      }
+      resetHealthKitSyncStateForTest()
+      SettingsManager.shared.appleHealthAutoImportEnabled = false
+
+      let liveStart = Date().addingTimeInterval(-60 * 60)
+      let liveWorkout = makeLiveClimbWorkout(start: liveStart, duration: 1_200, steps: 1_600)
+      modelContext.insert(liveWorkout)
+      modelContext.insert(makeLiveClimbParticipation(for: liveWorkout, climbId: "delayed-heart-rate"))
+      try modelContext.save()
+
+      let appleWorkout = HKWorkout(
+        activityType: .stairClimbing,
+        start: liveStart,
+        end: liveStart.addingTimeInterval(1_200)
+      )
+      let appleSample = makeAppleHealthSample(from: appleWorkout)
+      let metricsReader = LiveClimbHealthKitMetricsReader(
+        metricResponses: [
+          WorkoutMetrics(),
+          WorkoutMetrics(
+            avgHeartRate: 148,
+            maxHeartRate: 174,
+            caloriesBurned: 210,
+            heartRateTimeSeries: [
+              HeartRateDataPoint(timestamp: liveStart.addingTimeInterval(300), heartRate: 146),
+              HeartRateDataPoint(timestamp: liveStart.addingTimeInterval(900), heartRate: 158)
+            ],
+            averageMETs: 7.4
+          )
+        ]
+      )
+      let coordinator = WorkoutImportCoordinator(
+        authorizationController: LiveClimbHealthKitAuthorizationController(),
+        workoutReader: LiveClimbHealthKitWorkoutReader(
+          workouts: [appleWorkout],
+          addedSamples: [appleSample]
+        ),
+        metricsReader: metricsReader
+      )
+      coordinator.configure(modelContext: modelContext)
+
+      await coordinator.refreshPendingImports(trigger: .backgroundObserver)
+
+      #expect(liveWorkout.healthKitUUID == appleSample.externalRecordID)
+      #expect(
+        liveWorkout.sourceLink(for: .appleHealth)?.externalRecordID == appleSample.externalRecordID)
+      #expect(liveWorkout.avgHeartRate == nil)
+
+      await coordinator.refreshPendingImports(trigger: .backgroundObserver)
+
+      #expect(metricsReader.requestedWorkoutIDs == [
+        appleSample.externalRecordID,
+        appleSample.externalRecordID
+      ])
+      #expect(liveWorkout.avgHeartRate == 148)
+      #expect(liveWorkout.maxHeartRate == 174)
+      #expect(liveWorkout.caloriesBurned == 210)
+      #expect(liveWorkout.averageMETs == 7.4)
+      #expect(liveWorkout.heartRateTimeSeries.count == 2)
+    }
+  }
+
+  @Test
+  func detailFetchRefreshesLinkedWorkoutByStableAppleHealthID() async throws {
+    try await HealthKitImportCoordinatorTestIsolation.shared.run {
+      let modelContext = try makeModelContext()
+      let stateSnapshot = LiveClimbHealthKitSyncStateSnapshot.capture()
+      let settingsSnapshot = LiveClimbSettingsSnapshot.capture()
+      defer {
+        stateSnapshot.restore()
+        settingsSnapshot.restore()
+      }
+      resetHealthKitSyncStateForTest()
+      SettingsManager.shared.appleHealthAutoImportEnabled = false
+
+      let liveStart = Date().addingTimeInterval(-60 * 60)
+      let liveWorkout = makeLiveClimbWorkout(start: liveStart, duration: 1_200, steps: 1_600)
+      modelContext.insert(liveWorkout)
+      modelContext.insert(makeLiveClimbParticipation(for: liveWorkout, climbId: "detail-fetch"))
+      try modelContext.save()
+
+      let appleWorkout = HKWorkout(
+        activityType: .stairClimbing,
+        start: liveStart,
+        end: liveStart.addingTimeInterval(1_200)
+      )
+      let appleSample = makeAppleHealthSample(from: appleWorkout)
+      let metricsReader = LiveClimbHealthKitMetricsReader(
+        metricResponses: [
+          WorkoutMetrics(),
+          WorkoutMetrics(
+            avgHeartRate: 152,
+            maxHeartRate: 179,
+            caloriesBurned: 225,
+            heartRateTimeSeries: [
+              HeartRateDataPoint(timestamp: liveStart.addingTimeInterval(600), heartRate: 154)
+            ],
+            averageMETs: 7.8
+          )
+        ]
+      )
+      let workoutReader = LiveClimbHealthKitWorkoutReader(
+        workouts: [appleWorkout],
+        addedSamples: [appleSample]
+      )
+      let coordinator = WorkoutImportCoordinator(
+        authorizationController: LiveClimbHealthKitAuthorizationController(),
+        workoutReader: workoutReader,
+        metricsReader: metricsReader
+      )
+      coordinator.configure(modelContext: modelContext)
+
+      await coordinator.refreshPendingImports(trigger: .backgroundObserver)
+      let discoveryCountBeforeFetch = workoutReader.requestedDateRanges.count
+      let didFetch = await coordinator.enrichInAppWorkoutWithAppleHealthIfPossible(
+        liveWorkout,
+        modelContext: modelContext,
+        forceRangeDiscovery: true
+      )
+
+      #expect(didFetch)
+      #expect(metricsReader.requestedWorkoutIDs == [
+        appleSample.externalRecordID,
+        appleSample.externalRecordID
+      ])
+      #expect(workoutReader.requestedDateRanges.count == discoveryCountBeforeFetch)
+      #expect(liveWorkout.avgHeartRate == 152)
+      #expect(liveWorkout.maxHeartRate == 179)
+      #expect(liveWorkout.heartRateTimeSeries.count == 1)
+    }
+  }
+
+  @Test
+  func fullyEnrichedLinkedWorkoutIsNotProcessedAgain() async throws {
+    try await HealthKitImportCoordinatorTestIsolation.shared.run {
+      let modelContext = try makeModelContext()
+      let stateSnapshot = LiveClimbHealthKitSyncStateSnapshot.capture()
+      let settingsSnapshot = LiveClimbSettingsSnapshot.capture()
+      defer {
+        stateSnapshot.restore()
+        settingsSnapshot.restore()
+      }
+      resetHealthKitSyncStateForTest()
+      SettingsManager.shared.appleHealthAutoImportEnabled = false
+
+      let liveStart = Date().addingTimeInterval(-60 * 60)
+      let liveWorkout = makeLiveClimbWorkout(start: liveStart, duration: 1_200, steps: 1_600)
+      modelContext.insert(liveWorkout)
+      modelContext.insert(makeLiveClimbParticipation(for: liveWorkout, climbId: "complete-enrichment"))
+      try modelContext.save()
+
+      let appleWorkout = HKWorkout(
+        activityType: .stairClimbing,
+        start: liveStart,
+        end: liveStart.addingTimeInterval(1_200)
+      )
+      let appleSample = makeAppleHealthSample(from: appleWorkout)
+      let metricsReader = LiveClimbHealthKitMetricsReader(
+        metrics: WorkoutMetrics(
+          avgHeartRate: 150,
+          maxHeartRate: 175,
+          caloriesBurned: 220,
+          heartRateTimeSeries: [
+            HeartRateDataPoint(timestamp: liveStart.addingTimeInterval(600), heartRate: 150)
+          ],
+          averageMETs: 7.5
+        )
+      )
+      let coordinator = WorkoutImportCoordinator(
+        authorizationController: LiveClimbHealthKitAuthorizationController(),
+        workoutReader: LiveClimbHealthKitWorkoutReader(
+          workouts: [appleWorkout],
+          addedSamples: [appleSample]
+        ),
+        metricsReader: metricsReader
+      )
+      coordinator.configure(modelContext: modelContext)
+
+      await coordinator.refreshPendingImports(trigger: .backgroundObserver)
+      await coordinator.refreshPendingImports(trigger: .backgroundObserver)
+      let didFetch = await coordinator.enrichInAppWorkoutWithAppleHealthIfPossible(
+        liveWorkout,
+        modelContext: modelContext,
+        forceRangeDiscovery: true
+      )
+
+      #expect(coordinator.appleHealthEnrichmentStatus(for: liveWorkout) == .complete)
+      #expect(coordinator.hasPendingAppleHealthHeartRateEnrichment(for: liveWorkout) == false)
+      #expect(didFetch == false)
+      #expect(metricsReader.requestedWorkoutIDs == [appleSample.externalRecordID])
+    }
+  }
+
+  @Test
+  func heartRateRecoveryIsOnlyPendingForReachableEnrichmentStates() async throws {
+    try await HealthKitImportCoordinatorTestIsolation.shared.run {
+      let modelContext = try makeModelContext()
+      let stateSnapshot = LiveClimbHealthKitSyncStateSnapshot.capture()
+      defer { stateSnapshot.restore() }
+      resetHealthKitSyncStateForTest()
+
+      let oldStart = Date().addingTimeInterval(-(80 * 60 * 60))
+      let unlinkedWorkout = makeLiveClimbWorkout(start: oldStart, duration: 1_200, steps: 1_600)
+      let linkedWorkout = makeLiveClimbWorkout(start: oldStart, duration: 1_200, steps: 1_600)
+      linkedWorkout.healthKitUUID = UUID().uuidString
+      modelContext.insert(unlinkedWorkout)
+      modelContext.insert(linkedWorkout)
+      try modelContext.save()
+
+      let coordinator = WorkoutImportCoordinator(
+        authorizationController: LiveClimbHealthKitAuthorizationController(),
+        workoutReader: LiveClimbHealthKitWorkoutReader(workouts: [], addedSamples: []),
+        metricsReader: LiveClimbHealthKitMetricsReader()
+      )
+
+      #expect(coordinator.appleHealthEnrichmentStatus(for: unlinkedWorkout) == .notPending)
+      #expect(coordinator.hasPendingAppleHealthHeartRateEnrichment(for: unlinkedWorkout) == false)
+      #expect(coordinator.appleHealthEnrichmentStatus(for: linkedWorkout) == .metricsPending)
+      #expect(coordinator.hasPendingAppleHealthHeartRateEnrichment(for: linkedWorkout))
+    }
+  }
+
+  @Test
   func refreshEnrichesJustClimbWithoutParticipationWithSingleAppleHealthWorkout() async throws {
     try await HealthKitImportCoordinatorTestIsolation.shared.run {
       let modelContext = try makeModelContext()
@@ -716,16 +947,20 @@ private final class LiveClimbHealthKitWorkoutReader: HealthKitWorkoutReading {
 private final class LiveClimbHealthKitMetricsReader: HealthKitMetricsReading {
   private let metrics: WorkoutMetrics
   private let timeWindowMetrics: WorkoutMetrics?
+  private var metricResponses: [WorkoutMetrics]
   private(set) var requestedRanges: [String: ClosedRange<Date>] = [:]
   private(set) var requestedTimeWindows: [ClosedRange<Date>] = []
+  private(set) var requestedWorkoutIDs: [String] = []
 
   init(
     metrics: WorkoutMetrics = WorkoutMetrics(
       avgHeartRate: 135, maxHeartRate: 165, caloriesBurned: 75),
-    timeWindowMetrics: WorkoutMetrics? = nil
+    timeWindowMetrics: WorkoutMetrics? = nil,
+    metricResponses: [WorkoutMetrics] = []
   ) {
     self.metrics = metrics
     self.timeWindowMetrics = timeWindowMetrics
+    self.metricResponses = metricResponses
   }
 
   func fetchMetrics(for workout: HKWorkout) async -> WorkoutMetrics {
@@ -736,12 +971,18 @@ private final class LiveClimbHealthKitMetricsReader: HealthKitMetricsReading {
     -> WorkoutMetrics
   {
     requestedRanges[workout.uuid.uuidString] = dateRange
-    return metrics
+    requestedWorkoutIDs.append(workout.uuid.uuidString)
+    return nextMetricsResponse()
   }
 
   func fetchMetrics(during dateRange: ClosedRange<Date>) async -> WorkoutMetrics {
     requestedTimeWindows.append(dateRange)
     return timeWindowMetrics ?? WorkoutMetrics()
+  }
+
+  private func nextMetricsResponse() -> WorkoutMetrics {
+    guard metricResponses.isEmpty == false else { return metrics }
+    return metricResponses.removeFirst()
   }
 }
 

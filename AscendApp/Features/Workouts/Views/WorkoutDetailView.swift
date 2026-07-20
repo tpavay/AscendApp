@@ -636,7 +636,7 @@ struct WorkoutDetailView: View {
     }
 
     private var shouldShowAppleHealthHeartRateRecovery: Bool {
-        workout.isInAppSensorWorkout && !hasHeartRateData
+        importCoordinator.hasPendingAppleHealthHeartRateEnrichment(for: workout)
     }
 
     private var workoutPaceSplits: [LiveClimbPaceSplit] {
