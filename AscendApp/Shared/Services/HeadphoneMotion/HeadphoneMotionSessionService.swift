@@ -113,6 +113,16 @@ final class HeadphoneMotionSessionService {
         refreshAvailability()
     }
 
+#if DEBUG || STAGING
+    /// Test seam: primes the resume-inclusive session clock so consumers that
+    /// derive timeline positions from `duration` can be exercised without a
+    /// live CoreMotion feed. Never compiled into Release - nothing outside a
+    /// test may rewrite a live session's clock.
+    func primeDurationForTesting(_ duration: TimeInterval) {
+        self.duration = max(duration, 0)
+    }
+#endif
+
     func refreshAvailability() {
         isDeviceMotionAvailable = runner?.isDeviceMotionAvailable ?? false
     }

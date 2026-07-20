@@ -359,14 +359,36 @@ jobs:
       # this job proves the simulator build + test suite, so the app compiles
       # exactly once per job instead of twice.
       - name: Run tests
+        id: tests
+        shell: bash
         run: |
+          set -o pipefail
+          mkdir -p build-logs
           xcodebuild \
             -project AscendApp.xcodeproj \
             -scheme "AscendApp-Staging" \
             -configuration Staging \
             -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.id }}" \
+            -resultBundlePath build-logs/AscendApp-Staging.xcresult \
             ENABLE_TESTABILITY=YES \
-            test
+            test 2>&1 | tee build-logs/xcodebuild-staging.log
+
+      # A step killed by timeout-minutes reports `cancelled`, not `failure`, and
+      # that is exactly the hung-runner case these logs exist to explain. An
+      # empty outcome means xcodebuild never ran, so there is no log to read.
+      - name: Summarize failure
+        if: always() && steps.tests.outcome != 'success' && steps.tests.outcome != 'skipped' && steps.tests.outcome != ''
+        shell: bash
+        run: ./scripts/ci/summarize-xcodebuild-failure.sh build-logs/xcodebuild-staging.log
+
+      - name: Upload build logs
+        if: always() && steps.tests.outcome != 'success' && steps.tests.outcome != 'skipped' && steps.tests.outcome != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-verify-staging-logs
+          path: build-logs/
+          retention-days: 7
+          if-no-files-found: warn
 
   ios-verify-release:
     name: iOS Verify (Release)
@@ -411,7 +433,11 @@ jobs:
       # Release-only build errors surface on the PR, not on launch day. This is
       # also the job that proves the device (iphoneos) compile for PRs.
       - name: Build app (Release, unsigned)
+        id: build
+        shell: bash
         run: |
+          set -o pipefail
+          mkdir -p build-logs
           xcodebuild \
             -project AscendApp.xcodeproj \
             -scheme "AscendApp" \
@@ -419,4 +445,21 @@ jobs:
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
             CODE_SIGNING_ALLOWED=NO \
-            build
+            build 2>&1 | tee build-logs/xcodebuild-release.log
+
+      # A step killed by timeout-minutes reports `cancelled`, not `failure`, and
+      # that is exactly the hung-runner case these logs exist to explain. An
+      # empty outcome means xcodebuild never ran, so there is no log to read.
+      - name: Summarize failure
+        if: always() && steps.build.outcome != 'success' && steps.build.outcome != 'skipped' && steps.build.outcome != ''
+        shell: bash
+        run: ./scripts/ci/summarize-xcodebuild-failure.sh build-logs/xcodebuild-release.log
+
+      - name: Upload build logs
+        if: always() && steps.build.outcome != 'success' && steps.build.outcome != 'skipped' && steps.build.outcome != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-verify-release-logs
+          path: build-logs/
+          retention-days: 7
+          if-no-files-found: warn
