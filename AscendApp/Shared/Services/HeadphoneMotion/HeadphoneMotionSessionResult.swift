@@ -147,6 +147,7 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
     let longestTrackingUnavailableDurationSeconds: TimeInterval?
     let trackingInterruptionCount: Int?
     let stepCorrections: [HeadphoneMotionStepCorrection]?
+    let heartRateCoverage: HeartRateTraceCoverage?
 
     init(
         sampleCount: Int,
@@ -160,7 +161,8 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
         stopReason: HeadphoneMotionSessionStopReason,
         splitCurve: LiveReplaySplitCurve? = nil,
         trackingIntegrity: HeadphoneMotionTrackingIntegrity = .verified,
-        stepCorrections: [HeadphoneMotionStepCorrection] = []
+        stepCorrections: [HeadphoneMotionStepCorrection] = [],
+        heartRateCoverage: HeartRateTraceCoverage? = nil
     ) {
         self.source = HeadphoneMotionWorkoutMetadata.headphoneMotionSource
         self.algorithmVersion = HeadphoneMotionStepDetector.algorithmVersion
@@ -180,6 +182,7 @@ struct HeadphoneMotionWorkoutMetadata: Codable, Equatable, Sendable {
         self.longestTrackingUnavailableDurationSeconds = trackingIntegrity.longestUnavailableDuration
         self.trackingInterruptionCount = trackingIntegrity.interruptionCount
         self.stepCorrections = stepCorrections.isEmpty ? nil : stepCorrections
+        self.heartRateCoverage = heartRateCoverage
     }
 
     var jsonString: String? {
