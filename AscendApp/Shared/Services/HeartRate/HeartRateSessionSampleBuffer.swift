@@ -32,8 +32,8 @@ struct HeartRateSessionSampleBuffer: Equatable, Sendable {
         }
     }
 
-    /// The full series as a JSON array, byte-identical to encoding `samples`
-    /// directly. Nil when the session captured nothing.
+    /// The full series as a JSON array: decoding it yields exactly `samples`.
+    /// Nil when the session captured nothing.
     var encodedPayload: Data? {
         guard !encodedElements.isEmpty else { return nil }
 
