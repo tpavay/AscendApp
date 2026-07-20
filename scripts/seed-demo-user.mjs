@@ -24,6 +24,7 @@ import {applicationDefault, initializeApp} from "firebase-admin/app";
 import {getAuth} from "firebase-admin/auth";
 import {FieldValue, getFirestore, Timestamp} from "firebase-admin/firestore";
 import {canonicalWorkoutDocumentId} from "./lib/workout-document-id.mjs";
+import {firstAscentSeedFields} from "./seed/lib/live-replay-first-ascent.mjs";
 
 const DEV_PROJECT_ID = "ascend-f2e4f";
 const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
@@ -741,14 +742,16 @@ async function addReplayWrites(db, writes, deletes, user, liveContexts, args) {
     };
 
     if (forceFirstAscent) {
-      Object.assign(summaryData, {
-        firstAscentAvatarToken: user.avatarToken,
-        firstAscentCompletedAt: Timestamp.fromDate(context.completedAt),
-        firstAscentDisplayName: user.displayName,
-        firstAscentPhotoURL: user.photoURL,
-        firstAscentUserId: user.uid,
-        firstAscentWorkoutId: context.workoutId,
-      });
+      Object.assign(summaryData, firstAscentSeedFields(
+        {
+          avatarToken: user.avatarToken,
+          displayName: user.displayName,
+          id: context.workoutId,
+          photoURL: user.photoURL,
+          userId: user.uid,
+        },
+        Timestamp.fromDate(context.completedAt)
+      ));
     }
 
     writes.push([leaderboardRef, summaryData]);

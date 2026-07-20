@@ -32,6 +32,16 @@ import {fileURLToPath} from "node:url";
 import {applicationDefault, initializeApp} from "firebase-admin/app";
 import {FieldValue, getFirestore} from "firebase-admin/firestore";
 import {getStorage} from "firebase-admin/storage";
+import {hashString, mulberry32} from "./seed/lib/deterministic.mjs";
+import {
+  FIRST_ASCENT_OPEN_ACTIVITY_TIER,
+  assertFirstAscentInvariant,
+  clearOpenFirstAscentEntries,
+  clearedFirstAscentFields,
+  firstAscentClaimedAt,
+  firstAscentSeedFields,
+  isOpenFirstAscentSummary,
+} from "./seed/lib/live-replay-first-ascent.mjs";
 
 const DEV_PROJECT_ID = "ascend-f2e4f";
 const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
@@ -77,11 +87,44 @@ const WARM_CLIMBS = [
   {id: "elizabeth-tower", totalClimbers: 34, replayEntries: 20, completionRate: 0.58},
   {id: "tokyo-tower", totalClimbers: 32, replayEntries: 20, completionRate: 0.40},
   {id: "shanghai-tower", totalClimbers: 29, replayEntries: 18, completionRate: 0.34},
+  {id: "taipei-101", totalClimbers: 28, replayEntries: 18, completionRate: 0.34},
   {id: "canton-tower", totalClimbers: 27, replayEntries: 18, completionRate: 0.34},
   {id: "leaning-tower-of-pisa", totalClimbers: 24, replayEntries: 16, completionRate: 0.56},
   {id: "cairo-tower", totalClimbers: 23, replayEntries: 16, completionRate: 0.44},
   {id: "sydney-tower", totalClimbers: 21, replayEntries: 16, completionRate: 0.56},
 ];
+
+/**
+ * Climbs seeded with a summary but no completions, so their First Ascent slot is
+ * genuinely open.
+ *
+ * A climb with no summary document at all is not equivalent: the open-First
+ * Ascent surfaces key off an existing summary (`ProfileFirstAscentService`
+ * requires `updatedAt != nil && completedCount == 0`), so an unseeded climb
+ * never renders as a claimable opportunity. These give the open state a real
+ * document to read.
+ *
+ * The spread covers gold/diamond/legendary/mythic tiers across four continents.
+ * Sky Tower is deliberately the cheapest (1,804 steps) so a QA session can
+ * actually finish it and claim a First Ascent end to end.
+ *
+ * Exactly four, and no climb that `seed-demo-user.mjs` completes. Four because
+ * `ProfileFirstAscentService` fills its open list in catalog order and caps at
+ * four, so a fifth would push out whichever climb sorts last - Sky Tower, the
+ * one QA needs. Disjoint from the demo user's climbs because both scripts merge
+ * into the same summary, and whichever runs last would strand the other's state.
+ */
+const FIRST_ASCENT_OPEN_CLIMBS = [
+  {id: "sky-tower-auckland"},
+  {id: "oriental-pearl-tower"},
+  {id: "table-mountain"},
+  {id: "machu-picchu"},
+].map((config) => ({
+  ...config,
+  totalClimbers: 0,
+  replayEntries: 0,
+  completionRate: 0,
+}));
 
 const SEEDED_DISPLAY_NAMES = [
   "Sarah K.", "Marcus T.", "Jenny W.", "Alex M.", "Priya S.", "Jordan L.",
@@ -478,6 +521,10 @@ function buildSeedPlan(climbsById, paceSamples, args, avatarURLs) {
   const configs = [
     ...ACTIVE_CLIMBS.map((config) => ({...config, activityTier: "active"})),
     ...WARM_CLIMBS.map((config) => ({...config, activityTier: "warm"})),
+    ...FIRST_ASCENT_OPEN_CLIMBS.map((config) => ({
+      ...config,
+      activityTier: FIRST_ASCENT_OPEN_ACTIVITY_TIER,
+    })),
   ];
 
   const missingConfigs = configs.filter((config) => !climbsById.has(config.id));
@@ -503,11 +550,27 @@ function buildSeedPlan(climbsById, paceSamples, args, avatarURLs) {
       args.seedPackId,
       avatarURLs
     );
-    const maxBucketIndex = bucketLimitForAttempts(attempts);
+    // A climb with no completions has no buckets to publish, and the bucket
+    // limit is undefined over an empty duration set.
+    const maxBucketIndex = attempts.length > 0 ?
+      bucketLimitForAttempts(attempts) :
+      -1;
     const clearAttemptIds = Array.from(
       {length: Math.max(config.replayEntries, completedCount)},
       (_, index) => seedAttemptId(args.seedPackId, climb.id, index)
     );
+
+    // Attempts carry a completion duration but no wall-clock completion time, so
+    // none of them is the earliest. The holder is an arbitrary but deterministic
+    // pick, which is all a fixture needs; `firstAscentClaimedAt` dates the claim.
+    const firstAscentAttempt = attempts[0] ?? null;
+
+    // Checked at plan time so a bad fixture fails the dry run, before any writes.
+    assertFirstAscentInvariant({
+      climbId: climb.id,
+      completedCount,
+      hasFirstAscent: firstAscentAttempt !== null,
+    });
 
     return [{
       config,
@@ -516,6 +579,7 @@ function buildSeedPlan(climbsById, paceSamples, args, avatarURLs) {
       completedCount,
       clearAttemptIds,
       maxBucketIndex,
+      firstAscentAttempt,
       entryDocumentCount: attempts.length * (maxBucketIndex + 1),
     }];
   });
@@ -647,6 +711,9 @@ function printPlan(seedPlan, args, avatarFileCount, avatarURLCount) {
         `${plan.completedCount} completed`,
         `${plan.attempts.length} replay rows`,
         `${plan.maxBucketIndex + 1} buckets`,
+        plan.firstAscentAttempt ?
+          `FA held by ${plan.firstAscentAttempt.displayName}` :
+          "FA open",
       ].join(" | ")
     );
   }
@@ -664,7 +731,7 @@ function printPlan(seedPlan, args, avatarFileCount, avatarURLCount) {
 
 async function clearSeedPack(db, seedPlan, args) {
   const writer = bulkWriter(db);
-  let deleted = clearSeedEntriesFromPlan(db, writer, seedPlan);
+  let deleted = await clearSeedEntriesFromPlan(db, writer, seedPlan);
   const activeContextKeys = contextKeysForPlan(seedPlan);
   deleted += await clearStaleSeedContexts(
     db,
@@ -683,6 +750,9 @@ async function clearSeedPack(db, seedPlan, args) {
       seededAttemptCount: 0,
       totalClimbers: 0,
       updatedAt: now,
+      // Zeroing completions without dropping the holder would leave the slot
+      // readable as open while the server still refuses to claim it.
+      ...clearedFirstAscentFields(FieldValue.delete()),
     }, {merge: true});
   }
 
@@ -740,10 +810,21 @@ async function clearStaleSeedContexts(db, writer, seedPackId, activeContextKeys)
   return deleted;
 }
 
-function clearSeedEntriesFromPlan(db, writer, seedPlan) {
+async function clearSeedEntriesFromPlan(db, writer, seedPlan) {
   let deleted = 0;
 
   for (const plan of seedPlan.climbPlans) {
+    if (isOpenFirstAscentSummary({
+      completedCount: plan.completedCount,
+      hasFirstAscent: plan.firstAscentAttempt !== null,
+    })) {
+      deleted += await clearOpenFirstAscentEntries(
+        splitBucketsCollection(db, plan.climb.id),
+        writer
+      );
+      continue;
+    }
+
     for (let bucketIndex = 0; bucketIndex <= MAX_BUCKET_INDEX; bucketIndex += 1) {
       for (const attemptId of plan.clearAttemptIds) {
         writer.delete(entriesCollection(db, plan.climb.id, bucketIndex).doc(attemptId));
@@ -770,7 +851,7 @@ async function writeSeedPlan(db, seedPlan, args) {
   for (const plan of seedPlan.climbPlans) {
     const targetSteps = referenceStepCount(plan.climb);
     const summaryRef = leaderboardRef(db, plan.climb.id);
-    writer.set(summaryRef, {
+    const summary = {
       activityTier: plan.config.activityTier,
       bucketIntervalSeconds: BUCKET_INTERVAL_SECONDS,
       completedCount: plan.completedCount,
@@ -784,7 +865,18 @@ async function writeSeedPlan(db, seedPlan, args) {
       targetStepCount: targetSteps,
       totalClimbers: plan.attempts.length,
       updatedAt: now,
-    }, {merge: true});
+    };
+
+    Object.assign(summary, plan.firstAscentAttempt ?
+      firstAscentSeedFields(
+        plan.firstAscentAttempt,
+        firstAscentClaimedAt(args.seedPackId, plan.climb.id)
+      ) :
+      // An earlier seed may have left a holder here; an open slot has to be
+      // genuinely empty for the next finisher to claim it.
+      clearedFirstAscentFields(FieldValue.delete()));
+
+    writer.set(summaryRef, summary, {merge: true});
     writes += 1;
 
     for (let bucketIndex = 0; bucketIndex <= plan.maxBucketIndex; bucketIndex += 1) {
@@ -960,6 +1052,10 @@ function contextLeaderboardRef(db, contextType, contextId) {
     .doc(contextKey(contextType, contextId));
 }
 
+function splitBucketsCollection(db, climbId) {
+  return leaderboardRef(db, climbId).collection("splitBuckets");
+}
+
 function entriesCollection(db, climbId, bucketIndex) {
   return entriesCollectionForContext(
     db,
@@ -1061,24 +1157,6 @@ function avatarToken(displayName) {
     .toUpperCase();
 
   return token || "A";
-}
-
-function hashString(value) {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-function mulberry32(seed) {
-  return function random() {
-    let value = seed += 0x6D2B79F5;
-    value = Math.imul(value ^ value >>> 15, value | 1);
-    value ^= value + Math.imul(value ^ value >>> 7, value | 61);
-    return ((value ^ value >>> 14) >>> 0) / 4294967296;
-  };
 }
 
 function randomInRange(rng, min, max) {

@@ -19,6 +19,11 @@ import {
   resolveProjectId,
 } from "./seed/lib/environments.mjs";
 import {
+  firstAscentInvariantFailure,
+  isOpenFirstAscentSummary,
+  summaryHasFirstAscent,
+} from "./seed/lib/live-replay-first-ascent.mjs";
+import {
   buildLeaderboardSeedWrites,
   currentPeriod,
   expectedLeaderboardDocIds,
@@ -50,6 +55,7 @@ const TARGET_ALIASES = new Map([
 ]);
 
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
+const LIVE_CLIMB_CONTEXT_TYPE = "live_climb";
 const LEGACY_LEADERBOARD_USER_IDS = Array.from({length: 40}, (_, index) => `test_user_${index + 1}`);
 const LEGACY_TIME_FRAMES = ["daily", "weekly", "monthly", "yearly", "all_time"];
 
@@ -306,12 +312,36 @@ async function auditLiveReplay(db, projectId, failures) {
     requirePresent(data, "replayEntryCount", path, failures);
     requirePresent(data, "bucketIntervalSeconds", path, failures);
 
-    if (!positiveNumber(data.completedCount)) failures.push(`${path} completedCount must be positive`);
-    if (!positiveNumber(data.totalClimbers)) failures.push(`${path} totalClimbers must be positive`);
-    if (!positiveNumber(data.replayEntryCount)) failures.push(`${path} replayEntryCount must be positive`);
-
     const bucketZero = await doc.ref.collection("splitBuckets").doc("0").collection("entries").get();
     bucketZeroEntries += bucketZero.size;
+
+    // Read off the counts and the holder, never off activityTier: the seed
+    // script is the only writer of that tier and the Cloud Function's summary
+    // merge never resets it, so it stays "open" on a climb a real climber has
+    // legitimately claimed. It records what the seed intended, not the state.
+    const firstAscentState = {
+      climbId: path,
+      completedCount: numberValue(data.completedCount),
+      hasFirstAscent: summaryHasFirstAscent(data),
+    };
+
+    // The global Just Climb context is exempt: First Ascent is per-landmark
+    // prestige and nothing renders one there, so it keeps completions with no
+    // holder on purpose.
+    if (data.contextType === LIVE_CLIMB_CONTEXT_TYPE) {
+      const invariantFailure = firstAscentInvariantFailure(firstAscentState);
+      if (invariantFailure) failures.push(invariantFailure);
+
+      if (isOpenFirstAscentSummary(firstAscentState)) {
+        auditOpenFirstAscentSummary(data, path, bucketZero, failures);
+        continue;
+      }
+    }
+
+    if (!positiveNumber(data.completedCount)) failures.push(`${path} completedCount must be positive`);
+    if (!positiveNumber(data.totalClimbers)) failures.push(`${path} totalClimbers must be positive`);
+    auditSeededReplayRowCount(data, path, bucketZero, seedPackId, failures);
+
     if (bucketZero.empty) {
       failures.push(`${path}/splitBuckets/0 has no entries`);
       continue;
@@ -330,6 +360,58 @@ async function auditLiveReplay(db, projectId, failures) {
   }
 
   return `live-replay: ${snapshot.size} summaries, ${bucketZeroEntries} bucket-zero entries checked`;
+}
+
+/**
+ * Audits a summary whose First Ascent slot is still open.
+ *
+ * An open slot is only claimable while the climb has zero completions, so these
+ * summaries carry deliberate zeros rather than the seeded traffic every other
+ * climb has. The rest of the summary has to agree with that: a climber count or
+ * a replay row without a matching completion means the seed half-wrote the
+ * fixture, and the climb no longer reads as the clean opportunity it promises.
+ * @param {Record<string, unknown>} data Summary fields.
+ * @param {string} path Summary document path, for failure messages.
+ * @param {object} bucketZero Bucket-zero entries snapshot.
+ * @param {string[]} failures Accumulated audit failures.
+ */
+function auditOpenFirstAscentSummary(data, path, bucketZero, failures) {
+  for (const field of ["totalClimbers", "replayEntryCount"]) {
+    if (numberValue(data[field]) !== 0) {
+      failures.push(`${path} has an open First Ascent but ${field} is ${data[field]}`);
+    }
+  }
+
+  if (!bucketZero.empty) {
+    failures.push(`${path}/splitBuckets/0 has ${bucketZero.size} entries but the summary reports no completions`);
+  }
+}
+
+/**
+ * Audits the summary's seeded replay row count against the rows actually seeded.
+ *
+ * `replayEntryCount` counts the synthetic rows this seed pack wrote, and only the
+ * seed maintains it - the Cloud Function's summary merge leaves it alone. So it
+ * is checked against the seeded rows rather than required to be positive: a
+ * climb seeded with an open slot legitimately keeps zero synthetic rows after a
+ * real climber finishes it and pushes `completedCount` to 1, which is exactly
+ * what those fixtures exist for.
+ * @param {Record<string, unknown>} data Summary fields.
+ * @param {string} path Summary document path, for failure messages.
+ * @param {object} bucketZero Bucket-zero entries snapshot.
+ * @param {string} seedPackId Seed pack being audited.
+ * @param {string[]} failures Accumulated audit failures.
+ */
+function auditSeededReplayRowCount(data, path, bucketZero, seedPackId, failures) {
+  const seededRows = bucketZero.docs.filter(
+    (entry) => entry.data().seedPackId === seedPackId
+  ).length;
+
+  if (numberValue(data.replayEntryCount) !== seededRows) {
+    failures.push(
+      `${path} replayEntryCount is ${data.replayEntryCount} but ${seededRows} seeded bucket-zero entries exist`
+    );
+  }
 }
 
 async function auditRoutineTemplates(db, projectId, failures) {
