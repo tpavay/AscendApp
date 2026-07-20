@@ -16,6 +16,17 @@ function makeDSYMDirectory() {
   return root;
 }
 
+let cachedHelp;
+
+function realSentryCLIHelp() {
+  if (cachedHelp === undefined) {
+    const result = spawnSync("sentry-cli", ["debug-files", "upload", "--help"], {encoding: "utf8"});
+    cachedHelp = result.status === 0 ? result.stdout : null;
+  }
+
+  return cachedHelp;
+}
+
 function runUpload(environment, dsymPath = makeDSYMDirectory()) {
   return spawnSync(uploadScript, [dsymPath], {
     encoding: "utf8",
@@ -72,10 +83,21 @@ test("upload passes the archive dSYMs to Sentry and waits for processing", () =>
   assert.match(argumentsText, /debug-files\nupload/);
   assert.match(argumentsText, /--org\nascend-uk/);
   assert.match(argumentsText, /--project\nascend-ios/);
-  assert.match(argumentsText, /--wait\n/);
-  assert.match(argumentsText, /--wait-timeout\n300/);
+  assert.match(argumentsText, /--wait-for\n300/);
+  assert.ok(!argumentsList.includes("--wait"), "--wait is mutually exclusive with --wait-for");
   assert.equal(argumentsList.at(-1), root);
   assert.doesNotMatch(argumentsText, /test-token/);
+});
+
+test("every option the script passes exists in the real sentry-cli", {skip: realSentryCLIHelp() === null}, () => {
+  const help = realSentryCLIHelp();
+  const script = readFileSync(uploadScript, "utf8");
+  const options = [...new Set(script.match(/--[a-z][a-z-]*/g) ?? [])];
+
+  assert.ok(options.includes("--wait-for"));
+  for (const option of options) {
+    assert.ok(help.includes(`${option} `) || help.includes(`${option}\n`), `${option} is not a sentry-cli option`);
+  }
 });
 
 test("both signed Fastlane lanes upload archive dSYMs", () => {

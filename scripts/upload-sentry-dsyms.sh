@@ -45,6 +45,5 @@ echo "Uploading dSYMs to Sentry project ${SENTRY_ORG}/${SENTRY_PROJECT}."
 "${SENTRY_CLI}" debug-files upload \
     --org "${SENTRY_ORG}" \
     --project "${SENTRY_PROJECT}" \
-    --wait \
-    --wait-timeout "${SENTRY_WAIT_TIMEOUT}" \
+    --wait-for "${SENTRY_WAIT_TIMEOUT}" \
     "${DSYM_FOLDER_PATH}"
