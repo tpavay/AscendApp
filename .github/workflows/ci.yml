@@ -113,14 +113,16 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Audit dependencies
-        run: npm --prefix scripts audit --package-lock-only --audit-level=low
-
       # The migration-discipline libraries and the shared vector-pinned
       # predicate/derivation are pure Node with no external deps at test time,
       # so the suite runs without installing firebase-admin.
       - name: Run tests
         run: node --test scripts/test/*.test.mjs
+
+      # Audits run last so a newly published advisory fails the job without
+      # hiding the test results that prove the code itself.
+      - name: Audit dependencies
+        run: npm --prefix scripts audit --package-lock-only --audit-level=low
 
   web-verify:
     name: Web Verify
