@@ -135,6 +135,8 @@ export function shouldSkipLandmarkResultWrite(existing, next) {
  * Recomputes one landmark projection atomically from its canonical workouts.
  * The store must retry the callback when any transactional read changes, which
  * prevents a stale workout snapshot from committing after a newer projection.
+ * `getLandmarkResult` must return `{exists, projection}` so an unparseable
+ * stored document stays distinguishable from an absent one.
  * @param {object} store Transactional persistence boundary.
  * @param {string} userId Owning user id.
  * @param {string} climbId Landmark id.
@@ -153,10 +155,13 @@ export async function recomputeLandmarkResult(store, userId, climbId) {
 
     // Firestore requires every read before the first write. Changes to either
     // this document or the workout query cause the entire callback to retry.
-    const existing = await transaction.getLandmarkResult(userId, climbId);
+    const stored = await transaction.getLandmarkResult(userId, climbId);
+    const existing = stored.projection;
     const next = deriveLandmarkResult(climbId, completions);
     if (!next) {
-      if (!existing) {
+      // Delete on existence, not on parseability: a stored document whose
+      // canonical completions are gone is an orphan even when it is malformed.
+      if (!stored.exists) {
         return "skipped";
       }
       await transaction.deleteLandmarkResult(userId, climbId);

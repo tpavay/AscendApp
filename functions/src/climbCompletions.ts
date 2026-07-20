@@ -23,6 +23,7 @@
  */
 
 import {onDocumentWritten} from "firebase-functions/v2/firestore";
+import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
 import {createHash} from "crypto";
 import {
@@ -34,6 +35,7 @@ const LANDMARK_RESULTS_COLLECTION = "landmarkResults";
 const WORKOUTS_COLLECTION = "workouts";
 const USERS_COLLECTION = "users";
 export const LANDMARK_RESULT_SCHEMA_VERSION = 1;
+const TRANSACTION_MAX_ATTEMPTS = 5;
 
 /** A completed landmark workout, reduced to the fields the projection needs. */
 export interface CompletedLandmarkWorkout {
@@ -58,6 +60,16 @@ export interface LandmarkResultProjection {
 }
 
 /**
+ * A stored projection read, keeping "no document" distinct from "a document
+ * exists but does not parse". Both yield a null `projection`, but only the
+ * latter is an orphan the reconciliation must still delete.
+ */
+export interface StoredLandmarkResult {
+  exists: boolean;
+  projection: LandmarkResultProjection | null;
+}
+
+/**
  * The operations available inside one projection transaction. The Admin SDK
  * bypasses security rules, so the production adapter remains the only writer of
  * `landmarkResults`; tests inject an in-memory transactional store.
@@ -69,7 +81,7 @@ export interface LandmarkResultTransaction {
   getLandmarkResult(
     userId: string,
     climbId: string
-  ): Promise<LandmarkResultProjection | null>;
+  ): Promise<StoredLandmarkResult>;
   writeLandmarkResult(
     userId: string,
     climbId: string,
@@ -249,10 +261,13 @@ export async function recomputeLandmarkResult(
 
     // Keep every read before the first write. Firestore may retry this entire
     // callback when either the workout query or result document changes.
-    const existing = await transaction.getLandmarkResult(userId, climbId);
+    const stored = await transaction.getLandmarkResult(userId, climbId);
+    const existing = stored.projection;
     const next = deriveLandmarkResult(climbId, completions);
     if (!next) {
-      if (!existing) {
+      // Delete on existence, not on parseability: a stored document whose
+      // canonical completions are gone is an orphan even when it is malformed.
+      if (!stored.exists) {
         return "skipped";
       }
       await transaction.deleteLandmarkResult(userId, climbId);
@@ -317,43 +332,78 @@ export function makeAdminStore(): LandmarkResultStore {
     async runTransaction<T>(operation: (
       transaction: LandmarkResultTransaction
     ) => Promise<T>): Promise<T> {
-      return db.runTransaction(async (firestoreTransaction) => operation({
-        async listUserWorkouts(userId) {
-          const query = db
-            .collection(USERS_COLLECTION)
-            .doc(userId)
-            .collection(WORKOUTS_COLLECTION);
-          const snapshot = await firestoreTransaction.get(query);
-          return snapshot.docs.map((doc) => ({
-            id: doc.id,
-            data: doc.data() as Record<string, unknown>,
-          }));
-        },
+      let attempts = 0;
+      try {
+        const outcome = await db.runTransaction(
+          async (firestoreTransaction) => {
+            attempts += 1;
+            return operation({
+              async listUserWorkouts(userId) {
+                // Narrowed to the only source the derivation can accept, so the
+                // serializable read lock covers headphone-motion workouts
+                // instead of the user's entire workout history.
+                const query = db
+                  .collection(USERS_COLLECTION)
+                  .doc(userId)
+                  .collection(WORKOUTS_COLLECTION)
+                  .where("source", "==", HEADPHONE_MOTION_SOURCE);
+                const snapshot = await firestoreTransaction.get(query);
+                return snapshot.docs.map((doc) => ({
+                  id: doc.id,
+                  data: doc.data() as Record<string, unknown>,
+                }));
+              },
 
-        async getLandmarkResult(userId, climbId) {
-          const snapshot = await firestoreTransaction.get(
-            landmarkResultRef(db, userId, climbId)
-          );
-          if (!snapshot.exists) {
-            return null;
-          }
-          return normalizeStoredProjection(
-            climbId,
-            snapshot.data() as Record<string, unknown>
-          );
-        },
+              async getLandmarkResult(userId, climbId) {
+                const snapshot = await firestoreTransaction.get(
+                  landmarkResultRef(db, userId, climbId)
+                );
+                if (!snapshot.exists) {
+                  return {exists: false, projection: null};
+                }
+                return {
+                  exists: true,
+                  projection: normalizeStoredProjection(
+                    climbId,
+                    snapshot.data() as Record<string, unknown>
+                  ),
+                };
+              },
 
-        async writeLandmarkResult(userId, climbId, projection) {
-          firestoreTransaction.set(
-            landmarkResultRef(db, userId, climbId),
-            toFirestoreProjection(projection)
-          );
-        },
+              async writeLandmarkResult(userId, climbId, projection) {
+                firestoreTransaction.set(
+                  landmarkResultRef(db, userId, climbId),
+                  toFirestoreProjection(projection)
+                );
+              },
 
-        async deleteLandmarkResult(userId, climbId) {
-          firestoreTransaction.delete(landmarkResultRef(db, userId, climbId));
-        },
-      }));
+              async deleteLandmarkResult(userId, climbId) {
+                firestoreTransaction.delete(
+                  landmarkResultRef(db, userId, climbId)
+                );
+              },
+            });
+          },
+          {maxAttempts: TRANSACTION_MAX_ATTEMPTS}
+        );
+        if (attempts > 1) {
+          logger.warn("landmarkResult.transaction.contention", {
+            attempts,
+            maxAttempts: TRANSACTION_MAX_ATTEMPTS,
+          });
+        }
+        return outcome;
+      } catch (error) {
+        logger.error("landmarkResult.transaction.failed", {
+          attempts,
+          maxAttempts: TRANSACTION_MAX_ATTEMPTS,
+          attemptsExhausted: attempts >= TRANSACTION_MAX_ATTEMPTS,
+          errorMessage: String(
+            (error as {message?: unknown})?.message ?? error
+          ),
+        });
+        throw error;
+      }
     },
   };
 }

@@ -166,6 +166,26 @@ test("recompute deletes the projection when no completion left", async () => {
   assert.equal(store.readLandmarkResult(ESB), null);
 });
 
+test("recompute deletes an orphaned projection it cannot parse", async () => {
+  const store = makeFakeStore({});
+  store.seedUnparseableLandmarkResult(ESB);
+
+  const outcome = await recomputeLandmarkResult(store, "u1", ESB);
+  assert.equal(outcome, "deleted");
+  assert.equal(store.landmarkResultExists(ESB), false);
+
+  // And the now-empty identity settles: no perpetual delete loop.
+  assert.equal(await recomputeLandmarkResult(store, "u1", ESB), "skipped");
+});
+
+test("recompute rebuilds over an unparseable projection", async () => {
+  const store = makeFakeStore({w1: makeWorkoutDocument({steps: 2096})});
+  store.seedUnparseableLandmarkResult(ESB);
+
+  assert.equal(await recomputeLandmarkResult(store, "u1", ESB), "written");
+  assert.equal(store.readLandmarkResult(ESB)?.attemptCount, 1);
+});
+
 test("concurrent completions cannot let the older snapshot win", async () => {
   const olderSnapshotRead = deferred<void>();
   const releaseOlderSnapshot = deferred<void>();
@@ -343,6 +363,9 @@ interface FakeStore extends LandmarkResultStore {
   setWorkout(id: string, data: Record<string, unknown>): void;
   deleteWorkout(id: string): void;
   readLandmarkResult(climbId: string): LandmarkResultProjection | null;
+  /** Seeds a stored document the normalizer cannot parse. */
+  seedUnparseableLandmarkResult(climbId: string): void;
+  landmarkResultExists(climbId: string): boolean;
 }
 
 interface FakeStoreOptions {
@@ -361,7 +384,12 @@ function makeFakeStore(
   options: FakeStoreOptions = {}
 ): FakeStore {
   const canonicalWorkouts = {...workouts};
-  const results = new Map<string, LandmarkResultProjection>();
+  // A stored entry always exists as a document; `parsed` is null when the
+  // document is present but the normalizer rejects it.
+  const results = new Map<
+    string,
+    {parsed: LandmarkResultProjection | null}
+  >();
   let workoutListCalls = 0;
   let resultReadCalls = 0;
   let version = 0;
@@ -378,7 +406,14 @@ function makeFakeStore(
       version += 1;
     },
     readLandmarkResult(climbId) {
-      return results.get(climbId) ?? null;
+      return results.get(climbId)?.parsed ?? null;
+    },
+    seedUnparseableLandmarkResult(climbId) {
+      results.set(climbId, {parsed: null});
+      version += 1;
+    },
+    landmarkResultExists(climbId) {
+      return results.has(climbId);
     },
     async runTransaction<T>(
       operation: (transaction: LandmarkResultTransaction) => Promise<T>
@@ -403,10 +438,13 @@ function makeFakeStore(
             return workoutSnapshot;
           },
           async getLandmarkResult(_userId: string, climbId: string) {
-            const snapshot = resultSnapshot.get(climbId) ?? null;
+            const snapshot = resultSnapshot.get(climbId);
             resultReadCalls += 1;
             await options.afterResultRead?.(resultReadCalls);
-            return snapshot;
+            return {
+              exists: snapshot !== undefined,
+              projection: snapshot?.parsed ?? null,
+            };
           },
           async writeLandmarkResult(
             _userId: string,
@@ -425,7 +463,7 @@ function makeFakeStore(
         }
         const pending = mutation.value;
         if (pending?.kind === "write" && pending.projection) {
-          results.set(pending.climbId, pending.projection);
+          results.set(pending.climbId, {parsed: pending.projection});
           store.writes += 1;
           version += 1;
         } else if (pending?.kind === "delete") {

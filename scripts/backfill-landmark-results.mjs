@@ -54,6 +54,7 @@ import {
   recomputeLandmarkResult,
   shouldSkipLandmarkResultWrite,
 } from "./lib/landmark-result-derivation.mjs";
+import {HEADPHONE_MOTION_SOURCE} from "./lib/legacy-climb-completion.mjs";
 
 const OPERATION_ID = "migration/landmark-results";
 const OPERATION_VERSION = 2;
@@ -241,10 +242,13 @@ function makeTransactionalStore(firestore) {
     async runTransaction(operation) {
       return firestore.runTransaction(async (transaction) => operation({
         async listUserWorkouts(userId) {
+          // Narrowed to the only source the derivation can accept, matching the
+          // Cloud Function so both keep the same transactional lock range.
           const query = firestore
             .collection("users")
             .doc(userId)
-            .collection("workouts");
+            .collection("workouts")
+            .where("source", "==", HEADPHONE_MOTION_SOURCE);
           const snapshot = await transaction.get(query);
           return snapshot.docs.map((doc) => ({id: doc.id, data: doc.data()}));
         },
@@ -253,7 +257,10 @@ function makeTransactionalStore(firestore) {
           const snapshot = await transaction.get(
             landmarkResultRef(firestore, item)
           );
-          return normalizeStoredProjection(item, snapshot);
+          return {
+            exists: snapshot.exists,
+            projection: normalizeStoredProjection(item, snapshot),
+          };
         },
         async writeLandmarkResult(userId, climbId, projection) {
           transaction.set(

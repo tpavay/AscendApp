@@ -140,6 +140,16 @@ test("repair reconciliation deletes an orphaned stored projection", async () => 
   assert.equal(store.deletes, 1);
 });
 
+test("repair reconciliation deletes an unparseable orphaned projection", async () => {
+  const store = makeTransactionalStore({});
+  store.seedUnparseableResult(ESB);
+
+  assert.equal(await recomputeLandmarkResult(store, "u1", ESB), "deleted");
+  assert.equal(store.resultExists(ESB), false);
+  assert.equal(await recomputeLandmarkResult(store, "u1", ESB), "skipped");
+  assert.equal(store.deletes, 1);
+});
+
 /**
  * Runs one plan+apply pass of the backfill's core over an in-memory store,
  * mirroring scripts/backfill-landmark-results.mjs without Firestore.
@@ -183,6 +193,14 @@ function makeTransactionalStore(workouts, options = {}) {
       results.set(climbId, projection);
       version += 1;
     },
+    // A stored document present but unreadable by the normalizer.
+    seedUnparseableResult(climbId) {
+      results.set(climbId, null);
+      version += 1;
+    },
+    resultExists(climbId) {
+      return results.has(climbId);
+    },
     readResult(climbId) {
       return results.get(climbId) ?? null;
     },
@@ -201,7 +219,10 @@ function makeTransactionalStore(workouts, options = {}) {
             return workoutSnapshot;
           },
           async getLandmarkResult(_userId, climbId) {
-            return resultSnapshot.get(climbId) ?? null;
+            return {
+              exists: resultSnapshot.has(climbId),
+              projection: resultSnapshot.get(climbId) ?? null,
+            };
           },
           async writeLandmarkResult(_userId, climbId, projection) {
             mutation.value = {kind: "write", climbId, projection};
