@@ -25,7 +25,6 @@ export const BATCH_WRITE_LIMIT = 500;
  */
 export function planAffectedLandmarkProjections(documents, merges, carriedRepairs = []) {
   const keys = new Map();
-  const replacedDocumentKeys = new Set();
   for (const repair of carriedRepairs) {
     keys.set(`${repair.userId}/${repair.climbId}`, {
       userId: repair.userId,
@@ -35,7 +34,6 @@ export function planAffectedLandmarkProjections(documents, merges, carriedRepair
   }
   for (const merge of merges) {
     for (const document of merge.sourceDocuments) {
-      replacedDocumentKeys.add(`${document.userId}/${document.workoutId}`);
       const completion = parseCompletedLandmarkWorkout(document.workoutId, document.data);
       if (!completion) {
         continue;
@@ -48,17 +46,7 @@ export function planAffectedLandmarkProjections(documents, merges, carriedRepair
     }
   }
 
-  const finalDocuments = documents.filter(
-    (document) => !replacedDocumentKeys.has(`${document.userId}/${document.workoutId}`)
-  );
-  for (const merge of merges) {
-    finalDocuments.push({
-      userId: merge.userId,
-      workoutId: merge.canonicalWorkoutId,
-      data: merge.targetData,
-    });
-  }
-  const grouped = groupCompletions(finalDocuments);
+  const grouped = groupCompletions(finalWorkoutDocuments(documents, merges));
 
   return [...keys.values()].map(({userId, climbId, fromMerge}) => {
     const completions = grouped.get(userId)?.get(climbId) ?? [];
@@ -70,6 +58,32 @@ export function planAffectedLandmarkProjections(documents, merges, carriedRepair
   }).sort((lhs, rhs) => (
     lhs.userId.localeCompare(rhs.userId) || lhs.climbId.localeCompare(rhs.climbId)
   ));
+}
+
+/**
+ * The private workout documents that exist once the planned merges are applied.
+ * @param {object[]} documents Raw private workout documents, pre-merge.
+ * @param {object[]} merges Planned canonicalization groups.
+ * @return {{userId: string, workoutId: string, data: object}[]} Post-merge documents.
+ */
+export function finalWorkoutDocuments(documents, merges) {
+  const replacedKeys = new Set(
+    merges.flatMap((merge) => merge.sourceDocuments.map(
+      (document) => `${document.userId}/${document.workoutId}`
+    ))
+  );
+  const surviving = documents
+    .filter((document) => !replacedKeys.has(`${document.userId}/${document.workoutId}`))
+    .map(({userId, workoutId, data}) => ({userId, workoutId, data}));
+
+  return [
+    ...surviving,
+    ...merges.map((merge) => ({
+      userId: merge.userId,
+      workoutId: merge.canonicalWorkoutId,
+      data: merge.targetData,
+    })),
+  ];
 }
 
 /**
@@ -104,6 +118,8 @@ export function packBatchSizes(unitSizes) {
  * UUID id. Case-variant twins are merged into the canonical id; a lone non-canonical
  * document is renamed onto it, so a later app write cannot recreate the twin.
  * Documents with conflicting payload fields are reported and never planned for deletion.
+ * The newest payload decides which fields exist; a field only the older twin carries is
+ * reported as dropped rather than merged back in.
  * @param {{userId: string, workoutId: string, data: Record<string, unknown>}[]} documents
  *   Raw private workout documents.
  * @return {{merges: object[], conflicts: object[]}} Safe merges and blocked groups.
@@ -153,6 +169,7 @@ function mergeGroup(group) {
   ));
   const targetData = canonicalizeEmbeddedReferences(ordered[0].data, canonicalWorkoutId);
   const conflictingFields = new Set();
+  const droppedFields = new Set();
 
   for (const document of ordered.slice(1)) {
     const candidate = canonicalizeEmbeddedReferences(document.data, canonicalWorkoutId);
@@ -164,8 +181,11 @@ function mergeGroup(group) {
         continue;
       }
 
+      // The newest payload is a full client replace, so a key it omits was dropped on
+      // purpose. Carrying the older twin's value forward would resurrect a deleted field
+      // and can push the document outside the rules allowlist.
       if (!(key in targetData)) {
-        targetData[key] = value;
+        droppedFields.add(key);
       } else if (!firestoreValuesEqual(targetData[key], value)) {
         conflictingFields.add(key);
       }
@@ -183,8 +203,266 @@ function mergeGroup(group) {
     )].sort(),
     targetData,
     conflictingFields: [...conflictingFields].sort(),
+    droppedFields: [...droppedFields].sort(),
     sourceDocuments: group.map(({userId, workoutId, data}) => ({userId, workoutId, data})),
   };
+}
+
+/**
+ * Every collection outside `users/{uid}/workouts` that keys a document on a private
+ * workout document id, or stores one in a field. Canonicalizing a workout id without
+ * these leaves live replay rows pointing at a document that no longer exists.
+ *
+ * `segments` matches a full Firestore document path, `*` matching one segment.
+ */
+export const WORKOUT_ID_REFERENCE_SHAPES = Object.freeze([
+  Object.freeze({
+    segments: Object.freeze(["live_replay_leaderboards", "*"]),
+    keyedByWorkoutId: false,
+    workoutIdFields: Object.freeze(["firstAscentWorkoutId"]),
+  }),
+  Object.freeze({
+    segments: Object.freeze([
+      "live_replay_leaderboards", "*", "splitBuckets", "*", "entries", "*",
+    ]),
+    keyedByWorkoutId: true,
+    workoutIdFields: Object.freeze(["workoutId"]),
+  }),
+  Object.freeze({
+    segments: Object.freeze(["live_replay_leaderboards", "*", "completionSnapshots", "*"]),
+    keyedByWorkoutId: true,
+    workoutIdFields: Object.freeze(["workoutId"]),
+  }),
+  Object.freeze({
+    segments: Object.freeze(["live_replay_leaderboards", "*", "finishers", "*"]),
+    keyedByWorkoutId: false,
+    workoutIdFields: Object.freeze(["bestWorkoutId", "firstWorkoutId"]),
+  }),
+  Object.freeze({
+    segments: Object.freeze(["live_replay_leaderboards", "*", "userBestAttempts", "*"]),
+    keyedByWorkoutId: false,
+    workoutIdFields: Object.freeze(["workoutId"]),
+  }),
+  Object.freeze({
+    segments: Object.freeze(["users", "*", "liveClimbPublishStatuses", "*"]),
+    keyedByWorkoutId: true,
+    workoutIdFields: Object.freeze(["workoutId", "rankSnapshotId"]),
+  }),
+  Object.freeze({
+    segments: Object.freeze(["users", "*", "profile_workouts", "*"]),
+    keyedByWorkoutId: true,
+    workoutIdFields: Object.freeze([]),
+  }),
+]);
+
+/**
+ * Matches a document path against the known workout-id reference shapes.
+ * @param {string} path Full Firestore document path.
+ * @return {object|null} The matching shape, or null when the path holds no workout id.
+ */
+export function matchWorkoutIdReferenceShape(path) {
+  const segments = path.split("/");
+  return WORKOUT_ID_REFERENCE_SHAPES.find((shape) => (
+    shape.segments.length === segments.length &&
+    shape.segments.every((segment, index) => segment === "*" || segment === segments[index])
+  )) ?? null;
+}
+
+/**
+ * Derives the workout id renames this migration must propagate into replay references.
+ *
+ * Three sources feed it. This run's merges name the ids about to change; an earlier
+ * unfinished run's ledger names the ones it never finished propagating; and live data
+ * itself names any reference still spelled non-canonically whose canonical workout
+ * document already exists, so a lost ledger cannot leave a rename half-applied forever.
+ * @param {object[]} merges Planned canonicalization groups.
+ * @param {{workoutId: string, canonicalWorkoutId: string}[]} carriedRenames Ledger renames.
+ * @param {object[]} references Scanned workout-id references.
+ * @param {{userId: string, workoutId: string}[]} finalDocuments Post-merge workout documents.
+ * @return {{workoutId: string, canonicalWorkoutId: string}[]} Renames to propagate.
+ */
+export function planWorkoutIdReferenceRenames(
+  merges,
+  carriedRenames,
+  references,
+  finalDocuments
+) {
+  const renames = new Map();
+  for (const merge of merges) {
+    for (const workoutId of merge.deleteWorkoutIds) {
+      renames.set(workoutId, merge.canonicalWorkoutId);
+    }
+  }
+  for (const rename of carriedRenames) {
+    renames.set(rename.workoutId, rename.canonicalWorkoutId);
+  }
+
+  const survivingIds = new Set(finalDocuments.map((document) => document.workoutId));
+  for (const reference of references) {
+    for (const workoutId of referencedWorkoutIds(reference)) {
+      const canonicalWorkoutId = nonCanonicalWorkoutId(workoutId);
+      if (canonicalWorkoutId && survivingIds.has(canonicalWorkoutId)) {
+        renames.set(workoutId, canonicalWorkoutId);
+      }
+    }
+  }
+
+  return [...renames.entries()]
+    .map(([workoutId, canonicalWorkoutId]) => ({workoutId, canonicalWorkoutId}))
+    .sort((lhs, rhs) => lhs.workoutId.localeCompare(rhs.workoutId));
+}
+
+/**
+ * Plans the reference repairs that keep replay rows pointing at canonicalized workouts.
+ *
+ * A row keyed on a renamed id moves onto the canonical id; when the canonical row already
+ * exists, only an identical payload lets the stale twin be deleted, and anything else is a
+ * blocking conflict because no rule decides which row the leaderboard should keep. A row
+ * that merely stores a renamed id is rewritten in place. Ids that stay non-canonical with
+ * no surviving workout document are reported, never guessed at.
+ * @param {{workoutId: string, canonicalWorkoutId: string}[]} renames Renames to propagate.
+ * @param {object[]} references Scanned workout-id references.
+ * @return {{moves: object[], fieldUpdates: object[], conflicts: object[], unresolved: object[]}}
+ *   Planned repairs, blocked rows, and references nothing can reconcile.
+ */
+export function planWorkoutIdReferenceRepairs(renames, references) {
+  const renameMap = new Map(renames.map((rename) => [rename.workoutId, rename.canonicalWorkoutId]));
+  const byLocation = new Map(
+    references.map((reference) => [referenceLocation(reference), reference])
+  );
+  const moves = [];
+  const fieldUpdates = [];
+  const conflicts = [];
+  const unresolved = [];
+
+  for (const reference of references) {
+    const updates = canonicalFieldUpdates(reference, renameMap);
+    for (const workoutId of unresolvedWorkoutIds(reference, renameMap)) {
+      unresolved.push({path: referenceLocation(reference), workoutId});
+    }
+
+    const canonicalDocumentId = reference.keyedByWorkoutId ?
+      renameMap.get(reference.documentId) ?? null :
+      null;
+    if (!canonicalDocumentId) {
+      if (Object.keys(updates).length > 0) {
+        fieldUpdates.push({
+          parentPath: reference.parentPath,
+          documentId: reference.documentId,
+          updates,
+        });
+      }
+      continue;
+    }
+
+    const target = byLocation.get(`${reference.parentPath}/${canonicalDocumentId}`);
+    const data = {...reference.data, ...updates};
+    if (!target) {
+      moves.push({
+        parentPath: reference.parentPath,
+        fromDocumentId: reference.documentId,
+        toDocumentId: canonicalDocumentId,
+        data,
+      });
+      continue;
+    }
+
+    const targetData = {...target.data, ...canonicalFieldUpdates(target, renameMap)};
+    const resolution = resolveDuplicateReference(data, targetData);
+    if (resolution === "conflict") {
+      conflicts.push({
+        path: referenceLocation(reference),
+        canonicalPath: referenceLocation(target),
+      });
+      continue;
+    }
+    moves.push({
+      parentPath: reference.parentPath,
+      fromDocumentId: reference.documentId,
+      toDocumentId: canonicalDocumentId,
+      data: resolution === "adopt-stale" ? data : null,
+    });
+  }
+
+  return {
+    moves: moves.sort(compareByPlannedPath),
+    fieldUpdates: fieldUpdates.sort(compareByPlannedPath),
+    conflicts: conflicts.sort((lhs, rhs) => lhs.path.localeCompare(rhs.path)),
+    unresolved: unresolved.sort((lhs, rhs) => (
+      lhs.path.localeCompare(rhs.path) || lhs.workoutId.localeCompare(rhs.workoutId)
+    )),
+  };
+}
+
+/**
+ * Decides what to do with a stale row whose canonical twin already exists.
+ *
+ * Identical payloads make the stale row pure duplication, so it is simply dropped. When
+ * they differ, the newer `updatedAt` wins, matching how workout payloads themselves are
+ * merged. Without a comparable timestamp there is no rule that picks a survivor, so the
+ * row is a conflict and blocks the apply rather than being resolved by guesswork.
+ * @param {object} staleData Canonicalized payload of the non-canonical row.
+ * @param {object} canonicalData Canonicalized payload of the canonical row.
+ * @return {"drop-stale"|"adopt-stale"|"conflict"} Resolution.
+ */
+function resolveDuplicateReference(staleData, canonicalData) {
+  if (firestoreValuesEqual(staleData, canonicalData)) {
+    return "drop-stale";
+  }
+
+  const staleMillis = timestampMillis(staleData.updatedAt);
+  const canonicalMillis = timestampMillis(canonicalData.updatedAt);
+  if (!Number.isFinite(staleMillis) || !Number.isFinite(canonicalMillis)) {
+    return "conflict";
+  }
+  return staleMillis > canonicalMillis ? "adopt-stale" : "drop-stale";
+}
+
+function compareByPlannedPath(lhs, rhs) {
+  return lhs.parentPath.localeCompare(rhs.parentPath) ||
+    (lhs.fromDocumentId ?? lhs.documentId).localeCompare(rhs.fromDocumentId ?? rhs.documentId);
+}
+
+function referenceLocation(reference) {
+  return `${reference.parentPath}/${reference.documentId}`;
+}
+
+function referencedWorkoutIds(reference) {
+  const ids = reference.keyedByWorkoutId ? [reference.documentId] : [];
+  for (const field of reference.workoutIdFields) {
+    const value = reference.data?.[field];
+    if (typeof value === "string" && value.length > 0) {
+      ids.push(value);
+    }
+  }
+  return ids;
+}
+
+function canonicalFieldUpdates(reference, renameMap) {
+  const updates = {};
+  for (const field of reference.workoutIdFields) {
+    const value = reference.data?.[field];
+    if (typeof value === "string" && renameMap.has(value)) {
+      updates[field] = renameMap.get(value);
+    }
+  }
+  return updates;
+}
+
+function unresolvedWorkoutIds(reference, renameMap) {
+  return [...new Set(
+    referencedWorkoutIds(reference)
+      .filter((workoutId) => !renameMap.has(workoutId) && nonCanonicalWorkoutId(workoutId))
+  )].sort();
+}
+
+function nonCanonicalWorkoutId(workoutId) {
+  try {
+    const canonical = canonicalWorkoutDocumentId(workoutId);
+    return canonical === workoutId ? null : canonical;
+  } catch {
+    return null;
+  }
 }
 
 function canonicalizeEmbeddedReferences(data, canonicalWorkoutId) {

@@ -4,12 +4,20 @@ import {
   deriveLandmarkResult,
   groupCompletions,
 } from "../lib/landmark-result-derivation.mjs";
-import {canonicalWorkoutDocumentId} from "../lib/workout-document-id.mjs";
+import {
+  canonicalWorkoutDocumentId,
+  seededReplayCompletedCount,
+  staleWorkoutDocumentIds,
+} from "../lib/workout-document-id.mjs";
 import {
   BATCH_WRITE_LIMIT,
+  finalWorkoutDocuments,
+  matchWorkoutIdReferenceShape,
   packBatchSizes,
   planAffectedLandmarkProjections,
   planCaseVariantWorkoutMerges,
+  planWorkoutIdReferenceRenames,
+  planWorkoutIdReferenceRepairs,
 } from "../lib/workout-id-case-migration.mjs";
 
 const LOWERCASE_ID = "51c91094-5475-4b25-ab8f-a5d809f90a2f";
@@ -181,6 +189,214 @@ test("apply plan refuses a single group larger than one batch", () => {
 test("invalid workout ids are rejected at the canonical boundary", () => {
   assert.throws(() => canonicalWorkoutDocumentId("not-a-uuid"), /Invalid workout UUID/);
 });
+
+test("the newest payload decides which fields survive a merge", () => {
+  const plan = planCaseVariantWorkoutMerges([
+    {
+      userId: "user-1",
+      workoutId: LOWERCASE_ID,
+      data: completedWorkout({updatedAt: fakeTimestamp(100), notes: "older twin note"}),
+    },
+    {
+      userId: "user-1",
+      workoutId: UPPERCASE_ID,
+      data: completedWorkout({updatedAt: fakeTimestamp(200)}),
+    },
+  ]);
+
+  assert.equal(plan.conflicts.length, 0);
+  assert.equal(plan.merges.length, 1);
+  assert.equal("notes" in plan.merges[0].targetData, false);
+  assert.deepEqual(plan.merges[0].droppedFields, ["notes"]);
+});
+
+test("a field the newest payload keeps but disagrees on still blocks the merge", () => {
+  const plan = planCaseVariantWorkoutMerges([
+    {
+      userId: "user-1",
+      workoutId: LOWERCASE_ID,
+      data: completedWorkout({updatedAt: fakeTimestamp(100), notes: "older"}),
+    },
+    {
+      userId: "user-1",
+      workoutId: UPPERCASE_ID,
+      data: completedWorkout({updatedAt: fakeTimestamp(200), notes: "newer"}),
+    },
+  ]);
+
+  assert.equal(plan.merges.length, 0);
+  assert.deepEqual(plan.conflicts[0].conflictingFields, ["notes"]);
+});
+
+test("seeded replay count reflects the rows that exist after the seed commits", () => {
+  assert.equal(seededReplayCompletedCount([], UPPERCASE_ID), 1);
+  assert.equal(seededReplayCompletedCount([LOWERCASE_ID], UPPERCASE_ID), 1);
+  assert.equal(seededReplayCompletedCount([UPPERCASE_ID], UPPERCASE_ID), 1);
+  assert.equal(seededReplayCompletedCount([LOWERCASE_ID, UPPERCASE_ID], UPPERCASE_ID), 1);
+  assert.equal(
+    seededReplayCompletedCount(["other-climber-row", LOWERCASE_ID], UPPERCASE_ID),
+    2
+  );
+  assert.deepEqual(staleWorkoutDocumentIds(UPPERCASE_ID), [LOWERCASE_ID]);
+});
+
+test("every live replay collection that names a workout id is covered", () => {
+  const paths = [
+    "live_replay_leaderboards/live_climb_empire",
+    "live_replay_leaderboards/live_climb_empire/splitBuckets/0/entries/ID",
+    "live_replay_leaderboards/live_climb_empire/completionSnapshots/ID",
+    "live_replay_leaderboards/live_climb_empire/finishers/user-1",
+    "live_replay_leaderboards/live_climb_empire/userBestAttempts/user-1",
+    "users/user-1/liveClimbPublishStatuses/ID",
+    "users/user-1/profile_workouts/ID",
+  ];
+
+  for (const path of paths) {
+    assert.ok(matchWorkoutIdReferenceShape(path), `uncovered path: ${path}`);
+  }
+  assert.equal(matchWorkoutIdReferenceShape("users/user-1/workouts/ID"), null);
+});
+
+test("renames come from this run, the ledger, and live non-canonical references", () => {
+  const documents = [
+    {userId: "user-1", workoutId: LOWERCASE_ID, data: completedWorkout()},
+  ];
+  const plan = planCaseVariantWorkoutMerges(documents);
+  const otherLowercase = "0d0c8f6c-1111-4222-8333-444444444444";
+  const otherUppercase = otherLowercase.toUpperCase();
+
+  const renames = planWorkoutIdReferenceRenames(
+    plan.merges,
+    [{workoutId: "aaaaaaaa-1111-4222-8333-444444444444", canonicalWorkoutId: "AAAAAAAA-1111-4222-8333-444444444444"}],
+    [entryReference(otherLowercase)],
+    finalWorkoutDocuments(
+      [...documents, {userId: "user-1", workoutId: otherUppercase, data: completedWorkout()}],
+      plan.merges
+    )
+  );
+
+  assert.deepEqual(renames.map((rename) => rename.workoutId).sort(), [
+    "0d0c8f6c-1111-4222-8333-444444444444",
+    "51c91094-5475-4b25-ab8f-a5d809f90a2f",
+    "aaaaaaaa-1111-4222-8333-444444444444",
+  ]);
+});
+
+test("replay rows keyed on a renamed workout move onto the canonical id", () => {
+  const repairs = planWorkoutIdReferenceRepairs(
+    [{workoutId: LOWERCASE_ID, canonicalWorkoutId: UPPERCASE_ID}],
+    [entryReference(LOWERCASE_ID)]
+  );
+
+  assert.equal(repairs.conflicts.length, 0);
+  assert.equal(repairs.moves.length, 1);
+  assert.equal(repairs.moves[0].fromDocumentId, LOWERCASE_ID);
+  assert.equal(repairs.moves[0].toDocumentId, UPPERCASE_ID);
+  assert.equal(repairs.moves[0].data.workoutId, UPPERCASE_ID);
+});
+
+test("a stale twin of an identical canonical row is deleted, not rewritten", () => {
+  const repairs = planWorkoutIdReferenceRepairs(
+    [{workoutId: LOWERCASE_ID, canonicalWorkoutId: UPPERCASE_ID}],
+    [entryReference(LOWERCASE_ID), entryReference(UPPERCASE_ID)]
+  );
+
+  assert.equal(repairs.conflicts.length, 0);
+  assert.equal(repairs.moves.length, 1);
+  assert.equal(repairs.moves[0].data, null);
+});
+
+test("a newer stale twin replaces the canonical row it moves onto", () => {
+  const repairs = planWorkoutIdReferenceRepairs(
+    [{workoutId: LOWERCASE_ID, canonicalWorkoutId: UPPERCASE_ID}],
+    [
+      entryReference(LOWERCASE_ID, {finalSteps: 2_096, updatedAt: fakeTimestamp(200)}),
+      entryReference(UPPERCASE_ID, {finalSteps: 1_000, updatedAt: fakeTimestamp(100)}),
+    ]
+  );
+
+  assert.equal(repairs.conflicts.length, 0);
+  assert.equal(repairs.moves.length, 1);
+  assert.equal(repairs.moves[0].data.finalSteps, 2_096);
+});
+
+test("twins that differ with no comparable timestamp block the apply", () => {
+  const repairs = planWorkoutIdReferenceRepairs(
+    [{workoutId: LOWERCASE_ID, canonicalWorkoutId: UPPERCASE_ID}],
+    [
+      entryReference(LOWERCASE_ID, {finalSteps: 2_096, updatedAt: undefined}),
+      entryReference(UPPERCASE_ID, {finalSteps: 1_000, updatedAt: undefined}),
+    ]
+  );
+
+  assert.equal(repairs.moves.length, 0);
+  assert.equal(repairs.conflicts.length, 1);
+});
+
+test("fields that store a renamed workout id are rewritten in place", () => {
+  const repairs = planWorkoutIdReferenceRepairs(
+    [{workoutId: LOWERCASE_ID, canonicalWorkoutId: UPPERCASE_ID}],
+    [
+      {
+        parentPath: "live_replay_leaderboards/live_climb_empire/finishers",
+        documentId: "user-1",
+        keyedByWorkoutId: false,
+        workoutIdFields: ["bestWorkoutId", "firstWorkoutId"],
+        data: {bestWorkoutId: LOWERCASE_ID, firstWorkoutId: UPPERCASE_ID},
+      },
+      {
+        parentPath: "live_replay_leaderboards",
+        documentId: "live_climb_empire",
+        keyedByWorkoutId: false,
+        workoutIdFields: ["firstAscentWorkoutId"],
+        data: {firstAscentWorkoutId: LOWERCASE_ID},
+      },
+    ]
+  );
+
+  assert.equal(repairs.moves.length, 0);
+  assert.deepEqual(repairs.fieldUpdates.map((update) => update.updates), [
+    {firstAscentWorkoutId: UPPERCASE_ID},
+    {bestWorkoutId: UPPERCASE_ID},
+  ]);
+});
+
+test("repairs are idempotent once every reference is canonical", () => {
+  const repairs = planWorkoutIdReferenceRepairs(
+    [{workoutId: LOWERCASE_ID, canonicalWorkoutId: UPPERCASE_ID}],
+    [entryReference(UPPERCASE_ID)]
+  );
+
+  assert.deepEqual(repairs.moves, []);
+  assert.deepEqual(repairs.fieldUpdates, []);
+  assert.deepEqual(repairs.conflicts, []);
+  assert.deepEqual(repairs.unresolved, []);
+});
+
+test("a non-canonical reference with no surviving workout is reported, not guessed at", () => {
+  const repairs = planWorkoutIdReferenceRepairs([], [entryReference(LOWERCASE_ID)]);
+
+  assert.deepEqual(repairs.moves, []);
+  assert.deepEqual(repairs.fieldUpdates, []);
+  assert.equal(repairs.unresolved.length, 1);
+  assert.equal(repairs.unresolved[0].workoutId, LOWERCASE_ID);
+});
+
+function entryReference(documentId, overrides = {}) {
+  return {
+    parentPath: "live_replay_leaderboards/live_climb_empire/splitBuckets/0/entries",
+    documentId,
+    keyedByWorkoutId: true,
+    workoutIdFields: ["workoutId"],
+    data: {
+      finalSteps: 2_096,
+      updatedAt: fakeTimestamp(100),
+      userId: "user-1",
+      workoutId: documentId,
+      ...overrides,
+    },
+  };
+}
 
 function completedWorkout(overrides = {}) {
   return {
