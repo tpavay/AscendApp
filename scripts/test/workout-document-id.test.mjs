@@ -19,6 +19,8 @@ import {
   planReplaySummaryRepairs,
   planWorkoutIdReferenceRenames,
   planWorkoutIdReferenceRepairs,
+  replaySummaryObligationId,
+  resolveReplaySummaryDecrement,
   scanWorkoutIdReferences,
 } from "../lib/workout-id-case-migration.mjs";
 
@@ -443,7 +445,7 @@ test("scanning a canonical row with no stale twin keeps it trimmed", async () =>
   assert.equal("finalSteps" in references[0].data, false);
 });
 
-test("dropping a duplicate row lowers the summary by exactly that row", () => {
+test("dropping a duplicate row owes the summary exactly that row", () => {
   const references = [
     summaryReference({completedCount: 89, totalClimbers: 96}),
     finisherReference("user-1", 89),
@@ -457,11 +459,18 @@ test("dropping a duplicate row lowers the summary by exactly that row", () => {
 
   const summaryPlan = planReplaySummaryRepairs(repairs.moves, references);
 
-  assert.deepEqual(summaryPlan.summaryUpdates, [{
+  assert.deepEqual(summaryPlan.owedObligations, [{
     contextKey: "live_climb_empire",
-    updates: {completedCount: 88, totalClimbers: 95},
+    obligationId: obligationIdFor([LOWERCASE_ID]),
     droppedRows: 1,
-    fromLedger: false,
+    rowPaths: [entryPath(LOWERCASE_ID)],
+  }]);
+  assert.deepEqual(summaryPlan.decrements, [{
+    contextKey: "live_climb_empire",
+    obligations: [{obligationId: obligationIdFor([LOWERCASE_ID]), droppedRows: 1}],
+    droppedRows: 1,
+    currentCounts: {completedCount: 89, totalClimbers: 96},
+    projectedCounts: {completedCount: 88, totalClimbers: 95},
   }]);
   assert.deepEqual(summaryPlan.notes, []);
 });
@@ -479,7 +488,7 @@ test("a seeded context with no finishers keeps its counts apart from the delta",
 
   const summaryPlan = planReplaySummaryRepairs(repairs.moves, references);
 
-  assert.deepEqual(summaryPlan.summaryUpdates[0].updates, {
+  assert.deepEqual(summaryPlan.decrements[0].projectedCounts, {
     completedCount: 88,
     totalClimbers: 95,
   });
@@ -506,8 +515,8 @@ test("duplicates outside bucket zero never touch the summary", () => {
   const summaryPlan = planReplaySummaryRepairs(repairs.moves, references);
 
   assert.equal(repairs.moves.length, 1);
-  assert.deepEqual(summaryPlan.summaryUpdates, []);
-  assert.deepEqual(summaryPlan.owedRepairs, []);
+  assert.deepEqual(summaryPlan.decrements, []);
+  assert.deepEqual(summaryPlan.owedObligations, []);
 });
 
 test("a summary too small to absorb the delta is reported, not rewritten", () => {
@@ -523,11 +532,13 @@ test("a summary too small to absorb the delta is reported, not rewritten", () =>
 
   const summaryPlan = planReplaySummaryRepairs(repairs.moves, references);
 
-  assert.deepEqual(summaryPlan.summaryUpdates, []);
+  assert.deepEqual(summaryPlan.decrements, []);
   assert.equal(summaryPlan.notes.length, 1);
+  assert.deepEqual(summaryPlan.notes[0].obligationIds, [obligationIdFor([LOWERCASE_ID])]);
+  assert.equal(summaryPlan.owedObligations.length, 1);
 });
 
-test("a rerun after a partial apply finishes the decrement the ledger owed", () => {
+test("a run that dies after deleting the rows still owes the whole decrement", () => {
   const secondLowercase = "0d0c8f6c-1111-4222-8333-444444444444";
   const secondUppercase = secondLowercase.toUpperCase();
   const renames = [
@@ -547,34 +558,66 @@ test("a rerun after a partial apply finishes the decrement the ledger owed", () 
     firstRunReferences
   );
 
-  assert.deepEqual(firstRun.owedRepairs, [{
+  assert.deepEqual(firstRun.owedObligations, [{
     contextKey: "live_climb_empire",
-    completedCount: 87,
-    totalClimbers: 94,
+    obligationId: obligationIdFor([LOWERCASE_ID, secondLowercase]),
+    droppedRows: 2,
+    rowPaths: [entryPath(LOWERCASE_ID), entryPath(secondLowercase)].sort(),
   }]);
 
+  // The moves committed, the transaction never ran, and no marker exists. Live state no
+  // longer shows the duplicates, so only the carried obligation proves the two rows.
   const rerunReferences = [
     summaryReference({completedCount: 89, totalClimbers: 96}),
-    entryReference(LOWERCASE_ID),
     entryReference(UPPERCASE_ID),
     entryReference(secondUppercase),
   ];
   const rerun = planReplaySummaryRepairs(
     planWorkoutIdReferenceRepairs(renames, rerunReferences).moves,
     rerunReferences,
-    firstRun.owedRepairs
+    firstRun.owedObligations
   );
 
-  assert.deepEqual(rerun.summaryUpdates, [{
+  assert.deepEqual(rerun.decrements, [{
     contextKey: "live_climb_empire",
-    updates: {completedCount: 87, totalClimbers: 94},
-    droppedRows: 1,
-    fromLedger: true,
+    obligations: [{
+      obligationId: obligationIdFor([LOWERCASE_ID, secondLowercase]),
+      droppedRows: 2,
+    }],
+    droppedRows: 2,
+    currentCounts: {completedCount: 89, totalClimbers: 96},
+    projectedCounts: {completedCount: 87, totalClimbers: 94},
   }]);
-  assert.deepEqual(rerun.owedRepairs, firstRun.owedRepairs);
 });
 
-test("a duplicate found after the ledger was written lowers the target further", () => {
+test("an obligation whose marker exists is never planned again", () => {
+  const carried = {
+    contextKey: "live_climb_empire",
+    obligationId: obligationIdFor([LOWERCASE_ID]),
+    droppedRows: 1,
+    rowPaths: [entryPath(LOWERCASE_ID)],
+  };
+
+  const summaryPlan = planReplaySummaryRepairs(
+    [],
+    [summaryReference({completedCount: 88, totalClimbers: 95})],
+    [carried],
+    [carried.obligationId]
+  );
+
+  assert.deepEqual(summaryPlan.decrements, []);
+  assert.deepEqual(summaryPlan.owedObligations, []);
+  assert.deepEqual(summaryPlan.settledObligations, [carried]);
+});
+
+test("a duplicate found after the ledger was written is owed on top of the carried one", () => {
+  const secondLowercase = "0d0c8f6c-1111-4222-8333-444444444444";
+  const carried = {
+    contextKey: "live_climb_empire",
+    obligationId: obligationIdFor([secondLowercase]),
+    droppedRows: 1,
+    rowPaths: [entryPath(secondLowercase)],
+  };
   const references = [
     summaryReference({completedCount: 88, totalClimbers: 95}),
     entryReference(LOWERCASE_ID),
@@ -585,52 +628,88 @@ test("a duplicate found after the ledger was written lowers the target further",
     references
   );
 
-  const summaryPlan = planReplaySummaryRepairs(repairs.moves, references, [
-    {contextKey: "live_climb_empire", completedCount: 88, totalClimbers: 95},
-  ]);
+  const summaryPlan = planReplaySummaryRepairs(repairs.moves, references, [carried]);
 
-  assert.deepEqual(summaryPlan.summaryUpdates[0].updates, {
-    completedCount: 87,
-    totalClimbers: 94,
+  assert.equal(summaryPlan.decrements.length, 1);
+  assert.equal(summaryPlan.decrements[0].droppedRows, 2);
+  assert.deepEqual(summaryPlan.decrements[0].projectedCounts, {
+    completedCount: 86,
+    totalClimbers: 93,
   });
 });
 
-test("an owed decrement never raises a summary that already dropped below it", () => {
+test("climbers who finished between runs keep their counts", () => {
+  const carried = {
+    contextKey: "live_climb_empire",
+    obligationId: obligationIdFor([LOWERCASE_ID]),
+    droppedRows: 1,
+    rowPaths: [entryPath(LOWERCASE_ID)],
+  };
+
   const summaryPlan = planReplaySummaryRepairs(
     [],
-    [summaryReference({completedCount: 80, totalClimbers: 90})],
-    [{contextKey: "live_climb_empire", completedCount: 87, totalClimbers: 94}]
+    [summaryReference({completedCount: 94, totalClimbers: 101})],
+    [carried]
   );
 
-  assert.deepEqual(summaryPlan.summaryUpdates, []);
-  assert.equal(summaryPlan.notes.length, 1);
-  assert.deepEqual(summaryPlan.owedRepairs, [
-    {contextKey: "live_climb_empire", completedCount: 87, totalClimbers: 94},
-  ]);
+  assert.deepEqual(summaryPlan.decrements[0].projectedCounts, {
+    completedCount: 93,
+    totalClimbers: 100,
+  });
+
+  const resolution = resolveReplaySummaryDecrement(
+    // Two more climbers finished after the plan was built; the transaction reads them.
+    {completedCount: 96, totalClimbers: 103},
+    [],
+    summaryPlan.decrements[0].obligations
+  );
+
+  assert.deepEqual(resolution.updates, {completedCount: 95, totalClimbers: 102});
+  assert.deepEqual(resolution.obligationIds, [carried.obligationId]);
 });
 
-test("a decrement owed by an earlier run is reapplied only when it did not land", () => {
-  const owed = {contextKey: "live_climb_empire", completedCount: 88, totalClimbers: 95};
-
-  const outstanding = planReplaySummaryRepairs(
-    [],
-    [summaryReference({completedCount: 89, totalClimbers: 96})],
-    [owed]
-  );
-  const landed = planReplaySummaryRepairs(
-    [],
-    [summaryReference({completedCount: 88, totalClimbers: 95})],
-    [owed]
+test("a decrement whose marker already exists writes nothing", () => {
+  const resolution = resolveReplaySummaryDecrement(
+    {completedCount: 88, totalClimbers: 95},
+    ["obligation-a"],
+    [{obligationId: "obligation-a", droppedRows: 1}]
   );
 
-  assert.deepEqual(outstanding.summaryUpdates, [{
-    contextKey: "live_climb_empire",
-    updates: {completedCount: 88, totalClimbers: 95},
-    droppedRows: 0,
-    fromLedger: true,
-  }]);
-  assert.deepEqual(landed.summaryUpdates, []);
-  assert.deepEqual(landed.owedRepairs, [owed]);
+  assert.equal(resolution.updates, null);
+  assert.deepEqual(resolution.obligationIds, []);
+});
+
+test("a decrement only discharges the obligations that are still unmarked", () => {
+  const resolution = resolveReplaySummaryDecrement(
+    {completedCount: 88, totalClimbers: 95},
+    ["obligation-a"],
+    [
+      {obligationId: "obligation-a", droppedRows: 1},
+      {obligationId: "obligation-b", droppedRows: 2},
+    ]
+  );
+
+  assert.deepEqual(resolution.updates, {completedCount: 86, totalClimbers: 93});
+  assert.deepEqual(resolution.obligationIds, ["obligation-b"]);
+});
+
+test("a decrement refuses counts that cannot absorb it", () => {
+  assert.throws(
+    () => resolveReplaySummaryDecrement(
+      {completedCount: 1, totalClimbers: 4},
+      [],
+      [{obligationId: "obligation-a", droppedRows: 2}]
+    ),
+    /cannot absorb/
+  );
+  assert.throws(
+    () => resolveReplaySummaryDecrement(
+      {completedCount: "88", totalClimbers: 95},
+      [],
+      [{obligationId: "obligation-a", droppedRows: 1}]
+    ),
+    /cannot absorb/
+  );
 });
 
 test("renaming a row without a twin leaves the summary alone", () => {
@@ -646,9 +725,91 @@ test("renaming a row without a twin leaves the summary alone", () => {
   const summaryPlan = planReplaySummaryRepairs(repairs.moves, references);
 
   assert.equal(repairs.moves[0].duplicate, false);
-  assert.deepEqual(summaryPlan.owedRepairs, []);
-  assert.deepEqual(summaryPlan.summaryUpdates, []);
+  assert.deepEqual(summaryPlan.owedObligations, []);
+  assert.deepEqual(summaryPlan.decrements, []);
 });
+
+test("a merge whose heart-rate pointer names a non-canonical id is blocked", () => {
+  const plan = planCaseVariantWorkoutMerges([
+    {
+      userId: "user-1",
+      workoutId: LOWERCASE_ID,
+      data: completedWorkout({
+        heartRateSeries: {
+          storagePath: `users/user-1/workout_heart_rate/${LOWERCASE_ID}.json.gz`,
+          encoding: "json+gzip",
+          sampleCount: 12,
+        },
+      }),
+    },
+  ]);
+
+  assert.deepEqual(plan.merges, []);
+  assert.deepEqual(plan.conflicts, []);
+  assert.equal(plan.heartRateBlocked.length, 1);
+  assert.deepEqual(plan.heartRateBlocked[0].staleHeartRateStoragePaths, [
+    `users/user-1/workout_heart_rate/${LOWERCASE_ID}.json.gz`,
+  ]);
+});
+
+test("a merge whose heart-rate pointer already names the canonical id is safe", () => {
+  const plan = planCaseVariantWorkoutMerges([
+    {
+      userId: "user-1",
+      workoutId: LOWERCASE_ID,
+      data: completedWorkout({
+        heartRateSeries: {
+          storagePath: `users/user-1/workout_heart_rate/${UPPERCASE_ID}.json.gz`,
+          encoding: "json+gzip",
+          sampleCount: 12,
+        },
+      }),
+    },
+  ]);
+
+  assert.deepEqual(plan.heartRateBlocked, []);
+  assert.equal(plan.merges.length, 1);
+});
+
+test("a heart-rate pointer on the older twin still blocks the whole group", () => {
+  const plan = planCaseVariantWorkoutMerges([
+    {
+      userId: "user-1",
+      workoutId: LOWERCASE_ID,
+      data: completedWorkout({
+        updatedAt: fakeTimestamp(100),
+        heartRateSeries: {
+          storagePath: `users/user-1/workout_heart_rate/${LOWERCASE_ID}.json.gz`,
+          encoding: "json+gzip",
+          sampleCount: 12,
+        },
+      }),
+    },
+    {
+      userId: "user-1",
+      workoutId: UPPERCASE_ID,
+      data: completedWorkout({
+        updatedAt: fakeTimestamp(200),
+        heartRateSeries: {
+          storagePath: `users/user-1/workout_heart_rate/${LOWERCASE_ID}.json.gz`,
+          encoding: "json+gzip",
+          sampleCount: 12,
+        },
+      }),
+    },
+  ]);
+
+  assert.deepEqual(plan.merges, []);
+  assert.equal(plan.heartRateBlocked.length, 1);
+});
+
+function entryPath(documentId) {
+  return `live_replay_leaderboards/live_climb_empire/splitBuckets/0/entries/${documentId}`;
+}
+
+function obligationIdFor(documentIds) {
+  return replaySummaryObligationId("live_climb_empire", documentIds.map(entryPath));
+}
 
 test("fields that store a renamed workout id are rewritten in place", () => {
   const repairs = planWorkoutIdReferenceRepairs(

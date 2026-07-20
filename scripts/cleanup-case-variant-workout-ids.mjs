@@ -21,16 +21,23 @@
  * reported, never rewritten. Dropping a duplicate bucket-zero row removes a climber the
  * leaderboard summary already counted, so that context's completedCount and totalClimbers
  * drop by exactly the number of rows removed - nothing is recounted from another
- * collection, and permanent completion orders and rank snapshots are never touched. A
- * rerun after a partial apply takes the counts the ledger already proved over the smaller
- * delta the surviving duplicates imply, so it finishes the original decrement.
+ * collection, and permanent completion orders and rank snapshots are never touched. That
+ * decrement is applied relative to whatever the summary reads at commit time, inside a
+ * transaction that records its obligation markers atomically, so climbers who finished
+ * between two runs keep their counts and a rerun can never decrement twice.
+ *
+ * A group whose heartRateSeries pointer names a non-canonical workout id blocks the apply.
+ * The pointer addresses a Cloud Storage object this migration does not move, and the rules
+ * require it to spell its own document id, so canonicalizing the document alone would
+ * orphan the object and break every later client update of that workout. Moving it is
+ * manual, captain-gated remediation.
  *
  * Writes are chunked, so a run can die with the workout renames committed and the
  * reference repairs, leaderboard decrements, or landmarkResults rebuild outstanding. The
- * projections, the renames, and the exact counts this run owes each summary are all
- * recorded on the ledger before the first write and cleared only on success, so the next
- * run folds them back into its own plan and cannot report success on a vacuous
- * verification. Reference repairs are also re-derived from live data - any id
+ * projections, the renames, and the exact duplicate-row obligations this run owes each
+ * summary are all recorded on the ledger before the first write and cleared only once
+ * discharged, so the next run folds them back into its own plan and cannot report success
+ * on a vacuous verification. Reference repairs are also re-derived from live data - any id
  * still spelled non-canonically whose canonical workout exists is repaired - so a lost
  * ledger cannot strand them either. If a run fails and the operator will not re-run it,
  * `scripts/backfill-landmark-results.mjs` rebuilds the same projections. A carried repair
@@ -52,6 +59,7 @@ import {FieldValue, Timestamp} from "firebase-admin/firestore";
 import {
   beginRun,
   initFirestore,
+  operationDocumentRef,
   parseCommonArgs,
   readPendingRepairs,
   resolveEnvironment,
@@ -66,13 +74,15 @@ import {
   planReplaySummaryRepairs,
   planWorkoutIdReferenceRenames,
   planWorkoutIdReferenceRepairs,
+  resolveReplaySummaryDecrement,
   scanWorkoutIdReferences,
 } from "./lib/workout-id-case-migration.mjs";
 
 const OPERATION_ID = "migration/case-variant-workout-ids";
-const OPERATION_VERSION = 2;
+const OPERATION_VERSION = 3;
 const WORKOUT_ID_RENAME_REPAIR_KIND = "workoutIdRename";
-const REPLAY_SUMMARY_REPAIR_KIND = "replaySummaryRecount";
+const REPLAY_SUMMARY_REPAIR_KIND = "replaySummaryObligation";
+const SUMMARY_MARKER_COLLECTION = "replaySummaryObligationMarkers";
 
 const args = parseCommonArgs(process.argv);
 if (args.rest.has("help")) {
@@ -88,20 +98,22 @@ const documents = await readWorkoutDocuments(db);
 const references = await scanWorkoutIdReferences(db);
 const plan = planCaseVariantWorkoutMerges(documents);
 const pendingRepairs = await readPendingRepairs(db, OPERATION_ID);
-const carriedRepairs = pendingRepairs.filter((repair) => (
-  repair.kind !== WORKOUT_ID_RENAME_REPAIR_KIND &&
-  repair.kind !== REPLAY_SUMMARY_REPAIR_KIND
-));
+// A landmarkResult repair is the one kind recorded without a `kind` tag. Matching on that
+// rather than on "not one of the tagged kinds" keeps a repair kind from a different
+// operation version out of the projection plan, where it would look like a null climb.
+const carriedRepairs = pendingRepairs.filter((repair) => !repair.kind);
 const carriedRenames = pendingRepairs.filter(
   (repair) => repair.kind === WORKOUT_ID_RENAME_REPAIR_KIND
 );
-const carriedSummaryRepairs = pendingRepairs
+const carriedSummaryObligations = pendingRepairs
   .filter((repair) => repair.kind === REPLAY_SUMMARY_REPAIR_KIND)
-  .map(({contextKey, completedCount, totalClimbers}) => ({
+  .map(({contextKey, obligationId, droppedRows, rowPaths}) => ({
     contextKey,
-    completedCount,
-    totalClimbers,
+    obligationId,
+    droppedRows,
+    rowPaths,
   }));
+const appliedObligationIds = await readAppliedObligationIds(db);
 const deleteCount = plan.merges.reduce((sum, merge) => sum + merge.deleteWorkoutIds.length, 0);
 const renames = planWorkoutIdReferenceRenames(
   plan.merges,
@@ -113,7 +125,8 @@ const referencePlan = planWorkoutIdReferenceRepairs(renames, references);
 const summaryPlan = planReplaySummaryRepairs(
   referencePlan.moves,
   references,
-  carriedSummaryRepairs
+  carriedSummaryObligations,
+  appliedObligationIds
 );
 
 console.log([
@@ -124,15 +137,17 @@ console.log([
   `Workout-id references scanned: ${references.length}`,
   `Safe canonicalization groups: ${plan.merges.length}`,
   `Blocked conflicting groups: ${plan.conflicts.length}`,
+  `Blocked heart-rate pointer groups: ${plan.heartRateBlocked.length}`,
   `Non-canonical documents to delete: ${deleteCount}`,
   `Workout ids to propagate into references: ${renames.length}`,
   `Reference rows to move onto a canonical id: ${referencePlan.moves.length}`,
   `Reference fields to rewrite: ${referencePlan.fieldUpdates.length}`,
   `Blocked conflicting reference rows: ${referencePlan.conflicts.length}`,
-  `Leaderboard summaries to decrement: ${summaryPlan.summaryUpdates.length}`,
+  `Leaderboard summaries to decrement: ${summaryPlan.decrements.length}`,
   `landmarkResults owed by an earlier unfinished run: ${carriedRepairs.length}`,
   `Workout id renames owed by an earlier unfinished run: ${carriedRenames.length}`,
-  `Summary decrements owed by an earlier unfinished run: ${carriedSummaryRepairs.length}`,
+  `Summary obligations owed by an earlier unfinished run: ${carriedSummaryObligations.length}`,
+  `Summary obligations already marked applied: ${summaryPlan.settledObligations.length}`,
 ].join("\n"));
 
 for (const merge of plan.merges) {
@@ -163,16 +178,34 @@ for (const update of referencePlan.fieldUpdates) {
       Object.entries(update.updates).map(([field, value]) => `${field}=${value}`).join(", ")
   );
 }
-for (const update of summaryPlan.summaryUpdates) {
+for (const obligation of summaryPlan.owedObligations) {
   console.log(
-    `SUMMARY ${update.contextKey}: -${update.droppedRows} duplicate row(s) -> ` +
-      `completedCount ${update.updates.completedCount}, ` +
-      `totalClimbers ${update.updates.totalClimbers}` +
-      `${update.fromLedger ? " (target owed by an earlier unfinished run takes precedence)" : ""}`
+    `SUMMARY OBLIGATION ${obligation.contextKey} ${obligation.obligationId}: ` +
+      `-${obligation.droppedRows} duplicate row(s), no applied marker yet`
+  );
+}
+for (const obligation of summaryPlan.settledObligations) {
+  console.log(
+    `SUMMARY OBLIGATION ${obligation.contextKey} ${obligation.obligationId}: ` +
+      `already applied (marker recorded), -${obligation.droppedRows} row(s) skipped`
+  );
+}
+for (const decrement of summaryPlan.decrements) {
+  console.log(
+    `SUMMARY ${decrement.contextKey}: -${decrement.droppedRows} duplicate row(s) applied ` +
+      `relative to the counts read in the transaction (now completedCount ` +
+      `${decrement.currentCounts.completedCount} -> ` +
+      `${decrement.projectedCounts.completedCount}, totalClimbers ` +
+      `${decrement.currentCounts.totalClimbers} -> ` +
+      `${decrement.projectedCounts.totalClimbers}), marking ` +
+      decrement.obligations.map((obligation) => obligation.obligationId).join(", ")
   );
 }
 for (const note of summaryPlan.notes) {
-  console.log(`SUMMARY UNCHANGED ${note.contextKey}: ${note.reason}`);
+  console.log(
+    `SUMMARY UNCHANGED ${note.contextKey}: ${note.reason} ` +
+      `(obligations still owed: ${note.obligationIds.join(", ")})`
+  );
 }
 for (const item of referencePlan.unresolved) {
   console.log(
@@ -184,6 +217,20 @@ for (const conflict of plan.conflicts) {
   console.error(
     `BLOCKED ${conflict.userId}: ${conflict.sourceWorkoutIds.join(", ")} ` +
       `conflict in ${conflict.conflictingFields.join(", ")}`
+  );
+}
+for (const blocked of plan.heartRateBlocked) {
+  console.error(
+    `BLOCKED HEART RATE ${blocked.userId}: ${blocked.sourceWorkoutIds.join(", ")} -> ` +
+      `${blocked.canonicalWorkoutId} carries heartRateSeries.storagePath ` +
+      `${blocked.staleHeartRateStoragePaths.join(", ")}, which names a non-canonical ` +
+      "workout id. Canonicalizing the document without moving the Cloud Storage object " +
+      "would orphan the object and make every later client update of this workout fail. " +
+      "Remediation is manual and captain-gated: copy " +
+      `users/${blocked.userId}/workout_heart_rate/<old-id>.json.gz to ` +
+      `users/${blocked.userId}/workout_heart_rate/${blocked.canonicalWorkoutId}.json.gz, ` +
+      "delete the old object, rewrite heartRateSeries.storagePath to match, then re-run " +
+      "this migration."
   );
 }
 for (const conflict of referencePlan.conflicts) {
@@ -202,7 +249,6 @@ const units = buildMigrationUnits(
   db,
   plan.merges,
   referencePlan,
-  summaryPlan,
   affectedProjections
 );
 const batchSizes = packBatchSizes(units.map((unit) => unit.length));
@@ -228,6 +274,13 @@ if (plan.conflicts.length > 0) {
     `Refusing apply: ${plan.conflicts.length} case-variant group(s) contain conflicting payloads.`
   );
 }
+if (plan.heartRateBlocked.length > 0) {
+  throw new Error(
+    `Refusing apply: ${plan.heartRateBlocked.length} case-variant group(s) carry a ` +
+      "heartRateSeries.storagePath naming a non-canonical workout id. Move the Cloud " +
+      "Storage objects by hand first - see the BLOCKED HEART RATE lines above."
+  );
+}
 if (referencePlan.conflicts.length > 0) {
   throw new Error(
     `Refusing apply: ${referencePlan.conflicts.length} replay reference row(s) cannot be ` +
@@ -250,32 +303,53 @@ try {
       workoutId,
       canonicalWorkoutId,
     })),
-    ...summaryPlan.owedRepairs.map((repair) => ({
+    ...summaryPlan.owedObligations.map((obligation) => ({
       kind: REPLAY_SUMMARY_REPAIR_KIND,
-      ...repair,
+      ...obligation,
     })),
   ]);
   await commitUnits(db, units, batchSizes);
+  await applyReplaySummaryDecrements(db, summaryPlan.decrements);
   const verificationDocuments = await readWorkoutDocuments(db);
   const verificationPlan = planCaseVariantWorkoutMerges(verificationDocuments);
-  if (verificationPlan.merges.length > 0 || verificationPlan.conflicts.length > 0) {
+  if (
+    verificationPlan.merges.length > 0 ||
+    verificationPlan.conflicts.length > 0 ||
+    verificationPlan.heartRateBlocked.length > 0
+  ) {
     throw new Error("Verification still found case-variant workout document groups.");
   }
-  await verifyWorkoutIdReferences(db, renames, summaryPlan);
+  await verifyWorkoutIdReferences(db, renames);
+  await verifyReplaySummaryObligations(db, summaryPlan);
   await verifyLandmarkResults(db, affectedProjections);
 
-  await run.finish({
-    workoutDocumentsScanned: documents.length,
-    duplicateGroupsMerged: plan.merges.length,
-    aliasDocumentsDeleted: deleteCount,
-    referenceRowsMoved: referencePlan.moves.length,
-    referenceFieldsRewritten: referencePlan.fieldUpdates.length,
-    unresolvedReferences: referencePlan.unresolved.length,
-    replaySummariesDecremented: summaryPlan.summaryUpdates.length,
-    replaySummariesLeftForBackfill: summaryPlan.notes.length,
-    landmarkResultsWritten: affectedProjections.length - staleProjections.length,
-    landmarkResultsDeleted: staleProjections.length,
-  });
+  const undischargedObligations = summaryPlan.notes.flatMap((note) => (
+    summaryPlan.owedObligations.filter(
+      (obligation) => note.obligationIds.includes(obligation.obligationId)
+    )
+  ));
+  await run.finish(
+    {
+      workoutDocumentsScanned: documents.length,
+      duplicateGroupsMerged: plan.merges.length,
+      aliasDocumentsDeleted: deleteCount,
+      referenceRowsMoved: referencePlan.moves.length,
+      referenceFieldsRewritten: referencePlan.fieldUpdates.length,
+      unresolvedReferences: referencePlan.unresolved.length,
+      replaySummariesDecremented: summaryPlan.decrements.length,
+      replaySummaryObligationsDischarged: summaryPlan.decrements.reduce(
+        (sum, decrement) => sum + decrement.obligations.length,
+        0
+      ),
+      replaySummaryObligationsStillOwed: undischargedObligations.length,
+      landmarkResultsWritten: affectedProjections.length - staleProjections.length,
+      landmarkResultsDeleted: staleProjections.length,
+    },
+    undischargedObligations.map((obligation) => ({
+      kind: REPLAY_SUMMARY_REPAIR_KIND,
+      ...obligation,
+    }))
+  );
   console.log(
     `\nMerged ${plan.merges.length} group(s), deleted ${deleteCount} alias document(s), ` +
       `repaired ${referencePlan.moves.length + referencePlan.fieldUpdates.length} ` +
@@ -285,9 +359,11 @@ try {
 } catch (error) {
   await run.fail(error);
   console.error(
-    `\nThis run did not finish. ${affectedProjections.length} landmarkResult(s) and ` +
-      `${renames.length} workout id rename(s) are recorded as owed on the ledger; re-run ` +
-      "this migration with --apply to finish them, or run " +
+    `\nThis run did not finish. ${affectedProjections.length} landmarkResult(s), ` +
+      `${renames.length} workout id rename(s), and ` +
+      `${summaryPlan.owedObligations.length} leaderboard decrement obligation(s) are ` +
+      "recorded as owed on the ledger; re-run this migration with --apply to finish " +
+      "them, or run " +
       "scripts/backfill-landmark-results.mjs for the projections. Do not treat the " +
       "operation as complete until one of those succeeds."
   );
@@ -311,11 +387,12 @@ async function readWorkoutDocuments(firestore) {
  * non-canonical document without gaining its canonical one, and a reference row move is
  * atomic for the same reason; each rewritten field and each rebuilt landmarkResult stands
  * alone. The reported plan and the committed plan are both derived from this one list so
- * they cannot drift.
+ * they cannot drift. Leaderboard decrements are deliberately absent: they are relative
+ * writes that must be paired with their obligation marker, so they run as transactions
+ * afterwards rather than as batched absolute sets.
  * @param {FirebaseFirestore.Firestore} firestore Firestore instance.
  * @param {object[]} merges Planned canonicalization groups.
  * @param {object} referencePlan Planned workout-id reference repairs.
- * @param {object} summaryPlan Planned leaderboard recounts.
  * @param {object[]} affectedProjections Landmark projections to rebuild.
  * @return {{ref: FirebaseFirestore.DocumentReference, data: object|null, merge?: boolean}[][]}
  *   Atomic units; a null payload means delete.
@@ -324,7 +401,6 @@ function buildMigrationUnits(
   firestore,
   merges,
   referencePlan,
-  summaryPlan,
   affectedProjections
 ) {
   const units = [];
@@ -347,13 +423,6 @@ function buildMigrationUnits(
   for (const update of referencePlan.fieldUpdates) {
     units.push([{
       ref: firestore.collection(update.parentPath).doc(update.documentId),
-      data: update.updates,
-      merge: true,
-    }]);
-  }
-  for (const update of summaryPlan.summaryUpdates) {
-    units.push([{
-      ref: firestore.collection("live_replay_leaderboards").doc(update.contextKey),
       data: update.updates,
       merge: true,
     }]);
@@ -389,7 +458,7 @@ async function commitUnits(firestore, units, batchSizes) {
   }
 }
 
-async function verifyWorkoutIdReferences(firestore, renames, summaryPlan) {
+async function verifyWorkoutIdReferences(firestore, renames) {
   const references = await scanWorkoutIdReferences(firestore);
   const verificationPlan = planWorkoutIdReferenceRepairs(renames, references);
   const outstanding = verificationPlan.moves.length +
@@ -401,29 +470,103 @@ async function verifyWorkoutIdReferences(firestore, renames, summaryPlan) {
         "non-canonical document id."
     );
   }
-
-  verifyReplaySummaries(references, summaryPlan.summaryUpdates);
 }
 
-function verifyReplaySummaries(references, summaryUpdates) {
-  const stored = new Map(
-    references
-      .filter((reference) => reference.parentPath === "live_replay_leaderboards")
-      .map((reference) => [reference.documentId, reference.data])
-  );
+function summaryMarkerRef(firestore, contextKey) {
+  return operationDocumentRef(firestore, OPERATION_ID)
+    .collection(SUMMARY_MARKER_COLLECTION)
+    .doc(contextKey);
+}
 
-  for (const update of summaryUpdates) {
-    const data = stored.get(update.contextKey);
-    if (
-      data?.completedCount !== update.updates.completedCount ||
-      data?.totalClimbers !== update.updates.totalClimbers
-    ) {
-      throw new Error(
-        `Verification found replay summary ${update.contextKey} at ` +
-          `${String(data?.completedCount)}/${String(data?.totalClimbers)} instead of the ` +
-          `planned ${update.updates.completedCount}/${update.updates.totalClimbers}.`
+async function readAppliedObligationIds(firestore) {
+  const snapshot = await operationDocumentRef(firestore, OPERATION_ID)
+    .collection(SUMMARY_MARKER_COLLECTION)
+    .get();
+  return snapshot.docs.flatMap((document) => {
+    const ids = document.get("appliedObligationIds");
+    return Array.isArray(ids) ? ids : [];
+  });
+}
+
+/**
+ * Discharges each context's owed duplicate-row obligations.
+ *
+ * The decrement and the marker that proves it landed are written in one transaction, so a
+ * crash either leaves the whole obligation owed or leaves it unambiguously settled - never
+ * a decrement nobody can tell apart from an outstanding one. The subtraction happens on the
+ * counts read inside the transaction, so finishers who arrived since the plan was built
+ * survive it.
+ * @param {FirebaseFirestore.Firestore} firestore Firestore instance.
+ * @param {object[]} decrements Planned per-context decrements.
+ * @return {Promise<void>} Resolves once every decrement is settled.
+ */
+async function applyReplaySummaryDecrements(firestore, decrements) {
+  for (const decrement of decrements) {
+    const summaryRef = firestore
+      .collection("live_replay_leaderboards")
+      .doc(decrement.contextKey);
+    const markerRef = summaryMarkerRef(firestore, decrement.contextKey);
+
+    const outcome = await firestore.runTransaction(async (transaction) => {
+      const [summarySnapshot, markerSnapshot] = await transaction.getAll(summaryRef, markerRef);
+      if (!summarySnapshot.exists) {
+        throw new Error(
+          `Replay summary ${decrement.contextKey} disappeared before its decrement.`
+        );
+      }
+      const appliedIds = markerSnapshot.get("appliedObligationIds");
+      const resolution = resolveReplaySummaryDecrement(
+        summarySnapshot.data(),
+        Array.isArray(appliedIds) ? appliedIds : [],
+        decrement.obligations
       );
-    }
+      if (!resolution.updates) {
+        return resolution;
+      }
+
+      transaction.set(summaryRef, resolution.updates, {merge: true});
+      transaction.set(
+        markerRef,
+        {
+          contextKey: decrement.contextKey,
+          appliedObligationIds: FieldValue.arrayUnion(...resolution.obligationIds),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        {merge: true}
+      );
+      return resolution;
+    });
+
+    console.log(
+      outcome.updates ?
+        `SUMMARY APPLIED ${decrement.contextKey}: -${outcome.droppedRows} row(s) -> ` +
+          `completedCount ${outcome.updates.completedCount}, totalClimbers ` +
+          `${outcome.updates.totalClimbers}, marked ${outcome.obligationIds.join(", ")}` :
+        `SUMMARY ALREADY APPLIED ${decrement.contextKey}: every obligation was already ` +
+          "marked, nothing decremented"
+    );
+  }
+}
+
+async function verifyReplaySummaryObligations(firestore, summaryPlan) {
+  const applied = new Set(await readAppliedObligationIds(firestore));
+  const missing = summaryPlan.decrements.flatMap((decrement) => (
+    decrement.obligations
+      .filter((obligation) => !applied.has(obligation.obligationId))
+      .map((obligation) => `${decrement.contextKey}/${obligation.obligationId}`)
+  ));
+  if (missing.length > 0) {
+    throw new Error(
+      `Verification found ${missing.length} replay summary obligation(s) with no applied ` +
+        `marker: ${missing.join(", ")}.`
+    );
+  }
+
+  for (const note of summaryPlan.notes) {
+    console.log(
+      `SUMMARY STILL OWED ${note.contextKey}: ${note.obligationIds.join(", ")} - ` +
+        "recorded on the ledger for the next run or the replay backfill"
+    );
   }
 }
 

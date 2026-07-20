@@ -1,3 +1,4 @@
+import {createHash} from "node:crypto";
 import {
   deriveLandmarkResult,
   groupCompletions,
@@ -130,9 +131,16 @@ export function packBatchSizes(unitSizes) {
  * Documents with conflicting payload fields are reported and never planned for deletion.
  * The newest payload decides which fields exist; a field only the older twin carries is
  * reported as dropped rather than merged back in.
+ *
+ * A group whose `heartRateSeries.storagePath` names anything but the canonical id is
+ * blocked too. That pointer is a Cloud Storage object this migration cannot move, and
+ * `isValidWorkoutDocument` requires the path to spell the document id exactly, so
+ * rewriting the pointer alone would orphan the object and rewriting neither would make
+ * every later client update of that workout fail.
  * @param {{userId: string, workoutId: string, data: Record<string, unknown>}[]} documents
  *   Raw private workout documents.
- * @return {{merges: object[], conflicts: object[]}} Safe merges and blocked groups.
+ * @return {{merges: object[], conflicts: object[], heartRateBlocked: object[]}} Safe merges,
+ *   payload-conflicting groups, and groups carrying an unmovable heart-rate pointer.
  */
 export function planCaseVariantWorkoutMerges(documents) {
   const groups = new Map();
@@ -153,6 +161,7 @@ export function planCaseVariantWorkoutMerges(documents) {
 
   const merges = [];
   const conflicts = [];
+  const heartRateBlocked = [];
   for (const group of groups.values()) {
     const sourceIDs = [...new Set(group.map((document) => document.workoutId))];
     if (sourceIDs.every((workoutId) => workoutId === group[0].canonicalWorkoutId)) {
@@ -162,12 +171,32 @@ export function planCaseVariantWorkoutMerges(documents) {
     const result = mergeGroup(group);
     if (result.conflictingFields.length > 0) {
       conflicts.push(result);
+    } else if (result.staleHeartRateStoragePaths.length > 0) {
+      heartRateBlocked.push(result);
     } else {
       merges.push(result);
     }
   }
 
-  return {merges, conflicts};
+  return {merges, conflicts, heartRateBlocked};
+}
+
+/**
+ * The heart-rate storage pointers in a group that would stop naming their own document.
+ *
+ * Conservative on purpose: anything that is not exactly the canonical document's path
+ * counts, including a malformed or absolute-looking value, because the only safe repair
+ * moves a Cloud Storage object this migration deliberately does not touch.
+ * @param {object} data Private workout payload.
+ * @param {string} canonicalWorkoutId Canonical document id the group merges onto.
+ * @return {string[]} Storage paths that block the group, empty when none do.
+ */
+function staleHeartRateStoragePaths(data, canonicalWorkoutId) {
+  const storagePath = data?.heartRateSeries?.storagePath;
+  if (typeof storagePath !== "string" || storagePath.length === 0) {
+    return [];
+  }
+  return storagePath.endsWith(`/${canonicalWorkoutId}.json.gz`) ? [] : [storagePath];
 }
 
 function mergeGroup(group) {
@@ -214,6 +243,9 @@ function mergeGroup(group) {
     targetData,
     conflictingFields: [...conflictingFields].sort(),
     droppedFields: [...droppedFields].sort(),
+    staleHeartRateStoragePaths: [...new Set(
+      group.flatMap((document) => staleHeartRateStoragePaths(document.data, canonicalWorkoutId))
+    )].sort(),
     sourceDocuments: group.map(({userId, workoutId, data}) => ({userId, workoutId, data})),
   };
 }
@@ -561,6 +593,24 @@ function resolveDuplicateReference(staleData, canonicalData, recencyFields = [])
 }
 
 /**
+ * The stable identity of one duplicate-removal obligation.
+ *
+ * An obligation is "these exact bucket-zero rows were deleted from this context", so it is
+ * named by exactly that. Deriving the id from the row paths rather than from a run id makes
+ * a rerun that carries the obligation forward name it identically, which is what lets a
+ * single applied-marker prove the decrement already landed.
+ * @param {string} contextKey Replay context the rows belong to.
+ * @param {string[]} rowPaths Full document paths of the removed duplicate rows.
+ * @return {string} Deterministic obligation id.
+ */
+export function replaySummaryObligationId(contextKey, rowPaths) {
+  return createHash("sha256")
+    .update([contextKey, ...[...rowPaths].sort()].join("\n"))
+    .digest("hex")
+    .slice(0, 32);
+}
+
+/**
  * Plans the leaderboard-summary repair owed by dropping duplicate split-bucket rows.
  *
  * Deleting a stale twin removes a bucket-zero row the summary already counted, so the only
@@ -571,36 +621,75 @@ function resolveDuplicateReference(staleData, canonicalData, recencyFields = [])
  * collection would overwrite real fixture data. A move that merely renames a row onto its
  * canonical id changes no count and is ignored here.
  *
- * A run that dies between its move batches and its summary batch leaves the ledger holding
- * the final counts it had already proven, while live state now shows fewer duplicates than
- * it started with. The ledger target wins there: the rows it counted are gone, not
- * uncounted. A live delta is only allowed to push the target lower, for duplicates that
- * appeared after the ledger was written, so a rerun converges on the original target
- * instead of stopping one short of it.
+ * The unit carried across runs is that relative obligation, never an absolute target. A run
+ * that dies after deleting the rows but before decrementing leaves the whole obligation
+ * owed, and the rerun no longer sees the duplicates that prove it - so the obligation is
+ * replanned from the ledger and applied against whatever the summary reads at that moment.
+ * Climbers who finished in between are therefore preserved: the decrement is always
+ * relative. Applying it twice is prevented by the marker recorded with it, not by comparing
+ * counts, so an obligation whose marker exists is settled and never planned again.
  *
- * A summary that cannot absorb the delta - missing, non-integer, or smaller than the number
- * of rows removed - is reported and left untouched, and a count is never raised. Completion
- * orders and the point-in-time rank snapshots derived from them are never rewritten; they
- * are permanent.
+ * A summary that cannot absorb the obligation - missing, non-integer, or smaller than the
+ * number of rows removed - is reported and left untouched, and a count is never raised. The
+ * obligation stays owed. Completion orders and the point-in-time rank snapshots derived from
+ * them are never rewritten; they are permanent.
  * @param {object[]} moves Planned reference moves.
  * @param {object[]} references Scanned workout-id references.
- * @param {{contextKey: string, completedCount: number, totalClimbers: number}[]} carriedRepairs
- *   Expected counts an earlier unfinished run owes.
- * @return {{summaryUpdates: object[], owedRepairs: object[], notes: object[]}}
- *   Planned decrements, what to record on the ledger, and contexts left for an operator.
+ * @param {{contextKey: string, obligationId: string, droppedRows: number}[]} carriedObligations
+ *   Duplicate-removal obligations an earlier unfinished run recorded.
+ * @param {string[]} appliedObligationIds Obligation ids whose marker already exists.
+ * @return {{decrements: object[], owedObligations: object[], settledObligations: object[],
+ *   notes: object[]}} Planned decrements, what to record on the ledger, obligations already
+ *   proven applied, and contexts left for an operator.
  */
-export function planReplaySummaryRepairs(moves, references, carriedRepairs = []) {
-  const droppedRowsByContext = new Map();
+export function planReplaySummaryRepairs(
+  moves,
+  references,
+  carriedObligations = [],
+  appliedObligationIds = []
+) {
+  const droppedPathsByContext = new Map();
   for (const move of moves) {
     const contextKey = bucketZeroEntriesContextKey(move.parentPath);
     if (move.duplicate && contextKey) {
-      droppedRowsByContext.set(contextKey, (droppedRowsByContext.get(contextKey) ?? 0) + 1);
+      const paths = droppedPathsByContext.get(contextKey) ?? [];
+      paths.push(`${move.parentPath}/${move.fromDocumentId}`);
+      droppedPathsByContext.set(contextKey, paths);
     }
   }
 
-  const carriedByContext = new Map(
-    carriedRepairs.map((carried) => [carried.contextKey, carried])
-  );
+  const obligations = new Map();
+  for (const carried of carriedObligations) {
+    const droppedRows = nonNegativeIntegerOrNull(carried.droppedRows);
+    if (!carried.contextKey || !carried.obligationId || !droppedRows) {
+      continue;
+    }
+    obligations.set(carried.obligationId, {
+      contextKey: carried.contextKey,
+      obligationId: carried.obligationId,
+      droppedRows,
+      rowPaths: Array.isArray(carried.rowPaths) ? [...carried.rowPaths].sort() : [],
+    });
+  }
+  for (const [contextKey, paths] of droppedPathsByContext) {
+    const rowPaths = [...paths].sort();
+    const obligationId = replaySummaryObligationId(contextKey, rowPaths);
+    obligations.set(obligationId, {
+      contextKey,
+      obligationId,
+      droppedRows: rowPaths.length,
+      rowPaths,
+    });
+  }
+
+  const applied = new Set(appliedObligationIds);
+  const owedObligations = [];
+  const settledObligations = [];
+  for (const obligation of obligations.values()) {
+    (applied.has(obligation.obligationId) ? settledObligations : owedObligations)
+      .push(obligation);
+  }
+
   const summaries = new Map();
   for (const reference of references) {
     if (reference.parentPath === REPLAY_COLLECTION) {
@@ -608,100 +697,127 @@ export function planReplaySummaryRepairs(moves, references, carriedRepairs = [])
     }
   }
 
-  const summaryUpdates = [];
-  const owedRepairs = [];
+  const decrements = [];
   const notes = [];
-  const contextKeys = [...new Set([
-    ...droppedRowsByContext.keys(),
-    ...carriedByContext.keys(),
-  ])].sort();
+  const owedByContext = new Map();
+  for (const obligation of owedObligations) {
+    const owed = owedByContext.get(obligation.contextKey) ?? [];
+    owed.push(obligation);
+    owedByContext.set(obligation.contextKey, owed);
+  }
 
-  for (const contextKey of contextKeys) {
-    const droppedRows = droppedRowsByContext.get(contextKey) ?? 0;
-    const carried = carriedByContext.get(contextKey) ?? null;
+  for (const contextKey of [...owedByContext.keys()].sort()) {
+    const owed = owedByContext.get(contextKey).sort(
+      (lhs, rhs) => lhs.obligationId.localeCompare(rhs.obligationId)
+    );
+    const droppedRows = owed.reduce((sum, obligation) => sum + obligation.droppedRows, 0);
     const summary = summaries.get(contextKey);
     if (!summary) {
       notes.push({
         contextKey,
-        reason: droppedRows > 0 ?
-          `${droppedRows} duplicate row(s) removed but no leaderboard summary exists` :
-          "leaderboard summary owed a decrement no longer exists",
+        obligationIds: owed.map((obligation) => obligation.obligationId),
+        reason: `${droppedRows} duplicate row(s) owe a decrement but no leaderboard ` +
+          "summary exists",
       });
-      if (carried) {
-        owedRepairs.push(carried);
-      }
       continue;
     }
 
-    const target = replaySummaryTarget(summary.data, droppedRows, carried);
-    if (!target) {
+    const completedCount = nonNegativeIntegerOrNull(summary.data.completedCount);
+    const totalClimbers = nonNegativeIntegerOrNull(summary.data.totalClimbers);
+    if (
+      completedCount === null ||
+      totalClimbers === null ||
+      completedCount < droppedRows ||
+      totalClimbers < droppedRows
+    ) {
       notes.push({
         contextKey,
+        obligationIds: owed.map((obligation) => obligation.obligationId),
         reason: `completedCount ${String(summary.data.completedCount)} / totalClimbers ` +
-          `${String(summary.data.totalClimbers)} cannot absorb ${droppedRows} removed ` +
-          `row(s)${carried ? " or the counts owed on the ledger" : ""} - left for the ` +
-          "replay backfill",
+          `${String(summary.data.totalClimbers)} cannot absorb the ${droppedRows} row(s) ` +
+          "owed - left for the replay backfill",
       });
-      if (carried) {
-        owedRepairs.push(carried);
-      }
       continue;
     }
 
-    owedRepairs.push({contextKey, ...target});
-    if (
-      summary.data.completedCount !== target.completedCount ||
-      summary.data.totalClimbers !== target.totalClimbers
-    ) {
-      summaryUpdates.push({
-        contextKey,
-        updates: target,
-        droppedRows,
-        fromLedger: Boolean(carried),
-      });
-    }
+    decrements.push({
+      contextKey,
+      obligations: owed.map(({obligationId, droppedRows: rows}) => ({
+        obligationId,
+        droppedRows: rows,
+      })),
+      droppedRows,
+      currentCounts: {completedCount, totalClimbers},
+      projectedCounts: {
+        completedCount: completedCount - droppedRows,
+        totalClimbers: totalClimbers - droppedRows,
+      },
+    });
   }
 
   return {
-    summaryUpdates: summaryUpdates.sort((lhs, rhs) => lhs.contextKey.localeCompare(rhs.contextKey)),
-    owedRepairs: owedRepairs.sort((lhs, rhs) => lhs.contextKey.localeCompare(rhs.contextKey)),
+    decrements,
+    owedObligations: owedObligations.sort(compareByObligation),
+    settledObligations: settledObligations.sort(compareByObligation),
     notes: notes.sort((lhs, rhs) => lhs.contextKey.localeCompare(rhs.contextKey)),
   };
 }
 
-function replaySummaryTarget(data, droppedRows, carried) {
-  const completedCount = nonNegativeIntegerOrNull(data.completedCount);
-  const totalClimbers = nonNegativeIntegerOrNull(data.totalClimbers);
-  if (completedCount === null || totalClimbers === null) {
-    return null;
+/**
+ * Decides what one context's summary transaction must write, under the transaction's own
+ * read of the summary and of the markers.
+ *
+ * The decrement is relative, so a count that grew between the plan and the transaction keeps
+ * that growth. Obligations already marked applied contribute nothing, which is what makes a
+ * rerun after a committed transaction a no-op rather than a second decrement.
+ * @param {object} summaryData Summary payload read inside the transaction.
+ * @param {string[]} appliedObligationIds Obligation ids the marker document already holds.
+ * @param {{obligationId: string, droppedRows: number}[]} obligations Obligations to discharge.
+ * @return {{droppedRows: number, obligationIds: string[], updates: object|null}} What to
+ *   write; a null `updates` means every obligation was already applied.
+ */
+export function resolveReplaySummaryDecrement(
+  summaryData,
+  appliedObligationIds,
+  obligations
+) {
+  const applied = new Set(appliedObligationIds);
+  const pending = obligations.filter(
+    (obligation) => !applied.has(obligation.obligationId)
+  );
+  if (pending.length === 0) {
+    return {droppedRows: 0, obligationIds: [], updates: null};
   }
 
-  const candidates = [];
-  if (droppedRows > 0 && completedCount >= droppedRows && totalClimbers >= droppedRows) {
-    candidates.push({
-      completedCount: completedCount - droppedRows,
-      totalClimbers: totalClimbers - droppedRows,
-    });
-  }
-  if (carried) {
-    const carriedCompleted = nonNegativeIntegerOrNull(carried.completedCount);
-    const carriedTotal = nonNegativeIntegerOrNull(carried.totalClimbers);
-    const fitsWithoutRaising = carriedCompleted !== null &&
-      carriedTotal !== null &&
-      carriedCompleted <= completedCount &&
-      carriedTotal <= totalClimbers;
-    if (fitsWithoutRaising) {
-      candidates.push({completedCount: carriedCompleted, totalClimbers: carriedTotal});
-    }
-  }
-  if (candidates.length === 0) {
-    return null;
+  const droppedRows = pending.reduce((sum, obligation) => sum + obligation.droppedRows, 0);
+  const completedCount = nonNegativeIntegerOrNull(summaryData?.completedCount);
+  const totalClimbers = nonNegativeIntegerOrNull(summaryData?.totalClimbers);
+  if (
+    completedCount === null ||
+    totalClimbers === null ||
+    completedCount < droppedRows ||
+    totalClimbers < droppedRows
+  ) {
+    throw new Error(
+      `Refusing decrement: completedCount ${String(summaryData?.completedCount)} / ` +
+        `totalClimbers ${String(summaryData?.totalClimbers)} cannot absorb the ` +
+        `${droppedRows} duplicate row(s) owed.`
+    );
   }
 
   return {
-    completedCount: Math.min(...candidates.map((candidate) => candidate.completedCount)),
-    totalClimbers: Math.min(...candidates.map((candidate) => candidate.totalClimbers)),
+    droppedRows,
+    obligationIds: pending.map((obligation) => obligation.obligationId),
+    updates: {
+      completedCount: completedCount - droppedRows,
+      totalClimbers: totalClimbers - droppedRows,
+    },
   };
+}
+
+function compareByObligation(lhs, rhs) {
+  return lhs.contextKey.localeCompare(rhs.contextKey) ||
+    lhs.obligationId.localeCompare(rhs.obligationId);
 }
 
 function bucketZeroEntriesContextKey(parentPath) {

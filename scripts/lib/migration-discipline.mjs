@@ -150,6 +150,17 @@ function encodeOperationId(operationId) {
 }
 
 /**
+ * The ledger document an operation owns, for the operation-specific state a run needs to
+ * keep beside its ledger entry (idempotency markers, for instance).
+ * @param {FirebaseFirestore.Firestore} db Firestore instance.
+ * @param {string} operationId Operation id.
+ * @return {FirebaseFirestore.DocumentReference} Operation ledger document.
+ */
+export function operationDocumentRef(db, operationId) {
+  return db.collection(MIGRATIONS_COLLECTION).doc(encodeOperationId(operationId));
+}
+
+/**
  * Returns whether this operation+version already succeeded in this environment.
  * @param {FirebaseFirestore.Firestore} db Firestore instance.
  * @param {string} operationId Operation id.
@@ -240,9 +251,17 @@ export async function beginRun(db, params) {
       await parentRef.set({pendingRepairs}, {merge: true});
       await runRef.set({pendingRepairs}, {merge: true});
     },
-    async finish(counts) {
+    // `remainingRepairs` is work this run proved it could not discharge - a decrement no
+    // summary can absorb, say. Clearing it on success would silently drop an obligation the
+    // operator still owes, so it survives into the next run's plan.
+    async finish(counts, remainingRepairs = []) {
       await runRef.set(
-        {status: "succeeded", counts, finishedAt: FieldValue.serverTimestamp()},
+        {
+          status: "succeeded",
+          counts,
+          remainingRepairs,
+          finishedAt: FieldValue.serverTimestamp(),
+        },
         {merge: true}
       );
       // firstSucceededAt answers "when did this backfill first run here?", so a
@@ -250,7 +269,7 @@ export async function beginRun(db, params) {
       const parentSnapshot = await parentRef.get();
       const parentUpdate = {
         status: "succeeded",
-        pendingRepairs: [],
+        pendingRepairs: remainingRepairs,
         lastFinishedAt: FieldValue.serverTimestamp(),
       };
       if (!parentSnapshot.get("firstSucceededAt")) {
