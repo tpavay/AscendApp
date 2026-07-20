@@ -485,6 +485,14 @@ struct OnboardingFeatureGuideFlowScreen: View {
         let screen = currentScreen
         let context = analyticsContext(for: screen, index: stepIndex)
 
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.screenCompleted(
+                context: context,
+                inputType: "button",
+                properties: ["action_id": .string("continue")]
+            )
+        )
+
         if stepIndex < screens.count - 1 {
             stepIndex += 1
         } else {
@@ -514,6 +522,17 @@ struct OnboardingFeatureGuideFlowScreen: View {
             stepIndex: index,
             stepCount: screens.count
         )
+    }
+
+    nonisolated static func analyticsContexts(flowID: String) -> [OnboardingAnalyticsContext] {
+        PreAuthGuideScreen.all.enumerated().map { index, screen in
+            OnboardingAnalyticsContext(
+                flowID: flowID,
+                stepID: screen.id,
+                stepIndex: index,
+                stepCount: PreAuthGuideScreen.all.count
+            )
+        }
     }
 }
 
@@ -863,7 +882,7 @@ private struct PreAuthGuideMetrics {
     func radius(_ value: CGFloat) -> CGFloat { value * typeScale }
 }
 
-private struct PreAuthGuideScreen: Identifiable {
+struct PreAuthGuideScreen: Identifiable {
     enum Kind {
         case landmarkCollage
         case liveTracking

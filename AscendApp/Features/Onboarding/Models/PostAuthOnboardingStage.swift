@@ -68,6 +68,10 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
         )
     }
 
+    var visibleScreenAnalyticsContext: OnboardingAnalyticsContext? {
+        self == .features ? nil : analyticsContext
+    }
+
     var analyticsInputType: String {
         switch self {
         case .displayName:

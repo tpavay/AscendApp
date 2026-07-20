@@ -114,6 +114,8 @@ struct OnboardingValueCarouselView: View {
             return
         }
 
+        recordCurrentPageCompleted(actionID: "continue")
+
         if selectedIndex < pages.count - 1 {
             selectedIndex += 1
         } else {
@@ -154,6 +156,23 @@ struct OnboardingValueCarouselView: View {
             return
         }
 
+        let previousIndex = selectedIndex
+        if index > previousIndex {
+            recordPageCompleted(
+                at: previousIndex,
+                inputType: "gesture",
+                actionID: "swipe_forward"
+            )
+        } else if let context = Self.analyticsContext(
+            flowID: analyticsFlowID,
+            pages: pages,
+            index: previousIndex
+        ) {
+            TelemetryManager.shared.track(
+                OnboardingAnalyticsEvent.backTapped(context: context)
+            )
+        }
+
         selectedIndex = index
     }
 
@@ -169,6 +188,26 @@ struct OnboardingValueCarouselView: View {
 
     private func currentAnalyticsContext() -> OnboardingAnalyticsContext? {
         Self.analyticsContext(flowID: analyticsFlowID, pages: pages, index: selectedIndex)
+    }
+
+    private func recordCurrentPageCompleted(actionID: String) {
+        recordPageCompleted(at: selectedIndex, inputType: "button", actionID: actionID)
+    }
+
+    private func recordPageCompleted(at index: Int, inputType: String, actionID: String) {
+        guard let context = Self.analyticsContext(
+            flowID: analyticsFlowID,
+            pages: pages,
+            index: index
+        ) else { return }
+
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.screenCompleted(
+                context: context,
+                inputType: inputType,
+                properties: ["action_id": .string(actionID)]
+            )
+        )
     }
 
     /// Builds the context for a carousel page so surfaces that own chrome around the carousel

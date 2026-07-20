@@ -21,6 +21,37 @@ struct MonetizationManagerPaywallTests {
     }
 
     @Test
+    func appAccessGateEmitsOnboardingPaywallEventsAndDeduplicatesItsScreenView() {
+        let paywallPresenter = PaywallPresenterSpy()
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let telemetry = makeTelemetry(sink: sink)
+        let manager = MonetizationManager(
+            entitlementService: EntitlementServiceStub(),
+            paywallPresenter: paywallPresenter,
+            telemetry: telemetry
+        )
+
+        manager.presentPaywall(
+            .appAccessGate,
+            params: ["source": "app_access_gate"]
+        )
+        manager.presentPaywall(
+            .appAccessGate,
+            params: ["source": "paywall_placeholder_retry"]
+        )
+
+        let onboardingReached = sink.records.filter { $0.name == "onboarding_paywall_reached" }
+        let onboardingViews = sink.records.filter { $0.name == "onboarding_screen_viewed" }
+
+        #expect(onboardingReached.count == 2)
+        #expect(onboardingReached.first?.parameters["placement"] == .string("app_access_gate"))
+        #expect(onboardingReached.first?.parameters["source"] == .string("app_access_gate"))
+        #expect(onboardingViews.count == 1)
+        #expect(onboardingViews.first?.parameters["screen_id"] == .string("paywall"))
+        #expect(onboardingViews.first?.parameters["viewed"] == .bool(true))
+    }
+
+    @Test
     func forwardsPresentationOutcomesToGateCaller() {
         let paywallPresenter = PaywallPresenterSpy()
         let manager = MonetizationManager(
@@ -52,6 +83,16 @@ struct MonetizationManagerPaywallTests {
 
         #expect(paywallPresenter.registeredPlacement == nil)
         #expect(receivedOutcome == .failed(message: "Superwall is not configured for this build."))
+    }
+
+    private func makeTelemetry(sink: InMemoryTelemetrySink) -> TelemetryManager {
+        let telemetry = TelemetryManager(
+            sinks: [sink],
+            crashlyticsReporter: MonetizationNoopCrashlyticsReporter(),
+            collectionEnabledOverride: true
+        )
+        telemetry.configure()
+        return telemetry
     }
 }
 
@@ -101,4 +142,14 @@ private final class EntitlementServiceStub: EntitlementServicing {
     func resetIdentity() async {}
 
     func restorePurchases() async throws {}
+}
+
+private struct MonetizationNoopCrashlyticsReporter: CrashlyticsReporting {
+    func setCollectionEnabled(_ enabled: Bool) {}
+    func setUserID(_ userID: String?) {}
+    func setCustomValue(_ value: Bool, forKey key: String) {}
+    func setCustomValue(_ value: Int, forKey key: String) {}
+    func setCustomValue(_ value: String, forKey key: String) {}
+    func log(_ message: String) {}
+    func record(error: Error, context: String, code: String, additionalInfo: [String: String]?) {}
 }

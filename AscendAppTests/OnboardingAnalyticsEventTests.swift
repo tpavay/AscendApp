@@ -43,12 +43,13 @@ struct OnboardingAnalyticsEventTests {
         let record = OnboardingAnalyticsEvent.screenCompleted(
             context: context,
             inputType: "text",
-            properties: [:]
+            properties: ["display_name_provided": .bool(true)]
         ).record
 
         #expect(record.name == "onboarding_screen_completed")
         expectStringParameter(record, "input_type", "text")
         expectBoolParameter(record, "completed", true)
+        expectBoolParameter(record, "display_name_provided", true)
         expectMissingParameter(record, "question_id")
         expectMissingParameter(record, "answer_id")
         expectMissingParameter(record, "has_answer")
@@ -178,13 +179,71 @@ struct OnboardingAnalyticsEventTests {
         let record = OnboardingAnalyticsEvent.screenCompleted(
             context: OnboardingAnalyticsEvent.welcomeContext,
             inputType: "button",
-            properties: [:]
+            properties: ["action_id": .string("get_started")]
         ).record
 
         #expect(record.name == "onboarding_screen_completed")
         expectStringParameter(record, "step_id", "welcome")
         expectStringParameter(record, "input_type", "button")
+        expectStringParameter(record, "action_id", "get_started")
         expectBoolParameter(record, "completed", true)
+    }
+
+    @Test
+    func bodyMetricsCompletionCapturesHeightWeightAndMeasurementSystem() {
+        let record = OnboardingAnalyticsEvent.screenCompleted(
+            context: PostAuthOnboardingStage.weight.analyticsContext,
+            inputType: PostAuthOnboardingStage.weight.analyticsInputType,
+            properties: [
+                "measurement_system": .string("imperial"),
+                "profile_height_group": .string(
+                    OnboardingAnalyticsUserProperties.heightGroupValue(forHeightCm: 177.8)
+                ),
+                "profile_weight_group": .string(
+                    OnboardingAnalyticsUserProperties.weightGroupValue(forWeightKg: 83.9)
+                )
+            ]
+        ).record
+
+        expectStringParameter(record, "screen_id", "weight")
+        expectStringParameter(record, "input_type", "measurement")
+        expectStringParameter(record, "measurement_system", "imperial")
+        expectStringParameter(record, "profile_height_group", "165_179_cm")
+        expectStringParameter(record, "profile_weight_group", "150_199_lb")
+    }
+
+    @Test
+    func locationCompletionCapturesCountryAndSelectionMethod() {
+        let record = OnboardingAnalyticsEvent.screenCompleted(
+            context: PostAuthOnboardingStage.location.analyticsContext,
+            inputType: PostAuthOnboardingStage.location.analyticsInputType,
+            properties: [
+                "profile_country": .string("US"),
+                "selection_method": .string("current_location")
+            ]
+        ).record
+
+        expectStringParameter(record, "screen_id", "location")
+        expectStringParameter(record, "input_type", "location")
+        expectStringParameter(record, "profile_country", "US")
+        expectStringParameter(record, "selection_method", "current_location")
+    }
+
+    @Test
+    func demographicCompletionsCaptureSelectedBuckets() {
+        let genderRecord = OnboardingAnalyticsEvent.screenCompleted(
+            context: PostAuthOnboardingStage.gender.analyticsContext,
+            inputType: PostAuthOnboardingStage.gender.analyticsInputType,
+            properties: ["profile_gender": .string("non_binary")]
+        ).record
+        let ageRecord = OnboardingAnalyticsEvent.screenCompleted(
+            context: PostAuthOnboardingStage.age.analyticsContext,
+            inputType: PostAuthOnboardingStage.age.analyticsInputType,
+            properties: ["profile_age_group": .string("25_34")]
+        ).record
+
+        expectStringParameter(genderRecord, "profile_gender", "non_binary")
+        expectStringParameter(ageRecord, "profile_age_group", "25_34")
     }
 
     @Test
@@ -258,6 +317,94 @@ struct OnboardingAnalyticsEventTests {
     }
 }
 
+struct OnboardingScreenViewCoverageTests {
+    @Test
+    func everyVisibleOnboardingScreenEmitsExactlyOnce() {
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let telemetry = makeOnboardingTelemetry(sink: sink)
+        var recorder = OnboardingScreenViewRecorder()
+        let contexts = canonicalVisibleContexts()
+
+        for context in contexts {
+            recorder.recordIfNeeded(context, telemetry: telemetry)
+            recorder.recordIfNeeded(context, telemetry: telemetry)
+        }
+
+        let records = sink.records.filter { $0.name == "onboarding_screen_viewed" }
+        let screenIDs = records.compactMap { record -> String? in
+            guard case .string(let screenID)? = record.parameters["screen_id"] else { return nil }
+            return screenID
+        }
+
+        #expect(screenIDs == [
+            "welcome",
+            "watch_yourself_get_better",
+            "reason_to_come_back",
+            "auth",
+            "displayName",
+            "stair_stepper_baseline",
+            "exercise_level",
+            "goal",
+            "motivation",
+            "plan",
+            "summit_landmarks",
+            "real_time",
+            "daily_climbs",
+            "gender",
+            "age",
+            "weight",
+            "location",
+            "notifications",
+            "loading",
+            "first_climb",
+            "paywall"
+        ])
+        #expect(Set(screenIDs).count == 21)
+        #expect(screenIDs.contains("features") == false)
+        #expect(records.allSatisfy { $0.parameters["viewed"] == .bool(true) })
+        #expect(records.allSatisfy { $0.parameters["step_id"] == $0.parameters["screen_id"] })
+        #expect(records.allSatisfy { $0.parameters["flow_id"] != nil })
+        #expect(records.allSatisfy { $0.parameters["flow_version"] == .string("v1") })
+        #expect(records.allSatisfy { $0.parameters["step_index"] != nil })
+        #expect(records.allSatisfy { $0.parameters["step_count"] != nil })
+        #expect(records.allSatisfy { $0.parameters["app_environment"] != nil })
+    }
+
+    @Test
+    func featuresContainerHasNoVisibleScreenContext() {
+        #expect(PostAuthOnboardingStage.features.visibleScreenAnalyticsContext == nil)
+        #expect(
+            PostAuthOnboardingStage.allCases
+                .filter { $0 != .features }
+                .allSatisfy { $0.visibleScreenAnalyticsContext != nil }
+        )
+    }
+
+    private func canonicalVisibleContexts() -> [OnboardingAnalyticsContext] {
+        var contexts = [OnboardingAnalyticsEvent.welcomeContext]
+        contexts.append(contentsOf: OnboardingValuePages.all.indices.compactMap {
+            OnboardingValueCarouselView.analyticsContext(
+                pages: OnboardingValuePages.all,
+                index: $0
+            )
+        })
+        contexts.append(OnboardingAnalyticsEvent.authContext)
+
+        for stage in PostAuthOnboardingStage.allCases {
+            if stage == .features {
+                contexts.append(contentsOf: OnboardingFeatureGuideFlowScreen.analyticsContexts(
+                    flowID: "post_auth_features"
+                ))
+            } else if let context = stage.visibleScreenAnalyticsContext {
+                contexts.append(context)
+            }
+        }
+
+        contexts.append(OnboardingAnalyticsEvent.paywallContext)
+        return contexts
+    }
+}
+
 struct OnboardingValueCarouselAnalyticsContextTests {
     @Test
     func contextUsesPageIdentityAndPosition() throws {
@@ -320,4 +467,24 @@ private func expectBoolParameter(_ record: TelemetryRecord, _ key: String, _ exp
 
 private func expectMissingParameter(_ record: TelemetryRecord, _ key: String) {
     #expect(record.parameters[key] == nil)
+}
+
+private func makeOnboardingTelemetry(sink: InMemoryTelemetrySink) -> TelemetryManager {
+    let telemetry = TelemetryManager(
+        sinks: [sink],
+        crashlyticsReporter: OnboardingNoopCrashlyticsReporter(),
+        collectionEnabledOverride: true
+    )
+    telemetry.configure()
+    return telemetry
+}
+
+private struct OnboardingNoopCrashlyticsReporter: CrashlyticsReporting {
+    func setCollectionEnabled(_ enabled: Bool) {}
+    func setUserID(_ userID: String?) {}
+    func setCustomValue(_ value: Bool, forKey key: String) {}
+    func setCustomValue(_ value: Int, forKey key: String) {}
+    func setCustomValue(_ value: String, forKey key: String) {}
+    func log(_ message: String) {}
+    func record(error: Error, context: String, code: String, additionalInfo: [String: String]?) {}
 }

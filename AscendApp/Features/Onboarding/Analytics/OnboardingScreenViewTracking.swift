@@ -15,7 +15,7 @@ extension View {
 private struct OnboardingScreenViewTracker: ViewModifier {
     let context: OnboardingAnalyticsContext?
 
-    @State private var viewedStepIDs: Set<String> = []
+    @State private var recorder = OnboardingScreenViewRecorder()
 
     func body(content: Content) -> some View {
         content
@@ -28,10 +28,20 @@ private struct OnboardingScreenViewTracker: ViewModifier {
     }
 
     private func recordScreenViewIfNeeded() {
-        guard let context, !viewedStepIDs.contains(context.stepID) else { return }
+        recorder.recordIfNeeded(context)
+    }
+}
 
-        viewedStepIDs.insert(context.stepID)
-        TelemetryManager.shared.track(
+struct OnboardingScreenViewRecorder {
+    private var viewedStepIDs: Set<String> = []
+
+    mutating func recordIfNeeded(
+        _ context: OnboardingAnalyticsContext?,
+        telemetry: TelemetryManager = .shared
+    ) {
+        guard let context, viewedStepIDs.insert(context.stepID).inserted else { return }
+
+        telemetry.track(
             OnboardingAnalyticsEvent.screenViewed(context: context)
         )
     }

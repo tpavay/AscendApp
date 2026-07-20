@@ -62,7 +62,7 @@ struct LandingScreen: View {
             OnboardingAnalyticsEvent.screenCompleted(
                 context: OnboardingAnalyticsEvent.welcomeContext,
                 inputType: "button",
-                properties: [:]
+                properties: ["action_id": .string("get_started")]
             )
         )
         isShowingValueCarousel = true
