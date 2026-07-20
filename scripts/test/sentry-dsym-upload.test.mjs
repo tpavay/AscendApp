@@ -16,6 +16,8 @@ function makeDSYMDirectory() {
   return root;
 }
 
+const SENTRY_CLI_VERSION = "3.6.0";
+
 let cachedHelp;
 
 function realSentryCLIHelp() {
@@ -25,6 +27,22 @@ function realSentryCLIHelp() {
   }
 
   return cachedHelp;
+}
+
+// Real option rows put "--name" at column 6, either after four filler spaces or
+// after a "-x, " short alias. Wrapped description prose is indented far deeper,
+// so this bound keeps sentences like "if --wait or --wait-for is specified"
+// from being mistaken for supported options.
+function supportedOptions(help) {
+  return new Set([...help.matchAll(/^ {2}(?:-[A-Za-z], )? {0,4}(--[a-z][a-z0-9-]*)/gm)].map(([, option]) => option));
+}
+
+function uploadCommandOptions() {
+  const script = readFileSync(uploadScript, "utf8");
+  const invocation = script.match(/"\$\{SENTRY_CLI\}" debug-files upload(?: *\\\n(?:.*\\\n)*.*)?/)?.[0];
+
+  assert.ok(invocation, "could not locate the sentry-cli debug-files upload invocation");
+  return [...new Set(invocation.match(/--[a-z][a-z0-9-]*/g) ?? [])];
 }
 
 function runUpload(environment, dsymPath = makeDSYMDirectory()) {
@@ -89,14 +107,38 @@ test("upload passes the archive dSYMs to Sentry and waits for processing", () =>
   assert.doesNotMatch(argumentsText, /test-token/);
 });
 
-test("every option the script passes exists in the real sentry-cli", {skip: realSentryCLIHelp() === null}, () => {
+test("every option the script passes exists in the real sentry-cli", () => {
   const help = realSentryCLIHelp();
-  const script = readFileSync(uploadScript, "utf8");
-  const options = [...new Set(script.match(/--[a-z][a-z-]*/g) ?? [])];
 
+  if (help === null) {
+    assert.notEqual(
+      process.env.CI,
+      "true",
+      `sentry-cli must be on PATH in CI so this guard runs; install @sentry/cli@${SENTRY_CLI_VERSION}`,
+    );
+    return;
+  }
+
+  const supported = supportedOptions(help);
+  const options = uploadCommandOptions();
+
+  assert.ok(supported.has("--wait-for"), "help parsing failed to find a known option");
   assert.ok(options.includes("--wait-for"));
+  assert.ok(!options.includes("--wait"), "--wait is mutually exclusive with --wait-for");
+
   for (const option of options) {
-    assert.ok(help.includes(`${option} `) || help.includes(`${option}\n`), `${option} is not a sentry-cli option`);
+    assert.ok(supported.has(option), `${option} is not a sentry-cli debug-files upload option`);
+  }
+});
+
+test("every workflow pins the same Sentry CLI version the guard validates against", () => {
+  const workflows = ["ci.yml", "deploy-staging.yml", "deploy-production.yml"];
+
+  for (const name of workflows) {
+    const workflow = readFileSync(join(repoRoot, ".github/workflows", name), "utf8");
+    const pins = [...new Set(workflow.match(/@sentry\/cli@[\w.-]+/g) ?? [])];
+
+    assert.deepEqual(pins, [`@sentry/cli@${SENTRY_CLI_VERSION}`], `${name} must pin @sentry/cli@${SENTRY_CLI_VERSION}`);
   }
 });
 
@@ -110,7 +152,7 @@ test("both signed Fastlane lanes upload archive dSYMs", () => {
 for (const workflowName of ["deploy-staging.yml", "deploy-production.yml"]) {
   test(`${workflowName} installs Sentry CLI before building`, () => {
     const workflow = readFileSync(join(repoRoot, ".github/workflows", workflowName), "utf8");
-    const installIndex = workflow.indexOf("npm install --global @sentry/cli@3.6.0");
+    const installIndex = workflow.indexOf(`npm install --global @sentry/cli@${SENTRY_CLI_VERSION}`);
     const buildIndex = workflow.indexOf("bundle exec fastlane build_");
 
     assert.notEqual(installIndex, -1);
