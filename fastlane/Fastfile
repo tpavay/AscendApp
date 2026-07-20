@@ -42,6 +42,26 @@ def match_cert_name(bundle_identifier)
   ENV["sigh_#{bundle_identifier}_appstore_certificate-name"]
 end
 
+def upload_sentry_dsyms(archive_path)
+  dsym_path = File.join(archive_path, "dSYMs")
+  script_path = File.expand_path("../scripts/upload-sentry-dsyms.sh", __dir__)
+
+  UI.user_error!("Sentry dSYM upload script not found at #{script_path}") unless File.executable?(script_path)
+
+  local_tokenless_build = ENV["CI"].to_s != "true" && ENV["SENTRY_AUTH_TOKEN"].to_s.empty?
+
+  unless Dir.exist?(dsym_path)
+    if local_tokenless_build
+      UI.important("Sentry dSYM upload skipped: no dSYMs directory in #{archive_path}.")
+      return
+    end
+
+    UI.user_error!("Archive dSYM directory not found at #{dsym_path}")
+  end
+
+  sh("#{script_path.shellescape} #{dsym_path.shellescape}")
+end
+
 # Write an export options plist for xcodebuild -exportArchive.
 # We call xcodebuild directly (not through gym) so we can use
 # "app-store-connect" (which gym 2.230 doesn't support) and avoid
@@ -131,6 +151,8 @@ platform :ios do
       archive_path: archive_path
     )
 
+    upload_sentry_dsyms(archive_path)
+
     # Diagnostic: verify entitlements embedded in the archive
     archive_app = File.join(archive_path, "Products", "Applications", "AscendApp.app")
     UI.message("=== DIAGNOSTIC: Archive entitlements ===")
@@ -209,6 +231,8 @@ platform :ios do
       skip_package_ipa: true,
       archive_path: archive_path
     )
+
+    upload_sentry_dsyms(archive_path)
 
     # Step 2: Export the archive to IPA
     export_plist = write_export_plist(

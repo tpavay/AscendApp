@@ -17,7 +17,7 @@ Read the workflow file before changing it - the job graph below is the contract,
 `.github/workflows/ci.yml` runs on PRs to `develop` and `main`, and is the only automated gate before either. Every verify job is gated on the changed paths, so a functions-only PR skips the iOS jobs and an iOS-only PR skips the functions job:
 - `changes` - a `dorny/paths-filter` job that resolves the `ios`, `functions`, `scripts`, `web`, and `root_npm` outputs. Every other job declares `needs: changes` and an `if:` on one of those outputs, so a new verify job is skipped by default until you add it to the filter.
 - `functions-verify` - installs `functions/`, then lints, tests, and audits (`npm --prefix functions ci`, `run lint`, `test`, `audit --audit-level=low`).
-- `scripts-verify` - audits the `scripts/` lockfile (`--package-lock-only`) and runs the `scripts/test/*.test.mjs` suite with `node --test` (no dependency install - the migration-discipline libraries and the shared vector-pinned predicate/derivation are pure Node). Gated on changes to `scripts/**` or `SharedTestVectors/**`.
+- `scripts-verify` - audits the `scripts/` lockfile (`--package-lock-only`) and runs the `scripts/test/*.test.mjs` suite with `node --test`. No dependency install from `scripts/package.json` - the migration-discipline libraries and the shared vector-pinned predicate/derivation are pure Node; the one install is a globally pinned `@sentry/cli`, because the dSYM-upload suite asserts the release script's flags against that exact CLI's help. Keep that pin identical to the one in both deploy workflows. Gated on changes to `scripts/**` or `SharedTestVectors/**`.
 - `web-verify` - installs `web/`, builds the Astro site, then audits. Gated on changes to `web/**`.
 - `root-npm-verify` - audits the committed root lockfile with `--package-lock-only` (no install). Gated on changes to `package.json` / `package-lock.json`.
 - `ios-verify` - runs `test` only (no build step) with `-scheme "AscendApp-Staging" -configuration Staging ENABLE_TESTABILITY=YES`. It provisions the simulator at runtime via `xcrun simctl` against the newest installed iOS runtime - downloading the runtime if the image ships none - then reuses a preferred iPhone model, falls back to any iPhone, and finally creates one, failing only when the runtime supports no iPhone device type. It does not pass `CODE_SIGNING_ALLOWED=NO`.
@@ -66,10 +66,12 @@ Do not introduce a *new* long-lived JSON service-account key for deploy auth; th
   - `build_production`
   - `upload_testflight`
 - iOS deploy lanes use `fastlane match` for signing material sync (CI runs in `readonly` mode).
+- `build_staging` and `build_production` upload the archive's dSYMs to Sentry right after `xcodebuild archive` and before the IPA export, so a build that cannot be symbolicated never reaches TestFlight. Both build jobs install the pinned Sentry CLI and fail early on a missing `SENTRY_AUTH_TOKEN`. Contract and environment variables: `docs/sentry-setup.md`.
 - Required iOS signing secrets for CI:
   - `MATCH_GIT_URL`
   - `MATCH_PASSWORD`
   - `MATCH_GIT_PRIVATE_KEY`
+- Also required by both build jobs: `SENTRY_AUTH_TOKEN`.
 - Legacy manual-signing CI secrets are deprecated:
   - `BUILD_CERTIFICATE_BASE64`
   - `BUILD_PROVISION_PROFILE_BASE64`
