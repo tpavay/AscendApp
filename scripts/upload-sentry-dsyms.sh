@@ -25,6 +25,7 @@ fi
 
 SENTRY_ORG="${SENTRY_ORG:-ascend-uk}"
 SENTRY_PROJECT="${SENTRY_PROJECT:-ascend-ios}"
+SENTRY_WAIT_TIMEOUT="${SENTRY_WAIT_TIMEOUT:-300}"
 
 if [ -n "${SENTRY_CLI_PATH:-}" ]; then
     if [ ! -x "${SENTRY_CLI_PATH}" ]; then
@@ -45,4 +46,5 @@ echo "Uploading dSYMs to Sentry project ${SENTRY_ORG}/${SENTRY_PROJECT}."
     --org "${SENTRY_ORG}" \
     --project "${SENTRY_PROJECT}" \
     --wait \
+    --wait-timeout "${SENTRY_WAIT_TIMEOUT}" \
     "${DSYM_FOLDER_PATH}"

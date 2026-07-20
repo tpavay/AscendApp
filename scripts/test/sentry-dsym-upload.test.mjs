@@ -72,14 +72,15 @@ test("upload passes the archive dSYMs to Sentry and waits for processing", () =>
   assert.match(argumentsText, /debug-files\nupload/);
   assert.match(argumentsText, /--org\nascend-uk/);
   assert.match(argumentsText, /--project\nascend-ios/);
-  assert.match(argumentsText, /--wait/);
+  assert.match(argumentsText, /--wait\n/);
+  assert.match(argumentsText, /--wait-timeout\n300/);
   assert.equal(argumentsList.at(-1), root);
   assert.doesNotMatch(argumentsText, /test-token/);
 });
 
 test("both signed Fastlane lanes upload archive dSYMs", () => {
   const fastfile = readFileSync(join(repoRoot, "fastlane/Fastfile"), "utf8");
-  const uploadCalls = fastfile.match(/^\s{4}upload_sentry_dsyms\(archive_path\)$/gm) ?? [];
+  const uploadCalls = fastfile.match(/^\s+upload_sentry_dsyms\(/gm) ?? [];
 
   assert.equal(uploadCalls.length, 2);
 });

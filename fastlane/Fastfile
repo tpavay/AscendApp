@@ -47,7 +47,17 @@ def upload_sentry_dsyms(archive_path)
   script_path = File.expand_path("../scripts/upload-sentry-dsyms.sh", __dir__)
 
   UI.user_error!("Sentry dSYM upload script not found at #{script_path}") unless File.executable?(script_path)
-  UI.user_error!("Archive dSYM directory not found at #{dsym_path}") unless Dir.exist?(dsym_path)
+
+  local_tokenless_build = ENV["CI"].to_s != "true" && ENV["SENTRY_AUTH_TOKEN"].to_s.empty?
+
+  unless Dir.exist?(dsym_path)
+    if local_tokenless_build
+      UI.important("Sentry dSYM upload skipped: no dSYMs directory in #{archive_path}.")
+      return
+    end
+
+    UI.user_error!("Archive dSYM directory not found at #{dsym_path}")
+  end
 
   sh("#{script_path.shellescape} #{dsym_path.shellescape}")
 end
