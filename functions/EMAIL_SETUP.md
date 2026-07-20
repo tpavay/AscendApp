@@ -48,13 +48,13 @@ TRANSACTIONAL_EMAIL_CONFIG={"provider":"resend","apiKey":"re_xxxxxxxxx","betaInv
 Create a local JSON file with the secret payload above, then load it into Secret Manager:
 
 ```bash
-npx firebase-tools functions:secrets:set TRANSACTIONAL_EMAIL_CONFIG --data-file /absolute/path/to/transactional-email-config.json --format=json
+npx -y firebase-tools@latest functions:secrets:set TRANSACTIONAL_EMAIL_CONFIG --data-file /absolute/path/to/transactional-email-config.json --format=json
 ```
 
 Deploy the Firestore rules, indexes, and Cloud Functions after setting or rotating the secret:
 
 ```bash
-npx firebase-tools deploy --only firestore:rules,firestore:indexes,functions
+npx -y firebase-tools@latest deploy --only firestore:rules,firestore:indexes,functions
 ```
 
 ## Current behavior
