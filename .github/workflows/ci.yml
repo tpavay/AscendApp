@@ -116,6 +116,13 @@ jobs:
       # The migration-discipline libraries and the shared vector-pinned
       # predicate/derivation are pure Node with no external deps at test time,
       # so the suite runs without installing firebase-admin.
+
+      # sentry-cli is required, not optional: the dSYM upload suite asserts the
+      # flags the release script passes against this exact pinned CLI's help.
+      # Keep this version identical to the deploy workflows.
+      - name: Install Sentry CLI
+        run: npm install --global @sentry/cli@3.6.0
+
       - name: Run tests
         run: node --test scripts/test/*.test.mjs
 

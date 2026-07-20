@@ -8,6 +8,7 @@ on:
       - "AscendApp/**"
       - "AscendApp.xcodeproj/**"
       - "fastlane/**"
+      - "scripts/upload-sentry-dsyms.sh"
       - "Gemfile"
       - "Gemfile.lock"
       - "functions/**"
@@ -49,6 +50,16 @@ jobs:
         with:
           ruby-version: "3.1"
           bundler-cache: true
+
+      - name: Set up Node.js for Sentry CLI
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install Sentry CLI
+        run: |
+          npm install --global @sentry/cli@3.6.0
+          sentry-cli --version
 
       - name: Configure SSH for match repository
         uses: webfactory/ssh-agent@v0.9.0
@@ -109,10 +120,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-spm-
 
-      - name: Validate match secrets
+      - name: Validate build secrets
         env:
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -124,6 +136,11 @@ jobs:
 
           if [ -z "$MATCH_PASSWORD" ]; then
             echo "::error::Required secret MATCH_PASSWORD is missing or empty."
+            exit 1
+          fi
+
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            echo "::error::Required secret SENTRY_AUTH_TOKEN is missing or empty."
             exit 1
           fi
 
