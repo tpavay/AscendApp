@@ -158,15 +158,19 @@ final class ProfileRepository: Sendable {
             .document(userId)
             .collection("profile_workouts")
         let existing = try await collection.getDocuments()
-        let keepIDs = Set(summaries.map(\.id))
+        // The mirror is keyed by workout document id, so it obeys the same one-spelling rule
+        // the private workout collection does. A case-variant id here would publish a second
+        // row for the same workout and the rules reject it outright.
+        let canonicalIDs = summaries.map { WorkoutDocumentID.canonicalString(from: $0.id) ?? $0.id }
+        let keepIDs = Set(canonicalIDs)
         let batch = db.batch()
 
         for document in existing.documents where !keepIDs.contains(document.documentID) {
             batch.deleteDocument(document.reference)
         }
 
-        for summary in summaries {
-            batch.setData(workoutSummaryData(summary), forDocument: collection.document(summary.id), merge: true)
+        for (documentID, summary) in zip(canonicalIDs, summaries) {
+            batch.setData(workoutSummaryData(summary), forDocument: collection.document(documentID), merge: true)
         }
 
         try await batch.commit()

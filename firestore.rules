@@ -966,7 +966,7 @@ service cloud.firestore {
       match /profile_workouts/{workoutId} {
         allow read: if isSignedIn();
         allow create, update: if isOwner(userId) &&
-          isValidWorkoutId(workoutId) &&
+          isCanonicalWorkoutId(workoutId) &&
           isValidProfileWorkoutSummary();
         allow delete: if isOwner(userId);
       }

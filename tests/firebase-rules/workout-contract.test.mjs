@@ -167,6 +167,25 @@ test('workout document ids must match the UUID group shape', async () => {
   await assertFails(setDoc(workoutRef, makeWorkoutDocument()));
 });
 
+test('the public workout mirror accepts the canonical workout document id', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const summaryRef = doc(context.firestore(), `users/${userId}/profile_workouts/${workoutId}`);
+
+  await assertSucceeds(setDoc(summaryRef, makeProfileWorkoutSummary()));
+});
+
+// The mirror is keyed by workout document id, so a case-variant spelling here publishes a
+// second row for one workout - the same duplication the private collection now rejects.
+test('the public workout mirror rejects a case-variant workout document id', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const summaryRef = doc(
+    context.firestore(),
+    `users/${userId}/profile_workouts/${lowercaseWorkoutId}`
+  );
+
+  await assertFails(setDoc(summaryRef, makeProfileWorkoutSummary()));
+});
+
 test('owner can write a workout with routine template participation', async () => {
   const context = testEnv.authenticatedContext(userId);
   const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
@@ -437,6 +456,18 @@ function makeWorkoutDocument(overrides = {}) {
     integrityLevel: 'verified',
     createdAt: new Date('2026-04-10T06:00:00.000Z'),
     updatedAt: new Date('2026-04-10T07:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+function makeProfileWorkoutSummary(overrides = {}) {
+  return {
+    name: 'Morning Stair Session',
+    startedAt: new Date('2026-04-10T06:30:00.000Z'),
+    durationSeconds: 1800,
+    steps: 1200,
+    source: 'apple_health',
+    lastUpdated: new Date('2026-04-10T07:00:00.000Z'),
     ...overrides,
   };
 }
