@@ -121,17 +121,14 @@ User starts a live session inside Ascend. No HR-device fiddling. The app:
 First-time pairing is the only manual step; after that it's automatic. HR zones layer on top of
 the always-present SPM layer whenever a source is connected.
 
-**Standing source-priority rule:** when both are producing readings, a connected chest strap
-outranks an Apple Watch as the live source.
-The strap is the more accurate signal and the user deliberately put it on.
-That ordering is already shipped in `LiveHeartRateSourceKind.selectionPriority`; Apple Watch is
-declared there as a lower-priority source but has no implementation yet.
+The strap-before-Watch ordering above is a standing rule, not a plan decision - see the
+heart-rate tripwire in [CLAUDE.md](../CLAUDE.md), which owns it.
 
 **Already shipped:** live BLE strap sampling, throttling, source selection, and the saved
 avg/max/series summary are one shared pipeline (`LiveHeartRateRecorder`) used by Live Climb,
 Just Climb, and routine sessions alike.
-Any new live session type or HR source plugs into that recorder rather than growing its own
-capture path.
+Apple Watch is declared in `LiveHeartRateSourceKind` as the lower-priority source but has no
+implementation yet, so Tier B below is still unbuilt.
 
 ## Open items to confirm
 

@@ -148,6 +148,7 @@ Rules that fire from contexts that don't look like their own domain. Each names 
 - **User media goes only under `users/{uid}/...` Storage prefixes**, never shared root paths. Fires while writing an upload path. -> `ascend-firebase-data`
 - **Connectivity has one app-wide source of truth.** Never add feature-local offline detection or a second network-retry pattern. Fires when you're about to write the duplicate. -> `ascend-firebase-data`
 - **Live Climb and routine completions come only from their live sensor flows.** Manual entries and imports can never complete or progress one. Fires when wiring any new workout origin. -> `ascend-workout-model`
+- **A chest strap always outranks an Apple Watch as the live heart-rate source.** Every live session type samples through the one shared recorder; never grow a second capture path. Fires while wiring any heart-rate source or new live session. -> `LiveHeartRateSourceKind.selectionPriority`, `LiveHeartRateRecorder`
 - **No third-party frameworks without asking first.** Avoid UIKit unless requested. Fires at `import` time.
 - **SwiftData + CloudKit**: never use `@Attribute(.unique)`; properties need defaults or must be optional; all relationships must be optional. Fires while writing an `@Model`.
 - **Never commit API keys, secrets, or QA credentials**, and never bundle them into production builds.
