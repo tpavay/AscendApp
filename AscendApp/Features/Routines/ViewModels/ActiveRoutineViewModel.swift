@@ -15,6 +15,7 @@ final class ActiveRoutineViewModel {
     private let motionSession: HeadphoneMotionSessionService
     private let backgroundSessionService: LiveClimbBackgroundSessionService
     private let draftStore: ActiveHeadphoneWorkoutDraftStore
+    private let heartRateRecorder: LiveHeartRateRecorder
 
     var phase: ActiveRoutinePhase = .countdown
     var countdownValue = 3
@@ -58,6 +59,7 @@ final class ActiveRoutineViewModel {
         motionSession: HeadphoneMotionSessionService = HeadphoneMotionSessionService(),
         backgroundSessionService: LiveClimbBackgroundSessionService = .shared,
         draftStore: ActiveHeadphoneWorkoutDraftStore = ActiveHeadphoneWorkoutDraftStore(),
+        heartRateRecorder: LiveHeartRateRecorder = LiveHeartRateRecorder(),
         recoveredDraft: ActiveHeadphoneWorkoutDraft? = nil
     ) {
         self.routine = routine
@@ -68,6 +70,7 @@ final class ActiveRoutineViewModel {
         self.motionSession = motionSession
         self.backgroundSessionService = backgroundSessionService
         self.draftStore = draftStore
+        self.heartRateRecorder = heartRateRecorder
         self.activeDraft = recoveredDraft
     }
 
@@ -234,6 +237,7 @@ final class ActiveRoutineViewModel {
             ]
         )
         stopTimer()
+        heartRateRecorder.prepareForSession()
         self.modelContext = modelContext
         phase = .countdown
         countdownValue = 3
@@ -483,6 +487,7 @@ final class ActiveRoutineViewModel {
             trackingIntegrity: result.trackingIntegrity,
             stepCorrections: result.stepCorrections
         )
+        let heartRateSummary = heartRateWorkoutSummary
         let workout = Workout(
             name: routine.name,
             date: result.startedAt,
@@ -490,6 +495,9 @@ final class ActiveRoutineViewModel {
             steps: result.steps,
             floors: Workout.stepsToFloors(result.steps),
             stepsPerFloor: Workout.defaultStepsPerFloor,
+            avgHeartRate: heartRateSummary.averageHeartRate,
+            maxHeartRate: heartRateSummary.maximumHeartRate,
+            heartRateTimeSeries: heartRateSummary.timeSeries,
             source: .headphoneMotion,
             deviceModel: UIDevice.current.model,
             sourceMetadata: metadata.jsonString,
@@ -623,7 +631,7 @@ final class ActiveRoutineViewModel {
         elapsedInInterval += delta
         actualElapsed = motionSession.duration
         timelineElapsed += delta
-        recordLiveSplitSample()
+        recordLiveSplitSample(at: now)
         checkpointDraft()
         evaluateStepSyncPrompt()
 
@@ -819,7 +827,7 @@ final class ActiveRoutineViewModel {
         }
     }
 
-    private func recordLiveSplitSample() {
+    private func recordLiveSplitSample(at now: Date = Date()) {
         guard phase == .active || phase == .finishing else { return }
 
         _ = stepTimelineRecorder.record(
@@ -827,6 +835,15 @@ final class ActiveRoutineViewModel {
             cumulativeSteps: motionSession.stepCount,
             source: .headphoneMotion
         )
+        recordHeartRateSampleForSessionTick(at: now)
+    }
+
+    func recordHeartRateSampleForSessionTick(at now: Date = Date()) {
+        heartRateRecorder.recordSample(at: now)
+    }
+
+    var heartRateWorkoutSummary: LiveHeartRateWorkoutSummary {
+        heartRateRecorder.workoutSummary
     }
 
     private func checkpointDraft(

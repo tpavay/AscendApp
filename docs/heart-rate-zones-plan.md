@@ -1,7 +1,9 @@
 # Heart Rate & Cadence Zones + Device Connectivity
 
-Status: **POST-LAUNCH — parked.** Captured June 11, 2026. Launch blockers (see
-[launch-readiness-audit.md](launch-readiness-audit.md)) come first; nothing here is v1 scope.
+Status: **Partly shipped; the zones work is POST-LAUNCH - parked.** Captured June 11, 2026.
+Tier A (BLE chest straps) and shared live HR capture have since shipped - see "Already shipped"
+below. Everything else here waits on the launch blockers in
+[launch-readiness-audit.md](launch-readiness-audit.md).
 WWDC26 API claims verified against [session 207](https://developer.apple.com/videos/play/wwdc2026/207/).
 
 ---
@@ -107,17 +109,26 @@ honest answer is "summary data after the climb," not live.
 
 ## The seamless experience we're aiming for
 
-User starts a climb inside Ascend. No HR-device fiddling. The app:
+User starts a live session inside Ascend. No HR-device fiddling. The app:
 
-1. If a paired Apple Watch is present → prompt once to start/mirror the watch workout; thereafter
-   auto-start so HR + Apple zones appear in the app, and the climb shows on the watch.
-2. Else, on climb start, scan for a remembered BLE HR peripheral (the strap/Whoop the user paired
+1. On session start, scan for a remembered BLE HR peripheral (the strap/Whoop the user paired
    before) and auto-connect silently if it's advertising — exactly the H10-on-a-treadmill
    behavior.
-3. Else, run the climb on SPM cadence zones alone — full zone experience, no hardware required.
+2. Else, if a paired Apple Watch is present → prompt once to start/mirror the watch workout;
+   thereafter auto-start so HR + Apple zones appear in the app, and the session shows on the watch.
+3. Else, run the session on SPM cadence zones alone — full zone experience, no hardware required.
 
 First-time pairing is the only manual step; after that it's automatic. HR zones layer on top of
 the always-present SPM layer whenever a source is connected.
+
+The strap-before-Watch ordering above is a standing rule, not a plan decision - see the
+heart-rate tripwire in [CLAUDE.md](../CLAUDE.md), which owns it.
+
+**Already shipped:** live BLE strap sampling, throttling, source selection, and the saved
+avg/max/series summary are one shared pipeline (`LiveHeartRateRecorder`) used by Live Climb,
+Just Climb, and routine sessions alike.
+Apple Watch is declared in `LiveHeartRateSourceKind` as the lower-priority source but has no
+implementation yet, so Tier B below is still unbuilt.
 
 ## Open items to confirm
 
@@ -146,13 +157,14 @@ How this plan collides with existing CLAUDE.md / project skill rules and the cod
    exactly like an Apple Health stair workout to the existing import facade. It must carry a
    provenance link / dedupe guard so it can't re-import as a separate session or double-enrich
    the Live Climb. Update the enrichment matching rules in the same change.
-2. **BLE HR is a new sensor source — use the existing seams.** Sensor capture lives behind the
-   shared service layer; checkpoints are source-neutral. HR samples should flow through the same
-   source-neutral recorder pattern into the existing heart-rate sidecar
-   (`users/{uid}/workout_heart_rate/...`), not grow a parallel pipeline. Tier A is one
-   `CBCentralManager` service implementation against Heart Rate Service `0x180D`.
+2. **BLE HR is a sensor source — use the existing seams.** Sensor capture lives behind the
+   shared service layer; checkpoints are source-neutral. Tier A shipped as
+   `BluetoothHeartRateClient` / `HeartRateMonitorService` (`CBCentralManager` against Heart Rate
+   Service `0x180D`), and its samples flow through the shared `LiveHeartRateRecorder` into the
+   existing heart-rate sidecar (`users/{uid}/workout_heart_rate/...`). A new source must reuse
+   that recorder rather than grow a parallel pipeline.
 3. **Compliance ripple (same-PR rule).** CoreBluetooth requires `NSBluetoothAlwaysUsageDescription`
-   in Info.plist — not present today (confirmed absent in the launch audit; nothing uses BLE yet).
+   in Info.plist — present today, added with the Tier A strap integration.
    Privacy manifest + App Store privacy labels + privacy policy must move in the same PR per the
    `ascend-privacy-manifest` skill. Heart-rate collection is already declared via HealthKit
    types; verify Bluetooth-sourced HR doesn't change the declared sources.
