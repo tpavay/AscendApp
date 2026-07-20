@@ -11,8 +11,10 @@
  *
  * One Projection Builder, three triggers (CANONICAL §1): this live trigger, a
  * rebuild of a corrupted projection, and the migration backfill
- * (scripts/backfill-landmark-results.mjs) all go through the same derivation
- * and the same validate-before-write guard. Never fork per-trigger logic.
+ * (scripts/backfill-landmark-results.mjs) all go through the same derivation,
+ * the same single Firestore transaction (workout query, projection read, and
+ * write-or-delete, reads before writes so a retry re-derives), and the same
+ * validate-before-write guard. Never fork per-trigger logic.
  *
  * It writes ONLY the private `landmarkResults` projection. It never publishes a
  * replay row and never assigns a First Ascent - that stays owned by the
