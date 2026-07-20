@@ -9,6 +9,9 @@ on:
       - "AscendApp.xcodeproj/**"
       - "functions/**"
       - "scripts/**"
+      - "web/**"
+      - "package.json"
+      - "package-lock.json"
       - "SharedTestVectors/**"
       - ".github/workflows/**"
 
@@ -29,6 +32,8 @@ jobs:
       ios: ${{ steps.filter.outputs.ios }}
       functions: ${{ steps.filter.outputs.functions }}
       scripts: ${{ steps.filter.outputs.scripts }}
+      web: ${{ steps.filter.outputs.web }}
+      root_npm: ${{ steps.filter.outputs.root_npm }}
 
     steps:
       - name: Checkout repository
@@ -52,6 +57,13 @@ jobs:
               - "scripts/**"
               - "SharedTestVectors/**"
               - ".github/workflows/**"
+            web:
+              - "web/**"
+              - ".github/workflows/**"
+            root_npm:
+              - "package.json"
+              - "package-lock.json"
+              - ".github/workflows/**"
 
   functions-verify:
     name: Functions Verify
@@ -74,6 +86,9 @@ jobs:
       - name: Install dependencies
         run: npm --prefix functions ci
 
+      - name: Audit dependencies
+        run: npm --prefix functions audit --audit-level=low
+
       - name: Run tests
         run: npm --prefix functions test
 
@@ -93,11 +108,65 @@ jobs:
         with:
           node-version: "24"
 
+      - name: Audit dependencies
+        run: npm --prefix scripts audit --package-lock-only --audit-level=low
+
       # The migration-discipline libraries and the shared vector-pinned
       # predicate/derivation are pure Node with no external deps at test time,
       # so the suite runs without installing firebase-admin.
       - name: Run tests
         run: node --test scripts/test/*.test.mjs
+
+  web-verify:
+    name: Web Verify
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm --prefix web ci
+
+      - name: Audit dependencies
+        run: npm --prefix web audit --audit-level=low
+
+      - name: Build website
+        run: npm --prefix web run build
+
+  root-npm-verify:
+    name: Root npm Audit
+    needs: changes
+    if: needs.changes.outputs.root_npm == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=low
 
   ios-verify:
     name: iOS Verify (Staging)
