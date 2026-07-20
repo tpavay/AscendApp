@@ -87,7 +87,7 @@ cd functions && npm run lint && npm test   # Cloud Functions
 cd web && npm run build                    # Website -> web/dist/
 
 # Deploy (aliases in .firebaserc: dev · staging · production)
-npx firebase-tools deploy --project staging \
+npx -y firebase-tools@latest deploy --project staging \
   --only functions,firestore:rules,firestore:indexes,storage,hosting
 ```
 
@@ -208,6 +208,7 @@ Resolve work to a GitHub issue before implementing:
 - `.github/workflows/ci.yml` - PR validation
 - `.github/workflows/deploy-staging.yml`, `deploy-production.yml` - deploy pipelines (prod gated)
 - `Gemfile`, `fastlane/Appfile`, `fastlane/Fastfile`, `fastlane/Matchfile` - build/signing/TestFlight
+- `docs/dependency-security.md` - deliberate dependency pins and overrides; read before bumping any npm dependency
 
 ## Project Context File (All AI Providers)
 
