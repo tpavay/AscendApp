@@ -14,11 +14,15 @@ paths:
 Read the workflow file before changing it - the job graph below is the contract, and it is not the same on staging and production.
 
 `.github/workflows/ci.yml` runs on PRs to `develop` and `main`, and is the only automated gate before either. Every verify job is gated on the changed paths, so a functions-only PR skips the iOS jobs and an iOS-only PR skips the functions job:
-- `changes` - a `dorny/paths-filter` job that resolves the `ios`, `functions`, and `scripts` outputs. Every other job declares `needs: changes` and an `if:` on one of those outputs, so a new verify job is skipped by default until you add it to the filter.
-- `functions-verify` - installs `functions/` and runs its test suite (`npm --prefix functions ci`, then `npm --prefix functions test`).
-- `scripts-verify` - runs the `scripts/test/*.test.mjs` suite with `node --test` (no dependency install - the migration-discipline libraries and the shared vector-pinned predicate/derivation are pure Node). Gated on changes to `scripts/**` or `SharedTestVectors/**`.
+- `changes` - a `dorny/paths-filter` job that resolves the `ios`, `functions`, `scripts`, `web`, and `root_npm` outputs. Every other job declares `needs: changes` and an `if:` on one of those outputs, so a new verify job is skipped by default until you add it to the filter.
+- `functions-verify` - installs `functions/`, then lints, tests, and audits (`npm --prefix functions ci`, `run lint`, `test`, `audit --audit-level=low`).
+- `scripts-verify` - audits the `scripts/` lockfile (`--package-lock-only`) and runs the `scripts/test/*.test.mjs` suite with `node --test` (no dependency install - the migration-discipline libraries and the shared vector-pinned predicate/derivation are pure Node). Gated on changes to `scripts/**` or `SharedTestVectors/**`.
+- `web-verify` - installs `web/`, builds the Astro site, then audits. Gated on changes to `web/**`.
+- `root-npm-verify` - audits the committed root lockfile with `--package-lock-only` (no install). Gated on changes to `package.json` / `package-lock.json`.
 - `ios-verify` - runs `test` only (no build step) with `-scheme "AscendApp-Staging" -configuration Staging ENABLE_TESTABILITY=YES`. It provisions the simulator at runtime via `xcrun simctl` against the newest installed iOS runtime - downloading the runtime if the image ships none - then reuses a preferred iPhone model, falls back to any iPhone, and finally creates one, failing only when the runtime supports no iPhone device type. It does not pass `CODE_SIGNING_ALLOWED=NO`.
 - `ios-verify-release` - the only job that compiles Release and the only place `CODE_SIGNING_ALLOWED=NO` appears, paired with `-scheme "AscendApp" -configuration Release -sdk iphoneos -destination "generic/platform=iOS"`. It exists so Release-only build errors surface on the PR instead of on the production deploy.
+
+Every npm project is audit-gated at `--audit-level=low`, so any newly published advisory fails its verify job. In the jobs that install and prove code (`functions-verify`, `web-verify`) the audit runs last on purpose, so an advisory cannot hide the lint/test/build results that prove the code itself. Deliberate pins and overrides that keep those audits clean are documented in `docs/dependency-security.md`.
 
 A trigger pointing at a branch that no longer exists silently disables the workflow rather than failing. When the branching model changes, change the trigger in the same PR.
 
