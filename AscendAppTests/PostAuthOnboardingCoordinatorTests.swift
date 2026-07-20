@@ -163,7 +163,7 @@ struct PostAuthOnboardingCoordinatorTests {
         let sink = InMemoryTelemetrySink(destination: .analytics)
         let userId = "user-flow-start"
 
-        let coordinator = PostAuthOnboardingCoordinator(store: store, telemetry: makeTelemetry(sink: sink))
+        let coordinator = PostAuthOnboardingCoordinator(store: store, telemetry: makeTestTelemetry(sink: sink))
         coordinator.resolve(userId: userId)
 
         #expect(coordinator.phase == .onboarding(.displayName))
@@ -183,12 +183,12 @@ struct PostAuthOnboardingCoordinatorTests {
         let sink = InMemoryTelemetrySink(destination: .analytics)
         let userId = "user-interrupted"
 
-        let firstLaunch = PostAuthOnboardingCoordinator(store: store, telemetry: makeTelemetry(sink: sink))
+        let firstLaunch = PostAuthOnboardingCoordinator(store: store, telemetry: makeTestTelemetry(sink: sink))
         firstLaunch.resolve(userId: userId)
         firstLaunch.completeCurrentStage()
 
         // A relaunch mid-flow must not restart the funnel, or starts outnumber completions.
-        let relaunch = PostAuthOnboardingCoordinator(store: store, telemetry: makeTelemetry(sink: sink))
+        let relaunch = PostAuthOnboardingCoordinator(store: store, telemetry: makeTestTelemetry(sink: sink))
         relaunch.resolve(userId: userId)
 
         #expect(relaunch.phase == .onboarding(.stairStepperBaseline))
@@ -204,7 +204,7 @@ struct PostAuthOnboardingCoordinatorTests {
         let userId = "user-complete"
         store.markComplete(for: userId)
 
-        let coordinator = PostAuthOnboardingCoordinator(store: store, telemetry: makeTelemetry(sink: sink))
+        let coordinator = PostAuthOnboardingCoordinator(store: store, telemetry: makeTestTelemetry(sink: sink))
         coordinator.resolve(userId: userId)
 
         #expect(coordinator.phase == .complete)
@@ -220,7 +220,7 @@ struct PostAuthOnboardingCoordinatorTests {
         let sink = InMemoryTelemetrySink(destination: .analytics)
         let userId = "user-full-run"
 
-        let coordinator = PostAuthOnboardingCoordinator(store: store, telemetry: makeTelemetry(sink: sink))
+        let coordinator = PostAuthOnboardingCoordinator(store: store, telemetry: makeTestTelemetry(sink: sink))
         coordinator.resolve(userId: userId)
         for _ in PostAuthOnboardingStage.allCases {
             coordinator.completeCurrentStage()
@@ -241,7 +241,7 @@ struct PostAuthOnboardingCoordinatorTests {
 
         // A reinstall/second-device user resolves into onboarding (starting the funnel) and is
         // then flipped straight to complete once the remote profile loads.
-        let coordinator = PostAuthOnboardingCoordinator(store: store, telemetry: makeTelemetry(sink: sink))
+        let coordinator = PostAuthOnboardingCoordinator(store: store, telemetry: makeTestTelemetry(sink: sink))
         coordinator.resolve(userId: userId)
         coordinator.markCurrentUserComplete()
 
@@ -263,7 +263,7 @@ struct PostAuthOnboardingCoordinatorTests {
         let userId = "user-already-complete"
         store.markComplete(for: userId)
 
-        let coordinator = PostAuthOnboardingCoordinator(store: store, telemetry: makeTelemetry(sink: sink))
+        let coordinator = PostAuthOnboardingCoordinator(store: store, telemetry: makeTestTelemetry(sink: sink))
         coordinator.resolve(userId: userId)
         coordinator.markCurrentUserComplete()
 
@@ -279,7 +279,7 @@ struct PostAuthOnboardingCoordinatorTests {
         let sink = InMemoryTelemetrySink(destination: .analytics)
         let userId = "user-complete-then-profile-check"
 
-        let coordinator = PostAuthOnboardingCoordinator(store: store, telemetry: makeTelemetry(sink: sink))
+        let coordinator = PostAuthOnboardingCoordinator(store: store, telemetry: makeTestTelemetry(sink: sink))
         coordinator.resolve(userId: userId)
         for _ in PostAuthOnboardingStage.allCases {
             coordinator.completeCurrentStage()
@@ -296,7 +296,7 @@ struct PostAuthOnboardingCoordinatorTests {
     @Test
     func bothCompletionPathsReportTheSameFinalStep() {
         let sink = InMemoryTelemetrySink(destination: .analytics)
-        let telemetry = makeTelemetry(sink: sink)
+        let telemetry = makeTestTelemetry(sink: sink)
 
         let fullRunStore = PostAuthOnboardingStore(userDefaults: makeDefaults())
         let fullRun = PostAuthOnboardingCoordinator(store: fullRunStore, telemetry: telemetry)
@@ -323,7 +323,7 @@ struct PostAuthOnboardingCoordinatorTests {
         let sink = InMemoryTelemetrySink(destination: .analytics)
         let userId = "user-back"
 
-        let coordinator = PostAuthOnboardingCoordinator(store: store, telemetry: makeTelemetry(sink: sink))
+        let coordinator = PostAuthOnboardingCoordinator(store: store, telemetry: makeTestTelemetry(sink: sink))
         coordinator.resolve(userId: userId)
         coordinator.completeCurrentStage()
         coordinator.moveBack()
@@ -358,32 +358,10 @@ struct PostAuthOnboardingCoordinatorTests {
         #expect(!store.hasRecordedFlowStart(for: "user-b"))
     }
 
-    /// `configure()` is what applies the override; without it collection stays off and every
-    /// emission assertion would pass vacuously against an empty sink.
-    private func makeTelemetry(sink: InMemoryTelemetrySink) -> TelemetryManager {
-        let telemetry = TelemetryManager(
-            sinks: [sink],
-            crashlyticsReporter: NoopCrashlyticsReporter(),
-            collectionEnabledOverride: true
-        )
-        telemetry.configure()
-        return telemetry
-    }
-
     private func makeDefaults() -> UserDefaults {
         let suiteName = "PostAuthOnboardingCoordinatorTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
         return defaults
     }
-}
-
-private struct NoopCrashlyticsReporter: CrashlyticsReporting {
-    func setCollectionEnabled(_ enabled: Bool) {}
-    func setUserID(_ userID: String?) {}
-    func setCustomValue(_ value: Bool, forKey key: String) {}
-    func setCustomValue(_ value: Int, forKey key: String) {}
-    func setCustomValue(_ value: String, forKey key: String) {}
-    func log(_ message: String) {}
-    func record(error: Error, context: String, code: String, additionalInfo: [String: String]?) {}
 }

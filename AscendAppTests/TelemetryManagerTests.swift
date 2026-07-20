@@ -16,7 +16,7 @@ struct TelemetryManagerTests {
         let crashlyticsSink = InMemoryTelemetrySink(destination: .crashlytics)
         let telemetry = TelemetryManager(
             sinks: [analyticsSink, crashlyticsSink],
-            crashlyticsReporter: TestCrashlyticsReporter(),
+            crashlyticsReporter: NoopCrashlyticsReporter(),
             collectionEnabledOverride: true
         )
 
@@ -49,7 +49,7 @@ struct TelemetryManagerTests {
         let analyticsSink = InMemoryTelemetrySink(destination: .analytics)
         let telemetry = TelemetryManager(
             sinks: [analyticsSink],
-            crashlyticsReporter: TestCrashlyticsReporter(),
+            crashlyticsReporter: NoopCrashlyticsReporter(),
             collectionEnabledOverride: false
         )
 
@@ -173,14 +173,4 @@ struct TelemetryManagerTests {
         return (defaults, suiteName)
     }
     #endif
-}
-
-private struct TestCrashlyticsReporter: CrashlyticsReporting {
-    func setCollectionEnabled(_ enabled: Bool) {}
-    func setUserID(_ userID: String?) {}
-    func setCustomValue(_ value: Bool, forKey key: String) {}
-    func setCustomValue(_ value: Int, forKey key: String) {}
-    func setCustomValue(_ value: String, forKey key: String) {}
-    func log(_ message: String) {}
-    func record(error: Error, context: String, code: String, additionalInfo: [String: String]?) {}
 }

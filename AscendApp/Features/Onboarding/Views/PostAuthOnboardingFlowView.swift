@@ -21,7 +21,6 @@ struct PostAuthOnboardingFlowView: View {
                 )
             case .features:
                 PostAuthFeatureGuideStageScreen(
-                    stage: stage,
                     onBack: onBack,
                     onContinue: onContinue
                 )
@@ -72,7 +71,7 @@ struct PostAuthOnboardingFlowView: View {
         .background(PostAuthProfilePalette.background)
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
-        .trackOnboardingScreenView(stage.analyticsContext)
+        .trackOnboardingScreenView(stage.visibleScreenAnalyticsContext)
     }
 }
 
@@ -163,7 +162,6 @@ private struct PostAuthSurveyQuestionStageScreen: View {
 }
 
 private struct PostAuthFeatureGuideStageScreen: View {
-    let stage: PostAuthOnboardingStage
     let onBack: () -> Void
     let onContinue: () -> Void
 
@@ -172,7 +170,6 @@ private struct PostAuthFeatureGuideStageScreen: View {
             flowID: "post_auth_features",
             onBackFromFirstScreen: onBack
         ) {
-            trackPostAuthInput(stage: stage)
             onContinue()
         }
     }
@@ -297,7 +294,10 @@ private struct PostAuthDisplayNameScreen: View {
             if didSave {
                 TelemetryManager.shared.setUserProperty("name_inputted", value: "true")
                 OnboardingAnalyticsUserProperties.setDisplayNameProvided()
-                trackPostAuthInput(stage: stage)
+                trackPostAuthInput(
+                    stage: stage,
+                    properties: ["display_name_provided": .bool(true)]
+                )
                 onContinue()
             }
         }
@@ -305,7 +305,7 @@ private struct PostAuthDisplayNameScreen: View {
 
     private func handleBack() {
         TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.backTapped(context: stage.analyticsContext)
+            OnboardingAnalyticsEvent.backTapped(context: stage.analyticsContext, inputType: "button")
         )
         authVM.signOut()
     }
@@ -541,6 +541,10 @@ private struct PostAuthWeightScreen: View {
                 trackPostAuthInput(
                     stage: stage,
                     properties: [
+                        "measurement_system": .string(settingsManager.measurementSystem.rawValue),
+                        "profile_height_group": .string(
+                            OnboardingAnalyticsUserProperties.heightGroupValue(forHeightCm: validHeightCentimeters)
+                        ),
                         "profile_weight_group": .string(
                             OnboardingAnalyticsUserProperties.weightGroupValue(forWeightKg: validWeightKilograms)
                         )
@@ -571,6 +575,7 @@ private struct PostAuthLocationScreen: View {
     let onContinue: () -> Void
 
     @State private var selectedLocation: PostAuthLocationSelection?
+    @State private var selectionMethod: String?
     @State private var isSaving = false
 
     var body: some View {
@@ -652,6 +657,7 @@ private struct PostAuthLocationScreen: View {
                 guard let selectedLocation else { return }
                 if newValue != selectedLocation.profileDisplayText {
                     self.selectedLocation = nil
+                    selectionMethod = nil
                 }
             }
         }
@@ -685,7 +691,10 @@ private struct PostAuthLocationScreen: View {
                 OnboardingAnalyticsUserProperties.setLocationCountry(selectedLocation.countryCode)
                 trackPostAuthInput(
                     stage: stage,
-                    properties: ["profile_country": .string(selectedLocation.countryCode.uppercased())]
+                    properties: [
+                        "profile_country": .string(selectedLocation.countryCode.uppercased()),
+                        "selection_method": .string(selectionMethod ?? "unknown")
+                    ]
                 )
                 onContinue()
             }
@@ -698,6 +707,7 @@ private struct PostAuthLocationScreen: View {
         Task { @MainActor in
             guard let location = await citySearch.resolve(suggestion) else { return }
             selectedLocation = location
+            selectionMethod = "search"
             isSearchFocused = false
         }
     }
@@ -709,6 +719,7 @@ private struct PostAuthLocationScreen: View {
         Task { @MainActor in
             guard let location = await currentLocation.resolve() else { return }
             selectedLocation = location
+            selectionMethod = "current_location"
             citySearch.setSelectedLocation(location)
         }
     }

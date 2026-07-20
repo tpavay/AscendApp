@@ -21,6 +21,76 @@ struct MonetizationManagerPaywallTests {
     }
 
     @Test
+    func appAccessGateEmitsOnboardingPaywallEventsAndDeduplicatesItsScreenView() {
+        let paywallPresenter = PaywallPresenterSpy()
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let telemetry = makeTestTelemetry(sink: sink)
+        let manager = MonetizationManager(
+            entitlementService: EntitlementServiceStub(),
+            paywallPresenter: paywallPresenter,
+            telemetry: telemetry
+        )
+
+        manager.presentPaywall(
+            .appAccessGate,
+            params: ["source": "app_access_gate"]
+        )
+        manager.presentPaywall(
+            .appAccessGate,
+            params: ["source": "paywall_placeholder_retry"]
+        )
+
+        let onboardingReached = sink.records.filter { $0.name == "onboarding_paywall_reached" }
+        let onboardingViews = sink.records.filter { $0.name == "onboarding_screen_viewed" }
+
+        #expect(onboardingReached.count == 2)
+        #expect(onboardingReached.first?.parameters["placement"] == .string("app_access_gate"))
+        #expect(onboardingReached.first?.parameters["source"] == .string("app_access_gate"))
+        #expect(onboardingViews.count == 1)
+        #expect(onboardingViews.first?.parameters["screen_id"] == .string("paywall"))
+        #expect(onboardingViews.first?.parameters["viewed"] == .bool(true))
+    }
+
+    @Test
+    func aNewIdentityStartsAFreshPaywallScreenViewPass() async {
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let manager = MonetizationManager(
+            entitlementService: EntitlementServiceStub(),
+            paywallPresenter: PaywallPresenterSpy(),
+            telemetry: makeTestTelemetry(sink: sink)
+        )
+
+        await manager.identify(userId: "user-a")
+        manager.presentPaywall(.onboardingPaywall)
+        manager.presentPaywall(.onboardingPaywall)
+        await manager.resetIdentity()
+        await manager.identify(userId: "user-b")
+        manager.presentPaywall(.onboardingPaywall)
+
+        let onboardingViews = sink.records.filter { $0.name == "onboarding_screen_viewed" }
+
+        #expect(onboardingViews.count == 2)
+        #expect(onboardingViews.allSatisfy { $0.parameters["screen_id"] == .string("paywall") })
+    }
+
+    @Test
+    func repeatIdentifyForTheSameUserKeepsThePaywallScreenViewDeduped() async {
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let manager = MonetizationManager(
+            entitlementService: EntitlementServiceStub(),
+            paywallPresenter: PaywallPresenterSpy(),
+            telemetry: makeTestTelemetry(sink: sink)
+        )
+
+        await manager.identify(userId: "user-a")
+        manager.presentPaywall(.onboardingPaywall)
+        await manager.identify(userId: "user-a")
+        manager.presentPaywall(.onboardingPaywall)
+
+        #expect(sink.records.filter { $0.name == "onboarding_screen_viewed" }.count == 1)
+    }
+
+    @Test
     func forwardsPresentationOutcomesToGateCaller() {
         let paywallPresenter = PaywallPresenterSpy()
         let manager = MonetizationManager(
@@ -56,7 +126,8 @@ struct MonetizationManagerPaywallTests {
 }
 
 @MainActor
-private final class PaywallPresenterSpy: PaywallPresenting {
+/// Shared with the funnel transcript tests, which drive the same paywall entry point.
+final class PaywallPresenterSpy: PaywallPresenting {
     var isConfigured: Bool
     private(set) var registeredPlacement: SuperwallPlacement?
     private(set) var registeredSource: String?
@@ -88,7 +159,7 @@ private final class PaywallPresenterSpy: PaywallPresenting {
 }
 
 @MainActor
-private final class EntitlementServiceStub: EntitlementServicing {
+final class EntitlementServiceStub: EntitlementServicing {
     var entitlementState = MonetizationEntitlementState.inactive
     var isConfigured = true
 

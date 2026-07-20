@@ -68,6 +68,13 @@ enum PostAuthOnboardingStage: String, CaseIterable, Codable, Identifiable {
         )
     }
 
+    /// `nil` for stages that render no screen of their own. `.features` is a container that hosts
+    /// its own guide sub-screens, each of which reports its own view, so counting the container too
+    /// would inflate the funnel with a screen the user never sees.
+    var visibleScreenAnalyticsContext: OnboardingAnalyticsContext? {
+        self == .features ? nil : analyticsContext
+    }
+
     var analyticsInputType: String {
         switch self {
         case .displayName:

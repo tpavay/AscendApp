@@ -51,6 +51,7 @@ This sequence will evolve as we learn from SuperWall and RevenueCat funnel analy
 - Bodyweight is a single profile-level value editable in settings. It's the app-wide source for body-mass usage; don't introduce parallel bodyweight inputs in feature-specific flows.
 
 ## Related
+- Adding, removing, reordering, or renaming an onboarding screen changes the 21-screen funnel contract - the ordered screen IDs, their events, and their sub-properties are owned by `ascend-analytics`. Load it before touching a screen.
 - Welcome/auth screen chrome (`OnboardingScaffold`, `OnboardingWelcomeBackground`, `AuthStaircaseBackground`, the Ascend wordmark) lives in `ascend-design-system`.
 - Copy and empty-state voice: `ascend-brand-voice` and the `product-design-playbook` skill.
 

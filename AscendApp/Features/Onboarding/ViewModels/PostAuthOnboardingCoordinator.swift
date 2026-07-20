@@ -93,7 +93,7 @@ final class PostAuthOnboardingCoordinator {
               currentIndex > PostAuthOnboardingStage.allCases.startIndex else { return }
 
         telemetry.track(
-            OnboardingAnalyticsEvent.backTapped(context: stage.analyticsContext)
+            OnboardingAnalyticsEvent.backTapped(context: stage.analyticsContext, inputType: "button")
         )
 
         let previousStage: PostAuthOnboardingStage

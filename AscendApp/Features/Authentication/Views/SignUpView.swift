@@ -41,7 +41,10 @@ struct SignUpView: View {
 
     private func handleBack() {
         TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.backTapped(context: OnboardingAnalyticsEvent.authContext)
+            OnboardingAnalyticsEvent.backTapped(
+                context: OnboardingAnalyticsEvent.authContext,
+                inputType: "button"
+            )
         )
         dismiss()
     }
