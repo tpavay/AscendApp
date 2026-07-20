@@ -1,3 +1,5 @@
+import {canonicalWorkoutDocumentId} from "../../lib/workout-document-id.mjs";
+
 export const PROFILE_SEED_PACK_ID = "v1-profile-test";
 export const PROFILE_SEED_SOURCE = "seed-test-users";
 export const PROFILE_SCHEMA_VERSION = 2;
@@ -575,13 +577,18 @@ function profilePhotoURL(persona, avatarURLs) {
   return avatarURLs.get(persona.id) ?? avatarURL(persona.name);
 }
 
+// These ids key `users/{uid}/profile_workouts` documents, which obey the one-spelling rule
+// the private workout collection does, so the generator has to emit the canonical form or
+// the fixtures reseed exactly the case variants the cleanup migration exists to remove.
 function deterministicUUID(input) {
   let hash = 0;
   for (let index = 0; index < input.length; index += 1) {
     hash = (hash * 31 + input.charCodeAt(index)) >>> 0;
   }
   const hex = hash.toString(16).padStart(8, "0");
-  return `${hex.slice(0, 8)}-0000-4000-8000-${hex}${hex}`.slice(0, 36);
+  return canonicalWorkoutDocumentId(
+    `${hex.slice(0, 8)}-0000-4000-8000-${hex}${hex}`.slice(0, 36)
+  );
 }
 
 function integerValue(value) {

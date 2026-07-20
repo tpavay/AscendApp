@@ -24,7 +24,10 @@
  * collection, and permanent completion orders and rank snapshots are never touched. That
  * decrement is applied relative to whatever the summary reads at commit time, inside a
  * transaction that records its obligation markers atomically, so climbers who finished
- * between two runs keep their counts and a rerun can never decrement twice.
+ * between two runs keep their counts and a rerun can never decrement twice. Each removed
+ * row owes its own obligation, identified by context, document path, and the version the
+ * row was scanned at, so a rerun that only partly landed re-derives the same ids for the
+ * rows it still sees instead of stacking a second decrement on top of the carried ones.
  *
  * A group whose heartRateSeries pointer names a non-canonical workout id blocks the apply.
  * The pointer addresses a Cloud Storage object this migration does not move, and the rules
@@ -43,7 +46,9 @@
  * `scripts/backfill-landmark-results.mjs` rebuilds the same projections. A carried repair
  * whose climb no longer has any surviving completion is deleted rather than rebuilt - the
  * same disposal onWorkoutWritten applies to that case - so a workout removed between runs
- * cannot wedge the operation.
+ * cannot wedge the operation. A pending repair this operation version cannot interpret -
+ * one an older version left behind, or a malformed record - blocks the apply rather than
+ * being filtered out, because finishing would overwrite the list and lose the owed work.
  *
  * This migration is author-only. Running it is captain-gated operations work.
  *
@@ -67,6 +72,9 @@ import {
 import {shouldSkipLandmarkResultWrite} from "./lib/landmark-result-derivation.mjs";
 import {
   BATCH_WRITE_LIMIT,
+  REPLAY_SUMMARY_REPAIR_KIND,
+  WORKOUT_ID_RENAME_REPAIR_KIND,
+  classifyPendingRepairs,
   finalWorkoutDocuments,
   packBatchSizes,
   planAffectedLandmarkProjections,
@@ -79,9 +87,7 @@ import {
 } from "./lib/workout-id-case-migration.mjs";
 
 const OPERATION_ID = "migration/case-variant-workout-ids";
-const OPERATION_VERSION = 3;
-const WORKOUT_ID_RENAME_REPAIR_KIND = "workoutIdRename";
-const REPLAY_SUMMARY_REPAIR_KIND = "replaySummaryObligation";
+const OPERATION_VERSION = 4;
 const SUMMARY_MARKER_COLLECTION = "replaySummaryObligationMarkers";
 
 const args = parseCommonArgs(process.argv);
@@ -98,20 +104,15 @@ const documents = await readWorkoutDocuments(db);
 const references = await scanWorkoutIdReferences(db);
 const plan = planCaseVariantWorkoutMerges(documents);
 const pendingRepairs = await readPendingRepairs(db, OPERATION_ID);
-// A landmarkResult repair is the one kind recorded without a `kind` tag. Matching on that
-// rather than on "not one of the tagged kinds" keeps a repair kind from a different
-// operation version out of the projection plan, where it would look like a null climb.
-const carriedRepairs = pendingRepairs.filter((repair) => !repair.kind);
-const carriedRenames = pendingRepairs.filter(
-  (repair) => repair.kind === WORKOUT_ID_RENAME_REPAIR_KIND
-);
-const carriedSummaryObligations = pendingRepairs
-  .filter((repair) => repair.kind === REPLAY_SUMMARY_REPAIR_KIND)
-  .map(({contextKey, obligationId, droppedRows, rowPaths}) => ({
+const carried = classifyPendingRepairs(pendingRepairs);
+const carriedRepairs = carried.landmarkResults;
+const carriedRenames = carried.renames;
+const carriedSummaryObligations = carried.summaryObligations
+  .map(({contextKey, obligationId, rowPath, versionToken}) => ({
     contextKey,
     obligationId,
-    droppedRows,
-    rowPaths,
+    rowPath,
+    versionToken,
   }));
 const appliedObligationIds = await readAppliedObligationIds(db);
 const deleteCount = plan.merges.reduce((sum, merge) => sum + merge.deleteWorkoutIds.length, 0);
@@ -148,6 +149,7 @@ console.log([
   `Workout id renames owed by an earlier unfinished run: ${carriedRenames.length}`,
   `Summary obligations owed by an earlier unfinished run: ${carriedSummaryObligations.length}`,
   `Summary obligations already marked applied: ${summaryPlan.settledObligations.length}`,
+  `Unrecognized ledger repairs: ${carried.unrecognized.length}`,
 ].join("\n"));
 
 for (const merge of plan.merges) {
@@ -180,14 +182,15 @@ for (const update of referencePlan.fieldUpdates) {
 }
 for (const obligation of summaryPlan.owedObligations) {
   console.log(
-    `SUMMARY OBLIGATION ${obligation.contextKey} ${obligation.obligationId}: ` +
-      `-${obligation.droppedRows} duplicate row(s), no applied marker yet`
+    `SUMMARY OBLIGATION ${obligation.contextKey} ${obligation.obligationId}: -1 row ` +
+      `${obligation.rowPath} @ version ${obligation.versionToken}, no applied marker yet`
   );
 }
 for (const obligation of summaryPlan.settledObligations) {
   console.log(
-    `SUMMARY OBLIGATION ${obligation.contextKey} ${obligation.obligationId}: ` +
-      `already applied (marker recorded), -${obligation.droppedRows} row(s) skipped`
+    `SUMMARY OBLIGATION ${obligation.contextKey} ${obligation.obligationId}: already ` +
+      `applied (marker recorded) for ${obligation.rowPath} @ version ` +
+      `${obligation.versionToken}, skipped`
   );
 }
 for (const decrement of summaryPlan.decrements) {
@@ -211,6 +214,12 @@ for (const item of referencePlan.unresolved) {
   console.log(
     `UNRESOLVED ${item.path} references non-canonical ${item.workoutId} ` +
       "with no surviving workout document - left untouched"
+  );
+}
+for (const repair of carried.unrecognized) {
+  console.error(
+    "BLOCKED LEDGER REPAIR this operation version cannot interpret, left on the ledger " +
+      `untouched: ${JSON.stringify(repair)}`
   );
 }
 for (const conflict of plan.conflicts) {
@@ -268,6 +277,14 @@ console.log([
 if (!args.apply) {
   console.log("\nDry-run only. Re-run with --apply after reviewing every planned merge.");
   process.exit(0);
+}
+if (carried.unrecognized.length > 0) {
+  throw new Error(
+    `Refusing apply: the ledger holds ${carried.unrecognized.length} pending repair(s) ` +
+      `this operation version (v${OPERATION_VERSION}) cannot interpret. Finishing would ` +
+      "overwrite pendingRepairs and discard owed work. Discharge or remove them by hand " +
+      "first - see the BLOCKED LEDGER REPAIR lines above."
+  );
 }
 if (plan.conflicts.length > 0) {
   throw new Error(

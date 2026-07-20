@@ -7,6 +7,8 @@ import {
 import {canonicalWorkoutDocumentId} from "./workout-document-id.mjs";
 
 export const BATCH_WRITE_LIMIT = 500;
+export const WORKOUT_ID_RENAME_REPAIR_KIND = "workoutIdRename";
+export const REPLAY_SUMMARY_REPAIR_KIND = "replaySummaryRowObligation";
 const REPLAY_COLLECTION = "live_replay_leaderboards";
 const TWIN_READ_CHUNK = 100;
 const REFERENCE_COLLECTION_GROUPS = Object.freeze([
@@ -370,8 +372,22 @@ function scannedReference(document, shape) {
     workoutIdFields: shape.workoutIdFields,
     recencyFields: shape.recencyFields,
     partial: !complete,
+    versionToken: documentVersionToken(document),
     data: complete ? data : plannerFieldsOnly(data, shape),
   };
+}
+
+/**
+ * The Firestore version of a scanned document, as a string.
+ *
+ * A duplicate-removal obligation names one row at one version, so a row recreated at the
+ * same path later is a different obligation rather than one an old marker silently settles.
+ * @param {FirebaseFirestore.DocumentSnapshot} document Scanned snapshot.
+ * @return {string} Version token, or "unknown" when the snapshot carries no update time.
+ */
+function documentVersionToken(document) {
+  const millis = timestampMillis(document?.updateTime);
+  return Number.isFinite(millis) ? String(millis) : "unknown";
 }
 
 function plannerFieldsOnly(data, shape) {
@@ -416,6 +432,7 @@ async function restoreCanonicalTwinPayloads(firestore, references) {
       if (reference && snapshot.exists) {
         reference.data = snapshot.data();
         reference.partial = false;
+        reference.versionToken = documentVersionToken(snapshot);
       }
     }
   }
@@ -525,6 +542,7 @@ export function planWorkoutIdReferenceRepairs(renames, references) {
       moves.push({
         parentPath: reference.parentPath,
         fromDocumentId: reference.documentId,
+        fromVersionToken: reference.versionToken ?? "unknown",
         toDocumentId: canonicalDocumentId,
         data,
         duplicate: false,
@@ -545,6 +563,7 @@ export function planWorkoutIdReferenceRepairs(renames, references) {
     moves.push({
       parentPath: reference.parentPath,
       fromDocumentId: reference.documentId,
+      fromVersionToken: reference.versionToken ?? "unknown",
       toDocumentId: canonicalDocumentId,
       data: resolution === "adopt-stale" ? data : null,
       duplicate: true,
@@ -593,21 +612,71 @@ function resolveDuplicateReference(staleData, canonicalData, recencyFields = [])
 }
 
 /**
- * The stable identity of one duplicate-removal obligation.
+ * The stable identity of one removed duplicate row's decrement obligation.
  *
- * An obligation is "these exact bucket-zero rows were deleted from this context", so it is
- * named by exactly that. Deriving the id from the row paths rather than from a run id makes
- * a rerun that carries the obligation forward name it identically, which is what lets a
- * single applied-marker prove the decrement already landed.
- * @param {string} contextKey Replay context the rows belong to.
- * @param {string[]} rowPaths Full document paths of the removed duplicate rows.
+ * The unit is a single row occurrence - one context, one document path, one document
+ * version - rather than a set of rows. A rerun that only committed part of a run's deletes
+ * re-derives exactly the same id for the rows it still sees, so a carried obligation and a
+ * replanned one collapse instead of stacking into a double decrement. Including the version
+ * keeps the id an occurrence rather than a location: a duplicate genuinely recreated at a
+ * path whose obligation was already applied gets a new id and its own decrement.
+ * @param {string} contextKey Replay context the row belongs to.
+ * @param {string} rowPath Full document path of the removed duplicate row.
+ * @param {string} versionToken Firestore version the row was scanned at.
  * @return {string} Deterministic obligation id.
  */
-export function replaySummaryObligationId(contextKey, rowPaths) {
+export function replaySummaryObligationId(contextKey, rowPath, versionToken) {
   return createHash("sha256")
-    .update([contextKey, ...[...rowPaths].sort()].join("\n"))
+    .update([contextKey, rowPath, String(versionToken)].join("\n"))
     .digest("hex")
     .slice(0, 32);
+}
+
+/**
+ * Splits a ledger's pending repairs into the kinds this operation knows how to replan.
+ *
+ * The ledger only helps if owed work survives, so anything this version cannot interpret -
+ * an entry from an older operation version, a renamed kind, a malformed record - is
+ * reported rather than filtered away. The caller refuses the apply on those instead of
+ * overwriting the list and losing them.
+ * @param {object[]} pendingRepairs Raw `pendingRepairs` from the ledger.
+ * @return {{landmarkResults: object[], renames: object[], summaryObligations: object[],
+ *   unrecognized: object[]}} Classified repairs.
+ */
+export function classifyPendingRepairs(pendingRepairs) {
+  const landmarkResults = [];
+  const renames = [];
+  const summaryObligations = [];
+  const unrecognized = [];
+
+  for (const repair of pendingRepairs) {
+    if (!repair || typeof repair !== "object") {
+      unrecognized.push(repair);
+      continue;
+    }
+    if (repair.kind === undefined) {
+      const valid = isNonEmptyString(repair.userId) && isNonEmptyString(repair.climbId);
+      (valid ? landmarkResults : unrecognized).push(repair);
+    } else if (repair.kind === WORKOUT_ID_RENAME_REPAIR_KIND) {
+      const valid = isNonEmptyString(repair.workoutId) &&
+        isNonEmptyString(repair.canonicalWorkoutId);
+      (valid ? renames : unrecognized).push(repair);
+    } else if (repair.kind === REPLAY_SUMMARY_REPAIR_KIND) {
+      const valid = isNonEmptyString(repair.contextKey) &&
+        isNonEmptyString(repair.obligationId) &&
+        isNonEmptyString(repair.rowPath) &&
+        isNonEmptyString(repair.versionToken);
+      (valid ? summaryObligations : unrecognized).push(repair);
+    } else {
+      unrecognized.push(repair);
+    }
+  }
+
+  return {landmarkResults, renames, summaryObligations, unrecognized};
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.length > 0;
 }
 
 /**
@@ -621,22 +690,22 @@ export function replaySummaryObligationId(contextKey, rowPaths) {
  * collection would overwrite real fixture data. A move that merely renames a row onto its
  * canonical id changes no count and is ignored here.
  *
- * The unit carried across runs is that relative obligation, never an absolute target. A run
- * that dies after deleting the rows but before decrementing leaves the whole obligation
- * owed, and the rerun no longer sees the duplicates that prove it - so the obligation is
- * replanned from the ledger and applied against whatever the summary reads at that moment.
- * Climbers who finished in between are therefore preserved: the decrement is always
- * relative. Applying it twice is prevented by the marker recorded with it, not by comparing
- * counts, so an obligation whose marker exists is settled and never planned again.
+ * The unit carried across runs is one obligation per removed row, never an absolute target
+ * and never a set of rows. A run that dies partway leaves every row it did not decrement
+ * still owed, and the rerun re-derives the identical id for each row it can still see, so a
+ * carried obligation and a replanned one collapse rather than stacking into a double
+ * decrement. Whatever survives is applied against the counts the summary reads at that
+ * moment, so climbers who finished in between are preserved. Applying twice is prevented by
+ * the marker recorded with each row, not by comparing counts.
  *
- * A summary that cannot absorb the obligation - missing, non-integer, or smaller than the
+ * A summary that cannot absorb the obligations - missing, non-integer, or smaller than the
  * number of rows removed - is reported and left untouched, and a count is never raised. The
- * obligation stays owed. Completion orders and the point-in-time rank snapshots derived from
+ * obligations stay owed. Completion orders and the point-in-time rank snapshots derived from
  * them are never rewritten; they are permanent.
  * @param {object[]} moves Planned reference moves.
  * @param {object[]} references Scanned workout-id references.
- * @param {{contextKey: string, obligationId: string, droppedRows: number}[]} carriedObligations
- *   Duplicate-removal obligations an earlier unfinished run recorded.
+ * @param {{contextKey: string, obligationId: string, rowPath: string, versionToken: string}[]}
+ *   carriedObligations Row obligations an earlier unfinished run recorded.
  * @param {string[]} appliedObligationIds Obligation ids whose marker already exists.
  * @return {{decrements: object[], owedObligations: object[], settledObligations: object[],
  *   notes: object[]}} Planned decrements, what to record on the ledger, obligations already
@@ -648,38 +717,24 @@ export function planReplaySummaryRepairs(
   carriedObligations = [],
   appliedObligationIds = []
 ) {
-  const droppedPathsByContext = new Map();
-  for (const move of moves) {
-    const contextKey = bucketZeroEntriesContextKey(move.parentPath);
-    if (move.duplicate && contextKey) {
-      const paths = droppedPathsByContext.get(contextKey) ?? [];
-      paths.push(`${move.parentPath}/${move.fromDocumentId}`);
-      droppedPathsByContext.set(contextKey, paths);
-    }
-  }
-
   const obligations = new Map();
   for (const carried of carriedObligations) {
-    const droppedRows = nonNegativeIntegerOrNull(carried.droppedRows);
-    if (!carried.contextKey || !carried.obligationId || !droppedRows) {
-      continue;
-    }
     obligations.set(carried.obligationId, {
       contextKey: carried.contextKey,
       obligationId: carried.obligationId,
-      droppedRows,
-      rowPaths: Array.isArray(carried.rowPaths) ? [...carried.rowPaths].sort() : [],
+      rowPath: carried.rowPath,
+      versionToken: carried.versionToken,
     });
   }
-  for (const [contextKey, paths] of droppedPathsByContext) {
-    const rowPaths = [...paths].sort();
-    const obligationId = replaySummaryObligationId(contextKey, rowPaths);
-    obligations.set(obligationId, {
-      contextKey,
-      obligationId,
-      droppedRows: rowPaths.length,
-      rowPaths,
-    });
+  for (const move of moves) {
+    const contextKey = bucketZeroEntriesContextKey(move.parentPath);
+    if (!move.duplicate || !contextKey) {
+      continue;
+    }
+    const rowPath = `${move.parentPath}/${move.fromDocumentId}`;
+    const versionToken = move.fromVersionToken ?? "unknown";
+    const obligationId = replaySummaryObligationId(contextKey, rowPath, versionToken);
+    obligations.set(obligationId, {contextKey, obligationId, rowPath, versionToken});
   }
 
   const applied = new Set(appliedObligationIds);
@@ -710,7 +765,7 @@ export function planReplaySummaryRepairs(
     const owed = owedByContext.get(contextKey).sort(
       (lhs, rhs) => lhs.obligationId.localeCompare(rhs.obligationId)
     );
-    const droppedRows = owed.reduce((sum, obligation) => sum + obligation.droppedRows, 0);
+    const droppedRows = owed.length;
     const summary = summaries.get(contextKey);
     if (!summary) {
       notes.push({
@@ -742,10 +797,7 @@ export function planReplaySummaryRepairs(
 
     decrements.push({
       contextKey,
-      obligations: owed.map(({obligationId, droppedRows: rows}) => ({
-        obligationId,
-        droppedRows: rows,
-      })),
+      obligations: owed.map(({obligationId, rowPath}) => ({obligationId, rowPath})),
       droppedRows,
       currentCounts: {completedCount, totalClimbers},
       projectedCounts: {
@@ -768,11 +820,12 @@ export function planReplaySummaryRepairs(
  * read of the summary and of the markers.
  *
  * The decrement is relative, so a count that grew between the plan and the transaction keeps
- * that growth. Obligations already marked applied contribute nothing, which is what makes a
- * rerun after a committed transaction a no-op rather than a second decrement.
+ * that growth. Each obligation names one row, and only distinct unsettled ones count, so an
+ * obligation already marked applied contributes nothing - which is what makes a rerun after
+ * a committed transaction a no-op rather than a second decrement.
  * @param {object} summaryData Summary payload read inside the transaction.
  * @param {string[]} appliedObligationIds Obligation ids the marker document already holds.
- * @param {{obligationId: string, droppedRows: number}[]} obligations Obligations to discharge.
+ * @param {{obligationId: string}[]} obligations Row obligations to discharge.
  * @return {{droppedRows: number, obligationIds: string[], updates: object|null}} What to
  *   write; a null `updates` means every obligation was already applied.
  */
@@ -782,14 +835,16 @@ export function resolveReplaySummaryDecrement(
   obligations
 ) {
   const applied = new Set(appliedObligationIds);
-  const pending = obligations.filter(
-    (obligation) => !applied.has(obligation.obligationId)
-  );
-  if (pending.length === 0) {
+  const pendingIds = [...new Set(
+    obligations
+      .map((obligation) => obligation.obligationId)
+      .filter((obligationId) => !applied.has(obligationId))
+  )];
+  if (pendingIds.length === 0) {
     return {droppedRows: 0, obligationIds: [], updates: null};
   }
 
-  const droppedRows = pending.reduce((sum, obligation) => sum + obligation.droppedRows, 0);
+  const droppedRows = pendingIds.length;
   const completedCount = nonNegativeIntegerOrNull(summaryData?.completedCount);
   const totalClimbers = nonNegativeIntegerOrNull(summaryData?.totalClimbers);
   if (
@@ -807,7 +862,7 @@ export function resolveReplaySummaryDecrement(
 
   return {
     droppedRows,
-    obligationIds: pending.map((obligation) => obligation.obligationId),
+    obligationIds: pendingIds,
     updates: {
       completedCount: completedCount - droppedRows,
       totalClimbers: totalClimbers - droppedRows,
