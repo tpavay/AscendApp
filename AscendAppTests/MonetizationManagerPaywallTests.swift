@@ -24,7 +24,7 @@ struct MonetizationManagerPaywallTests {
     func appAccessGateEmitsOnboardingPaywallEventsAndDeduplicatesItsScreenView() {
         let paywallPresenter = PaywallPresenterSpy()
         let sink = InMemoryTelemetrySink(destination: .analytics)
-        let telemetry = makeTelemetry(sink: sink)
+        let telemetry = makeTestTelemetry(sink: sink)
         let manager = MonetizationManager(
             entitlementService: EntitlementServiceStub(),
             paywallPresenter: paywallPresenter,
@@ -49,6 +49,45 @@ struct MonetizationManagerPaywallTests {
         #expect(onboardingViews.count == 1)
         #expect(onboardingViews.first?.parameters["screen_id"] == .string("paywall"))
         #expect(onboardingViews.first?.parameters["viewed"] == .bool(true))
+    }
+
+    @Test
+    func aNewIdentityStartsAFreshPaywallScreenViewPass() async {
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let manager = MonetizationManager(
+            entitlementService: EntitlementServiceStub(),
+            paywallPresenter: PaywallPresenterSpy(),
+            telemetry: makeTestTelemetry(sink: sink)
+        )
+
+        await manager.identify(userId: "user-a")
+        manager.presentPaywall(.onboardingPaywall)
+        manager.presentPaywall(.onboardingPaywall)
+        await manager.resetIdentity()
+        await manager.identify(userId: "user-b")
+        manager.presentPaywall(.onboardingPaywall)
+
+        let onboardingViews = sink.records.filter { $0.name == "onboarding_screen_viewed" }
+
+        #expect(onboardingViews.count == 2)
+        #expect(onboardingViews.allSatisfy { $0.parameters["screen_id"] == .string("paywall") })
+    }
+
+    @Test
+    func repeatIdentifyForTheSameUserKeepsThePaywallScreenViewDeduped() async {
+        let sink = InMemoryTelemetrySink(destination: .analytics)
+        let manager = MonetizationManager(
+            entitlementService: EntitlementServiceStub(),
+            paywallPresenter: PaywallPresenterSpy(),
+            telemetry: makeTestTelemetry(sink: sink)
+        )
+
+        await manager.identify(userId: "user-a")
+        manager.presentPaywall(.onboardingPaywall)
+        await manager.identify(userId: "user-a")
+        manager.presentPaywall(.onboardingPaywall)
+
+        #expect(sink.records.filter { $0.name == "onboarding_screen_viewed" }.count == 1)
     }
 
     @Test
@@ -83,16 +122,6 @@ struct MonetizationManagerPaywallTests {
 
         #expect(paywallPresenter.registeredPlacement == nil)
         #expect(receivedOutcome == .failed(message: "Superwall is not configured for this build."))
-    }
-
-    private func makeTelemetry(sink: InMemoryTelemetrySink) -> TelemetryManager {
-        let telemetry = TelemetryManager(
-            sinks: [sink],
-            crashlyticsReporter: MonetizationNoopCrashlyticsReporter(),
-            collectionEnabledOverride: true
-        )
-        telemetry.configure()
-        return telemetry
     }
 }
 
@@ -142,14 +171,4 @@ private final class EntitlementServiceStub: EntitlementServicing {
     func resetIdentity() async {}
 
     func restorePurchases() async throws {}
-}
-
-private struct MonetizationNoopCrashlyticsReporter: CrashlyticsReporting {
-    func setCollectionEnabled(_ enabled: Bool) {}
-    func setUserID(_ userID: String?) {}
-    func setCustomValue(_ value: Bool, forKey key: String) {}
-    func setCustomValue(_ value: Int, forKey key: String) {}
-    func setCustomValue(_ value: String, forKey key: String) {}
-    func log(_ message: String) {}
-    func record(error: Error, context: String, code: String, additionalInfo: [String: String]?) {}
 }

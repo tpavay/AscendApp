@@ -64,7 +64,7 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
         answerIndex: Int?,
         properties: [String: TelemetryValue]
     )
-    case backTapped(context: OnboardingAnalyticsContext)
+    case backTapped(context: OnboardingAnalyticsContext, inputType: String)
     case notificationPermissionSelected(context: OnboardingAnalyticsContext, status: String)
     case firstClimbSelected(context: OnboardingAnalyticsContext, climbID: String, climbName: String)
     case authStarted(provider: String)
@@ -135,12 +135,16 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
                 context: context,
                 parameters: parameters
             )
-        case .backTapped(let context):
-            // `step_id` alone is ambiguous on a back tap, so name the step being left explicitly.
+        case .backTapped(let context, let inputType):
+            // `step_id` alone is ambiguous on a back tap, so name the step being left explicitly,
+            // and `input_type` separates chrome taps from backward swipes.
             return makeRecord(
                 name: "onboarding_back_tapped",
                 context: context,
-                parameters: ["from_step": .string(context.stepID)]
+                parameters: [
+                    "from_step": .string(context.stepID),
+                    "input_type": .string(inputType)
+                ]
             )
         case .notificationPermissionSelected(let context, let status):
             return makeRecord(

@@ -305,7 +305,7 @@ private struct PostAuthDisplayNameScreen: View {
 
     private func handleBack() {
         TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.backTapped(context: stage.analyticsContext)
+            OnboardingAnalyticsEvent.backTapped(context: stage.analyticsContext, inputType: "button")
         )
         authVM.signOut()
     }
@@ -667,7 +667,7 @@ private struct PostAuthLocationScreen: View {
     }
 
     private var isValidSelection: Bool {
-        guard let selectedLocation, selectionMethod != nil else { return false }
+        guard let selectedLocation else { return false }
         return !selectedLocation.city.isEmpty &&
             selectedLocation.city.count <= 120 &&
             selectedLocation.countryCode.range(of: #"^[A-Z]{2}$"#, options: .regularExpression) != nil &&
@@ -675,7 +675,7 @@ private struct PostAuthLocationScreen: View {
     }
 
     private func saveLocation() {
-        guard !isSaving, isValidSelection, let selectedLocation, let selectionMethod else { return }
+        guard !isSaving, isValidSelection, let selectedLocation else { return }
 
         Task { @MainActor in
             isSaving = true
@@ -693,7 +693,7 @@ private struct PostAuthLocationScreen: View {
                     stage: stage,
                     properties: [
                         "profile_country": .string(selectedLocation.countryCode.uppercased()),
-                        "selection_method": .string(selectionMethod)
+                        "selection_method": .string(selectionMethod ?? "unknown")
                     ]
                 )
                 onContinue()

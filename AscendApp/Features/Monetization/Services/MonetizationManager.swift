@@ -14,6 +14,8 @@ final class MonetizationManager {
     private let telemetry: TelemetryManager
     @ObservationIgnored
     private var onboardingScreenViewRecorder = OnboardingScreenViewRecorder()
+    @ObservationIgnored
+    private var identifiedUserID: String?
     private(set) var configuration: MonetizationConfiguration
     #if DEBUG
     private(set) var debugForcesAppAccessPaywall = UserDefaults.standard.bool(
@@ -75,11 +77,21 @@ final class MonetizationManager {
     }
 
     func identify(userId: String) async {
+        if identifiedUserID != userId {
+            identifiedUserID = userId
+            onboardingScreenViewRecorder = OnboardingScreenViewRecorder()
+        }
+
         await entitlementService.identify(userId: userId)
         paywallPresenter.identify(userId: userId)
     }
 
     func resetIdentity() async {
+        // The paywall screen view dedupes per pass through the onboarding funnel, and an identity
+        // change starts a new pass, so the recorder cannot outlive the identity it was filled for.
+        identifiedUserID = nil
+        onboardingScreenViewRecorder = OnboardingScreenViewRecorder()
+
         await entitlementService.resetIdentity()
         paywallPresenter.resetIdentity()
     }

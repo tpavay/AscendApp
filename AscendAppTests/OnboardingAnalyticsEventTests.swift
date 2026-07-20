@@ -293,13 +293,15 @@ struct OnboardingAnalyticsEventTests {
     @Test
     func backTappedNamesTheStepBeingLeft() {
         let record = OnboardingAnalyticsEvent.backTapped(
-            context: PostAuthOnboardingStage.gender.analyticsContext
+            context: PostAuthOnboardingStage.gender.analyticsContext,
+            inputType: "button"
         ).record
 
         #expect(record.name == "onboarding_back_tapped")
         expectStringParameter(record, "flow_id", "post_auth_onboarding")
         expectStringParameter(record, "step_id", "gender")
         expectStringParameter(record, "from_step", "gender")
+        expectStringParameter(record, "input_type", "button")
     }
 
     @Test
@@ -309,11 +311,12 @@ struct OnboardingAnalyticsEventTests {
             OnboardingValueCarouselView.analyticsContext(pages: pages, index: 1)
         )
 
-        let record = OnboardingAnalyticsEvent.backTapped(context: context).record
+        let record = OnboardingAnalyticsEvent.backTapped(context: context, inputType: "gesture").record
 
         #expect(record.name == "onboarding_back_tapped")
         expectStringParameter(record, "flow_id", "pre_auth_value_onboarding")
         expectStringParameter(record, "from_step", pages[1].id)
+        expectStringParameter(record, "input_type", "gesture")
     }
 }
 
@@ -321,7 +324,7 @@ struct OnboardingScreenViewCoverageTests {
     @Test
     func everyVisibleOnboardingScreenEmitsExactlyOnce() {
         let sink = InMemoryTelemetrySink(destination: .analytics)
-        let telemetry = makeOnboardingTelemetry(sink: sink)
+        let telemetry = makeTestTelemetry(sink: sink)
         var recorder = OnboardingScreenViewRecorder()
         let contexts = canonicalVisibleContexts()
 
@@ -467,24 +470,4 @@ private func expectBoolParameter(_ record: TelemetryRecord, _ key: String, _ exp
 
 private func expectMissingParameter(_ record: TelemetryRecord, _ key: String) {
     #expect(record.parameters[key] == nil)
-}
-
-private func makeOnboardingTelemetry(sink: InMemoryTelemetrySink) -> TelemetryManager {
-    let telemetry = TelemetryManager(
-        sinks: [sink],
-        crashlyticsReporter: OnboardingNoopCrashlyticsReporter(),
-        collectionEnabledOverride: true
-    )
-    telemetry.configure()
-    return telemetry
-}
-
-private struct OnboardingNoopCrashlyticsReporter: CrashlyticsReporting {
-    func setCollectionEnabled(_ enabled: Bool) {}
-    func setUserID(_ userID: String?) {}
-    func setCustomValue(_ value: Bool, forKey key: String) {}
-    func setCustomValue(_ value: Int, forKey key: String) {}
-    func setCustomValue(_ value: String, forKey key: String) {}
-    func log(_ message: String) {}
-    func record(error: Error, context: String, code: String, additionalInfo: [String: String]?) {}
 }

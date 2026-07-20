@@ -169,7 +169,7 @@ struct OnboardingValueCarouselView: View {
             index: previousIndex
         ) {
             TelemetryManager.shared.track(
-                OnboardingAnalyticsEvent.backTapped(context: context)
+                OnboardingAnalyticsEvent.backTapped(context: context, inputType: "gesture")
             )
         }
 
