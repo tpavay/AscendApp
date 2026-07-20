@@ -194,6 +194,11 @@ final class LiveClimbSessionViewModel {
     private var activeDraft: ActiveHeadphoneWorkoutDraft?
     private var lastDraftCheckpointAt: Date?
     private let draftCheckpointInterval: TimeInterval = 2
+    /// The heart-rate payload is the largest thing a checkpoint writes, so it
+    /// rides a slower cadence than the rest of the draft. Lifecycle and finish
+    /// checkpoints force it, bounding what an interruption can lose.
+    private var lastHeartRateCheckpointAt: Date?
+    private let heartRateCheckpointInterval: TimeInterval = 15
 
     init(
         climb: Climb,
@@ -747,11 +752,20 @@ final class LiveClimbSessionViewModel {
     /// Buffers one reading per second-tick while recording so completed
     /// workouts carry the same heart-rate series shape as imported ones —
     /// the existing sync pipeline uploads it with zero extra plumbing.
-    /// Readings land on the draft's logical timeline so a resumed session
-    /// extends one continuous series instead of skipping the interruption gap.
     func recordHeartRateSampleForSessionTick(at now: Date = Date()) {
-        heartRateRecorder.recordSample(
-            at: now,
+        guard let measurement = heartRateRecorder.currentMeasurement else { return }
+        recordHeartRateSample(measurement, capturedAt: now)
+    }
+
+    /// Places the reading on the logical workout timeline - the draft's start
+    /// plus the resume-inclusive elapsed clock - so a resumed session extends
+    /// one continuous series. Without a draft there is no timeline to anchor
+    /// to, so the reading falls back to wall clock rather than being projected
+    /// to a timestamp minutes in the future.
+    func recordHeartRateSample(_ measurement: HeartRateMeasurement, capturedAt: Date = Date()) {
+        heartRateRecorder.record(
+            measurement,
+            capturedAt: capturedAt,
             sessionStartedAt: activeDraft?.startedAt,
             sessionElapsed: displayedDuration
         )
@@ -903,6 +917,9 @@ final class LiveClimbSessionViewModel {
             return
         }
 
+        let heartRateBuffer = shouldCheckpointHeartRate(draft: activeDraft, now: now, force: force)
+            ? heartRateRecorder.sampleBuffer
+            : nil
         activeDraft.applyCheckpoint(
             steps: result?.steps ?? totalRecordedSteps,
             durationSeconds: result?.duration ?? displayedDuration,
@@ -910,18 +927,37 @@ final class LiveClimbSessionViewModel {
             splitCurve: splitCurve ?? stepTimelineRecorder.curve,
             trackingIntegrity: result?.trackingIntegrity ?? motionSession.trackingIntegrity,
             stepCorrections: result?.stepCorrections ?? motionSession.stepCorrectionsSnapshot,
-            heartRateSamples: heartRateRecorder.samples,
+            heartRateBuffer: heartRateBuffer,
             status: status,
             checkpointedAt: now
         )
         do {
             try modelContext.save()
             lastDraftCheckpointAt = now
+            if heartRateBuffer != nil {
+                lastHeartRateCheckpointAt = now
+            }
         } catch {
 #if DEBUG
             debugLog("Active headphone draft checkpoint failed: \(error.localizedDescription)")
 #endif
         }
+    }
+
+    private func shouldCheckpointHeartRate(
+        draft: ActiveHeadphoneWorkoutDraft,
+        now: Date,
+        force: Bool
+    ) -> Bool {
+        guard heartRateRecorder.samples.count != (draft.heartRateSampleCount ?? 0) else {
+            return false
+        }
+        if force {
+            return true
+        }
+        guard let lastHeartRateCheckpointAt else { return true }
+
+        return now.timeIntervalSince(lastHeartRateCheckpointAt) >= heartRateCheckpointInterval
     }
 
     private func clearDraft(modelContext: ModelContext) {

@@ -77,10 +77,24 @@ final class LiveHeartRateRecorder {
     ) {
         guard let measurement = currentMeasurement else { return }
 
+        record(
+            measurement,
+            capturedAt: now,
+            sessionStartedAt: sessionStartedAt,
+            sessionElapsed: sessionElapsed
+        )
+    }
+
+    func record(
+        _ measurement: HeartRateMeasurement,
+        capturedAt: Date,
+        sessionStartedAt: Date? = nil,
+        sessionElapsed: TimeInterval = 0
+    ) {
         buffer.record(
             beatsPerMinute: measurement.beatsPerMinute,
-            capturedAt: now,
-            sessionStartedAt: sessionStartedAt ?? now,
+            capturedAt: capturedAt,
+            sessionStartedAt: sessionStartedAt ?? capturedAt,
             sessionElapsed: sessionStartedAt == nil ? 0 : sessionElapsed
         )
     }
