@@ -60,6 +60,7 @@ final class HeartRateMonitorService {
         @escaping @Sendable (BluetoothHeartRateClientEvent) -> Void
     ) -> any BluetoothHeartRateClientProtocol
     @ObservationIgnored private let connectionSleep: @MainActor (Duration) async throws -> Void
+    @ObservationIgnored private let now: () -> Date
 
     init(
         userDefaults: UserDefaults = .standard,
@@ -73,12 +74,14 @@ final class HeartRateMonitorService {
         },
         connectionSleep: @escaping @MainActor (Duration) async throws -> Void = { duration in
             try await Task.sleep(for: duration)
-        }
+        },
+        now: @escaping () -> Date = Date.init
     ) {
         self.userDefaults = userDefaults
         self.authorizationProvider = authorizationProvider
         self.clientFactory = clientFactory
         self.connectionSleep = connectionSleep
+        self.now = now
         if let idString = userDefaults.string(forKey: Self.rememberedIDDefaultsKey),
            let id = UUID(uuidString: idString) {
             let name = userDefaults.string(forKey: Self.rememberedNameDefaultsKey) ?? "Heart Rate Monitor"
@@ -98,7 +101,7 @@ final class HeartRateMonitorService {
     /// The latest reading if it arrived recently enough to trust for display.
     var freshMeasurement: HeartRateMeasurement? {
         guard let currentMeasurement,
-              Date().timeIntervalSince(currentMeasurement.receivedAt) <= Self.sampleFreshnessWindow else {
+              now().timeIntervalSince(currentMeasurement.receivedAt) <= Self.sampleFreshnessWindow else {
             return nil
         }
         return currentMeasurement

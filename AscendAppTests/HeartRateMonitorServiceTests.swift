@@ -97,6 +97,7 @@ struct HeartRateMonitorServiceTests {
             justClimbGoal: JustClimbGoal(),
             motionSession: motionSession,
             draftStore: ActiveHeadphoneWorkoutDraftStore(userDefaults: defaults),
+            heartRateRecorder: LiveHeartRateRecorder(sources: [monitor]),
             heartRateMonitor: monitor
         )
 
@@ -154,6 +155,10 @@ struct HeartRateMonitorServiceTests {
         let deviceID = UUID()
         rememberDevice(id: deviceID, in: defaults)
         let client = FakeBluetoothHeartRateClient()
+        // Freshness is judged against a pinned clock: the reading below must
+        // stay trusted no matter how long a loaded CI runner takes to hop
+        // between the emit and the assertion.
+        let readAt = Date(timeIntervalSince1970: 1_780_000_000)
         let monitor = HeartRateMonitorService(
             userDefaults: defaults,
             authorizationProvider: { .allowedAlways },
@@ -163,8 +168,10 @@ struct HeartRateMonitorServiceTests {
             },
             connectionSleep: { duration in
                 try await Task.sleep(for: duration)
-            }
+            },
+            now: { readAt }
         )
+        let recorder = LiveHeartRateRecorder(sources: [monitor])
         let motionSession = FakeHeadphoneMotionSession()
         let container = try ModelContainer(
             for: ActiveHeadphoneWorkoutDraft.self,
@@ -174,6 +181,7 @@ struct HeartRateMonitorServiceTests {
             justClimbGoal: JustClimbGoal(),
             motionSession: motionSession,
             draftStore: ActiveHeadphoneWorkoutDraftStore(userDefaults: defaults),
+            heartRateRecorder: recorder,
             heartRateMonitor: monitor
         )
 
@@ -181,20 +189,20 @@ struct HeartRateMonitorServiceTests {
         client.emit(.connected(id: deviceID, name: "Test Strap"))
         client.emit(
             .measurement(
-                HeartRateMeasurement(beatsPerMinute: 138, sensorContact: .detected, receivedAt: Date())
+                HeartRateMeasurement(beatsPerMinute: 138, sensorContact: .detected, receivedAt: readAt)
             )
         )
         await settle()
-        viewModel.recordLiveSplitSample()
+        viewModel.recordHeartRateSampleForSessionTick(at: readAt)
 
-        #expect(viewModel.heartRateSamples.count == 1)
+        #expect(viewModel.heartRateWorkoutSummary.timeSeries?.map(\.heartRate) == [138])
 
         client.emit(.disconnected(id: deviceID, wasRequested: false))
         await settle()
-        viewModel.recordLiveSplitSample()
-        viewModel.recordLiveSplitSample()
+        viewModel.recordHeartRateSampleForSessionTick(at: readAt.addingTimeInterval(1))
+        viewModel.recordHeartRateSampleForSessionTick(at: readAt.addingTimeInterval(2))
 
-        #expect(viewModel.heartRateSamples.count == 1)
+        #expect(viewModel.heartRateWorkoutSummary.timeSeries?.map(\.heartRate) == [138])
         #expect(monitor.connectionState == .reconnecting)
         #expect(viewModel.liveHeartRateStatus == .reconnecting)
         #expect(viewModel.isRecording)
