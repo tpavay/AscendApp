@@ -21,7 +21,9 @@
  * reported, never rewritten. Dropping a duplicate bucket-zero row removes a climber the
  * leaderboard summary already counted, so that context's completedCount and totalClimbers
  * drop by exactly the number of rows removed - nothing is recounted from another
- * collection, and permanent completion orders and rank snapshots are never touched.
+ * collection, and permanent completion orders and rank snapshots are never touched. A
+ * rerun after a partial apply takes the counts the ledger already proved over the smaller
+ * delta the surviving duplicates imply, so it finishes the original decrement.
  *
  * Writes are chunked, so a run can die with the workout renames committed and the
  * reference repairs, leaderboard decrements, or landmarkResults rebuild outstanding. The
@@ -175,7 +177,8 @@ for (const update of summaryPlan.summaryUpdates) {
   console.log(
     `SUMMARY ${update.contextKey}: -${update.droppedRows} duplicate row(s) -> ` +
       `completedCount ${update.updates.completedCount}, ` +
-      `totalClimbers ${update.updates.totalClimbers}`
+      `totalClimbers ${update.updates.totalClimbers}` +
+      `${update.fromLedger ? " (target owed by an earlier unfinished run takes precedence)" : ""}`
   );
 }
 for (const note of summaryPlan.notes) {
@@ -511,16 +514,28 @@ async function verifyWorkoutIdReferences(firestore, renames, summaryPlan) {
     );
   }
 
-  const summaryVerification = planReplaySummaryRepairs(
-    [],
-    references,
-    summaryPlan.owedRepairs
+  verifyReplaySummaries(references, summaryPlan.summaryUpdates);
+}
+
+function verifyReplaySummaries(references, summaryUpdates) {
+  const stored = new Map(
+    references
+      .filter((reference) => reference.parentPath === "live_replay_leaderboards")
+      .map((reference) => [reference.documentId, reference.data])
   );
-  if (summaryVerification.summaryUpdates.length > 0) {
-    throw new Error(
-      `Verification found ${summaryVerification.summaryUpdates.length} replay summary(ies) ` +
-        "that did not land on the counts this run removed duplicate rows from."
-    );
+
+  for (const update of summaryUpdates) {
+    const data = stored.get(update.contextKey);
+    if (
+      data?.completedCount !== update.updates.completedCount ||
+      data?.totalClimbers !== update.updates.totalClimbers
+    ) {
+      throw new Error(
+        `Verification found replay summary ${update.contextKey} at ` +
+          `${String(data?.completedCount)}/${String(data?.totalClimbers)} instead of the ` +
+          `planned ${update.updates.completedCount}/${update.updates.totalClimbers}.`
+      );
+    }
   }
 }
 

@@ -460,9 +460,17 @@ function resolveDuplicateReference(staleData, canonicalData, recencyFields = [])
  * collection would overwrite real fixture data. A move that merely renames a row onto its
  * canonical id changes no count and is ignored here.
  *
+ * A run that dies between its move batches and its summary batch leaves the ledger holding
+ * the final counts it had already proven, while live state now shows fewer duplicates than
+ * it started with. The ledger target wins there: the rows it counted are gone, not
+ * uncounted. A live delta is only allowed to push the target lower, for duplicates that
+ * appeared after the ledger was written, so a rerun converges on the original target
+ * instead of stopping one short of it.
+ *
  * A summary that cannot absorb the delta - missing, non-integer, or smaller than the number
- * of rows removed - is reported and left untouched. Completion orders and the point-in-time
- * rank snapshots derived from them are never rewritten; they are permanent.
+ * of rows removed - is reported and left untouched, and a count is never raised. Completion
+ * orders and the point-in-time rank snapshots derived from them are never rewritten; they
+ * are permanent.
  * @param {object[]} moves Planned reference moves.
  * @param {object[]} references Scanned workout-id references.
  * @param {{contextKey: string, completedCount: number, totalClimbers: number}[]} carriedRepairs
@@ -479,6 +487,9 @@ export function planReplaySummaryRepairs(moves, references, carriedRepairs = [])
     }
   }
 
+  const carriedByContext = new Map(
+    carriedRepairs.map((carried) => [carried.contextKey, carried])
+  );
   const summaries = new Map();
   for (const reference of references) {
     if (reference.parentPath === REPLAY_COLLECTION) {
@@ -489,52 +500,54 @@ export function planReplaySummaryRepairs(moves, references, carriedRepairs = [])
   const summaryUpdates = [];
   const owedRepairs = [];
   const notes = [];
+  const contextKeys = [...new Set([
+    ...droppedRowsByContext.keys(),
+    ...carriedByContext.keys(),
+  ])].sort();
 
-  for (const [contextKey, droppedRows] of [...droppedRowsByContext].sort()) {
+  for (const contextKey of contextKeys) {
+    const droppedRows = droppedRowsByContext.get(contextKey) ?? 0;
+    const carried = carriedByContext.get(contextKey) ?? null;
     const summary = summaries.get(contextKey);
     if (!summary) {
       notes.push({
         contextKey,
-        reason: `${droppedRows} duplicate row(s) removed but no leaderboard summary exists`,
+        reason: droppedRows > 0 ?
+          `${droppedRows} duplicate row(s) removed but no leaderboard summary exists` :
+          "leaderboard summary owed a decrement no longer exists",
       });
+      if (carried) {
+        owedRepairs.push(carried);
+      }
       continue;
     }
 
-    const expected = countsAfterRemoving(summary.data, droppedRows);
-    if (!expected) {
+    const target = replaySummaryTarget(summary.data, droppedRows, carried);
+    if (!target) {
       notes.push({
         contextKey,
         reason: `completedCount ${String(summary.data.completedCount)} / totalClimbers ` +
           `${String(summary.data.totalClimbers)} cannot absorb ${droppedRows} removed ` +
-          "row(s) - left for the replay backfill",
+          `row(s)${carried ? " or the counts owed on the ledger" : ""} - left for the ` +
+          "replay backfill",
       });
+      if (carried) {
+        owedRepairs.push(carried);
+      }
       continue;
     }
 
-    summaryUpdates.push({contextKey, updates: expected, droppedRows});
-    owedRepairs.push({contextKey, ...expected});
-  }
-
-  for (const carried of carriedRepairs) {
-    if (droppedRowsByContext.has(carried.contextKey)) {
-      continue;
-    }
-    owedRepairs.push(carried);
-
-    const summary = summaries.get(carried.contextKey);
-    const expected = {
-      completedCount: carried.completedCount,
-      totalClimbers: carried.totalClimbers,
-    };
-    if (!summary) {
-      notes.push({contextKey: carried.contextKey, reason: "owed summary no longer exists"});
-      continue;
-    }
+    owedRepairs.push({contextKey, ...target});
     if (
-      summary.data.completedCount !== expected.completedCount ||
-      summary.data.totalClimbers !== expected.totalClimbers
+      summary.data.completedCount !== target.completedCount ||
+      summary.data.totalClimbers !== target.totalClimbers
     ) {
-      summaryUpdates.push({contextKey: carried.contextKey, updates: expected, droppedRows: 0});
+      summaryUpdates.push({
+        contextKey,
+        updates: target,
+        droppedRows,
+        fromLedger: Boolean(carried),
+      });
     }
   }
 
@@ -545,18 +558,38 @@ export function planReplaySummaryRepairs(moves, references, carriedRepairs = [])
   };
 }
 
-function countsAfterRemoving(data, droppedRows) {
+function replaySummaryTarget(data, droppedRows, carried) {
   const completedCount = nonNegativeIntegerOrNull(data.completedCount);
   const totalClimbers = nonNegativeIntegerOrNull(data.totalClimbers);
   if (completedCount === null || totalClimbers === null) {
     return null;
   }
-  if (completedCount < droppedRows || totalClimbers < droppedRows) {
+
+  const candidates = [];
+  if (droppedRows > 0 && completedCount >= droppedRows && totalClimbers >= droppedRows) {
+    candidates.push({
+      completedCount: completedCount - droppedRows,
+      totalClimbers: totalClimbers - droppedRows,
+    });
+  }
+  if (carried) {
+    const carriedCompleted = nonNegativeIntegerOrNull(carried.completedCount);
+    const carriedTotal = nonNegativeIntegerOrNull(carried.totalClimbers);
+    const fitsWithoutRaising = carriedCompleted !== null &&
+      carriedTotal !== null &&
+      carriedCompleted <= completedCount &&
+      carriedTotal <= totalClimbers;
+    if (fitsWithoutRaising) {
+      candidates.push({completedCount: carriedCompleted, totalClimbers: carriedTotal});
+    }
+  }
+  if (candidates.length === 0) {
     return null;
   }
+
   return {
-    completedCount: completedCount - droppedRows,
-    totalClimbers: totalClimbers - droppedRows,
+    completedCount: Math.min(...candidates.map((candidate) => candidate.completedCount)),
+    totalClimbers: Math.min(...candidates.map((candidate) => candidate.totalClimbers)),
   };
 }
 

@@ -426,6 +426,7 @@ test("dropping a duplicate row lowers the summary by exactly that row", () => {
     contextKey: "live_climb_empire",
     updates: {completedCount: 88, totalClimbers: 95},
     droppedRows: 1,
+    fromLedger: false,
   }]);
   assert.deepEqual(summaryPlan.notes, []);
 });
@@ -491,6 +492,88 @@ test("a summary too small to absorb the delta is reported, not rewritten", () =>
   assert.equal(summaryPlan.notes.length, 1);
 });
 
+test("a rerun after a partial apply finishes the decrement the ledger owed", () => {
+  const secondLowercase = "0d0c8f6c-1111-4222-8333-444444444444";
+  const secondUppercase = secondLowercase.toUpperCase();
+  const renames = [
+    {workoutId: LOWERCASE_ID, canonicalWorkoutId: UPPERCASE_ID},
+    {workoutId: secondLowercase, canonicalWorkoutId: secondUppercase},
+  ];
+
+  const firstRunReferences = [
+    summaryReference({completedCount: 89, totalClimbers: 96}),
+    entryReference(LOWERCASE_ID),
+    entryReference(UPPERCASE_ID),
+    entryReference(secondLowercase),
+    entryReference(secondUppercase),
+  ];
+  const firstRun = planReplaySummaryRepairs(
+    planWorkoutIdReferenceRepairs(renames, firstRunReferences).moves,
+    firstRunReferences
+  );
+
+  assert.deepEqual(firstRun.owedRepairs, [{
+    contextKey: "live_climb_empire",
+    completedCount: 87,
+    totalClimbers: 94,
+  }]);
+
+  const rerunReferences = [
+    summaryReference({completedCount: 89, totalClimbers: 96}),
+    entryReference(LOWERCASE_ID),
+    entryReference(UPPERCASE_ID),
+    entryReference(secondUppercase),
+  ];
+  const rerun = planReplaySummaryRepairs(
+    planWorkoutIdReferenceRepairs(renames, rerunReferences).moves,
+    rerunReferences,
+    firstRun.owedRepairs
+  );
+
+  assert.deepEqual(rerun.summaryUpdates, [{
+    contextKey: "live_climb_empire",
+    updates: {completedCount: 87, totalClimbers: 94},
+    droppedRows: 1,
+    fromLedger: true,
+  }]);
+  assert.deepEqual(rerun.owedRepairs, firstRun.owedRepairs);
+});
+
+test("a duplicate found after the ledger was written lowers the target further", () => {
+  const references = [
+    summaryReference({completedCount: 88, totalClimbers: 95}),
+    entryReference(LOWERCASE_ID),
+    entryReference(UPPERCASE_ID),
+  ];
+  const repairs = planWorkoutIdReferenceRepairs(
+    [{workoutId: LOWERCASE_ID, canonicalWorkoutId: UPPERCASE_ID}],
+    references
+  );
+
+  const summaryPlan = planReplaySummaryRepairs(repairs.moves, references, [
+    {contextKey: "live_climb_empire", completedCount: 88, totalClimbers: 95},
+  ]);
+
+  assert.deepEqual(summaryPlan.summaryUpdates[0].updates, {
+    completedCount: 87,
+    totalClimbers: 94,
+  });
+});
+
+test("an owed decrement never raises a summary that already dropped below it", () => {
+  const summaryPlan = planReplaySummaryRepairs(
+    [],
+    [summaryReference({completedCount: 80, totalClimbers: 90})],
+    [{contextKey: "live_climb_empire", completedCount: 87, totalClimbers: 94}]
+  );
+
+  assert.deepEqual(summaryPlan.summaryUpdates, []);
+  assert.equal(summaryPlan.notes.length, 1);
+  assert.deepEqual(summaryPlan.owedRepairs, [
+    {contextKey: "live_climb_empire", completedCount: 87, totalClimbers: 94},
+  ]);
+});
+
 test("a decrement owed by an earlier run is reapplied only when it did not land", () => {
   const owed = {contextKey: "live_climb_empire", completedCount: 88, totalClimbers: 95};
 
@@ -509,6 +592,7 @@ test("a decrement owed by an earlier run is reapplied only when it did not land"
     contextKey: "live_climb_empire",
     updates: {completedCount: 88, totalClimbers: 95},
     droppedRows: 0,
+    fromLedger: true,
   }]);
   assert.deepEqual(landed.summaryUpdates, []);
   assert.deepEqual(landed.owedRepairs, [owed]);
