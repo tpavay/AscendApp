@@ -4,6 +4,19 @@ import Testing
 
 struct FirestoreWorkoutDocumentTests {
     @Test
+    func workoutDocumentIDCanonicalizesEveryUUIDCase() throws {
+        let lowercase = "51c91094-5475-4b25-ab8f-a5d809f90a2f"
+        let uppercase = lowercase.uppercased()
+        let workoutID = try #require(UUID(uuidString: lowercase))
+
+        #expect(WorkoutDocumentID.canonicalString(from: lowercase) == uppercase)
+        #expect(WorkoutDocumentID.canonicalString(from: uppercase) == uppercase)
+        #expect(WorkoutDocumentID.canonicalString(for: workoutID) == uppercase)
+        #expect(WorkoutDocumentID.isCanonical(lowercase) == false)
+        #expect(WorkoutDocumentID.isCanonical(uppercase))
+    }
+
+    @Test
     func headphoneMotionSourceIsVerifiedAndNotAProvider() {
         #expect(WorkoutSource.headphoneMotion.rawValue == "headphone_motion")
         #expect(WorkoutSource.headphoneMotion.displayName == "Headphone Tracking")

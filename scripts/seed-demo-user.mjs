@@ -23,6 +23,7 @@ import {fileURLToPath} from "node:url";
 import {applicationDefault, initializeApp} from "firebase-admin/app";
 import {getAuth} from "firebase-admin/auth";
 import {FieldValue, getFirestore, Timestamp} from "firebase-admin/firestore";
+import {canonicalWorkoutDocumentId} from "./lib/workout-document-id.mjs";
 
 const DEV_PROJECT_ID = "ascend-f2e4f";
 const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
@@ -1202,13 +1203,13 @@ function displayNameFromEmail(email) {
 function deterministicUUID(input) {
   const hex = createHash("sha256").update(input).digest("hex");
   const variant = ((parseInt(hex.slice(16, 18), 16) & 0x3f) | 0x80).toString(16).padStart(2, "0");
-  return [
+  return canonicalWorkoutDocumentId([
     hex.slice(0, 8),
     hex.slice(8, 12),
     `4${hex.slice(13, 16)}`,
     `${variant}${hex.slice(18, 20)}`,
     hex.slice(20, 32),
-  ].join("-");
+  ].join("-"));
 }
 
 function deterministicId(input) {
