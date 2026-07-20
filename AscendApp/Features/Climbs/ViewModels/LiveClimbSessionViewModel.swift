@@ -160,7 +160,7 @@ enum LiveClimbSessionMode: Equatable {
 @Observable
 final class LiveClimbSessionViewModel {
     let mode: LiveClimbSessionMode
-    let motionSession: HeadphoneMotionSessionService
+    let motionSession: any HeadphoneMotionSessionServicing
     let analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint
     let liveActivitySessionID: String
 
@@ -181,6 +181,7 @@ final class LiveClimbSessionViewModel {
     private(set) var stepSyncPrompt: LiveStepSyncPrompt?
     private(set) var stepSyncConfirmation: LiveStepSyncConfirmation?
 
+    let heartRateMonitor: HeartRateMonitorService
     private(set) var heartRateZoneProfile = HeartRateZoneProfile(age: nil)
 
     private var hasSavedSession = false
@@ -203,7 +204,7 @@ final class LiveClimbSessionViewModel {
     init(
         climb: Climb,
         analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown,
-        motionSession: HeadphoneMotionSessionService = HeadphoneMotionSessionService(),
+        motionSession: any HeadphoneMotionSessionServicing = HeadphoneMotionSessionService(),
         climbService: ClimbService = .shared,
         settingsManager: SettingsManager = .shared,
         leaderboardService: LiveReplayLeaderboardServicing = LiveReplayLeaderboardService.shared,
@@ -211,6 +212,7 @@ final class LiveClimbSessionViewModel {
         backgroundSessionService: LiveClimbBackgroundSessionService = .shared,
         draftStore: ActiveHeadphoneWorkoutDraftStore = ActiveHeadphoneWorkoutDraftStore(),
         heartRateRecorder: LiveHeartRateRecorder = LiveHeartRateRecorder(),
+        heartRateMonitor: HeartRateMonitorService = .shared,
         liveActivitySessionID: String = UUID().uuidString,
         recoveredDraft: ActiveHeadphoneWorkoutDraft? = nil
     ) {
@@ -225,6 +227,7 @@ final class LiveClimbSessionViewModel {
         self.backgroundSessionService = backgroundSessionService
         self.draftStore = draftStore
         self.heartRateRecorder = heartRateRecorder
+        self.heartRateMonitor = heartRateMonitor
         self.activeDraft = recoveredDraft
         heartRateRecorder.restore(samples: recoveredDraft?.heartRateSamples ?? [])
         self.stepTimelineRecorder = LiveClimbStepTimelineRecorder(intervalSeconds: 10)
@@ -236,7 +239,7 @@ final class LiveClimbSessionViewModel {
     init(
         justClimbGoal: JustClimbGoal,
         analyticsEntryPoint: LiveClimbAnalyticsEvent.EntryPoint = .unknown,
-        motionSession: HeadphoneMotionSessionService = HeadphoneMotionSessionService(),
+        motionSession: any HeadphoneMotionSessionServicing = HeadphoneMotionSessionService(),
         climbService: ClimbService = .shared,
         settingsManager: SettingsManager = .shared,
         leaderboardService: LiveReplayLeaderboardServicing = LiveReplayLeaderboardService.shared,
@@ -244,6 +247,7 @@ final class LiveClimbSessionViewModel {
         backgroundSessionService: LiveClimbBackgroundSessionService = .shared,
         draftStore: ActiveHeadphoneWorkoutDraftStore = ActiveHeadphoneWorkoutDraftStore(),
         heartRateRecorder: LiveHeartRateRecorder = LiveHeartRateRecorder(),
+        heartRateMonitor: HeartRateMonitorService = .shared,
         liveActivitySessionID: String = UUID().uuidString,
         recoveredDraft: ActiveHeadphoneWorkoutDraft? = nil
     ) {
@@ -258,6 +262,7 @@ final class LiveClimbSessionViewModel {
         self.backgroundSessionService = backgroundSessionService
         self.draftStore = draftStore
         self.heartRateRecorder = heartRateRecorder
+        self.heartRateMonitor = heartRateMonitor
         self.activeDraft = recoveredDraft
         heartRateRecorder.restore(samples: recoveredDraft?.heartRateSamples ?? [])
         self.stepTimelineRecorder = LiveClimbStepTimelineRecorder(intervalSeconds: 10)
@@ -731,18 +736,14 @@ final class LiveClimbSessionViewModel {
 
     // MARK: - Heart rate
 
-    /// Latest trusted heart-rate reading for live display; nil when no
-    /// monitor is connected or the last reading has gone stale.
-    var liveHeartRate: Int? {
-        heartRateRecorder.currentMeasurement?.beatsPerMinute
-    }
-
-    var liveHeartRateZone: HeartRateZone? {
-        liveHeartRate.map(heartRateZoneProfile.zone(forBeatsPerMinute:))
-    }
-
-    var isHeartRateMonitorConnected: Bool {
-        heartRateRecorder.isSourceConnected
+    var liveHeartRateStatus: LiveHeartRateStatus? {
+        guard phase == .recording else { return nil }
+        return LiveHeartRateStatus.resolve(
+            hasRememberedDevice: heartRateMonitor.rememberedDevice != nil,
+            connectionState: heartRateMonitor.connectionState,
+            freshMeasurement: heartRateRecorder.currentMeasurement,
+            zoneProfile: heartRateZoneProfile
+        )
     }
 
     var heartRateSamplesSnapshot: [HeartRateDataPoint] {

@@ -6,7 +6,7 @@ import Foundation
 /// deliberately NOT a per-user calibrated effort model (see the
 /// `ascend-workout-model` skill → Workout Measurement). Blue is conversational
 /// effort, green is aerobic work, amber is pushing hard.
-enum HeartRateZone: String, CaseIterable, Sendable {
+enum HeartRateZone: String, CaseIterable, Equatable, Sendable {
     case recovery
     case aerobic
     case push
