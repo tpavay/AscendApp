@@ -1,6 +1,76 @@
+import {
+  deriveLandmarkResult,
+  groupCompletions,
+  parseCompletedLandmarkWorkout,
+} from "./landmark-result-derivation.mjs";
 import {canonicalWorkoutDocumentId} from "./workout-document-id.mjs";
 
 export const BATCH_WRITE_LIMIT = 500;
+
+/**
+ * Plans the landmarkResults this migration must rewrite, from the post-merge document set.
+ *
+ * Keys come from two places. This run's merges contribute the climbs whose completions are
+ * about to change document id; a completion always survives that, so a null derivation
+ * there means the plan is wrong and the run must stop. Carried repairs come from an earlier
+ * unfinished run's ledger entry and are re-validated against live data that may have moved
+ * on - if nothing completes that climb any more, the projection is stale rather than
+ * unexpected, so it is planned for deletion, matching what onWorkoutWritten does with the
+ * same null derivation in functions/src/climbCompletions.ts.
+ * @param {object[]} documents Raw private workout documents, pre-merge.
+ * @param {object[]} merges Planned canonicalization groups.
+ * @param {{userId: string, climbId: string}[]} carriedRepairs Repairs owed by an earlier run.
+ * @return {{userId: string, climbId: string, projection: object|null}[]} Projections to write,
+ *   or to delete when the projection is null.
+ */
+export function planAffectedLandmarkProjections(documents, merges, carriedRepairs = []) {
+  const keys = new Map();
+  const replacedDocumentKeys = new Set();
+  for (const repair of carriedRepairs) {
+    keys.set(`${repair.userId}/${repair.climbId}`, {
+      userId: repair.userId,
+      climbId: repair.climbId,
+      fromMerge: false,
+    });
+  }
+  for (const merge of merges) {
+    for (const document of merge.sourceDocuments) {
+      replacedDocumentKeys.add(`${document.userId}/${document.workoutId}`);
+      const completion = parseCompletedLandmarkWorkout(document.workoutId, document.data);
+      if (!completion) {
+        continue;
+      }
+      keys.set(`${merge.userId}/${completion.climbId}`, {
+        userId: merge.userId,
+        climbId: completion.climbId,
+        fromMerge: true,
+      });
+    }
+  }
+
+  const finalDocuments = documents.filter(
+    (document) => !replacedDocumentKeys.has(`${document.userId}/${document.workoutId}`)
+  );
+  for (const merge of merges) {
+    finalDocuments.push({
+      userId: merge.userId,
+      workoutId: merge.canonicalWorkoutId,
+      data: merge.targetData,
+    });
+  }
+  const grouped = groupCompletions(finalDocuments);
+
+  return [...keys.values()].map(({userId, climbId, fromMerge}) => {
+    const completions = grouped.get(userId)?.get(climbId) ?? [];
+    const projection = deriveLandmarkResult(climbId, completions);
+    if (!projection && fromMerge) {
+      throw new Error(`No surviving completion for ${userId}/${climbId}.`);
+    }
+    return {userId, climbId, projection};
+  }).sort((lhs, rhs) => (
+    lhs.userId.localeCompare(rhs.userId) || lhs.climbId.localeCompare(rhs.climbId)
+  ));
+}
 
 /**
  * Packs atomic units into Firestore batches without ever splitting a unit.

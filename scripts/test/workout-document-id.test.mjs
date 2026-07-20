@@ -8,6 +8,7 @@ import {canonicalWorkoutDocumentId} from "../lib/workout-document-id.mjs";
 import {
   BATCH_WRITE_LIMIT,
   packBatchSizes,
+  planAffectedLandmarkProjections,
   planCaseVariantWorkoutMerges,
 } from "../lib/workout-id-case-migration.mjs";
 
@@ -93,6 +94,60 @@ test("cleanup plan blocks payload conflicts instead of deleting data", () => {
   assert.equal(plan.merges.length, 0);
   assert.equal(plan.conflicts.length, 1);
   assert.deepEqual(plan.conflicts[0].conflictingFields, ["steps"]);
+});
+
+test("merged group rebuilds its landmarkResult from the canonical document", () => {
+  const documents = [
+    {userId: "user-1", workoutId: LOWERCASE_ID, data: completedWorkout()},
+  ];
+  const plan = planCaseVariantWorkoutMerges(documents);
+
+  const projections = planAffectedLandmarkProjections(documents, plan.merges);
+
+  assert.equal(projections.length, 1);
+  assert.equal(projections[0].climbId, CLIMB_ID);
+  assert.equal(projections[0].projection.attemptCount, 1);
+  assert.equal(projections[0].projection.bestWorkoutId, UPPERCASE_ID);
+});
+
+test("carried repair with no surviving completion is planned for deletion", () => {
+  const projections = planAffectedLandmarkProjections(
+    [],
+    [],
+    [{userId: "user-1", climbId: CLIMB_ID}]
+  );
+
+  assert.deepEqual(projections, [
+    {userId: "user-1", climbId: CLIMB_ID, projection: null},
+  ]);
+});
+
+test("carried repair that still has a completion is rebuilt, not deleted", () => {
+  const documents = [
+    {userId: "user-1", workoutId: UPPERCASE_ID, data: completedWorkout()},
+  ];
+
+  const projections = planAffectedLandmarkProjections(
+    documents,
+    [],
+    [{userId: "user-1", climbId: CLIMB_ID}]
+  );
+
+  assert.equal(projections.length, 1);
+  assert.equal(projections[0].projection.attemptCount, 1);
+});
+
+test("a merge that loses its only completion still aborts the run", () => {
+  const documents = [
+    {userId: "user-1", workoutId: LOWERCASE_ID, data: completedWorkout()},
+  ];
+  const plan = planCaseVariantWorkoutMerges(documents);
+  plan.merges[0].targetData = {...plan.merges[0].targetData, sourceMetadata: "{}"};
+
+  assert.throws(
+    () => planAffectedLandmarkProjections(documents, plan.merges),
+    /No surviving completion for user-1\//
+  );
 });
 
 test("apply plan chunks past the Firestore batch limit without splitting a group", () => {

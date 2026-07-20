@@ -16,7 +16,9 @@
  * ledger before the first write and cleared only on success, so the next run folds them
  * back into its own plan and cannot report success on a vacuous verification. If a run
  * fails and the operator will not re-run it, `scripts/backfill-landmark-results.mjs`
- * rebuilds the same projections.
+ * rebuilds the same projections. A carried repair whose climb no longer has any surviving
+ * completion is deleted rather than rebuilt - the same disposal onWorkoutWritten applies to
+ * that case - so a workout removed between runs cannot wedge the operation.
  *
  * This migration is author-only. Running it is captain-gated operations work.
  *
@@ -36,15 +38,11 @@ import {
   readPendingRepairs,
   resolveEnvironment,
 } from "./lib/migration-discipline.mjs";
-import {
-  deriveLandmarkResult,
-  groupCompletions,
-  parseCompletedLandmarkWorkout,
-  shouldSkipLandmarkResultWrite,
-} from "./lib/landmark-result-derivation.mjs";
+import {shouldSkipLandmarkResultWrite} from "./lib/landmark-result-derivation.mjs";
 import {
   BATCH_WRITE_LIMIT,
   packBatchSizes,
+  planAffectedLandmarkProjections,
   planCaseVariantWorkoutMerges,
 } from "./lib/workout-id-case-migration.mjs";
 
@@ -92,17 +90,24 @@ for (const conflict of plan.conflicts) {
   );
 }
 
-const affectedProjections = deriveAffectedLandmarkProjections(
+const affectedProjections = planAffectedLandmarkProjections(
   documents,
   plan.merges,
   carriedRepairs
 );
+const staleProjections = affectedProjections.filter((item) => !item.projection);
 const units = buildMigrationUnits(db, plan.merges, affectedProjections);
 const batchSizes = packBatchSizes(units.map((unit) => unit.length));
 const operationCount = batchSizes.reduce((sum, size) => sum + size, 0);
 
+for (const item of staleProjections) {
+  console.log(
+    `STALE landmarkResult ${item.userId}/${item.climbId} - no completion remains, will delete`
+  );
+}
 console.log([
-  `landmarkResults to rebuild: ${affectedProjections.length}`,
+  `landmarkResults to rebuild: ${affectedProjections.length - staleProjections.length}`,
+  `landmarkResults to delete as stale: ${staleProjections.length}`,
   `Firestore operations: ${operationCount} in ${batchSizes.length} batch(es) of at most ${BATCH_WRITE_LIMIT}`,
 ].join("\n"));
 
@@ -139,11 +144,13 @@ try {
     workoutDocumentsScanned: documents.length,
     duplicateGroupsMerged: plan.merges.length,
     aliasDocumentsDeleted: deleteCount,
-    landmarkResultsWritten: affectedProjections.length,
+    landmarkResultsWritten: affectedProjections.length - staleProjections.length,
+    landmarkResultsDeleted: staleProjections.length,
   });
   console.log(
     `\nMerged ${plan.merges.length} group(s), deleted ${deleteCount} alias document(s), ` +
-      `and verified ${affectedProjections.length} landmark projection(s).`
+      `and verified ${affectedProjections.length} landmark projection(s) ` +
+      `(${staleProjections.length} removed as stale).`
   );
 } catch (error) {
   await run.fail(error);
@@ -192,7 +199,7 @@ function buildMigrationUnits(firestore, merges, affectedProjections) {
   for (const item of affectedProjections) {
     units.push([{
       ref: landmarkResultRef(firestore, item),
-      data: toFirestoreProjection(item.projection),
+      data: item.projection ? toFirestoreProjection(item.projection) : null,
     }]);
   }
   return units;
@@ -218,56 +225,18 @@ async function commitUnits(firestore, units, batchSizes) {
   }
 }
 
-function deriveAffectedLandmarkProjections(documents, merges, carriedRepairs = []) {
-  const keys = new Map();
-  const replacedDocumentKeys = new Set();
-  for (const repair of carriedRepairs) {
-    keys.set(`${repair.userId}/${repair.climbId}`, {
-      userId: repair.userId,
-      climbId: repair.climbId,
-    });
-  }
-  for (const merge of merges) {
-    for (const document of merge.sourceDocuments) {
-      replacedDocumentKeys.add(`${document.userId}/${document.workoutId}`);
-      const completion = parseCompletedLandmarkWorkout(document.workoutId, document.data);
-      if (!completion) {
-        continue;
-      }
-      keys.set(`${merge.userId}/${completion.climbId}`, {
-        userId: merge.userId,
-        climbId: completion.climbId,
-      });
-    }
-  }
-
-  const finalDocuments = documents.filter(
-    (document) => !replacedDocumentKeys.has(`${document.userId}/${document.workoutId}`)
-  );
-  for (const merge of merges) {
-    finalDocuments.push({
-      userId: merge.userId,
-      workoutId: merge.canonicalWorkoutId,
-      data: merge.targetData,
-    });
-  }
-  const grouped = groupCompletions(finalDocuments);
-
-  return [...keys.values()].map((key) => {
-    const completions = grouped.get(key.userId)?.get(key.climbId) ?? [];
-    const projection = deriveLandmarkResult(key.climbId, completions);
-    if (!projection) {
-      throw new Error(`No surviving completion for ${key.userId}/${key.climbId}.`);
-    }
-    return {...key, projection};
-  }).sort((lhs, rhs) => (
-    lhs.userId.localeCompare(rhs.userId) || lhs.climbId.localeCompare(rhs.climbId)
-  ));
-}
-
 async function verifyLandmarkResults(firestore, affectedProjections) {
   for (const item of affectedProjections) {
     const storedSnapshot = await landmarkResultRef(firestore, item).get();
+    if (!item.projection) {
+      if (storedSnapshot.exists) {
+        throw new Error(
+          `Stale landmarkResult still present for ${item.userId}/${item.climbId}.`
+        );
+      }
+      continue;
+    }
+
     const stored = storedSnapshot.exists ?
       comparableProjection(storedSnapshot.data(), item.climbId) : null;
     if (!shouldSkipLandmarkResultWrite(stored, item.projection)) {
