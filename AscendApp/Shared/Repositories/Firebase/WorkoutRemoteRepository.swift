@@ -23,15 +23,20 @@ final class WorkoutRemoteRepository: WorkoutRemoteRepositoryProtocol, @unchecked
         from documents: [(id: String, data: [String: Any])],
         diagnostics: AppDiagnosticsRecorder = .shared
     ) -> [RemoteWorkoutRecord] {
-        documents.compactMap { document in
+        recordCaseVariantDuplicates(in: documents, diagnostics: diagnostics)
+
+        let decoded = documents.compactMap { document -> (sourceID: String, record: RemoteWorkoutRecord)? in
             guard let workoutId = UUID(uuidString: document.id) else {
                 return nil
             }
 
             do {
-                return RemoteWorkoutRecord(
-                    workoutId: workoutId,
-                    document: try firestoreDocument(from: document.data)
+                return (
+                    sourceID: document.id,
+                    record: RemoteWorkoutRecord(
+                        workoutId: workoutId,
+                        document: try firestoreDocument(from: document.data)
+                    )
                 )
             } catch {
                 diagnostics.record(
@@ -44,6 +49,57 @@ final class WorkoutRemoteRepository: WorkoutRemoteRepositoryProtocol, @unchecked
                 )
                 return nil
             }
+        }
+
+        var selectedByWorkoutID: [UUID: (sourceID: String, record: RemoteWorkoutRecord)] = [:]
+        for candidate in decoded {
+            guard let existing = selectedByWorkoutID[candidate.record.workoutId] else {
+                selectedByWorkoutID[candidate.record.workoutId] = candidate
+                continue
+            }
+
+            if candidate.record.document.updatedAt > existing.record.document.updatedAt ||
+                (
+                    candidate.record.document.updatedAt == existing.record.document.updatedAt &&
+                    WorkoutDocumentID.isCanonical(candidate.sourceID) &&
+                    !WorkoutDocumentID.isCanonical(existing.sourceID)
+                ) {
+                selectedByWorkoutID[candidate.record.workoutId] = candidate
+            }
+        }
+
+        return selectedByWorkoutID.values
+            .map(\.record)
+            .sorted {
+                WorkoutDocumentID.canonicalString(for: $0.workoutId) <
+                    WorkoutDocumentID.canonicalString(for: $1.workoutId)
+            }
+    }
+
+    private func recordCaseVariantDuplicates(
+        in documents: [(id: String, data: [String: Any])],
+        diagnostics: AppDiagnosticsRecorder
+    ) {
+        let validDocuments = documents.compactMap { document -> (canonicalID: String, sourceID: String)? in
+            guard let canonicalID = WorkoutDocumentID.canonicalString(from: document.id) else {
+                return nil
+            }
+            return (canonicalID, document.id)
+        }
+        let grouped = Dictionary(grouping: validDocuments, by: \.canonicalID)
+
+        for (canonicalID, variants) in grouped {
+            let sourceIDs = Set(variants.map(\.sourceID))
+            guard sourceIDs.count > 1 else { continue }
+
+            diagnostics.record(
+                "workout_backup_case_variant_duplicate",
+                level: .error,
+                details: [
+                    "canonical_workout_id": canonicalID,
+                    "document_ids": sourceIDs.sorted().joined(separator: ",")
+                ]
+            )
         }
     }
 
@@ -67,7 +123,13 @@ final class WorkoutRemoteRepository: WorkoutRemoteRepositoryProtocol, @unchecked
         userId: String,
         workoutId: UUID
     ) async throws {
-        try await workoutDocumentReference(userId: userId, workoutId: workoutId).delete()
+        let collection = workoutCollectionReference(userId: userId)
+        let batch = db.batch()
+        batch.deleteDocument(workoutDocumentReference(userId: userId, workoutId: workoutId))
+        for alias in WorkoutDocumentID.aliasStrings(for: workoutId) {
+            batch.deleteDocument(collection.document(alias))
+        }
+        try await batch.commit()
     }
 }
 
@@ -80,7 +142,7 @@ private extension WorkoutRemoteRepository {
 
     func workoutDocumentReference(userId: String, workoutId: UUID) -> DocumentReference {
         workoutCollectionReference(userId: userId)
-            .document(workoutId.uuidString)
+            .document(WorkoutDocumentID.canonicalString(for: workoutId))
     }
 
     func firestoreData(for document: FirestoreWorkoutDocument) -> [String: Any] {
