@@ -367,12 +367,14 @@ jobs:
             test 2>&1 | tee build-logs/xcodebuild-staging.log
 
       - name: Summarize failure
-        if: failure() && steps.tests.outcome == 'failure'
+        if: always() && steps.tests.outcome != 'success' && steps.tests.outcome != 'skipped'
         shell: bash
         run: ./scripts/ci/summarize-xcodebuild-failure.sh build-logs/xcodebuild-staging.log
 
+      # A job killed by timeout-minutes reports `cancelled`, not `failure`, and
+      # that is exactly the hung-runner case these logs exist to explain.
       - name: Upload build logs
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ios-verify-staging-logs
@@ -438,12 +440,14 @@ jobs:
             build 2>&1 | tee build-logs/xcodebuild-release.log
 
       - name: Summarize failure
-        if: failure() && steps.build.outcome == 'failure'
+        if: always() && steps.build.outcome != 'success' && steps.build.outcome != 'skipped'
         shell: bash
         run: ./scripts/ci/summarize-xcodebuild-failure.sh build-logs/xcodebuild-release.log
 
+      # A job killed by timeout-minutes reports `cancelled`, not `failure`, and
+      # that is exactly the hung-runner case these logs exist to explain.
       - name: Upload build logs
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ios-verify-release-logs

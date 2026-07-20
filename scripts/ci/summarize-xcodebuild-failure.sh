@@ -31,62 +31,92 @@ sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]+Z //' "$
 
 echo "::group::Failure summary"
 
-found_any=0
+found_diagnostic=0
 
-# Compiler and linker diagnostics, anchored to the file so GitHub can annotate
-# the diff. Deduplicated because a single error is echoed by every batch-compile
-# invocation that saw it.
-compiler_errors="$(grep -E '^/.+: error: ' "$normalized" | sort -u)"
+# Resolve a bare source file name to its repo-relative path so the annotation
+# lands on the diff. Swift Testing reports only the basename.
+resolve_repo_path() {
+  local candidate="$1"
+  case "$candidate" in
+    */*)
+      printf '%s' "${candidate#"${GITHUB_WORKSPACE:-/nonexistent}"/}"
+      return
+      ;;
+  esac
+
+  local matches
+  matches="$(git ls-files -- "*/${candidate}" "${candidate}" 2>/dev/null)"
+  if [ "$(printf '%s\n' "$matches" | grep -c .)" -eq 1 ]; then
+    printf '%s' "$matches"
+  else
+    printf '%s' "$candidate"
+  fi
+}
+
+# Compiler, linker, and driver diagnostics. File-anchored ones let GitHub
+# annotate the diff; linker and build-input failures carry no file anchor and
+# would be dropped entirely by a path-anchored pattern. Deduplicated with awk
+# rather than `sort -u` so emission order survives - the first error xcodebuild
+# printed is usually the root cause and the rest are cascade.
+compiler_errors="$(grep -E '^/.+: (error|fatal error): |^(ld|ld64\.lld|clang\+\+|clang|swiftc|swift-frontend|xcodebuild): (error|fatal error): |^error: ' "$normalized" | awk '!seen[$0]++')"
 
 if [ -n "$compiler_errors" ]; then
-  found_any=1
+  found_diagnostic=1
   echo "Compiler diagnostics:"
   echo "$compiler_errors"
   echo
 
   while IFS= read -r line; do
     [ -n "$line" ] || continue
-    location="${line%%: error: *}"
-    message="${line#*: error: }"
-    file="$(printf '%s' "$location" | cut -d: -f1)"
-    line_number="$(printf '%s' "$location" | cut -d: -f2)"
-    column="$(printf '%s' "$location" | cut -d: -f3)"
-    # Annotations anchor to repo-relative paths.
-    file="${file#"${GITHUB_WORKSPACE:-/nonexistent}"/}"
-    echo "::error file=${file},line=${line_number:-1},col=${column:-1}::${message}"
+    if [[ "$line" =~ ^(/.+):([0-9]+):([0-9]+):\ (error|fatal\ error):\ (.*)$ ]]; then
+      file="$(resolve_repo_path "${BASH_REMATCH[1]}")"
+      echo "::error file=${file},line=${BASH_REMATCH[2]},col=${BASH_REMATCH[3]}::${BASH_REMATCH[5]}"
+    else
+      echo "::error::${line}"
+    fi
   done <<<"$compiler_errors"
 fi
 
 # Swift Testing and XCTest failures.
-test_failures="$(grep -E '✘ (Test|Suite) ' "$normalized" | sort -u)"
+test_failures="$(grep -E '✘ (Test|Suite) ' "$normalized" | awk '!seen[$0]++')"
 
 if [ -n "$test_failures" ]; then
-  found_any=1
+  found_diagnostic=1
   echo "Test failures:"
   echo "$test_failures"
   echo
 
   while IFS= read -r line; do
     [ -n "$line" ] || continue
-    echo "::error::${line}"
+    if [[ "$line" =~ at\ ([^[:space:]:]+):([0-9]+):([0-9]+): ]]; then
+      file="$(resolve_repo_path "${BASH_REMATCH[1]}")"
+      echo "::error file=${file},line=${BASH_REMATCH[2]},col=${BASH_REMATCH[3]}::${line}"
+    else
+      echo "::error::${line}"
+    fi
   done <<<"$test_failures"
 fi
 
-# xcodebuild's own terminal verdict, which names the failed build commands.
-verdict="$(grep -E '^\*\* (TEST|BUILD) FAILED \*\*|^The following build commands failed:|^\s*Testing (failed|cancelled)' "$normalized" | sort -u)"
+# xcodebuild's own terminal verdict, which names the failed build commands. It
+# deliberately does not count as a diagnostic: it states that the build failed
+# without ever saying why, so on its own it must still trigger the fallback.
+verdict="$(grep -E '^\*\* (TEST|BUILD) FAILED \*\*|^The following build commands failed:|^\s*Testing (failed|cancelled)' "$normalized" | awk '!seen[$0]++')"
 
 if [ -n "$verdict" ]; then
-  found_any=1
   echo "xcodebuild verdict:"
   echo "$verdict"
   echo
 fi
 
-if [ "$found_any" -eq 0 ]; then
-  # No diagnostic anywhere means the toolchain never reported the failure - a
+if [ "$found_diagnostic" -eq 0 ]; then
+  # No diagnostic anywhere means the toolchain never reported a reason - a
   # killed process, an exhausted runner, or a crashed simulator. Say so, rather
   # than leaving a future reader to infer it from a log that just stops.
-  echo "::error::xcodebuild failed without emitting any diagnostic. That is the signature of a killed process rather than a build error - see the resource snapshot below and the uploaded raw log."
+  if [ -n "$verdict" ]; then
+    echo "::error::xcodebuild reported a failure but emitted no compiler or test diagnostic - see the last 80 lines below, the resource snapshot, and the uploaded raw log."
+  else
+    echo "::error::xcodebuild failed without emitting any diagnostic. That is the signature of a killed process rather than a build error - see the resource snapshot below and the uploaded raw log."
+  fi
   echo "Last 80 lines of ${log_path}:"
   tail -80 "$normalized"
   echo
