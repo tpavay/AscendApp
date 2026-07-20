@@ -15,7 +15,10 @@
  *   - a `_migrations` Firestore ledger entry gating every apply, so "did this
  *     backfill run here?" is answerable from data, not memory;
  *   - a re-run guard: a migration that already succeeded refuses a second apply
- *     unless `--rerun` is passed (the operation body must still be idempotent).
+ *     unless `--rerun` is passed (the operation body must still be idempotent);
+ *   - a pending-repair list on the ledger, so follow-up work an operation owes
+ *     (derived projections it must rebuild) survives a partway failure and is
+ *     picked back up by the next run instead of verifying vacuously.
  *
  * When the full runner lands, these scripts become operation modules under it
  * and this helper is deleted.
@@ -167,6 +170,26 @@ export async function hasSucceededLedgerEntry(db, operationId, version) {
 }
 
 /**
+ * Follow-up work a previous apply recorded but never confirmed finished.
+ *
+ * An operation records what it owes before it starts writing and clears the list only
+ * on success, so a run that died partway leaves its outstanding work here. The next run
+ * must fold these back into its own plan; otherwise it re-plans from live state, finds
+ * the primary writes already committed, and reports success without the follow-up.
+ * @param {FirebaseFirestore.Firestore} db Firestore instance.
+ * @param {string} operationId Operation id.
+ * @return {Promise<object[]>} Outstanding repair keys, empty when nothing is owed.
+ */
+export async function readPendingRepairs(db, operationId) {
+  const snapshot = await db
+    .collection(MIGRATIONS_COLLECTION)
+    .doc(encodeOperationId(operationId))
+    .get();
+  const pending = snapshot.data()?.pendingRepairs;
+  return Array.isArray(pending) ? pending : [];
+}
+
+/**
  * Records the start of an apply run in the ledger and returns a run handle.
  * A migration that already succeeded refuses a second apply unless rerun is set.
  * @param {FirebaseFirestore.Firestore} db Firestore instance.
@@ -213,6 +236,10 @@ export async function beginRun(db, params) {
   });
 
   return {
+    async recordPending(pendingRepairs) {
+      await parentRef.set({pendingRepairs}, {merge: true});
+      await runRef.set({pendingRepairs}, {merge: true});
+    },
     async finish(counts) {
       await runRef.set(
         {status: "succeeded", counts, finishedAt: FieldValue.serverTimestamp()},
@@ -223,6 +250,7 @@ export async function beginRun(db, params) {
       const parentSnapshot = await parentRef.get();
       const parentUpdate = {
         status: "succeeded",
+        pendingRepairs: [],
         lastFinishedAt: FieldValue.serverTimestamp(),
       };
       if (!parentSnapshot.get("firstSucceededAt")) {

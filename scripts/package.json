@@ -40,6 +40,8 @@
     "backfill:live-replay-best-per-user:staging": "node backfill-live-replay-best-per-user.mjs --project staging --dry-run",
     "backfill:legacy-replay-completions": "node backfill-legacy-live-replay-completions.mjs --env dev",
     "backfill:legacy-replay-completions:staging": "node backfill-legacy-live-replay-completions.mjs --env staging",
+    "cleanup:case-variant-workout-ids": "node cleanup-case-variant-workout-ids.mjs --env dev",
+    "cleanup:case-variant-workout-ids:staging": "node cleanup-case-variant-workout-ids.mjs --env staging",
     "clear:live-replay": "node seed-live-replay-leaderboards.mjs clear --project dev",
     "clear:live-replay:staging": "node seed-live-replay-leaderboards.mjs clear --project staging",
     "seed:routine-templates": "node seed-routine-templates.mjs seed --project dev",
