@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   groupCompletions,
   deriveLandmarkResult,
+  recomputeLandmarkResult,
   shouldSkipLandmarkResultWrite,
 } from "../lib/landmark-result-derivation.mjs";
 
@@ -78,6 +79,77 @@ test("materialization rewrites once a new completion of a climb appears", () => 
   assert.equal(applyOnce(workouts, store), 0, "then converges again");
 });
 
+test("a live trigger racing a stale backfill plan keeps the full projection", async () => {
+  const staleBackfillRead = deferred();
+  const releaseStaleBackfill = deferred();
+  const store = makeTransactionalStore(
+    {a: completedWorkout({climbId: ESB})},
+    {
+      async afterWorkoutList(call) {
+        if (call === 1) {
+          staleBackfillRead.resolve();
+          await releaseStaleBackfill.promise;
+        }
+      },
+    }
+  );
+
+  const staleBackfill = recomputeLandmarkResult(store, "u1", ESB);
+  await staleBackfillRead.promise;
+
+  store.setWorkout(
+    "b",
+    completedWorkout({climbId: ESB, durationSeconds: 500})
+  );
+  await recomputeLandmarkResult(store, "u1", ESB);
+  releaseStaleBackfill.resolve();
+  await staleBackfill;
+
+  const result = store.readResult(ESB);
+  assert.equal(result.attemptCount, 2);
+  assert.equal(result.bestWorkoutId, "b");
+});
+
+test("transactional backfill rerun is byte-identical and writes nothing", async () => {
+  const store = makeTransactionalStore({
+    a: completedWorkout({climbId: ESB}),
+  });
+
+  assert.equal(await recomputeLandmarkResult(store, "u1", ESB), "written");
+  const firstDocument = structuredClone(store.readResult(ESB));
+  assert.equal(await recomputeLandmarkResult(store, "u1", ESB), "skipped");
+
+  assert.equal(store.writes, 1);
+  assert.deepEqual(store.readResult(ESB), firstDocument);
+});
+
+test("repair reconciliation deletes an orphaned stored projection", async () => {
+  const store = makeTransactionalStore({});
+  const stale = deriveLandmarkResult(ESB, [{
+    workoutId: "deleted-workout",
+    climbId: ESB,
+    steps: 2096,
+    elapsedSeconds: 900,
+    completedAtMillis: 1_700_000_900_000,
+  }]);
+  store.seedResult(ESB, stale);
+
+  assert.equal(await recomputeLandmarkResult(store, "u1", ESB), "deleted");
+  assert.equal(store.readResult(ESB), null);
+  assert.equal(await recomputeLandmarkResult(store, "u1", ESB), "skipped");
+  assert.equal(store.deletes, 1);
+});
+
+test("repair reconciliation deletes an unparseable orphaned projection", async () => {
+  const store = makeTransactionalStore({});
+  store.seedUnparseableResult(ESB);
+
+  assert.equal(await recomputeLandmarkResult(store, "u1", ESB), "deleted");
+  assert.equal(store.resultExists(ESB), false);
+  assert.equal(await recomputeLandmarkResult(store, "u1", ESB), "skipped");
+  assert.equal(store.deletes, 1);
+});
+
 /**
  * Runs one plan+apply pass of the backfill's core over an in-memory store,
  * mirroring scripts/backfill-landmark-results.mjs without Firestore.
@@ -101,6 +173,91 @@ function applyOnce(workouts, store) {
     }
   }
   return written;
+}
+
+/** In-memory optimistic transaction store with retry-on-version-change. */
+function makeTransactionalStore(workouts, options = {}) {
+  const canonicalWorkouts = {...workouts};
+  const results = new Map();
+  let workoutListCalls = 0;
+  let version = 0;
+
+  return {
+    writes: 0,
+    deletes: 0,
+    setWorkout(id, data) {
+      canonicalWorkouts[id] = data;
+      version += 1;
+    },
+    seedResult(climbId, projection) {
+      results.set(climbId, projection);
+      version += 1;
+    },
+    // A stored document present but unreadable by the normalizer.
+    seedUnparseableResult(climbId) {
+      results.set(climbId, null);
+      version += 1;
+    },
+    resultExists(climbId) {
+      return results.has(climbId);
+    },
+    readResult(climbId) {
+      return results.get(climbId) ?? null;
+    },
+    async runTransaction(operation) {
+      for (let retry = 0; retry < 20; retry += 1) {
+        const readVersion = version;
+        const workoutSnapshot = Object.entries(canonicalWorkouts).map(
+          ([id, data]) => ({id, data})
+        );
+        const resultSnapshot = new Map(results);
+        const mutation = {value: null};
+        const outcome = await operation({
+          async listUserWorkouts() {
+            workoutListCalls += 1;
+            await options.afterWorkoutList?.(workoutListCalls);
+            return workoutSnapshot;
+          },
+          async getLandmarkResult(_userId, climbId) {
+            return {
+              exists: resultSnapshot.has(climbId),
+              projection: resultSnapshot.get(climbId) ?? null,
+            };
+          },
+          async writeLandmarkResult(_userId, climbId, projection) {
+            mutation.value = {kind: "write", climbId, projection};
+          },
+          async deleteLandmarkResult(_userId, climbId) {
+            mutation.value = {kind: "delete", climbId};
+          },
+        });
+
+        if (version !== readVersion) {
+          continue;
+        }
+        if (mutation.value?.kind === "write") {
+          results.set(mutation.value.climbId, mutation.value.projection);
+          this.writes += 1;
+          version += 1;
+        } else if (mutation.value?.kind === "delete") {
+          results.delete(mutation.value.climbId);
+          this.deletes += 1;
+          version += 1;
+        }
+        return outcome;
+      }
+      throw new Error("fake transaction exceeded retry limit");
+    },
+  };
+}
+
+/** Creates a manually-resolvable promise for deterministic interleavings. */
+function deferred() {
+  let resolve;
+  const promise = new Promise((fulfill) => {
+    resolve = fulfill;
+  });
+  return {promise, resolve};
 }
 
 /**

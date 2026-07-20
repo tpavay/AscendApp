@@ -11,8 +11,10 @@
  *
  * One Projection Builder, three triggers (CANONICAL §1): this live trigger, a
  * rebuild of a corrupted projection, and the migration backfill
- * (scripts/backfill-landmark-results.mjs) all go through the same derivation
- * and the same validate-before-write guard. Never fork per-trigger logic.
+ * (scripts/backfill-landmark-results.mjs) all go through the same derivation,
+ * the same single Firestore transaction (workout query, projection read, and
+ * write-or-delete, reads before writes so a retry re-derives), and the same
+ * validate-before-write guard. Never fork per-trigger logic.
  *
  * It writes ONLY the private `landmarkResults` projection. It never publishes a
  * replay row and never assigns a First Ascent - that stays owned by the
@@ -23,6 +25,7 @@
  */
 
 import {onDocumentWritten} from "firebase-functions/v2/firestore";
+import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
 import {createHash} from "crypto";
 import {
@@ -34,6 +37,7 @@ const LANDMARK_RESULTS_COLLECTION = "landmarkResults";
 const WORKOUTS_COLLECTION = "workouts";
 const USERS_COLLECTION = "users";
 export const LANDMARK_RESULT_SCHEMA_VERSION = 1;
+const TRANSACTION_MAX_ATTEMPTS = 5;
 
 /** A completed landmark workout, reduced to the fields the projection needs. */
 export interface CompletedLandmarkWorkout {
@@ -58,23 +62,41 @@ export interface LandmarkResultProjection {
 }
 
 /**
- * The persistence boundary. The Admin SDK bypasses security rules, so this is
- * the only writer of `landmarkResults`; tests inject an in-memory store.
+ * A stored projection read, keeping "no document" distinct from "a document
+ * exists but does not parse". Both yield a null `projection`, but only the
+ * latter is an orphan the reconciliation must still delete.
  */
-export interface LandmarkResultStore {
+export interface StoredLandmarkResult {
+  exists: boolean;
+  projection: LandmarkResultProjection | null;
+}
+
+/**
+ * The operations available inside one projection transaction. The Admin SDK
+ * bypasses security rules, so the production adapter remains the only writer of
+ * `landmarkResults`; tests inject an in-memory transactional store.
+ */
+export interface LandmarkResultTransaction {
   listUserWorkouts(
     userId: string
   ): Promise<{id: string; data: Record<string, unknown>}[]>;
   getLandmarkResult(
     userId: string,
     climbId: string
-  ): Promise<LandmarkResultProjection | null>;
+  ): Promise<StoredLandmarkResult>;
   writeLandmarkResult(
     userId: string,
     climbId: string,
     projection: LandmarkResultProjection
   ): Promise<void>;
   deleteLandmarkResult(userId: string, climbId: string): Promise<void>;
+}
+
+/** Runs a projection reconciliation with Firestore retry semantics. */
+export interface LandmarkResultStore {
+  runTransaction<T>(
+    operation: (transaction: LandmarkResultTransaction) => Promise<T>
+  ): Promise<T>;
 }
 
 /**
@@ -196,10 +218,9 @@ export function deriveLandmarkResult(
 
 /**
  * Whether a recompute may return success WITHOUT writing, because the canonical
- * event is already reflected in the stored projection. This is the required
- * validate-the-invariant-before-writing guard (not deterministic-ID-only): it
- * makes re-delivery, concurrent triggers, and backfill re-runs converge on "the
- * projection already exists -> success, no duplicate write".
+ * event is already reflected in the stored projection. The guard prevents
+ * duplicate writes; transaction isolation is what makes concurrent triggers and
+ * backfill runs converge without allowing an older snapshot to commit last.
  * @param {LandmarkResultProjection | null} existing Stored projection.
  * @param {LandmarkResultProjection} next Newly derived projection.
  * @return {boolean} True when the write can be skipped.
@@ -230,30 +251,38 @@ export async function recomputeLandmarkResult(
   userId: string,
   climbId: string
 ): Promise<"written" | "skipped" | "deleted"> {
-  const workouts = await store.listUserWorkouts(userId);
-  const completions: CompletedLandmarkWorkout[] = [];
-  for (const workout of workouts) {
-    const parsed = parseCompletedLandmarkWorkout(workout.id, workout.data);
-    if (parsed && parsed.climbId === climbId) {
-      completions.push(parsed);
+  return store.runTransaction(async (transaction) => {
+    const workouts = await transaction.listUserWorkouts(userId);
+    const completions: CompletedLandmarkWorkout[] = [];
+    for (const workout of workouts) {
+      const parsed = parseCompletedLandmarkWorkout(workout.id, workout.data);
+      if (parsed && parsed.climbId === climbId) {
+        completions.push(parsed);
+      }
     }
-  }
 
-  const next = deriveLandmarkResult(climbId, completions);
-  if (!next) {
-    // No completed workout remains for this landmark (deleted or edited below
-    // target). The projection is disposable; remove it so the set stays honest.
-    await store.deleteLandmarkResult(userId, climbId);
-    return "deleted";
-  }
+    // Keep every read before the first write. Firestore may retry this entire
+    // callback when either the workout query or result document changes.
+    const stored = await transaction.getLandmarkResult(userId, climbId);
+    const existing = stored.projection;
+    const next = deriveLandmarkResult(climbId, completions);
+    if (!next) {
+      // Delete on existence, not on parseability: a stored document whose
+      // canonical completions are gone is an orphan even when it is malformed.
+      if (!stored.exists) {
+        return "skipped";
+      }
+      await transaction.deleteLandmarkResult(userId, climbId);
+      return "deleted";
+    }
 
-  const existing = await store.getLandmarkResult(userId, climbId);
-  if (shouldSkipLandmarkResultWrite(existing, next)) {
-    return "skipped";
-  }
+    if (shouldSkipLandmarkResultWrite(existing, next)) {
+      return "skipped";
+    }
 
-  await store.writeLandmarkResult(userId, climbId, next);
-  return "written";
+    await transaction.writeLandmarkResult(userId, climbId, next);
+    return "written";
+  });
 }
 
 /**
@@ -302,37 +331,81 @@ export function makeAdminStore(): LandmarkResultStore {
   const db = admin.firestore();
 
   return {
-    async listUserWorkouts(userId) {
-      const snapshot = await db
-        .collection(USERS_COLLECTION)
-        .doc(userId)
-        .collection(WORKOUTS_COLLECTION)
-        .get();
-      return snapshot.docs.map((doc) => ({
-        id: doc.id,
-        data: doc.data() as Record<string, unknown>,
-      }));
-    },
+    async runTransaction<T>(operation: (
+      transaction: LandmarkResultTransaction
+    ) => Promise<T>): Promise<T> {
+      let attempts = 0;
+      try {
+        const outcome = await db.runTransaction(
+          async (firestoreTransaction) => {
+            attempts += 1;
+            return operation({
+              async listUserWorkouts(userId) {
+                // Narrowed to the only source the derivation can accept, so the
+                // serializable read lock covers headphone-motion workouts
+                // instead of the user's entire workout history.
+                const query = db
+                  .collection(USERS_COLLECTION)
+                  .doc(userId)
+                  .collection(WORKOUTS_COLLECTION)
+                  .where("source", "==", HEADPHONE_MOTION_SOURCE);
+                const snapshot = await firestoreTransaction.get(query);
+                return snapshot.docs.map((doc) => ({
+                  id: doc.id,
+                  data: doc.data() as Record<string, unknown>,
+                }));
+              },
 
-    async getLandmarkResult(userId, climbId) {
-      const snapshot = await landmarkResultRef(db, userId, climbId).get();
-      if (!snapshot.exists) {
-        return null;
+              async getLandmarkResult(userId, climbId) {
+                const snapshot = await firestoreTransaction.get(
+                  landmarkResultRef(db, userId, climbId)
+                );
+                if (!snapshot.exists) {
+                  return {exists: false, projection: null};
+                }
+                return {
+                  exists: true,
+                  projection: normalizeStoredProjection(
+                    climbId,
+                    snapshot.data() as Record<string, unknown>
+                  ),
+                };
+              },
+
+              async writeLandmarkResult(userId, climbId, projection) {
+                firestoreTransaction.set(
+                  landmarkResultRef(db, userId, climbId),
+                  toFirestoreProjection(projection)
+                );
+              },
+
+              async deleteLandmarkResult(userId, climbId) {
+                firestoreTransaction.delete(
+                  landmarkResultRef(db, userId, climbId)
+                );
+              },
+            });
+          },
+          {maxAttempts: TRANSACTION_MAX_ATTEMPTS}
+        );
+        if (attempts > 1) {
+          logger.warn("landmarkResult.transaction.contention", {
+            attempts,
+            maxAttempts: TRANSACTION_MAX_ATTEMPTS,
+          });
+        }
+        return outcome;
+      } catch (error) {
+        logger.error("landmarkResult.transaction.failed", {
+          attempts,
+          maxAttempts: TRANSACTION_MAX_ATTEMPTS,
+          attemptsExhausted: attempts >= TRANSACTION_MAX_ATTEMPTS,
+          errorMessage: String(
+            (error as {message?: unknown})?.message ?? error
+          ),
+        });
+        throw error;
       }
-      return normalizeStoredProjection(
-        climbId,
-        snapshot.data() as Record<string, unknown>
-      );
-    },
-
-    async writeLandmarkResult(userId, climbId, projection) {
-      await landmarkResultRef(db, userId, climbId).set(
-        toFirestoreProjection(projection)
-      );
-    },
-
-    async deleteLandmarkResult(userId, climbId) {
-      await landmarkResultRef(db, userId, climbId).delete();
     },
   };
 }

@@ -218,14 +218,17 @@ export async function beginRun(db, params) {
         {status: "succeeded", counts, finishedAt: FieldValue.serverTimestamp()},
         {merge: true}
       );
-      await parentRef.set(
-        {
-          status: "succeeded",
-          lastFinishedAt: FieldValue.serverTimestamp(),
-          firstSucceededAt: FieldValue.serverTimestamp(),
-        },
-        {merge: true}
-      );
+      // firstSucceededAt answers "when did this backfill first run here?", so a
+      // --rerun must never overwrite it.
+      const parentSnapshot = await parentRef.get();
+      const parentUpdate = {
+        status: "succeeded",
+        lastFinishedAt: FieldValue.serverTimestamp(),
+      };
+      if (!parentSnapshot.get("firstSucceededAt")) {
+        parentUpdate.firstSucceededAt = FieldValue.serverTimestamp();
+      }
+      await parentRef.set(parentUpdate, {merge: true});
     },
     async fail(error) {
       await runRef.set(
