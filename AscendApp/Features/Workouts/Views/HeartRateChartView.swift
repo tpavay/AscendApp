@@ -10,8 +10,16 @@ import Charts
 
 struct HeartRateChartDataSet: Equatable {
     static let minimumLineSampleCount = 3
+    /// A gap this many times wider than the series' own median spacing is a
+    /// dropout rather than cadence jitter. Scaling off the series keeps sparse
+    /// imported samples (minutes apart by nature) rendering as one trace while
+    /// still breaking ~1 Hz live capture where the strap actually went silent.
+    static let dropoutGapMultiplier: Double = 4
+    /// Floor so a couple of skipped 1 Hz notifications never shatter the line.
+    static let minimumDropoutGap: TimeInterval = 10
 
     let points: [HeartRateChartPoint]
+    let segments: [HeartRateChartSegment]
     let duration: TimeInterval
     let heartRateRange: ClosedRange<Int>
     let heartRateTickValues: [Int]
@@ -45,11 +53,47 @@ struct HeartRateChartDataSet: Equatable {
                 heartRate: sample.heartRate
             )
         }
+        segments = Self.segments(for: points)
         duration = visibleDuration
 
         let rates = points.map(\.heartRate)
         heartRateRange = Self.range(for: rates)
         heartRateTickValues = Self.tickValues(for: heartRateRange)
+    }
+
+    /// Splits the trace wherever coverage actually stopped, so a dropout reads
+    /// as missing data instead of an interpolated straight line.
+    static func segments(for points: [HeartRateChartPoint]) -> [HeartRateChartSegment] {
+        guard points.count > 1 else {
+            return points.isEmpty ? [] : [HeartRateChartSegment(id: 0, points: points)]
+        }
+
+        let spacings = zip(points, points.dropFirst()).map { $1.elapsed - $0.elapsed }
+        let threshold = max(median(of: spacings) * dropoutGapMultiplier, minimumDropoutGap)
+
+        var segments: [HeartRateChartSegment] = []
+        var current: [HeartRateChartPoint] = [points[0]]
+        for (previous, point) in zip(points, points.dropFirst()) {
+            if point.elapsed - previous.elapsed > threshold {
+                segments.append(HeartRateChartSegment(id: segments.count, points: current))
+                current = [point]
+            } else {
+                current.append(point)
+            }
+        }
+        segments.append(HeartRateChartSegment(id: segments.count, points: current))
+        return segments
+    }
+
+    private static func median(of values: [TimeInterval]) -> TimeInterval {
+        guard !values.isEmpty else { return 0 }
+
+        let sorted = values.sorted()
+        let middle = sorted.count / 2
+        if sorted.count.isMultiple(of: 2) {
+            return (sorted[middle - 1] + sorted[middle]) / 2
+        }
+        return sorted[middle]
     }
 
     private static func range(for heartRates: [Int]) -> ClosedRange<Int> {
@@ -83,6 +127,13 @@ struct HeartRateChartPoint: Identifiable, Equatable {
     let id: Int
     let elapsed: TimeInterval
     let heartRate: Int
+}
+
+/// One run of contiguously sampled points. Separate segments are drawn as
+/// separate lines so the space between them stays visibly empty.
+struct HeartRateChartSegment: Identifiable, Equatable {
+    let id: Int
+    let points: [HeartRateChartPoint]
 }
 
 struct HeartRateChartView: View {
@@ -217,10 +268,16 @@ struct HeartRateChartView: View {
     
     private var chartView: some View {
         Chart {
-            ForEach(dataSet.points) { data in
-                heartRateLineMark(data: data)
+            ForEach(dataSet.segments) { segment in
+                ForEach(segment.points) { data in
+                    heartRateLineMark(data: data, series: segment.id)
+                }
+
+                if segment.points.count == 1, let isolated = segment.points.first {
+                    isolatedSampleMark(data: isolated)
+                }
             }
-            
+
             if let selected = computedSelectedPoint {
                 selectedPointMarks(elapsed: selected.elapsed, heartRate: selected.heartRate)
             }
@@ -256,13 +313,23 @@ struct HeartRateChartView: View {
         }
     }
     
-    private func heartRateLineMark(data: HeartRateChartPoint) -> some ChartContent {
+    private func heartRateLineMark(data: HeartRateChartPoint, series: Int) -> some ChartContent {
         LineMark(
+            x: .value("Time", data.elapsed),
+            y: .value("Heart Rate", data.heartRate),
+            series: .value("Segment", series)
+        )
+        .foregroundStyle(.red)
+        .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+    }
+
+    private func isolatedSampleMark(data: HeartRateChartPoint) -> some ChartContent {
+        PointMark(
             x: .value("Time", data.elapsed),
             y: .value("Heart Rate", data.heartRate)
         )
         .foregroundStyle(.red)
-        .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+        .symbolSize(24)
     }
     
     @ChartContentBuilder
