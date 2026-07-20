@@ -18,7 +18,13 @@ final class HeartRateMonitorService {
         case disconnected
         case scanning
         case connecting
+        /// An established connection dropped unexpectedly (range, contact,
+        /// interference) and the transport is waiting for the strap to return.
+        /// Distinct from `.connecting` because it is unbounded by design and
+        /// must never be reported as a failed connect attempt.
+        case reconnecting
         case connected
+        case failed
     }
 
     struct RememberedDevice: Equatable {
@@ -31,7 +37,9 @@ final class HeartRateMonitorService {
     static let sampleFreshnessWindow: TimeInterval = 5
     /// connect() never times out natively; without this a strap whose slots
     /// are held by another device (Polar H10 ships single-slot) hangs forever.
-    private static let connectTimeout: TimeInterval = 15
+    /// Bounds the initial connect attempt only — an unexpected mid-session drop
+    /// keeps the transport's persistent reconnect pending indefinitely.
+    static let connectTimeout: Duration = .seconds(15)
 
     private static let rememberedIDDefaultsKey = "heartRateMonitor.rememberedDeviceID"
     private static let rememberedNameDefaultsKey = "heartRateMonitor.rememberedDeviceName"
@@ -44,12 +52,36 @@ final class HeartRateMonitorService {
     private(set) var didLastConnectAttemptTimeOut = false
     private(set) var rememberedDevice: RememberedDevice?
 
-    @ObservationIgnored private var client: BluetoothHeartRateClient?
+    @ObservationIgnored private var client: (any BluetoothHeartRateClientProtocol)?
     @ObservationIgnored private var connectTimeoutTask: Task<Void, Never>?
     @ObservationIgnored private let userDefaults: UserDefaults
+    @ObservationIgnored private let authorizationProvider: () -> CBManagerAuthorization
+    @ObservationIgnored private let clientFactory: (
+        @escaping @Sendable (BluetoothHeartRateClientEvent) -> Void
+    ) -> any BluetoothHeartRateClientProtocol
+    @ObservationIgnored private let connectionSleep: @MainActor (Duration) async throws -> Void
+    @ObservationIgnored private let now: () -> Date
 
-    init(userDefaults: UserDefaults = .standard) {
+    init(
+        userDefaults: UserDefaults = .standard,
+        authorizationProvider: @escaping () -> CBManagerAuthorization = {
+            CBCentralManager.authorization
+        },
+        clientFactory: @escaping (
+            @escaping @Sendable (BluetoothHeartRateClientEvent) -> Void
+        ) -> any BluetoothHeartRateClientProtocol = { eventHandler in
+            BluetoothHeartRateClient(onEvent: eventHandler)
+        },
+        connectionSleep: @escaping @MainActor (Duration) async throws -> Void = { duration in
+            try await Task.sleep(for: duration)
+        },
+        now: @escaping () -> Date = Date.init
+    ) {
         self.userDefaults = userDefaults
+        self.authorizationProvider = authorizationProvider
+        self.clientFactory = clientFactory
+        self.connectionSleep = connectionSleep
+        self.now = now
         if let idString = userDefaults.string(forKey: Self.rememberedIDDefaultsKey),
            let id = UUID(uuidString: idString) {
             let name = userDefaults.string(forKey: Self.rememberedNameDefaultsKey) ?? "Heart Rate Monitor"
@@ -59,7 +91,7 @@ final class HeartRateMonitorService {
 
     /// Bluetooth permission state, readable without triggering the prompt.
     var authorization: CBManagerAuthorization {
-        CBCentralManager.authorization
+        authorizationProvider()
     }
 
     var isConnected: Bool {
@@ -69,7 +101,7 @@ final class HeartRateMonitorService {
     /// The latest reading if it arrived recently enough to trust for display.
     var freshMeasurement: HeartRateMeasurement? {
         guard let currentMeasurement,
-              Date().timeIntervalSince(currentMeasurement.receivedAt) <= Self.sampleFreshnessWindow else {
+              now().timeIntervalSince(currentMeasurement.receivedAt) <= Self.sampleFreshnessWindow else {
             return nil
         }
         return currentMeasurement
@@ -83,7 +115,7 @@ final class HeartRateMonitorService {
     func startPairingScan() {
         didLastConnectAttemptTimeOut = false
         discoveredDevices = []
-        if connectionState != .connected {
+        if connectionState != .connected, connectionState != .reconnecting {
             connectionState = .scanning
         }
         ensureClient().startScanning()
@@ -126,28 +158,32 @@ final class HeartRateMonitorService {
     func autoConnectIfRemembered() {
         guard let rememberedDevice,
               authorization == .allowedAlways,
-              connectionState == .disconnected else {
+              connectionState == .disconnected || connectionState == .failed else {
             return
         }
-        beginConnection(to: rememberedDevice.id, timesOut: false)
+        beginConnection(to: rememberedDevice.id)
     }
 
     // MARK: - Internals
 
-    private func beginConnection(to id: UUID, timesOut: Bool = true) {
+    private func beginConnection(to id: UUID) {
         didLastConnectAttemptTimeOut = false
         connectionState = .connecting
         let client = ensureClient()
         client.stopScanning()
         client.connect(to: id)
 
+        scheduleConnectionTimeout()
+    }
+
+    private func scheduleConnectionTimeout() {
         connectTimeoutTask?.cancel()
-        guard timesOut else { return }
-        connectTimeoutTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(Self.connectTimeout))
+        let connectionSleep = self.connectionSleep
+        connectTimeoutTask = Task { [weak self, connectionSleep] in
+            try? await connectionSleep(Self.connectTimeout)
             guard !Task.isCancelled, let self, self.connectionState == .connecting else { return }
             self.client?.disconnect()
-            self.connectionState = .disconnected
+            self.connectionState = .failed
             self.didLastConnectAttemptTimeOut = true
         }
     }
@@ -158,11 +194,11 @@ final class HeartRateMonitorService {
         userDefaults.set(name, forKey: Self.rememberedNameDefaultsKey)
     }
 
-    private func ensureClient() -> BluetoothHeartRateClient {
+    private func ensureClient() -> any BluetoothHeartRateClientProtocol {
         if let client {
             return client
         }
-        let newClient = BluetoothHeartRateClient { [weak self] event in
+        let newClient = clientFactory { [weak self] event in
             Task { @MainActor in
                 self?.handle(event)
             }
@@ -175,7 +211,8 @@ final class HeartRateMonitorService {
         switch event {
         case .availabilityChanged(let availability):
             self.availability = availability
-            if availability != .poweredOn, connectionState == .connected {
+            if availability != .poweredOn,
+               connectionState == .connected || connectionState == .reconnecting {
                 connectionState = .disconnected
                 connectedDeviceName = nil
             }
@@ -202,12 +239,19 @@ final class HeartRateMonitorService {
             guard !wasRequested else { return }
             connectedDeviceName = nil
             // The client keeps a persistent reconnect pending for unexpected
-            // drops; reflect that so the UI can show "reconnecting".
-            connectionState = rememberedDevice?.id == id ? .connecting : .disconnected
+            // drops; reflect that so the UI can show "reconnecting". Never arm
+            // the connect timeout here — firing it would disconnect the client
+            // and throw that pending reconnect away for the rest of the climb.
+            connectTimeoutTask?.cancel()
+            if rememberedDevice?.id == id {
+                connectionState = .reconnecting
+            } else {
+                connectionState = .disconnected
+            }
 
         case .connectionFailed:
             connectTimeoutTask?.cancel()
-            connectionState = .disconnected
+            connectionState = .failed
             connectedDeviceName = nil
 
         case .measurement(let measurement):
