@@ -45,6 +45,7 @@ final class ActiveHeadphoneWorkoutDraft {
     var splitCurveData: Data?
     var trackingIntegrityData: Data?
     var stepCorrectionsData: Data?
+    var heartRateData: Data?
 
     var kind: ActiveHeadphoneWorkoutDraftKind {
         get { ActiveHeadphoneWorkoutDraftKind(rawValue: kindRawValue) ?? .justClimb }
@@ -74,6 +75,11 @@ final class ActiveHeadphoneWorkoutDraft {
     var routineWeightConfiguration: WeightConfiguration? {
         get { WeightConfiguration.decode(from: routineWeightConfigurationData) }
         set { routineWeightConfigurationData = newValue?.encoded }
+    }
+
+    var heartRateSamples: [HeartRateDataPoint] {
+        get { Self.decode([HeartRateDataPoint].self, from: heartRateData) ?? [] }
+        set { heartRateData = Self.encode(newValue.isEmpty ? nil : newValue) }
     }
 
     var resumeState: HeadphoneMotionSessionResumeState {
@@ -135,6 +141,7 @@ final class ActiveHeadphoneWorkoutDraft {
         self.routineIntervalCount = routineIntervalCount
         self.routineSkippedIntervalCount = nil
         self.routineWeightConfiguration = routineWeightConfiguration
+        self.heartRateData = nil
         self.trackingIntegrity = .verified
         self.stepCorrections = []
     }
@@ -146,6 +153,7 @@ final class ActiveHeadphoneWorkoutDraft {
         splitCurve: LiveReplaySplitCurve?,
         trackingIntegrity: HeadphoneMotionTrackingIntegrity,
         stepCorrections: [HeadphoneMotionStepCorrection],
+        heartRateSamples: [HeartRateDataPoint]? = nil,
         status: ActiveHeadphoneWorkoutDraftStatus = .recording,
         skippedIntervalCount: Int? = nil,
         checkpointedAt: Date = Date()
@@ -156,6 +164,9 @@ final class ActiveHeadphoneWorkoutDraft {
         self.splitCurve = splitCurve
         self.trackingIntegrity = trackingIntegrity
         self.stepCorrections = stepCorrections
+        if let heartRateSamples {
+            self.heartRateSamples = heartRateSamples
+        }
         self.status = status
         if let skippedIntervalCount {
             self.routineSkippedIntervalCount = max(skippedIntervalCount, 0)
@@ -184,6 +195,7 @@ extension ActiveHeadphoneWorkoutDraft {
             "steps": String(steps),
             "duration_seconds": String(Int(durationSeconds.rounded(.down))),
             "sample_count": String(sampleCount),
+            "heart_rate_sample_count": String(heartRateSamples.count),
             "checkpoint_age_seconds": String(max(0, Int(Date().timeIntervalSince(lastCheckpointAt).rounded(.down))))
         ]
 

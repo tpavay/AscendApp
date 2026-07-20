@@ -221,6 +221,7 @@ final class LiveClimbSessionViewModel {
         self.draftStore = draftStore
         self.heartRateRecorder = heartRateRecorder
         self.activeDraft = recoveredDraft
+        heartRateRecorder.restore(samples: recoveredDraft?.heartRateSamples ?? [])
         self.stepTimelineRecorder = LiveClimbStepTimelineRecorder(intervalSeconds: 10)
         self.motionSession.setStepSampleHandler { [weak self] sample in
             self?.recordLiveStepSample(sample)
@@ -253,6 +254,7 @@ final class LiveClimbSessionViewModel {
         self.draftStore = draftStore
         self.heartRateRecorder = heartRateRecorder
         self.activeDraft = recoveredDraft
+        heartRateRecorder.restore(samples: recoveredDraft?.heartRateSamples ?? [])
         self.stepTimelineRecorder = LiveClimbStepTimelineRecorder(intervalSeconds: 10)
         self.motionSession.setStepSampleHandler { [weak self] sample in
             self?.recordLiveStepSample(sample)
@@ -440,7 +442,9 @@ final class LiveClimbSessionViewModel {
         // Strap-on-and-go: reconnect the remembered heart-rate monitor
         // silently, and resolve the climber's zone bands from their profile
         // age. Both are best-effort — the session never waits on them.
-        heartRateRecorder.prepareForSession()
+        heartRateRecorder.prepareForSession(
+            restoring: preexistingDraft?.heartRateSamples ?? []
+        )
         Task { [weak self] in
             let profile = await HeartRateZoneProfileResolver.resolve()
             self?.heartRateZoneProfile = profile
@@ -736,11 +740,21 @@ final class LiveClimbSessionViewModel {
         heartRateRecorder.isSourceConnected
     }
 
+    var heartRateSamplesSnapshot: [HeartRateDataPoint] {
+        heartRateRecorder.samples
+    }
+
     /// Buffers one reading per second-tick while recording so completed
     /// workouts carry the same heart-rate series shape as imported ones —
     /// the existing sync pipeline uploads it with zero extra plumbing.
+    /// Readings land on the draft's logical timeline so a resumed session
+    /// extends one continuous series instead of skipping the interruption gap.
     func recordHeartRateSampleForSessionTick(at now: Date = Date()) {
-        heartRateRecorder.recordSample(at: now)
+        heartRateRecorder.recordSample(
+            at: now,
+            sessionStartedAt: activeDraft?.startedAt,
+            sessionElapsed: displayedDuration
+        )
     }
 
     var heartRateWorkoutSummary: LiveHeartRateWorkoutSummary {
@@ -756,6 +770,7 @@ final class LiveClimbSessionViewModel {
             cumulativeSteps: motionSession.stepCount,
             source: .headphoneMotion
         )
+        recordHeartRateSampleForSessionTick()
         checkpointDraft(
             modelContext: modelContext,
             splitCurve: curve,
@@ -895,6 +910,7 @@ final class LiveClimbSessionViewModel {
             splitCurve: splitCurve ?? stepTimelineRecorder.curve,
             trackingIntegrity: result?.trackingIntegrity ?? motionSession.trackingIntegrity,
             stepCorrections: result?.stepCorrections ?? motionSession.stepCorrectionsSnapshot,
+            heartRateSamples: heartRateRecorder.samples,
             status: status,
             checkpointedAt: now
         )
@@ -1027,7 +1043,12 @@ final class LiveClimbSessionViewModel {
             stopReason: result.stopReason,
             splitCurve: splitCurve,
             trackingIntegrity: result.trackingIntegrity,
-            stepCorrections: result.stepCorrections
+            stepCorrections: result.stepCorrections,
+            heartRateCoverage: HeartRateTraceCoverage(
+                samples: heartRateRecorder.samples,
+                sessionStartedAt: result.startedAt,
+                sessionDuration: result.duration
+            )
         )
 
         let heartRateSummary = heartRateWorkoutSummary
