@@ -3,6 +3,7 @@ import Foundation
 enum LiveHeartRateStatus: Equatable {
     case connecting
     case connected(beatsPerMinute: Int, zone: HeartRateZone)
+    case reconnecting
     case signalLost
     case failed
 
@@ -17,6 +18,8 @@ enum LiveHeartRateStatus: Equatable {
         switch connectionState {
         case .connecting, .scanning:
             return .connecting
+        case .reconnecting:
+            return .reconnecting
         case .connected:
             guard let freshMeasurement else { return .signalLost }
             return .connected(
@@ -34,6 +37,8 @@ enum LiveHeartRateStatus: Equatable {
             return "Connecting strap"
         case .connected(let beatsPerMinute, _):
             return String(beatsPerMinute)
+        case .reconnecting:
+            return "Reconnecting"
         case .signalLost:
             return "Signal lost"
         case .failed:
@@ -47,6 +52,8 @@ enum LiveHeartRateStatus: Equatable {
             return "Heart rate monitor connecting"
         case .connected(let beatsPerMinute, _):
             return "Heart rate \(beatsPerMinute) beats per minute"
+        case .reconnecting:
+            return "Heart rate monitor reconnecting"
         case .signalLost:
             return "Heart rate signal lost"
         case .failed:

@@ -182,7 +182,7 @@ final class LiveClimbSessionViewModel {
 
     let heartRateMonitor: HeartRateMonitorService
     private(set) var heartRateZoneProfile = HeartRateZoneProfile(age: nil)
-    private var heartRateSamples: [HeartRateDataPoint] = []
+    @ObservationIgnored private(set) var heartRateSamples: [HeartRateDataPoint] = []
     private var lastHeartRateSampleAt: Date?
 
     private var hasSavedSession = false

@@ -27,6 +27,7 @@ struct LiveHeartRateStatusChipSnapshotTests {
             LiveHeartRateStatusChip(
                 status: .connected(beatsPerMinute: 148, zone: .aerobic)
             )
+            LiveHeartRateStatusChip(status: .reconnecting)
             LiveHeartRateStatusChip(status: .signalLost)
             LiveHeartRateStatusChip(status: .failed)
         }
