@@ -178,6 +178,7 @@ struct ClimbBrowseView: View {
             systemName: "questionmark",
             accessibilityLabel: "How Live Climbs work"
         ) {
+            TelemetryManager.shared.track(LiveClimbAnalyticsEvent.browseHelpOpened)
             showingHelpSheet = true
         }
         .accessibilityHint("Open help for climb tiers, map icons, and progress rules")

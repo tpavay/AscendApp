@@ -81,6 +81,21 @@ enum OnboardingAnalyticsUserProperties {
         }
     }
 
+    static func heightGroupValue(forHeightCm heightCm: Double) -> String {
+        switch heightCm {
+        case ..<150:
+            return "under_150_cm"
+        case 150..<165:
+            return "150_164_cm"
+        case 165..<180:
+            return "165_179_cm"
+        case 180..<195:
+            return "180_194_cm"
+        default:
+            return "195_plus_cm"
+        }
+    }
+
     static func setLocationCountry(_ countryCode: String) {
         set("profile_country", countryCode.uppercased())
         set("profile_location_set", "true")

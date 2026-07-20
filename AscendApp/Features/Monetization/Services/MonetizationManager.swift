@@ -11,6 +11,11 @@ final class MonetizationManager {
 
     private let entitlementService: any EntitlementServicing
     private let paywallPresenter: any PaywallPresenting
+    private let telemetry: TelemetryManager
+    @ObservationIgnored
+    private var onboardingScreenViewRecorder = OnboardingScreenViewRecorder()
+    @ObservationIgnored
+    private var identifiedUserID: String?
     private(set) var configuration: MonetizationConfiguration
     #if DEBUG
     private(set) var debugForcesAppAccessPaywall = UserDefaults.standard.bool(
@@ -56,11 +61,13 @@ final class MonetizationManager {
     init(
         configuration: MonetizationConfiguration = .live,
         entitlementService: any EntitlementServicing = RevenueCatEntitlementService.shared,
-        paywallPresenter: any PaywallPresenting = SuperwallPaywallPresenter.shared
+        paywallPresenter: any PaywallPresenting = SuperwallPaywallPresenter.shared,
+        telemetry: TelemetryManager = .shared
     ) {
         self.configuration = configuration
         self.entitlementService = entitlementService
         self.paywallPresenter = paywallPresenter
+        self.telemetry = telemetry
     }
 
     func configure(configuration: MonetizationConfiguration = .live) {
@@ -70,11 +77,21 @@ final class MonetizationManager {
     }
 
     func identify(userId: String) async {
+        if identifiedUserID != userId {
+            identifiedUserID = userId
+            onboardingScreenViewRecorder = OnboardingScreenViewRecorder()
+        }
+
         await entitlementService.identify(userId: userId)
         paywallPresenter.identify(userId: userId)
     }
 
     func resetIdentity() async {
+        // The paywall screen view dedupes per pass through the onboarding funnel, and an identity
+        // change starts a new pass, so the recorder cannot outlive the identity it was filled for.
+        identifiedUserID = nil
+        onboardingScreenViewRecorder = OnboardingScreenViewRecorder()
+
         await entitlementService.resetIdentity()
         paywallPresenter.resetIdentity()
     }
@@ -87,12 +104,26 @@ final class MonetizationManager {
         try await entitlementService.restorePurchases()
     }
 
-    func presentPaywall(_ placement: SuperwallPlacement, params: [String: Any]? = nil) {
+    func presentPaywall(
+        _ placement: SuperwallPlacement,
+        params: [String: Any]? = nil,
+        onOutcome: @escaping @MainActor (PaywallPresentationOutcome) -> Void = { _ in }
+    ) {
         LifecycleEventRecorder.shared.recordPaywallReached(
             placement: placement.rawValue
         )
         trackPaywallReached(placement, params: params)
-        paywallPresenter.register(placement: placement, params: params)
+
+        guard paywallPresenter.isConfigured else {
+            onOutcome(.failed(message: "Superwall is not configured for this build."))
+            return
+        }
+
+        paywallPresenter.register(
+            placement: placement,
+            params: params,
+            onOutcome: onOutcome
+        )
     }
 
     #if DEBUG
@@ -112,20 +143,24 @@ final class MonetizationManager {
             parameters["source"] = .string(source)
         }
 
-        TelemetryManager.shared.track(
+        telemetry.track(
             TelemetryRecord(
                 name: "paywall_reached",
                 parameters: parameters
             )
         )
 
-        guard placement == .onboardingPaywall else { return }
+        guard placement == .onboardingPaywall || placement == .appAccessGate else { return }
 
-        TelemetryManager.shared.track(
+        telemetry.track(
             OnboardingAnalyticsEvent.paywallReached(
                 placement: placement.rawValue,
                 source: source
             )
+        )
+        onboardingScreenViewRecorder.recordIfNeeded(
+            OnboardingAnalyticsEvent.paywallContext,
+            telemetry: telemetry
         )
     }
 }

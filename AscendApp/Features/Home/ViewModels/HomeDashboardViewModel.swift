@@ -51,7 +51,7 @@ final class HomeDashboardViewModel {
     }
 
     func refreshLocalData(modelContext: ModelContext, referenceDate: Date = Date()) {
-        let completedClimbCount = fetchCompletedClimbCount(modelContext: modelContext)
+        let completedClimbCount = Self.fetchCompletedClimbCount(modelContext: modelContext)
         if self.completedClimbCount != completedClimbCount {
             self.completedClimbCount = completedClimbCount
         }
@@ -148,19 +148,13 @@ final class HomeDashboardViewModel {
         }
     }
 
-    private func fetchCompletedClimbCount(modelContext: ModelContext) -> Int {
-        let completedStatus = ClimbAttemptStatus.completed.rawValue
-        let descriptor = FetchDescriptor<ClimbAttempt>(
-            predicate: #Predicate<ClimbAttempt> { attempt in
-                attempt.statusRawValue == completedStatus
-            }
-        )
-
-        guard let attempts = try? modelContext.fetch(descriptor) else {
-            return 0
-        }
-
-        return Set(attempts.map(\.climbId)).count
+    /// The Home "climbs completed" surface: the distinct completed-climb count,
+    /// read through `ClimbCompletionRepository` (the one completed-set
+    /// definition, server-authoritative after refresh). Pure over the repo's
+    /// cache, so a restore path can be asserted without a SwiftUI view tree or a
+    /// configured Firebase.
+    static func fetchCompletedClimbCount(modelContext: ModelContext) -> Int {
+        ClimbCompletionRepository.completedClimbSet(modelContext: modelContext).completedCount
     }
 
     private func fetchWorkoutCount(modelContext: ModelContext) -> Int {

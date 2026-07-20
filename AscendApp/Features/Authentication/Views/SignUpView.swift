@@ -9,7 +9,7 @@ struct SignUpView: View {
 
     var body: some View {
         OnboardingScaffold(
-            backAction: { dismiss() },
+            backAction: handleBack,
             background: {
                 AuthStaircaseBackground()
             },
@@ -33,9 +33,20 @@ struct SignUpView: View {
             hasAttemptedInteractiveSignIn = false
             authVM.errorMessage = nil
         }
+        .trackOnboardingScreenView(OnboardingAnalyticsEvent.authContext)
         .navigationDestination(isPresented: $isShowingInternalQA) {
             InternalQASignInView()
         }
+    }
+
+    private func handleBack() {
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.backTapped(
+                context: OnboardingAnalyticsEvent.authContext,
+                inputType: "button"
+            )
+        )
+        dismiss()
     }
 
     private func signInWithGoogle() {

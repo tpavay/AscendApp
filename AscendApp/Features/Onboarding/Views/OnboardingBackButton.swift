@@ -29,27 +29,7 @@ struct OnboardingBackButton: View {
         )
         .contentShape(shape)
 
-        if #available(iOS 26, *) {
-            content
-                .glassEffect(.regular.tint(.white.opacity(0.08)).interactive(), in: shape)
-        } else {
-            ZStack {
-                Circle()
-                    .fill(.ultraThinMaterial)
-                    .overlay {
-                        Circle()
-                            .stroke(.white.opacity(0.16), lineWidth: 1)
-                    }
-
-                Image(systemName: "chevron.backward")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.94))
-            }
-            .frame(
-                width: OnboardingChromeMetrics.backButtonSize,
-                height: OnboardingChromeMetrics.backButtonSize
-            )
-            .contentShape(Circle())
-        }
+        content
+            .glassEffect(.regular.tint(.white.opacity(0.08)).interactive(), in: shape)
     }
 }

@@ -25,11 +25,27 @@ struct OnboardingAnalyticsContext: Sendable, Hashable {
 }
 
 enum OnboardingAnalyticsEvent: TelemetryEvent {
+    static let welcomeContext = OnboardingAnalyticsContext(
+        flowID: "pre_auth_welcome",
+        stepID: "welcome",
+        stepIndex: 0,
+        stepCount: 1
+    )
+
     static let authContext = OnboardingAnalyticsContext(
         flowID: "pre_auth_auth",
         stepID: "auth",
         stepIndex: 0,
         stepCount: 1
+    )
+
+    // The paywall closes the post-auth funnel but is not a `PostAuthOnboardingStage`, so it
+    // continues the stage sequence by index and counts itself into the flow length.
+    static let paywallContext = OnboardingAnalyticsContext(
+        flowID: PostAuthOnboardingStage.flowID,
+        stepID: "paywall",
+        stepIndex: PostAuthOnboardingStage.plannedStepCount,
+        stepCount: PostAuthOnboardingStage.plannedStepCount + 1
     )
 
     case flowStarted(context: OnboardingAnalyticsContext)
@@ -48,7 +64,7 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
         answerIndex: Int?,
         properties: [String: TelemetryValue]
     )
-    case backTapped(context: OnboardingAnalyticsContext)
+    case backTapped(context: OnboardingAnalyticsContext, inputType: String)
     case notificationPermissionSelected(context: OnboardingAnalyticsContext, status: String)
     case firstClimbSelected(context: OnboardingAnalyticsContext, climbID: String, climbName: String)
     case authStarted(provider: String)
@@ -119,10 +135,16 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
                 context: context,
                 parameters: parameters
             )
-        case .backTapped(let context):
+        case .backTapped(let context, let inputType):
+            // `step_id` alone is ambiguous on a back tap, so name the step being left explicitly,
+            // and `input_type` separates chrome taps from backward swipes.
             return makeRecord(
                 name: "onboarding_back_tapped",
-                context: context
+                context: context,
+                parameters: [
+                    "from_step": .string(context.stepID),
+                    "input_type": .string(inputType)
+                ]
             )
         case .notificationPermissionSelected(let context, let status):
             return makeRecord(
@@ -176,9 +198,6 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
             )
         case .paywallReached(let placement, let source):
             var parameters: [String: TelemetryValue] = [
-                "flow_id": .string("post_auth_onboarding"),
-                "flow_version": .string(OnboardingAnalyticsContext.currentFlowVersion),
-                "step_id": .string("paywall"),
                 "placement": .string(placement)
             ]
 
@@ -186,8 +205,9 @@ enum OnboardingAnalyticsEvent: TelemetryEvent {
                 parameters["source"] = .string(source)
             }
 
-            return TelemetryRecord(
+            return makeRecord(
                 name: "onboarding_paywall_reached",
+                context: Self.paywallContext,
                 parameters: parameters
             )
         case .flowCompleted(let context):

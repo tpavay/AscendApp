@@ -91,11 +91,7 @@ final class AppStoreRatingManager {
             return
         }
 
-        if #available(iOS 18.0, *) {
-            AppStore.requestReview(in: scene)
-        } else {
-            SKStoreReviewController.requestReview(in: scene)
-        }
+        AppStore.requestReview(in: scene)
     }
 
     // MARK: - Testing Support

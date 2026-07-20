@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Hero-sized visualization of a routine's interval shape rendered as a continuous
-/// topographic silhouette — the routine's primary visual identity per CLAUDE.md's
-/// "Routines" guidance. Each interval becomes a peak or valley in a smoothly
+/// topographic silhouette — the routine's primary visual identity per the
+/// `ascend-routines` skill. Each interval becomes a peak or valley in a smoothly
 /// curved mountain-ridge profile, on-brand with Ascend's climbing metaphor.
 struct RoutineHeroVisualization: View {
     let intervals: [RoutineInterval]

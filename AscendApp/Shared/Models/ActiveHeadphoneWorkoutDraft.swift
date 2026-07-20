@@ -38,10 +38,17 @@ final class ActiveHeadphoneWorkoutDraft {
     var routineTemplateId: String?
     var routineDifficulty: Int?
     var routineIntervalCount: Int?
+    /// Checkpointed so a session resumed from this draft cannot launder away skips it already
+    /// made and finish as a clean completion.
+    var routineSkippedIntervalCount: Int?
     var routineWeightConfigurationData: Data?
     var splitCurveData: Data?
     var trackingIntegrityData: Data?
     var stepCorrectionsData: Data?
+    var heartRateData: Data?
+    /// Kept alongside `heartRateData` so diagnostics never decode the whole
+    /// series just to report how many samples the draft holds.
+    var heartRateSampleCount: Int?
 
     var kind: ActiveHeadphoneWorkoutDraftKind {
         get { ActiveHeadphoneWorkoutDraftKind(rawValue: kindRawValue) ?? .justClimb }
@@ -71,6 +78,10 @@ final class ActiveHeadphoneWorkoutDraft {
     var routineWeightConfiguration: WeightConfiguration? {
         get { WeightConfiguration.decode(from: routineWeightConfigurationData) }
         set { routineWeightConfigurationData = newValue?.encoded }
+    }
+
+    var heartRateSamples: [HeartRateDataPoint] {
+        Self.decode([HeartRateDataPoint].self, from: heartRateData) ?? []
     }
 
     var resumeState: HeadphoneMotionSessionResumeState {
@@ -130,7 +141,10 @@ final class ActiveHeadphoneWorkoutDraft {
         self.routineTemplateId = routineTemplateId
         self.routineDifficulty = routineDifficulty
         self.routineIntervalCount = routineIntervalCount
+        self.routineSkippedIntervalCount = nil
         self.routineWeightConfiguration = routineWeightConfiguration
+        self.heartRateData = nil
+        self.heartRateSampleCount = 0
         self.trackingIntegrity = .verified
         self.stepCorrections = []
     }
@@ -142,7 +156,9 @@ final class ActiveHeadphoneWorkoutDraft {
         splitCurve: LiveReplaySplitCurve?,
         trackingIntegrity: HeadphoneMotionTrackingIntegrity,
         stepCorrections: [HeadphoneMotionStepCorrection],
+        heartRateBuffer: HeartRateSessionSampleBuffer? = nil,
         status: ActiveHeadphoneWorkoutDraftStatus = .recording,
+        skippedIntervalCount: Int? = nil,
         checkpointedAt: Date = Date()
     ) {
         self.steps = max(steps, 0)
@@ -151,7 +167,14 @@ final class ActiveHeadphoneWorkoutDraft {
         self.splitCurve = splitCurve
         self.trackingIntegrity = trackingIntegrity
         self.stepCorrections = stepCorrections
+        if let heartRateBuffer {
+            self.heartRateData = heartRateBuffer.encodedPayload
+            self.heartRateSampleCount = heartRateBuffer.samples.count
+        }
         self.status = status
+        if let skippedIntervalCount {
+            self.routineSkippedIntervalCount = max(skippedIntervalCount, 0)
+        }
         self.lastCheckpointAt = checkpointedAt
     }
 
@@ -176,6 +199,7 @@ extension ActiveHeadphoneWorkoutDraft {
             "steps": String(steps),
             "duration_seconds": String(Int(durationSeconds.rounded(.down))),
             "sample_count": String(sampleCount),
+            "heart_rate_sample_count": String(heartRateSampleCount ?? 0),
             "checkpoint_age_seconds": String(max(0, Int(Date().timeIntervalSince(lastCheckpointAt).rounded(.down))))
         ]
 

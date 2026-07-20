@@ -15,7 +15,8 @@ const storageRules = readFileSync(new URL('../../storage.rules', import.meta.url
 
 const userId = 'user-123';
 const otherUserId = 'user-456';
-const workoutId = '550e8400-e29b-41d4-a716-446655440000';
+const workoutId = '550E8400-E29B-41D4-A716-446655440000';
+const lowercaseWorkoutId = workoutId.toLowerCase();
 const mediaId = '11111111-1111-1111-1111-111111111111';
 const secondMediaId = '22222222-2222-2222-2222-222222222222';
 const weightEntryId = '33333333-3333-3333-3333-333333333333';
@@ -150,6 +151,39 @@ test('owner can write a valid workout backup document', async () => {
     },
     heartRateSeries: makeHeartRateSeriesReference(userId, workoutId),
   })));
+});
+
+test('workout document ids must be the uppercase canonical UUID', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${lowercaseWorkoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument()));
+});
+
+test('workout document ids must match the UUID group shape', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${'-'.repeat(36)}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument()));
+});
+
+test('the public workout mirror accepts the canonical workout document id', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const summaryRef = doc(context.firestore(), `users/${userId}/profile_workouts/${workoutId}`);
+
+  await assertSucceeds(setDoc(summaryRef, makeProfileWorkoutSummary()));
+});
+
+// The mirror is keyed by workout document id, so a case-variant spelling here publishes a
+// second row for one workout - the same duplication the private collection now rejects.
+test('the public workout mirror rejects a case-variant workout document id', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const summaryRef = doc(
+    context.firestore(),
+    `users/${userId}/profile_workouts/${lowercaseWorkoutId}`
+  );
+
+  await assertFails(setDoc(summaryRef, makeProfileWorkoutSummary()));
 });
 
 test('owner can write a workout with routine template participation', async () => {
@@ -422,6 +456,18 @@ function makeWorkoutDocument(overrides = {}) {
     integrityLevel: 'verified',
     createdAt: new Date('2026-04-10T06:00:00.000Z'),
     updatedAt: new Date('2026-04-10T07:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+function makeProfileWorkoutSummary(overrides = {}) {
+  return {
+    name: 'Morning Stair Session',
+    startedAt: new Date('2026-04-10T06:30:00.000Z'),
+    durationSeconds: 1800,
+    steps: 1200,
+    source: 'apple_health',
+    lastUpdated: new Date('2026-04-10T07:00:00.000Z'),
     ...overrides,
   };
 }

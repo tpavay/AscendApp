@@ -14,6 +14,7 @@ struct LiveClimbSessionView: View {
     @State private var hasStartedRecording = false
     @State private var countdownRunID = 0
     @State private var showingHeadphoneRequirement = false
+    @State private var showingCompatibleHeadphones = false
     @State private var headphoneMotionService = HeadphoneMotionReadinessService.shared
     @State private var didTrackHeadphoneRequirement = false
     @State private var stepSyncValue = ""
@@ -85,6 +86,10 @@ struct LiveClimbSessionView: View {
         .preferredColorScheme(.dark)
         .keepsScreenAwake(shouldKeepScreenAwake, reason: "Live climb tracking")
         .navigationBarBackButtonHidden(true)
+        .sheet(isPresented: $showingCompatibleHeadphones) {
+            CompatibleHeadphonesHelpSheet()
+                .appSheetStyle(.fitted())
+        }
         .onAppear {
             if viewModel.phase != .idle {
                 hasStartedRecording = true
@@ -708,13 +713,26 @@ struct LiveClimbSessionView: View {
             iconName: "airpodspro",
             title: "Headphones required",
             message: viewModel.mode.isLandmarkClimb
-                ? "Connect compatible headphones to start this live climb."
-                : "Connect compatible headphones to start climbing.",
+                ? "Ascend counts your steps from motion sensors in your AirPods or Beats. An Apple Watch or phone won't track a climb. Connect a compatible pair to start this live climb."
+                : "Ascend counts your steps from motion sensors in your AirPods or Beats. An Apple Watch or phone won't track a session. Connect a compatible pair to start climbing.",
             primaryTitle: "Try Again",
             primaryAction: retryHeadphoneCountdown,
             secondaryTitle: "Close",
-            secondaryAction: { dismiss() }
+            secondaryAction: { dismiss() },
+            tertiaryTitle: "See compatible headphones",
+            tertiaryAction: presentCompatibleHeadphones
         )
+    }
+
+    private func presentCompatibleHeadphones() {
+        TelemetryManager.shared.track(
+            LiveClimbAnalyticsEvent.headphoneHelpOpened(
+                climb: viewModel.mode.climb,
+                entryPoint: viewModel.analyticsEntryPoint,
+                surface: .sessionGate
+            )
+        )
+        showingCompatibleHeadphones = true
     }
 
     private func stepSyncOverlay(prompt: LiveStepSyncPrompt) -> some View {
@@ -814,7 +832,9 @@ struct LiveClimbSessionView: View {
         primaryTitle: String,
         primaryAction: @escaping () -> Void,
         secondaryTitle: String,
-        secondaryAction: @escaping () -> Void
+        secondaryAction: @escaping () -> Void,
+        tertiaryTitle: String? = nil,
+        tertiaryAction: (() -> Void)? = nil
     ) -> some View {
         ZStack {
             Color.black
@@ -860,6 +880,18 @@ struct LiveClimbSessionView: View {
                             .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
+
+                    if let tertiaryTitle, let tertiaryAction {
+                        Button(action: tertiaryAction) {
+                            Text(tertiaryTitle)
+                                .font(.montserratSemiBold(size: 13))
+                                .foregroundStyle(.accent)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 38)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 .padding(.top, 2)
             }

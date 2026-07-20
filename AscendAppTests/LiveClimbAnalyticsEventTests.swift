@@ -57,6 +57,62 @@ struct LiveClimbAnalyticsEventTests {
     }
 
     @Test
+    func headphoneHelpOpenIncludesClimbSurfaceAndEntryPoint() {
+        let record = LiveClimbAnalyticsEvent
+            .headphoneHelpOpened(
+                climb: .preview,
+                entryPoint: .homeDaily,
+                surface: .detailHelpButton
+            )
+            .record
+
+        #expect(record.name == "live_climb_headphone_help_open")
+        #expect(record.destinations == [.analytics])
+        #expect(record.parameters["climb_id"] == .string("empire-state-building"))
+        #expect(record.parameters["entry_point"] == .string("home_daily"))
+        #expect(record.parameters["surface"] == .string("detail_help_button"))
+    }
+
+    @Test
+    func headphoneHelpOpenFromPersistentTrackingRowRecordsSurface() {
+        let record = LiveClimbAnalyticsEvent
+            .headphoneHelpOpened(
+                climb: .preview,
+                entryPoint: .detailBrowse,
+                surface: .detailTrackingRow
+            )
+            .record
+
+        #expect(record.name == "live_climb_headphone_help_open")
+        #expect(record.parameters["entry_point"] == .string("detail_browse"))
+        #expect(record.parameters["surface"] == .string("detail_tracking_row"))
+    }
+
+    @Test
+    func headphoneHelpOpenWithoutClimbOmitsClimbParameters() {
+        let record = LiveClimbAnalyticsEvent
+            .headphoneHelpOpened(
+                climb: nil,
+                entryPoint: .unknown,
+                surface: .sessionGate
+            )
+            .record
+
+        #expect(record.name == "live_climb_headphone_help_open")
+        #expect(record.parameters["climb_id"] == nil)
+        #expect(record.parameters["surface"] == .string("session_gate"))
+    }
+
+    @Test
+    func browseHelpOpenRecordsAnalyticsEvent() {
+        let record = LiveClimbAnalyticsEvent.browseHelpOpened.record
+
+        #expect(record.name == "live_climb_browse_help_open")
+        #expect(record.destinations == [.analytics])
+        #expect(record.parameters.isEmpty)
+    }
+
+    @Test
     func shareActionTapIncludesSurfaceAndCardType() {
         let record = LiveClimbAnalyticsEvent
             .shareActionTapped(

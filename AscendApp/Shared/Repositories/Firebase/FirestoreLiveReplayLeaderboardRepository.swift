@@ -328,7 +328,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             bucketIndex: bucketIndex,
             currentSteps: currentSteps
         )
-        async let totalBucketCount = optionalCountRows(
+        async let totalBucketCount = optionalCountLiveRaceRows(
             context: context,
             bucketIndex: bucketIndex
         )
@@ -384,7 +384,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
     ) async throws -> [LiveReplayLeaderboardRow] {
         guard limit > 0 else { return [] }
 
-        let collection = entriesCollection(context: context, bucketIndex: bucketIndex)
+        let collection = liveRaceEntries(context: context, bucketIndex: bucketIndex)
         let query: Query
 
         switch direction {
@@ -415,18 +415,31 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         bucketIndex: Int,
         currentSteps: Int
     ) async throws -> Int {
-        let query = entriesCollection(context: context, bucketIndex: bucketIndex)
+        let query = liveRaceEntries(context: context, bucketIndex: bucketIndex)
             .whereField("stepsAtBucket", isGreaterThanOrEqualTo: currentSteps)
 
         let snapshot = try await query.count.getAggregation(source: .server)
         return snapshot.count.intValue
     }
 
+    /// Counts every completed attempt, matching the static board's one row per completion.
     private func countRows(
         context: LiveReplayLeaderboardContext,
         bucketIndex: Int
     ) async throws -> Int {
         let query = entriesCollection(context: context, bucketIndex: bucketIndex)
+
+        let snapshot = try await query.count.getAggregation(source: .server)
+        return snapshot.count.intValue
+    }
+
+    /// Counts the live race field: distinct climbers where a context collapses
+    /// repeat finishers, every completed attempt where it does not.
+    private func countLiveRaceRows(
+        context: LiveReplayLeaderboardContext,
+        bucketIndex: Int
+    ) async throws -> Int {
+        let query = liveRaceEntries(context: context, bucketIndex: bucketIndex)
 
         let snapshot = try await query.count.getAggregation(source: .server)
         return snapshot.count.intValue
@@ -484,12 +497,12 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         }
     }
 
-    private func optionalCountRows(
+    private func optionalCountLiveRaceRows(
         context: LiveReplayLeaderboardContext,
         bucketIndex: Int
     ) async -> Int? {
         do {
-            return try await countRows(
+            return try await countLiveRaceRows(
                 context: context,
                 bucketIndex: bucketIndex
             )
@@ -662,6 +675,38 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             .collection("splitBuckets")
             .document("\(max(bucketIndex, 0))")
             .collection("entries")
+    }
+
+    /// Entries as the live race ranks them.
+    ///
+    /// A per-climb race is a field of climbers, not of attempts, so a repeat
+    /// finisher races as a single rival on their fastest completion. The server
+    /// owns the flag; the static completion board reads the same entries
+    /// unfiltered to keep showing every completion.
+    ///
+    /// Every other context races every completed attempt as its own opponent and
+    /// carries no flag, so filtering there would empty the field.
+    private func liveRaceEntries(
+        context: LiveReplayLeaderboardContext,
+        bucketIndex: Int
+    ) -> Query {
+        let entries = entriesCollection(context: context, bucketIndex: bucketIndex)
+
+        guard collapsesRepeatFinishers(context) else { return entries }
+
+        return entries.whereField("isBestForUser", isEqualTo: true)
+    }
+
+    /// Whether a context collapses a climber's repeat completions into one row.
+    ///
+    /// Only per-climb contexts do: every completion there reaches the same step
+    /// target, so the fastest attempt is genuinely that climber's best. An open
+    /// Just Climb session has no target, so its shortest attempt is the one the
+    /// climber quit earliest rather than their best.
+    private func collapsesRepeatFinishers(
+        _ context: LiveReplayLeaderboardContext
+    ) -> Bool {
+        context.type == .liveClimb
     }
 
     private func finisherDocument(

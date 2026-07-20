@@ -1,13 +1,14 @@
 import SwiftUI
 
 struct OnboardingValueCarouselView: View {
+    static let defaultAnalyticsFlowID = "pre_auth_value_onboarding"
+
     @Binding var selectedIndex: Int
     @State private var scrollPositionID: String?
     @State private var didRecordFlowStart = false
-    @State private var viewedPageIDs: Set<String> = []
 
     let pages: [OnboardingValuePage]
-    var analyticsFlowID = "pre_auth_value_onboarding"
+    var analyticsFlowID = defaultAnalyticsFlowID
     let onFinish: () -> Void
 
     var body: some View {
@@ -49,20 +50,18 @@ struct OnboardingValueCarouselView: View {
                     clampSelectedIndex()
                     syncScrollPositionToSelectedIndex()
                     recordFlowStartIfNeeded()
-                    recordCurrentPageViewedIfNeeded()
                 }
                 .onChange(of: pages.count) { _, _ in
                     clampSelectedIndex()
                     syncScrollPositionToSelectedIndex()
-                    recordCurrentPageViewedIfNeeded()
                 }
                 .onChange(of: selectedIndex) { _, _ in
                     syncScrollPositionToSelectedIndex()
-                    recordCurrentPageViewedIfNeeded()
                 }
                 .onChange(of: scrollPositionID) { _, newID in
                     updateSelectedIndex(for: newID)
                 }
+                .trackOnboardingScreenView(currentAnalyticsContext())
             }
         }
         .background(Color.black)
@@ -115,14 +114,16 @@ struct OnboardingValueCarouselView: View {
             return
         }
 
-        let context = analyticsContext(for: pages[selectedIndex], index: selectedIndex)
+        recordCurrentPageCompleted(actionID: "continue")
 
         if selectedIndex < pages.count - 1 {
             selectedIndex += 1
         } else {
-            TelemetryManager.shared.track(
-                OnboardingAnalyticsEvent.flowCompleted(context: context)
-            )
+            if let context = currentAnalyticsContext() {
+                TelemetryManager.shared.track(
+                    OnboardingAnalyticsEvent.flowCompleted(context: context)
+                )
+            }
             onFinish()
         }
     }
@@ -155,34 +156,72 @@ struct OnboardingValueCarouselView: View {
             return
         }
 
+        let previousIndex = selectedIndex
+        if index > previousIndex {
+            recordPageCompleted(
+                at: previousIndex,
+                inputType: "gesture",
+                actionID: "swipe_forward"
+            )
+        } else if let context = Self.analyticsContext(
+            flowID: analyticsFlowID,
+            pages: pages,
+            index: previousIndex
+        ) {
+            TelemetryManager.shared.track(
+                OnboardingAnalyticsEvent.backTapped(context: context, inputType: "gesture")
+            )
+        }
+
         selectedIndex = index
     }
 
     private func recordFlowStartIfNeeded() {
         guard !didRecordFlowStart,
-              pages.indices.contains(selectedIndex) else { return }
+              let context = currentAnalyticsContext() else { return }
 
         didRecordFlowStart = true
         TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.flowStarted(
-                context: analyticsContext(for: pages[selectedIndex], index: selectedIndex)
+            OnboardingAnalyticsEvent.flowStarted(context: context)
+        )
+    }
+
+    private func currentAnalyticsContext() -> OnboardingAnalyticsContext? {
+        Self.analyticsContext(flowID: analyticsFlowID, pages: pages, index: selectedIndex)
+    }
+
+    private func recordCurrentPageCompleted(actionID: String) {
+        recordPageCompleted(at: selectedIndex, inputType: "button", actionID: actionID)
+    }
+
+    private func recordPageCompleted(at index: Int, inputType: String, actionID: String) {
+        guard let context = Self.analyticsContext(
+            flowID: analyticsFlowID,
+            pages: pages,
+            index: index
+        ) else { return }
+
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.screenCompleted(
+                context: context,
+                inputType: inputType,
+                properties: ["action_id": .string(actionID)]
             )
         )
     }
 
-    private func recordCurrentPageViewedIfNeeded() {
-        guard pages.indices.contains(selectedIndex) else { return }
+    /// Builds the context for a carousel page so surfaces that own chrome around the carousel
+    /// (back buttons, scaffolds) report the same `step_id` the carousel itself reports.
+    static func analyticsContext(
+        flowID: String = defaultAnalyticsFlowID,
+        pages: [OnboardingValuePage],
+        index: Int
+    ) -> OnboardingAnalyticsContext? {
+        guard pages.indices.contains(index) else { return nil }
 
-        let page = pages[selectedIndex]
-        guard !viewedPageIDs.contains(page.id) else { return }
-
-        viewedPageIDs.insert(page.id)
-    }
-
-    private func analyticsContext(for page: OnboardingValuePage, index: Int) -> OnboardingAnalyticsContext {
-        OnboardingAnalyticsContext(
-            flowID: analyticsFlowID,
-            stepID: page.id,
+        return OnboardingAnalyticsContext(
+            flowID: flowID,
+            stepID: pages[index].id,
             stepIndex: index,
             stepCount: pages.count
         )

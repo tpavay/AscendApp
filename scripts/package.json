@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node --test test/*.test.mjs",
     "db:plan": "node dev-db.mjs plan",
     "db:seed": "node dev-db.mjs seed --project dev",
     "db:seed:staging": "node dev-db.mjs seed --project staging",
@@ -35,6 +36,12 @@
     "seed:live-replay:staging": "node seed-live-replay-leaderboards.mjs seed --project staging",
     "backfill:live-replay-completion-snapshots": "node backfill-live-replay-completion-snapshots.mjs --project dev --dry-run",
     "backfill:live-replay-completion-snapshots:staging": "node backfill-live-replay-completion-snapshots.mjs --project staging --dry-run",
+    "backfill:live-replay-best-per-user": "node backfill-live-replay-best-per-user.mjs --project dev --dry-run",
+    "backfill:live-replay-best-per-user:staging": "node backfill-live-replay-best-per-user.mjs --project staging --dry-run",
+    "backfill:legacy-replay-completions": "node backfill-legacy-live-replay-completions.mjs --env dev",
+    "backfill:legacy-replay-completions:staging": "node backfill-legacy-live-replay-completions.mjs --env staging",
+    "cleanup:case-variant-workout-ids": "node cleanup-case-variant-workout-ids.mjs --env dev",
+    "cleanup:case-variant-workout-ids:staging": "node cleanup-case-variant-workout-ids.mjs --env staging",
     "clear:live-replay": "node seed-live-replay-leaderboards.mjs clear --project dev",
     "clear:live-replay:staging": "node seed-live-replay-leaderboards.mjs clear --project staging",
     "seed:routine-templates": "node seed-routine-templates.mjs seed --project dev",
@@ -56,6 +63,9 @@
     "node": ">=20"
   },
   "dependencies": {
-    "firebase-admin": "^13.6.0"
+    "firebase-admin": "^13.10.0"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
   }
 }

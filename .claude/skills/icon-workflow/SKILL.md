@@ -1,6 +1,13 @@
+---
+name: icon-workflow
+description: Use when adding, changing, or syncing Ascend app icons - editing the icon manifest, running the icon sync script, adding AppIconToken mappings, or picking regular vs fill icon weights for tab bars, settings, and empty states.
+---
+
 # Icon Workflow Skill
 
 Use this workflow whenever adding or changing app icons.
+
+All paths below are repo-relative; run commands from the repo root.
 
 ## Goal
 - Keep icon usage consistent through `AppIconToken`.
@@ -8,8 +15,8 @@ Use this workflow whenever adding or changing app icons.
 - Avoid heavy package dependencies.
 
 ## Source of Truth
-- Manifest: `/Users/tylerpavay/Documents/Development/iOS/AscendApp/scripts/icon-manifest.txt`
-- Sync script: `/Users/tylerpavay/Documents/Development/iOS/AscendApp/scripts/sync-icons.sh`
+- Manifest: `scripts/icon-manifest.txt`
+- Sync script: `scripts/sync-icons.sh`
 
 Manifest format:
 ```txt
@@ -28,7 +35,7 @@ tabHomeSelected|house-simple|fill
 ./scripts/sync-icons.sh
 ```
 3. If new token names were introduced, add/update mappings in:
-   - `/Users/tylerpavay/Documents/Development/iOS/AscendApp/AscendApp/Shared/Models/AppIconToken.swift`
+   - `AscendApp/Shared/Models/AppIconToken.swift`
 4. Use `AppIcon(token: ...)` in UI where practical for consistency.
 5. Verify in app (especially tab bar selected vs unselected states).
 6. Commit manifest + generated assets + Swift mapping updates together.

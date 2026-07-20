@@ -27,8 +27,9 @@
     - App Store Connect → App Privacy questionnaire (nutrition labels)
     - Info.plist NS*UsageDescription strings
 
-  See CLAUDE.md / AGENTS.md → "Privacy Manifest Maintenance Rule" for the
-  full checklist tied to concrete code-change triggers.
+  See the `ascend-privacy-manifest` skill
+  (.claude/skills/ascend-privacy-manifest/SKILL.md) for the full checklist
+  tied to concrete code-change triggers.
 
   Apple references:
     - https://developer.apple.com/documentation/bundleresources/privacy_manifest_files

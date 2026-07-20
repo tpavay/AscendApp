@@ -2,12 +2,17 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [develop, main]
     paths:
       - "AscendApp/**"
       - "AscendAppTests/**"
       - "AscendApp.xcodeproj/**"
       - "functions/**"
+      - "scripts/**"
+      - "web/**"
+      - "package.json"
+      - "package-lock.json"
+      - "SharedTestVectors/**"
       - ".github/workflows/**"
 
 concurrency:
@@ -26,6 +31,9 @@ jobs:
     outputs:
       ios: ${{ steps.filter.outputs.ios }}
       functions: ${{ steps.filter.outputs.functions }}
+      scripts: ${{ steps.filter.outputs.scripts }}
+      web: ${{ steps.filter.outputs.web }}
+      root_npm: ${{ steps.filter.outputs.root_npm }}
 
     steps:
       - name: Checkout repository
@@ -43,6 +51,18 @@ jobs:
               - ".github/workflows/**"
             functions:
               - "functions/**"
+              - "SharedTestVectors/**"
+              - ".github/workflows/**"
+            scripts:
+              - "scripts/**"
+              - "SharedTestVectors/**"
+              - ".github/workflows/**"
+            web:
+              - "web/**"
+              - ".github/workflows/**"
+            root_npm:
+              - "package.json"
+              - "package-lock.json"
               - ".github/workflows/**"
 
   functions-verify:
@@ -66,8 +86,89 @@ jobs:
       - name: Install dependencies
         run: npm --prefix functions ci
 
+      - name: Lint
+        run: npm --prefix functions run lint
+
       - name: Run tests
         run: npm --prefix functions test
+
+      # Audits run last so a newly published advisory fails the job without
+      # hiding the lint and test results that prove the code itself.
+      - name: Audit dependencies
+        run: npm --prefix functions audit --audit-level=low
+
+  scripts-verify:
+    name: Scripts Verify
+    needs: changes
+    if: needs.changes.outputs.scripts == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      # The migration-discipline libraries and the shared vector-pinned
+      # predicate/derivation are pure Node with no external deps at test time,
+      # so the suite runs without installing firebase-admin.
+      - name: Run tests
+        run: node --test scripts/test/*.test.mjs
+
+      # Audits run last so a newly published advisory fails the job without
+      # hiding the test results that prove the code itself.
+      - name: Audit dependencies
+        run: npm --prefix scripts audit --package-lock-only --audit-level=low
+
+  web-verify:
+    name: Web Verify
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm --prefix web ci
+
+      - name: Build website
+        run: npm --prefix web run build
+
+      - name: Audit dependencies
+        run: npm --prefix web audit --audit-level=low
+
+  root-npm-verify:
+    name: Root npm Audit
+    needs: changes
+    if: needs.changes.outputs.root_npm == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Audit dependencies
+        run: npm audit --package-lock-only --audit-level=low
 
   ios-verify:
     name: iOS Verify (Staging)
@@ -133,9 +234,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-spm-
 
-      # The device (iphoneos) compile is covered by the ios-verify-release job;
-      # this job proves the simulator build + test suite, so the app compiles
-      # exactly once per job instead of twice.
+      # The runner image decides which simulator runtimes and devices it ships,
+      # and that set changes without notice - treating it as the source of truth
+      # makes every PR fail the day it changes. Provision the device this job
+      # needs instead, falling back through: reuse a preferred model, reuse any
+      # iPhone, then create one.
       - name: Select simulator
         id: simulator
         shell: bash
@@ -143,40 +246,52 @@ jobs:
           set -euo pipefail
 
           preferred_names=(
+            "iPhone 17 Pro"
+            "iPhone 17"
             "iPhone 16 Pro"
             "iPhone 16"
-            "iPhone 16 Pro Max"
-            "iPhone 16 Plus"
             "iPhone 15 Pro"
             "iPhone 15"
           )
 
-          destinations="$(
-            xcodebuild \
-              -project AscendApp.xcodeproj \
-              -scheme "AscendApp-Staging" \
-              -showdestinations
-          )"
+          newest_ios_runtime() {
+            xcrun simctl list runtimes -j | jq -r '
+              [.runtimes[]
+                | select(.isAvailable and (.identifier | startswith("com.apple.CoreSimulator.SimRuntime.iOS-")))]
+              | sort_by(.version | split(".") | map(tonumber))
+              | last | .identifier // empty
+            '
+          }
 
-          parsed_destinations="$(
-            printf '%s\n' "$destinations" | sed -n 's/.*platform:iOS Simulator,.*id:\([^,}]*\), OS:[^,}]*, name:\(.*\) }.*/\1|\2/p'
-          )"
+          runtime="$(newest_ios_runtime)"
+
+          # Xcode bundles the simulator SDK but not the runtime, so an image can
+          # compile for the simulator while offering nothing to run tests on.
+          # A failed download still falls through to the diagnostics below.
+          if [ -z "$runtime" ]; then
+            echo "No iOS simulator runtime installed; downloading the one Xcode expects."
+            xcodebuild -downloadPlatform iOS || echo "::warning::Downloading the iOS simulator runtime failed."
+            runtime="$(newest_ios_runtime)"
+          fi
+
+          if [ -z "$runtime" ]; then
+            echo "::error::No iOS simulator runtime is available."
+            xcrun simctl list runtimes
+            exit 1
+          fi
+
+          device_named() {
+            xcrun simctl list devices -j | jq -r --arg rt "$runtime" --arg name "$1" '
+              .devices[$rt] // []
+              | map(select(.isAvailable and .name == $name))
+              | last | .udid // empty
+            '
+          }
 
           simulator_id=""
 
           for name in "${preferred_names[@]}"; do
-            simulator_id="$(
-              printf '%s\n' "$parsed_destinations" | awk -F'|' -v target="$name" '
-                $2 == target {
-                  id = $1
-                }
-                END {
-                  if (id != "") {
-                    print id
-                  }
-                }
-              '
-            )"
+            simulator_id="$(device_named "$name")"
 
             if [ -n "$simulator_id" ]; then
               break
@@ -185,75 +300,88 @@ jobs:
 
           if [ -z "$simulator_id" ]; then
             simulator_id="$(
-              printf '%s\n' "$parsed_destinations" | awk -F'|' '
-                $2 ~ /^iPhone/ {
-                  id = $1
-                }
-                END {
-                  if (id != "") {
-                    print id
-                  }
-                }
+              xcrun simctl list devices -j | jq -r --arg rt "$runtime" '
+                .devices[$rt] // []
+                | map(select(.isAvailable and ((.deviceTypeIdentifier // "") | test("SimDeviceType.iPhone"))))
+                | last | .udid // empty
               '
             )"
           fi
 
-          # The runner image installs the iOS runtimes but does not always
-          # pre-create simulator devices from them, and -showdestinations only
-          # reports devices that already exist. Create one from an installed
-          # runtime rather than failing on an image that can still run tests.
           if [ -z "$simulator_id" ]; then
-            echo "No pre-created iPhone simulator destination. xcodebuild reported:"
-            printf '%s\n' "$destinations"
-
-            # Newest installed runtime: it is the one that still satisfies the
-            # app's deployment target.
-            runtime="$(
-              xcrun simctl list runtimes available \
-                | sed -n 's/^iOS \([0-9.]*\) .*- \(com\.apple\.CoreSimulator\.SimRuntime\.iOS-[0-9-]*\)$/\1 \2/p' \
-                | sort -V \
-                | tail -1 \
-                | cut -d' ' -f2
-            )"
+            device_type=""
 
             for name in "${preferred_names[@]}"; do
               device_type="$(
-                xcrun simctl list devicetypes \
-                  | sed -n "s/^${name} (\(com\.apple\.CoreSimulator\.SimDeviceType\.[^)]*\))\$/\1/p"
+                xcrun simctl list runtimes -j | jq -r --arg rt "$runtime" --arg name "$name" '
+                  .runtimes[] | select(.identifier == $rt) | .supportedDeviceTypes
+                  | map(select(.name == $name))
+                  | last | .identifier // empty
+                '
               )"
 
-              if [ -z "$device_type" ] || [ -z "$runtime" ]; then
-                continue
-              fi
-
-              # Not every device type is offered by every runtime, so let
-              # simctl reject the pairing and move on to the next candidate.
-              if simulator_id="$(xcrun simctl create "ascend-ci-iphone" "$device_type" "$runtime" 2>/dev/null)"; then
-                echo "Created simulator $simulator_id ($name on $runtime)."
+              if [ -n "$device_type" ]; then
                 break
               fi
-
-              simulator_id=""
             done
+
+            if [ -z "$device_type" ]; then
+              device_type="$(
+                xcrun simctl list runtimes -j | jq -r --arg rt "$runtime" '
+                  .runtimes[] | select(.identifier == $rt) | .supportedDeviceTypes
+                  | map(select(.productFamily == "iPhone"))
+                  | last | .identifier // empty
+                '
+              )"
+            fi
+
+            if [ -z "$device_type" ]; then
+              echo "::error::Runtime ${runtime} supports no iPhone device type."
+              xcrun simctl list devicetypes
+              exit 1
+            fi
+
+            echo "No iPhone simulator on ${runtime}; creating one from ${device_type}."
+            simulator_id="$(xcrun simctl create "ci-iphone" "$device_type" "$runtime")"
           fi
 
-          if [ -z "$simulator_id" ]; then
-            echo "::error::No iPhone simulator destination found, and no installed iOS runtime to create one from."
-            xcrun simctl list runtimes
-            exit 1
-          fi
-
+          echo "Selected simulator ${simulator_id} on ${runtime}."
           echo "id=$simulator_id" >> "$GITHUB_OUTPUT"
 
+      # The device (iphoneos) compile is covered by the ios-verify-release job;
+      # this job proves the simulator build + test suite, so the app compiles
+      # exactly once per job instead of twice.
       - name: Run tests
+        id: tests
+        shell: bash
         run: |
+          set -o pipefail
+          mkdir -p build-logs
           xcodebuild \
             -project AscendApp.xcodeproj \
             -scheme "AscendApp-Staging" \
             -configuration Staging \
             -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.id }}" \
+            -resultBundlePath build-logs/AscendApp-Staging.xcresult \
             ENABLE_TESTABILITY=YES \
-            test
+            test 2>&1 | tee build-logs/xcodebuild-staging.log
+
+      # A step killed by timeout-minutes reports `cancelled`, not `failure`, and
+      # that is exactly the hung-runner case these logs exist to explain. An
+      # empty outcome means xcodebuild never ran, so there is no log to read.
+      - name: Summarize failure
+        if: always() && steps.tests.outcome != 'success' && steps.tests.outcome != 'skipped' && steps.tests.outcome != ''
+        shell: bash
+        run: ./scripts/ci/summarize-xcodebuild-failure.sh build-logs/xcodebuild-staging.log
+
+      - name: Upload build logs
+        if: always() && steps.tests.outcome != 'success' && steps.tests.outcome != 'skipped' && steps.tests.outcome != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-verify-staging-logs
+          path: build-logs/
+          retention-days: 7
+          if-no-files-found: warn
 
   ios-verify-release:
     name: iOS Verify (Release)
@@ -298,7 +426,11 @@ jobs:
       # Release-only build errors surface on the PR, not on launch day. This is
       # also the job that proves the device (iphoneos) compile for PRs.
       - name: Build app (Release, unsigned)
+        id: build
+        shell: bash
         run: |
+          set -o pipefail
+          mkdir -p build-logs
           xcodebuild \
             -project AscendApp.xcodeproj \
             -scheme "AscendApp" \
@@ -306,4 +438,21 @@ jobs:
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
             CODE_SIGNING_ALLOWED=NO \
-            build
+            build 2>&1 | tee build-logs/xcodebuild-release.log
+
+      # A step killed by timeout-minutes reports `cancelled`, not `failure`, and
+      # that is exactly the hung-runner case these logs exist to explain. An
+      # empty outcome means xcodebuild never ran, so there is no log to read.
+      - name: Summarize failure
+        if: always() && steps.build.outcome != 'success' && steps.build.outcome != 'skipped' && steps.build.outcome != ''
+        shell: bash
+        run: ./scripts/ci/summarize-xcodebuild-failure.sh build-logs/xcodebuild-release.log
+
+      - name: Upload build logs
+        if: always() && steps.build.outcome != 'success' && steps.build.outcome != 'skipped' && steps.build.outcome != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-verify-release-logs
+          path: build-logs/
+          retention-days: 7
+          if-no-files-found: warn

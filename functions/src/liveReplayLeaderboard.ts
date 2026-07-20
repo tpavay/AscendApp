@@ -4,6 +4,10 @@ import {
   MAX_REPLAY_SPLIT_CHECKPOINTS,
   normalizeReplaySplitSteps,
 } from "./liveReplaySplitNormalization.js";
+import {
+  HEADPHONE_MOTION_SOURCE,
+  isRecoverableLegacyCompletion,
+} from "./legacyClimbCompletion.js";
 
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
 const COMPLETION_SNAPSHOTS_COLLECTION = "completionSnapshots";
@@ -18,6 +22,8 @@ const JUST_CLIMB_GLOBAL_CONTEXT_ID = "global";
 const JUST_CLIMB_TRACKING_MODE = "just_climb";
 const TARGET_REACHED_STOP_REASON = "target_reached";
 const USER_STOPPED_REASON = "user_stopped";
+const FIRESTORE_NOT_FOUND_CODE = 5;
+const BULK_WRITER_MAX_ATTEMPTS = 3;
 
 interface LiveReplayIndexPayload {
   contextKey: string;
@@ -28,6 +34,13 @@ interface LiveReplayIndexPayload {
   finalDurationSeconds: number;
   finalSteps: number;
   targetStepCount: number | null;
+  /**
+   * Whether this row may claim an unheld First Ascent. Modern completions that
+   * clear the strict gate are eligible; rows recovered through the legacy-shape
+   * fallback never are, because a First Ascent is permanent and
+   * hand-derived/backfilled data must never claim one.
+   */
+  firstAscentEligible: boolean;
 }
 
 interface PublicUserSnapshot {
@@ -67,7 +80,25 @@ interface ReplayEntryWriteInput {
   entryId: string;
   publicUser: PublicUserSnapshot;
   stepsAtBucket: number;
+  /** Null in contexts that publish no flag, so the field stays absent. */
+  isBestForUser: boolean | null;
   updatedAt: unknown;
+}
+
+/**
+ * One published attempt, as seen from its bucket-zero entry document.
+ */
+interface UserAttemptEntry {
+  workoutId: string;
+  completionDurationSeconds: number;
+  splitBucketCount: number;
+  isBestForUser: boolean;
+}
+
+interface BestForUserFlagUpdate {
+  workoutId: string;
+  splitBucketCount: number;
+  isBestForUser: boolean;
 }
 
 interface CompletionRankSnapshotWriteInput {
@@ -161,6 +192,13 @@ export const onWorkoutReplaySplitsWritten = onDocumentWritten(
         await deleteUserBestAttempt(payload, userId);
       }
 
+      for (const payload of touchedReplayPayloads(
+        beforePayloads,
+        afterPayloads
+      )) {
+        await reconcileUserBestEntries(payload, userId);
+      }
+
       if (
         beforePayloads.some(
           (payload) => payload.contextType === LIVE_CLIMB_CONTEXT_TYPE
@@ -216,23 +254,58 @@ function parseLiveClimbReplayPayload(
     return null;
   }
 
-  if (
-    options.requireEligibleParticipation &&
-    !hasCompletedLiveClimbAttempt(parsed)
-  ) {
+  const climbId = stringValue(parsed.metadata.climbId);
+  if (!climbId) {
     return null;
   }
 
-  const climbId = stringValue(parsed.metadata.climbId);
-  if (!climbId) {
+  // Two publication paths: the strict modern gate (participation + trackingMode
+  // + target_reached), which is First Ascent eligible, and a narrow legacy
+  // fallback gated on the shared isRecoverableLegacyCompletion contract, which
+  // publishes rows/finishers but is NOT First Ascent eligible. Legacy backups
+  // lack the participation/trackingMode the modern gate needs, so without this
+  // fallback their earned completions have zero public presence.
+  const modernCompleted = hasCompletedLiveClimbAttempt(parsed);
+  const legacyCompleted = !modernCompleted &&
+    !parsed.hasClimbAttemptParticipation &&
+    isLegacyRecoverableLiveClimb(parsed, climbId);
+
+  if (
+    options.requireEligibleParticipation &&
+    !modernCompleted &&
+    !legacyCompleted
+  ) {
     return null;
   }
 
   return replayPayload(
     parsed,
     LIVE_CLIMB_CONTEXT_TYPE,
-    climbId
+    climbId,
+    {firstAscentEligible: modernCompleted}
   );
+}
+
+/**
+ * Returns whether a headphone-motion backup is a trusted legacy landmark
+ * completion, using the shared contract mirrored from the Swift guard. This
+ * never implies First Ascent eligibility - the caller withholds First Ascent
+ * for every legacy-recovered row.
+ * @param {ParsedReplayPayloadParts} parsed Parsed replay payload parts.
+ * @param {string} climbId Non-empty landmark id from the metadata.
+ * @return {boolean} True when the backup may publish a replay row.
+ */
+function isLegacyRecoverableLiveClimb(
+  parsed: ParsedReplayPayloadParts,
+  climbId: string
+): boolean {
+  return isRecoverableLegacyCompletion({
+    source: HEADPHONE_MOTION_SOURCE,
+    climbId,
+    stopReason: stringValue(parsed.metadata.stopReason) ?? "",
+    steps: parsed.finalSteps,
+    targetStepCount: parsed.targetStepCount,
+  });
 }
 
 /**
@@ -278,6 +351,7 @@ function parseJustClimbReplayPayload(
 interface ParsedReplayPayloadParts {
   metadata: Record<string, unknown>;
   hasEligibleClimbAttempt: boolean;
+  hasClimbAttemptParticipation: boolean;
   splitIntervalSeconds: number;
   splitSteps: number[];
   finalDurationSeconds: number;
@@ -333,6 +407,9 @@ function parseReplayPayloadParts(
   return {
     metadata,
     hasEligibleClimbAttempt: hasEligibleClimbAttemptParticipation(
+      data.participations
+    ),
+    hasClimbAttemptParticipation: hasClimbAttemptParticipation(
       data.participations
     ),
     splitIntervalSeconds,
@@ -409,7 +486,7 @@ function replayPayload(
   parsed: ParsedReplayPayloadParts,
   contextType: string,
   contextId: string,
-  options: {targetStepCount?: number | null} = {}
+  options: {targetStepCount?: number | null; firstAscentEligible?: boolean} = {}
 ): LiveReplayIndexPayload {
   const splitSteps = normalizeReplaySplitSteps({
     splitIntervalSeconds: parsed.splitIntervalSeconds,
@@ -429,6 +506,7 @@ function replayPayload(
     targetStepCount: options.targetStepCount !== undefined ?
       options.targetStepCount :
       parsed.targetStepCount,
+    firstAscentEligible: options.firstAscentEligible !== false,
   };
 }
 
@@ -450,6 +528,28 @@ function hasEligibleClimbAttemptParticipation(value: unknown): boolean {
     const participation = item as Record<string, unknown>;
     return participation.contextType === "climb_attempt" &&
       participation.leaderboardEligible === true;
+  });
+}
+
+/**
+ * Returns whether a workout carries any climb-attempt participation, eligible
+ * or not. The legacy-shape fallback only fires when none exists: a workout with
+ * a climb-attempt participation is governed by the modern gate, so an
+ * explicitly ineligible one stays deliberately unpublished, not resurrected.
+ * @param {unknown} value Raw participations value.
+ * @return {boolean} True when a climb-attempt participation is present.
+ */
+function hasClimbAttemptParticipation(value: unknown): boolean {
+  if (!Array.isArray(value)) {
+    return false;
+  }
+
+  return value.some((item) => {
+    if (!item || typeof item !== "object") {
+      return false;
+    }
+
+    return (item as Record<string, unknown>).contextType === "climb_attempt";
   });
 }
 
@@ -481,6 +581,314 @@ async function deleteReplayEntriesForId(
   const writer = admin.firestore().bulkWriter();
   deleteReplayEntries(writer, payload, entryId);
   await writer.close();
+}
+
+/**
+ * Every replay context one workout write touched, once each.
+ * A workout can leave one context and enter another in a single write, so both
+ * sides need their best-per-user flag re-derived.
+ * @param {LiveReplayIndexPayload[]} beforePayloads Pre-write payloads.
+ * @param {LiveReplayIndexPayload[]} afterPayloads Post-write payloads.
+ * @return {LiveReplayIndexPayload[]} One payload per touched context key.
+ */
+function touchedReplayPayloads(
+  beforePayloads: LiveReplayIndexPayload[],
+  afterPayloads: LiveReplayIndexPayload[]
+): LiveReplayIndexPayload[] {
+  const payloadsByContextKey = new Map<string, LiveReplayIndexPayload>();
+
+  for (const payload of [...afterPayloads, ...beforePayloads]) {
+    if (!payloadsByContextKey.has(payload.contextKey)) {
+      payloadsByContextKey.set(payload.contextKey, payload);
+    }
+  }
+
+  return [...payloadsByContextKey.values()];
+}
+
+/**
+ * Whether a context races one row per climber rather than one per attempt.
+ *
+ * Only per-climb contexts collapse repeats. Every completion there reaches the
+ * same step target, so the fastest attempt is genuinely that climber's best. An
+ * open Just Climb session has no target and publishes on any stop with steps,
+ * so its shortest attempt is the one the climber quit earliest: their weakest
+ * curve, not their best. Contexts outside the allowlist carry no flag at all,
+ * so nothing can filter them into a wrong winner.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @return {boolean} True when the context collapses repeat finishers.
+ */
+function collapsesRepeatFinishers(payload: LiveReplayIndexPayload): boolean {
+  return payload.contextType === LIVE_CLIMB_CONTEXT_TYPE;
+}
+
+/**
+ * Seeds the best-per-user flag for an attempt about to publish.
+ *
+ * reconcileUserBestEntries is the authority; this seed only lets a new best
+ * race immediately. Republishing the standing best (a workout edit fires this
+ * trigger too) must not demote it out of the live field.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @param {string} entryId Public row document ID.
+ * @param {Record<string, unknown> | undefined} finisherData Finisher document.
+ * @return {boolean | null} Seed flag, or null when the context carries none.
+ */
+function seedBestForUser(
+  payload: LiveReplayIndexPayload,
+  entryId: string,
+  finisherData: Record<string, unknown> | undefined
+): boolean | null {
+  if (!collapsesRepeatFinishers(payload)) {
+    return null;
+  }
+
+  const existingBestDuration = nonNegativeNumberValue(
+    finisherData?.bestCompletionDurationSeconds
+  );
+
+  return existingBestDuration === null ||
+    payload.finalDurationSeconds < existingBestDuration ||
+    stringValue(finisherData?.bestWorkoutId) === entryId;
+}
+
+/**
+ * Selects a user's best (fastest) completion in a context.
+ * Equal durations resolve on workout ID so every caller picks the same winner.
+ * @param {UserAttemptEntry[]} attempts Published attempts for one user.
+ * @return {UserAttemptEntry | null} Winner, or null when there are none.
+ */
+function bestAttempt(attempts: UserAttemptEntry[]): UserAttemptEntry | null {
+  let best: UserAttemptEntry | null = null;
+
+  for (const attempt of attempts) {
+    const isFaster = best === null ||
+      attempt.completionDurationSeconds < best.completionDurationSeconds;
+    const breaksTie = best !== null &&
+      attempt.completionDurationSeconds === best.completionDurationSeconds &&
+      attempt.workoutId < best.workoutId;
+
+    if (isFaster || breaksTie) {
+      best = attempt;
+    }
+  }
+
+  return best;
+}
+
+/**
+ * Selects the workout owning a user's best (fastest) completion in a context.
+ * @param {UserAttemptEntry[]} attempts Published attempts for one user.
+ * @return {string | null} Winning workout ID, or null when there are none.
+ */
+function bestAttemptWorkoutId(attempts: UserAttemptEntry[]): string | null {
+  return bestAttempt(attempts)?.workoutId ?? null;
+}
+
+/**
+ * Diffs a user's published attempts against the best-per-user rule.
+ * Attempts already carrying the right flag are omitted so reconciliation
+ * settles to zero writes once a context is correct.
+ * @param {UserAttemptEntry[]} attempts Published attempts for one user.
+ * @return {BestForUserFlagUpdate[]} Attempts whose flag must change.
+ */
+function bestForUserFlagUpdates(
+  attempts: UserAttemptEntry[]
+): BestForUserFlagUpdate[] {
+  const winningWorkoutId = bestAttemptWorkoutId(attempts);
+  const updates: BestForUserFlagUpdate[] = [];
+
+  for (const attempt of attempts) {
+    const isBestForUser = attempt.workoutId === winningWorkoutId;
+
+    if (isBestForUser === attempt.isBestForUser) {
+      continue;
+    }
+
+    updates.push({
+      workoutId: attempt.workoutId,
+      splitBucketCount: attempt.splitBucketCount,
+      isBestForUser,
+    });
+  }
+
+  return updates;
+}
+
+/**
+ * Bucket span to sweep when re-flagging a published attempt.
+ * Entries written before best-per-user collapse carry no stored span, and
+ * normalizeReplaySplitSteps sized the curve on the raw sample count as well as
+ * the duration, so duration alone can undercount the real span. Legacy attempts
+ * therefore sweep the whole checkpoint range: flags are written with update(),
+ * so buckets an attempt never published into fail NOT_FOUND and are skipped,
+ * whereas undercounting would strand the final bucket of a promoted climber.
+ * @param {Record<string, unknown>} data Bucket-zero entry data.
+ * @return {number} Number of buckets to sweep for the attempt.
+ */
+function attemptSplitBucketCount(data: Record<string, unknown>): number {
+  const storedCount = positiveIntegerValue(data.splitBucketCount);
+
+  if (storedCount === null) {
+    return MAX_REPLAY_SPLIT_CHECKPOINTS;
+  }
+
+  return Math.min(storedCount, MAX_REPLAY_SPLIT_CHECKPOINTS);
+}
+
+/**
+ * Reads one published attempt from its bucket-zero entry document.
+ * @param {Record<string, unknown>} data Bucket-zero entry data.
+ * @param {string} documentId Entry document ID.
+ * @return {UserAttemptEntry | null} Parsed attempt, or null when unusable.
+ */
+function userAttemptEntry(
+  data: Record<string, unknown>,
+  documentId: string
+): UserAttemptEntry | null {
+  const completionDurationSeconds = nonNegativeNumberValue(
+    data.completionDurationSeconds
+  );
+
+  if (completionDurationSeconds === null) {
+    return null;
+  }
+
+  return {
+    workoutId: stringValue(data.workoutId) ?? documentId,
+    completionDurationSeconds,
+    splitBucketCount: attemptSplitBucketCount(data),
+    isBestForUser: data.isBestForUser === true,
+  };
+}
+
+/**
+ * Re-derives which of a user's attempts is their best in one replay context.
+ *
+ * A per-climb race ranks one row per opponent, so at most one of a user's
+ * attempts may carry isBestForUser. Publishes, edits and deletes all funnel
+ * through here so the flag heals itself from the entries rather than from flip
+ * bookkeeping. Contexts that race every attempt return before any read.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @param {string} userId Owner user ID.
+ */
+async function reconcileUserBestEntries(
+  payload: LiveReplayIndexPayload,
+  userId: string
+): Promise<void> {
+  if (!collapsesRepeatFinishers(payload)) {
+    return;
+  }
+
+  const snapshot = await entriesCollectionReference(payload, 0)
+    .where("userId", "==", userId)
+    .get();
+  const attempts = snapshot.docs
+    .map((doc) => userAttemptEntry(doc.data(), doc.id))
+    .filter((attempt): attempt is UserAttemptEntry => attempt !== null);
+  const winner = bestAttempt(attempts);
+
+  if (winner !== null) {
+    await repairFinisherBestAttempt(payload, userId, winner);
+  }
+
+  const updates = bestForUserFlagUpdates(attempts);
+
+  if (updates.length === 0) {
+    return;
+  }
+
+  const writer = admin.firestore().bulkWriter();
+  const failures: unknown[] = [];
+  writer.onWriteError((error) => {
+    if (error.code === FIRESTORE_NOT_FOUND_CODE) {
+      return false;
+    }
+
+    return error.failedAttempts < BULK_WRITER_MAX_ATTEMPTS;
+  });
+
+  for (const update of updates) {
+    for (let index = 0; index < update.splitBucketCount; index += 1) {
+      // update() rather than set(): a bucket the attempt never published into
+      // must stay absent, not appear as a flag-only row the counts would see.
+      writer
+        .update(
+          entryReference(payload, index, update.workoutId),
+          {isBestForUser: update.isBestForUser}
+        )
+        .catch((error) => {
+          if (!isNotFoundWriteError(error)) {
+            failures.push(error);
+          }
+        });
+    }
+  }
+
+  await writer.close();
+
+  if (failures.length > 0) {
+    // A dropped flag write leaves a climber duplicated in the live field, so
+    // fail the trigger and let its retry re-derive rather than report success.
+    throw new Error(
+      `Failed to reconcile ${failures.length} best-per-user entry ` +
+      `write(s) for user ${userId} in ${payload.contextKey}: ${
+        String(failures[0])
+      }`
+    );
+  }
+}
+
+/**
+ * Skips writes to buckets an attempt never published into.
+ * @param {unknown} error Rejected BulkWriter write error.
+ * @return {boolean} Whether the write failed because the entry is absent.
+ */
+function isNotFoundWriteError(error: unknown): boolean {
+  return typeof error === "object" &&
+    error !== null &&
+    (error as {code?: unknown}).code === FIRESTORE_NOT_FOUND_CODE;
+}
+
+/**
+ * Realigns a finisher's stored best fields with the re-derived winner.
+ *
+ * publishReplayEntries seeds isBestForUser from these fields, and nothing else
+ * repairs them once the standing best is deleted. Leaving them stale demotes
+ * the surviving attempt on every later edit. Writes only on disagreement so a
+ * settled context still costs no writes.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @param {string} userId Owner user ID.
+ * @param {UserAttemptEntry} winner Re-derived best attempt.
+ */
+async function repairFinisherBestAttempt(
+  payload: LiveReplayIndexPayload,
+  userId: string,
+  winner: UserAttemptEntry
+): Promise<void> {
+  const finisherRef = finisherReference(payload, userId);
+  const snapshot = await finisherRef.get();
+
+  if (!snapshot.exists) {
+    return;
+  }
+
+  const data = snapshot.data();
+  const storedWorkoutId = stringValue(data?.bestWorkoutId);
+  const storedDuration = nonNegativeNumberValue(
+    data?.bestCompletionDurationSeconds
+  );
+
+  if (
+    storedWorkoutId === winner.workoutId &&
+    storedDuration === winner.completionDurationSeconds
+  ) {
+    return;
+  }
+
+  await finisherRef.update({
+    bestCompletionDurationSeconds: winner.completionDurationSeconds,
+    bestWorkoutId: winner.workoutId,
+  });
 }
 
 /**
@@ -532,7 +940,14 @@ async function publishReplayEntries(
       leaderboardData?.completedCount
     ) ?? 0;
     const hasFirstAscent = leaderboardHasFirstAscent(leaderboardData);
-    const canClaimFirstAscent = !hasFirstAscent && previousCompletedCount === 0;
+    const canClaimFirstAscent = payload.firstAscentEligible &&
+      !hasFirstAscent &&
+      previousCompletedCount === 0;
+    const isBestForUser = seedBestForUser(
+      payload,
+      entryId,
+      existingFinisherData
+    );
     const globalCompletionOrder = nextGlobalCompletionOrder({
       existingOrder,
       previousCompletedCount,
@@ -612,6 +1027,7 @@ async function publishReplayEntries(
           entryId,
           publicUser,
           stepsAtBucket: payload.splitSteps[index],
+          isBestForUser,
           updatedAt: now,
         })
       );
@@ -851,6 +1267,7 @@ function replayEntryWrite(
 ): Record<string, unknown> {
   return {
     ...publicUserDemographicFields(input.publicUser),
+    ...bestForUserFields(input.isBestForUser),
     avatarToken: input.publicUser.avatarToken,
     completionDurationSeconds: input.payload.finalDurationSeconds,
     contextId: input.payload.contextId,
@@ -859,6 +1276,7 @@ function replayEntryWrite(
     finalSteps: input.payload.finalSteps,
     photoURL: input.publicUser.photoURL ?? "",
     schemaVersion: 1,
+    splitBucketCount: input.payload.splitSteps.length,
     splitIntervalSeconds: input.payload.splitIntervalSeconds,
     stepsAtBucket: input.stepsAtBucket,
     updatedAt: input.updatedAt,
@@ -1173,6 +1591,21 @@ async function publicUserSnapshot(userId: string): Promise<PublicUserSnapshot> {
 }
 
 /**
+ * Returns the best-per-user flag field, or nothing in contexts without one.
+ *
+ * A context that races every attempt must leave the field absent rather than
+ * store false: Firestore equality never matches a missing field, so an absent
+ * flag cannot be filtered on by mistake, while a stored false could be.
+ * @param {boolean | null} isBestForUser Seed flag, or null for no flag.
+ * @return {Record<string, unknown>} Flag field, or an empty object.
+ */
+function bestForUserFields(
+  isBestForUser: boolean | null
+): Record<string, unknown> {
+  return isBestForUser === null ? {} : {isBestForUser};
+}
+
+/**
  * Returns the public demographic fields allowed on replay rows.
  * @param {PublicUserSnapshot} publicUser Public display snapshot.
  * @return {Record<string, unknown>} Compact demographic fields.
@@ -1395,6 +1828,10 @@ function integerArrayValue(value: unknown): number[] | null {
 }
 
 export const liveReplayLeaderboardTestHooks = {
+  attemptSplitBucketCount,
+  bestAttemptWorkoutId,
+  bestForUserFlagUpdates,
+  collapsesRepeatFinishers,
   completionRankSnapshotWrite,
   finisherStatusWrite,
   firstAscentWrite,
@@ -1403,8 +1840,11 @@ export const liveReplayLeaderboardTestHooks = {
   liveClimbPublishStatusPublishedWrite,
   liveClimbPublishStatusPublishingWrite,
   nextGlobalCompletionOrder,
+  parseJustClimbReplayPayload,
   parseLiveClimbReplayPayload,
   replayEntryWrite,
   replaySummaryWrite,
+  seedBestForUser,
   shouldDeleteCompletionRankSnapshot,
+  userAttemptEntry,
 };

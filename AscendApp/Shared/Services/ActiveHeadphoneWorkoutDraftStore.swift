@@ -200,30 +200,14 @@ final class ActiveHeadphoneWorkoutRuntimeRegistry {
 
 @MainActor
 enum ActiveHeadphoneWorkoutDraftSaver {
+    /// A recovered draft is a session the climber never finished in the app, so it can never
+    /// stand as a completion.
+    private static let recoveredStopReason: HeadphoneMotionSessionStopReason = .interrupted
+
     static func save(
         _ draft: ActiveHeadphoneWorkoutDraft,
         modelContext: ModelContext
     ) throws -> Workout {
-        let splitCurve = draft.splitCurve ?? LiveReplaySplitCurve(
-            intervalSeconds: 10,
-            steps: [draft.steps]
-        )
-        let floors = Workout.stepsToFloors(draft.steps)
-        let metadata = HeadphoneMotionWorkoutMetadata(
-            sampleCount: draft.sampleCount,
-            trackingMode: trackingMode(for: draft),
-            climbId: draft.climbId,
-            routineId: draft.routineId?.uuidString,
-            routineTemplateId: draft.routineTemplateId,
-            targetStepCount: draft.targetStepCount,
-            climbTargetStepCount: climbTargetStepCount(for: draft),
-            targetDurationSeconds: draft.targetDurationSeconds,
-            stopReason: .interrupted,
-            splitCurve: splitCurve,
-            trackingIntegrity: draft.trackingIntegrity,
-            stepCorrections: draft.stepCorrections
-        )
-
         if draft.kind == .liveClimb,
            let climb = climb(for: draft) {
             _ = try ClimbService.shared.prepareLiveClimbAttempt(
@@ -233,18 +217,7 @@ enum ActiveHeadphoneWorkoutDraftSaver {
             )
         }
 
-        let workout = Workout(
-            name: draft.workoutName,
-            date: draft.startedAt,
-            duration: max(draft.durationSeconds, 1),
-            steps: draft.steps,
-            floors: floors,
-            stepsPerFloor: Workout.defaultStepsPerFloor,
-            source: .headphoneMotion,
-            deviceModel: UIDevice.current.model,
-            sourceMetadata: metadata.jsonString,
-            weightConfiguration: draft.routineWeightConfiguration
-        )
+        let workout = makeRecoveredWorkout(from: draft, deviceModel: UIDevice.current.model)
 
         modelContext.insert(workout)
         try modelContext.save()
@@ -279,6 +252,54 @@ enum ActiveHeadphoneWorkoutDraftSaver {
         return workout
     }
 
+    static func makeRecoveredWorkout(
+        from draft: ActiveHeadphoneWorkoutDraft,
+        deviceModel: String
+    ) -> Workout {
+        let splitCurve = draft.splitCurve ?? LiveReplaySplitCurve(
+            intervalSeconds: 10,
+            steps: [draft.steps]
+        )
+        let heartRateSamples = draft.heartRateSamples
+        let heartRateCoverage = HeartRateTraceCoverage(
+            samples: heartRateSamples,
+            sessionStartedAt: draft.startedAt,
+            sessionDuration: draft.durationSeconds
+        )
+        let metadata = HeadphoneMotionWorkoutMetadata(
+            sampleCount: draft.sampleCount,
+            trackingMode: trackingMode(for: draft),
+            climbId: draft.climbId,
+            routineId: draft.routineId?.uuidString,
+            routineTemplateId: draft.routineTemplateId,
+            targetStepCount: draft.targetStepCount,
+            climbTargetStepCount: climbTargetStepCount(for: draft),
+            targetDurationSeconds: draft.targetDurationSeconds,
+            stopReason: recoveredStopReason,
+            splitCurve: splitCurve,
+            trackingIntegrity: draft.trackingIntegrity,
+            stepCorrections: draft.stepCorrections,
+            heartRateCoverage: heartRateCoverage
+        )
+        let heartRates = heartRateSamples.map(\.heartRate)
+
+        return Workout(
+            name: draft.workoutName,
+            date: draft.startedAt,
+            duration: max(draft.durationSeconds, 1),
+            steps: draft.steps,
+            floors: Workout.stepsToFloors(draft.steps),
+            stepsPerFloor: Workout.defaultStepsPerFloor,
+            avgHeartRate: heartRates.isEmpty ? nil : heartRates.reduce(0, +) / heartRates.count,
+            maxHeartRate: heartRates.max(),
+            heartRateTimeSeries: heartRateSamples.isEmpty ? nil : heartRateSamples,
+            source: .headphoneMotion,
+            deviceModel: deviceModel,
+            sourceMetadata: metadata.jsonString,
+            weightConfiguration: draft.routineWeightConfiguration
+        )
+    }
+
     private static func trackingMode(for draft: ActiveHeadphoneWorkoutDraft) -> HeadphoneMotionWorkoutTrackingMode {
         switch draft.kind {
         case .liveClimb:
@@ -300,13 +321,14 @@ enum ActiveHeadphoneWorkoutDraftSaver {
         return try? ClimbService.shared.climb(for: climbId)
     }
 
-    private static func routineAttribution(for draft: ActiveHeadphoneWorkoutDraft) -> RoutineWorkoutAttribution? {
+    static func routineAttribution(for draft: ActiveHeadphoneWorkoutDraft) -> RoutineWorkoutAttribution? {
         guard let routineId = draft.routineId else { return nil }
         let routineSource = draft.routineSourceRawValue.flatMap(RoutineSource.init(rawValue:)) ?? .userCreated
         return RoutineWorkoutAttribution(
             routineId: routineId,
             routineSource: routineSource,
-            templateId: draft.routineTemplateId
+            templateId: draft.routineTemplateId,
+            origin: .liveSession(stopReason: recoveredStopReason)
         )
     }
 }

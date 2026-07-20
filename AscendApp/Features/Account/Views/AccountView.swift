@@ -17,8 +17,11 @@ struct AccountView: View {
     @State private var isShowingPrivacyPolicy = false
     @State private var isShowingSignOutConfirmation = false
     @State private var isShowingDeleteAccountConfirmation = false
+    @State private var restorePurchases = RestorePurchasesViewModel()
 
     var body: some View {
+        @Bindable var restorePurchases = restorePurchases
+
         ScrollView {
             VStack(spacing: 24) {
                 // Profile Header
@@ -31,6 +34,7 @@ struct AccountView: View {
                 )
 
                 sectionView(title: "Profile", options: profileOptions)
+                sectionView(title: "Subscription", options: subscriptionOptions)
                 sectionView(title: "Support", options: supportOptions)
                 sectionView(title: "Developer", options: developerOptions)
 
@@ -90,6 +94,13 @@ struct AccountView: View {
         } message: {
             Text("You'll need to sign back in to access your account.")
         }
+        .alert(item: $restorePurchases.result) { result in
+            Alert(
+                title: Text(result.title),
+                message: Text(result.message),
+                dismissButton: .default(Text("Done"))
+            )
+        }
         .onChange(of: authVM.authenticationState) { oldValue, newValue in
             if newValue == .unauthenticated {
                 dismiss()
@@ -141,6 +152,22 @@ struct AccountView: View {
         #endif
 
         return options
+    }
+
+    private var subscriptionOptions: [SettingsOption] {
+        [
+            SettingsOption(
+                icon: .settingsRestorePurchases,
+                title: restorePurchases.isRestoring ? "Restoring Purchases…" : "Restore Purchases",
+                isEnabled: restorePurchases.isRestoreAvailable && !restorePurchases.isRestoring,
+                isLoading: restorePurchases.isRestoring,
+                action: {
+                    Task {
+                        await restorePurchases.restorePurchases()
+                    }
+                }
+            )
+        ]
     }
 
     private var supportOptions: [SettingsOption] {

@@ -10,17 +10,111 @@ final class WorkoutRemoteRepository: WorkoutRemoteRepositoryProtocol, @unchecked
 
     func fetchWorkouts(userId: String) async throws -> [RemoteWorkoutRecord] {
         let snapshot = try await workoutCollectionReference(userId: userId).getDocuments()
+        return decodeRecords(
+            from: snapshot.documents.map { (id: $0.documentID, data: $0.data()) }
+        )
+    }
 
-        return try snapshot.documents.compactMap { snapshot in
-            guard let workoutId = UUID(uuidString: snapshot.documentID) else {
+    /// Decodes each raw backup independently. One un-decodable document (a missing or mistyped
+    /// field) must cost only that record, never zero the whole restore, so a bad row is skipped
+    /// with a diagnostic and every document that decodes is returned. Documents are grouped by
+    /// canonical id once, so the case-variant diagnostic and the surviving record are decided
+    /// from the same grouping and cannot disagree. Kept separate from the Firestore fetch so the
+    /// resilience is testable without a live backend.
+    func decodeRecords(
+        from documents: [(id: String, data: [String: Any])],
+        diagnostics: AppDiagnosticsRecorder = .shared
+    ) -> [RemoteWorkoutRecord] {
+        let identified = documents.compactMap { document -> (canonicalID: String, id: String, data: [String: Any])? in
+            guard let canonicalID = WorkoutDocumentID.canonicalString(from: document.id) else {
                 return nil
             }
-
-            return RemoteWorkoutRecord(
-                workoutId: workoutId,
-                document: try firestoreDocument(from: snapshot.data())
-            )
+            return (canonicalID, document.id, document.data)
         }
+
+        return Dictionary(grouping: identified, by: \.canonicalID)
+            .sorted { $0.key < $1.key }
+            .compactMap { canonicalID, group in
+                recordCaseVariantDuplicateIfNeeded(
+                    canonicalID: canonicalID,
+                    sourceIDs: group.map(\.id),
+                    diagnostics: diagnostics
+                )
+                return survivingRecord(in: group, diagnostics: diagnostics)
+            }
+    }
+
+    private func recordCaseVariantDuplicateIfNeeded(
+        canonicalID: String,
+        sourceIDs: [String],
+        diagnostics: AppDiagnosticsRecorder
+    ) {
+        let distinctSourceIDs = Set(sourceIDs)
+        guard distinctSourceIDs.count > 1 else { return }
+
+        diagnostics.record(
+            "workout_backup_case_variant_duplicate",
+            level: .error,
+            details: [
+                "canonical_workout_id": canonicalID,
+                "document_ids": distinctSourceIDs.sorted().joined(separator: ",")
+            ]
+        )
+    }
+
+    /// Picks the one backup to restore for a canonical workout id: newest payload wins, and the
+    /// canonical spelling breaks a tie so a stale alias cannot outrank the document the app writes.
+    private func survivingRecord(
+        in group: [(canonicalID: String, id: String, data: [String: Any])],
+        diagnostics: AppDiagnosticsRecorder
+    ) -> RemoteWorkoutRecord? {
+        var selected: (sourceID: String, record: RemoteWorkoutRecord)?
+
+        for document in group {
+            guard let workoutId = UUID(uuidString: document.id) else { continue }
+
+            let decoded: FirestoreWorkoutDocument
+            do {
+                decoded = try firestoreDocument(from: document.data)
+            } catch {
+                diagnostics.record(
+                    "workout_backup_decode_failed",
+                    level: .warning,
+                    details: [
+                        "workout_id": document.id,
+                        "reason": decodeFailureReason(error)
+                    ]
+                )
+                continue
+            }
+
+            let candidate = (
+                sourceID: document.id,
+                record: RemoteWorkoutRecord(workoutId: workoutId, document: decoded)
+            )
+            guard let existing = selected else {
+                selected = candidate
+                continue
+            }
+
+            if candidate.record.document.updatedAt > existing.record.document.updatedAt ||
+                (
+                    candidate.record.document.updatedAt == existing.record.document.updatedAt &&
+                    WorkoutDocumentID.isCanonical(candidate.sourceID) &&
+                    !WorkoutDocumentID.isCanonical(existing.sourceID)
+                ) {
+                selected = candidate
+            }
+        }
+
+        return selected?.record
+    }
+
+    private func decodeFailureReason(_ error: Error) -> String {
+        if case let WorkoutRemoteRepositoryDecodingError.missingField(field) = error {
+            return "missing_field:\(field)"
+        }
+        return String(describing: type(of: error))
     }
 
     func upsertWorkout(
@@ -36,7 +130,13 @@ final class WorkoutRemoteRepository: WorkoutRemoteRepositoryProtocol, @unchecked
         userId: String,
         workoutId: UUID
     ) async throws {
-        try await workoutDocumentReference(userId: userId, workoutId: workoutId).delete()
+        let collection = workoutCollectionReference(userId: userId)
+        let batch = db.batch()
+        batch.deleteDocument(workoutDocumentReference(userId: userId, workoutId: workoutId))
+        for alias in WorkoutDocumentID.aliasStrings(for: workoutId) {
+            batch.deleteDocument(collection.document(alias))
+        }
+        try await batch.commit()
     }
 }
 
@@ -49,7 +149,7 @@ private extension WorkoutRemoteRepository {
 
     func workoutDocumentReference(userId: String, workoutId: UUID) -> DocumentReference {
         workoutCollectionReference(userId: userId)
-            .document(workoutId.uuidString)
+            .document(WorkoutDocumentID.canonicalString(for: workoutId))
     }
 
     func firestoreData(for document: FirestoreWorkoutDocument) -> [String: Any] {

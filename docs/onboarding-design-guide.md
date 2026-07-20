@@ -624,7 +624,7 @@ Recommended paywall structure:
    - `Sync and protect your climb history`
 4. Plan selector:
    - Yearly highlighted: `Best value`
-   - Trial copy: `Start with a free trial. Extend it by completing climbs.`
+   - Trial copy: `Start with a free trial.`
    - Monthly: `Pay as you go`
 5. CTA:
    - Trial available: `Start Free Trial`
@@ -638,7 +638,6 @@ Pricing display:
 - Show yearly as the default selected plan.
 - Show monthly as the comparison plan.
 - Avoid weekly in V1 unless the pricing strategy is locked.
-- If trial extension depends on climb completion, explain the rule in one tappable info row, not in dense legal copy.
 
 ## App Workflow Map
 

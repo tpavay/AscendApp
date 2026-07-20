@@ -5,16 +5,18 @@ struct PreAuthOnboardingValueCarouselScreen: View {
     @State private var selectedIndex = 0
     @State private var isShowingSignUp = false
 
+    private let pages = OnboardingValuePages.all
+
     var body: some View {
         OnboardingScaffold(
-            backAction: { dismiss() },
+            backAction: handleBack,
             background: {
                 Color.black
             },
             content: { _ in
                 OnboardingValueCarouselView(
                     selectedIndex: $selectedIndex,
-                    pages: OnboardingValuePages.all,
+                    pages: pages,
                     onFinish: { isShowingSignUp = true }
                 )
                 .ignoresSafeArea()
@@ -23,6 +25,16 @@ struct PreAuthOnboardingValueCarouselScreen: View {
         .navigationDestination(isPresented: $isShowingSignUp) {
             SignUpView()
         }
+    }
+
+    private func handleBack() {
+        if let context = OnboardingValueCarouselView.analyticsContext(pages: pages, index: selectedIndex) {
+            TelemetryManager.shared.track(
+                OnboardingAnalyticsEvent.backTapped(context: context, inputType: "button")
+            )
+        }
+
+        dismiss()
     }
 }
 
@@ -418,7 +430,6 @@ struct OnboardingFeatureGuideFlowScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var stepIndex = 0
     @State private var didRecordFlowStart = false
-    @State private var viewedScreenIDs: Set<String> = []
 
     let flowID: String
     let onBackFromFirstScreen: (() -> Void)?
@@ -446,11 +457,8 @@ struct OnboardingFeatureGuideFlowScreen: View {
         .navigationBarBackButtonHidden(true)
         .onAppear {
             recordFlowStartIfNeeded()
-            recordCurrentScreenViewedIfNeeded()
         }
-        .onChange(of: stepIndex) { _, _ in
-            recordCurrentScreenViewedIfNeeded()
-        }
+        .trackOnboardingScreenView(analyticsContext(at: stepIndex))
     }
 
     private var currentScreen: PreAuthGuideScreen {
@@ -459,7 +467,7 @@ struct OnboardingFeatureGuideFlowScreen: View {
 
     private func handleBack() {
         TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.backTapped(context: analyticsContext(for: currentScreen, index: stepIndex))
+            OnboardingAnalyticsEvent.backTapped(context: analyticsContext(at: stepIndex), inputType: "button")
         )
 
         if stepIndex == 0 {
@@ -474,8 +482,15 @@ struct OnboardingFeatureGuideFlowScreen: View {
     }
 
     private func moveForward() {
-        let screen = currentScreen
-        let context = analyticsContext(for: screen, index: stepIndex)
+        let context = analyticsContext(at: stepIndex)
+
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.screenCompleted(
+                context: context,
+                inputType: "button",
+                properties: ["action_id": .string("continue")]
+            )
+        )
 
         if stepIndex < screens.count - 1 {
             stepIndex += 1
@@ -492,32 +507,26 @@ struct OnboardingFeatureGuideFlowScreen: View {
 
         didRecordFlowStart = true
         TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.flowStarted(context: analyticsContext(for: currentScreen, index: stepIndex))
+            OnboardingAnalyticsEvent.flowStarted(context: analyticsContext(at: stepIndex))
         )
     }
 
-    private func recordCurrentScreenViewedIfNeeded() {
-        let screen = currentScreen
-        guard !viewedScreenIDs.contains(screen.id) else { return }
+    private func analyticsContext(at index: Int) -> OnboardingAnalyticsContext {
+        let contexts = Self.analyticsContexts(flowID: flowID)
+        return contexts[min(max(index, 0), contexts.count - 1)]
+    }
 
-        viewedScreenIDs.insert(screen.id)
-        TelemetryManager.shared.track(
-            OnboardingAnalyticsEvent.screenViewed(
-                context: analyticsContext(for: screen, index: stepIndex)
+    /// The one place a guide-flow step context is built, so the ordered set the funnel is measured
+    /// against and the contexts the running flow emits can never drift apart.
+    nonisolated static func analyticsContexts(flowID: String) -> [OnboardingAnalyticsContext] {
+        PreAuthGuideScreen.all.enumerated().map { index, screen in
+            OnboardingAnalyticsContext(
+                flowID: flowID,
+                stepID: screen.id,
+                stepIndex: index,
+                stepCount: PreAuthGuideScreen.all.count
             )
-        )
-    }
-
-    private func analyticsContext(
-        for screen: PreAuthGuideScreen,
-        index: Int
-    ) -> OnboardingAnalyticsContext {
-        OnboardingAnalyticsContext(
-            flowID: flowID,
-            stepID: screen.id,
-            stepIndex: index,
-            stepCount: screens.count
-        )
+        }
     }
 }
 
@@ -889,8 +898,8 @@ private struct PreAuthGuideScreen: Identifiable {
         PreAuthGuideScreen(
             id: "real_time",
             kind: .liveTracking,
-            headline: "Track your climb in\nreal time",
-            subtitle: "Connect your AirPods Pro or Max to track your climbs in real time."
+            headline: "Your headphones\nare the tracker",
+            subtitle: "Not your watch, not your phone. Motion sensors in most AirPods and Beats count every step in real time."
         ),
         PreAuthGuideScreen(
             id: "daily_climbs",

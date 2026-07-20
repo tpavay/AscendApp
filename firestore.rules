@@ -406,6 +406,12 @@ service cloud.firestore {
       return workoutId.matches("^[0-9a-fA-F-]{36}$");
     }
 
+    // A workout document id has exactly one spelling: the uppercase UUID string. Any other
+    // casing creates a second document for the same workout, so the server rejects it.
+    function isCanonicalWorkoutId(workoutId) {
+      return workoutId.matches("^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$");
+    }
+
     function isValidWorkoutMediaId(mediaId) {
       return isValidWorkoutId(mediaId);
     }
@@ -690,7 +696,7 @@ service cloud.firestore {
     }
 
     function isValidWorkoutDocument(userId, workoutId) {
-      return isValidWorkoutId(workoutId) &&
+      return isCanonicalWorkoutId(workoutId) &&
         request.resource.data.keys().hasOnly([
           "userId",
           "schemaVersion",
@@ -931,6 +937,16 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // Server-derived completed-climb projection. One Cloud Function
+      // (onWorkoutWritten) derives it from the canonical private workouts and
+      // writes it via the Admin SDK, which bypasses these rules; clients only
+      // ever read their own. Same "client reads its own, only the server
+      // writer writes" shape as achievements / liveClimbPublishStatuses.
+      match /landmarkResults/{landmarkId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
       match /public_profile/{docId} {
         allow read: if isSignedIn() && docId == "current";
         allow create, update: if isOwner(userId) &&
@@ -950,7 +966,7 @@ service cloud.firestore {
       match /profile_workouts/{workoutId} {
         allow read: if isSignedIn();
         allow create, update: if isOwner(userId) &&
-          isValidWorkoutId(workoutId) &&
+          isCanonicalWorkoutId(workoutId) &&
           isValidProfileWorkoutSummary();
         allow delete: if isOwner(userId);
       }

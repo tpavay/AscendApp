@@ -63,6 +63,15 @@ enum WorkoutHydrationService {
         return changedCount
     }
 
+    /// Clears the per-process "already hydrated this session" tracking. Hydration runs once per
+    /// launch; a reinstall re-runs it from a cold process. Tests use this to simulate that fresh
+    /// launch (and to prove reconstruction is idempotent when it actually runs twice). Not called
+    /// by the app.
+    static func resetSessionTrackingForTesting() {
+        hydratedUserIdsThisSession.removeAll()
+        hydratingUserIds.removeAll()
+    }
+
     private static func shouldApplyRemoteDocument(_ document: FirestoreWorkoutDocument, to workout: Workout) -> Bool {
         switch workout.remoteSyncStatus {
         case .pendingUpsert, .failed:
@@ -155,6 +164,7 @@ enum WorkoutHydrationService {
         )
         try restoreLiveClimbAttemptIfNeeded(
             for: workout,
+            userId: userId,
             modelContext: modelContext
         )
     }
@@ -207,13 +217,52 @@ enum WorkoutHydrationService {
 
     private static func restoreLiveClimbAttemptIfNeeded(
         for workout: Workout,
+        userId: String,
         modelContext: ModelContext
     ) throws {
+        // Only headphone-motion captures that name a landmark are candidates. justClimb and routine
+        // captures have no climbId and are legitimately not climb completions, so they never reach
+        // the recovery gate below (and never warn).
         guard workout.source == .headphoneMotion,
               let metadata = LiveClimbWorkoutSummaryData.metadata(for: workout),
-              metadata.trackingMode == .liveClimb,
               let climbId = metadata.climbId,
-              let attemptId = liveClimbAttemptId(for: workout) else {
+              !climbId.isEmpty else {
+            return
+        }
+
+        // Reconstruct only the local ClimbAttempt - never a WorkoutParticipation. A synthesized
+        // participation would flow through WorkoutSyncCoordinator and let the replay Cloud Function
+        // publish a row or claim a First Ascent from backfilled data. We restore local visibility,
+        // not a replay that never happened.
+        let attemptId: UUID
+        if let participationAttemptId = liveClimbAttemptId(for: workout) {
+            // Modern backup: a participation supplies the id. Restore the attempt as recorded - a
+            // completed and a failed attempt are both immutable competitive history.
+            attemptId = participationAttemptId
+        } else if LegacyClimbCompletionPredicate.isRecoverableLegacyCompletion(workout: workout) {
+            // Legacy backup with no participation (no trackingMode, no target key). Recover only
+            // confident completions, keyed by the deterministic id (CANONICAL §8) so a fresh device
+            // and the Phase 3 migration converge on the same attempt without duplicating. This is
+            // what the old inline `trackingMode == .liveClimb && participation present` guard failed,
+            // dropping earned completions on reinstall.
+            attemptId = LegacyClimbCompletionPredicate.deterministicAttemptId(
+                userId: userId,
+                legacyWorkoutId: workout.id,
+                climbId: climbId
+            )
+        } else {
+            // A landmark capture with neither a participation nor confident completion evidence is
+            // ambiguous, not obviously discardable. Log it (never silently skip) so a future
+            // data-loss regression is observable.
+            AppDiagnosticsRecorder.shared.record(
+                "live_climb_restore_unrecoverable",
+                level: .warning,
+                details: [
+                    "climb_id": climbId,
+                    "stop_reason": metadata.stopReason.rawValue,
+                    "steps": String(workout.steps)
+                ]
+            )
             return
         }
 

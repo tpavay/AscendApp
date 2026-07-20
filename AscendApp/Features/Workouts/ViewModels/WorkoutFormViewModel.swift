@@ -49,7 +49,6 @@ class WorkoutFormViewModel {
     var uploadError: String? = nil
     var durationFormatted: String = ""
     private var rawDurationDigits: String = ""
-    private var routineAttribution: RoutineWorkoutAttribution?
 
     // Dependencies
     private let workoutService: WorkoutService
@@ -65,40 +64,6 @@ class WorkoutFormViewModel {
         // Set default workout name based on workout date
         if workoutName.isEmpty {
             workoutName = Workout.generateDefaultName(for: workoutDate)
-        }
-    }
-
-    // MARK: - Prefill from Routine Completion
-
-    /// Prefill form fields from a completed routine session
-    func prefillFromRoutine(
-        name: String,
-        startedAt: Date,
-        duration: TimeInterval,
-        weightConfiguration: WeightConfiguration?,
-        difficulty: Int?,
-        attribution: RoutineWorkoutAttribution? = nil
-    ) {
-        // Use routine name as workout name
-        workoutName = name
-        workoutDate = startedAt
-        routineAttribution = attribution
-
-        // Set duration from elapsed time
-        let totalSeconds = Int(duration)
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        let seconds = totalSeconds % 60
-        setDuration(hours: hours, minutes: minutes, seconds: seconds)
-
-        // Set weight configuration if available
-        if let config = weightConfiguration {
-            self.weightConfiguration = config
-        }
-
-        // Map routine difficulty to effort rating (1:1 with unified labels)
-        if let difficulty = difficulty {
-            self.effortRating = Double(difficulty)
         }
     }
 
@@ -159,12 +124,6 @@ class WorkoutFormViewModel {
             let workout = try await workoutService.createWorkout(from: request)
 
             modelContext.insert(workout)
-            try WorkoutParticipationService.addRoutineParticipationIfNeeded(
-                for: workout,
-                attribution: routineAttribution,
-                userId: nil,
-                modelContext: modelContext
-            )
             try modelContext.save()
 
             // Refresh derived workout data and leaderboard stats.
@@ -186,15 +145,6 @@ class WorkoutFormViewModel {
                     highlightedIndex: highlightedIndex,
                     modelContext: modelContext
                 )
-            }
-
-            if routineAttribution != nil {
-                Task { @MainActor in
-                    await WorkoutImportCoordinator.shared.enrichInAppWorkoutWithAppleHealthIfPossible(
-                        workout,
-                        modelContext: modelContext
-                    )
-                }
             }
 
             // Don't clean up video files here - MediaUploadManager needs them

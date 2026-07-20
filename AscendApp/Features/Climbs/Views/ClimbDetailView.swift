@@ -25,7 +25,7 @@ private enum ClimbDetailCoachStep: Int, CaseIterable {
     var message: String {
         switch self {
         case .start:
-            return "When you are on the stair stepper, tap the climb button to start the live attempt."
+            return "Put on your AirPods or other compatible headphones. Ascend counts your steps from headphone motion. When you are on the stair stepper, tap the climb button to start the live attempt."
         case .leaderboard:
             return "The leaderboard shows completed times for this landmark. Finish the climb to put your name on it."
         case .browse:
@@ -51,7 +51,7 @@ private enum ClimbDetailCoachStep: Int, CaseIterable {
     var cardHeight: CGFloat {
         switch self {
         case .start:
-            return 236
+            return 280
         case .leaderboard:
             return 250
         case .browse:
@@ -207,7 +207,7 @@ struct ClimbDetailView: View {
             )
         }
         .sheet(isPresented: $showingHeadphoneHelp) {
-            liveClimbHeadphoneHelpSheet
+            CompatibleHeadphonesHelpSheet()
                 .appSheetStyle(.fitted())
         }
         .alert("Climb Action Error", isPresented: Binding(
@@ -885,6 +885,8 @@ struct ClimbDetailView: View {
             if viewModel.showsCommunityStats {
                 communityStatsRow
             }
+
+            trackingExplainerRow
 
             primaryActionRow
         }
@@ -1782,40 +1784,74 @@ struct ClimbDetailView: View {
     }
 
     private var primaryActionRow: some View {
-        HStack(spacing: 10) {
-            Button(action: handlePrimaryAction) {
-                Text(primaryActionTitle)
-                    .font(.montserratBold(size: 18))
-                    .foregroundStyle(isPrimaryActionEnabled ? .black : .white.opacity(0.7))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 18)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(isPrimaryActionEnabled ? Color.accent : .white.opacity(0.08))
-                    )
-            }
-            .buttonStyle(.plain)
-            .disabled(!isPrimaryActionEnabled)
-            .background(coachTargetFrameReader(for: .start))
-            .overlay {
-                coachTargetRoundedHighlight(for: .start, cornerRadius: 22)
-            }
-
-            Button {
-                showingHeadphoneHelp = true
-            } label: {
-                Image(systemName: "questionmark")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.82) : .black.opacity(0.68))
-                    .frame(width: 54, height: 54)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(.white.opacity(0.06))
-                    )
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Live climb headphone help")
+        Button(action: handlePrimaryAction) {
+            Text(primaryActionTitle)
+                .font(.montserratBold(size: 18))
+                .foregroundStyle(isPrimaryActionEnabled ? .black : .white.opacity(0.7))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 18)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(isPrimaryActionEnabled ? Color.accent : .white.opacity(0.08))
+                )
         }
+        .buttonStyle(.plain)
+        .disabled(!isPrimaryActionEnabled)
+        .background(coachTargetFrameReader(for: .start))
+        .overlay {
+            coachTargetRoundedHighlight(for: .start, cornerRadius: 22)
+        }
+    }
+
+    /// Persistent, worded explanation of how live tracking works. Unlike the
+    /// first-climb coach mark (which only fires via the onboarding handoff),
+    /// this row is always visible on the overview, so climbers arriving from
+    /// Browse, Home, or a push climb drop still learn that their headphones -
+    /// not a watch or phone - are the step tracker before their first attempt.
+    /// It renders directly *above* `primaryActionRow` so it lands before the
+    /// Start Live Climb button in scroll order - a climber reads how tracking
+    /// works without scrolling past the CTA. Keep it above the button.
+    private var trackingExplainerRow: some View {
+        Button {
+            TelemetryManager.shared.track(
+                LiveClimbAnalyticsEvent.headphoneHelpOpened(
+                    climb: viewModel.climb,
+                    entryPoint: analyticsEntryPoint,
+                    surface: .detailTrackingRow
+                )
+            )
+            showingHeadphoneHelp = true
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "airpodspro")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.accent)
+
+                Text("Your headphones track your steps, not a watch or phone.")
+                    .font(.montserratMedium(size: 13))
+                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.72) : .black.opacity(0.62))
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 6)
+
+                Text("How it works")
+                    .font(.montserratSemiBold(size: 13))
+                    .foregroundStyle(.accent)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 12)
+            .padding(.horizontal, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(.white.opacity(0.05))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("How live climb tracking works. Your headphones track your steps, not a watch or phone.")
+        .accessibilityHint("Opens the compatible headphones list.")
     }
 
     private var primaryActionTitle: String {
@@ -1825,89 +1861,6 @@ struct ClimbDetailView: View {
     private var isPrimaryActionEnabled: Bool {
         viewModel.isActionEnabled
     }
-
-    private var liveClimbHeadphoneHelpSheet: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Compatible Headphones")
-                    .font(.montserratBold(size: 24))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white : .black)
-
-                Text("Ascend uses headphone motion to track steps in real time during Live Climbs.")
-                    .font(.montserratRegular(size: 14))
-                    .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.68) : .black.opacity(0.58))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            compatibleHeadphoneGroup(
-                title: "AirPods",
-                headphones: [
-                    "AirPods 3",
-                    "AirPods 4",
-                    "AirPods 4 with Active Noise Cancellation",
-                    "AirPods Pro 1",
-                    "AirPods Pro 2",
-                    "AirPods Pro 3",
-                    "AirPods Max"
-                ]
-            )
-
-            compatibleHeadphoneGroup(
-                title: "Beats",
-                headphones: [
-                    "Beats Fit Pro",
-                    "Beats Studio Pro",
-                    "Beats Solo 4",
-                    "Powerbeats Pro 2",
-                    "Powerbeats Fit"
-                ]
-            )
-
-            Link(destination: Self.appleHeadphoneCompatibilityURL) {
-                Text("Don't see yours? Check Apple's current list.")
-                    .font(.montserratSemiBold(size: 13))
-                    .foregroundStyle(.accent)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-            }
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 28)
-        .padding(.bottom, 10)
-        .appSheetBackground()
-    }
-
-    private func compatibleHeadphoneGroup(title: String, headphones: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title.uppercased())
-                .font(.montserratSemiBold(size: 11))
-                .tracking(1.1)
-                .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.58) : .black.opacity(0.48))
-
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(headphones, id: \.self) { headphone in
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Circle()
-                            .fill(.accent)
-                            .frame(width: 5, height: 5)
-
-                        Text(headphone)
-                            .font(.montserratRegular(size: 13))
-                            .foregroundStyle(effectiveColorScheme == .dark ? .white.opacity(0.76) : .black.opacity(0.66))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(.white.opacity(0.04))
-            )
-        }
-    }
-
-    private static let appleHeadphoneCompatibilityURL = URL(string: "https://support.apple.com/en-us/102596")!
 
     private func handlePrimaryAction() {
         let canStart = headphoneMotionService.readiness.canStartLiveClimb

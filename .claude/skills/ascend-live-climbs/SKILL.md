@@ -1,0 +1,104 @@
+---
+name: ascend-live-climbs
+description: Use when working on Ascend Live Climbs - climb attempts, live sensor sessions, the replay leaderboard, First Ascent, the globe/browse surface, climb detail, climb cards, Apple Health enrichment of climbs, or catalog release phasing and coming-soon climbs. Covers the 3-screen loop, the attempt model, live session execution, replay rank rules, and content-driven catalog delivery.
+paths:
+  - AscendApp/Features/Climbs/**
+  - AscendLiveActivityWidgets/**
+---
+
+# Live Climbs V1 Architecture
+
+Live Climbs is the hero competitive experience: a user picks a real-world landmark (Mt. Everest, Empire State Building, etc.), races against past attempts in real time via headphone-motion step tracking, and either reaches the target step count (completion) or doesn't (failed attempt).
+
+For adding, editing, releasing, or validating catalog content and images, use the `live-climb-content` skill.
+
+## Surface architecture
+- Live Climbs lives on a 3-screen loop: **Home** (a stateful entry card showing the day's recommended climb), **Browse** (a searchable globe for discovery), and **Climb Detail** (the primary destination - overview, your history, per-climb leaderboard).
+- Home shows one concrete recommended climb per day, persisted per local calendar day so it stays consistent even if completion state changes mid-day. The card is fully tappable; no extra in-card CTA chrome.
+- Browse treats the globe and bottom drawer as distinct navigation modes: globe pin taps open a compact preview card; search/list/section taps open Climb Detail directly. Search lives in the drawer and expands above the keyboard when focused. Globe state (zoom, preview, search) clears when re-entering Browse from elsewhere.
+- Climb Detail uses a flippable hero card (landmark image on the front, tier + fun fact on the back) and three swipeable pages: overview, personal history, per-climb leaderboard. The leaderboard page uses the per-climb leaderboard pattern defined in the `ascend-leaderboards` skill.
+- Globe pins are state-driven: hollow outline for available climbs, filled with double-pin glow for the active climb, filled check badge for completed climbs.
+- Hardware-capability gating (headphones required) belongs at the *start-attempt* moment, not as warnings on Home or Browse. The blocking gate stays inline at start-attempt, but headphone-tracking education (headphones track steps, not a watch or phone) is a persistent, worded row on the Climb Detail overview, placed *above* the Start Live Climb button so it reaches every navigation path (not only the onboarding first-climb coach mark) and is read before the CTA without scrolling past it.
+
+## Attempt model
+- The climb attempt is the source of truth for progress and history. It replaces any older completion-only model.
+- Catalog climbs are *single-session challenges*: the live attempt must reach the target step count to count as a completion. Ending early saves a failed attempt in personal history; only target-reached completions count publicly (leaderboard, First Ascent eligibility).
+- Live Climb completions come only from the live headphone-motion attempt flow. Manual entries, external imports, and routine completions cannot progress or complete a Live Climb. (Integrity gate; the canonical statement of this rule lives in `ascend-workout-model`.)
+- The live attempt creates a workout only after the live session stops with recorded steps. The workout flows through the normal workout mutation pipeline so leaderboards, Best Efforts, and remote backup stay on one path.
+- Reaching the climb's step target *is* the finish, and `LiveClimbCompletionPolicy` is the only place that decides it.
+  Status always reads steps, never `stopReason`.
+  Never add a second finish definition: readers ask the policy, they don't re-derive.
+- For a climb attempt, `stopReason` describes *how* a session ended, never whether it counted; a routine session deliberately inverts that, so read the `ascend-routines` skill before reusing the enum's rules here.
+  `ClimbService.apply` upgrades it to `.targetReached` for the manual-stop case only - a climber who tapped End past the target finished - so rehydration and the replay Cloud Function agree on that path.
+  Every other stop reason is deliberately left as recorded.
+- An interrupted recovered draft past the target counts locally as a completion but is deliberately never published by the replay Cloud Function, because a recovered draft's step count is typed by hand.
+  That asymmetry is an intentional First Ascent integrity gate, not the reinstall bug it resembles: a First Ascent is permanent and never reclaimable, so a typed number must never claim one.
+  Ask `LiveClimbCompletionPolicy` before changing what normalizes; don't widen it to heal a status that already reads steps.
+- Saved Live Climb attempts are immutable competitive history. Discard during the live session if the attempt shouldn't count; once saved, workout-log delete affordances do not erase the underlying attempt.
+
+## Completed-Climb Projection (globe / Collection / `totalClimbsCompleted`)
+
+A completed climb is **1:1 with a `Workout`** (the sole canonical record; verdict in `data/verify-workout-climb-cardinality-m2`). There is no separate canonical climb collection.
+
+- The `onWorkoutWritten` Cloud Function (`functions/src/climbCompletions.ts`) is the single site that derives the server projection `users/{uid}/landmarkResults/{climbId}` FROM the workout. One recompute is one Firestore transaction: the workout query, the projection read, and the write-or-delete all happen inside it, reads before writes, so a retry re-derives and an older snapshot can never commit over newer canonical state. Inside that transaction it still validates-before-writes (returns success without a duplicate write when the event is already reflected in `computedThroughEvent`), so the live trigger, re-delivery, and the backfill converge on byte-identical docs. It writes only the private projection and never claims a First Ascent - that stays in the replay path (`liveReplayLeaderboard.ts`).
+- `ClimbCompletionRepository` (`AscendApp/Shared/Repositories/`) is the ONLY read surface for the completed set: `read` serves the local `ClimbAttempt` cache distinct-per-`climbId`; `refresh(userId:modelContext:)` pulls `landmarkResults` into the cache losslessly (only ever adds, never shows less than earned) and runs on authenticated bootstrap (`RootView.bootstrapAuthenticatedLocalState`). This makes the count correct on an in-place UPDATE, not just a reinstall.
+- The globe numerator, Collection claimed state, and `totalClimbsCompleted` all read this one distinct-climb set - never a raw `@Query ClimbAttempt` for the completed set, never a `max(local, server)`. `ClimbAttempt` (SwiftData) is the repository's device cache row, not a canonical server collection.
+- `landmarkResults` rules are server-derived, read-own / `write: if false` (`firestore.rules`). The idempotent, prod-refusing backfill is `scripts/backfill-landmark-results.mjs` - dry-run by default and `_migrations` ledger-gated; it plans candidate user/climb identities (canonical workouts UNION stored projections) then re-derives each one through the same transaction, so it restores missing projections and deletes orphaned ones without overwriting a concurrent live trigger. The completion predicate is the shared vector-pinned `isRecoverableLegacyCompletion` (Swift / TS / mjs, pinned by `SharedTestVectors/legacy-recoverable-completion-vector.json`) - do not author a fourth copy.
+
+## First Ascent (World First) prestige
+- Every climb has a permanent First Ascent holder - the first user to complete it. The holder's name and completion date remain associated with the climb even after their time is beaten by faster climbers. The one exception is account deletion: the claim and its date are permanent, but the name is not, so deleting an account de-identifies the record to `Anonymous Climber` while the slot stays claimed and dated (see the account-deletion rules in `ascend-firebase-data`). This creates a permanent-prestige retention loop: every new climb drop opens a fresh First Ascent slot that can never be reclaimed once held. In leaderboard surfaces, First Ascent is honored but secondary to the active top-3 chase - the *current* glory belongs to whoever holds the top times; First Ascent is a permanent annotation, not the headline.
+- The universal no-finisher copy is: "First Ascent open. The first finisher claims it forever." Use it verbatim on any surface that needs to explain an unclaimed climb.
+
+## Live session execution
+- Sensor stats (time, steps, progress, SPM) update locally every second during a live session without waiting on the network. Stale or failed backend reads must never interrupt local tracking.
+- The replay leaderboard is the primary visual surface during a live attempt - elapsed time + target step count in top chrome, the user's row anchors as a horizontal accent progress indicator, with an end-attempt control at the bottom. Pre-start countdown fully obscures the live UI until recording begins.
+- Live attempts cannot be paused. Once recording starts, the clock runs until the user reaches the target step count (completion) or ends the attempt (DNF). If the user stops stepping or steps off the machine, the clock keeps running - competitive integrity comes from the unbroken clock, like an ultra-marathon. We don't try to detect "is the user still climbing" via motion heuristics or location; that's complexity without product value, and any rest the user takes legitimately costs them rank.
+- A background-execution helper runs alongside the headphone-motion session so the session survives backgrounding. The helper must not write HealthKit workouts or request new Health permissions.
+- A Live Activity / Dynamic Island surface mirrors session state (compact: steps + rank; expanded: name + image + duration + steps + intent-driven controls). The widget extension reads from the session view model only - never Firestore, never the replay index directly.
+- Completed sessions transition to a post-save summary before dismissal - adaptive pace splits, vertical-gain display, share carousel with a Live Climb-specific share card when climb metadata is available, and direct affordances to add notes and media to the climb workout. The completion summary is the moment for adding context; we don't gather notes / media via a deferred review sheet.
+
+## Replay leaderboard architecture
+- The replay leaderboard is a context-agnostic system reusable for Live Climbs and future race surfaces (challenge climbs). Don't clone climb-specific comparison logic per surface - share the context / sampler / service abstractions.
+- Replay rank compares the live user's current steps against completed eligible attempts at the same elapsed-time bucket. Failed, abandoned, and partial attempts never publish into replay indexes. Tied completed attempts rank ahead of the live user (a new attempt starts at the bottom of the completed field).
+- Per-climb replay contexts rank the live climber against **one row per opponent - each opponent's best (fastest) completion on that climb**. Multiple completions by the same user collapse to their best for the live race; chasing a rival three times (their slow, middling, and fast attempts) is clutter, not competition. The static per-climb leaderboard separately preserves the full completion history (see `ascend-leaderboards`). Only target-reached completions feed the replay context.
+- Best-per-user collapse is server-owned: each bucket entry carries an `isBestForUser` flag, re-derived from the entries themselves whenever a workout publishes, changes, or is deleted (`reconcileUserBestEntries` in `functions/src/liveReplayLeaderboard.ts`). Live-race reads filter on that flag; the static completion board reads the same entries unfiltered. Do not collapse repeats by filtering rows on the client: live rank and climber counts come from Firestore aggregation counts, which only a server-side filter can make count climbers instead of attempts. Backfill existing entries with `scripts/backfill-live-replay-best-per-user.mjs`.
+- The collapse is scoped to per-climb (`live_climb`) contexts by allowlist, on both the write and read sides. Fastest-wins is only a valid "best" where every completion reaches the same step target. Open Just Climb sessions have no target, and routine contexts publish no flag, so both race every completed attempt as its own opponent and must read entries unfiltered. Entries outside the allowlist carry no `isBestForUser` field at all, and a missing field can never be filtered on by mistake. When adding a replay context type, decide deliberately whether it collapses repeats; do not extend the flag by writing a denylist.
+- Post-completion share / summary rank is computed against completed bucket-zero replay entries with `completedCount` as the denominator. Don't reuse in-session time-window rank or total-climber count for completed share surfaces.
+- Step timeline checkpoints are source-neutral. Sensor producers emit cumulative step samples into a shared recorder so result / replay UI doesn't depend on one sensor source.
+- Heart-rate samples are checkpointed onto the active draft the same way step data is, and each sample is stamped on the *logical* workout timeline (draft start + the resume-inclusive elapsed clock), never on wall-clock time. A resumed or recovered session therefore extends one continuous series instead of restarting it, and saving straight from recovery keeps the pre-interruption trace. Never clear the buffer on resume. The saved workout carries `HeartRateTraceCoverage` in its source metadata so a genuinely partial trace can't read as a complete one.
+- The replay index is server-published - clients write zero leaderboard data during a live session. A Cloud Function publishes from saved attempts after the session ends and normalizes degenerate curves (e.g. all-zero-until-final-bucket) into conservative monotonic curves so replay rows don't appear stationary.
+- Replay rows denormalize public display fields (display name, avatar token, optional photo URL) so live-session client code does not read private user documents during a race.
+- Per-climb rank and total-climber counts stay hidden until real backend data exists. No placeholder public stats.
+- Future demographic / peer-group insights must use declared profile fields and stay opt-in / privacy-safe.
+
+## Apple Health enrichment
+- Apple Health can *enrich* a saved Live Climb workout with wearable metrics (heart rate, calories, device metadata, HealthKit UUID, an external provenance link). It must never become the canonical Live Climb source.
+- Enrichment is automatic only for confident one-to-one matches between an unlinked Live Climb workout and an unlinked Apple Health stair / step workout. Ambiguous matches are skipped, never guessed.
+- **Link acquisition and metric completeness are separate transitions.** Health frequently publishes the workout before its heart-rate, calorie, and MET samples land, so a workout can be linked while still missing metrics. Being linked must never end eligibility: a linked-but-incomplete workout stays in scope for later refreshes, and those refreshes address the Health workout by its stored HealthKit UUID instead of rematching it against candidate samples. A workout whose metrics are already complete is not reprocessed.
+- Automatic retries are bounded by a window measured from the end of the workout (currently 72h). Once that window lapses on a still-incomplete workout, Ascend stops checking automatically and the workout detail's recovery card switches to "Stopped checking" with a manual fetch. The card appears only while enrichment is genuinely pending or stalled - never for a workout that is complete or was never eligible.
+- Enrichment preserves the Live Climb's source, steps, floors, duration, and attempt participation - it only adds health metrics and the external provenance link.
+- Enrichment is **silent**. An enriched Live Climb never appears in the auto-import review flow, never shows up as a manual-import candidate, and never asks the user to confirm or edit the merged data. If the Apple Health workout arrives after the Live Climb's completion summary has been dismissed, the new health metrics show up on the workout detail next time the user looks - no notification, no review.
+- The user gathers notes / media for a Live Climb at the **completion summary**, not in a post-hoc review surface. Enrichment never inserts itself into that moment.
+
+## Climb content (catalog + images)
+- When adding, editing, releasing, or validating Live Climb catalog content, use the `live-climb-content` skill. That file is intentionally harness-neutral so Codex, Claude, Cursor, or any other AI provider can follow the same workflow.
+- Climb content is remote-first by default. The catalog ships as a hosted manifest + versioned catalog file; climb images live in Storage as hero / card / thumb sizes. Adding a new climb means publishing new content, never shipping app code (see Content-driven over rebuild in the core guide).
+- A bundled bootstrap catalog ships with the app for *metadata only*, so Home and Browse render even if the remote catalog has never been fetched. Once a remote catalog has been successfully fetched, subsequent launches prefer the disk-cached catalog over the bundled bootstrap.
+- Climb images do not ship in the app bundle - artwork is remote-only. Missing images render a placeholder until the remote image is cached locally.
+- Catalog and image fetching use shared disk-backed cache infrastructure. Climb-specific fetch/decode logic stays in climb repositories; the cache layer is generic.
+- Home, Browse, and Detail render from cached / local state first, then refresh remote content in the background. Don't block UI on network fetches.
+
+## Climb card visual treatment
+- Reusable climb card surfaces share common chrome (split-card surface, leading artwork, animated tier border). Don't reimplement split layouts, image clipping, or tier-border animation per screen.
+
+## Catalog Release Phasing
+- Catalog release state is server-controlled. The app model currently uses `releaseState`; if a remote content feed exposes `releaseStatus`, map it into the same release-state domain instead of branching UI on a second concept.
+- Launch composition should be content-driven: available climbs, coming-soon climbs, hidden climbs, and disabled climbs are all catalog data, not app-release code paths.
+- New climb drops should be publishable by changing hosted catalog data and image assets. Avoid adding per-climb code, hardcoded IDs outside smart defaults, or app-store-release dependencies for catalog expansion.
+- First Ascent availability follows release phasing: hidden and disabled climbs do not appear as open First Ascent opportunities; coming-soon climbs can tease future drops but must not accept live attempts until available.
+- Coming Soon climbs follow a cross-surface mystery pattern. The Pokedex shows blurred silhouette only (no name, no location). The Globe shows location only (via dim pin with region revealed on tap). The user pieces together identity by cross-referencing both surfaces; neither reveals everything on its own.
+- All climb tiers use the same rotating tier-border treatment driven by per-tier color tokens. Mythic is the emphasized tier (strongest glow, purple-forward prismatic palette).
+- Persistent idle climb surfaces (e.g. the Home daily card) may use a lighter ambient border treatment with an unblurred moving highlight to reduce per-frame animation work while preserving visible motion.
+
+## Reference
+- `docs/climb-candidate-research.md` - landmark candidate research.

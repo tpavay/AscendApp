@@ -23,6 +23,11 @@ import {fileURLToPath} from "node:url";
 import {applicationDefault, initializeApp} from "firebase-admin/app";
 import {getAuth} from "firebase-admin/auth";
 import {FieldValue, getFirestore, Timestamp} from "firebase-admin/firestore";
+import {
+  canonicalWorkoutDocumentId,
+  seededReplayCompletedCount,
+  staleWorkoutDocumentIds,
+} from "./lib/workout-document-id.mjs";
 
 const DEV_PROJECT_ID = "ascend-f2e4f";
 const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
@@ -280,6 +285,7 @@ async function main() {
     return;
   }
 
+  await commitDeletes(db, seedPlan.deletes);
   await commitWrites(db, seedPlan.writes);
   console.log(
     `Seeded demo account ${seedPlan.user.uid} with ` +
@@ -340,6 +346,7 @@ async function buildSeedPlan(db, catalog, authUser, args) {
   const user = userSnapshot(authUser, args);
   const joinedAt = args.joinedAt ?? new Date(now.getTime() - 46 * 24 * 60 * 60 * 1000);
   const writes = [];
+  const deletes = [];
   const liveContexts = [];
   const workouts = [];
   const userRef = db.collection("users").doc(user.uid);
@@ -375,10 +382,11 @@ async function buildSeedPlan(db, catalog, authUser, args) {
   ]);
 
   for (const workout of workouts) {
-    writes.push([
-      db.collection("users").doc(user.uid).collection("profile_workouts").doc(workout.id),
-      profileWorkoutData(workout),
-    ]);
+    const profileWorkoutsRef = db.collection("users").doc(user.uid).collection("profile_workouts");
+    writes.push([profileWorkoutsRef.doc(workout.id), profileWorkoutData(workout)]);
+    for (const staleId of staleWorkoutDocumentIds(workout.id)) {
+      deletes.push(profileWorkoutsRef.doc(staleId));
+    }
   }
 
   for (const achievement of achievementRecords(user.uid, now, args.seedFirstAscent ? args.firstAscentClimbId : null)) {
@@ -397,19 +405,21 @@ async function buildSeedPlan(db, catalog, authUser, args) {
     ]);
   }
 
-  await addReplayWrites(db, writes, user, liveContexts, args);
+  await addReplayWrites(db, writes, deletes, user, liveContexts, args);
   await addCommunityStatsWrites(db, writes, user, liveContexts);
 
   for (const workout of workouts) {
-    writes.push([
-      db.collection("users").doc(user.uid).collection("workouts").doc(workout.id),
-      workout.document,
-    ]);
+    const workoutsRef = db.collection("users").doc(user.uid).collection("workouts");
+    writes.push([workoutsRef.doc(workout.id), workout.document]);
+    for (const staleId of staleWorkoutDocumentIds(workout.id)) {
+      deletes.push(workoutsRef.doc(staleId));
+    }
   }
 
   return {
     user,
     writes,
+    deletes,
     workouts,
     liveContexts,
     stats,
@@ -682,7 +692,7 @@ function participationRecord(input) {
   };
 }
 
-async function addReplayWrites(db, writes, user, liveContexts, args) {
+async function addReplayWrites(db, writes, deletes, user, liveContexts, args) {
   for (const context of liveContexts) {
     const contextKey = replayContextKey(context.contextType, context.contextId);
     const leaderboardRef = db.collection("live_replay_leaderboards").doc(contextKey);
@@ -692,10 +702,11 @@ async function addReplayWrites(db, writes, user, liveContexts, args) {
       finisherRef.get(),
       bucketZeroEntriesRef.get(),
     ]);
-    const hasExistingCompletionRow = bucketZeroSnapshot.docs.some(
-      (document) => document.id === context.workoutId
+    const staleEntryIds = staleWorkoutDocumentIds(context.workoutId);
+    const completedCount = seededReplayCompletedCount(
+      bucketZeroSnapshot.docs.map((document) => document.id),
+      context.workoutId
     );
-    const completedCount = bucketZeroSnapshot.size + (hasExistingCompletionRow ? 0 : 1);
     const existingFinisher = finisherSnapshot.exists;
     const existingFinisherOrder = nonNegativeInteger(
       finisherSnapshot.data()?.globalCompletionOrder
@@ -758,16 +769,22 @@ async function addReplayWrites(db, writes, user, liveContexts, args) {
     ]);
 
     for (let index = 0; index < context.splitSteps.length; index += 1) {
+      const entriesRef = leaderboardRef.collection("splitBuckets").doc(String(index)).collection("entries");
+      for (const staleEntryId of staleEntryIds) {
+        deletes.push(entriesRef.doc(staleEntryId));
+      }
       writes.push([
-        leaderboardRef.collection("splitBuckets").doc(String(index)).collection("entries").doc(context.workoutId),
+        entriesRef.doc(context.workoutId),
         {
           avatarToken: user.avatarToken,
           completionDurationSeconds: context.durationSeconds,
           displayName: user.displayName,
           finalSteps: context.finalSteps,
+          ...bestForUserField(context),
           isPersonalBest: true,
           photoURL: user.photoURL,
           schemaVersion: REPLAY_SCHEMA_VERSION,
+          splitBucketCount: context.splitSteps.length,
           splitIntervalSeconds: SPLIT_INTERVAL_SECONDS,
           stepsAtBucket: context.splitSteps[index],
           updatedAt: FieldValue.serverTimestamp(),
@@ -805,6 +822,19 @@ async function addCommunityStatsWrites(db, writes, user, liveContexts) {
     statsData.uniqueCompletedUserCount = FieldValue.increment(1);
   }
   writes.push([statsRef, statsData]);
+}
+
+/**
+ * Best-per-user flag for a seeded entry, or nothing when the context has none.
+ *
+ * Only per-climb contexts collapse a climber's repeat completions into one live
+ * race row, so only they carry the flag. There is one seeded completion per
+ * context, so that completion is the user's best.
+ * @param {object} context Seeded replay context.
+ * @return {object} Flag field, or an empty object.
+ */
+function bestForUserField(context) {
+  return context.contextType === "live_climb" ? {isBestForUser: true} : {};
 }
 
 function liveContextForWorkout(workout) {
@@ -1187,17 +1217,27 @@ function displayNameFromEmail(email) {
 function deterministicUUID(input) {
   const hex = createHash("sha256").update(input).digest("hex");
   const variant = ((parseInt(hex.slice(16, 18), 16) & 0x3f) | 0x80).toString(16).padStart(2, "0");
-  return [
+  return canonicalWorkoutDocumentId([
     hex.slice(0, 8),
     hex.slice(8, 12),
     `4${hex.slice(13, 16)}`,
     `${variant}${hex.slice(18, 20)}`,
     hex.slice(20, 32),
-  ].join("-");
+  ].join("-"));
 }
 
 function deterministicId(input) {
   return createHash("sha256").update(input).digest("hex").slice(0, 24);
+}
+
+async function commitDeletes(db, deletes) {
+  for (let index = 0; index < deletes.length; index += BATCH_LIMIT) {
+    const batch = db.batch();
+    for (const ref of deletes.slice(index, index + BATCH_LIMIT)) {
+      batch.delete(ref);
+    }
+    await batch.commit();
+  }
 }
 
 async function commitWrites(db, writes) {
@@ -1223,6 +1263,7 @@ function printPlan(projectId, seedPlan, args) {
     workouts: seedPlan.workouts.length,
     liveReplayContexts: seedPlan.liveContexts.length,
     writes: seedPlan.writes.length,
+    staleCaseVariantDeletes: seedPlan.deletes.length,
     firstAscentClimb: args.seedFirstAscent ? args.firstAscentClimbId : null,
     totalClimbsCompleted: seedPlan.stats.totalClimbsCompleted,
   };
