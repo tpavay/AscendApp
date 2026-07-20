@@ -15,15 +15,18 @@
  * id are moved onto the canonical id and the fields that store one - firstAscentWorkoutId,
  * finisher best/first ids, userBestAttempts, publish statuses - are rewritten, so nothing
  * is left pointing at a document this migration deleted. A stale row whose canonical twin
- * already exists is dropped when the payloads agree and otherwise resolved newest-first;
- * a pair with no comparable updatedAt blocks the apply instead of being guessed at, and a
- * non-canonical id with no surviving workout is reported, never rewritten.
+ * already exists is dropped when the payloads agree and otherwise resolved newest-first
+ * through that collection's own recency field; a pair no timestamp can order blocks the
+ * apply instead of being guessed at, and a non-canonical id with no surviving workout is
+ * reported, never rewritten. Dropping a duplicate row removes a climber the leaderboard
+ * summary already counted, so an affected context is recounted from its finishers and any
+ * completion order left above that total is renumbered.
  *
  * Writes are chunked, so a run can die with the workout renames committed and the
- * reference repairs or landmarkResults rebuild outstanding. Both the projections and the
- * renames this run owes are recorded on the ledger before the first write and cleared only
- * on success, so the next run folds them back into its own plan and cannot report success
- * on a vacuous verification. Reference repairs are also re-derived from live data - any id
+ * reference repairs, leaderboard recounts, or landmarkResults rebuild outstanding. The
+ * projections, the renames, and the contexts this run owes a recount are all recorded on
+ * the ledger before the first write and cleared only on success, so the next run folds them
+ * back into its own plan and cannot report success on a vacuous verification. Reference repairs are also re-derived from live data - any id
  * still spelled non-canonically whose canonical workout exists is repaired - so a lost
  * ledger cannot strand them either. If a run fails and the operator will not re-run it,
  * `scripts/backfill-landmark-results.mjs` rebuilds the same projections. A carried repair
@@ -50,6 +53,7 @@ import {
   resolveEnvironment,
 } from "./lib/migration-discipline.mjs";
 import {shouldSkipLandmarkResultWrite} from "./lib/landmark-result-derivation.mjs";
+import {canonicalWorkoutDocumentId} from "./lib/workout-document-id.mjs";
 import {
   BATCH_WRITE_LIMIT,
   finalWorkoutDocuments,
@@ -57,12 +61,14 @@ import {
   packBatchSizes,
   planAffectedLandmarkProjections,
   planCaseVariantWorkoutMerges,
+  planReplaySummaryRepairs,
   planWorkoutIdReferenceRenames,
   planWorkoutIdReferenceRepairs,
 } from "./lib/workout-id-case-migration.mjs";
 
 const OPERATION_ID = "migration/case-variant-workout-ids";
 const OPERATION_VERSION = 2;
+const TWIN_READ_CHUNK = 100;
 const REFERENCE_COLLECTION_GROUPS = Object.freeze([
   "entries",
   "completionSnapshots",
@@ -72,6 +78,7 @@ const REFERENCE_COLLECTION_GROUPS = Object.freeze([
   "profile_workouts",
 ]);
 const WORKOUT_ID_RENAME_REPAIR_KIND = "workoutIdRename";
+const REPLAY_SUMMARY_REPAIR_KIND = "replaySummaryRecount";
 
 const args = parseCommonArgs(process.argv);
 if (args.rest.has("help")) {
@@ -87,12 +94,16 @@ const documents = await readWorkoutDocuments(db);
 const references = await readWorkoutIdReferences(db);
 const plan = planCaseVariantWorkoutMerges(documents);
 const pendingRepairs = await readPendingRepairs(db, OPERATION_ID);
-const carriedRepairs = pendingRepairs.filter(
-  (repair) => repair.kind !== WORKOUT_ID_RENAME_REPAIR_KIND
-);
+const carriedRepairs = pendingRepairs.filter((repair) => (
+  repair.kind !== WORKOUT_ID_RENAME_REPAIR_KIND &&
+  repair.kind !== REPLAY_SUMMARY_REPAIR_KIND
+));
 const carriedRenames = pendingRepairs.filter(
   (repair) => repair.kind === WORKOUT_ID_RENAME_REPAIR_KIND
 );
+const carriedContextKeys = pendingRepairs
+  .filter((repair) => repair.kind === REPLAY_SUMMARY_REPAIR_KIND)
+  .map((repair) => repair.contextKey);
 const deleteCount = plan.merges.reduce((sum, merge) => sum + merge.deleteWorkoutIds.length, 0);
 const renames = planWorkoutIdReferenceRenames(
   plan.merges,
@@ -101,6 +112,11 @@ const renames = planWorkoutIdReferenceRenames(
   finalWorkoutDocuments(documents, plan.merges)
 );
 const referencePlan = planWorkoutIdReferenceRepairs(renames, references);
+const summaryPlan = planReplaySummaryRepairs(
+  referencePlan.moves,
+  references,
+  carriedContextKeys
+);
 
 console.log([
   `Operation: ${OPERATION_ID} v${OPERATION_VERSION}`,
@@ -115,8 +131,12 @@ console.log([
   `Reference rows to move onto a canonical id: ${referencePlan.moves.length}`,
   `Reference fields to rewrite: ${referencePlan.fieldUpdates.length}`,
   `Blocked conflicting reference rows: ${referencePlan.conflicts.length}`,
+  `Replay contexts losing a duplicate row: ${summaryPlan.contextKeys.length}`,
+  `Leaderboard summaries to recount: ${summaryPlan.summaryUpdates.length}`,
+  `Finisher completion orders to renumber: ${summaryPlan.finisherUpdates.length}`,
   `landmarkResults owed by an earlier unfinished run: ${carriedRepairs.length}`,
   `Workout id renames owed by an earlier unfinished run: ${carriedRenames.length}`,
+  `Replay recounts owed by an earlier unfinished run: ${carriedContextKeys.length}`,
 ].join("\n"));
 
 for (const merge of plan.merges) {
@@ -147,6 +167,22 @@ for (const update of referencePlan.fieldUpdates) {
       Object.entries(update.updates).map(([field, value]) => `${field}=${value}`).join(", ")
   );
 }
+for (const update of summaryPlan.summaryUpdates) {
+  console.log(
+    `SUMMARY ${update.contextKey}: completedCount ${update.previousCompletedCount} -> ` +
+      `${update.updates.completedCount}` +
+      `${"totalClimbers" in update.updates ? ", totalClimbers realigned" : ""}`
+  );
+}
+for (const update of summaryPlan.finisherUpdates) {
+  console.log(
+    `FINISHER ${update.parentPath}/${update.documentId}: globalCompletionOrder ` +
+      `${update.previousOrder} -> ${update.updates.globalCompletionOrder}`
+  );
+}
+for (const note of summaryPlan.notes) {
+  console.log(`SUMMARY UNCHANGED ${note.contextKey}: ${note.reason}`);
+}
 for (const item of referencePlan.unresolved) {
   console.log(
     `UNRESOLVED ${item.path} references non-canonical ${item.workoutId} ` +
@@ -171,7 +207,13 @@ const affectedProjections = planAffectedLandmarkProjections(
   carriedRepairs
 );
 const staleProjections = affectedProjections.filter((item) => !item.projection);
-const units = buildMigrationUnits(db, plan.merges, referencePlan, affectedProjections);
+const units = buildMigrationUnits(
+  db,
+  plan.merges,
+  referencePlan,
+  summaryPlan,
+  affectedProjections
+);
 const batchSizes = packBatchSizes(units.map((unit) => unit.length));
 const operationCount = batchSizes.reduce((sum, size) => sum + size, 0);
 
@@ -217,6 +259,10 @@ try {
       workoutId,
       canonicalWorkoutId,
     })),
+    ...summaryPlan.contextKeys.map((contextKey) => ({
+      kind: REPLAY_SUMMARY_REPAIR_KIND,
+      contextKey,
+    })),
   ]);
   await commitUnits(db, units, batchSizes);
   const verificationDocuments = await readWorkoutDocuments(db);
@@ -224,7 +270,7 @@ try {
   if (verificationPlan.merges.length > 0 || verificationPlan.conflicts.length > 0) {
     throw new Error("Verification still found case-variant workout document groups.");
   }
-  await verifyWorkoutIdReferences(db, renames);
+  await verifyWorkoutIdReferences(db, renames, summaryPlan);
   await verifyLandmarkResults(db, affectedProjections);
 
   await run.finish({
@@ -234,6 +280,8 @@ try {
     referenceRowsMoved: referencePlan.moves.length,
     referenceFieldsRewritten: referencePlan.fieldUpdates.length,
     unresolvedReferences: referencePlan.unresolved.length,
+    replaySummariesRecounted: summaryPlan.summaryUpdates.length,
+    finisherOrdersRenumbered: summaryPlan.finisherUpdates.length,
     landmarkResultsWritten: affectedProjections.length - staleProjections.length,
     landmarkResultsDeleted: staleProjections.length,
   });
@@ -269,30 +317,103 @@ async function readWorkoutDocuments(firestore) {
 /**
  * Reads every document outside `users/{uid}/workouts` that keys on, or stores, a private
  * workout document id, so canonicalizing an id can move each of them with it.
+ *
+ * `entries` alone holds one document per climber per split bucket, so the scan streams and
+ * keeps a whole payload only for the rows that can actually be rewritten wholesale - the
+ * ones spelled non-canonically. Every other row is trimmed to the fields the planner reads.
+ * A trimmed row that turns out to be the canonical twin of a stale one is re-read in full
+ * afterwards, because deciding between twins compares their entire payloads.
  * @param {FirebaseFirestore.Firestore} firestore Firestore instance.
  * @return {Promise<object[]>} Scanned references, in shape-planner form.
  */
 async function readWorkoutIdReferences(firestore) {
-  const snapshots = await Promise.all([
-    firestore.collection("live_replay_leaderboards").get(),
-    ...REFERENCE_COLLECTION_GROUPS.map((collectionId) =>
-      firestore.collectionGroup(collectionId).get()
-    ),
-  ]);
+  const references = [];
+  const queries = [
+    firestore.collection("live_replay_leaderboards"),
+    ...REFERENCE_COLLECTION_GROUPS.map((collectionId) => firestore.collectionGroup(collectionId)),
+  ];
 
-  return snapshots.flatMap((snapshot) => snapshot.docs).flatMap((document) => {
-    const shape = matchWorkoutIdReferenceShape(document.ref.path);
-    if (!shape) {
-      return [];
+  for (const query of queries) {
+    for await (const document of query.stream()) {
+      const shape = matchWorkoutIdReferenceShape(document.ref.path);
+      if (shape) {
+        references.push(scannedReference(document, shape));
+      }
     }
-    return [{
-      parentPath: document.ref.parent.path,
-      documentId: document.id,
-      keyedByWorkoutId: shape.keyedByWorkoutId,
-      workoutIdFields: shape.workoutIdFields,
-      data: document.data(),
-    }];
-  });
+  }
+
+  await restoreCanonicalTwinPayloads(firestore, references);
+  return references;
+}
+
+function scannedReference(document, shape) {
+  const data = document.data();
+  const complete = shape.keyedByWorkoutId && !isCanonicalDocumentId(document.id);
+  return {
+    parentPath: document.ref.parent.path,
+    documentId: document.id,
+    keyedByWorkoutId: shape.keyedByWorkoutId,
+    workoutIdFields: shape.workoutIdFields,
+    recencyFields: shape.recencyFields,
+    partial: !complete,
+    data: complete ? data : plannerFieldsOnly(data, shape),
+  };
+}
+
+function plannerFieldsOnly(data, shape) {
+  const retained = {};
+  for (const field of [...shape.workoutIdFields, ...shape.recencyFields, ...shape.plannerFields]) {
+    if (field in data) {
+      retained[field] = data[field];
+    }
+  }
+  return retained;
+}
+
+function isCanonicalDocumentId(documentId) {
+  try {
+    return canonicalWorkoutDocumentId(documentId) === documentId;
+  } catch {
+    return false;
+  }
+}
+
+async function restoreCanonicalTwinPayloads(firestore, references) {
+  const byLocation = new Map(
+    references.map((reference) => [`${reference.parentPath}/${reference.documentId}`, reference])
+  );
+  const twins = new Set();
+  for (const reference of references) {
+    if (!reference.keyedByWorkoutId || !reference.partial) {
+      continue;
+    }
+    const canonicalId = canonicalTwinId(reference.documentId);
+    if (canonicalId && byLocation.has(`${reference.parentPath}/${canonicalId}`)) {
+      twins.add(`${reference.parentPath}/${canonicalId}`);
+    }
+  }
+
+  const locations = [...twins];
+  for (let index = 0; index < locations.length; index += TWIN_READ_CHUNK) {
+    const chunk = locations.slice(index, index + TWIN_READ_CHUNK);
+    const snapshots = await firestore.getAll(...chunk.map((path) => firestore.doc(path)));
+    for (const snapshot of snapshots) {
+      const reference = byLocation.get(snapshot.ref.path);
+      if (reference && snapshot.exists) {
+        reference.data = snapshot.data();
+        reference.partial = false;
+      }
+    }
+  }
+}
+
+function canonicalTwinId(documentId) {
+  try {
+    const canonical = canonicalWorkoutDocumentId(documentId);
+    return canonical === documentId ? null : canonical;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -305,11 +426,18 @@ async function readWorkoutIdReferences(firestore) {
  * @param {FirebaseFirestore.Firestore} firestore Firestore instance.
  * @param {object[]} merges Planned canonicalization groups.
  * @param {object} referencePlan Planned workout-id reference repairs.
+ * @param {object} summaryPlan Planned leaderboard recounts.
  * @param {object[]} affectedProjections Landmark projections to rebuild.
  * @return {{ref: FirebaseFirestore.DocumentReference, data: object|null, merge?: boolean}[][]}
  *   Atomic units; a null payload means delete.
  */
-function buildMigrationUnits(firestore, merges, referencePlan, affectedProjections) {
+function buildMigrationUnits(
+  firestore,
+  merges,
+  referencePlan,
+  summaryPlan,
+  affectedProjections
+) {
   const units = [];
   for (const merge of merges) {
     const collection = firestore.collection("users").doc(merge.userId).collection("workouts");
@@ -328,6 +456,20 @@ function buildMigrationUnits(firestore, merges, referencePlan, affectedProjectio
     units.push(unit);
   }
   for (const update of referencePlan.fieldUpdates) {
+    units.push([{
+      ref: firestore.collection(update.parentPath).doc(update.documentId),
+      data: update.updates,
+      merge: true,
+    }]);
+  }
+  for (const update of summaryPlan.summaryUpdates) {
+    units.push([{
+      ref: firestore.collection("live_replay_leaderboards").doc(update.contextKey),
+      data: update.updates,
+      merge: true,
+    }]);
+  }
+  for (const update of summaryPlan.finisherUpdates) {
     units.push([{
       ref: firestore.collection(update.parentPath).doc(update.documentId),
       data: update.updates,
@@ -365,11 +507,9 @@ async function commitUnits(firestore, units, batchSizes) {
   }
 }
 
-async function verifyWorkoutIdReferences(firestore, renames) {
-  const verificationPlan = planWorkoutIdReferenceRepairs(
-    renames,
-    await readWorkoutIdReferences(firestore)
-  );
+async function verifyWorkoutIdReferences(firestore, renames, summaryPlan) {
+  const references = await readWorkoutIdReferences(firestore);
+  const verificationPlan = planWorkoutIdReferenceRepairs(renames, references);
   const outstanding = verificationPlan.moves.length +
     verificationPlan.fieldUpdates.length +
     verificationPlan.conflicts.length;
@@ -377,6 +517,14 @@ async function verifyWorkoutIdReferences(firestore, renames) {
     throw new Error(
       `Verification still found ${outstanding} workout-id reference(s) naming a ` +
         "non-canonical document id."
+    );
+  }
+
+  const summaryVerification = planReplaySummaryRepairs([], references, summaryPlan.contextKeys);
+  if (summaryVerification.summaryUpdates.length > 0) {
+    throw new Error(
+      `Verification still found ${summaryVerification.summaryUpdates.length} replay ` +
+        "summary(ies) counting more climbers than the context has finishers."
     );
   }
 }

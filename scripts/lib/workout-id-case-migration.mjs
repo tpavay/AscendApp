@@ -6,6 +6,7 @@ import {
 import {canonicalWorkoutDocumentId} from "./workout-document-id.mjs";
 
 export const BATCH_WRITE_LIMIT = 500;
+const REPLAY_COLLECTION = "live_replay_leaderboards";
 
 /**
  * Plans the landmarkResults this migration must rewrite, from the post-merge document set.
@@ -214,12 +215,18 @@ function mergeGroup(group) {
  * these leaves live replay rows pointing at a document that no longer exists.
  *
  * `segments` matches a full Firestore document path, `*` matching one segment.
+ * `recencyFields` names the timestamps that collection actually writes, in the order to
+ * trust them; two rows that disagree can only be resolved through one of these.
+ * `plannerFields` names the non-workout-id fields the planner reads, so a scan can drop
+ * everything else from a row it will never rewrite wholesale.
  */
 export const WORKOUT_ID_REFERENCE_SHAPES = Object.freeze([
   Object.freeze({
     segments: Object.freeze(["live_replay_leaderboards", "*"]),
     keyedByWorkoutId: false,
     workoutIdFields: Object.freeze(["firstAscentWorkoutId"]),
+    recencyFields: Object.freeze([]),
+    plannerFields: Object.freeze(["completedCount", "totalClimbers"]),
   }),
   Object.freeze({
     segments: Object.freeze([
@@ -227,31 +234,43 @@ export const WORKOUT_ID_REFERENCE_SHAPES = Object.freeze([
     ]),
     keyedByWorkoutId: true,
     workoutIdFields: Object.freeze(["workoutId"]),
+    recencyFields: Object.freeze(["updatedAt"]),
+    plannerFields: Object.freeze(["userId"]),
   }),
   Object.freeze({
     segments: Object.freeze(["live_replay_leaderboards", "*", "completionSnapshots", "*"]),
     keyedByWorkoutId: true,
     workoutIdFields: Object.freeze(["workoutId"]),
+    recencyFields: Object.freeze(["rankedAt"]),
+    plannerFields: Object.freeze([]),
   }),
   Object.freeze({
     segments: Object.freeze(["live_replay_leaderboards", "*", "finishers", "*"]),
     keyedByWorkoutId: false,
     workoutIdFields: Object.freeze(["bestWorkoutId", "firstWorkoutId"]),
+    recencyFields: Object.freeze(["updatedAt"]),
+    plannerFields: Object.freeze(["globalCompletionOrder", "userId"]),
   }),
   Object.freeze({
     segments: Object.freeze(["live_replay_leaderboards", "*", "userBestAttempts", "*"]),
     keyedByWorkoutId: false,
     workoutIdFields: Object.freeze(["workoutId"]),
+    recencyFields: Object.freeze(["updatedAt"]),
+    plannerFields: Object.freeze([]),
   }),
   Object.freeze({
     segments: Object.freeze(["users", "*", "liveClimbPublishStatuses", "*"]),
     keyedByWorkoutId: true,
     workoutIdFields: Object.freeze(["workoutId", "rankSnapshotId"]),
+    recencyFields: Object.freeze(["updatedAt", "publishedAt"]),
+    plannerFields: Object.freeze([]),
   }),
   Object.freeze({
     segments: Object.freeze(["users", "*", "profile_workouts", "*"]),
     keyedByWorkoutId: true,
     workoutIdFields: Object.freeze([]),
+    recencyFields: Object.freeze(["lastUpdated"]),
+    plannerFields: Object.freeze([]),
   }),
 ]);
 
@@ -316,10 +335,11 @@ export function planWorkoutIdReferenceRenames(
  * Plans the reference repairs that keep replay rows pointing at canonicalized workouts.
  *
  * A row keyed on a renamed id moves onto the canonical id; when the canonical row already
- * exists, only an identical payload lets the stale twin be deleted, and anything else is a
- * blocking conflict because no rule decides which row the leaderboard should keep. A row
- * that merely stores a renamed id is rewritten in place. Ids that stay non-canonical with
- * no surviving workout document are reported, never guessed at.
+ * exists, an identical payload lets the stale twin be dropped and a differing one is
+ * settled by that collection's recency field, leaving a blocking conflict only where no
+ * timestamp proves a winner. A row that merely stores a renamed id is rewritten in place.
+ * Ids that stay non-canonical with no surviving workout document are reported, never
+ * guessed at.
  * @param {{workoutId: string, canonicalWorkoutId: string}[]} renames Renames to propagate.
  * @param {object[]} references Scanned workout-id references.
  * @return {{moves: object[], fieldUpdates: object[], conflicts: object[], unresolved: object[]}}
@@ -356,6 +376,7 @@ export function planWorkoutIdReferenceRepairs(renames, references) {
     }
 
     const target = byLocation.get(`${reference.parentPath}/${canonicalDocumentId}`);
+    assertCompleteSource(reference);
     const data = {...reference.data, ...updates};
     if (!target) {
       moves.push({
@@ -363,12 +384,14 @@ export function planWorkoutIdReferenceRepairs(renames, references) {
         fromDocumentId: reference.documentId,
         toDocumentId: canonicalDocumentId,
         data,
+        duplicate: false,
       });
       continue;
     }
 
+    assertCompleteSource(target);
     const targetData = {...target.data, ...canonicalFieldUpdates(target, renameMap)};
-    const resolution = resolveDuplicateReference(data, targetData);
+    const resolution = resolveDuplicateReference(data, targetData, reference.recencyFields);
     if (resolution === "conflict") {
       conflicts.push({
         path: referenceLocation(reference),
@@ -381,6 +404,7 @@ export function planWorkoutIdReferenceRepairs(renames, references) {
       fromDocumentId: reference.documentId,
       toDocumentId: canonicalDocumentId,
       data: resolution === "adopt-stale" ? data : null,
+      duplicate: true,
     });
   }
 
@@ -398,24 +422,175 @@ export function planWorkoutIdReferenceRepairs(renames, references) {
  * Decides what to do with a stale row whose canonical twin already exists.
  *
  * Identical payloads make the stale row pure duplication, so it is simply dropped. When
- * they differ, the newer `updatedAt` wins, matching how workout payloads themselves are
- * merged. Without a comparable timestamp there is no rule that picks a survivor, so the
- * row is a conflict and blocks the apply rather than being resolved by guesswork.
+ * they differ, the newer row wins, read through the recency field that collection actually
+ * writes - `updatedAt` for leaderboard rows, `rankedAt` for completion snapshots,
+ * `lastUpdated` for profile summaries. Without a comparable timestamp there is no rule that
+ * picks a survivor, so the row is a conflict and blocks the apply rather than being
+ * resolved by guesswork.
  * @param {object} staleData Canonicalized payload of the non-canonical row.
  * @param {object} canonicalData Canonicalized payload of the canonical row.
+ * @param {string[]} recencyFields Timestamp fields this collection writes, most trusted first.
  * @return {"drop-stale"|"adopt-stale"|"conflict"} Resolution.
  */
-function resolveDuplicateReference(staleData, canonicalData) {
+function resolveDuplicateReference(staleData, canonicalData, recencyFields = []) {
   if (firestoreValuesEqual(staleData, canonicalData)) {
     return "drop-stale";
   }
 
-  const staleMillis = timestampMillis(staleData.updatedAt);
-  const canonicalMillis = timestampMillis(canonicalData.updatedAt);
-  if (!Number.isFinite(staleMillis) || !Number.isFinite(canonicalMillis)) {
-    return "conflict";
+  for (const field of recencyFields) {
+    const staleMillis = timestampMillis(staleData[field]);
+    const canonicalMillis = timestampMillis(canonicalData[field]);
+    if (!Number.isFinite(staleMillis) || !Number.isFinite(canonicalMillis)) {
+      continue;
+    }
+    return staleMillis > canonicalMillis ? "adopt-stale" : "drop-stale";
   }
-  return staleMillis > canonicalMillis ? "adopt-stale" : "drop-stale";
+
+  return "conflict";
+}
+
+/**
+ * Plans the leaderboard-summary repair owed by dropping duplicate split-bucket rows.
+ *
+ * Deleting a stale twin removes a row the summary already counted, so a context that loses
+ * one can be left claiming more climbers than it has. The surviving canonical source for
+ * that count is the finisher collection - the server increments `completedCount` once per
+ * new finisher - so an affected context is recounted from its finishers, and any
+ * `globalCompletionOrder` left above the recounted total is renumbered densely, preserving
+ * the existing chronological order.
+ *
+ * The recount only ever removes inflation. A summary already at or below the finisher count
+ * is drift this migration did not cause, so it is reported and left alone rather than
+ * silently rewritten, as is a context whose orders cannot be renumbered unambiguously.
+ * @param {object[]} moves Planned reference moves.
+ * @param {object[]} references Scanned workout-id references.
+ * @param {string[]} carriedContextKeys Contexts an earlier unfinished run owes a recount.
+ * @return {{contextKeys: string[], summaryUpdates: object[], finisherUpdates: object[], notes: object[]}}
+ *   Planned recounts and the contexts left for an operator to look at.
+ */
+export function planReplaySummaryRepairs(moves, references, carriedContextKeys = []) {
+  const contextKeys = new Set(carriedContextKeys);
+  for (const move of moves) {
+    const contextKey = entriesParentContextKey(move.parentPath);
+    if (move.duplicate && contextKey) {
+      contextKeys.add(contextKey);
+    }
+  }
+
+  const summaries = new Map();
+  const finishersByContext = new Map();
+  for (const reference of references) {
+    if (reference.parentPath === REPLAY_COLLECTION) {
+      summaries.set(reference.documentId, reference);
+      continue;
+    }
+    const contextKey = childCollectionContextKey(reference.parentPath, "finishers");
+    if (contextKey) {
+      finishersByContext.set(contextKey, [...(finishersByContext.get(contextKey) ?? []), reference]);
+    }
+  }
+
+  const summaryUpdates = [];
+  const finisherUpdates = [];
+  const notes = [];
+  for (const contextKey of [...contextKeys].sort()) {
+    const summary = summaries.get(contextKey);
+    if (!summary) {
+      notes.push({contextKey, reason: "no leaderboard summary document to recount"});
+      continue;
+    }
+
+    const finishers = finishersByContext.get(contextKey) ?? [];
+    const storedCount = positiveIntegerOrNull(summary.data.completedCount);
+    const recountedTotal = finishers.length;
+    if (storedCount === null || storedCount <= recountedTotal) {
+      notes.push({
+        contextKey,
+        reason: `completedCount ${String(summary.data.completedCount)} is not above the ` +
+          `${recountedTotal} surviving finisher(s) - left for the replay backfill`,
+      });
+      continue;
+    }
+
+    const updates = {completedCount: recountedTotal};
+    if (positiveIntegerOrNull(summary.data.totalClimbers) !== recountedTotal) {
+      updates.totalClimbers = recountedTotal;
+    }
+    summaryUpdates.push({contextKey, updates, previousCompletedCount: storedCount});
+
+    const renumbered = renumberFinishers(finishers, recountedTotal);
+    if (!renumbered) {
+      notes.push({
+        contextKey,
+        reason: "finisher completion orders are missing or duplicated - left unrenumbered",
+      });
+      continue;
+    }
+    finisherUpdates.push(...renumbered.map((update) => ({contextKey, ...update})));
+  }
+
+  return {
+    contextKeys: [...contextKeys].sort(),
+    summaryUpdates,
+    finisherUpdates,
+    notes: notes.sort((lhs, rhs) => lhs.contextKey.localeCompare(rhs.contextKey)),
+  };
+}
+
+function renumberFinishers(finishers, recountedTotal) {
+  const orders = finishers.map((finisher) => ({
+    finisher,
+    order: positiveIntegerOrNull(finisher.data.globalCompletionOrder),
+  }));
+  if (orders.some((entry) => entry.order === null)) {
+    return null;
+  }
+  if (orders.every((entry) => entry.order <= recountedTotal)) {
+    return [];
+  }
+  if (new Set(orders.map((entry) => entry.order)).size !== orders.length) {
+    return null;
+  }
+
+  return orders
+    .sort((lhs, rhs) => lhs.order - rhs.order)
+    .map((entry, index) => ({
+      parentPath: entry.finisher.parentPath,
+      documentId: entry.finisher.documentId,
+      updates: {globalCompletionOrder: index + 1},
+      previousOrder: entry.order,
+    }))
+    .filter((update) => update.updates.globalCompletionOrder !== update.previousOrder);
+}
+
+function entriesParentContextKey(parentPath) {
+  const segments = parentPath.split("/");
+  const isEntriesPath = segments.length === 5 &&
+    segments[0] === REPLAY_COLLECTION &&
+    segments[2] === "splitBuckets" &&
+    segments[4] === "entries";
+  return isEntriesPath ? segments[1] : null;
+}
+
+function childCollectionContextKey(parentPath, collectionId) {
+  const segments = parentPath.split("/");
+  const matches = segments.length === 3 &&
+    segments[0] === REPLAY_COLLECTION &&
+    segments[2] === collectionId;
+  return matches ? segments[1] : null;
+}
+
+function positiveIntegerOrNull(value) {
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function assertCompleteSource(reference) {
+  if (reference.partial) {
+    throw new Error(
+      `Reference ${referenceLocation(reference)} was scanned without its full payload, ` +
+        "so it cannot take part in a canonical-id move."
+    );
+  }
 }
 
 function compareByPlannedPath(lhs, rhs) {

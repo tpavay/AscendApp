@@ -16,6 +16,7 @@ import {
   packBatchSizes,
   planAffectedLandmarkProjections,
   planCaseVariantWorkoutMerges,
+  planReplaySummaryRepairs,
   planWorkoutIdReferenceRenames,
   planWorkoutIdReferenceRepairs,
 } from "../lib/workout-id-case-migration.mjs";
@@ -333,24 +334,170 @@ test("twins that differ with no comparable timestamp block the apply", () => {
   assert.equal(repairs.conflicts.length, 1);
 });
 
+test("every workout-id-keyed shape resolves twins through its own recency field", () => {
+  const shapes = [
+    {
+      path: (id) => `live_replay_leaderboards/live_climb_empire/splitBuckets/0/entries/${id}`,
+      recencyField: "updatedAt",
+    },
+    {
+      path: (id) => `live_replay_leaderboards/live_climb_empire/completionSnapshots/${id}`,
+      recencyField: "rankedAt",
+    },
+    {
+      path: (id) => `users/user-1/liveClimbPublishStatuses/${id}`,
+      recencyField: "updatedAt",
+    },
+    {
+      path: (id) => `users/user-1/profile_workouts/${id}`,
+      recencyField: "lastUpdated",
+    },
+  ];
+
+  for (const shape of shapes) {
+    const repairs = planWorkoutIdReferenceRepairs(
+      [{workoutId: LOWERCASE_ID, canonicalWorkoutId: UPPERCASE_ID}],
+      [
+        referenceFor(shape.path(LOWERCASE_ID), {
+          steps: 2_096,
+          [shape.recencyField]: fakeTimestamp(200),
+        }),
+        referenceFor(shape.path(UPPERCASE_ID), {
+          steps: 1_000,
+          [shape.recencyField]: fakeTimestamp(100),
+        }),
+      ]
+    );
+
+    assert.deepEqual(repairs.conflicts, [], `${shape.recencyField} pair should resolve`);
+    assert.equal(repairs.moves.length, 1);
+    assert.equal(repairs.moves[0].data.steps, 2_096);
+    assert.equal(repairs.moves[0].duplicate, true);
+  }
+});
+
+test("a twin pair with no recency field at all still blocks the apply", () => {
+  const repairs = planWorkoutIdReferenceRepairs(
+    [{workoutId: LOWERCASE_ID, canonicalWorkoutId: UPPERCASE_ID}],
+    [
+      referenceFor(
+        `live_replay_leaderboards/live_climb_empire/completionSnapshots/${LOWERCASE_ID}`,
+        {rank: 3}
+      ),
+      referenceFor(
+        `live_replay_leaderboards/live_climb_empire/completionSnapshots/${UPPERCASE_ID}`,
+        {rank: 4}
+      ),
+    ]
+  );
+
+  assert.equal(repairs.moves.length, 0);
+  assert.equal(repairs.conflicts.length, 1);
+});
+
+test("a reference scanned without its full payload can never be moved", () => {
+  const stale = entryReference(LOWERCASE_ID);
+  stale.partial = true;
+
+  assert.throws(
+    () => planWorkoutIdReferenceRepairs(
+      [{workoutId: LOWERCASE_ID, canonicalWorkoutId: UPPERCASE_ID}],
+      [stale]
+    ),
+    /scanned without its full payload/
+  );
+});
+
+test("dropping a duplicate row recounts the summary and renumbers finishers", () => {
+  const references = [
+    summaryReference({completedCount: 3, totalClimbers: 3}),
+    finisherReference("user-1", 1),
+    finisherReference("user-2", 3),
+    entryReference(LOWERCASE_ID),
+    entryReference(UPPERCASE_ID),
+  ];
+  const repairs = planWorkoutIdReferenceRepairs(
+    [{workoutId: LOWERCASE_ID, canonicalWorkoutId: UPPERCASE_ID}],
+    references
+  );
+
+  const summaryPlan = planReplaySummaryRepairs(repairs.moves, references);
+
+  assert.deepEqual(summaryPlan.contextKeys, ["live_climb_empire"]);
+  assert.deepEqual(summaryPlan.summaryUpdates, [{
+    contextKey: "live_climb_empire",
+    updates: {completedCount: 2, totalClimbers: 2},
+    previousCompletedCount: 3,
+  }]);
+  assert.equal(summaryPlan.finisherUpdates.length, 1);
+  assert.equal(summaryPlan.finisherUpdates[0].documentId, "user-2");
+  assert.equal(summaryPlan.finisherUpdates[0].updates.globalCompletionOrder, 2);
+});
+
+test("a summary already at or below its finisher count is reported, not rewritten", () => {
+  const references = [
+    summaryReference({completedCount: 2, totalClimbers: 2}),
+    finisherReference("user-1", 1),
+    finisherReference("user-2", 2),
+    entryReference(LOWERCASE_ID),
+    entryReference(UPPERCASE_ID),
+  ];
+  const repairs = planWorkoutIdReferenceRepairs(
+    [{workoutId: LOWERCASE_ID, canonicalWorkoutId: UPPERCASE_ID}],
+    references
+  );
+
+  const summaryPlan = planReplaySummaryRepairs(repairs.moves, references);
+
+  assert.deepEqual(summaryPlan.summaryUpdates, []);
+  assert.deepEqual(summaryPlan.finisherUpdates, []);
+  assert.equal(summaryPlan.notes.length, 1);
+});
+
+test("a recount owed by an earlier run is carried without any new duplicate", () => {
+  const references = [
+    summaryReference({completedCount: 4, totalClimbers: 4}),
+    finisherReference("user-1", 1),
+  ];
+
+  const summaryPlan = planReplaySummaryRepairs([], references, ["live_climb_empire"]);
+
+  assert.deepEqual(summaryPlan.summaryUpdates[0].updates, {
+    completedCount: 1,
+    totalClimbers: 1,
+  });
+  assert.equal(summaryPlan.finisherUpdates.length, 0);
+});
+
+test("renaming a row without a twin leaves the summary alone", () => {
+  const references = [
+    summaryReference({completedCount: 3, totalClimbers: 3}),
+    finisherReference("user-1", 1),
+    entryReference(LOWERCASE_ID),
+  ];
+  const repairs = planWorkoutIdReferenceRepairs(
+    [{workoutId: LOWERCASE_ID, canonicalWorkoutId: UPPERCASE_ID}],
+    references
+  );
+
+  const summaryPlan = planReplaySummaryRepairs(repairs.moves, references);
+
+  assert.equal(repairs.moves[0].duplicate, false);
+  assert.deepEqual(summaryPlan.contextKeys, []);
+  assert.deepEqual(summaryPlan.summaryUpdates, []);
+});
+
 test("fields that store a renamed workout id are rewritten in place", () => {
   const repairs = planWorkoutIdReferenceRepairs(
     [{workoutId: LOWERCASE_ID, canonicalWorkoutId: UPPERCASE_ID}],
     [
-      {
-        parentPath: "live_replay_leaderboards/live_climb_empire/finishers",
-        documentId: "user-1",
-        keyedByWorkoutId: false,
-        workoutIdFields: ["bestWorkoutId", "firstWorkoutId"],
-        data: {bestWorkoutId: LOWERCASE_ID, firstWorkoutId: UPPERCASE_ID},
-      },
-      {
-        parentPath: "live_replay_leaderboards",
-        documentId: "live_climb_empire",
-        keyedByWorkoutId: false,
-        workoutIdFields: ["firstAscentWorkoutId"],
-        data: {firstAscentWorkoutId: LOWERCASE_ID},
-      },
+      referenceFor("live_replay_leaderboards/live_climb_empire/finishers/user-1", {
+        bestWorkoutId: LOWERCASE_ID,
+        firstWorkoutId: UPPERCASE_ID,
+      }),
+      referenceFor("live_replay_leaderboards/live_climb_empire", {
+        firstAscentWorkoutId: LOWERCASE_ID,
+      }),
     ]
   );
 
@@ -383,18 +530,41 @@ test("a non-canonical reference with no surviving workout is reported, not guess
 });
 
 function entryReference(documentId, overrides = {}) {
-  return {
-    parentPath: "live_replay_leaderboards/live_climb_empire/splitBuckets/0/entries",
-    documentId,
-    keyedByWorkoutId: true,
-    workoutIdFields: ["workoutId"],
-    data: {
+  return referenceFor(
+    `live_replay_leaderboards/live_climb_empire/splitBuckets/0/entries/${documentId}`,
+    {
       finalSteps: 2_096,
       updatedAt: fakeTimestamp(100),
       userId: "user-1",
       workoutId: documentId,
       ...overrides,
-    },
+    }
+  );
+}
+
+function summaryReference(data) {
+  return referenceFor("live_replay_leaderboards/live_climb_empire", data);
+}
+
+function finisherReference(userId, globalCompletionOrder) {
+  return referenceFor(`live_replay_leaderboards/live_climb_empire/finishers/${userId}`, {
+    globalCompletionOrder,
+    updatedAt: fakeTimestamp(100),
+    userId,
+  });
+}
+
+function referenceFor(path, data) {
+  const shape = matchWorkoutIdReferenceShape(path);
+  assert.ok(shape, `no reference shape matches ${path}`);
+  const segments = path.split("/");
+  return {
+    parentPath: segments.slice(0, -1).join("/"),
+    documentId: segments.at(-1),
+    keyedByWorkoutId: shape.keyedByWorkoutId,
+    workoutIdFields: shape.workoutIdFields,
+    recencyFields: shape.recencyFields,
+    data,
   };
 }
 
