@@ -65,6 +65,9 @@ final class WorkoutParticipation {
     var contextVersion: Int
     var rulesVersion: Int
     var roleRawValue: String
+    /// What this device concluded about competitive credit. A local record only - the server
+    /// derives publication eligibility from the workout itself in `liveReplayLeaderboard.ts`
+    /// and never reads this flag, because a client cannot be trusted to rate its own entry.
     var leaderboardEligible: Bool
     var verificationTierRawValue: String
     var metricsSnapshotData: Data?

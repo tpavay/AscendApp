@@ -350,7 +350,6 @@ function parseJustClimbReplayPayload(
 
 interface ParsedReplayPayloadParts {
   metadata: Record<string, unknown>;
-  hasEligibleClimbAttempt: boolean;
   hasClimbAttemptParticipation: boolean;
   splitIntervalSeconds: number;
   splitSteps: number[];
@@ -406,9 +405,6 @@ function parseReplayPayloadParts(
 
   return {
     metadata,
-    hasEligibleClimbAttempt: hasEligibleClimbAttemptParticipation(
-      data.participations
-    ),
     hasClimbAttemptParticipation: hasClimbAttemptParticipation(
       data.participations
     ),
@@ -430,13 +426,37 @@ function parseReplayPayloadParts(
  * permanent and never reclaimable, so a typed number must never claim one. The
  * client normalizes a manual stop past the target to target_reached at save
  * time, so that path agrees with this gate without a change here.
+ *
+ * Every condition below is re-derived here from the backed-up workout. The gate
+ * never reads the participation's `leaderboardEligible` boolean, which is the
+ * client asserting its own eligibility with nothing behind it. This matches
+ * parseCompletedLandmarkWorkout, which already derives "finished a landmark"
+ * from the same evidence fields and likewise ignores the flag.
+ *
+ * Known residual: `parsed.targetStepCount` is the client's own
+ * `climbTargetStepCount`/`targetStepCount` metadata, so `finalSteps >= target`
+ * compares a claimed step count against a claimed target. The server cannot
+ * derive the canonical target today - the landmark catalog ships as a static
+ * Hosting asset (web/public/climbs/catalog-v1.json), and Firestore holds no
+ * climb collection this trigger could read. Stating that out loud is the point:
+ * it is an acknowledged gap in this gate, not a silent fallback. Closing it
+ * needs a server-readable catalog, which is its own change.
+ *
+ * Deliberate consequence: the gate grandfathers a completion recorded against
+ * the step target that existed when it was climbed. A catalog correction must
+ * never retroactively void an earned completion or its First Ascent, so the
+ * client's `leaderboardEligible: false` stays ignored even when a later,
+ * higher catalog target would fail the device's local completion check. That
+ * case is close to hypothetical anyway - no climb's referenceStepCount has
+ * ever changed across the catalog's history, and all 75 current climbs
+ * resolve their target from totalSteps with realStairCount null.
  * @param {ParsedReplayPayloadParts} parsed Parsed replay payload parts.
  * @return {boolean} True when the row may be published publicly.
  */
 function hasCompletedLiveClimbAttempt(
   parsed: ParsedReplayPayloadParts
 ): boolean {
-  if (!parsed.hasEligibleClimbAttempt) {
+  if (!parsed.hasClimbAttemptParticipation) {
     return false;
   }
 
@@ -511,31 +531,19 @@ function replayPayload(
 }
 
 /**
- * Returns whether a workout has a completed leaderboard-eligible climb attempt.
- * @param {unknown} value Raw participations value.
- * @return {boolean} True when the workout can be indexed for replay.
- */
-function hasEligibleClimbAttemptParticipation(value: unknown): boolean {
-  if (!Array.isArray(value)) {
-    return false;
-  }
-
-  return value.some((item) => {
-    if (!item || typeof item !== "object") {
-      return false;
-    }
-
-    const participation = item as Record<string, unknown>;
-    return participation.contextType === "climb_attempt" &&
-      participation.leaderboardEligible === true;
-  });
-}
-
-/**
- * Returns whether a workout carries any climb-attempt participation, eligible
- * or not. The legacy-shape fallback only fires when none exists: a workout with
- * a climb-attempt participation is governed by the modern gate, so an
- * explicitly ineligible one stays deliberately unpublished, not resurrected.
+ * Returns whether a workout carries a climb-attempt participation.
+ *
+ * This is a shape check, not an eligibility check. The participation's
+ * `leaderboardEligible` boolean is deliberately NOT read: it is a bare
+ * assertion the client writes about itself, carrying no evidence the server
+ * can check, so a modified client could grant itself a leaderboard row by
+ * flipping it. Eligibility is derived instead - see
+ * hasCompletedLiveClimbAttempt.
+ *
+ * Presence still matters for one thing: it separates the modern document shape
+ * from the legacy one. The legacy-shape fallback only fires when no
+ * climb-attempt participation exists, so a modern workout is always judged by
+ * the derived gate rather than resurrected through the legacy path.
  * @param {unknown} value Raw participations value.
  * @return {boolean} True when a climb-attempt participation is present.
  */

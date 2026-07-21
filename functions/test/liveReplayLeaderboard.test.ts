@@ -105,7 +105,10 @@ test("rejects resumed partial target hits", () => {
   assert.equal(payload, null);
 });
 
-test("rejects target-reached rows without eligible climb participation", () => {
+// The client's `leaderboardEligible` boolean is an unbacked assertion, so the
+// gate derives eligibility from the workout instead and ignores the flag in
+// both directions: it can neither grant a row nor withhold one.
+test("ignores a client leaderboardEligible: false on a real completion", () => {
   const payload = liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload(
     makeWorkoutDocument({
       participations: [makeParticipation({leaderboardEligible: false})],
@@ -113,7 +116,34 @@ test("rejects target-reached rows without eligible climb participation", () => {
     {requireEligibleParticipation: true}
   );
 
+  assert.equal(payload?.contextId, "empire-state-building");
+  assert.equal(payload?.firstAscentEligible, true);
+});
+
+test("ignores a client leaderboardEligible: true without the evidence", () => {
+  const payload = liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload(
+    makeWorkoutDocument({
+      steps: 92,
+      participations: [makeParticipation({leaderboardEligible: true})],
+      sourceMetadata: makeSourceMetadata({stopReason: "user_stopped"}),
+    }),
+    {requireEligibleParticipation: true}
+  );
+
   assert.equal(payload, null);
+});
+
+// A missing climb-attempt participation is the legacy document shape, not an
+// eligibility signal: it drops out of the modern gate and into the legacy
+// fallback, which publishes a row but never a First Ascent.
+test("routes participation-less backups through the legacy fallback", () => {
+  const payload = liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload(
+    makeWorkoutDocument({participations: []}),
+    {requireEligibleParticipation: true}
+  );
+
+  assert.equal(payload?.contextId, "empire-state-building");
+  assert.equal(payload?.firstAscentEligible, false);
 });
 
 test("detects permanent First Ascent claims on replay summaries", () => {
