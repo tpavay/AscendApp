@@ -161,7 +161,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "BUILD_NUMBER=$(scripts/ci/derive-build-number.sh)" >> "$GITHUB_ENV"
+          build_number="$(scripts/ci/derive-build-number.sh 1)"
+          echo "BUILD_NUMBER=${build_number}" >> "$GITHUB_ENV"
 
       - name: Build production IPA via Fastlane
         env:

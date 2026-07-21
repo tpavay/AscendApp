@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -55,23 +58,20 @@ test("production readiness failure is visible to GitHub Actions", async () => {
   assert.match(disabledBranch, /^\s+exit 1$/m);
 });
 
-test("deploy build numbers come from the shared run-id derivation, before the archive", async () => {
-  for (const name of ["deploy-staging.yml", "deploy-production.yml"]) {
-    const workflow = await readWorkflow(name);
-    const deriveIndex = workflow.indexOf("scripts/ci/derive-build-number.sh");
-    const buildIndex = workflow.indexOf("bundle exec fastlane build_");
-
-    assert.notEqual(deriveIndex, -1, name);
-    assert.ok(deriveIndex < buildIndex, `${name} must derive the build number before archiving`);
-    assert.doesNotMatch(workflow, /BUILD_NUMBER: \$\{\{ github\.run_number \}\}/, name);
-    assert.doesNotMatch(workflow, /BUILD_NUMBER: \$\{\{ github\.run_id \}\}/, name);
-  }
-});
-
 const deriveScript = `${repositoryRoot}scripts/ci/derive-build-number.sh`;
+const workflowSlots = {"deploy-staging.yml": "0", "deploy-production.yml": "1"};
 
-function deriveBuildNumber(runId) {
-  return spawnSync(deriveScript, [], {encoding: "utf8", env: {PATH: "/usr/bin:/bin", GITHUB_RUN_ID: String(runId)}});
+function deriveBuildNumber(slot, timestamp) {
+  const argumentList = timestamp === undefined ? [String(slot)] : [String(slot), String(timestamp)];
+
+  return spawnSync(deriveScript, argumentList, {encoding: "utf8", env: {PATH: "/usr/bin:/bin"}});
+}
+
+function derivedValue(slot, timestamp) {
+  const result = deriveBuildNumber(slot, timestamp);
+
+  assert.equal(result.status, 0, result.stderr);
+  return Number(result.stdout.trim());
 }
 
 async function scriptConstant(name) {
@@ -82,56 +82,117 @@ async function scriptConstant(name) {
   return Number(value);
 }
 
-test("derived build numbers clear the last build number uploaded from run_number", async () => {
-  const epoch = await scriptConstant("RUN_ID_EPOCH");
-  const floor = await scriptConstant("PREVIOUS_BUILD_NUMBER_FLOOR");
-  // The run ID of the last deploy before this change; every future run ID is larger.
-  const result = deriveBuildNumber(29_863_763_672);
+function deriveStepScript(workflow) {
+  const step = sectionBetween(workflow, "      - name: Derive build number\n", "\n      - name: ");
+  const body = step.slice(step.indexOf("        run: |\n") + "        run: |\n".length);
 
-  assert.equal(result.status, 0, result.stderr);
-  assert.ok(Number(result.stdout.trim()) > floor);
-  assert.ok(epoch < 29_863_763_672, "epoch must sit below observed run IDs");
-});
+  return body.replace(/^ {10}/gm, "");
+}
 
-test("derivation is monotonic and collision-free for increasing run IDs", async () => {
-  const epoch = await scriptConstant("RUN_ID_EPOCH");
-  const runIds = [epoch + 1_000, epoch + 1_001, epoch + 500_000, epoch + 4_000_000_000];
-  const derived = runIds.map((runId) => {
-    const result = deriveBuildNumber(runId);
-    assert.equal(result.status, 0, result.stderr);
-    return Number(result.stdout.trim());
-  });
+test("deploy build numbers come from the shared derivation, before the archive", async () => {
+  for (const [name, slot] of Object.entries(workflowSlots)) {
+    const workflow = await readWorkflow(name);
+    const deriveIndex = workflow.indexOf("scripts/ci/derive-build-number.sh");
+    const buildIndex = workflow.indexOf("bundle exec fastlane build_");
 
-  assert.equal(new Set(derived).size, derived.length);
-  for (let index = 1; index < derived.length; index += 1) {
-    assert.ok(derived[index] > derived[index - 1], `${runIds[index]} must derive above ${runIds[index - 1]}`);
+    assert.notEqual(deriveIndex, -1, name);
+    assert.ok(deriveIndex < buildIndex, `${name} must derive the build number before archiving`);
+    assert.match(deriveStepScript(workflow), new RegExp(`derive-build-number\\.sh ${slot}\\b`), name);
+    assert.doesNotMatch(workflow, /BUILD_NUMBER: \$\{\{ github\.run_number \}\}/, name);
+    assert.doesNotMatch(workflow, /BUILD_NUMBER: \$\{\{ github\.run_id \}\}/, name);
   }
 });
 
-test("out-of-range run IDs fail the build instead of wrapping", async () => {
-  const epoch = await scriptConstant("RUN_ID_EPOCH");
-  const max = await scriptConstant("MAX_BUILD_NUMBER");
+test("a failed derivation stops the deploy instead of exporting an empty build number", async () => {
+  for (const name of Object.keys(workflowSlots)) {
+    const stepScript = deriveStepScript(await readWorkflow(name));
+    const root = mkdtempSync(join(tmpdir(), "ascend-build-number-"));
+    const stubPath = join(root, "scripts/ci/derive-build-number.sh");
+    const environmentFile = join(root, "github-env");
+    mkdirSync(dirname(stubPath), {recursive: true});
+    writeFileSync(environmentFile, "");
+
+    writeFileSync(stubPath, "#!/bin/sh\necho '::error::boom' >&2\nexit 1\n");
+    chmodSync(stubPath, 0o755);
+    const failed = spawnSync("bash", ["-c", stepScript], {
+      cwd: root,
+      encoding: "utf8",
+      env: {PATH: "/usr/bin:/bin", GITHUB_ENV: environmentFile},
+    });
+
+    assert.notEqual(failed.status, 0, `${name} must fail when derivation fails`);
+    assert.doesNotMatch(readFileSync(environmentFile, "utf8"), /BUILD_NUMBER=/, name);
+
+    writeFileSync(stubPath, "#!/bin/sh\necho 4321\n");
+    chmodSync(stubPath, 0o755);
+    const succeeded = spawnSync("bash", ["-c", stepScript], {
+      cwd: root,
+      encoding: "utf8",
+      env: {PATH: "/usr/bin:/bin", GITHUB_ENV: environmentFile},
+    });
+
+    assert.equal(succeeded.status, 0, succeeded.stderr);
+    assert.match(readFileSync(environmentFile, "utf8"), /^BUILD_NUMBER=4321$/m, name);
+  }
+});
+
+test("staging and production never collide, even deriving in the same second", async () => {
+  const epoch = await scriptConstant("BUILD_NUMBER_EPOCH_SECONDS");
+  const sameSecond = epoch + 20_000_000;
+  const staging = derivedValue(0, sameSecond);
+  const production = derivedValue(1, sameSecond);
+
+  assert.notEqual(staging, production);
+  assert.equal(production, staging + 1);
+});
+
+test("later seconds outrank earlier ones regardless of workflow slot", async () => {
+  const epoch = await scriptConstant("BUILD_NUMBER_EPOCH_SECONDS");
+  const second = epoch + 20_000_000;
+
+  assert.ok(derivedValue(0, second + 1) > derivedValue(1, second));
+  assert.ok(derivedValue(0, second + 2) > derivedValue(1, second + 1));
+});
+
+test("derived build numbers clear the last build number uploaded from run_number", async () => {
   const floor = await scriptConstant("PREVIOUS_BUILD_NUMBER_FLOOR");
+  const epoch = await scriptConstant("BUILD_NUMBER_EPOCH_SECONDS");
+
+  assert.equal(epoch, Date.parse("2026-01-01T00:00:00Z") / 1000);
+
+  for (const slot of [0, 1]) {
+    assert.ok(derivedValue(slot) > floor, `slot ${slot} must clear the previous build number floor`);
+  }
+
+  const atFloor = deriveBuildNumber(0, epoch + Math.floor(floor / 2));
+  assert.notEqual(atFloor.status, 0);
+  assert.match(atFloor.stderr, /not above the last uploaded build number/);
+});
+
+test("invalid and out-of-range inputs fail the build instead of wrapping", async () => {
+  const epoch = await scriptConstant("BUILD_NUMBER_EPOCH_SECONDS");
+  const max = await scriptConstant("MAX_BUILD_NUMBER");
 
   assert.equal(max, 4_294_967_295);
+  assert.equal(derivedValue(1, epoch + (max - 1) / 2), max);
 
-  const atLimit = deriveBuildNumber(epoch + max);
-  assert.equal(atLimit.status, 0, atLimit.stderr);
-  assert.equal(Number(atLimit.stdout.trim()), max);
-
-  const overLimit = deriveBuildNumber(epoch + max + 1);
+  const overLimit = deriveBuildNumber(0, epoch + (max + 1) / 2);
   assert.notEqual(overLimit.status, 0);
   assert.match(overLimit.stderr, /exceeds the App Store limit/);
 
-  const atEpoch = deriveBuildNumber(epoch);
-  assert.notEqual(atEpoch.status, 0);
-  assert.match(atEpoch.stderr, /at or below the build-number epoch/);
+  const beforeEpoch = deriveBuildNumber(0, epoch - 1);
+  assert.notEqual(beforeEpoch.status, 0);
+  assert.match(beforeEpoch.stderr, /predates the build-number epoch/);
 
-  const belowFloor = deriveBuildNumber(epoch + floor);
-  assert.notEqual(belowFloor.status, 0);
-  assert.match(belowFloor.stderr, /not above the last uploaded build number/);
+  for (const slot of ["", "2", "-1", "0x1"]) {
+    const badSlot = deriveBuildNumber(slot, epoch + 20_000_000);
+    assert.notEqual(badSlot.status, 0, `slot '${slot}' must be rejected`);
+    assert.match(badSlot.stderr, /Workflow slot must be 0 \(staging\) or 1 \(production\)/);
+  }
 
-  const notANumber = deriveBuildNumber("29863763672abc");
-  assert.notEqual(notANumber.status, 0);
-  assert.match(notANumber.stderr, /must be a positive integer/);
+  for (const timestamp of ["not-a-number", "1767225600.5"]) {
+    const badTimestamp = deriveBuildNumber(0, timestamp);
+    assert.notEqual(badTimestamp.status, 0, `timestamp '${timestamp}' must be rejected`);
+    assert.match(badTimestamp.stderr, /UTC timestamp must be a non-negative integer/);
+  }
 });
