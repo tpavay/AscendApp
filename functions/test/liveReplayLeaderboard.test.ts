@@ -837,3 +837,274 @@ function makeSourceMetadata(
     ...overrides,
   });
 }
+
+test("publishes a completed routine into its template's replay context", () => {
+  const payload = liveReplayLeaderboardTestHooks.parseRoutineReplayPayload(
+    makeRoutineWorkoutDocument(),
+    {requireEligibleParticipation: true}
+  );
+
+  assert.equal(payload?.contextType, "routine_template");
+  assert.equal(payload?.contextId, "social-pyramid-20");
+  assert.equal(payload?.contextKey, "routine_template__social-pyramid-20");
+  assert.equal(payload?.finalSteps, 1840);
+  assert.equal(payload?.targetDurationSeconds, 1200);
+});
+
+// A skip burns the routine clock without taking steps, so the client saves the
+// session as `skipped`. Publishing it would rank a shortcut against full runs.
+test("rejects routine sessions that skipped an interval", () => {
+  const payload = liveReplayLeaderboardTestHooks.parseRoutineReplayPayload(
+    makeRoutineWorkoutDocument({
+      sourceMetadata: makeRoutineSourceMetadata({stopReason: "skipped"}),
+    }),
+    {requireEligibleParticipation: true}
+  );
+
+  assert.equal(payload, null);
+});
+
+test("rejects routine sessions the client marked ineligible", () => {
+  const payload = liveReplayLeaderboardTestHooks.parseRoutineReplayPayload(
+    makeRoutineWorkoutDocument({
+      participations: [
+        makeParticipation({
+          contextType: "routine_template",
+          leaderboardEligible: false,
+        }),
+      ],
+    }),
+    {requireEligibleParticipation: true}
+  );
+
+  assert.equal(payload, null);
+});
+
+// A user-created routine is a private UUID nobody else can run, so it carries
+// no template ID and its board could only ever hold its author.
+test("rejects user-created routines that carry no template id", () => {
+  const payload = liveReplayLeaderboardTestHooks.parseRoutineReplayPayload(
+    makeRoutineWorkoutDocument({
+      participations: [
+        makeParticipation({contextType: "routine", leaderboardEligible: false}),
+      ],
+      sourceMetadata: makeRoutineSourceMetadata({routineTemplateId: undefined}),
+    }),
+    {requireEligibleParticipation: true}
+  );
+
+  assert.equal(payload, null);
+});
+
+// A First Ascent is landmark prestige, is permanent, and belongs to climbs.
+test("never lets a routine claim a First Ascent", () => {
+  const payload = liveReplayLeaderboardTestHooks.parseRoutineReplayPayload(
+    makeRoutineWorkoutDocument(),
+    {requireEligibleParticipation: true}
+  );
+
+  assert.equal(payload?.firstAscentEligible, false);
+});
+
+test("publishes a routine into exactly one replay context", () => {
+  const payloads = liveReplayLeaderboardTestHooks.replayPayloadsForWorkout(
+    makeRoutineWorkoutDocument(),
+    {requireEligibleParticipation: true}
+  );
+
+  assert.deepEqual(
+    payloads.map((payload: {contextType: string}) => payload.contextType),
+    ["routine_template"]
+  );
+});
+
+test("ranks routines on steps and climbs on duration", () => {
+  const {rankingMetric, tiePolicy} = liveReplayLeaderboardTestHooks;
+
+  assert.equal(rankingMetric("live_climb"), "completionDurationSeconds");
+  assert.equal(rankingMetric("just_climb"), "completionDurationSeconds");
+  assert.equal(rankingMetric("routine_template"), "finalSteps");
+  assert.equal(
+    tiePolicy("live_climb"),
+    "competition_rank_equal_durations_share_rank"
+  );
+  assert.equal(
+    tiePolicy("routine_template"),
+    "competition_rank_equal_steps_share_rank"
+  );
+});
+
+test("stamps the routine rank snapshot with its metric and window", () => {
+  const payload = liveReplayLeaderboardTestHooks.parseRoutineReplayPayload(
+    makeRoutineWorkoutDocument(),
+    {requireEligibleParticipation: true}
+  );
+  assert.ok(payload);
+
+  const snapshot = liveReplayLeaderboardTestHooks.completionRankSnapshotWrite({
+    payload,
+    userId: "user-1",
+    entryId: "workout-1",
+    rank: 3,
+    completedCount: 9,
+    rankedAt: "now",
+  });
+
+  assert.equal(snapshot.rankingMetric, "finalSteps");
+  assert.equal(snapshot.tiePolicy, "competition_rank_equal_steps_share_rank");
+  assert.equal(snapshot.targetDurationSeconds, 1200);
+});
+
+// Steps only rank honestly between runs of the same length, so every routine
+// row records the window it ran in rather than trusting the template to be
+// frozen.
+test("stamps the guided window only on steps-ranked rows", () => {
+  const routinePayload = liveReplayLeaderboardTestHooks
+    .parseRoutineReplayPayload(
+      makeRoutineWorkoutDocument(),
+      {requireEligibleParticipation: true}
+    );
+  const climbPayload = liveReplayLeaderboardTestHooks
+    .parseLiveClimbReplayPayload(
+      makeWorkoutDocument(),
+      {requireEligibleParticipation: true}
+    );
+  assert.ok(routinePayload);
+  assert.ok(climbPayload);
+
+  const routineEntry = liveReplayLeaderboardTestHooks.replayEntryWrite({
+    payload: routinePayload,
+    userId: "user-1",
+    entryId: "workout-1",
+    publicUser: makePublicUser(),
+    stepsAtBucket: 120,
+    isBestForUser: null,
+    updatedAt: "now",
+  });
+  const climbEntry = liveReplayLeaderboardTestHooks.replayEntryWrite({
+    payload: climbPayload,
+    userId: "user-1",
+    entryId: "workout-1",
+    publicUser: makePublicUser(),
+    stepsAtBucket: 120,
+    isBestForUser: null,
+    updatedAt: "now",
+  });
+
+  assert.equal(routineEntry.targetDurationSeconds, 1200);
+  assert.equal("targetDurationSeconds" in climbEntry, false);
+});
+
+test("tracks a routine finisher's best on steps rather than duration", () => {
+  const payload = liveReplayLeaderboardTestHooks.parseRoutineReplayPayload(
+    makeRoutineWorkoutDocument(),
+    {requireEligibleParticipation: true}
+  );
+  assert.ok(payload);
+
+  const write = (existingData: Record<string, unknown> | undefined) =>
+    liveReplayLeaderboardTestHooks.finisherStatusWrite({
+      payload,
+      userId: "user-1",
+      entryId: "workout-2",
+      publicUser: makePublicUser(),
+      globalCompletionOrder: 4,
+      existingData,
+      completedAt: "now",
+    });
+
+  const firstEver = write(undefined);
+  assert.equal(firstEver.bestFinalSteps, 1840);
+  assert.equal(firstEver.bestWorkoutId, "workout-2");
+  assert.equal("bestCompletionDurationSeconds" in firstEver, false);
+
+  const improved = write({bestFinalSteps: 1700, bestWorkoutId: "workout-1"});
+  assert.equal(improved.bestFinalSteps, 1840);
+  assert.equal(improved.bestWorkoutId, "workout-2");
+
+  const notImproved = write({bestFinalSteps: 1900, bestWorkoutId: "workout-1"});
+  assert.equal("bestFinalSteps" in notImproved, false);
+  assert.equal(notImproved.bestWorkoutId, undefined);
+});
+
+// A slower run on a climb board must not overwrite the standing best time.
+test("keeps a climb finisher's best on the fastest completion", () => {
+  const payload = liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload(
+    makeWorkoutDocument(),
+    {requireEligibleParticipation: true}
+  );
+  assert.ok(payload);
+
+  const write = (existingData: Record<string, unknown> | undefined) =>
+    liveReplayLeaderboardTestHooks.finisherStatusWrite({
+      payload,
+      userId: "user-1",
+      entryId: "workout-2",
+      publicUser: makePublicUser(),
+      globalCompletionOrder: 4,
+      existingData,
+      completedAt: "now",
+    });
+
+  assert.equal(write(undefined).bestCompletionDurationSeconds, 738);
+  assert.equal(
+    write({bestCompletionDurationSeconds: 900}).bestCompletionDurationSeconds,
+    738
+  );
+  assert.equal(
+    "bestCompletionDurationSeconds" in write({
+      bestCompletionDurationSeconds: 600,
+    }),
+    false
+  );
+});
+
+/**
+ * Builds a completed routine workout backup document.
+ * @param {Record<string, unknown>} overrides Document overrides.
+ * @return {Record<string, unknown>} Workout backup document.
+ */
+function makeRoutineWorkoutDocument(
+  overrides: Record<string, unknown> = {}
+): Record<string, unknown> {
+  return makeWorkoutDocument({
+    durationSeconds: 1200,
+    participations: [makeParticipation({contextType: "routine_template"})],
+    sourceMetadata: makeRoutineSourceMetadata(),
+    steps: 1840,
+    ...overrides,
+  });
+}
+
+/**
+ * Builds encoded routine source metadata.
+ * @param {Record<string, unknown>} overrides Metadata overrides.
+ * @return {string} JSON metadata string.
+ */
+function makeRoutineSourceMetadata(
+  overrides: Record<string, unknown> = {}
+): string {
+  return makeSourceMetadata({
+    climbId: undefined,
+    climbTargetStepCount: undefined,
+    routineId: "6E1B0C1E-0E1A-4E5B-9C2E-0C6F0B7A1D22",
+    routineTemplateId: "social-pyramid-20",
+    splitSteps: [0, 150, 320, 610, 940, 1310, 1840],
+    targetDurationSeconds: 1200,
+    targetStepCount: 1900,
+    trackingMode: "routine",
+    ...overrides,
+  });
+}
+
+/**
+ * Builds a public user snapshot for entry and finisher writes.
+ * @return {Record<string, unknown>} Public user snapshot.
+ */
+function makePublicUser() {
+  return {
+    avatarToken: "TP",
+    displayName: "Tyler P",
+    photoURL: null,
+  };
+}

@@ -27,6 +27,11 @@ final class RoutineLeaderboardViewModel {
         completionLeaderboard.rows
     }
 
+    /// The board leads with the number it ranked on, which the context's metric decides.
+    var rowEmphasis: LiveReplayRowEmphasis {
+        context.type.rankingMetric.rowEmphasis
+    }
+
     var hasMoreRows: Bool {
         completionLeaderboard.hasMoreRows
     }

@@ -264,8 +264,9 @@ struct RoutineDetailView: View {
             fetchFailed: leaderboardViewModel.fetchFailed,
             currentUserPhotoURL: currentUserPhotoURL,
             effectiveColorScheme: effectiveColorScheme,
-            emptyTitle: "No completed times yet.",
-            emptyMessage: "Be the first to put a time on this routine.",
+            emptyTitle: "No completed runs yet.",
+            emptyMessage: "Be the first to put steps on this routine.",
+            emphasis: leaderboardViewModel.rowEmphasis,
             onRowAppear: { row in
                 leaderboardViewModel.loadMoreIfNeeded(currentRow: row)
             }

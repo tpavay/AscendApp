@@ -12,6 +12,9 @@ struct ReplayCompletionLeaderboardView: View {
     let effectiveColorScheme: ColorScheme
     let emptyTitle: String
     let emptyMessage: String
+    /// Which number the rows lead with. A board must headline the number it ranked on,
+    /// or its ordering reads as broken.
+    let emphasis: LiveReplayRowEmphasis
     let onRowAppear: (LiveReplayLeaderboardRow) -> Void
 
     init(
@@ -24,6 +27,7 @@ struct ReplayCompletionLeaderboardView: View {
         effectiveColorScheme: ColorScheme,
         emptyTitle: String,
         emptyMessage: String,
+        emphasis: LiveReplayRowEmphasis = .duration,
         onRowAppear: @escaping (LiveReplayLeaderboardRow) -> Void = { _ in }
     ) {
         self.rows = rows
@@ -35,6 +39,7 @@ struct ReplayCompletionLeaderboardView: View {
         self.effectiveColorScheme = effectiveColorScheme
         self.emptyTitle = emptyTitle
         self.emptyMessage = emptyMessage
+        self.emphasis = emphasis
         self.onRowAppear = onRowAppear
     }
 
@@ -63,7 +68,8 @@ struct ReplayCompletionLeaderboardView: View {
                         ReplayCompletionLeaderboardRowView(
                             row: row,
                             currentUserPhotoURL: currentUserPhotoURL,
-                            effectiveColorScheme: effectiveColorScheme
+                            effectiveColorScheme: effectiveColorScheme,
+                            emphasis: emphasis
                         )
                         .onAppear {
                             onRowAppear(row)
@@ -186,6 +192,7 @@ private struct ReplayCompletionLeaderboardRowView: View {
     let row: LiveReplayLeaderboardRow
     let currentUserPhotoURL: URL?
     let effectiveColorScheme: ColorScheme
+    let emphasis: LiveReplayRowEmphasis
 
     var body: some View {
         let rank = row.rank
@@ -229,7 +236,7 @@ private struct ReplayCompletionLeaderboardRowView: View {
                         .minimumScaleFactor(0.75)
                 }
 
-                Text("\(displaySteps.formatted()) steps")
+                Text(supportingText)
                     .font(.montserratMedium(size: rank == 1 ? 12 : 11))
                     .foregroundStyle(secondaryColor)
                     .monospacedDigit()
@@ -238,10 +245,17 @@ private struct ReplayCompletionLeaderboardRowView: View {
             Spacer(minLength: 8)
 
             VStack(alignment: .trailing, spacing: 4) {
-                Text(durationText)
-                    .font(.montserratBold(size: rank == 1 ? 18 : 16))
-                    .foregroundStyle(isPodium ? rowAccent : (row.isCurrentUser ? .accent : primaryColor))
-                    .monospacedDigit()
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text(headlineText)
+                        .font(.montserratBold(size: rank == 1 ? 18 : 16))
+                        .monospacedDigit()
+
+                    if let headlineUnit {
+                        Text(headlineUnit)
+                            .font(.montserratSemiBold(size: rank == 1 ? 10 : 9))
+                    }
+                }
+                .foregroundStyle(isPodium ? rowAccent : (row.isCurrentUser ? .accent : primaryColor))
 
                 if let averageStepsPerMinute = row.averageStepsPerMinute {
                     Text("\(Int(averageStepsPerMinute.rounded()).formatted()) avg SPM")
@@ -272,6 +286,31 @@ private struct ReplayCompletionLeaderboardRowView: View {
 
     private var displaySteps: Int {
         max(row.finalSteps, row.stepsAtBucket)
+    }
+
+    /// The ranked number, in the trailing headline slot.
+    private var headlineText: String {
+        switch emphasis {
+        case .duration:
+            return durationText
+        case .steps:
+            return displaySteps.formatted()
+        }
+    }
+
+    /// A clock reads as a clock unaided; a bare step count does not.
+    private var headlineUnit: String? {
+        emphasis == .steps ? "STEPS" : nil
+    }
+
+    /// The unranked number, demoted under the climber's name.
+    private var supportingText: String {
+        switch emphasis {
+        case .duration:
+            return "\(displaySteps.formatted()) steps"
+        case .steps:
+            return durationText
+        }
     }
 
     private var durationText: String {

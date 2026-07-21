@@ -20,10 +20,32 @@ const LIVE_CLIMB_TRACKING_MODE = "live_climb";
 const JUST_CLIMB_CONTEXT_TYPE = "just_climb";
 const JUST_CLIMB_GLOBAL_CONTEXT_ID = "global";
 const JUST_CLIMB_TRACKING_MODE = "just_climb";
+const ROUTINE_TEMPLATE_CONTEXT_TYPE = "routine_template";
+const ROUTINE_TRACKING_MODE = "routine";
+const CLIMB_ATTEMPT_PARTICIPATION_TYPE = "climb_attempt";
 const TARGET_REACHED_STOP_REASON = "target_reached";
 const USER_STOPPED_REASON = "user_stopped";
 const FIRESTORE_NOT_FOUND_CODE = 5;
 const BULK_WRITER_MAX_ATTEMPTS = 3;
+
+/**
+ * The field a context ranks its completions on.
+ *
+ * A climb fixes the step target and lets the clock vary, so the fastest run
+ * wins. A routine inverts that: its intervals fix the clock, so every finisher
+ * spends the same time and only the steps taken inside that window separate
+ * them. Ranking a routine on duration would rank tracking jitter and reward the
+ * shortest session, so routines rank on steps instead.
+ */
+const DURATION_RANKING_METRIC = "completionDurationSeconds";
+const STEPS_RANKING_METRIC = "finalSteps";
+
+/**
+ * Tie policies, one per ranking metric, stored on every rank snapshot so a
+ * reader never has to infer how equal values were resolved.
+ */
+const DURATION_TIE_POLICY = "competition_rank_equal_durations_share_rank";
+const STEPS_TIE_POLICY = "competition_rank_equal_steps_share_rank";
 
 interface LiveReplayIndexPayload {
   contextKey: string;
@@ -34,6 +56,13 @@ interface LiveReplayIndexPayload {
   finalDurationSeconds: number;
   finalSteps: number;
   targetStepCount: number | null;
+  /**
+   * The clock the session was guided against, when the mode has one. A routine
+   * fixes this, and steps only rank honestly between runs of the same length,
+   * so every routine row records the window it was run in. See
+   * `routineWindowFields`.
+   */
+  targetDurationSeconds: number | null;
   /**
    * Whether this row may claim an unheld First Ascent. Modern completions that
    * clear the strict gate are eligible; rows recovered through the legacy-shape
@@ -225,6 +254,7 @@ export const onWorkoutReplaySplitsWritten = onDocumentWritten(
  * Converts a workout backup into every replay context it should publish.
  * Landmark Live Climbs publish both their per-climb context and the global
  * Just Climb replay context. Open Just Climb sessions publish only globally.
+ * Routine sessions publish only into their own template's context.
  * @param {Record<string, unknown> | undefined} data Raw workout data.
  * @param {{requireEligibleParticipation: boolean}} options Parse options.
  * @return {LiveReplayIndexPayload[]} Parsed replay payloads.
@@ -236,6 +266,7 @@ function replayPayloadsForWorkout(
   return [
     parseLiveClimbReplayPayload(data, options),
     parseJustClimbReplayPayload(data, options),
+    parseRoutineReplayPayload(data, options),
   ].filter((payload): payload is LiveReplayIndexPayload => payload !== null);
 }
 
@@ -348,14 +379,88 @@ function parseJustClimbReplayPayload(
   );
 }
 
+/**
+ * Converts a completed routine session into its template's replay payload.
+ *
+ * Only catalog templates publish. A user-created routine is identified by a
+ * private UUID nobody else can run, so its board could only ever hold its
+ * author - and the client already marks those participations ineligible, so
+ * requiring eligibility below excludes them without a second rule here.
+ *
+ * The template ID is the whole comparability guarantee: steps only rank
+ * honestly between climbers who ran the same intervals for the same clock, and
+ * one board holds exactly one template. Editing a published template's
+ * intervals changes that clock, which would silently compare runs of different
+ * lengths on one board - see the routine section of `ascend-routines`.
+ * @param {Record<string, unknown> | undefined} data Raw workout data.
+ * @param {{requireEligibleParticipation: boolean}} options Parse options.
+ * @return {LiveReplayIndexPayload | null} Parsed replay payload, if valid.
+ */
+function parseRoutineReplayPayload(
+  data: Record<string, unknown> | undefined,
+  options: {requireEligibleParticipation: boolean}
+): LiveReplayIndexPayload | null {
+  const parsed = parseReplayPayloadParts(data);
+  if (!parsed) {
+    return null;
+  }
+
+  if (stringValue(parsed.metadata.trackingMode) !== ROUTINE_TRACKING_MODE) {
+    return null;
+  }
+
+  const templateId = stringValue(parsed.metadata.routineTemplateId);
+  if (!templateId) {
+    return null;
+  }
+
+  if (
+    options.requireEligibleParticipation &&
+    !hasCompletedRoutineTemplateSession(parsed)
+  ) {
+    return null;
+  }
+
+  // A First Ascent is landmark prestige and belongs to climbs. A routine board
+  // ranks steps and mints no first-ever claim, so it never seeds one.
+  return replayPayload(
+    parsed,
+    ROUTINE_TEMPLATE_CONTEXT_TYPE,
+    templateId,
+    {firstAscentEligible: false}
+  );
+}
+
+/**
+ * Returns whether a routine backup may publish a replay row.
+ *
+ * Unlike a climb, a routine's stop reason *is* the verdict: the client resolves
+ * it once in `HeadphoneMotionSessionStopReason.earnsCompetitiveCredit`, and a
+ * session containing any skipped interval finishes as `skipped` because a skip
+ * burns the routine clock without taking steps. Reading `target_reached` here
+ * mirrors that single decision rather than re-deriving a competing one.
+ * @param {ParsedReplayPayloadParts} parsed Parsed replay payload parts.
+ * @return {boolean} True when the row may be published publicly.
+ */
+function hasCompletedRoutineTemplateSession(
+  parsed: ParsedReplayPayloadParts
+): boolean {
+  return parsed.hasEligibleRoutineTemplateParticipation &&
+    stringValue(parsed.metadata.stopReason) === TARGET_REACHED_STOP_REASON &&
+    parsed.finalSteps > 0 &&
+    parsed.finalDurationSeconds > 0;
+}
+
 interface ParsedReplayPayloadParts {
   metadata: Record<string, unknown>;
   hasClimbAttemptParticipation: boolean;
+  hasEligibleRoutineTemplateParticipation: boolean;
   splitIntervalSeconds: number;
   splitSteps: number[];
   finalDurationSeconds: number;
   finalSteps: number;
   targetStepCount: number | null;
+  targetDurationSeconds: number | null;
 }
 
 /**
@@ -392,6 +497,9 @@ function parseReplayPayloadParts(
   const targetStepCount = positiveIntegerValue(
     metadata.climbTargetStepCount
   ) ?? positiveIntegerValue(metadata.targetStepCount);
+  const targetDurationSeconds = nonNegativeNumberValue(
+    metadata.targetDurationSeconds
+  );
 
   if (
     !splitIntervalSeconds ||
@@ -405,14 +513,20 @@ function parseReplayPayloadParts(
 
   return {
     metadata,
-    hasClimbAttemptParticipation: hasClimbAttemptParticipation(
-      data.participations
+    hasClimbAttemptParticipation: hasParticipation(
+      data.participations,
+      CLIMB_ATTEMPT_PARTICIPATION_TYPE
+    ),
+    hasEligibleRoutineTemplateParticipation: hasEligibleParticipation(
+      data.participations,
+      ROUTINE_TEMPLATE_CONTEXT_TYPE
     ),
     splitIntervalSeconds,
     splitSteps,
     finalDurationSeconds,
     finalSteps,
     targetStepCount,
+    targetDurationSeconds,
   };
 }
 
@@ -526,28 +640,51 @@ function replayPayload(
     targetStepCount: options.targetStepCount !== undefined ?
       options.targetStepCount :
       parsed.targetStepCount,
+    targetDurationSeconds: parsed.targetDurationSeconds,
     firstAscentEligible: options.firstAscentEligible !== false,
   };
 }
 
 /**
- * Returns whether a workout carries a climb-attempt participation.
+ * Records the guided clock a steps-ranked row was run against.
  *
- * This is a shape check, not an eligibility check. The participation's
- * `leaderboardEligible` boolean is deliberately NOT read: it is a bare
- * assertion the client writes about itself, carrying no evidence the server
- * can check, so a modified client could grant itself a leaderboard row by
- * flipping it. Eligibility is derived instead - see
- * hasCompletedLiveClimbAttempt.
- *
- * Presence still matters for one thing: it separates the modern document shape
- * from the legacy one. The legacy-shape fallback only fires when no
- * climb-attempt participation exists, so a modern workout is always judged by
- * the derived gate rather than resurrected through the legacy path.
- * @param {unknown} value Raw participations value.
- * @return {boolean} True when a climb-attempt participation is present.
+ * A routine board ranks steps, which is only comparable between runs of the
+ * same length. One board holds exactly one template ID, so it can never mix
+ * templates - but a published template's intervals can be edited in place under
+ * that stable ID, and neither the template's `version` nor the workout's
+ * participation `contextVersion` tracks the change. Stamping the window on
+ * every row keeps a shortened or lengthened routine visible in the data instead
+ * of silently ranking a 10-minute run against a 20-minute one. The supported
+ * way to change a published routine's intervals is to publish a new template
+ * ID, which starts a new board.
+ * @param {LiveReplayIndexPayload} payload Replay payload.
+ * @return {Record<string, unknown>} Window field, or an empty object.
  */
-function hasClimbAttemptParticipation(value: unknown): boolean {
+function routineWindowFields(
+  payload: LiveReplayIndexPayload
+): Record<string, unknown> {
+  if (!ranksOnSteps(payload.contextType) ||
+    payload.targetDurationSeconds === null) {
+    return {};
+  }
+
+  return {targetDurationSeconds: payload.targetDurationSeconds};
+}
+
+/**
+ * Returns whether a workout carries a leaderboard-eligible participation of one
+ * context type. The routine board gates on this flag; the climb modes
+ * deliberately ignore the client's `leaderboardEligible` assertion and
+ * re-derive eligibility from re-checked evidence instead - see
+ * hasCompletedLiveClimbAttempt.
+ * @param {unknown} value Raw participations value.
+ * @param {string} contextType Participation context type to match.
+ * @return {boolean} True when the workout can be indexed for replay.
+ */
+function hasEligibleParticipation(
+  value: unknown,
+  contextType: string
+): boolean {
   if (!Array.isArray(value)) {
     return false;
   }
@@ -557,7 +694,35 @@ function hasClimbAttemptParticipation(value: unknown): boolean {
       return false;
     }
 
-    return (item as Record<string, unknown>).contextType === "climb_attempt";
+    const participation = item as Record<string, unknown>;
+    return participation.contextType === contextType &&
+      participation.leaderboardEligible === true;
+  });
+}
+
+/**
+ * Returns whether a workout carries any participation of one context type,
+ * eligible or not. This is a shape check, not an eligibility check: the
+ * `leaderboardEligible` flag is deliberately NOT read, so a modified client
+ * cannot grant itself a row by flipping it. The legacy-shape fallback only
+ * fires when none exists: a workout with a climb-attempt participation is
+ * governed by the modern gate, so an explicitly ineligible one stays
+ * deliberately unpublished, not resurrected.
+ * @param {unknown} value Raw participations value.
+ * @param {string} contextType Participation context type to match.
+ * @return {boolean} True when a matching participation is present.
+ */
+function hasParticipation(value: unknown, contextType: string): boolean {
+  if (!Array.isArray(value)) {
+    return false;
+  }
+
+  return value.some((item) => {
+    if (!item || typeof item !== "object") {
+      return false;
+    }
+
+    return (item as Record<string, unknown>).contextType === contextType;
   });
 }
 
@@ -1044,18 +1209,52 @@ async function publishReplayEntries(
 }
 
 /**
+ * Whether a context ranks on steps taken rather than time elapsed.
+ * @param {string} contextType Replay context type.
+ * @return {boolean} True when higher steps rank better.
+ */
+function ranksOnSteps(contextType: string): boolean {
+  return contextType === ROUTINE_TEMPLATE_CONTEXT_TYPE;
+}
+
+/**
+ * The entry field a context ranks on.
+ * @param {string} contextType Replay context type.
+ * @return {string} Ranking metric field name.
+ */
+function rankingMetric(contextType: string): string {
+  return ranksOnSteps(contextType) ?
+    STEPS_RANKING_METRIC :
+    DURATION_RANKING_METRIC;
+}
+
+/**
+ * How a context resolves attempts that tie on its ranking metric.
+ * @param {string} contextType Replay context type.
+ * @return {string} Tie policy identifier.
+ */
+function tiePolicy(contextType: string): string {
+  return ranksOnSteps(contextType) ? STEPS_TIE_POLICY : DURATION_TIE_POLICY;
+}
+
+/**
  * Calculates the performance rank for this completed attempt at publish time.
- * Rank is competition-style: equal durations share the same rank.
+ *
+ * Rank is competition-style: attempts that tie on the context's metric share
+ * the same rank, because both sides count only attempts strictly better than
+ * this one. Steps are coarse integers, so routine ties are common and this
+ * strict comparison is what keeps a recompute from reshuffling tied climbers.
  * @param {LiveReplayIndexPayload} payload Replay payload.
- * @return {Promise<number>} Rank among faster completed attempts plus one.
+ * @return {Promise<number>} Rank among strictly better attempts plus one.
  */
 async function completionRankForPayload(
   payload: LiveReplayIndexPayload
 ): Promise<number> {
-  const snapshot = await entriesCollectionReference(payload, 0)
-    .where("completionDurationSeconds", "<", payload.finalDurationSeconds)
-    .count()
-    .get();
+  const entries = entriesCollectionReference(payload, 0);
+  const betterAttempts = ranksOnSteps(payload.contextType) ?
+    entries.where(STEPS_RANKING_METRIC, ">", payload.finalSteps) :
+    entries.where(DURATION_RANKING_METRIC, "<", payload.finalDurationSeconds);
+  const snapshot = await betterAttempts.count().get();
   return snapshot.data().count + 1;
 }
 
@@ -1230,6 +1429,7 @@ function completionRankSnapshotWrite(
   input: CompletionRankSnapshotWriteInput
 ): Record<string, unknown> {
   return {
+    ...routineWindowFields(input.payload),
     completedCount: input.completedCount,
     completionDurationSeconds: input.payload.finalDurationSeconds,
     contextId: input.payload.contextId,
@@ -1237,10 +1437,10 @@ function completionRankSnapshotWrite(
     finalSteps: input.payload.finalSteps,
     rank: input.rank,
     rankedAt: input.rankedAt,
-    rankingMetric: "completionDurationSeconds",
+    rankingMetric: rankingMetric(input.payload.contextType),
     schemaVersion: 1,
     targetStepCount: input.payload.targetStepCount ?? 0,
-    tiePolicy: "competition_rank_equal_durations_share_rank",
+    tiePolicy: tiePolicy(input.payload.contextType),
     userId: input.userId,
     workoutId: input.entryId,
   };
@@ -1255,6 +1455,7 @@ function replaySummaryWrite(
   input: ReplaySummaryWriteInput
 ): Record<string, unknown> {
   return {
+    ...routineWindowFields(input.payload),
     bucketIntervalSeconds: input.payload.splitIntervalSeconds,
     completedCount: input.completedCount,
     contextId: input.payload.contextId,
@@ -1276,6 +1477,7 @@ function replayEntryWrite(
   return {
     ...publicUserDemographicFields(input.publicUser),
     ...bestForUserFields(input.isBestForUser),
+    ...routineWindowFields(input.payload),
     avatarToken: input.publicUser.avatarToken,
     completionDurationSeconds: input.payload.finalDurationSeconds,
     contextId: input.payload.contextId,
@@ -1355,11 +1557,6 @@ function firstAscentWrite(
 function finisherStatusWrite(
   input: FinisherStatusWriteInput
 ): Record<string, unknown> {
-  const existingBestDuration = nonNegativeNumberValue(
-    input.existingData?.bestCompletionDurationSeconds
-  );
-  const didImproveBest = existingBestDuration === null ||
-    input.payload.finalDurationSeconds < existingBestDuration;
   const write: Record<string, unknown> = {
     ...publicUserDemographicFields(input.publicUser),
     avatarToken: input.publicUser.avatarToken,
@@ -1376,12 +1573,55 @@ function finisherStatusWrite(
     write.firstWorkoutId = input.entryId;
   }
 
-  if (didImproveBest) {
-    write.bestCompletionDurationSeconds = input.payload.finalDurationSeconds;
-    write.bestWorkoutId = input.entryId;
+  return Object.assign(write, finisherBestFields(input));
+}
+
+/**
+ * Returns the finisher's personal-best fields when this attempt beats the
+ * stored one on the context's own metric, and nothing when it does not.
+ *
+ * Each context stores only the metric it ranks on, so a routine finisher never
+ * carries a "best duration" that would read as a time to beat on a board where
+ * every finisher spends the same time.
+ * @param {FinisherStatusWriteInput} input Finisher write input.
+ * @return {Record<string, unknown>} Best fields, or an empty object.
+ */
+function finisherBestFields(
+  input: FinisherStatusWriteInput
+): Record<string, unknown> {
+  if (ranksOnSteps(input.payload.contextType)) {
+    const existingBestSteps = nonNegativeIntegerValue(
+      input.existingData?.bestFinalSteps
+    );
+
+    if (
+      existingBestSteps !== null &&
+      input.payload.finalSteps <= existingBestSteps
+    ) {
+      return {};
+    }
+
+    return {
+      bestFinalSteps: input.payload.finalSteps,
+      bestWorkoutId: input.entryId,
+    };
   }
 
-  return write;
+  const existingBestDuration = nonNegativeNumberValue(
+    input.existingData?.bestCompletionDurationSeconds
+  );
+
+  if (
+    existingBestDuration !== null &&
+    input.payload.finalDurationSeconds >= existingBestDuration
+  ) {
+    return {};
+  }
+
+  return {
+    bestCompletionDurationSeconds: input.payload.finalDurationSeconds,
+    bestWorkoutId: input.entryId,
+  };
 }
 
 /**
@@ -1850,9 +2090,13 @@ export const liveReplayLeaderboardTestHooks = {
   nextGlobalCompletionOrder,
   parseJustClimbReplayPayload,
   parseLiveClimbReplayPayload,
+  parseRoutineReplayPayload,
+  rankingMetric,
   replayEntryWrite,
+  replayPayloadsForWorkout,
   replaySummaryWrite,
   seedBestForUser,
   shouldDeleteCompletionRankSnapshot,
+  tiePolicy,
   userAttemptEntry,
 };
