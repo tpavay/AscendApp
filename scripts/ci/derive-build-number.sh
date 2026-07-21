@@ -5,11 +5,14 @@ set -euo pipefail
 # across staging and production, and raw run IDs are ~11 digits - far past the
 # 32-bit ceiling App Store Connect enforces on every CFBundleVersion component.
 # Coarse UTC epoch seconds carry the ordering instead: one integer per second,
-# doubled so each workflow owns a slot. Every workflow serializes its own runs
-# through its concurrency group, so two staging (or two production) builds
-# cannot derive in the same second, and the distinct slot keeps staging and
-# production apart when they derive in the same second. Across adjacent seconds
-# even the later tick's slot 0 outranks the earlier tick's slot 1.
+# doubled so each workflow owns a slot. Each uploadable workflow declares a
+# fixed, non-ref-scoped concurrency group (deploy-staging, deploy-production),
+# so every run of that workflow - push or manual dispatch from any ref -
+# serializes and two staging (or two production) builds cannot derive in the
+# same second. The distinct slot keeps staging and production apart when they
+# derive in the same second. Across adjacent seconds even the later tick's
+# slot 0 outranks the earlier tick's slot 1. The ci-workflow-contracts test
+# enforces the fixed group + unique slot for every uploadable workflow.
 #
 # 2026-01-01 00:00:00 UTC. Two slots consume two integers per second, so
 # 4294967296 / 2 = 2147483648 seconds of range, exhausting around 2094-01-19 UTC.

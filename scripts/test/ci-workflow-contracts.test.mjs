@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -59,7 +59,66 @@ test("production readiness failure is visible to GitHub Actions", async () => {
 });
 
 const deriveScript = `${repositoryRoot}scripts/ci/derive-build-number.sh`;
-const workflowSlots = {"deploy-staging.yml": "0", "deploy-production.yml": "1"};
+const workflowsDirectory = `${repositoryRoot}.github/workflows`;
+
+// A workflow can put a build on TestFlight if it drives a signed archive lane
+// or the upload lane. Every such workflow shares the one TestFlight app and so
+// must serialize on a fixed concurrency group and own a distinct allocator slot.
+function isUploadableWorkflow(workflow) {
+  return /bundle exec fastlane build_(staging|production)\b/.test(workflow)
+    || /\bupload_to_testflight\b/.test(workflow)
+    || /\bupload_testflight\b/.test(workflow);
+}
+
+function concurrencyGroup(workflow) {
+  return workflow.match(/\nconcurrency:\n[ \t]+group:[ \t]*(.+)/)?.[1]?.trim() ?? null;
+}
+
+function buildNumberSlot(workflow) {
+  const slot = workflow.match(/derive-build-number\.sh[ \t]+(\d+)\b/)?.[1];
+  return slot === undefined ? null : Number(slot);
+}
+
+async function uploadableWorkflows() {
+  const names = (await readdir(workflowsDirectory)).filter((name) => /\.ya?ml$/.test(name)).sort();
+  const uploadable = [];
+
+  for (const name of names) {
+    const workflow = await readWorkflow(name);
+    if (!isUploadableWorkflow(workflow)) continue;
+
+    uploadable.push({name, workflow, group: concurrencyGroup(workflow), slot: buildNumberSlot(workflow)});
+  }
+
+  return uploadable;
+}
+
+test("every uploadable workflow serializes on a fixed group and owns a unique build-number slot", async () => {
+  const slotCount = await scriptConstant("WORKFLOW_SLOT_COUNT");
+  const uploadable = await uploadableWorkflows();
+  const names = uploadable.map(({name}) => name);
+
+  assert.deepEqual(names, ["deploy-production.yml", "deploy-staging.yml"], `unexpected uploadable workflow set: ${names}`);
+
+  const slots = [];
+  for (const {name, workflow, group, slot} of uploadable) {
+    assert.ok(group, `${name} must declare a concurrency group so its runs serialize`);
+    assert.doesNotMatch(group, /\$\{\{/, `${name} concurrency group must be fixed, not ref-scoped: "${group}"`);
+
+    const deriveIndex = workflow.indexOf("scripts/ci/derive-build-number.sh");
+    assert.notEqual(deriveIndex, -1, `${name} must derive its build number`);
+    const buildIndex = workflow.search(/bundle exec fastlane build_/);
+    if (buildIndex !== -1) {
+      assert.ok(deriveIndex < buildIndex, `${name} must derive the build number before archiving`);
+    }
+
+    assert.ok(Number.isInteger(slot) && slot >= 0, `${name} must pass a numeric allocator slot`);
+    assert.ok(slot < slotCount, `${name} slot ${slot} is outside the allocator range [0, ${slotCount})`);
+    slots.push(slot);
+  }
+
+  assert.equal(new Set(slots).size, slots.length, `uploadable workflows must use unique slots, got ${slots}`);
+});
 
 function deriveBuildNumber(slot, timestamp) {
   const argumentList = timestamp === undefined ? [String(slot)] : [String(slot), String(timestamp)];
@@ -90,8 +149,7 @@ function deriveStepScript(workflow) {
 }
 
 test("deploy build numbers come from the shared derivation, before the archive", async () => {
-  for (const [name, slot] of Object.entries(workflowSlots)) {
-    const workflow = await readWorkflow(name);
+  for (const {name, workflow, slot} of await uploadableWorkflows()) {
     const deriveIndex = workflow.indexOf("scripts/ci/derive-build-number.sh");
     const buildIndex = workflow.indexOf("bundle exec fastlane build_");
 
@@ -104,8 +162,8 @@ test("deploy build numbers come from the shared derivation, before the archive",
 });
 
 test("a failed derivation stops the deploy instead of exporting an empty build number", async () => {
-  for (const name of Object.keys(workflowSlots)) {
-    const stepScript = deriveStepScript(await readWorkflow(name));
+  for (const {name, workflow} of await uploadableWorkflows()) {
+    const stepScript = deriveStepScript(workflow);
     const root = mkdtempSync(join(tmpdir(), "ascend-build-number-"));
     const stubPath = join(root, "scripts/ci/derive-build-number.sh");
     const environmentFile = join(root, "github-env");

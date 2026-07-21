@@ -22,7 +22,7 @@ on:
       - ".github/workflows/deploy-production.yml"
 
 concurrency:
-  group: deploy-production-${{ github.ref }}
+  group: deploy-production
   cancel-in-progress: false
 
 permissions:

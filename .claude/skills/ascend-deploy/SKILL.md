@@ -72,6 +72,12 @@ Do not introduce a *new* long-lived JSON service-account key for deploy auth; th
   - `MATCH_PASSWORD`
   - `MATCH_GIT_PRIVATE_KEY`
 - Also required by both build jobs: `SENTRY_AUTH_TOKEN`.
+
+### Build numbers (CFBundleVersion allocator)
+- `BUILD_NUMBER` is derived by `scripts/ci/derive-build-number.sh <slot>` in a pre-archive "Derive build number" step, not from `github.run_id`/`run_number`. The step assigns the result to a variable first so a non-zero exit propagates under `set -e` before anything is written to `$GITHUB_ENV`; a failed derivation stops the deploy instead of exporting an empty build number.
+- Value: `(UTC epoch seconds - 2026-01-01T00:00:00Z) * 2 + slot`. Staging passes slot `0`, production slot `1`. Two slots consume two integers per second, giving `4294967296 / 2 = 2147483648` seconds of range - exhausting around 2094-01-19 UTC, where the script hard-fails rather than emitting a value above the 32-bit App Store ceiling.
+- Uniqueness depends on two invariants, both enforced by `scripts/test/ci-workflow-contracts.test.mjs`: every uploadable workflow (one that runs a signed `build_*` lane or `upload_testflight`) declares a **fixed, non-ref-scoped** concurrency group (`deploy-staging`, `deploy-production`) so all of its runs - including manual `workflow_dispatch` from any ref - serialize; and each such workflow passes a **distinct** allocator slot. A new uploadable workflow, a duplicate slot, or a group that regains a `${{ github.ref }}` component fails that contract test.
+- The script also refuses any value at or below the recorded `PREVIOUS_BUILD_NUMBER_FLOOR`. Do not raise `BUILD_NUMBER_EPOCH_SECONDS`: a larger epoch emits build numbers below already-uploaded builds, which TestFlight rejects irreversibly. If the range is ever exhausted, ship a new marketing version with a reset build-number scheme instead.
 - Legacy manual-signing CI secrets are deprecated:
   - `BUILD_CERTIFICATE_BASE64`
   - `BUILD_PROVISION_PROFILE_BASE64`

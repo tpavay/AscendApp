@@ -26,7 +26,7 @@ on:
 # deploy or the TestFlight upload and leave staging half-deployed. Overlapping
 # runs queue behind the running one instead.
 concurrency:
-  group: deploy-staging-${{ github.ref }}
+  group: deploy-staging
   cancel-in-progress: false
 
 permissions:
