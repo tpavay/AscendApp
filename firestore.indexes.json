@@ -1,6 +1,20 @@
 {
   "indexes": [
     {
+      "collectionGroup": "workouts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "source",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "climbId",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "leaderboard_stats",
       "queryScope": "COLLECTION",
       "fields": [

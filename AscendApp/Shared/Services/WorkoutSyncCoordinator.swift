@@ -147,6 +147,7 @@ private extension WorkoutSyncCoordinator {
                 stepsPerFloor: baseDocument.stepsPerFloor,
                 notes: baseDocument.notes,
                 source: baseDocument.source,
+                climbId: baseDocument.climbId,
                 integrityLevel: baseDocument.integrityLevel,
                 createdAt: baseDocument.createdAt,
                 updatedAt: baseDocument.updatedAt,

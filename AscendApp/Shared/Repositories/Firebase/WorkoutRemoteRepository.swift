@@ -169,6 +169,10 @@ private extension WorkoutRemoteRepository {
             "updatedAt": Timestamp(date: document.updatedAt)
         ]
 
+        if let climbId = document.climbId {
+            data["climbId"] = climbId
+        }
+
         if let avgHeartRateBpm = document.avgHeartRateBpm {
             data["avgHeartRateBpm"] = avgHeartRateBpm
         }
@@ -294,6 +298,7 @@ private extension WorkoutRemoteRepository {
             stepsPerFloor: try intValue("stepsPerFloor", in: data),
             notes: try stringValue("notes", in: data),
             source: try stringValue("source", in: data),
+            climbId: data["climbId"] as? String,
             integrityLevel: try stringValue("integrityLevel", in: data),
             createdAt: try dateValue("createdAt", in: data),
             updatedAt: try dateValue("updatedAt", in: data),

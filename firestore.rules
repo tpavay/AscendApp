@@ -708,6 +708,7 @@ service cloud.firestore {
           "stepsPerFloor",
           "notes",
           "source",
+          "climbId",
           "integrityLevel",
           "createdAt",
           "updatedAt",
@@ -759,6 +760,11 @@ service cloud.firestore {
         request.resource.data.notes.size() <= 5000 &&
         request.resource.data.source is string &&
         isValidWorkoutSource(request.resource.data.source) &&
+        (!request.resource.data.keys().hasAny(["climbId"]) ||
+          (request.resource.data.source == "headphone_motion" &&
+            request.resource.data.climbId is string &&
+            request.resource.data.climbId.size() > 0 &&
+            request.resource.data.climbId.size() <= 160)) &&
         request.resource.data.integrityLevel is string &&
         isValidIntegrityLevel(request.resource.data.integrityLevel) &&
         request.resource.data.createdAt is timestamp &&

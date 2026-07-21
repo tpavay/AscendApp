@@ -136,6 +136,26 @@ test("recompute writes once, then skips the re-delivered event", async () => {
   assert.deepEqual(store.readLandmarkResult(ESB), firstDocument);
 });
 
+test("recompute reads only the affected climb's indexed workouts", async () => {
+  const store = makeFakeStore({
+    target: makeWorkoutDocument({steps: 2096}),
+    other: makeWorkoutDocument({
+      steps: 2610,
+      metadata: {
+        climbId: "cn-tower",
+        stopReason: "target_reached",
+        targetStepCount: 2610,
+      },
+    }),
+    justClimb: makeWorkoutDocument({metadata: {stopReason: "user_stopped"}}),
+  });
+
+  assert.equal(await recomputeLandmarkResult(store, "u1", ESB), "written");
+  assert.equal(store.lastQueryClimbId, ESB);
+  assert.equal(store.lastQueryResultCount, 1);
+  assert.equal(store.readLandmarkResult(ESB)?.attemptCount, 1);
+});
+
 test("recompute rewrites when a new completion arrives", async () => {
   const store = makeFakeStore({
     w1: makeWorkoutDocument({steps: 2096}),
@@ -350,6 +370,8 @@ function makeWorkoutDocument(
   };
   return {
     source: overrides.source ?? "headphone_motion",
+    climbId: typeof metadata.climbId === "string" ?
+      metadata.climbId : undefined,
     steps: overrides.steps ?? 2096,
     durationSeconds: overrides.durationSeconds ?? 900,
     startedAt: {toMillis: () => overrides.startedAtMillis ?? 1_700_000_000_000},
@@ -360,6 +382,8 @@ function makeWorkoutDocument(
 interface FakeStore extends LandmarkResultStore {
   writes: number;
   transactionAttempts: number;
+  lastQueryClimbId: string | null;
+  lastQueryResultCount: number;
   setWorkout(id: string, data: Record<string, unknown>): void;
   deleteWorkout(id: string): void;
   readLandmarkResult(climbId: string): LandmarkResultProjection | null;
@@ -397,6 +421,8 @@ function makeFakeStore(
   const store: FakeStore = {
     writes: 0,
     transactionAttempts: 0,
+    lastQueryClimbId: null,
+    lastQueryResultCount: 0,
     setWorkout(id, data) {
       canonicalWorkouts[id] = data;
       version += 1;
@@ -432,10 +458,15 @@ function makeFakeStore(
           } | null} = {value: null};
 
         const outcome = await operation({
-          async listUserWorkouts() {
+          async listLandmarkWorkouts(_userId: string, climbId: string) {
             workoutListCalls += 1;
             await options.afterWorkoutList?.(workoutListCalls);
-            return workoutSnapshot;
+            const matches = workoutSnapshot.filter(({data}) =>
+              data.source === "headphone_motion" && data.climbId === climbId
+            );
+            store.lastQueryClimbId = climbId;
+            store.lastQueryResultCount = matches.length;
+            return matches;
           },
           async getLandmarkResult(_userId: string, climbId: string) {
             const snapshot = resultSnapshot.get(climbId);

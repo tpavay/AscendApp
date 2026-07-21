@@ -40,6 +40,7 @@ struct FirestoreWorkoutDocumentTests {
             stepsPerFloor: 16,
             notes: "Felt strong",
             source: "apple_health",
+            climbId: nil,
             integrityLevel: "verified",
             createdAt: createdAt,
             updatedAt: updatedAt,

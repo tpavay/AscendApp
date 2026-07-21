@@ -213,10 +213,12 @@ function makeTransactionalStore(workouts, options = {}) {
         const resultSnapshot = new Map(results);
         const mutation = {value: null};
         const outcome = await operation({
-          async listUserWorkouts() {
+          async listLandmarkWorkouts(_userId, climbId) {
             workoutListCalls += 1;
             await options.afterWorkoutList?.(workoutListCalls);
-            return workoutSnapshot;
+            return workoutSnapshot.filter(({data}) =>
+              data.source === "headphone_motion" && data.climbId === climbId
+            );
           },
           async getLandmarkResult(_userId, climbId) {
             return {
@@ -267,13 +269,15 @@ function deferred() {
  */
 function completedWorkout(overrides = {}) {
   const target = overrides.targetStepCount ?? 2096;
+  const climbId = overrides.climbId ?? "cn-tower";
   return {
     source: "headphone_motion",
+    climbId,
     steps: overrides.steps ?? 2096,
     durationSeconds: overrides.durationSeconds ?? 900,
     startedAt: {toMillis: () => overrides.startedAtMillis ?? 1_700_000_000_000},
     sourceMetadata: JSON.stringify({
-      climbId: overrides.climbId ?? "cn-tower",
+      climbId,
       trackingMode: "live_climb",
       stopReason: overrides.stopReason ?? "target_reached",
       targetStepCount: target,

@@ -5,11 +5,10 @@
  * data/design-migration-runner-f4/report.md, pending the full project-owned
  * `data:run` plan/apply/verify runner. Every backfill that uses it gets:
  *
- *   - strict `--env dev|staging` resolution (raw project ids, a missing flag,
+ *   - strict named-environment resolution (raw project ids, a missing flag,
  *     `.firebaserc` defaults, and unknown values are all refused);
- *   - a HARD refusal of production - these repair scripts are dev/staging only,
- *     and pre-launch production has zero users, so nothing there needs a
- *     backfill (the corrected rules deploy, done separately, is what prod needs);
+ *   - production refused by default; an operation that genuinely needs a
+ *     production migration must opt in and confirm the exact project id;
  *   - dry-run by default: writes require an explicit `--apply`, and there is no
  *     `--dry-run` flag because plan-only is the default state;
  *   - a `_migrations` Firestore ledger entry gating every apply, so "did this
@@ -40,7 +39,7 @@ const MIGRATIONS_COLLECTION = "_migrations";
  * @param {string | null} rawEnv The `--env` argument value.
  * @return {{env: string, projectId: string, production: boolean}} Environment.
  */
-export function resolveEnvironment(rawEnv) {
+export function resolveEnvironment(rawEnv, options = {}) {
   if (!rawEnv) {
     throw new Error(
       "Missing --env. Pass exactly one of --env dev or --env staging."
@@ -56,11 +55,14 @@ export function resolveEnvironment(rawEnv) {
   }
 
   if (environment.production) {
-    throw new Error(
-      "This repair backfill hard-refuses production. Pre-launch prod has zero " +
-      "users, so the backfill is a no-op there; prod only needs the corrected " +
-      "rules deploy, handled separately."
-    );
+    if (!options.allowProduction) {
+      throw new Error("This repair backfill hard-refuses production.");
+    }
+    if (options.productionConfirmation !== environment.projectId) {
+      throw new Error(
+        "Production requires --confirm-production " + environment.projectId + "."
+      );
+    }
   }
 
   return {env: rawEnv, ...environment};

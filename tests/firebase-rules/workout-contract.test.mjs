@@ -201,8 +201,30 @@ test('owner can write a headphone motion workout with climb attempt participatio
 
   await assertSucceeds(setDoc(workoutRef, makeWorkoutDocument({
     source: 'headphone_motion',
+    climbId: 'gateway-arch',
     integrityLevel: 'verified',
     participations: [makeClimbAttemptParticipation()],
+  })));
+});
+
+test('workout climb query key is bounded and limited to headphone motion', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    climbId: 'gateway-arch',
+  })));
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    source: 'headphone_motion',
+    climbId: '',
+    integrityLevel: 'verified',
+  })));
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    source: 'headphone_motion',
+    climbId: 'x'.repeat(161),
+    integrityLevel: 'verified',
   })));
 });
 

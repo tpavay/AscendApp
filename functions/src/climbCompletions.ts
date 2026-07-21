@@ -77,8 +77,9 @@ export interface StoredLandmarkResult {
  * `landmarkResults`; tests inject an in-memory transactional store.
  */
 export interface LandmarkResultTransaction {
-  listUserWorkouts(
-    userId: string
+  listLandmarkWorkouts(
+    userId: string,
+    climbId: string
   ): Promise<{id: string; data: Record<string, unknown>}[]>;
   getLandmarkResult(
     userId: string,
@@ -252,7 +253,7 @@ export async function recomputeLandmarkResult(
   climbId: string
 ): Promise<"written" | "skipped" | "deleted"> {
   return store.runTransaction(async (transaction) => {
-    const workouts = await transaction.listUserWorkouts(userId);
+    const workouts = await transaction.listLandmarkWorkouts(userId, climbId);
     const completions: CompletedLandmarkWorkout[] = [];
     for (const workout of workouts) {
       const parsed = parseCompletedLandmarkWorkout(workout.id, workout.data);
@@ -316,6 +317,14 @@ export const onWorkoutWritten = onDocumentWritten(
       return;
     }
 
+    // Old app versions can replace a workout without the promoted query key.
+    // Repair it first, then let the resulting write run the narrow recompute.
+    const storedAfterClimbId = stringValue(afterData?.climbId);
+    if (afterData && after && storedAfterClimbId !== after.climbId) {
+      await event.data?.after.ref.set({climbId: after.climbId}, {merge: true});
+      return;
+    }
+
     const store = makeAdminStore();
     for (const climbId of affected) {
       await recomputeLandmarkResult(store, userId, climbId);
@@ -340,15 +349,15 @@ export function makeAdminStore(): LandmarkResultStore {
           async (firestoreTransaction) => {
             attempts += 1;
             return operation({
-              async listUserWorkouts(userId) {
-                // Narrowed to the only source the derivation can accept, so the
-                // serializable read lock covers headphone-motion workouts
-                // instead of the user's entire workout history.
+              async listLandmarkWorkouts(userId, climbId) {
+                // Both filter keys are top-level and indexed. The serializable
+                // read lock now covers one landmark instead of user history.
                 const query = db
                   .collection(USERS_COLLECTION)
                   .doc(userId)
                   .collection(WORKOUTS_COLLECTION)
-                  .where("source", "==", HEADPHONE_MOTION_SOURCE);
+                  .where("source", "==", HEADPHONE_MOTION_SOURCE)
+                  .where("climbId", "==", climbId);
                 const snapshot = await firestoreTransaction.get(query);
                 return snapshot.docs.map((doc) => ({
                   id: doc.id,
