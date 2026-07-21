@@ -200,7 +200,8 @@ struct TiedRankRenderEvidenceTests {
             currentUserPhotoURL: nil,
             effectiveColorScheme: .dark,
             emptyTitle: "No completed times yet.",
-            emptyMessage: "First Ascent open. The first finisher claims it forever."
+            emptyMessage: "First Ascent open. The first finisher claims it forever.",
+            emphasis: .duration
         )
         .padding(16)
     }
