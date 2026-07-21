@@ -30,6 +30,7 @@ Two distinct surfaces - the global tab (community-wide aggregate stats) and per-
 - Leaderboard publication is mutation-driven: workout create / import / delete always affects publication; workout edits affect publication only when leaderboard-relevant fields change (date, duration, steps, floors). Photo, notes, heart-rate, calorie, or MET edits don't touch leaderboard publication.
 - The leaderboard refresh UI must never own the only publication path. Users must appear remotely even if they never open the leaderboard tab.
 - Local leaderboard state updates incrementally for current periods only. Full-history rebuilds are reserved for migration, repair, or schema backfill.
+- **Publication eligibility is derived server-side, never asserted by the client.** `functions/src/liveReplayLeaderboard.ts` re-derives every condition from the backed-up workout and ignores the participation's `leaderboardEligible` boolean; `WorkoutParticipation.leaderboardEligible` is a local record of what the device concluded, not an instruction the server obeys. Any new leaderboard gate follows the same rule: check evidence fields, never a client-written verdict.
 
 ## Leaderboard UX Flow
 
