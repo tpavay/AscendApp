@@ -211,7 +211,8 @@ test(
   async () => {
     // The completion carries climbId only inside sourceMetadata: the promoted
     // top-level key was never backfilled, so the narrow indexed query returns
-    // zero. Without the fallback this recompute finds nothing and writes nothing.
+    // zero. Without the fallback this recompute finds nothing and writes
+    // nothing.
     const store = makeFakeStore({
       unbackfilled: makeWorkoutDocument({
         steps: 2096,
@@ -524,7 +525,8 @@ function makeFakeStore(
             );
             // Temporary rollout fallback: when the narrow query is empty, read
             // by source alone so un-backfilled documents (climbId only inside
-            // sourceMetadata) are still resolved. The caller filters by climbId.
+            // sourceMetadata) are still resolved. The caller filters by
+            // climbId.
             const matches = narrow.length > 0 ? narrow :
               workoutSnapshot.filter(({data}) =>
                 data.source === "headphone_motion"

@@ -81,9 +81,10 @@ export interface LandmarkResultTransaction {
    * Returns the single resolved workout set for the climb. The narrow indexed
    * query (source AND the promoted top-level climbId) is the fast path; when it
    * is empty the adapter falls back to a legacy source-only read so callers see
-   * un-backfilled documents too. Resolving both reads here - not in the caller -
-   * is what makes it structurally impossible for a recompute to delete a valid
-   * projection just because the promoted key has not been backfilled yet.
+   * un-backfilled documents too. Resolving both reads here - not in the
+   * caller - is what makes it structurally impossible for a recompute to
+   * delete a valid projection just because the promoted key has not been
+   * backfilled yet.
    */
   listLandmarkWorkouts(
     userId: string,
@@ -384,9 +385,9 @@ export function makeAdminStore(): LandmarkResultStore {
                 // headphone-motion workout to the caller, which parses and
                 // filters by climbId. A zero narrow result can therefore only
                 // delete a projection when this source-only read is also empty.
-                // Remove only after every environment has verified zero eligible
-                // workout documents with a missing or mismatched top-level
-                // climbId, with migration-ledger evidence.
+                // Remove only after every environment has verified zero
+                // eligible workout documents with a missing or mismatched
+                // top-level climbId, with migration-ledger evidence.
                 const legacySnapshot = await firestoreTransaction.get(
                   workoutsRef.where("source", "==", HEADPHONE_MOTION_SOURCE)
                 );
