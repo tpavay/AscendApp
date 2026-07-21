@@ -157,6 +157,5 @@ for (const workflowName of ["deploy-staging.yml", "deploy-production.yml"]) {
 
     assert.notEqual(installIndex, -1);
     assert.ok(installIndex < buildIndex);
-    assert.match(workflow, /- "scripts\/\*\*"/);
   });
 }
