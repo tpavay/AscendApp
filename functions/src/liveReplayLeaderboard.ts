@@ -441,6 +441,15 @@ function parseReplayPayloadParts(
  * climb collection this trigger could read. Stating that out loud is the point:
  * it is an acknowledged gap in this gate, not a silent fallback. Closing it
  * needs a server-readable catalog, which is its own change.
+ *
+ * Deliberate consequence: the gate grandfathers a completion recorded against
+ * the step target that existed when it was climbed. A catalog correction must
+ * never retroactively void an earned completion or its First Ascent, so the
+ * client's `leaderboardEligible: false` stays ignored even when a later,
+ * higher catalog target would fail the device's local completion check. That
+ * case is close to hypothetical anyway - no climb's referenceStepCount has
+ * ever changed across the catalog's history, and all 75 current climbs
+ * resolve their target from totalSteps with realStairCount null.
  * @param {ParsedReplayPayloadParts} parsed Parsed replay payload parts.
  * @return {boolean} True when the row may be published publicly.
  */
