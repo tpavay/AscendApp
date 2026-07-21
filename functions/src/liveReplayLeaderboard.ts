@@ -119,7 +119,8 @@ interface ReplayEntryWriteInput {
  */
 interface UserAttemptEntry {
   workoutId: string;
-  completionDurationSeconds: number;
+  /** The value this attempt ranks on, in the context's own metric. */
+  rankingValue: number;
   splitBucketCount: number;
   isBestForUser: boolean;
 }
@@ -519,7 +520,8 @@ function parseReplayPayloadParts(
     ),
     hasEligibleRoutineTemplateParticipation: hasEligibleParticipation(
       data.participations,
-      ROUTINE_TEMPLATE_CONTEXT_TYPE
+      ROUTINE_TEMPLATE_CONTEXT_TYPE,
+      stringValue(metadata.routineTemplateId) ?? undefined
     ),
     splitIntervalSeconds,
     splitSteps,
@@ -676,14 +678,18 @@ function routineWindowFields(
  * context type. The routine board gates on this flag; the climb modes
  * deliberately ignore the client's `leaderboardEligible` assertion and
  * re-derive eligibility from re-checked evidence instead - see
- * hasCompletedLiveClimbAttempt.
+ * hasCompletedLiveClimbAttempt. When `contextId` is given, the eligible
+ * participation must also be scoped to it, so a workout can never publish
+ * onto a board whose eligibility verdict was issued for a different context.
  * @param {unknown} value Raw participations value.
  * @param {string} contextType Participation context type to match.
+ * @param {string} [contextId] Participation context ID to match, if scoped.
  * @return {boolean} True when the workout can be indexed for replay.
  */
 function hasEligibleParticipation(
   value: unknown,
-  contextType: string
+  contextType: string,
+  contextId?: string
 ): boolean {
   if (!Array.isArray(value)) {
     return false;
@@ -696,7 +702,8 @@ function hasEligibleParticipation(
 
     const participation = item as Record<string, unknown>;
     return participation.contextType === contextType &&
-      participation.leaderboardEligible === true;
+      participation.leaderboardEligible === true &&
+      (contextId === undefined || participation.contextId === contextId);
   });
 }
 
@@ -782,17 +789,20 @@ function touchedReplayPayloads(
 /**
  * Whether a context races one row per climber rather than one per attempt.
  *
- * Only per-climb contexts collapse repeats. Every completion there reaches the
- * same step target, so the fastest attempt is genuinely that climber's best. An
- * open Just Climb session has no target and publishes on any stop with steps,
- * so its shortest attempt is the one the climber quit earliest: their weakest
- * curve, not their best. Contexts outside the allowlist carry no flag at all,
- * so nothing can filter them into a wrong winner.
+ * Per-climb and per-routine-template contexts collapse repeats. A per-climb
+ * board reaches the same step target every time, so the fastest attempt is
+ * genuinely that climber's best; a routine board fixes the clock, so the
+ * highest-steps attempt is theirs. An open Just Climb session has no target and
+ * publishes on any stop with steps, so its shortest attempt is the one the
+ * climber quit earliest: their weakest curve, not their best. Contexts outside
+ * the allowlist carry no flag at all, so nothing can filter them into a wrong
+ * winner.
  * @param {LiveReplayIndexPayload} payload Replay payload.
  * @return {boolean} True when the context collapses repeat finishers.
  */
 function collapsesRepeatFinishers(payload: LiveReplayIndexPayload): boolean {
-  return payload.contextType === LIVE_CLIMB_CONTEXT_TYPE;
+  return payload.contextType === LIVE_CLIMB_CONTEXT_TYPE ||
+    payload.contextType === ROUTINE_TEMPLATE_CONTEXT_TYPE;
 }
 
 /**
@@ -815,6 +825,16 @@ function seedBestForUser(
     return null;
   }
 
+  if (ranksOnSteps(payload.contextType)) {
+    const existingBestSteps = nonNegativeIntegerValue(
+      finisherData?.bestFinalSteps
+    );
+
+    return existingBestSteps === null ||
+      payload.finalSteps > existingBestSteps ||
+      stringValue(finisherData?.bestWorkoutId) === entryId;
+  }
+
   const existingBestDuration = nonNegativeNumberValue(
     finisherData?.bestCompletionDurationSeconds
   );
@@ -825,22 +845,30 @@ function seedBestForUser(
 }
 
 /**
- * Selects a user's best (fastest) completion in a context.
- * Equal durations resolve on workout ID so every caller picks the same winner.
+ * Selects a user's best completion in a context, on that context's metric:
+ * the highest steps where it ranks on steps, the fastest time otherwise.
+ * Equal values resolve on workout ID so every caller picks the same winner.
  * @param {UserAttemptEntry[]} attempts Published attempts for one user.
+ * @param {string} contextType Replay context type.
  * @return {UserAttemptEntry | null} Winner, or null when there are none.
  */
-function bestAttempt(attempts: UserAttemptEntry[]): UserAttemptEntry | null {
+function bestAttempt(
+  attempts: UserAttemptEntry[],
+  contextType: string
+): UserAttemptEntry | null {
+  const ranksHighestFirst = ranksOnSteps(contextType);
   let best: UserAttemptEntry | null = null;
 
   for (const attempt of attempts) {
-    const isFaster = best === null ||
-      attempt.completionDurationSeconds < best.completionDurationSeconds;
+    const isBetter = best === null ||
+      (ranksHighestFirst ?
+        attempt.rankingValue > best.rankingValue :
+        attempt.rankingValue < best.rankingValue);
     const breaksTie = best !== null &&
-      attempt.completionDurationSeconds === best.completionDurationSeconds &&
+      attempt.rankingValue === best.rankingValue &&
       attempt.workoutId < best.workoutId;
 
-    if (isFaster || breaksTie) {
+    if (isBetter || breaksTie) {
       best = attempt;
     }
   }
@@ -849,12 +877,16 @@ function bestAttempt(attempts: UserAttemptEntry[]): UserAttemptEntry | null {
 }
 
 /**
- * Selects the workout owning a user's best (fastest) completion in a context.
+ * Selects the workout owning a user's best completion in a context.
  * @param {UserAttemptEntry[]} attempts Published attempts for one user.
+ * @param {string} contextType Replay context type.
  * @return {string | null} Winning workout ID, or null when there are none.
  */
-function bestAttemptWorkoutId(attempts: UserAttemptEntry[]): string | null {
-  return bestAttempt(attempts)?.workoutId ?? null;
+function bestAttemptWorkoutId(
+  attempts: UserAttemptEntry[],
+  contextType: string
+): string | null {
+  return bestAttempt(attempts, contextType)?.workoutId ?? null;
 }
 
 /**
@@ -862,12 +894,14 @@ function bestAttemptWorkoutId(attempts: UserAttemptEntry[]): string | null {
  * Attempts already carrying the right flag are omitted so reconciliation
  * settles to zero writes once a context is correct.
  * @param {UserAttemptEntry[]} attempts Published attempts for one user.
+ * @param {string} contextType Replay context type.
  * @return {BestForUserFlagUpdate[]} Attempts whose flag must change.
  */
 function bestForUserFlagUpdates(
-  attempts: UserAttemptEntry[]
+  attempts: UserAttemptEntry[],
+  contextType: string
 ): BestForUserFlagUpdate[] {
-  const winningWorkoutId = bestAttemptWorkoutId(attempts);
+  const winningWorkoutId = bestAttemptWorkoutId(attempts, contextType);
   const updates: BestForUserFlagUpdate[] = [];
 
   for (const attempt of attempts) {
@@ -909,26 +943,29 @@ function attemptSplitBucketCount(data: Record<string, unknown>): number {
 }
 
 /**
- * Reads one published attempt from its bucket-zero entry document.
+ * Reads one published attempt from its bucket-zero entry document, taking its
+ * ranking value from whichever number the context's metric ranks on.
  * @param {Record<string, unknown>} data Bucket-zero entry data.
  * @param {string} documentId Entry document ID.
+ * @param {string} contextType Replay context type.
  * @return {UserAttemptEntry | null} Parsed attempt, or null when unusable.
  */
 function userAttemptEntry(
   data: Record<string, unknown>,
-  documentId: string
+  documentId: string,
+  contextType: string
 ): UserAttemptEntry | null {
-  const completionDurationSeconds = nonNegativeNumberValue(
-    data.completionDurationSeconds
-  );
+  const rankingValue = ranksOnSteps(contextType) ?
+    nonNegativeIntegerValue(data.finalSteps) :
+    nonNegativeNumberValue(data.completionDurationSeconds);
 
-  if (completionDurationSeconds === null) {
+  if (rankingValue === null) {
     return null;
   }
 
   return {
     workoutId: stringValue(data.workoutId) ?? documentId,
-    completionDurationSeconds,
+    rankingValue,
     splitBucketCount: attemptSplitBucketCount(data),
     isBestForUser: data.isBestForUser === true,
   };
@@ -956,15 +993,15 @@ async function reconcileUserBestEntries(
     .where("userId", "==", userId)
     .get();
   const attempts = snapshot.docs
-    .map((doc) => userAttemptEntry(doc.data(), doc.id))
+    .map((doc) => userAttemptEntry(doc.data(), doc.id, payload.contextType))
     .filter((attempt): attempt is UserAttemptEntry => attempt !== null);
-  const winner = bestAttempt(attempts);
+  const winner = bestAttempt(attempts, payload.contextType);
 
   if (winner !== null) {
     await repairFinisherBestAttempt(payload, userId, winner);
   }
 
-  const updates = bestForUserFlagUpdates(attempts);
+  const updates = bestForUserFlagUpdates(attempts, payload.contextType);
 
   if (updates.length === 0) {
     return;
@@ -1047,19 +1084,37 @@ async function repairFinisherBestAttempt(
 
   const data = snapshot.data();
   const storedWorkoutId = stringValue(data?.bestWorkoutId);
+
+  if (ranksOnSteps(payload.contextType)) {
+    const storedSteps = nonNegativeIntegerValue(data?.bestFinalSteps);
+
+    if (
+      storedWorkoutId === winner.workoutId &&
+      storedSteps === winner.rankingValue
+    ) {
+      return;
+    }
+
+    await finisherRef.update({
+      bestFinalSteps: winner.rankingValue,
+      bestWorkoutId: winner.workoutId,
+    });
+    return;
+  }
+
   const storedDuration = nonNegativeNumberValue(
     data?.bestCompletionDurationSeconds
   );
 
   if (
     storedWorkoutId === winner.workoutId &&
-    storedDuration === winner.completionDurationSeconds
+    storedDuration === winner.rankingValue
   ) {
     return;
   }
 
   await finisherRef.update({
-    bestCompletionDurationSeconds: winner.completionDurationSeconds,
+    bestCompletionDurationSeconds: winner.rankingValue,
     bestWorkoutId: winner.workoutId,
   });
 }

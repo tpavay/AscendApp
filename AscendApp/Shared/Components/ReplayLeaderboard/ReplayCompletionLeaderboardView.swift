@@ -27,7 +27,7 @@ struct ReplayCompletionLeaderboardView: View {
         effectiveColorScheme: ColorScheme,
         emptyTitle: String,
         emptyMessage: String,
-        emphasis: LiveReplayRowEmphasis = .duration,
+        emphasis: LiveReplayRowEmphasis,
         onRowAppear: @escaping (LiveReplayLeaderboardRow) -> Void = { _ in }
     ) {
         self.rows = rows

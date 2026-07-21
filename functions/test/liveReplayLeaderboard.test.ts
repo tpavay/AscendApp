@@ -492,7 +492,7 @@ test("preserves finisher order on later attempts", () => {
   });
 });
 
-test("collapses repeat finishers only in per-climb contexts", () => {
+test("collapses repeat finishers in per-climb and template contexts", () => {
   const collapsesFor = (contextType: string) =>
     liveReplayLeaderboardTestHooks.collapsesRepeatFinishers({
       contextType,
@@ -501,8 +501,9 @@ test("collapses repeat finishers only in per-climb contexts", () => {
     >[0]);
 
   assert.equal(collapsesFor("live_climb"), true);
+  assert.equal(collapsesFor("routine_template"), true);
   assert.equal(collapsesFor("just_climb"), false);
-  assert.equal(collapsesFor("routine_template"), false);
+  // A user-created routine is a private board that never publishes.
   assert.equal(collapsesFor("routine"), false);
 });
 
@@ -595,16 +596,56 @@ test("seeds the flag on a per-climb attempt without demoting the best", () => {
   );
 });
 
+// A routine collapses repeats too, but on steps: a higher-steps attempt or a
+// republish of the standing best seeds the live flag; a weaker one does not.
+test("seeds the flag on a routine attempt from its steps", () => {
+  const payload = liveReplayLeaderboardTestHooks.parseRoutineReplayPayload(
+    makeRoutineWorkoutDocument(),
+    {requireEligibleParticipation: true}
+  );
+  assert.ok(payload);
+  assert.equal(payload.finalSteps, 1840);
+
+  assert.equal(
+    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {}),
+    true
+  );
+  assert.equal(
+    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {
+      bestFinalSteps: 1700,
+      bestWorkoutId: "workout-b",
+    }),
+    true
+  );
+  assert.equal(
+    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {
+      bestFinalSteps: 1840,
+      bestWorkoutId: "workout-a",
+    }),
+    true
+  );
+  assert.equal(
+    liveReplayLeaderboardTestHooks.seedBestForUser(payload, "workout-a", {
+      bestFinalSteps: 1900,
+      bestWorkoutId: "workout-b",
+    }),
+    false
+  );
+});
+
 test("races a repeat finisher as one opponent on their fastest attempt", () => {
   const attempts = [
-    makeAttemptEntry({workoutId: "workout-slow", durationSeconds: 900}),
-    makeAttemptEntry({workoutId: "workout-fast", durationSeconds: 700}),
-    makeAttemptEntry({workoutId: "workout-middling", durationSeconds: 800}),
+    makeAttemptEntry({workoutId: "workout-slow", rankingValue: 900}),
+    makeAttemptEntry({workoutId: "workout-fast", rankingValue: 700}),
+    makeAttemptEntry({workoutId: "workout-middling", rankingValue: 800}),
   ];
 
   const bestAttempts = applyFlagUpdates(
     attempts,
-    liveReplayLeaderboardTestHooks.bestForUserFlagUpdates(attempts)
+    liveReplayLeaderboardTestHooks.bestForUserFlagUpdates(
+      attempts,
+      "live_climb"
+    )
   ).filter((attempt) => attempt.isBestForUser);
 
   assert.deepEqual(
@@ -613,19 +654,69 @@ test("races a repeat finisher as one opponent on their fastest attempt", () => {
   );
 });
 
+// A routine ranks on steps, so a climber's best is their highest-steps attempt,
+// the inverse of the fastest-time rule a climb board uses.
+test("races a routine finisher as one opponent on their highest steps", () => {
+  const attempts = [
+    makeAttemptEntry({workoutId: "workout-low", rankingValue: 1200}),
+    makeAttemptEntry({workoutId: "workout-high", rankingValue: 1840}),
+    makeAttemptEntry({workoutId: "workout-mid", rankingValue: 1500}),
+  ];
+
+  const bestAttempts = applyFlagUpdates(
+    attempts,
+    liveReplayLeaderboardTestHooks.bestForUserFlagUpdates(
+      attempts,
+      "routine_template"
+    )
+  ).filter((attempt) => attempt.isBestForUser);
+
+  assert.deepEqual(
+    bestAttempts.map((attempt) => attempt.workoutId),
+    ["workout-high"]
+  );
+});
+
 test("resolves tied completions to one deterministic best attempt", () => {
   const attempts = [
-    makeAttemptEntry({workoutId: "workout-b", durationSeconds: 700}),
-    makeAttemptEntry({workoutId: "workout-a", durationSeconds: 700}),
+    makeAttemptEntry({workoutId: "workout-b", rankingValue: 700}),
+    makeAttemptEntry({workoutId: "workout-a", rankingValue: 700}),
   ];
 
   assert.equal(
-    liveReplayLeaderboardTestHooks.bestAttemptWorkoutId(attempts),
+    liveReplayLeaderboardTestHooks.bestAttemptWorkoutId(attempts, "live_climb"),
     "workout-a"
   );
   const reversedAttempts = [...attempts].reverse();
   assert.equal(
-    liveReplayLeaderboardTestHooks.bestAttemptWorkoutId(reversedAttempts),
+    liveReplayLeaderboardTestHooks.bestAttemptWorkoutId(
+      reversedAttempts,
+      "live_climb"
+    ),
+    "workout-a"
+  );
+});
+
+// Steps are coarse integers, so routine ties are common; the workout ID breaks
+// them the same way in both directions so recomputes never reshuffle.
+test("resolves tied routine step counts on the workout id", () => {
+  const attempts = [
+    makeAttemptEntry({workoutId: "workout-b", rankingValue: 1840}),
+    makeAttemptEntry({workoutId: "workout-a", rankingValue: 1840}),
+  ];
+
+  assert.equal(
+    liveReplayLeaderboardTestHooks.bestAttemptWorkoutId(
+      attempts,
+      "routine_template"
+    ),
+    "workout-a"
+  );
+  assert.equal(
+    liveReplayLeaderboardTestHooks.bestAttemptWorkoutId(
+      [...attempts].reverse(),
+      "routine_template"
+    ),
     "workout-a"
   );
 });
@@ -634,14 +725,17 @@ test("demotes the standing best when a faster attempt lands", () => {
   const attempts = [
     makeAttemptEntry({
       workoutId: "workout-old",
-      durationSeconds: 800,
+      rankingValue: 800,
       isBestForUser: true,
     }),
-    makeAttemptEntry({workoutId: "workout-new", durationSeconds: 700}),
+    makeAttemptEntry({workoutId: "workout-new", rankingValue: 700}),
   ];
 
   assert.deepEqual(
-    liveReplayLeaderboardTestHooks.bestForUserFlagUpdates(attempts),
+    liveReplayLeaderboardTestHooks.bestForUserFlagUpdates(
+      attempts,
+      "live_climb"
+    ),
     [
       {workoutId: "workout-old", splitBucketCount: 4, isBestForUser: false},
       {workoutId: "workout-new", splitBucketCount: 4, isBestForUser: true},
@@ -651,12 +745,15 @@ test("demotes the standing best when a faster attempt lands", () => {
 
 test("promotes the next best when a flagged best attempt is deleted", () => {
   const remainingAttempts = [
-    makeAttemptEntry({workoutId: "workout-slow", durationSeconds: 900}),
-    makeAttemptEntry({workoutId: "workout-middling", durationSeconds: 800}),
+    makeAttemptEntry({workoutId: "workout-slow", rankingValue: 900}),
+    makeAttemptEntry({workoutId: "workout-middling", rankingValue: 800}),
   ];
 
   assert.deepEqual(
-    liveReplayLeaderboardTestHooks.bestForUserFlagUpdates(remainingAttempts),
+    liveReplayLeaderboardTestHooks.bestForUserFlagUpdates(
+      remainingAttempts,
+      "live_climb"
+    ),
     [{workoutId: "workout-middling", splitBucketCount: 4, isBestForUser: true}]
   );
 });
@@ -665,25 +762,31 @@ test("settles to zero writes once best-per-user flags are correct", () => {
   const attempts = [
     makeAttemptEntry({
       workoutId: "workout-fast",
-      durationSeconds: 700,
+      rankingValue: 700,
       isBestForUser: true,
     }),
-    makeAttemptEntry({workoutId: "workout-slow", durationSeconds: 900}),
+    makeAttemptEntry({workoutId: "workout-slow", rankingValue: 900}),
   ];
 
   assert.deepEqual(
-    liveReplayLeaderboardTestHooks.bestForUserFlagUpdates(attempts),
+    liveReplayLeaderboardTestHooks.bestForUserFlagUpdates(
+      attempts,
+      "live_climb"
+    ),
     []
   );
 });
 
 test("leaves a single completion flagged as its own best", () => {
   const attempts = [
-    makeAttemptEntry({workoutId: "workout-only", durationSeconds: 700}),
+    makeAttemptEntry({workoutId: "workout-only", rankingValue: 700}),
   ];
 
   assert.deepEqual(
-    liveReplayLeaderboardTestHooks.bestForUserFlagUpdates(attempts),
+    liveReplayLeaderboardTestHooks.bestForUserFlagUpdates(
+      attempts,
+      "live_climb"
+    ),
     [{workoutId: "workout-only", splitBucketCount: 4, isBestForUser: true}]
   );
 });
@@ -723,17 +826,50 @@ test("reads published attempts from bucket-zero entry documents", () => {
         splitBucketCount: 74,
         workoutId: "workout-a",
       },
-      "workout-a"
+      "workout-a",
+      "live_climb"
     ),
     {
       workoutId: "workout-a",
-      completionDurationSeconds: 738,
+      rankingValue: 738,
       splitBucketCount: 74,
       isBestForUser: true,
     }
   );
+  // A routine attempt ranks on its steps, read from the same entry document.
+  assert.deepEqual(
+    liveReplayLeaderboardTestHooks.userAttemptEntry(
+      {
+        completionDurationSeconds: 1200,
+        finalSteps: 1840,
+        splitBucketCount: 74,
+        workoutId: "workout-a",
+      },
+      "workout-a",
+      "routine_template"
+    ),
+    {
+      workoutId: "workout-a",
+      rankingValue: 1840,
+      splitBucketCount: 74,
+      isBestForUser: false,
+    }
+  );
   assert.equal(
-    liveReplayLeaderboardTestHooks.userAttemptEntry({}, "workout-a"),
+    liveReplayLeaderboardTestHooks.userAttemptEntry(
+      {},
+      "workout-a",
+      "live_climb"
+    ),
+    null
+  );
+  // A routine row missing its steps is unusable even with a duration present.
+  assert.equal(
+    liveReplayLeaderboardTestHooks.userAttemptEntry(
+      {completionDurationSeconds: 1200},
+      "workout-a",
+      "routine_template"
+    ),
     null
   );
 });
@@ -748,17 +884,17 @@ test("reads published attempts from bucket-zero entry documents", () => {
  */
 function makeAttemptEntry(overrides: {
   workoutId: string;
-  durationSeconds: number;
+  rankingValue: number;
   isBestForUser?: boolean;
 }): {
   workoutId: string;
-  completionDurationSeconds: number;
+  rankingValue: number;
   splitBucketCount: number;
   isBestForUser: boolean;
 } {
   return {
     workoutId: overrides.workoutId,
-    completionDurationSeconds: overrides.durationSeconds,
+    rankingValue: overrides.rankingValue,
     splitBucketCount: 4,
     isBestForUser: overrides.isBestForUser ?? false,
   };
@@ -871,6 +1007,24 @@ test("rejects routine sessions the client marked ineligible", () => {
         makeParticipation({
           contextType: "routine_template",
           leaderboardEligible: false,
+        }),
+      ],
+    }),
+    {requireEligibleParticipation: true}
+  );
+
+  assert.equal(payload, null);
+});
+
+// The eligibility verdict is scoped to the participation's own template; a
+// workout can never publish onto a board it was not judged eligible for.
+test("rejects a routine whose participation targets another template", () => {
+  const payload = liveReplayLeaderboardTestHooks.parseRoutineReplayPayload(
+    makeRoutineWorkoutDocument({
+      participations: [
+        makeParticipation({
+          contextType: "routine_template",
+          contextId: "some-other-template",
         }),
       ],
     }),
@@ -1069,7 +1223,12 @@ function makeRoutineWorkoutDocument(
 ): Record<string, unknown> {
   return makeWorkoutDocument({
     durationSeconds: 1200,
-    participations: [makeParticipation({contextType: "routine_template"})],
+    participations: [
+      makeParticipation({
+        contextType: "routine_template",
+        contextId: "social-pyramid-20",
+      }),
+    ],
     sourceMetadata: makeRoutineSourceMetadata(),
     steps: 1840,
     ...overrides,

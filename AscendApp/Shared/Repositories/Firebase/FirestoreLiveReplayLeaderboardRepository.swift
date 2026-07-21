@@ -323,19 +323,29 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         let rankingValue: Double
     }
 
+    /// Reads a stored entry's value for one metric, or nil when the ranking field is
+    /// absent. Used as a pagination position, where a sentinel would encode an empty
+    /// start-after page and silently truncate the board.
+    private func optionalRankingValue(
+        for metric: LiveReplayRankingMetric,
+        in data: [String: Any]
+    ) -> Double? {
+        switch metric {
+        case .fastestCompletion:
+            return doubleValue(for: "completionDurationSeconds", in: data)
+        case .mostSteps:
+            return intValue(for: "finalSteps", in: data).map(Double.init)
+        }
+    }
+
     /// Reads a stored entry's value for one metric. A missing value sorts last in either
     /// direction so a malformed row can never outrank a real completion.
     private func rankingValue(
         for metric: LiveReplayRankingMetric,
         in data: [String: Any]
     ) -> Double {
-        switch metric {
-        case .fastestCompletion:
-            return doubleValue(for: "completionDurationSeconds", in: data)
-                ?? .greatestFiniteMagnitude
-        case .mostSteps:
-            return intValue(for: "finalSteps", in: data).map(Double.init) ?? -1
-        }
+        optionalRankingValue(for: metric, in: data)
+            ?? (metric.ranksHighestFirst ? -1 : .greatestFiniteMagnitude)
     }
 
     func fetchWindow(
@@ -699,12 +709,16 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
               !rows.isEmpty,
               let lastDocument = documents.last,
               let lastRank = rows.last?.rank,
-              rankedCount < completedCount else {
+              rankedCount < completedCount,
+              let sortKey = optionalRankingValue(
+                for: metric,
+                in: lastDocument.data()
+              ) else {
             return nil
         }
 
         return LiveReplayCompletionLeaderboardCursor(
-            sortKey: rankingValue(for: metric, in: lastDocument.data()),
+            sortKey: sortKey,
             rowID: lastDocument.documentID,
             lastRank: lastRank,
             rankedCount: rankedCount
@@ -750,14 +764,16 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
 
     /// Whether a context collapses a climber's repeat completions into one row.
     ///
-    /// Only per-climb contexts do: every completion there reaches the same step
-    /// target, so the fastest attempt is genuinely that climber's best. An open
-    /// Just Climb session has no target, so its shortest attempt is the one the
-    /// climber quit earliest rather than their best.
+    /// Per-climb and per-routine-template contexts do: a climb board reaches the
+    /// same step target every time, so the fastest attempt is genuinely that
+    /// climber's best; a routine board fixes the clock, so the highest-steps
+    /// attempt is theirs. An open Just Climb session has no target, so its
+    /// shortest attempt is the one the climber quit earliest rather than their
+    /// best.
     private func collapsesRepeatFinishers(
         _ context: LiveReplayLeaderboardContext
     ) -> Bool {
-        context.type == .liveClimb
+        context.type == .liveClimb || context.type == .routineTemplate
     }
 
     private func finisherDocument(
