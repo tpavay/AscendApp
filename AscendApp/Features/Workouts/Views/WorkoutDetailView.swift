@@ -930,7 +930,8 @@ struct WorkoutDetailView: View {
         do {
             liveClimbCompletionRank = try await LiveReplayLeaderboardService.shared.fetchCompletionRank(
                 context: context,
-                completionDurationSeconds: workout.duration
+                completionDurationSeconds: workout.duration,
+                finalSteps: workout.steps
             )
         } catch {
 #if DEBUG

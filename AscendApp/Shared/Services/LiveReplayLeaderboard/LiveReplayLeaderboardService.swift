@@ -7,7 +7,8 @@ protocol LiveReplayLeaderboardServicing: Sendable {
 
     func fetchCompletionRank(
         context: LiveReplayLeaderboardContext,
-        completionDurationSeconds: TimeInterval
+        completionDurationSeconds: TimeInterval,
+        finalSteps: Int
     ) async throws -> LiveReplayCompletionRank
 
     func fetchCompletionRankSnapshot(
@@ -120,13 +121,15 @@ actor LiveReplayLeaderboardService: LiveReplayLeaderboardServicing {
 
     func fetchCompletionRank(
         context: LiveReplayLeaderboardContext,
-        completionDurationSeconds: TimeInterval
+        completionDurationSeconds: TimeInterval,
+        finalSteps: Int
     ) async throws -> LiveReplayCompletionRank {
         let repository = repository
         return try await withLiveReplayLeaderboardTimeout(seconds: fetchTimeoutSeconds) {
             try await repository.fetchCompletionRank(
                 context: context,
-                completionDurationSeconds: completionDurationSeconds
+                completionDurationSeconds: completionDurationSeconds,
+                finalSteps: finalSteps
             )
         }
     }

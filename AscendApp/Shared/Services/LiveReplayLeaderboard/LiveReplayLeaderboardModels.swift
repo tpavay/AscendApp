@@ -198,8 +198,11 @@ struct LiveReplayPublishStatus: Equatable, Sendable {
 }
 
 struct LiveReplayCompletionLeaderboardCursor: Equatable, Sendable {
-    /// Sort key of the last fetched row — the Firestore pagination position.
-    let completionDurationSeconds: TimeInterval
+    /// Ranking value of the last fetched row - the Firestore pagination position. Its
+    /// meaning follows the context's `LiveReplayRankingMetric`: seconds on a climb
+    /// board, steps on a routine board. Both are carried as a `Double` so one
+    /// continuation type serves either metric.
+    let sortKey: Double
     let rowID: String
     /// Competition rank of the last ranked row. Carried so a tie group split across a
     /// page boundary keeps one rank instead of restarting at the next position.
@@ -208,20 +211,20 @@ struct LiveReplayCompletionLeaderboardCursor: Equatable, Sendable {
     let rankedCount: Int
 
     init(
-        completionDurationSeconds: TimeInterval,
+        sortKey: Double,
         rowID: String,
         lastRank: Int,
         rankedCount: Int
     ) {
-        self.completionDurationSeconds = max(completionDurationSeconds, 0)
+        self.sortKey = max(sortKey, 0)
         self.rowID = rowID.trimmingCharacters(in: .whitespacesAndNewlines)
         self.lastRank = max(lastRank, 1)
         self.rankedCount = max(rankedCount, 0)
     }
 
-    var rankingContinuation: CompetitionRanking.Continuation<TimeInterval> {
+    var rankingContinuation: CompetitionRanking.Continuation<Double> {
         CompetitionRanking.Continuation(
-            lastKey: completionDurationSeconds,
+            lastKey: sortKey,
             lastRank: lastRank,
             rankedCount: rankedCount
         )
