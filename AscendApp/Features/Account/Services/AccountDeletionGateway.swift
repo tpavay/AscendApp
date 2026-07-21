@@ -34,6 +34,9 @@ protocol AccountDeletionGateway {
     /// Deletes the publicly readable mirrors of the user's profile.
     func deletePublicProfileMirrors(userId: String) async throws
 
+    /// Best-effort deactivation of the user's push delivery records.
+    func unregisterPushDevice() async
+
     func deleteUserDocument(userId: String) async throws
     func revokeAppleToken(authorizationCode: String) async throws
     func deleteAuthAccount() async throws
@@ -108,6 +111,10 @@ struct FirebaseAccountDeletionGateway: AccountDeletionGateway {
 
     func revokeAppleToken(authorizationCode: String) async throws {
         try await authService.revokeAppleToken(authorizationCode: authorizationCode)
+    }
+
+    func unregisterPushDevice() async {
+        await PushNotificationService.shared.unregisterCurrentDevice()
     }
 
     func deleteAuthAccount() async throws {

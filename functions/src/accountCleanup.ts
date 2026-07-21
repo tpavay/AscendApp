@@ -21,6 +21,7 @@ export const ANONYMIZED_FIRST_ASCENT_NAME = "Anonymous Climber";
 export interface DeletedUserCleanupPort {
   listUserSubcollections(userId: string): Promise<string[]>;
   deleteSubcollection(userId: string, collectionId: string): Promise<void>;
+  deleteNotificationDevices(userId: string): Promise<number>;
   deleteLeaderboardStats(userId: string): Promise<number>;
   deleteReplayFinisherStatuses(userId: string): Promise<number>;
   anonymizeFirstAscents(userId: string): Promise<number>;
@@ -31,6 +32,7 @@ export interface DeletedUserCleanupPort {
 
 export interface CleanupSummary {
   deletedSubcollections: string[];
+  deletedNotificationDevices: number;
   deletedLeaderboardEntries: number;
   deletedReplayFinisherStatuses: number;
   anonymizedFirstAscents: number;
@@ -53,11 +55,12 @@ export interface CleanupSummary {
  * Subcollections are discovered rather than hardcoded so collections added
  * later are swept without anyone remembering to update this list. User-keyed
  * PII that lives *outside* the users/{uid} subtree cannot be discovered that
- * way, so each such record needs its own step here: leaderboard_stats,
- * userRateLimits, the replay finisher statuses, feedback, and the uid-keyed
- * email_jobs. Feedback is hard-deleted rather than anonymized because its
- * `message` is free text the user typed, so it can hold anything they chose to
- * disclose; the admin notification email already carries the report itself.
+ * way, so each such record needs its own step here: notification_devices,
+ * leaderboard_stats, userRateLimits, the replay finisher statuses, feedback,
+ * and the uid-keyed email_jobs. Feedback is hard-deleted rather than anonymized
+ * because its `message` is free text the user typed, so it can hold anything
+ * they chose to disclose; the admin notification email already carries the
+ * report itself.
  *
  * A First Ascent is de-identified rather than deleted. The claim outlives the
  * account by product design - the slot can never be reclaimed - so the holder's
@@ -97,6 +100,13 @@ export async function cleanupDeletedUser(
     } catch (error) {
       failures.push(`${collectionId}: ${errorMessage(error)}`);
     }
+  }
+
+  let deletedNotificationDevices = 0;
+  try {
+    deletedNotificationDevices = await port.deleteNotificationDevices(userId);
+  } catch (error) {
+    failures.push(`notification_devices: ${errorMessage(error)}`);
   }
 
   let deletedLeaderboardEntries = 0;
@@ -147,6 +157,7 @@ export async function cleanupDeletedUser(
     deletedFeedbackDocuments,
     deletedLeaderboardEntries,
     deletedLifecycleEmailJobs,
+    deletedNotificationDevices,
     deletedReplayFinisherStatuses,
     deletedSubcollections,
     failures,
@@ -172,6 +183,19 @@ export function makeAdminPort(
 
     async deleteSubcollection(userId, collectionId) {
       await firestore.recursiveDelete(userRef(userId).collection(collectionId));
+    },
+
+    async deleteNotificationDevices(userId) {
+      const snapshot = await firestore
+        .collection("notification_devices")
+        .where("uid", "==", userId)
+        .get();
+
+      for (const document of snapshot.docs) {
+        await document.ref.delete();
+      }
+
+      return snapshot.size;
     },
 
     async deleteLeaderboardStats(userId) {
@@ -328,6 +352,7 @@ export const cleanupDeletedUserData = onDocumentDeleted(
       deletedFeedbackDocuments: summary.deletedFeedbackDocuments,
       deletedLeaderboardEntries: summary.deletedLeaderboardEntries,
       deletedLifecycleEmailJobs: summary.deletedLifecycleEmailJobs,
+      deletedNotificationDevices: summary.deletedNotificationDevices,
       deletedReplayFinisherStatuses: summary.deletedReplayFinisherStatuses,
       deletedSubcollections: summary.deletedSubcollections,
       userId,

@@ -10,6 +10,7 @@ import {
 
 interface FakePortOptions {
   subcollections?: string[];
+  notificationDevices?: number;
   leaderboardEntries?: number;
   replayFinisherStatuses?: number;
   firstAscents?: number;
@@ -44,6 +45,14 @@ function makeFakePort(options: FakePortOptions = {}): {
         throw new Error(`cannot delete ${collectionId}`);
       }
       deleted.push(collectionId);
+    },
+
+    async deleteNotificationDevices() {
+      if (failOn.has("notification_devices_root")) {
+        throw new Error("cannot delete notification_devices");
+      }
+      deleted.push("notification_devices_root");
+      return options.notificationDevices ?? 0;
     },
 
     async deleteLeaderboardStats() {
@@ -263,6 +272,33 @@ test("removes leaderboard entries so deleted users stop ranking", async () => {
   const summary = await cleanupDeletedUser("user-a", port);
 
   assert.equal(summary.deletedLeaderboardEntries, 3);
+  assert.ok(deleted.includes("leaderboard_stats"));
+});
+
+test("removes top-level notification delivery records", async () => {
+  const {deleted, port} = makeFakePort({notificationDevices: 2});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  // The callable writes delivery records at notification_devices/{tokenHash},
+  // outside the users/{uid} subtree discovered by listCollections().
+  assert.equal(summary.deletedNotificationDevices, 2);
+  assert.ok(deleted.includes("notification_devices_root"));
+});
+
+test("a failing notification device sweep is reported for retry", async () => {
+  const {deleted, port} = makeFakePort({
+    failOn: ["notification_devices_root"],
+  });
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.deletedNotificationDevices, 0);
+  assert.equal(summary.failures.length, 1);
+  assert.match(
+    summary.failures[0],
+    /notification_devices: cannot delete notification_devices/
+  );
   assert.ok(deleted.includes("leaderboard_stats"));
 });
 
