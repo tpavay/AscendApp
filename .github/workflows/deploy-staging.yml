@@ -6,15 +6,17 @@ on:
     branches: [develop]
     paths:
       - "AscendApp/**"
+      - "AscendLiveActivityWidgets/**"
       - "AscendApp.xcodeproj/**"
       - "fastlane/**"
-      - "scripts/upload-sentry-dsyms.sh"
+      - "scripts/**"
       - "Gemfile"
       - "Gemfile.lock"
       - "functions/**"
       - "web/**"
       - "firebase.json"
       - "firestore.rules"
+      - "firestore.indexes.json"
       - "storage.rules"
       - ".firebaserc"
       - ".github/workflows/deploy-staging.yml"
@@ -158,7 +160,7 @@ jobs:
           IOS_STAGING_WIDGET_PROVISIONING_PROFILE_SPECIFIER: match AppStore com.TylerPavay.AscendApp.staging.LiveClimbWidgets
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "120"
-          BUILD_NUMBER: ${{ github.run_number }}
+          BUILD_NUMBER: ${{ github.run_id }}
         run: bundle exec fastlane build_staging
 
       - name: Upload staging IPA artifact
