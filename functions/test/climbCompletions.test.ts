@@ -206,6 +206,59 @@ test("recompute rebuilds over an unparseable projection", async () => {
   assert.equal(store.readLandmarkResult(ESB)?.attemptCount, 1);
 });
 
+test(
+  "zero narrow result derives through the legacy source-only fallback",
+  async () => {
+    // The completion carries climbId only inside sourceMetadata: the promoted
+    // top-level key was never backfilled, so the narrow indexed query returns
+    // zero. Without the fallback this recompute finds nothing and writes nothing.
+    const store = makeFakeStore({
+      unbackfilled: makeWorkoutDocument({
+        steps: 2096,
+        omitTopLevelClimbId: true,
+      }),
+    });
+
+    assert.equal(await recomputeLandmarkResult(store, "u1", ESB), "written");
+    const projection = store.readLandmarkResult(ESB);
+    assert.equal(projection?.attemptCount, 1);
+
+    // Re-delivery keeps the valid projection through the fallback instead of
+    // deleting it: a zero narrow read must never erase a backed projection.
+    assert.equal(await recomputeLandmarkResult(store, "u1", ESB), "skipped");
+    assert.deepEqual(store.readLandmarkResult(ESB), projection);
+    assert.equal(store.landmarkResultExists(ESB), true);
+  }
+);
+
+test(
+  "deleting one un-backfilled sibling preserves the surviving completion",
+  async () => {
+    // Two un-backfilled completions of the same landmark. The narrow query
+    // returns zero for both, so recompute must resolve them through the
+    // source-only fallback.
+    const store = makeFakeStore({
+      first: makeWorkoutDocument({steps: 2096, omitTopLevelClimbId: true}),
+      second: makeWorkoutDocument({
+        steps: 2200,
+        durationSeconds: 500,
+        omitTopLevelClimbId: true,
+      }),
+    });
+    assert.equal(await recomputeLandmarkResult(store, "u1", ESB), "written");
+    assert.equal(store.readLandmarkResult(ESB)?.attemptCount, 2);
+
+    // Deleting one sibling triggers a recompute whose narrow query is still
+    // zero. Without the fallback this wrongly deletes the whole projection;
+    // with it the surviving sibling keeps it alive.
+    store.deleteWorkout("second");
+    assert.equal(await recomputeLandmarkResult(store, "u1", ESB), "written");
+    const stored = store.readLandmarkResult(ESB);
+    assert.equal(stored?.attemptCount, 1);
+    assert.equal(stored?.bestWorkoutId, "first");
+  }
+);
+
 test("concurrent completions cannot let the older snapshot win", async () => {
   const olderSnapshotRead = deferred<void>();
   const releaseOlderSnapshot = deferred<void>();
@@ -351,6 +404,8 @@ interface WorkoutOverrides {
   durationSeconds?: number;
   startedAtMillis?: number;
   metadata?: Record<string, unknown>;
+  /** Models a document written before the top-level climbId was backfilled. */
+  omitTopLevelClimbId?: boolean;
 }
 
 /**
@@ -368,15 +423,17 @@ function makeWorkoutDocument(
     targetStepCount: 2096,
     climbTargetStepCount: 2096,
   };
-  return {
+  const document: Record<string, unknown> = {
     source: overrides.source ?? "headphone_motion",
-    climbId: typeof metadata.climbId === "string" ?
-      metadata.climbId : undefined,
     steps: overrides.steps ?? 2096,
     durationSeconds: overrides.durationSeconds ?? 900,
     startedAt: {toMillis: () => overrides.startedAtMillis ?? 1_700_000_000_000},
     sourceMetadata: JSON.stringify(metadata),
   };
+  if (!overrides.omitTopLevelClimbId && typeof metadata.climbId === "string") {
+    document.climbId = metadata.climbId;
+  }
+  return document;
 }
 
 interface FakeStore extends LandmarkResultStore {
@@ -461,9 +518,17 @@ function makeFakeStore(
           async listLandmarkWorkouts(_userId: string, climbId: string) {
             workoutListCalls += 1;
             await options.afterWorkoutList?.(workoutListCalls);
-            const matches = workoutSnapshot.filter(({data}) =>
+            // Narrow indexed query: source AND the promoted top-level climbId.
+            const narrow = workoutSnapshot.filter(({data}) =>
               data.source === "headphone_motion" && data.climbId === climbId
             );
+            // Temporary rollout fallback: when the narrow query is empty, read
+            // by source alone so un-backfilled documents (climbId only inside
+            // sourceMetadata) are still resolved. The caller filters by climbId.
+            const matches = narrow.length > 0 ? narrow :
+              workoutSnapshot.filter(({data}) =>
+                data.source === "headphone_motion"
+              );
             store.lastQueryClimbId = climbId;
             store.lastQueryResultCount = matches.length;
             return matches;

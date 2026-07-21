@@ -408,9 +408,6 @@ function parseReplayPayloadParts(
     hasClimbAttemptParticipation: hasClimbAttemptParticipation(
       data.participations
     ),
-    hasClimbAttemptParticipation: hasClimbAttemptParticipation(
-      data.participations
-    ),
     splitIntervalSeconds,
     splitSteps,
     finalDurationSeconds,
@@ -547,28 +544,6 @@ function replayPayload(
  * from the legacy one. The legacy-shape fallback only fires when no
  * climb-attempt participation exists, so a modern workout is always judged by
  * the derived gate rather than resurrected through the legacy path.
- * @param {unknown} value Raw participations value.
- * @return {boolean} True when a climb-attempt participation is present.
- */
-function hasClimbAttemptParticipation(value: unknown): boolean {
-  if (!Array.isArray(value)) {
-    return false;
-  }
-
-  return value.some((item) => {
-    if (!item || typeof item !== "object") {
-      return false;
-    }
-
-    return (item as Record<string, unknown>).contextType === "climb_attempt";
-  });
-}
-
-/**
- * Returns whether a workout carries any climb-attempt participation, eligible
- * or not. The legacy-shape fallback only fires when none exists: a workout with
- * a climb-attempt participation is governed by the modern gate, so an
- * explicitly ineligible one stays deliberately unpublished, not resurrected.
  * @param {unknown} value Raw participations value.
  * @return {boolean} True when a climb-attempt participation is present.
  */
