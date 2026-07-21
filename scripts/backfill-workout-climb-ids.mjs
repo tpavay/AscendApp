@@ -35,7 +35,7 @@ const environment = resolveEnvironment(args.env, {
   allowProduction: true,
   productionConfirmation: args.rest.get("confirm-production"),
 });
-const db = initFirestore(environment);
+const db = await initFirestore(environment);
 const plan = await planPromotions(db);
 
 console.log([

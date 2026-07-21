@@ -99,7 +99,7 @@ if (args.contextKey || args.rest.size > 0) {
 }
 
 const environment = resolveEnvironment(args.env);
-const db = initFirestore(environment);
+const db = await initFirestore(environment);
 const documents = await readWorkoutDocuments(db);
 const references = await scanWorkoutIdReferences(db);
 const plan = planCaseVariantWorkoutMerges(documents);

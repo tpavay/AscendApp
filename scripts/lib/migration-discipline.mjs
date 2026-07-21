@@ -23,8 +23,10 @@
  * and this helper is deleted.
  */
 
-import {applicationDefault, initializeApp} from "firebase-admin/app";
-import {FieldValue, getFirestore} from "firebase-admin/firestore";
+// firebase-admin is imported lazily inside the functions that touch Firestore.
+// The pure helpers here (environment resolution, arg parsing) must be importable
+// without the dependency present, so the CI "Scripts Verify" suite can exercise
+// them without installing firebase-admin. See .github/workflows/ci.yml.
 
 const ENVIRONMENTS = Object.freeze({
   dev: {projectId: "ascend-f2e4f", production: false},
@@ -132,9 +134,11 @@ export function requireValue(argv, index, flag) {
 /**
  * Initializes Firebase Admin against the resolved project via ADC.
  * @param {{projectId: string}} environment Resolved environment.
- * @return {FirebaseFirestore.Firestore} Firestore instance.
+ * @return {Promise<FirebaseFirestore.Firestore>} Firestore instance.
  */
-export function initFirestore(environment) {
+export async function initFirestore(environment) {
+  const {applicationDefault, initializeApp} = await import("firebase-admin/app");
+  const {getFirestore} = await import("firebase-admin/firestore");
   initializeApp({
     credential: applicationDefault(),
     projectId: environment.projectId,
@@ -212,6 +216,7 @@ export async function readPendingRepairs(db, operationId) {
  */
 export async function beginRun(db, params) {
   const {operationId, operationVersion, environment, rerun} = params;
+  const {FieldValue} = await import("firebase-admin/firestore");
   if (!rerun && await hasSucceededLedgerEntry(db, operationId, operationVersion)) {
     throw new Error(
       `Operation ${operationId} v${operationVersion} already succeeded in ` +
