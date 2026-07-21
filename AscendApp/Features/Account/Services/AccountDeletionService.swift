@@ -151,7 +151,7 @@ final class AccountDeletionService {
 
         // Step 7: Delete the publicly readable profile mirrors.
         //
-        // This MUST happen before the auth account goes away (step 10):
+        // This MUST happen before the auth account goes away (step 11):
         // firestore.rules gates these deletes on isOwner(userId), so once the
         // auth user is deleted no client can ever authenticate as this uid
         // again and the documents become orphaned PII that keeps the deleted
