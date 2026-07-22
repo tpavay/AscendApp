@@ -851,8 +851,8 @@ async function hydrateUser(projectId, args) {
 
   const publicData = {
     userId: args.userId,
-    displayName,
-    photoURL,
+    displayName: "Climber",
+    photoURL: "",
     age: args.age,
     gender: args.gender,
     weight_kg: args.weightKg,

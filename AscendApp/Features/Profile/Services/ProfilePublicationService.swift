@@ -6,8 +6,6 @@ enum ProfilePublicationService {
     static func publishCurrentUserProfile(
         modelContext: ModelContext,
         userId: String,
-        displayName: String,
-        photoURL: URL?,
         joinedAt: Date?,
         repository: ProfileRepository = .shared
     ) async {
@@ -15,8 +13,8 @@ enum ProfilePublicationService {
             let storedProfile = try? await UserDataRepository.shared.getUserFromFirestore(userId: userId)
             let identity = ProfileUserIdentity(
                 userId: userId,
-                displayName: displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Climber" : displayName,
-                photoURL: photoURL,
+                displayName: PublicClimberIdentity.storedDisplayName,
+                photoURL: nil,
                 age: storedProfile?.age,
                 gender: storedProfile?.gender.flatMap(ProfileGender.init(rawValue:)),
                 weightKg: storedProfile?.weightKg,

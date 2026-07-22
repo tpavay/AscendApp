@@ -5,8 +5,6 @@ actor LeaderboardSyncCoordinator {
 
     struct Request: Equatable, Sendable {
         let userId: String
-        let displayName: String
-        let photoURL: URL?
     }
 
     private var latestRequest: Request?
@@ -18,11 +16,9 @@ actor LeaderboardSyncCoordinator {
 
     func enqueueSync(
         userId: String,
-        displayName: String,
-        photoURL: URL?,
         debounceSeconds: Double = 1.0
     ) {
-        let request = Request(userId: userId, displayName: displayName, photoURL: photoURL)
+        let request = Request(userId: userId)
         latestRequest = request
         debounceTask?.cancel()
 
@@ -42,8 +38,8 @@ actor LeaderboardSyncCoordinator {
         }
     }
 
-    func flushNow(userId: String, displayName: String, photoURL: URL?) async throws {
-        let request = Request(userId: userId, displayName: displayName, photoURL: photoURL)
+    func flushNow(userId: String) async throws {
+        let request = Request(userId: userId)
         latestRequest = request
         debounceTask?.cancel()
         debounceTask = nil
@@ -138,8 +134,6 @@ actor LeaderboardSyncCoordinator {
         return try await MainActor.run {
             try LeaderboardService.shared.prepareSyncPayloads(
                 userId: request.userId,
-                displayName: request.displayName,
-                photoURL: request.photoURL,
                 profile: leaderboardProfile
             )
         }

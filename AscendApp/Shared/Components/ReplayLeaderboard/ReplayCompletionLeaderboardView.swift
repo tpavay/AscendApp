@@ -194,6 +194,10 @@ private struct ReplayCompletionLeaderboardRowView: View {
     let effectiveColorScheme: ColorScheme
     let emphasis: LiveReplayRowEmphasis
 
+    private var identity: PublicClimberIdentity.Presentation {
+        row.publicIdentity(currentUserPhotoURL: currentUserPhotoURL)
+    }
+
     var body: some View {
         let rank = row.rank
         let isPodium = isPodiumRank(rank)
@@ -209,7 +213,7 @@ private struct ReplayCompletionLeaderboardRowView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 7) {
-                    Text(row.isCurrentUser ? "You" : row.displayName)
+                    Text(identity.displayName)
                         .font(.montserratBold(size: 15))
                         .foregroundStyle(primaryColor)
                         .lineLimit(1)
@@ -355,7 +359,7 @@ private struct ReplayCompletionLeaderboardRowView: View {
     private func avatarView(size: CGFloat, borderColor: Color?) -> some View {
         let resolvedBorderColor = borderColor ?? (row.isCurrentUser ? Color.accent : .white.opacity(0.14))
 
-        if let photoURL = row.isCurrentUser ? (row.photoURL ?? currentUserPhotoURL) : row.photoURL {
+        if let photoURL = identity.photoURL {
             AsyncImage(
                 url: photoURL,
                 transaction: Transaction(animation: .easeInOut(duration: 0.2))
@@ -383,21 +387,29 @@ private struct ReplayCompletionLeaderboardRowView: View {
         }
     }
 
+    @ViewBuilder
     private func avatarToken(size: CGFloat, borderColor: Color?) -> some View {
-        Text(row.isCurrentUser ? "YOU" : row.avatarToken)
-            .font(.montserratBold(size: row.isCurrentUser ? 11 : 13))
-            .foregroundStyle(row.isCurrentUser ? .black : .white)
-            .lineLimit(1)
-            .minimumScaleFactor(0.72)
-            .frame(width: size, height: size)
-            .background(
-                Circle()
-                    .fill(row.isCurrentUser ? Color.accent : avatarBackgroundColor)
-            )
-            .overlay(
-                Circle()
-                    .stroke(borderColor ?? (row.isCurrentUser ? Color.accent.opacity(0.7) : .white.opacity(0.14)), lineWidth: borderColor == nil ? 1 : 2)
-            )
+        ZStack {
+            Circle()
+                .fill(row.isCurrentUser ? Color.accent : avatarBackgroundColor.opacity(identity.usesGenericAvatar ? 0.28 : 1))
+
+            if identity.usesGenericAvatar {
+                Image(systemName: PublicClimberIdentity.genericAvatarSystemName)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(row.isCurrentUser ? .black : secondaryColor)
+            } else {
+                Text(identity.avatarToken)
+                    .font(.montserratBold(size: row.isCurrentUser ? 11 : 13))
+                    .foregroundStyle(row.isCurrentUser ? .black : .white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+            }
+        }
+        .frame(width: size, height: size)
+        .overlay(
+            Circle()
+                .stroke(borderColor ?? (row.isCurrentUser ? Color.accent.opacity(0.7) : .white.opacity(0.14)), lineWidth: borderColor == nil ? 1 : 2)
+        )
     }
 
     @ViewBuilder

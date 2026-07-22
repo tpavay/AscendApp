@@ -145,11 +145,8 @@ service cloud.firestore {
           "lastUpdated"
         ]) &&
         request.resource.data.userId == userId &&
-        request.resource.data.displayName is string &&
-        request.resource.data.displayName.size() > 0 &&
-        request.resource.data.displayName.size() <= 80 &&
-        request.resource.data.photoURL is string &&
-        request.resource.data.photoURL.size() <= 2048 &&
+        request.resource.data.displayName == "Climber" &&
+        request.resource.data.photoURL == "" &&
         (!request.resource.data.keys().hasAny(["age"]) ||
           (request.resource.data.age is int &&
             request.resource.data.age >= 13 &&
@@ -336,10 +333,8 @@ service cloud.firestore {
           "lastUpdated"
         ]) &&
         request.resource.data.userId == request.auth.uid &&
-        request.resource.data.displayName is string &&
-        request.resource.data.displayName.size() <= 80 &&
-        request.resource.data.photoURL is string &&
-        request.resource.data.photoURL.size() <= 2048 &&
+        request.resource.data.displayName == "Climber" &&
+        request.resource.data.photoURL == "" &&
         request.resource.data.timeFrame is string &&
         isValidTimeFrame(request.resource.data.timeFrame) &&
         request.resource.data.schemaVersion is int &&

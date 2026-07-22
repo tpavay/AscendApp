@@ -4,6 +4,47 @@ import Testing
 
 struct LiveReplayLeaderboardServiceTests {
     @Test
+    func replayRowsExposeAuthoredIdentityOnlyForTrustedSyntheticFixtures() {
+        let privatePhoto = URL(string: "https://example.com/private.jpg")
+        let realRow = LiveReplayLeaderboardRow(
+            id: "real",
+            rank: 1,
+            displayName: "Private Name",
+            avatarToken: "PN",
+            photoURL: privatePhoto,
+            stepsAtBucket: 100,
+            finalSteps: 200,
+            deltaFromUser: 10,
+            isCurrentUser: false,
+            isPersonalBest: false,
+            completionDurationSeconds: 300,
+            userId: "user-123"
+        )
+        let syntheticRow = LiveReplayLeaderboardRow(
+            id: "synthetic",
+            rank: 2,
+            displayName: "Maya C.",
+            avatarToken: "MC",
+            photoURL: privatePhoto,
+            stepsAtBucket: 90,
+            finalSteps: 190,
+            deltaFromUser: 0,
+            isCurrentUser: false,
+            isPersonalBest: false,
+            completionDurationSeconds: 320,
+            userId: "seeded:pack:everest:0",
+            isSynthetic: true
+        )
+
+        #expect(realRow.publicIdentity().displayName == "Climber 7TPMNX")
+        #expect(realRow.publicIdentity().photoURL == nil)
+        #expect(realRow.publicIdentity().usesGenericAvatar)
+        #expect(syntheticRow.publicIdentity().displayName == "Maya C.")
+        #expect(syntheticRow.publicIdentity().photoURL == privatePhoto)
+        #expect(syntheticRow.publicIdentity().usesGenericAvatar == false)
+    }
+
+    @Test
     func refreshesOnBucketChangeButRateLimitsSameBucket() async throws {
         let repository = MockLiveReplayLeaderboardRepository()
         let fixedDate = Date(timeIntervalSince1970: 1_777_777_777)

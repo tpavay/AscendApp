@@ -485,8 +485,8 @@ function privateProfileData(user, args, joinedAt, hasExistingCreatedAt) {
 function publicProfileData(user, args, joinedAt) {
   const data = {
     userId: user.uid,
-    displayName: user.displayName,
-    photoURL: user.photoURL,
+    displayName: "Climber",
+    photoURL: "",
     age: args.age,
     gender: args.gender,
     weight_kg: roundTo(args.weightKg, 1),
@@ -744,13 +744,14 @@ async function addReplayWrites(db, writes, deletes, user, liveContexts, args) {
     if (forceFirstAscent) {
       Object.assign(summaryData, firstAscentSeedFields(
         {
-          avatarToken: user.avatarToken,
-          displayName: user.displayName,
+          avatarToken: "",
+          displayName: "Climber",
           id: context.workoutId,
-          photoURL: user.photoURL,
+          photoURL: "",
           userId: user.uid,
         },
-        Timestamp.fromDate(context.completedAt)
+        Timestamp.fromDate(context.completedAt),
+        {isSynthetic: false}
       ));
     }
 
@@ -758,14 +759,15 @@ async function addReplayWrites(db, writes, deletes, user, liveContexts, args) {
     writes.push([
       finisherRef,
       {
-        avatarToken: user.avatarToken,
+        avatarToken: "",
         bestCompletionDurationSeconds: context.durationSeconds,
         bestWorkoutId: context.workoutId,
-        displayName: user.displayName,
+        displayName: "Climber",
         firstCompletedAt: Timestamp.fromDate(context.completedAt),
         firstWorkoutId: context.workoutId,
         globalCompletionOrder: finisherOrder,
-        photoURL: user.photoURL,
+        isSynthetic: false,
+        photoURL: "",
         schemaVersion: REPLAY_SCHEMA_VERSION,
         updatedAt: FieldValue.serverTimestamp(),
         userId: user.uid,
@@ -790,13 +792,14 @@ async function addReplayWrites(db, writes, deletes, user, liveContexts, args) {
       writes.push([
         entriesRef.doc(context.workoutId),
         {
-          avatarToken: user.avatarToken,
+          avatarToken: "",
           completionDurationSeconds: context.durationSeconds,
-          displayName: user.displayName,
+          displayName: "Climber",
           finalSteps: context.finalSteps,
           ...bestForUserField(context),
           isPersonalBest: true,
-          photoURL: user.photoURL,
+          isSynthetic: false,
+          photoURL: "",
           schemaVersion: REPLAY_SCHEMA_VERSION,
           splitBucketCount: context.splitSteps.length,
           splitIntervalSeconds: SPLIT_INTERVAL_SECONDS,
@@ -1036,8 +1039,8 @@ function leaderboardTotals(workouts, timeFrame) {
 function leaderboardStatsData(user, timeFrame, period, totals) {
   return {
     userId: user.uid,
-    displayName: user.displayName,
-    photoURL: user.photoURL,
+    displayName: "Climber",
+    photoURL: "",
     timeFrame,
     schemaVersion: LEADERBOARD_SCHEMA_VERSION,
     periodKey: period.key,

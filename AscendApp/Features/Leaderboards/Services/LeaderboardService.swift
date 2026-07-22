@@ -121,8 +121,6 @@ final class LeaderboardService {
 
     func prepareSyncPayloads(
         userId: String,
-        displayName: String,
-        photoURL: URL?,
         profile: LeaderboardProfileSnapshot? = nil
     ) throws -> [LeaderboardSyncPayload] {
         let context = try requireContext()
@@ -144,8 +142,6 @@ final class LeaderboardService {
                 localStatID: stats.id,
                 snapshotLastUpdated: stats.lastUpdated,
                 userId: stats.userId,
-                displayName: displayName,
-                photoURL: photoURL,
                 timeFrame: timeFrame,
                 schemaVersion: stats.schemaVersion,
                 periodKey: stats.periodKey,
@@ -199,30 +195,6 @@ final class LeaderboardService {
 
     func deleteLegacyRemoteStats(userId: String) async throws {
         try await repository.deleteLegacyStats(userId: userId)
-    }
-
-    func updateProfilePictureURL(userId: String, photoURL: URL?) async throws {
-        try await repository.updateProfilePictureURL(
-            userId: userId,
-            photoURL: photoURL?.absoluteString ?? ""
-        )
-        await LeaderboardSessionCache.shared.updateCurrentUserProfile(
-            userId: userId,
-            displayName: nil,
-            photoURL: photoURL
-        )
-    }
-
-    func updateDisplayName(userId: String, displayName: String) async throws {
-        try await repository.updateDisplayName(
-            userId: userId,
-            displayName: displayName
-        )
-        await LeaderboardSessionCache.shared.updateCurrentUserProfile(
-            userId: userId,
-            displayName: displayName,
-            photoURL: nil
-        )
     }
 
     func updateBodyWeight(userId: String, weightKg: Double) async throws {

@@ -82,10 +82,11 @@ service firebase.storage {
 
     // ── Legacy flat-path rules (pre-migration) ──────────────────────
     // Files uploaded before the user-scoped path migration live at
-    // root-level photos/, videos/, and profile_pictures/ prefixes.
-    // These rules grant read + delete so the app can still display
-    // them and account deletion / migration can clean them up.
-    // No new writes are allowed. Remove once migration is complete.
+    // root-level photos/ and videos/ prefixes. Profile pictures at the
+    // legacy root are closed completely: the public-identity migration
+    // moves any current owner reference and deletes the remaining objects.
+    // No new writes are allowed. Remove the remaining legacy rules once
+    // their migrations are complete.
 
     match /photos/{fileName} {
       allow read: if isSignedIn() && validFileName(fileName);
@@ -100,9 +101,7 @@ service firebase.storage {
     }
 
     match /profile_pictures/{fileName} {
-      allow read: if isSignedIn() && validFileName(fileName);
-      allow delete: if isSignedIn() && validFileName(fileName);
-      allow create, update: if false;
+      allow read, write: if false;
     }
 
     // Remote share-card template assets are read-only from the app.

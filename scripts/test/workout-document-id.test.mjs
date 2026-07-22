@@ -943,6 +943,28 @@ test("profile fixtures mint canonical profile_workouts document ids", () => {
   }
 });
 
+test("profile fixtures keep authored identity private", () => {
+  const writes = buildProfileSeedWrites({
+    db: fakeSeedFirestore(),
+    catalog: new Map(),
+    Timestamp: {fromDate: (date) => ({toMillis: () => date.getTime()})},
+    FieldValue: {serverTimestamp: () => "server-timestamp"},
+    now: new Date("2026-07-01T00:00:00.000Z"),
+  });
+
+  const privateUsers = writes.filter((entry) => entry.shape === "user");
+  const publicIdentities = writes.filter((entry) =>
+    entry.shape === "publicProfile" || entry.shape === "leaderboardStats"
+  );
+
+  assert.ok(privateUsers.some((entry) => entry.data.displayName !== "Climber"));
+  assert.ok(publicIdentities.length > 0);
+  for (const entry of publicIdentities) {
+    assert.equal(entry.data.displayName, "Climber");
+    assert.equal(entry.data.photoURL, "");
+  }
+});
+
 function fakeSeedFirestore() {
   const collectionAt = (path) => ({
     doc: (documentId) => documentAt(`${path}/${documentId}`),

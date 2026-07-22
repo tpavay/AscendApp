@@ -9,8 +9,6 @@ struct LeaderboardSyncPayload: Equatable, Sendable {
     let localStatID: UUID
     let snapshotLastUpdated: Date
     let userId: String
-    let displayName: String
-    let photoURL: URL?
     let timeFrame: LeaderboardTimeFrame
     let schemaVersion: Int
     let periodKey: String

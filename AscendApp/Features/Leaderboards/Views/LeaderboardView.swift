@@ -124,9 +124,6 @@ struct LeaderboardView: View {
         .onChange(of: viewModel.selectedLocationFilter) { _, _ in
             demographicFilterChanged()
         }
-        .onChange(of: authVM.displayName) { _, _ in
-            syncCurrentUserEntry()
-        }
         .onChange(of: authVM.displayPhotoURL) { _, _ in
             syncCurrentUserEntry()
         }
@@ -677,6 +674,7 @@ struct LeaderboardView: View {
         }
         viewModel.configure(userId: userId, modelContext: modelContext)
         await loadData()
+        syncCurrentUserEntry()
     }
 
     private func loadData() async {
@@ -691,8 +689,6 @@ struct LeaderboardView: View {
         guard let userId = authVM.user?.uid else { return }
         await viewModel.refreshLeaderboard(
             userId: userId,
-            displayName: authVM.displayName,
-            photoURL: authVM.displayPhotoURL,
             isNetworkConnected: connectivityService.isConnected
         )
     }
@@ -709,7 +705,6 @@ struct LeaderboardView: View {
     private func syncCurrentUserEntry() {
         viewModel.updateCurrentUserProfile(
             userId: authVM.user?.uid,
-            displayName: authVM.displayName,
             photoURL: authVM.displayPhotoURL
         )
     }

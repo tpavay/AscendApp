@@ -185,6 +185,7 @@ test("builds First Ascent replay summary fields", () => {
     firstAscentAvatarToken: "MC",
     firstAscentCompletedAt: claimedAt,
     firstAscentDisplayName: "Maya C.",
+    firstAscentIsSynthetic: false,
     firstAscentPhotoURL: "",
     firstAscentUserId: "user-a",
     firstAscentWorkoutId: "workout-a",
@@ -269,6 +270,7 @@ test("builds replay entry fields with context identity", () => {
     finalSteps: 2096,
     gender: "woman",
     isBestForUser: true,
+    isSynthetic: false,
     locationCity: "Austin",
     photoURL: "",
     schemaVersion: 1,
@@ -447,6 +449,7 @@ test("builds first finisher status with permanent completion order", () => {
     firstWorkoutId: "workout-a",
     gender: "woman",
     globalCompletionOrder: 47,
+    isSynthetic: false,
     locationCity: "Austin",
     photoURL: "",
     schemaVersion: 1,
@@ -485,6 +488,7 @@ test("preserves finisher order on later attempts", () => {
     avatarToken: "MC",
     displayName: "Maya C.",
     globalCompletionOrder: 47,
+    isSynthetic: false,
     photoURL: "https://example.com/maya.jpg",
     schemaVersion: 1,
     updatedAt: completedAt,
@@ -559,6 +563,25 @@ test("leaves the flag field off entries that race every attempt", () => {
   // Absent rather than false: Firestore equality never matches a missing field,
   // so an unflagged context cannot be filtered into a wrong winner.
   assert.equal("isBestForUser" in write, false);
+});
+
+test("never copies account-authored identity into public replay data", () => {
+  const snapshot = liveReplayLeaderboardTestHooks.publicUserSnapshotFromData({
+    age: 31,
+    displayName: "Private Name",
+    gender: "woman",
+    location_city: "Austin",
+    profilePictureURL: "https://example.com/private-profile.jpg",
+  });
+
+  assert.deepEqual(snapshot, {
+    age: 31,
+    avatarToken: "",
+    displayName: "Climber",
+    gender: "woman",
+    locationCity: "Austin",
+    photoURL: null,
+  });
 });
 
 test("seeds the flag on a per-climb attempt without demoting the best", () => {

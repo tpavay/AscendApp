@@ -27,6 +27,7 @@ const TARGET_REACHED_STOP_REASON = "target_reached";
 const USER_STOPPED_REASON = "user_stopped";
 const FIRESTORE_NOT_FOUND_CODE = 5;
 const BULK_WRITER_MAX_ATTEMPTS = 3;
+const PUBLIC_REAL_USER_DISPLAY_NAME = "Climber";
 
 /**
  * The field a context ranks its completions on.
@@ -1539,6 +1540,7 @@ function replayEntryWrite(
     contextType: input.payload.contextType,
     displayName: input.publicUser.displayName,
     finalSteps: input.payload.finalSteps,
+    isSynthetic: false,
     photoURL: input.publicUser.photoURL ?? "",
     schemaVersion: 1,
     splitBucketCount: input.payload.splitSteps.length,
@@ -1596,6 +1598,7 @@ function firstAscentWrite(
     firstAscentAvatarToken: input.publicUser.avatarToken,
     firstAscentCompletedAt: input.claimedAt,
     firstAscentDisplayName: input.publicUser.displayName,
+    firstAscentIsSynthetic: false,
     firstAscentPhotoURL: input.publicUser.photoURL ?? "",
     firstAscentUserId: input.userId,
     firstAscentWorkoutId: input.entryId,
@@ -1617,6 +1620,7 @@ function finisherStatusWrite(
     avatarToken: input.publicUser.avatarToken,
     displayName: input.publicUser.displayName,
     globalCompletionOrder: input.globalCompletionOrder,
+    isSynthetic: false,
     photoURL: input.publicUser.photoURL ?? "",
     schemaVersion: 1,
     updatedAt: input.completedAt,
@@ -1878,18 +1882,24 @@ async function publicUserSnapshot(userId: string): Promise<PublicUserSnapshot> {
     .collection("users")
     .doc(userId)
     .get();
-  const data = snapshot.data();
-  const displayName = stringValue(data?.displayName) ??
-    stringValue(data?.firstName) ??
-    "Climber";
+  return publicUserSnapshotFromData(snapshot.data());
+}
 
+/**
+ * Builds the public replay identity without copying owner-authored identity.
+ * @param {Record<string, unknown> | undefined} data Private account fields.
+ * @return {PublicUserSnapshot} Sanitized public snapshot.
+ */
+function publicUserSnapshotFromData(
+  data: Record<string, unknown> | undefined
+): PublicUserSnapshot {
   return {
     age: ageValue(data?.age),
-    avatarToken: avatarToken(displayName),
-    displayName,
+    avatarToken: "",
+    displayName: PUBLIC_REAL_USER_DISPLAY_NAME,
     gender: genderValue(data?.gender),
     locationCity: locationTextValue(data?.location_city),
-    photoURL: urlStringValue(data?.profilePictureURL),
+    photoURL: null,
   };
 }
 
@@ -1956,23 +1966,6 @@ function sanitizeContextId(value: string): string {
 }
 
 /**
- * Creates a compact deterministic avatar token from a display name.
- * @param {string} displayName Public display name.
- * @return {string} Initials token.
- */
-function avatarToken(displayName: string): string {
-  const token = displayName
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase();
-
-  return token || "A";
-}
-
-/**
  * Returns a non-empty trimmed string.
  * @param {unknown} value Raw value.
  * @return {string | null} Trimmed string, if present.
@@ -1984,20 +1977,6 @@ function stringValue(value: unknown): string | null {
 
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
-}
-
-/**
- * Returns a public http(s) URL string if present.
- * @param {unknown} value Raw value.
- * @return {string | null} URL string.
- */
-function urlStringValue(value: unknown): string | null {
-  const valueString = stringValue(value);
-  if (!valueString || valueString.length > 2048) {
-    return null;
-  }
-
-  return /^https?:\/\//i.test(valueString) ? valueString : null;
 }
 
 /**
@@ -2146,6 +2125,7 @@ export const liveReplayLeaderboardTestHooks = {
   parseJustClimbReplayPayload,
   parseLiveClimbReplayPayload,
   parseRoutineReplayPayload,
+  publicUserSnapshotFromData,
   rankingMetric,
   replayEntryWrite,
   replayPayloadsForWorkout,

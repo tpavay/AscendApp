@@ -26,6 +26,7 @@ final class LeaderboardViewModel {
     private let demographicFilterFetchLimit = 1_000
     private(set) var visibleEntryLimit = 25
     private var currentUserId: String?
+    private var currentUserPhotoURL: URL?
     private var currentUserProfile: LeaderboardProfileSnapshot?
     private var rawLeaderboardStats: [FirestoreLeaderboardStats] = []
 
@@ -87,8 +88,6 @@ final class LeaderboardViewModel {
 
     func refreshLeaderboard(
         userId: String,
-        displayName: String,
-        photoURL: URL?,
         isNetworkConnected: Bool
     ) async {
         isLoading = true
@@ -102,9 +101,7 @@ final class LeaderboardViewModel {
             do {
                 try await withLeaderboardTimeout(seconds: networkTimeoutSeconds) {
                     try await LeaderboardSyncCoordinator.shared.flushNow(
-                        userId: userId,
-                        displayName: displayName,
-                        photoURL: photoURL
+                        userId: userId
                     )
                 }
             } catch {
@@ -331,27 +328,24 @@ final class LeaderboardViewModel {
         reapplyCurrentStats()
     }
 
-    func updateCurrentUserProfile(userId: String?, displayName: String, photoURL: URL?) {
+    func updateCurrentUserProfile(userId: String?, photoURL: URL?) {
         guard let userId else { return }
+        currentUserPhotoURL = photoURL
 
         if let index = leaderboardEntries.firstIndex(where: { $0.userId == userId }) {
             leaderboardEntries[index] = leaderboardEntries[index].withProfile(
-                displayName: displayName,
+                displayName: "You",
                 photoURL: photoURL
             )
         }
 
         if let entry = userEntry, entry.userId == userId {
-            userEntry = entry.withProfile(displayName: displayName, photoURL: photoURL)
+            userEntry = entry.withProfile(displayName: "You", photoURL: photoURL)
         }
 
         let sessionCache = sessionCache
         Task {
-            await sessionCache.updateCurrentUserProfile(
-                userId: userId,
-                displayName: displayName,
-                photoURL: photoURL
-            )
+            await sessionCache.invalidateAll()
         }
     }
 
@@ -372,10 +366,17 @@ final class LeaderboardViewModel {
         let tieFlags = CompetitionRanking.tieFlags(for: ranks)
         let entries = filteredStats.enumerated().map { index, stat in
             let value = stat.value(for: metric)
+            let identity = PublicClimberIdentity.resolve(
+                userId: stat.userId,
+                storedDisplayName: stat.displayName,
+                storedPhotoURL: stat.photoURL.flatMap(URL.init(string:)),
+                isCurrentUser: stat.userId == userId,
+                currentUserPhotoURL: currentUserPhotoURL
+            )
             return LeaderboardEntry(
                 userId: stat.userId,
-                displayName: stat.displayName,
-                photoURL: stat.photoURL.flatMap(URL.init(string:)),
+                displayName: identity.displayName,
+                photoURL: identity.photoURL,
                 rank: ranks[index],
                 value: value,
                 formattedValue: formatValue(value, for: metric),
@@ -421,7 +422,7 @@ final class LeaderboardViewModel {
         return LeaderboardEntry(
             userId: userId,
             displayName: "You",
-            photoURL: nil,
+            photoURL: currentUserPhotoURL,
             rank: leaderboardEntries.count + 1,
             value: value,
             formattedValue: formatValue(value, for: selectedMetric),
@@ -445,9 +446,7 @@ final class LeaderboardViewModel {
             stats,
             metric: selectedMetric,
             userId: userId,
-            localStats: localStats,
-            displayName: userEntry?.displayName ?? "You",
-            photoURL: userEntry?.photoURL
+            localStats: localStats
         )
         return applyCurrentUserProfile(to: reconciled, userId: userId)
     }

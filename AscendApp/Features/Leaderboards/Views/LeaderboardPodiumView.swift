@@ -42,11 +42,7 @@ struct LeaderboardPodiumView: View {
     private func podiumSlot(_ slot: LeaderboardPodiumLayout.Slot) -> some View {
         if let entry = slot.entry, !entry.isCurrentUser {
             NavigationLink {
-                OtherUserProfileView(
-                    userId: entry.userId,
-                    seedDisplayName: entry.displayName,
-                    seedPhotoURL: entry.photoURL
-                )
+                OtherUserProfileView(userId: entry.userId)
             } label: {
                 LeaderboardPodiumSlotView(slot: slot, metric: metric)
             }
@@ -154,7 +150,18 @@ private struct LeaderboardPodiumSlotView: View {
     }
 
     private var displayName: String {
-        entry?.displayName ?? "Open"
+        entryIdentity?.displayName ?? "Open"
+    }
+
+    private var entryIdentity: PublicClimberIdentity.Presentation? {
+        guard let entry else { return nil }
+        return PublicClimberIdentity.resolve(
+            userId: entry.userId,
+            storedDisplayName: entry.displayName,
+            storedPhotoURL: entry.photoURL,
+            isCurrentUser: entry.isCurrentUser,
+            currentUserPhotoURL: entry.photoURL
+        )
     }
 
     private var valueColor: Color {
@@ -228,7 +235,7 @@ private struct LeaderboardPodiumSlotView: View {
 
     @ViewBuilder
     private var avatar: some View {
-        if let photoURL = entry?.photoURL {
+        if let photoURL = entryIdentity?.photoURL {
             AsyncImage(url: photoURL) { phase in
                 switch phase {
                 case .success(let image):

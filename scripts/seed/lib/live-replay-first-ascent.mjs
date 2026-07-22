@@ -31,6 +31,7 @@ export const FIRST_ASCENT_FIELD_NAMES = Object.freeze([
   "firstAscentAvatarToken",
   "firstAscentCompletedAt",
   "firstAscentDisplayName",
+  "firstAscentIsSynthetic",
   "firstAscentPhotoURL",
   "firstAscentUserId",
   "firstAscentWorkoutId",
@@ -103,13 +104,16 @@ export function firstAscentClaimedAt(seedPackId, climbId) {
  * @param {string} holder.avatarToken Holder's avatar token.
  * @param {string} [holder.photoURL] Holder's public photo URL, if any.
  * @param {Date|object} claimedAt Permanent claim date.
+ * @param {object} [options] Trusted fixture options.
+ * @param {boolean} [options.isSynthetic=true] Whether the holder is a first-party fixture.
  * @return {Record<string, unknown>} Firestore fields to merge.
  */
-export function firstAscentSeedFields(holder, claimedAt) {
+export function firstAscentSeedFields(holder, claimedAt, {isSynthetic = true} = {}) {
   return {
     firstAscentAvatarToken: holder.avatarToken,
     firstAscentCompletedAt: claimedAt,
     firstAscentDisplayName: holder.displayName,
+    firstAscentIsSynthetic: isSynthetic,
     firstAscentPhotoURL: holder.photoURL ?? "",
     firstAscentUserId: holder.userId,
     firstAscentWorkoutId: holder.id,

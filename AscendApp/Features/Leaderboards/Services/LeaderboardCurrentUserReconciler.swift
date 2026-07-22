@@ -4,9 +4,7 @@ enum LeaderboardCurrentUserReconciler {
     static func reconcilePreviewStats(
         _ statsByMetric: [LeaderboardMetric: [FirestoreLeaderboardStats]],
         userId: String,
-        localStats: LeaderboardStats,
-        displayName: String,
-        photoURL: URL?
+        localStats: LeaderboardStats
     ) -> [LeaderboardMetric: [FirestoreLeaderboardStats]] {
         var resolved = statsByMetric
 
@@ -15,9 +13,7 @@ enum LeaderboardCurrentUserReconciler {
                 resolved[metric] ?? [],
                 metric: metric,
                 userId: userId,
-                localStats: localStats,
-                displayName: displayName,
-                photoURL: photoURL
+                localStats: localStats
             )
         }
 
@@ -28,17 +24,13 @@ enum LeaderboardCurrentUserReconciler {
         _ stats: [FirestoreLeaderboardStats],
         metric: LeaderboardMetric,
         userId: String,
-        localStats: LeaderboardStats,
-        displayName: String,
-        photoURL: URL?
+        localStats: LeaderboardStats
     ) -> [FirestoreLeaderboardStats] {
         reconcileStats(
             stats,
             metric: metric,
             userId: userId,
-            localStats: localStats,
-            displayName: displayName,
-            photoURL: photoURL
+            localStats: localStats
         )
     }
 
@@ -46,9 +38,7 @@ enum LeaderboardCurrentUserReconciler {
         _ stats: [FirestoreLeaderboardStats],
         metric: LeaderboardMetric,
         userId: String,
-        localStats: LeaderboardStats,
-        displayName: String,
-        photoURL: URL?
+        localStats: LeaderboardStats
     ) -> [FirestoreLeaderboardStats] {
         var resolved = stats
         if localStats.hasActivity == false {
@@ -60,8 +50,8 @@ enum LeaderboardCurrentUserReconciler {
             let existing = resolved[currentIndex]
             resolved[currentIndex] = FirestoreLeaderboardStats(
                 userId: existing.userId,
-                displayName: displayName.isEmpty ? existing.displayName : displayName,
-                photoURL: photoURL?.absoluteString ?? existing.photoURL,
+                displayName: "You",
+                photoURL: nil,
                 timeFrame: existing.timeFrame,
                 schemaVersion: existing.schemaVersion,
                 periodKey: existing.periodKey,
@@ -82,8 +72,8 @@ enum LeaderboardCurrentUserReconciler {
             resolved.append(
                 FirestoreLeaderboardStats(
                     userId: userId,
-                    displayName: displayName.isEmpty ? "You" : displayName,
-                    photoURL: photoURL?.absoluteString,
+                    displayName: "You",
+                    photoURL: nil,
                     timeFrame: localStats.timeFrameEnum.rawValue,
                     schemaVersion: localStats.schemaVersion,
                     periodKey: localStats.periodKey,
