@@ -10,6 +10,10 @@ paths:
 ## Profile Demographics
 - Post-auth onboarding captures display name and declared demographics on `users/{uid}`. Age must stay a bounded integer from 13 through 120, and gender must use the `ProfileGender` raw values: `woman`, `man`, `non_binary`, or `prefer_not_to_say`.
 - Profile demographics for V1 are public by default with no per-field opt-out: age, gender, body weight, country/region, and joined date may appear on profiles and leaderboard-adjacent surfaces. Email and authentication/provider data remain private.
+- Custom display names and profile photos are **not public** at launch (App Store Guideline 1.2): other users see only a stable UID-derived system handle (`Climber XXXXXX`) and a generic avatar, while self-only screens keep the owner's custom name and photo.
+  `PublicClimberIdentity` (`AscendApp/Shared/Models/`) is the single reversible policy seam that resolves every public presentation; never publish account-authored identity to a public document.
+  Public profile mirrors and leaderboard rows store the pinned values `displayName: "Climber"` and empty `photoURL` (`firestore.rules` rejects anything else), the server-owned replay subtree is sanitized the same way by the Cloud Function, and only entries carrying the server-owned `isSynthetic` marker keep authored fixture identity.
+  Sanitizing pre-existing records and reversibility: `docs/public-identity-sanitization-runbook.md`.
 - Firestore does not support field-level read masking on a document. Keep `users/{uid}` owner-readable because it contains private account fields, and mirror only public-safe profile fields into public profile documents/subcollections for other-user profile reads.
 
 ## Profile Architecture
