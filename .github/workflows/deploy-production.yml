@@ -194,7 +194,7 @@ jobs:
       - production-gate
       - build-ios
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     environment: production
     permissions:
       contents: read
@@ -216,10 +216,93 @@ jobs:
       - name: Build web app
         run: npm --prefix web run build
 
-      - name: Deploy Functions, Rules, Indexes, Storage, and Hosting
+      # Indexes go first because onWorkoutWritten immediately queries workouts
+      # by source + climbId. Functions go before Hosting because both Hosting
+      # rewrites target functions deployed by this job. The binary uploads only
+      # after this entire job succeeds, so its backend is already compatible.
+      - name: Deploy Firestore indexes
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-        run: npx -y firebase-tools@15.22.1 deploy --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --only functions,firestore:rules,firestore:indexes,storage,hosting --non-interactive --force --token "$FIREBASE_TOKEN"
+        run: npx -y firebase-tools@15.22.1 deploy --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --only firestore:indexes --non-interactive --token "$FIREBASE_TOKEN"
+
+      - name: Wait for every declared Firestore index
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for attempt in $(seq 1 180); do
+            if ! deployed_indexes="$(npx -y firebase-tools@15.22.1 firestore:indexes --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --pretty --token "$FIREBASE_TOKEN")"; then
+              echo "::warning::firestore:indexes poll attempt ${attempt} of 180 failed; retrying."
+              if [ "$attempt" -lt 180 ]; then
+                sleep 20
+              fi
+              continue
+            fi
+            printf "%s\n" "$deployed_indexes"
+
+            readiness_status=0
+            printf "%s\n" "$deployed_indexes" | node scripts/ci/assert-firestore-indexes-ready.mjs firestore.indexes.json || readiness_status=$?
+
+            if [ "$readiness_status" -eq 0 ]; then
+              exit 0
+            fi
+
+            if [ "$readiness_status" -eq 2 ]; then
+              echo "::error::Index readiness check failed on a structural config or parser error; fix it instead of retrying."
+              exit 2
+            fi
+
+            if [ "$attempt" -lt 180 ]; then
+              sleep 20
+            fi
+          done
+
+          echo "::error::Firestore indexes did not become READY within 60 minutes."
+          exit 1
+
+      - name: Deploy Functions
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: npx -y firebase-tools@15.22.1 deploy --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --only functions --non-interactive --force --token "$FIREBASE_TOKEN"
+
+      - name: Verify critical Functions are active
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          npx -y firebase-tools@15.22.1 --json functions:list --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --token "$FIREBASE_TOKEN" \
+            | node scripts/ci/assert-firebase-functions-active.mjs \
+                cleanupDeletedUserData \
+                onWorkoutWritten \
+                onWorkoutReplaySplitsWritten \
+                unsubscribeFromEmails
+
+      - name: Deploy Firestore rules
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: npx -y firebase-tools@15.22.1 deploy --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --only firestore:rules --non-interactive --token "$FIREBASE_TOKEN"
+
+      - name: Deploy Storage rules
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: npx -y firebase-tools@15.22.1 deploy --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --only storage --non-interactive --token "$FIREBASE_TOKEN"
+
+      - name: Deploy Hosting
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: npx -y firebase-tools@15.22.1 deploy --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --only hosting --non-interactive --token "$FIREBASE_TOKEN"
+
+      - name: Verify Hosting serves the climb manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 5 --retry-all-errors \
+            "https://${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}.web.app/climbs/manifest.json" \
+            --output /dev/null
 
   upload-testflight:
     name: Upload to TestFlight (Production)
