@@ -10,6 +10,7 @@ import {
 
 interface FakePortOptions {
   subcollections?: string[];
+  notificationDevices?: number;
   leaderboardEntries?: number;
   replayFinisherStatuses?: number;
   firstAscents?: number;
@@ -44,6 +45,14 @@ function makeFakePort(options: FakePortOptions = {}): {
         throw new Error(`cannot delete ${collectionId}`);
       }
       deleted.push(collectionId);
+    },
+
+    async deleteNotificationDevices() {
+      if (failOn.has("notification_devices_root")) {
+        throw new Error("cannot delete notification_devices");
+      }
+      deleted.push("notification_devices_root");
+      return options.notificationDevices ?? 0;
     },
 
     async deleteLeaderboardStats() {
@@ -263,6 +272,100 @@ test("removes leaderboard entries so deleted users stop ranking", async () => {
   const summary = await cleanupDeletedUser("user-a", port);
 
   assert.equal(summary.deletedLeaderboardEntries, 3);
+  assert.ok(deleted.includes("leaderboard_stats"));
+});
+
+/**
+ * Builds a Firestore stand-in holding notification device records for two
+ * users, recording which collection and field the sweep queried.
+ * @return {object} The stand-in, the surviving document ids, and the query.
+ */
+function makeNotificationDeviceFirestore() {
+  const devices = new Map<string, string>([
+    ["hash-1", "user-a"],
+    ["hash-2", "user-a"],
+    ["hash-3", "user-b"],
+  ]);
+  let queriedCollection: string | null = null;
+  let queriedField: string | null = null;
+
+  const firestore = {
+    collection(collectionId: string) {
+      queriedCollection = collectionId;
+      return {
+        where(field: string, _op: string, value: string) {
+          queriedField = field;
+          const docs = [...devices.entries()]
+            .filter(([, uid]) => uid === value)
+            .map(([id]) => ({
+              ref: {
+                delete() {
+                  devices.delete(id);
+                  return Promise.resolve({});
+                },
+              },
+            }));
+          return {
+            get() {
+              return Promise.resolve({
+                docs,
+                empty: docs.length === 0,
+                size: docs.length,
+              });
+            },
+          };
+        },
+      };
+    },
+  };
+
+  return {
+    firestore: firestore as unknown as admin.firestore.Firestore,
+    queriedCollection: () => queriedCollection,
+    queriedField: () => queriedField,
+    remaining: () => [...devices.keys()],
+  };
+}
+
+test("deletes every device record the top-level uid field owns", async () => {
+  const store = makeNotificationDeviceFirestore();
+
+  // notification_devices keys its owner under `uid`, while the sibling
+  // leaderboard_stats sweep keys it under `userId`. Mixing the two silently
+  // leaves every delivery record behind.
+  const port = makeAdminPort(store.firestore);
+
+  assert.equal(await port.deleteNotificationDevices("user-a"), 2);
+
+  assert.equal(store.queriedCollection(), "notification_devices");
+  assert.equal(store.queriedField(), "uid");
+  assert.deepEqual(store.remaining(), ["hash-3"]);
+});
+
+test("removes top-level notification delivery records", async () => {
+  const {deleted, port} = makeFakePort({notificationDevices: 2});
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  // The callable writes delivery records at notification_devices/{tokenHash},
+  // outside the users/{uid} subtree discovered by listCollections().
+  assert.equal(summary.deletedNotificationDevices, 2);
+  assert.ok(deleted.includes("notification_devices_root"));
+});
+
+test("a failing notification device sweep is reported for retry", async () => {
+  const {deleted, port} = makeFakePort({
+    failOn: ["notification_devices_root"],
+  });
+
+  const summary = await cleanupDeletedUser("user-a", port);
+
+  assert.equal(summary.deletedNotificationDevices, 0);
+  assert.equal(summary.failures.length, 1);
+  assert.match(
+    summary.failures[0],
+    /notification_devices: cannot delete notification_devices/
+  );
   assert.ok(deleted.includes("leaderboard_stats"));
 });
 
