@@ -6,8 +6,10 @@ on:
     paths:
       - "AscendApp/**"
       - "AscendAppTests/**"
+      - "AscendLiveActivityWidgets/**"
       - "AscendApp.xcodeproj/**"
       - "functions/**"
+      - "firestore.indexes.json"
       - "scripts/**"
       - "web/**"
       - "package.json"
@@ -47,10 +49,12 @@ jobs:
             ios:
               - "AscendApp/**"
               - "AscendAppTests/**"
+              - "AscendLiveActivityWidgets/**"
               - "AscendApp.xcodeproj/**"
               - ".github/workflows/**"
             functions:
               - "functions/**"
+              - "firestore.indexes.json"
               - "SharedTestVectors/**"
               - ".github/workflows/**"
             scripts:

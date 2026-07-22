@@ -50,6 +50,21 @@ struct AccountDeletionServiceTests {
         }
     }
 
+    @Test("Unregisters push delivery before deleting the user", .bug(id: 197))
+    func unregistersPushDeviceBeforeDeletingTheUser() async throws {
+        let gateway = RecordingAccountDeletionGateway()
+        let service = AccountDeletionService(gateway: gateway, localCleanup: StubLocalCleanup())
+
+        try await service.deleteAccount(modelContext: try makeModelContext())
+
+        let unregisterIndex = try #require(gateway.steps.firstIndex(of: .unregisterPushDevice))
+        let userDocumentIndex = try #require(gateway.steps.firstIndex(of: .deleteUserDocument))
+        let authIndex = try #require(gateway.steps.firstIndex(of: .deleteAuthAccount))
+
+        #expect(unregisterIndex < userDocumentIndex)
+        #expect(unregisterIndex < authIndex)
+    }
+
     @Test
     func deletesTheUserDocumentLastSoTheServerSweepSeesTheRestGone() async throws {
         let gateway = RecordingAccountDeletionGateway()
@@ -248,6 +263,7 @@ private final class RecordingAccountDeletionGateway: AccountDeletionGateway {
         case deleteFeedbackRateLimitDocument
         case deleteWorkoutBackups
         case deletePublicProfileMirrors
+        case unregisterPushDevice
         case deleteUserDocument
         case revokeAppleToken
         case deleteAuthAccount
@@ -289,6 +305,10 @@ private final class RecordingAccountDeletionGateway: AccountDeletionGateway {
 
     func deletePublicProfileMirrors(userId: String) async throws {
         steps.append(.deletePublicProfileMirrors)
+    }
+
+    func unregisterPushDevice() async {
+        steps.append(.unregisterPushDevice)
     }
 
     func deleteUserDocument(userId: String) async throws {

@@ -17,27 +17,65 @@ final class WorkoutRemoteRepository: WorkoutRemoteRepositoryProtocol, @unchecked
 
     /// Decodes each raw backup independently. One un-decodable document (a missing or mistyped
     /// field) must cost only that record, never zero the whole restore, so a bad row is skipped
-    /// with a diagnostic and every document that decodes is returned. Kept separate from the
-    /// Firestore fetch so the resilience is testable without a live backend.
+    /// with a diagnostic and every document that decodes is returned. Documents are grouped by
+    /// canonical id once, so the case-variant diagnostic and the surviving record are decided
+    /// from the same grouping and cannot disagree. Kept separate from the Firestore fetch so the
+    /// resilience is testable without a live backend.
     func decodeRecords(
         from documents: [(id: String, data: [String: Any])],
         diagnostics: AppDiagnosticsRecorder = .shared
     ) -> [RemoteWorkoutRecord] {
-        recordCaseVariantDuplicates(in: documents, diagnostics: diagnostics)
-
-        let decoded = documents.compactMap { document -> (sourceID: String, record: RemoteWorkoutRecord)? in
-            guard let workoutId = UUID(uuidString: document.id) else {
+        let identified = documents.compactMap { document -> (canonicalID: String, id: String, data: [String: Any])? in
+            guard let canonicalID = WorkoutDocumentID.canonicalString(from: document.id) else {
                 return nil
             }
+            return (canonicalID, document.id, document.data)
+        }
 
-            do {
-                return (
-                    sourceID: document.id,
-                    record: RemoteWorkoutRecord(
-                        workoutId: workoutId,
-                        document: try firestoreDocument(from: document.data)
-                    )
+        return Dictionary(grouping: identified, by: \.canonicalID)
+            .sorted { $0.key < $1.key }
+            .compactMap { canonicalID, group in
+                recordCaseVariantDuplicateIfNeeded(
+                    canonicalID: canonicalID,
+                    sourceIDs: group.map(\.id),
+                    diagnostics: diagnostics
                 )
+                return survivingRecord(in: group, diagnostics: diagnostics)
+            }
+    }
+
+    private func recordCaseVariantDuplicateIfNeeded(
+        canonicalID: String,
+        sourceIDs: [String],
+        diagnostics: AppDiagnosticsRecorder
+    ) {
+        let distinctSourceIDs = Set(sourceIDs)
+        guard distinctSourceIDs.count > 1 else { return }
+
+        diagnostics.record(
+            "workout_backup_case_variant_duplicate",
+            level: .error,
+            details: [
+                "canonical_workout_id": canonicalID,
+                "document_ids": distinctSourceIDs.sorted().joined(separator: ",")
+            ]
+        )
+    }
+
+    /// Picks the one backup to restore for a canonical workout id: newest payload wins, and the
+    /// canonical spelling breaks a tie so a stale alias cannot outrank the document the app writes.
+    private func survivingRecord(
+        in group: [(canonicalID: String, id: String, data: [String: Any])],
+        diagnostics: AppDiagnosticsRecorder
+    ) -> RemoteWorkoutRecord? {
+        var selected: (sourceID: String, record: RemoteWorkoutRecord)?
+
+        for document in group {
+            guard let workoutId = UUID(uuidString: document.id) else { continue }
+
+            let decoded: FirestoreWorkoutDocument
+            do {
+                decoded = try firestoreDocument(from: document.data)
             } catch {
                 diagnostics.record(
                     "workout_backup_decode_failed",
@@ -47,14 +85,15 @@ final class WorkoutRemoteRepository: WorkoutRemoteRepositoryProtocol, @unchecked
                         "reason": decodeFailureReason(error)
                     ]
                 )
-                return nil
+                continue
             }
-        }
 
-        var selectedByWorkoutID: [UUID: (sourceID: String, record: RemoteWorkoutRecord)] = [:]
-        for candidate in decoded {
-            guard let existing = selectedByWorkoutID[candidate.record.workoutId] else {
-                selectedByWorkoutID[candidate.record.workoutId] = candidate
+            let candidate = (
+                sourceID: document.id,
+                record: RemoteWorkoutRecord(workoutId: workoutId, document: decoded)
+            )
+            guard let existing = selected else {
+                selected = candidate
                 continue
             }
 
@@ -64,43 +103,11 @@ final class WorkoutRemoteRepository: WorkoutRemoteRepositoryProtocol, @unchecked
                     WorkoutDocumentID.isCanonical(candidate.sourceID) &&
                     !WorkoutDocumentID.isCanonical(existing.sourceID)
                 ) {
-                selectedByWorkoutID[candidate.record.workoutId] = candidate
+                selected = candidate
             }
         }
 
-        return selectedByWorkoutID.values
-            .map(\.record)
-            .sorted {
-                WorkoutDocumentID.canonicalString(for: $0.workoutId) <
-                    WorkoutDocumentID.canonicalString(for: $1.workoutId)
-            }
-    }
-
-    private func recordCaseVariantDuplicates(
-        in documents: [(id: String, data: [String: Any])],
-        diagnostics: AppDiagnosticsRecorder
-    ) {
-        let validDocuments = documents.compactMap { document -> (canonicalID: String, sourceID: String)? in
-            guard let canonicalID = WorkoutDocumentID.canonicalString(from: document.id) else {
-                return nil
-            }
-            return (canonicalID, document.id)
-        }
-        let grouped = Dictionary(grouping: validDocuments, by: \.canonicalID)
-
-        for (canonicalID, variants) in grouped {
-            let sourceIDs = Set(variants.map(\.sourceID))
-            guard sourceIDs.count > 1 else { continue }
-
-            diagnostics.record(
-                "workout_backup_case_variant_duplicate",
-                level: .error,
-                details: [
-                    "canonical_workout_id": canonicalID,
-                    "document_ids": sourceIDs.sorted().joined(separator: ",")
-                ]
-            )
-        }
+        return selected?.record
     }
 
     private func decodeFailureReason(_ error: Error) -> String {
@@ -161,6 +168,10 @@ private extension WorkoutRemoteRepository {
             "createdAt": Timestamp(date: document.createdAt),
             "updatedAt": Timestamp(date: document.updatedAt)
         ]
+
+        if let climbId = document.climbId {
+            data["climbId"] = climbId
+        }
 
         if let avgHeartRateBpm = document.avgHeartRateBpm {
             data["avgHeartRateBpm"] = avgHeartRateBpm
@@ -287,6 +298,7 @@ private extension WorkoutRemoteRepository {
             stepsPerFloor: try intValue("stepsPerFloor", in: data),
             notes: try stringValue("notes", in: data),
             source: try stringValue("source", in: data),
+            climbId: data["climbId"] as? String,
             integrityLevel: try stringValue("integrityLevel", in: data),
             createdAt: try dateValue("createdAt", in: data),
             updatedAt: try dateValue("updatedAt", in: data),

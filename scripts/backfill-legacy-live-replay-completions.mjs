@@ -54,7 +54,7 @@ if (args.rest.has("help")) {
 }
 
 const environment = resolveEnvironment(args.env);
-const db = initFirestore(environment);
+const db = await initFirestore(environment);
 
 const plan = await planReconstructions(db);
 console.log(

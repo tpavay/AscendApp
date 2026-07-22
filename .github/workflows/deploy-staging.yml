@@ -6,15 +6,17 @@ on:
     branches: [develop]
     paths:
       - "AscendApp/**"
+      - "AscendLiveActivityWidgets/**"
       - "AscendApp.xcodeproj/**"
       - "fastlane/**"
-      - "scripts/upload-sentry-dsyms.sh"
+      - "scripts/**"
       - "Gemfile"
       - "Gemfile.lock"
       - "functions/**"
       - "web/**"
       - "firebase.json"
       - "firestore.rules"
+      - "firestore.indexes.json"
       - "storage.rules"
       - ".firebaserc"
       - ".github/workflows/deploy-staging.yml"
@@ -24,7 +26,7 @@ on:
 # deploy or the TestFlight upload and leave staging half-deployed. Overlapping
 # runs queue behind the running one instead.
 concurrency:
-  group: deploy-staging-${{ github.ref }}
+  group: deploy-staging
   cancel-in-progress: false
 
 permissions:
@@ -144,6 +146,13 @@ jobs:
             exit 1
           fi
 
+      - name: Derive build number
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_number="$(scripts/ci/derive-build-number.sh 0)"
+          echo "BUILD_NUMBER=${build_number}" >> "$GITHUB_ENV"
+
       - name: Build staging IPA via Fastlane
         env:
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
@@ -158,7 +167,6 @@ jobs:
           IOS_STAGING_WIDGET_PROVISIONING_PROFILE_SPECIFIER: match AppStore com.TylerPavay.AscendApp.staging.LiveClimbWidgets
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "120"
-          BUILD_NUMBER: ${{ github.run_number }}
         run: bundle exec fastlane build_staging
 
       - name: Upload staging IPA artifact

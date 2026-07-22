@@ -144,7 +144,7 @@ export function shouldSkipLandmarkResultWrite(existing, next) {
  */
 export async function recomputeLandmarkResult(store, userId, climbId) {
   return store.runTransaction(async (transaction) => {
-    const workouts = await transaction.listUserWorkouts(userId);
+    const workouts = await transaction.listLandmarkWorkouts(userId, climbId);
     const completions = [];
     for (const workout of workouts) {
       const parsed = parseCompletedLandmarkWorkout(workout.id, workout.data);
