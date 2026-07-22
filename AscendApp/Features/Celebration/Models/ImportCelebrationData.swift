@@ -17,7 +17,4 @@ struct ImportCelebrationData: Sendable {
 
     var totalCount: Int { importedCount + failedCount }
     var hasPartialFailure: Bool { failedCount > 0 }
-
-    // Future iterations:
-    // let leaderboardSnapshot: LeaderboardCelebrationSnapshot?
 }

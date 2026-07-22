@@ -126,6 +126,29 @@ struct LeaderboardViewModelTests {
     }
 
     @Test
+    func profileSyncLeavesTheSessionCachePopulated() async {
+        // Cached remote stats carry only sanitized identity; "You" and the private
+        // photo are resolved at build time, so a profile sync must not force a refetch.
+        let cache = LeaderboardSessionCache()
+
+        let viewModel = LeaderboardViewModel(sessionCache: cache)
+        viewModel.selectedMetric = .climb
+        viewModel.selectedTimeFrame = .weekly
+
+        let stats = [makeRemoteStat(userId: "zzz", displayName: "Climber")]
+        await cache.setDetailEntries(stats, for: .climb, timeFrame: .weekly)
+
+        await viewModel.loadLeaderboard(userId: "zzz")
+        viewModel.updateCurrentUserProfile(
+            userId: "zzz",
+            photoURL: URL(string: "https://example.com/avatar.jpg")
+        )
+        await Task.yield()
+
+        #expect(await cache.detailEntries(for: .climb, timeFrame: .weekly)?.count == 1)
+    }
+
+    @Test
     func tiedTopStepTotalsBothRankFirst() async {
         let cache = LeaderboardSessionCache()
 

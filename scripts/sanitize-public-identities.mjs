@@ -8,6 +8,14 @@
  * and ordered so Storage token rotation and legacy-object cleanup finish before
  * Firestore stops carrying the URLs needed to resume that work.
  *
+ * Storage sanitization sweeps every users/{uid}/profile_pictures/ object, not
+ * only those still referenced by public documents, because a previously exposed
+ * download URL can outlive its referencing document. Each rotated object gets a
+ * sanitization marker after its owner document is consistent, so reruns skip
+ * completed objects and only handle newly discovered ones. Objects created
+ * after the operation first succeeded were never publicly exposed and are
+ * exempt. Rollout order and commands: docs/public-identity-sanitization-runbook.md.
+ *
  * Usage:
  *   node scripts/sanitize-public-identities.mjs --env dev --dry-run
  *   node scripts/sanitize-public-identities.mjs --env dev --apply
@@ -21,16 +29,20 @@ import {getStorage} from "firebase-admin/storage";
 import {
   beginRun,
   initFirestore,
+  operationDocumentRef,
   resolveEnvironment,
 } from "./lib/migration-discipline.mjs";
 import {
   collectPublishedPhotoURLs,
   isTrustedSyntheticFirstAscent,
   isTrustedSyntheticRecord,
+  isUserProfilePicturePath,
   packBatches,
   parseSanitizationArgs,
+  planProfilePictureSweep,
   planSanitizationPage,
   replacementDownloadURL,
+  SANITIZATION_MARKER_KEY,
   storageObjectFromDownloadURL,
 } from "./lib/public-identity-sanitization.mjs";
 
@@ -50,11 +62,14 @@ const plan = await buildPlan(db, args.batchSize, environment.projectId);
 printPlan(plan, environment, args.mode);
 
 if (args.mode === "audit") {
-  const violations = firestoreUpdateCount(plan) + plan.storage.legacyFiles.length;
+  const violations = violationCount(plan);
   if (violations > 0) {
     throw new Error(`Public identity audit failed with ${violations} violation(s).`);
   }
-  console.log("Audit passed: no real-user public identity or legacy profile-picture objects remain.");
+  console.log(
+    "Audit passed: no real-user public identity, unrotated profile-picture " +
+    "object, or legacy profile-picture object remains."
+  );
   process.exit(0);
 }
 
@@ -74,7 +89,7 @@ try {
   const storageCounts = await applyStoragePlan(plan.storage);
   const firestoreCounts = await applyFirestorePlan(db, plan, args.batchSize);
   const verification = await buildPlan(db, args.batchSize, environment.projectId);
-  const remaining = firestoreUpdateCount(verification) + verification.storage.legacyFiles.length;
+  const remaining = violationCount(verification);
   if (remaining > 0) {
     throw new Error(`Verification found ${remaining} unsanitized public identity record(s).`);
   }
@@ -130,6 +145,9 @@ async function buildPlan(firestore, pageSize, projectId) {
     ...firstAscentRecords.filter((record) => !isTrustedSyntheticFirstAscent(record.data)),
   ].map((record) => record.data);
 
+  const operationSnapshot = await operationDocumentRef(firestore, OPERATION_ID).get();
+  const exposureCutoff = operationSnapshot.get("firstSucceededAt")?.toDate() ?? null;
+
   return {
     users: records(users),
     publicProfiles: planSanitizationPage(publicProfileRecords, "publicProfile"),
@@ -140,7 +158,8 @@ async function buildPlan(firestore, pageSize, projectId) {
     storage: await buildStoragePlan(
       records(users),
       collectPublishedPhotoURLs(realPhotoRecords),
-      projectId
+      projectId,
+      exposureCutoff
     ),
     scanned: {
       users: users.length,
@@ -153,18 +172,17 @@ async function buildPlan(firestore, pageSize, projectId) {
   };
 }
 
-async function buildStoragePlan(users, publishedPhotoURLs, projectId) {
-  const currentUserPhotosByObject = new Map();
+async function buildStoragePlan(users, publishedPhotoURLs, projectId, exposureCutoff) {
+  const ownersByObjectKey = new Map();
   for (const user of users) {
     const parsed = storageObjectFromDownloadURL(user.data.profilePictureURL);
     if (!parsed) continue;
     const key = `${parsed.bucket}/${parsed.path}`;
-    const owners = currentUserPhotosByObject.get(key) ?? [];
+    const owners = ownersByObjectKey.get(key) ?? [];
     owners.push({ref: user.ref, userId: user.ref.id, parsed});
-    currentUserPhotosByObject.set(key, owners);
+    ownersByObjectKey.set(key, owners);
   }
 
-  const rotationsByObject = new Map();
   const publishedURLsByObject = new Map();
   const unrotatablePublishedURLs = [];
   for (const url of publishedPhotoURLs) {
@@ -177,25 +195,27 @@ async function buildStoragePlan(users, publishedPhotoURLs, projectId) {
     const objectURLs = publishedURLsByObject.get(key) ?? new Set();
     objectURLs.add(url);
     publishedURLsByObject.set(key, objectURLs);
-
-    if (!parsed.path.startsWith("users/") || !parsed.path.includes("/profile_pictures/")) {
-      if (!parsed.path.startsWith(LEGACY_PROFILE_PREFIX)) {
-        unrotatablePublishedURLs.push(url);
-      }
-      continue;
+    if (!isUserProfilePicturePath(parsed.path) &&
+        !parsed.path.startsWith(LEGACY_PROFILE_PREFIX)) {
+      unrotatablePublishedURLs.push(url);
     }
-    const rotation = rotationsByObject.get(key) ?? {
-      bucket: parsed.bucket,
-      path: parsed.path,
-      oldURLs: new Set(),
-      owners: currentUserPhotosByObject.get(key) ?? [],
-    };
-    rotation.oldURLs.add(url);
-    rotationsByObject.set(key, rotation);
   }
 
   const defaultBucketName = `${projectId}.firebasestorage.app`;
   const defaultBucket = getStorage().bucket(defaultBucketName);
+  const [userFiles] = await defaultBucket.getFiles({prefix: "users/"});
+  const sweep = planProfilePictureSweep({
+    objects: userFiles.map((file) => ({
+      bucket: defaultBucketName,
+      path: file.name,
+      metadata: file.metadata,
+    })),
+    ownersByObjectKey,
+    publishedURLsByObject,
+    operationVersion: OPERATION_VERSION,
+    exposureCutoff,
+  });
+
   const [legacyFiles] = await defaultBucket.getFiles({prefix: LEGACY_PROFILE_PREFIX});
   const legacyPlans = legacyFiles
     .filter((file) => file.name !== LEGACY_PROFILE_PREFIX)
@@ -204,16 +224,16 @@ async function buildStoragePlan(users, publishedPhotoURLs, projectId) {
       return {
         bucket: defaultBucketName,
         path: file.name,
-        owners: currentUserPhotosByObject.get(key) ?? [],
+        owners: ownersByObjectKey.get(key) ?? [],
         oldURLs: [...(publishedURLsByObject.get(key) ?? [])],
       };
     });
 
   return {
-    rotations: [...rotationsByObject.values()].map((item) => ({
-      ...item,
-      oldURLs: [...item.oldURLs],
-    })),
+    rotations: sweep.rotations,
+    verifyOnlyURLs: sweep.verifyOnlyURLs,
+    alreadySanitized: sweep.alreadySanitized,
+    createdAfterCutoff: sweep.createdAfterCutoff,
     legacyFiles: legacyPlans,
     unrotatablePublishedURLs,
   };
@@ -231,17 +251,25 @@ async function applyStoragePlan(plan) {
     const bucket = getStorage().bucket(rotation.bucket);
     const file = bucket.file(rotation.path);
     const [metadata] = await file.getMetadata();
-    await file.setMetadata({
-      metadata: {
-        ...(metadata.metadata ?? {}),
-        firebaseStorageDownloadTokens: token,
-      },
-    });
+    const rotatedMetadata = {
+      ...(metadata.metadata ?? {}),
+      firebaseStorageDownloadTokens: token,
+    };
+    await file.setMetadata({metadata: rotatedMetadata});
     const replacementURL = replacementDownloadURL(rotation.bucket, rotation.path, token);
     for (const owner of rotation.owners) {
       await owner.ref.set({profilePictureURL: replacementURL}, {merge: true});
       ownerDocumentsUpdated += 1;
     }
+    // The marker lands only after every owner document references the fresh
+    // token, so a run that dies partway re-plans this object instead of
+    // skipping it with a dangling owner reference.
+    await file.setMetadata({
+      metadata: {
+        ...rotatedMetadata,
+        [SANITIZATION_MARKER_KEY]: String(OPERATION_VERSION),
+      },
+    });
     rotation.oldURLs.forEach((url) => oldURLsToVerify.add(url));
     tokensRotated += 1;
   }
@@ -260,6 +288,7 @@ async function applyStoragePlan(plan) {
         metadata: {
           ...(metadata.metadata ?? {}),
           firebaseStorageDownloadTokens: token,
+          [SANITIZATION_MARKER_KEY]: String(OPERATION_VERSION),
         },
       });
       await owner.ref.set({
@@ -281,12 +310,25 @@ async function applyStoragePlan(plan) {
     }
   }
 
+  let verifyOnlyURLsChecked = 0;
+  for (const url of plan.verifyOnlyURLs) {
+    if (oldURLsToVerify.has(url)) continue;
+    const response = await fetch(url, {redirect: "manual"});
+    if (response.ok) {
+      throw new Error(
+        `Previously published profile-photo URL still resolves but its object ` +
+        `was not found in the sweep: ${url}`
+      );
+    }
+    verifyOnlyURLsChecked += 1;
+  }
+
   return {
     tokensRotated,
     legacyFilesMoved,
     legacyFilesDeleted,
     ownerDocumentsUpdated,
-    oldURLsVerifiedInvalid: oldURLsToVerify.size,
+    oldURLsVerifiedInvalid: oldURLsToVerify.size + verifyOnlyURLsChecked,
   };
 }
 
@@ -345,6 +387,12 @@ function firestoreUpdateCount(plan) {
     plan.replayFinishers.length;
 }
 
+function violationCount(plan) {
+  return firestoreUpdateCount(plan) +
+    plan.storage.rotations.length +
+    plan.storage.legacyFiles.length;
+}
+
 function printPlan(plan, environmentValue, mode) {
   console.log([
     `Operation: ${OPERATION_ID} v${OPERATION_VERSION}`,
@@ -356,7 +404,10 @@ function printPlan(plan, environmentValue, mode) {
     `Replay contexts scanned/First Ascents to sanitize: ${plan.scanned.replayContexts}/${plan.firstAscents.length}`,
     `Replay entries scanned/to sanitize: ${plan.scanned.replayEntries}/${plan.replayEntries.length}`,
     `Replay finishers scanned/to sanitize: ${plan.scanned.replayFinishers}/${plan.replayFinishers.length}`,
-    `User-scoped photo tokens to rotate: ${plan.storage.rotations.length}`,
+    `Profile-picture objects to rotate: ${plan.storage.rotations.length}`,
+    `Profile-picture objects already sanitized: ${plan.storage.alreadySanitized}`,
+    `Profile-picture objects created after first success (exempt): ${plan.storage.createdAfterCutoff}`,
+    `Published URLs whose objects no longer exist (verify-only): ${plan.storage.verifyOnlyURLs.length}`,
     `Legacy root profile pictures to move/delete: ${plan.storage.legacyFiles.length}`,
     `Published URLs outside managed user-scoped Storage: ${plan.storage.unrotatablePublishedURLs.length}`,
   ].join("\n"));

@@ -1,6 +1,7 @@
 export const PUBLIC_DISPLAY_NAME = "Climber";
 export const PUBLIC_PHOTO_URL = "";
 export const DEFAULT_SANITIZATION_BATCH_SIZE = 400;
+export const SANITIZATION_MARKER_KEY = "publicIdentitySanitizedVersion";
 
 const MODES = new Set(["dry-run", "apply", "audit"]);
 
@@ -155,6 +156,83 @@ export function storageObjectFromDownloadURL(value) {
 export function replacementDownloadURL(bucket, path, token) {
   return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket)}` +
     `/o/${encodeURIComponent(path)}?alt=media&token=${encodeURIComponent(token)}`;
+}
+
+export function isUserProfilePicturePath(path) {
+  return typeof path === "string" && /^users\/[^/]+\/profile_pictures\/.+$/.test(path);
+}
+
+export function downloadTokensFromMetadata(metadata) {
+  const raw = metadata?.metadata?.firebaseStorageDownloadTokens;
+  if (typeof raw !== "string") return [];
+  return raw.split(",").map((token) => token.trim()).filter((token) => token.length > 0);
+}
+
+export function isMarkedSanitized(metadata, operationVersion) {
+  return metadata?.metadata?.[SANITIZATION_MARKER_KEY] === String(operationVersion);
+}
+
+/**
+ * Plans token rotation for every profile-picture object in the bucket sweep, not
+ * only those referenced by current public documents. A URL exposed before this
+ * migration can outlive its referencing document, so exposure is decided per
+ * object: anything created before the operation first succeeded must be rotated
+ * once, recorded by the per-object sanitization marker so reruns skip completed
+ * objects while still picking up newly discovered ones.
+ */
+export function planProfilePictureSweep(params) {
+  const {
+    objects,
+    ownersByObjectKey,
+    publishedURLsByObject,
+    operationVersion,
+    exposureCutoff,
+  } = params;
+
+  const rotations = [];
+  const sweptKeys = new Set();
+  let alreadySanitized = 0;
+  let createdAfterCutoff = 0;
+
+  for (const object of objects) {
+    if (!isUserProfilePicturePath(object.path)) continue;
+    const key = `${object.bucket}/${object.path}`;
+    sweptKeys.add(key);
+    if (isMarkedSanitized(object.metadata, operationVersion)) {
+      alreadySanitized += 1;
+      continue;
+    }
+    const createdAt = object.metadata?.timeCreated
+      ? new Date(object.metadata.timeCreated)
+      : null;
+    if (exposureCutoff && createdAt && createdAt > exposureCutoff) {
+      createdAfterCutoff += 1;
+      continue;
+    }
+    const owners = ownersByObjectKey.get(key) ?? [];
+    const oldURLs = new Set(publishedURLsByObject.get(key) ?? []);
+    for (const token of downloadTokensFromMetadata(object.metadata)) {
+      oldURLs.add(replacementDownloadURL(object.bucket, object.path, token));
+    }
+    for (const owner of owners) {
+      oldURLs.add(owner.parsed.url);
+    }
+    rotations.push({
+      bucket: object.bucket,
+      path: object.path,
+      owners,
+      oldURLs: [...oldURLs],
+    });
+  }
+
+  const verifyOnlyURLs = [];
+  for (const [key, urls] of publishedURLsByObject) {
+    if (sweptKeys.has(key)) continue;
+    const path = key.slice(key.indexOf("/") + 1);
+    if (isUserProfilePicturePath(path)) verifyOnlyURLs.push(...urls);
+  }
+
+  return {rotations, verifyOnlyURLs, alreadySanitized, createdAfterCutoff};
 }
 
 export function packBatches(items, batchSize) {

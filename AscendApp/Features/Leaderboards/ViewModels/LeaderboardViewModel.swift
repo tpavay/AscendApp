@@ -342,11 +342,6 @@ final class LeaderboardViewModel {
         if let entry = userEntry, entry.userId == userId {
             userEntry = entry.withProfile(displayName: "You", photoURL: photoURL)
         }
-
-        let sessionCache = sessionCache
-        Task {
-            await sessionCache.invalidateAll()
-        }
     }
 
     private func apply(stats: [FirestoreLeaderboardStats], userId: String) {
