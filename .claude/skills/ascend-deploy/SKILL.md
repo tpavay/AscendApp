@@ -43,7 +43,7 @@ A trigger pointing at a branch that no longer exists silently disables the workf
 
 `develop` is what makes the staging trigger safe: staging cannot run on pushes to `main`, because `deploy-production.yml` already does and one push would deploy both. Keep the two deploy workflows on disjoint branches - pointing either at the other's branch reintroduces the double-deploy.
 
-`.github/workflows/deploy-production.yml` runs on pushes to `main` and manual dispatch. It is **stricter** than staging, not a mirror of it: every job is gated behind `PRODUCTION_READY=true` plus GitHub `production` environment protection, and `deploy-firebase` keeps `needs: [production-gate, build-ios]`, so a failed build stops the deploy. Same combined `--only` deploy command, Release configuration.
+`.github/workflows/deploy-production.yml` runs on pushes to `main` and manual dispatch. It is **stricter** than staging, not a mirror of it: every job is gated behind `PRODUCTION_READY=true` plus GitHub `production` environment protection, and `deploy-firebase` keeps `needs: [production-gate, build-ios]`, so a failed build stops the deploy. The Firebase job is an ordered rollout rather than one combined deploy: indexes deploy and every declaration must report `READY`, then Functions deploy and the gate-critical exports must report `ACTIVE`, then Firestore rules, Storage rules, and Hosting deploy. The TestFlight upload still depends on the whole Firebase job, so the backend is ahead of the binary. `docs/production-backend-rollout-runbook.md` is the production operator contract and rollback guide.
 
 ## Deploy Authentication
 
