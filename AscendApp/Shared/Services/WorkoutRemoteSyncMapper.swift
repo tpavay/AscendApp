@@ -72,6 +72,7 @@ enum WorkoutRemoteSyncMapper {
             stepsPerFloor: workout.stepsPerFloor,
             notes: workout.notes,
             source: workout.source.rawValue,
+            climbId: climbId(from: workout),
             integrityLevel: workout.integrityLevel.rawValue,
             createdAt: workout.createdAt,
             updatedAt: workout.lastModifiedAt,
@@ -112,6 +113,18 @@ private extension WorkoutRemoteSyncMapper {
         WorkoutSource.hevy.rawValue,
         WorkoutSource.headphoneMotion.rawValue
     ]
+
+    static func climbId(from workout: Workout) -> String? {
+        guard workout.source == .headphoneMotion,
+              let sourceMetadata = workout.sourceMetadata,
+              let data = sourceMetadata.data(using: .utf8),
+              let metadata = try? JSONDecoder().decode(HeadphoneMotionWorkoutMetadata.self, from: data),
+              let climbId = metadata.climbId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !climbId.isEmpty else {
+            return nil
+        }
+        return climbId
+    }
 
     static func firestoreParticipation(
         _ participation: WorkoutParticipation,

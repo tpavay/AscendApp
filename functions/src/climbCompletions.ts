@@ -77,8 +77,18 @@ export interface StoredLandmarkResult {
  * `landmarkResults`; tests inject an in-memory transactional store.
  */
 export interface LandmarkResultTransaction {
-  listUserWorkouts(
-    userId: string
+  /**
+   * Returns the single resolved workout set for the climb. The narrow indexed
+   * query (source AND the promoted top-level climbId) is the fast path; when it
+   * is empty the adapter falls back to a legacy source-only read so callers see
+   * un-backfilled documents too. Resolving both reads here - not in the
+   * caller - is what makes it structurally impossible for a recompute to
+   * delete a valid projection just because the promoted key has not been
+   * backfilled yet.
+   */
+  listLandmarkWorkouts(
+    userId: string,
+    climbId: string
   ): Promise<{id: string; data: Record<string, unknown>}[]>;
   getLandmarkResult(
     userId: string,
@@ -252,7 +262,7 @@ export async function recomputeLandmarkResult(
   climbId: string
 ): Promise<"written" | "skipped" | "deleted"> {
   return store.runTransaction(async (transaction) => {
-    const workouts = await transaction.listUserWorkouts(userId);
+    const workouts = await transaction.listLandmarkWorkouts(userId, climbId);
     const completions: CompletedLandmarkWorkout[] = [];
     for (const workout of workouts) {
       const parsed = parseCompletedLandmarkWorkout(workout.id, workout.data);
@@ -316,6 +326,14 @@ export const onWorkoutWritten = onDocumentWritten(
       return;
     }
 
+    // Old app versions can replace a workout without the promoted query key.
+    // Repair it first, then let the resulting write run the narrow recompute.
+    const storedAfterClimbId = stringValue(afterData?.climbId);
+    if (afterData && after && storedAfterClimbId !== after.climbId) {
+      await event.data?.after.ref.set({climbId: after.climbId}, {merge: true});
+      return;
+    }
+
     const store = makeAdminStore();
     for (const climbId of affected) {
       await recomputeLandmarkResult(store, userId, climbId);
@@ -340,17 +358,40 @@ export function makeAdminStore(): LandmarkResultStore {
           async (firestoreTransaction) => {
             attempts += 1;
             return operation({
-              async listUserWorkouts(userId) {
-                // Narrowed to the only source the derivation can accept, so the
-                // serializable read lock covers headphone-motion workouts
-                // instead of the user's entire workout history.
-                const query = db
+              async listLandmarkWorkouts(userId, climbId) {
+                const workoutsRef = db
                   .collection(USERS_COLLECTION)
                   .doc(userId)
-                  .collection(WORKOUTS_COLLECTION)
-                  .where("source", "==", HEADPHONE_MOTION_SOURCE);
-                const snapshot = await firestoreTransaction.get(query);
-                return snapshot.docs.map((doc) => ({
+                  .collection(WORKOUTS_COLLECTION);
+
+                // Fast path: both filter keys are top-level and indexed, so the
+                // serializable read lock covers one landmark, not user history.
+                const narrowSnapshot = await firestoreTransaction.get(
+                  workoutsRef
+                    .where("source", "==", HEADPHONE_MOTION_SOURCE)
+                    .where("climbId", "==", climbId)
+                );
+                if (!narrowSnapshot.empty) {
+                  return narrowSnapshot.docs.map((doc) => ({
+                    id: doc.id,
+                    data: doc.data() as Record<string, unknown>,
+                  }));
+                }
+
+                // Temporary rollout fallback (see interface doc): documents
+                // written before the promoted top-level climbId was backfilled
+                // carry it only inside sourceMetadata, so the narrow query
+                // cannot see them. Read by source alone and hand every
+                // headphone-motion workout to the caller, which parses and
+                // filters by climbId. A zero narrow result can therefore only
+                // delete a projection when this source-only read is also empty.
+                // Remove only after every environment has verified zero
+                // eligible workout documents with a missing or mismatched
+                // top-level climbId, with migration-ledger evidence.
+                const legacySnapshot = await firestoreTransaction.get(
+                  workoutsRef.where("source", "==", HEADPHONE_MOTION_SOURCE)
+                );
+                return legacySnapshot.docs.map((doc) => ({
                   id: doc.id,
                   data: doc.data() as Record<string, unknown>,
                 }));

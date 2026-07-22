@@ -23,7 +23,11 @@ import {fileURLToPath} from "node:url";
 import {applicationDefault, initializeApp} from "firebase-admin/app";
 import {getAuth} from "firebase-admin/auth";
 import {FieldValue, getFirestore, Timestamp} from "firebase-admin/firestore";
-import {canonicalWorkoutDocumentId} from "./lib/workout-document-id.mjs";
+import {
+  canonicalWorkoutDocumentId,
+  seededReplayCompletedCount,
+  staleWorkoutDocumentIds,
+} from "./lib/workout-document-id.mjs";
 import {firstAscentSeedFields} from "./seed/lib/live-replay-first-ascent.mjs";
 
 const DEV_PROJECT_ID = "ascend-f2e4f";
@@ -381,7 +385,7 @@ async function buildSeedPlan(db, catalog, authUser, args) {
   for (const workout of workouts) {
     const profileWorkoutsRef = db.collection("users").doc(user.uid).collection("profile_workouts");
     writes.push([profileWorkoutsRef.doc(workout.id), profileWorkoutData(workout)]);
-    for (const staleId of staleDocumentIds(workout.id)) {
+    for (const staleId of staleWorkoutDocumentIds(workout.id)) {
       deletes.push(profileWorkoutsRef.doc(staleId));
     }
   }
@@ -408,7 +412,7 @@ async function buildSeedPlan(db, catalog, authUser, args) {
   for (const workout of workouts) {
     const workoutsRef = db.collection("users").doc(user.uid).collection("workouts");
     writes.push([workoutsRef.doc(workout.id), workout.document]);
-    for (const staleId of staleDocumentIds(workout.id)) {
+    for (const staleId of staleWorkoutDocumentIds(workout.id)) {
       deletes.push(workoutsRef.doc(staleId));
     }
   }
@@ -710,15 +714,11 @@ async function addReplayWrites(db, writes, deletes, user, liveContexts, args) {
       finisherRef.get(),
       bucketZeroEntriesRef.get(),
     ]);
-    const staleEntryIds = staleDocumentIds(context.workoutId);
-    const staleRowCount = bucketZeroSnapshot.docs.filter(
-      (document) => staleEntryIds.includes(document.id)
-    ).length;
-    const hasExistingCompletionRow = bucketZeroSnapshot.docs.some(
-      (document) => document.id === context.workoutId
-    ) || staleRowCount > 0;
-    const completedCount =
-      bucketZeroSnapshot.size - staleRowCount + (hasExistingCompletionRow ? 0 : 1);
+    const staleEntryIds = staleWorkoutDocumentIds(context.workoutId);
+    const completedCount = seededReplayCompletedCount(
+      bucketZeroSnapshot.docs.map((document) => document.id),
+      context.workoutId
+    );
     const existingFinisher = finisherSnapshot.exists;
     const existingFinisherOrder = nonNegativeInteger(
       finisherSnapshot.data()?.globalCompletionOrder
