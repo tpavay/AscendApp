@@ -94,8 +94,20 @@ test("index readiness requires every declared index to report READY", () => {
       "(stepsAtBucket,ASCENDING) (ignored,ASCENDING)\n" +
       "[CREATING] (entries) -- (finalSteps,DESCENDING)\n"
   );
-  assert.notEqual(building.status, 0);
+  assert.equal(building.status, 1);
   assert.match(building.stderr, /finalSteps/);
+
+  const leadingSuperset = runNode(
+    indexReadinessScript,
+    [configPath],
+    "[READY] (entries) -- (other,ASCENDING) (isBestForUser,ASCENDING) " +
+      "(stepsAtBucket,ASCENDING)\n" +
+      "[CREATING] (entries) -- (isBestForUser,ASCENDING) " +
+      "(stepsAtBucket,ASCENDING)\n" +
+      "[READY] (entries) -- (finalSteps,DESCENDING)\n"
+  );
+  assert.equal(leadingSuperset.status, 1);
+  assert.match(leadingSuperset.stderr, /isBestForUser/);
 
   const ready = runNode(
     indexReadinessScript,
@@ -106,6 +118,28 @@ test("index readiness requires every declared index to report READY", () => {
   );
   assert.equal(ready.status, 0, ready.stderr);
   assert.match(ready.stdout, /All 2 declared Firestore indexes are READY/);
+
+  const unsupportedScopePath = join(directory, "collection-group.indexes.json");
+  writeFileSync(
+    unsupportedScopePath,
+    JSON.stringify({
+      indexes: [
+        {
+          collectionGroup: "entries",
+          queryScope: "COLLECTION_GROUP",
+          fields: [{fieldPath: "finalSteps", order: "DESCENDING"}],
+        },
+      ],
+      fieldOverrides: [],
+    })
+  );
+  const structural = runNode(
+    indexReadinessScript,
+    [unsupportedScopePath],
+    "[READY] (entries) -- (finalSteps,DESCENDING)\n"
+  );
+  assert.equal(structural.status, 2);
+  assert.match(structural.stderr, /COLLECTION indexes/);
 });
 
 test("function readiness rejects missing and inactive critical functions", () => {

@@ -233,11 +233,25 @@ jobs:
           set -euo pipefail
 
           for attempt in $(seq 1 180); do
-            deployed_indexes="$(npx -y firebase-tools@15.22.1 firestore:indexes --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --pretty --token "$FIREBASE_TOKEN")"
+            if ! deployed_indexes="$(npx -y firebase-tools@15.22.1 firestore:indexes --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --pretty --token "$FIREBASE_TOKEN")"; then
+              echo "::warning::firestore:indexes poll attempt ${attempt} of 180 failed; retrying."
+              if [ "$attempt" -lt 180 ]; then
+                sleep 20
+              fi
+              continue
+            fi
             printf "%s\n" "$deployed_indexes"
 
-            if printf "%s\n" "$deployed_indexes" | node scripts/ci/assert-firestore-indexes-ready.mjs firestore.indexes.json; then
+            readiness_status=0
+            printf "%s\n" "$deployed_indexes" | node scripts/ci/assert-firestore-indexes-ready.mjs firestore.indexes.json || readiness_status=$?
+
+            if [ "$readiness_status" -eq 0 ]; then
               exit 0
+            fi
+
+            if [ "$readiness_status" -eq 2 ]; then
+              echo "::error::Index readiness check failed on a structural config or parser error; fix it instead of retrying."
+              exit 2
             fi
 
             if [ "$attempt" -lt 180 ]; then

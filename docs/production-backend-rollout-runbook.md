@@ -73,10 +73,10 @@ Use that run and do not manually dispatch a duplicate.
 If `main` is already at the approved release SHA and no push-triggered run exists, launch exactly one run with:
 
 ```sh
-gh-axi workflow run 240226254 --ref main
+gh-axi workflow run deploy-production.yml --ref main
 ```
 
-Workflow `240226254` is `Deploy Production` at `.github/workflows/deploy-production.yml`.
+`deploy-production.yml` is the `Deploy Production` workflow at `.github/workflows/deploy-production.yml`.
 Approve the protected `production` environment only after confirming the run's SHA is the approved release SHA.
 
 The workflow performs the following order automatically:
