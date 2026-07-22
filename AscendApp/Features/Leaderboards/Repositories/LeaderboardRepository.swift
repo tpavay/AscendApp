@@ -25,8 +25,8 @@ final class LeaderboardRepository: Sendable {
 
         var data: [String: Any] = [
             "userId": payload.userId,
-            "displayName": payload.displayName,
-            "photoURL": payload.photoURL?.absoluteString ?? "",
+            "displayName": PublicClimberIdentity.storedDisplayName,
+            "photoURL": PublicClimberIdentity.storedPhotoURL,
             "timeFrame": payload.timeFrame.rawValue,
             "schemaVersion": payload.schemaVersion,
             "periodKey": payload.periodKey,
@@ -155,32 +155,6 @@ final class LeaderboardRepository: Sendable {
         return (rank: rank, total: allStats.count)
     }
 
-    func updateProfilePictureURL(userId: String, photoURL: String) async throws {
-        let snapshot = try await db.collection("leaderboard_stats")
-            .whereField("userId", isEqualTo: userId)
-            .getDocuments()
-
-        for document in snapshot.documents {
-            try await document.reference.updateData([
-                "photoURL": photoURL,
-                "lastUpdated": FieldValue.serverTimestamp()
-            ])
-        }
-    }
-
-    func updateDisplayName(userId: String, displayName: String) async throws {
-        let snapshot = try await db.collection("leaderboard_stats")
-            .whereField("userId", isEqualTo: userId)
-            .getDocuments()
-
-        for document in snapshot.documents {
-            try await document.reference.updateData([
-                "displayName": displayName,
-                "lastUpdated": FieldValue.serverTimestamp()
-            ])
-        }
-    }
-
     func updateBodyWeight(userId: String, weightKg: Double) async throws {
         let snapshot = try await db.collection("leaderboard_stats")
             .whereField("userId", isEqualTo: userId)
@@ -196,7 +170,6 @@ final class LeaderboardRepository: Sendable {
 
     private func parseStat(_ data: [String: Any]) -> FirestoreLeaderboardStats? {
         guard let userId = data["userId"] as? String,
-              let displayName = data["displayName"] as? String,
               let timeFrame = data["timeFrame"] as? String,
               let periodKey = data["periodKey"] as? String,
               let periodStartAt = timestampValue(for: "periodStartAt", in: data),
@@ -210,6 +183,11 @@ final class LeaderboardRepository: Sendable {
         let totalWorkouts = intValue(for: "totalWorkouts", in: data) ?? 0
         let totalDuration = doubleValue(for: "totalDuration", in: data) ?? 0
         let stepsPerMinute = doubleValue(for: "stepsPerMinute", in: data) ?? 0
+        let identity = PublicClimberIdentity.resolve(
+            userId: userId,
+            storedDisplayName: data["displayName"] as? String,
+            storedPhotoURL: (data["photoURL"] as? String).flatMap(URL.init(string:))
+        )
 
         guard totalWorkouts > 0 || totalSteps > 0 || totalFloors > 0 || totalDuration > 0 else {
             return nil
@@ -217,8 +195,8 @@ final class LeaderboardRepository: Sendable {
 
         return FirestoreLeaderboardStats(
             userId: userId,
-            displayName: displayName,
-            photoURL: data["photoURL"] as? String,
+            displayName: identity.displayName,
+            photoURL: identity.photoURL?.absoluteString,
             timeFrame: timeFrame,
             schemaVersion: schemaVersion,
             periodKey: periodKey,

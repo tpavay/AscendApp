@@ -131,7 +131,7 @@ export function buildProfileSeedWrites({
     const photoURL = profilePhotoURL(persona, avatarURLs);
 
     writes.push(write(userRef, privateUserData(persona, joinedAt, photoURL, Timestamp, FieldValue), "user"));
-    writes.push(write(publicRef, publicProfileData(persona, joinedAt, photoURL, Timestamp, FieldValue), "publicProfile"));
+    writes.push(write(publicRef, publicProfileData(persona, joinedAt, Timestamp, FieldValue), "publicProfile"));
     writes.push(write(statsRef, profileStatsData(stats, FieldValue), "profileStats"));
 
     for (const workout of workouts) {
@@ -147,7 +147,7 @@ export function buildProfileSeedWrites({
     }
 
     if (includeLeaderboardRows) {
-      writes.push(...leaderboardWritesForPersona(db, persona, stats, now, Timestamp, FieldValue, avatarURLs));
+      writes.push(...leaderboardWritesForPersona(db, persona, stats, now, Timestamp, FieldValue));
     }
   }
 
@@ -159,13 +159,12 @@ export function buildLeaderboardSeedWrites({
   catalog,
   Timestamp,
   FieldValue,
-  avatarURLs = new Map(),
   now = new Date(),
 }) {
   return PROFILE_SEED_PERSONAS.flatMap((persona) => {
     const workouts = buildWorkouts(persona, catalog, now, Timestamp, FieldValue);
     const stats = statsFor(persona, workouts);
-    return leaderboardWritesForPersona(db, persona, stats, now, Timestamp, FieldValue, avatarURLs);
+    return leaderboardWritesForPersona(db, persona, stats, now, Timestamp, FieldValue);
   });
 }
 
@@ -309,11 +308,11 @@ function privateUserData(persona, joinedAt, photoURL, Timestamp, FieldValue) {
   };
 }
 
-function publicProfileData(persona, joinedAt, photoURL, Timestamp, FieldValue) {
+function publicProfileData(persona, joinedAt, Timestamp, FieldValue) {
   return {
     userId: persona.id,
-    displayName: persona.name,
-    photoURL,
+    displayName: "Climber",
+    photoURL: "",
     age: persona.age,
     gender: persona.gender,
     weight_kg: poundsToKg(persona.weightLb),
@@ -397,9 +396,9 @@ function statsFor(persona, workouts) {
   };
 }
 
-function leaderboardWritesForPersona(db, persona, stats, now, Timestamp, FieldValue, avatarURLs) {
+function leaderboardWritesForPersona(db, persona, stats, now, Timestamp, FieldValue) {
   return LEADERBOARD_TIME_FRAMES
-    .map((timeFrame) => leaderboardDataForPersona(persona, stats, timeFrame, now, Timestamp, FieldValue, avatarURLs))
+    .map((timeFrame) => leaderboardDataForPersona(persona, stats, timeFrame, now, Timestamp, FieldValue))
     .filter((data) => data.totalSteps > 0)
     .map((data) => {
       const docId = leaderboardDocId(persona.id, data.timeFrame, data.periodKey);
@@ -407,7 +406,7 @@ function leaderboardWritesForPersona(db, persona, stats, now, Timestamp, FieldVa
     });
 }
 
-function leaderboardDataForPersona(persona, stats, timeFrame, now, Timestamp, FieldValue, avatarURLs) {
+function leaderboardDataForPersona(persona, stats, timeFrame, now, Timestamp, FieldValue) {
   const period = currentPeriod(timeFrame, now);
   const totalSteps = leaderboardSteps(persona, stats, timeFrame);
   const totalWorkouts = totalSteps > 0
@@ -419,8 +418,8 @@ function leaderboardDataForPersona(persona, stats, timeFrame, now, Timestamp, Fi
 
   return {
     userId: persona.id,
-    displayName: persona.name,
-    photoURL: profilePhotoURL(persona, avatarURLs),
+    displayName: "Climber",
+    photoURL: "",
     timeFrame,
     schemaVersion: PROFILE_SCHEMA_VERSION,
     periodKey: period.key,

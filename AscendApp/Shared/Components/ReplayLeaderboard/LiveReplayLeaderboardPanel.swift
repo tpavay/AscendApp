@@ -184,6 +184,10 @@ private struct LiveReplayLeaderboardRowView: View {
     let tint: Color
     let effectiveColorScheme: ColorScheme
 
+    private var identity: PublicClimberIdentity.Presentation {
+        row.publicIdentity(currentUserPhotoURL: currentUserPhotoURL)
+    }
+
     var body: some View {
         ZStack(alignment: .leading) {
             if row.isCurrentUser {
@@ -200,7 +204,7 @@ private struct LiveReplayLeaderboardRowView: View {
                 avatarView
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(row.isCurrentUser ? "You" : row.displayName)
+                    Text(identity.displayName)
                         .font(.montserratBold(size: 17))
                         .foregroundStyle(primaryColor)
                         .lineLimit(1)
@@ -291,15 +295,24 @@ private struct LiveReplayLeaderboardRowView: View {
     }
 
     private var resolvedPhotoURL: URL? {
-        row.isCurrentUser ? (row.photoURL ?? currentUserPhotoURL) : row.photoURL
+        identity.photoURL
     }
 
+    @ViewBuilder
     private var avatarTokenView: some View {
-        Text(row.avatarToken)
-            .font(.montserratBold(size: 13))
-            .foregroundStyle(row.isCurrentUser ? .black : .white)
-            .frame(width: 44, height: 44)
-            .background(Circle().fill(row.isCurrentUser ? tint : avatarColor))
+        if identity.usesGenericAvatar {
+            Image(systemName: PublicClimberIdentity.genericAvatarSystemName)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(row.isCurrentUser ? .black : secondaryColor)
+                .frame(width: 44, height: 44)
+                .background(Circle().fill(row.isCurrentUser ? tint : avatarColor.opacity(0.28)))
+        } else {
+            Text(identity.avatarToken)
+                .font(.montserratBold(size: 13))
+                .foregroundStyle(row.isCurrentUser ? .black : .white)
+                .frame(width: 44, height: 44)
+                .background(Circle().fill(row.isCurrentUser ? tint : avatarColor))
+        }
     }
 
     private var primaryColor: Color {

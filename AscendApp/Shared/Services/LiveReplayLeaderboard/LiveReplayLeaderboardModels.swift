@@ -35,6 +35,7 @@ struct LiveReplayFirstAscent: Equatable, Sendable {
     let displayName: String
     let avatarToken: String
     let photoURL: URL?
+    let isSynthetic: Bool
     let completedAt: Date
 
     init(
@@ -42,13 +43,25 @@ struct LiveReplayFirstAscent: Equatable, Sendable {
         displayName: String,
         avatarToken: String,
         photoURL: URL?,
+        isSynthetic: Bool = false,
         completedAt: Date
     ) {
         self.userId = userId
         self.displayName = displayName
         self.avatarToken = avatarToken
         self.photoURL = photoURL
+        self.isSynthetic = isSynthetic
         self.completedAt = completedAt
+    }
+
+    var publicIdentity: PublicClimberIdentity.Presentation {
+        PublicClimberIdentity.resolve(
+            userId: userId,
+            storedDisplayName: displayName,
+            storedPhotoURL: photoURL,
+            storedAvatarToken: avatarToken,
+            isSynthetic: isSynthetic
+        )
     }
 }
 
@@ -307,6 +320,7 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
     let isPersonalBest: Bool
     let completionDurationSeconds: TimeInterval?
     let userId: String?
+    let isSynthetic: Bool
     let gender: String?
     let age: Int?
     let locationCity: String?
@@ -326,6 +340,7 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
         isPersonalBest: Bool,
         completionDurationSeconds: TimeInterval?,
         userId: String? = nil,
+        isSynthetic: Bool = false,
         gender: String? = nil,
         age: Int? = nil,
         locationCity: String? = nil,
@@ -343,6 +358,7 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
         self.isPersonalBest = isPersonalBest
         self.completionDurationSeconds = completionDurationSeconds
         self.userId = userId
+        self.isSynthetic = isSynthetic
         self.gender = Self.cleanedString(gender)
         self.age = Self.validAge(age)
         self.locationCity = Self.cleanedString(locationCity)
@@ -405,6 +421,7 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
             isPersonalBest: isPersonalBest,
             completionDurationSeconds: nil,
             userId: nil,
+            isSynthetic: false,
             gender: gender,
             age: age,
             locationCity: locationCity
@@ -461,6 +478,7 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
             isPersonalBest: isPersonalBest,
             completionDurationSeconds: completionDurationSeconds,
             userId: userId,
+            isSynthetic: isSynthetic,
             gender: gender,
             age: age,
             locationCity: locationCity,
@@ -496,6 +514,20 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
         }
 
         return value
+    }
+
+    func publicIdentity(
+        currentUserPhotoURL: URL? = nil
+    ) -> PublicClimberIdentity.Presentation {
+        PublicClimberIdentity.resolve(
+            userId: userId,
+            storedDisplayName: displayName,
+            storedPhotoURL: isCurrentUser ? nil : photoURL,
+            storedAvatarToken: avatarToken,
+            isSynthetic: isSynthetic,
+            isCurrentUser: isCurrentUser,
+            currentUserPhotoURL: currentUserPhotoURL
+        )
     }
 }
 

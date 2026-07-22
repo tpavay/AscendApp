@@ -407,17 +407,6 @@ extension AuthenticationViewModel {
             // Update the local state
             customProfilePictureURL = uploadedURL
             
-            // Update all leaderboard entries with the new photo URL
-            do {
-                try await LeaderboardService.shared.updateProfilePictureURL(
-                    userId: user.uid,
-                    photoURL: uploadedURL
-                )
-            } catch {
-                // Don't fail the whole operation if leaderboard update fails
-                debugLog("Warning: Failed to update leaderboard photo URL: \(error)")
-            }
-            
         } catch {
             errorMessage = "Failed to update profile picture: \(error.localizedDescription)"
         }
@@ -445,17 +434,6 @@ extension AuthenticationViewModel {
             
             // Update the local state
             customProfilePictureURL = uploadedURL
-            
-            // Update all leaderboard entries with the new photo URL
-            do {
-                try await LeaderboardService.shared.updateProfilePictureURL(
-                    userId: user.uid,
-                    photoURL: uploadedURL
-                )
-            } catch {
-                // Don't fail the whole operation if leaderboard update fails
-                debugLog("Warning: Failed to update leaderboard photo URL: \(error)")
-            }
             
         } catch {
             errorMessage = "Failed to update profile picture: \(error.localizedDescription)"
@@ -498,17 +476,6 @@ extension AuthenticationViewModel {
                 displayName: trimmedName
             )
             hasRemoteDisplayName = true
-            
-            // Update all leaderboard entries with the new display name
-            do {
-                try await LeaderboardService.shared.updateDisplayName(
-                    userId: user.uid,
-                    displayName: trimmedName
-                )
-            } catch {
-                // Don't fail the whole operation if leaderboard update fails
-                debugLog("Warning: Failed to update leaderboard display name: \(error)")
-            }
 
             return true
             
@@ -555,15 +522,6 @@ extension AuthenticationViewModel {
                 gender: gender
             )
             hasRemoteDisplayName = true
-
-            do {
-                try await LeaderboardService.shared.updateDisplayName(
-                    userId: user.uid,
-                    displayName: trimmedName
-                )
-            } catch {
-                debugLog("Warning: Failed to update leaderboard display name: \(error)")
-            }
 
             return true
         } catch {

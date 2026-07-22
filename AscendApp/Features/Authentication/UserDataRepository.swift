@@ -297,12 +297,6 @@ final class UserDataRepository: Sendable {
             "profilePictureURL": profilePictureURL,
             "lastUpdated": FieldValue.serverTimestamp()
         ], merge: true)
-        let existing = try? await getUserFromFirestore(userId: userId)
-        try? await ProfileRepository.shared.updatePublicIdentityFields(
-            userId: userId,
-            displayName: existing?.displayName,
-            photoURL: URL(string: profilePictureURL)
-        )
         
         cacheProfilePictureURL(profilePictureURL)
     }
@@ -341,23 +335,6 @@ final class UserDataRepository: Sendable {
             )
         }
 
-        let existing = try? await getUserFromFirestore(userId: userId)
-        try? await ProfileRepository.shared.upsertPublicIdentity(
-            ProfileUserIdentity(
-                userId: userId,
-                displayName: displayName,
-                photoURL: existing?.profilePictureURL.flatMap(URL.init(string:)),
-                age: existing?.age,
-                gender: existing?.gender.flatMap(ProfileGender.init(rawValue:)),
-                weightKg: existing?.weightKg,
-                heightCm: existing?.heightCm,
-                locationCity: existing?.locationCity,
-                locationCountryCode: existing?.locationCountry,
-                locationRegionCode: existing?.locationRegion,
-                joinedAt: existing?.joinedAt
-            )
-        )
-        
         cacheDisplayName(displayName)
     }
 
@@ -394,8 +371,8 @@ final class UserDataRepository: Sendable {
         try? await ProfileRepository.shared.upsertPublicIdentity(
             ProfileUserIdentity(
                 userId: userId,
-                displayName: displayName,
-                photoURL: existing?.profilePictureURL.flatMap(URL.init(string:)),
+                displayName: PublicClimberIdentity.storedDisplayName,
+                photoURL: nil,
                 age: age,
                 gender: gender,
                 weightKg: existing?.weightKg,
@@ -473,24 +450,21 @@ final class UserDataRepository: Sendable {
         }
 
         let existing = try? await getUserFromFirestore(userId: userId)
-        let publicDisplayName = displayName ?? existing?.displayName ?? ""
-        if !publicDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            try? await ProfileRepository.shared.upsertPublicIdentity(
-                ProfileUserIdentity(
-                    userId: userId,
-                    displayName: publicDisplayName,
-                    photoURL: existing?.profilePictureURL.flatMap(URL.init(string:)),
-                    age: age ?? existing?.age,
-                    gender: gender ?? existing?.gender.flatMap(ProfileGender.init(rawValue:)),
-                    weightKg: weightKg ?? existing?.weightKg,
-                    heightCm: heightCm ?? existing?.heightCm,
-                    locationCity: locationCity ?? existing?.locationCity,
-                    locationCountryCode: locationCountry?.uppercased() ?? existing?.locationCountry,
-                    locationRegionCode: locationRegion ?? existing?.locationRegion,
-                    joinedAt: existing?.joinedAt
-                )
+        try? await ProfileRepository.shared.upsertPublicIdentity(
+            ProfileUserIdentity(
+                userId: userId,
+                displayName: PublicClimberIdentity.storedDisplayName,
+                photoURL: nil,
+                age: age ?? existing?.age,
+                gender: gender ?? existing?.gender.flatMap(ProfileGender.init(rawValue:)),
+                weightKg: weightKg ?? existing?.weightKg,
+                heightCm: heightCm ?? existing?.heightCm,
+                locationCity: locationCity ?? existing?.locationCity,
+                locationCountryCode: locationCountry?.uppercased() ?? existing?.locationCountry,
+                locationRegionCode: locationRegion ?? existing?.locationRegion,
+                joinedAt: existing?.joinedAt
             )
-        }
+        )
 
         if let displayName {
             cacheDisplayName(displayName)

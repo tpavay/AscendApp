@@ -61,8 +61,6 @@ final class ProfileScreenViewModel {
 
         standings = await standingService.loadOwnStandings(
             userId: userId,
-            displayName: ownIdentity?.displayName ?? displayName,
-            photoURL: ownIdentity?.photoURL ?? photoURL,
             modelContext: modelContext
         )
         let loadedAchievementSnapshot = await loadedAchievements
@@ -75,7 +73,6 @@ final class ProfileScreenViewModel {
 
     func loadOtherUser(
         userId: String,
-        seedIdentity: ProfileUserIdentity,
         viewerSnapshot: ProfileSnapshot,
         climbs: [Climb],
         taskKey: String
@@ -84,6 +81,16 @@ final class ProfileScreenViewModel {
         lastLoadedOtherKey = taskKey
         isLoading = true
         errorMessage = nil
+        let publicIdentity = PublicClimberIdentity.resolve(
+            userId: userId,
+            storedDisplayName: nil,
+            storedPhotoURL: nil
+        )
+        let seedIdentity = ProfileUserIdentity(
+            userId: userId,
+            displayName: publicIdentity.displayName,
+            photoURL: publicIdentity.photoURL
+        )
 
         do {
             async let remoteBundle = profileRepository.fetchRemoteBundle(userId: userId)

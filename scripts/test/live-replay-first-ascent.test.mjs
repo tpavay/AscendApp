@@ -86,6 +86,7 @@ test("seeded First Ascent fields match the server's published shape", () => {
     firstAscentAvatarToken: "SK",
     firstAscentCompletedAt: claimedAt,
     firstAscentDisplayName: "Sarah K.",
+    firstAscentIsSynthetic: true,
     firstAscentPhotoURL: "https://example.test/sarah.jpg",
     firstAscentUserId: "seeded:pack:mount-everest:0",
     firstAscentWorkoutId: "seed-attempt-1",
@@ -101,6 +102,16 @@ test("a holder without a photo seeds an empty string, never undefined", () => {
   );
 
   assert.equal(fields.firstAscentPhotoURL, "");
+});
+
+test("a real QA account is never marked as a trusted synthetic holder", () => {
+  const fields = firstAscentSeedFields(
+    {...attempt, displayName: "Climber", avatarToken: "", photoURL: ""},
+    new Date("2026-01-01T00:00:00Z"),
+    {isSynthetic: false}
+  );
+
+  assert.equal(fields.firstAscentIsSynthetic, false);
 });
 
 test("seeded First Ascent fields cover exactly the declared field names", () => {

@@ -135,11 +135,7 @@ struct LeaderboardServiceTests {
         modelContext.insert(emptyStats)
         try modelContext.save()
 
-        let payloads = try service.prepareSyncPayloads(
-            userId: userId,
-            displayName: "User",
-            photoURL: nil
-        )
+        let payloads = try service.prepareSyncPayloads(userId: userId)
 
         #expect(payloads.isEmpty)
         #expect(emptyStats.needsSync == false)
@@ -158,11 +154,7 @@ struct LeaderboardServiceTests {
         modelContext.insert(emptyStats)
         try modelContext.save()
 
-        let payloads = try service.prepareSyncPayloads(
-            userId: userId,
-            displayName: "User",
-            photoURL: nil
-        )
+        let payloads = try service.prepareSyncPayloads(userId: userId)
 
         #expect(payloads.count == 1)
         #expect(payloads.first?.operation == .delete)

@@ -34,11 +34,7 @@ struct LeaderboardRowListView: View {
                             )
                         } else {
                             NavigationLink {
-                                OtherUserProfileView(
-                                    userId: entry.userId,
-                                    seedDisplayName: entry.displayName,
-                                    seedPhotoURL: entry.photoURL
-                                )
+                                OtherUserProfileView(userId: entry.userId)
                             } label: {
                                 LeaderboardRow(
                                     entry: entry,

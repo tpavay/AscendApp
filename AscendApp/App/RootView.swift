@@ -241,24 +241,13 @@ struct RootView: View {
                 await LeaderboardSessionCache.shared.invalidateAll()
             }
 
-            let cachedDisplayName = UserDataRepository.shared.getCachedDisplayName()?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let displayName = cachedDisplayName?.isEmpty == false ? cachedDisplayName! : authVM.displayName
-            let photoURL = UserDataRepository.shared.getCachedProfilePictureURL().flatMap(URL.init(string:)) ?? authVM.displayPhotoURL
-            guard !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return
-            }
-
             await LeaderboardSyncCoordinator.shared.enqueueSync(
-                userId: currentUserId,
-                displayName: displayName,
-                photoURL: photoURL
+                userId: currentUserId
             )
 
             await ProfilePublicationService.publishCurrentUserProfile(
                 modelContext: modelContext,
                 userId: currentUserId,
-                displayName: displayName,
-                photoURL: photoURL,
                 joinedAt: user.metadata.creationDate
             )
         } catch {

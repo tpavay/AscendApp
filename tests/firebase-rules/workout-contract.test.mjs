@@ -84,6 +84,19 @@ test('users cannot write demographics into another users profile', async () => {
   })));
 });
 
+test('owner can publish only the system public identity', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const profileRef = doc(context.firestore(), `users/${userId}/public_profile/current`);
+
+  await assertSucceeds(setDoc(profileRef, makePublicProfileDocument()));
+  await assertFails(setDoc(profileRef, makePublicProfileDocument({
+    displayName: 'Tyler',
+  })));
+  await assertFails(setDoc(profileRef, makePublicProfileDocument({
+    photoURL: 'https://example.com/private-profile.jpg',
+  })));
+});
+
 test('owner can write daily leaderboard stats', async () => {
   const context = testEnv.authenticatedContext(userId);
   const statsRef = doc(context.firestore(), `leaderboard_stats/daily_2026-04-10_${userId}`);
@@ -103,6 +116,18 @@ test('daily leaderboard stats require a daily period key', async () => {
     timeFrame: 'daily',
     periodKey: '2026-W15',
     periodStartAt: new Date('2026-04-10T00:00:00.000Z'),
+  })));
+});
+
+test('leaderboard stats reject account-authored public identity', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const statsRef = doc(context.firestore(), `leaderboard_stats/weekly_2026-W15_${userId}`);
+
+  await assertFails(setDoc(statsRef, makeLeaderboardDocument({
+    displayName: 'Tyler',
+  })));
+  await assertFails(setDoc(statsRef, makeLeaderboardDocument({
+    photoURL: 'https://example.com/private-profile.jpg',
   })));
 });
 
@@ -393,6 +418,19 @@ test('signed-in users can read server-owned live replay avatars', async () => {
   }));
 });
 
+test('legacy root profile pictures are private even to signed-in users', async () => {
+  const legacyPath = 'profile_pictures/legacy-profile.jpg';
+
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await uploadBytes(ref(adminContext.storage(), legacyPath), new Uint8Array([1, 2, 3]), {
+      contentType: 'image/jpeg',
+    });
+  });
+
+  const context = testEnv.authenticatedContext(userId);
+  await assertFails(getBytes(ref(context.storage(), legacyPath)));
+});
+
 test('clients cannot write live replay leaderboard indexes', async () => {
   const context = testEnv.authenticatedContext(userId);
   const contextKey = 'live_climb__pyramid-giza';
@@ -509,7 +547,7 @@ function makeUserDocument(overrides = {}) {
 function makeLeaderboardDocument(overrides = {}) {
   return {
     userId,
-    displayName: 'Tyler',
+    displayName: 'Climber',
     photoURL: '',
     timeFrame: 'weekly',
     schemaVersion: 2,
@@ -521,6 +559,16 @@ function makeLeaderboardDocument(overrides = {}) {
     totalDuration: 1800,
     stepsPerMinute: 40,
     lastUpdated: new Date('2026-04-10T07:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+function makePublicProfileDocument(overrides = {}) {
+  return {
+    userId,
+    displayName: 'Climber',
+    photoURL: '',
+    lastUpdated: new Date('2026-05-18T12:00:00.000Z'),
     ...overrides,
   };
 }

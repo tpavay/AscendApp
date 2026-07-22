@@ -584,19 +584,24 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             return nil
         }
 
-        let displayName = (data["displayName"] as? String)
-            .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }
-            ?? "Climber"
         let userId = (data["userId"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .nilIfEmpty
+        let isSynthetic = isTrustedSyntheticRecord(data)
+        let identity = PublicClimberIdentity.resolve(
+            userId: userId,
+            storedDisplayName: data["displayName"] as? String,
+            storedPhotoURL: photoURLValue(for: "photoURL", in: data),
+            storedAvatarToken: data["avatarToken"] as? String,
+            isSynthetic: isSynthetic
+        )
 
         return LiveReplayLeaderboardRow(
             id: id,
             rank: intValue(for: "rank", in: data),
-            displayName: displayName,
-            avatarToken: (data["avatarToken"] as? String) ?? Self.avatarToken(for: displayName),
-            photoURL: photoURLValue(for: "photoURL", in: data),
+            displayName: identity.displayName,
+            avatarToken: identity.avatarToken,
+            photoURL: identity.photoURL,
             stepsAtBucket: stepsAtBucket,
             finalSteps: intValue(for: "finalSteps", in: data) ?? stepsAtBucket,
             deltaFromUser: stepsAtBucket - currentSteps,
@@ -604,6 +609,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             isPersonalBest: (data["isPersonalBest"] as? Bool) ?? false,
             completionDurationSeconds: doubleValue(for: "completionDurationSeconds", in: data),
             userId: userId,
+            isSynthetic: isSynthetic,
             gender: stringValue(for: "gender", in: data),
             age: intValue(for: "age", in: data),
             locationCity: stringValue(for: "locationCity", in: data)
@@ -623,27 +629,35 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             return nil
         }
 
-        let displayName = (data["displayName"] as? String)
-            .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }
-            ?? "Climber"
         let userId = (data["userId"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .nilIfEmpty
+        let isCurrentUser = userId == currentUserId
+        let isSynthetic = isTrustedSyntheticRecord(data)
+        let identity = PublicClimberIdentity.resolve(
+            userId: userId,
+            storedDisplayName: data["displayName"] as? String,
+            storedPhotoURL: photoURLValue(for: "photoURL", in: data),
+            storedAvatarToken: data["avatarToken"] as? String,
+            isSynthetic: isSynthetic,
+            isCurrentUser: isCurrentUser
+        )
         let stepsAtBucket = intValue(for: "stepsAtBucket", in: data) ?? 0
 
         return LiveReplayLeaderboardRow(
             id: id,
             rank: max(rank, 1),
-            displayName: displayName,
-            avatarToken: (data["avatarToken"] as? String) ?? Self.avatarToken(for: displayName),
-            photoURL: photoURLValue(for: "photoURL", in: data),
+            displayName: identity.displayName,
+            avatarToken: identity.avatarToken,
+            photoURL: identity.photoURL,
             stepsAtBucket: stepsAtBucket,
             finalSteps: intValue(for: "finalSteps", in: data) ?? stepsAtBucket,
             deltaFromUser: 0,
-            isCurrentUser: userId == currentUserId,
-            isPersonalBest: userId == currentUserId,
+            isCurrentUser: isCurrentUser,
+            isPersonalBest: isCurrentUser,
             completionDurationSeconds: completionDurationSeconds,
             userId: userId,
+            isSynthetic: isSynthetic,
             gender: stringValue(for: "gender", in: data),
             age: intValue(for: "age", in: data),
             locationCity: stringValue(for: "locationCity", in: data)
@@ -691,6 +705,7 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             isPersonalBest: row.isPersonalBest,
             completionDurationSeconds: row.completionDurationSeconds,
             userId: row.userId,
+            isSynthetic: row.isSynthetic,
             gender: row.gender,
             age: row.age,
             locationCity: row.locationCity
@@ -848,15 +863,21 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             return nil
         }
 
-        let displayName = stringValue(for: "firstAscentDisplayName", in: data) ?? "Climber"
-        let avatarToken = stringValue(for: "firstAscentAvatarToken", in: data) ??
-            Self.avatarToken(for: displayName)
+        let isSynthetic = (data["firstAscentIsSynthetic"] as? Bool) == true
+        let identity = PublicClimberIdentity.resolve(
+            userId: stringValue(for: "firstAscentUserId", in: data),
+            storedDisplayName: stringValue(for: "firstAscentDisplayName", in: data),
+            storedPhotoURL: photoURLValue(for: "firstAscentPhotoURL", in: data),
+            storedAvatarToken: stringValue(for: "firstAscentAvatarToken", in: data),
+            isSynthetic: isSynthetic
+        )
 
         return LiveReplayFirstAscent(
             userId: stringValue(for: "firstAscentUserId", in: data),
-            displayName: displayName,
-            avatarToken: avatarToken,
-            photoURL: photoURLValue(for: "firstAscentPhotoURL", in: data),
+            displayName: identity.displayName,
+            avatarToken: identity.avatarToken,
+            photoURL: identity.photoURL,
+            isSynthetic: isSynthetic,
             completedAt: completedAt
         )
     }
@@ -867,14 +888,9 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
             .nilIfEmpty
     }
 
-    private static func avatarToken(for displayName: String) -> String {
-        let initials = displayName
-            .split(separator: " ")
-            .prefix(2)
-            .compactMap(\.first)
-
-        let token = String(initials).uppercased()
-        return token.isEmpty ? "A" : token
+    private func isTrustedSyntheticRecord(_ data: [String: Any]) -> Bool {
+        (data["isSynthetic"] as? Bool) == true ||
+            stringValue(for: "source", in: data) == "synthetic"
     }
 }
 

@@ -102,7 +102,6 @@ async function main() {
     catalog: loadCatalog(),
     Timestamp,
     FieldValue,
-    avatarURLs: await loadSeededProfilePhotoURLs(db),
   });
   console.log(`Prepared ${writes.length} leaderboard documents.`);
   console.log("Note: run the profiles target first when seeding an empty environment.");
@@ -117,23 +116,6 @@ function loadCatalog() {
   const raw = JSON.parse(readFileSync(resolve(REPO_ROOT, "web/public/climbs/catalog-v1.json"), "utf-8"));
   const climbs = Array.isArray(raw) ? raw : raw.climbs;
   return new Map(climbs.map((climb) => [climb.id, climb]));
-}
-
-async function loadSeededProfilePhotoURLs(db) {
-  const avatarURLs = new Map();
-  for (const persona of PROFILE_SEED_PERSONAS) {
-    const snapshot = await db
-      .collection("users")
-      .doc(persona.id)
-      .collection("public_profile")
-      .doc("current")
-      .get();
-    const photoURL = snapshot.data()?.photoURL;
-    if (typeof photoURL === "string" && photoURL.length > 0) {
-      avatarURLs.set(persona.id, photoURL);
-    }
-  }
-  return avatarURLs;
 }
 
 async function leaderboardRefsToClear(db) {

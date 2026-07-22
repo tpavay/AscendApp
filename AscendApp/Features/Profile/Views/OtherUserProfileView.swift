@@ -15,14 +15,6 @@ struct OtherUserProfileView: View {
     @State private var selectedTab: ProfileComparisonTab = .bio
 
     let userId: String
-    let seedDisplayName: String
-    let seedPhotoURL: URL?
-
-    init(userId: String, seedDisplayName: String, seedPhotoURL: URL? = nil) {
-        self.userId = userId
-        self.seedDisplayName = seedDisplayName
-        self.seedPhotoURL = seedPhotoURL
-    }
 
     private var climbs: [Climb] {
         _ = catalogRevision
@@ -30,10 +22,15 @@ struct OtherUserProfileView: View {
     }
 
     private var seedIdentity: ProfileUserIdentity {
-        ProfileUserIdentity(
+        let identity = PublicClimberIdentity.resolve(
             userId: userId,
-            displayName: seedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Climber" : seedDisplayName,
-            photoURL: seedPhotoURL
+            storedDisplayName: nil,
+            storedPhotoURL: nil
+        )
+        return ProfileUserIdentity(
+            userId: userId,
+            displayName: identity.displayName,
+            photoURL: identity.photoURL
         )
     }
 
@@ -164,7 +161,6 @@ struct OtherUserProfileView: View {
 
             await viewModel.loadOtherUser(
                 userId: userId,
-                seedIdentity: seedIdentity,
                 viewerSnapshot: viewerSnapshot,
                 climbs: climbs,
                 taskKey: taskKey
@@ -271,7 +267,7 @@ private struct ProfileComparisonHeader: View {
             if isLoading {
                 ProfileComparisonSkeletonText(width: 78, height: 18)
             } else {
-                Text(shortName(identity.displayName, fallback: fallbackName))
+                Text(resolvedName(identity.displayName, fallback: fallbackName))
                     .font(.montserratBold(size: 18))
                     .foregroundStyle(.white)
                     .lineLimit(1)
@@ -281,10 +277,10 @@ private struct ProfileComparisonHeader: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func shortName(_ name: String, fallback: String) -> String {
+    private func resolvedName(_ name: String, fallback: String) -> String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return fallback }
-        return trimmed.split(separator: " ").first.map(String.init) ?? trimmed
+        return trimmed
     }
 }
 

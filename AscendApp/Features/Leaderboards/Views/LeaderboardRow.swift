@@ -17,6 +17,16 @@ struct LeaderboardRow: View {
         colorScheme == .dark ? .white : .black
     }
 
+    private var identity: PublicClimberIdentity.Presentation {
+        PublicClimberIdentity.resolve(
+            userId: entry.userId,
+            storedDisplayName: entry.displayName,
+            storedPhotoURL: entry.photoURL,
+            isCurrentUser: entry.isCurrentUser,
+            currentUserPhotoURL: entry.photoURL
+        )
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             Text(CompetitionRanking.rankLabel(entry.rank, isTied: entry.isTied))
@@ -25,7 +35,7 @@ struct LeaderboardRow: View {
                 .frame(width: 34, alignment: .leading)
                 .monospacedDigit()
 
-            Text(entry.displayName.uppercased())
+            Text(identity.displayName.uppercased())
                 .font(.montserratMedium(size: 13))
                 .foregroundStyle(entry.isCurrentUser ? .accent : primaryTextColor.opacity(0.82))
                 .lineLimit(1)
@@ -44,7 +54,7 @@ struct LeaderboardRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
             "\(CompetitionRanking.rankAccessibilityLabel(entry.rank, isTied: entry.isTied)), "
-                + "\(entry.displayName), \(entry.formattedValue) \(metric.displayName)"
+                + "\(identity.displayName), \(entry.formattedValue) \(metric.displayName)"
         )
     }
 }

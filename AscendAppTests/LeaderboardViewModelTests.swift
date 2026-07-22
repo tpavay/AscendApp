@@ -94,8 +94,7 @@ struct LeaderboardViewModelTests {
 
     @Test
     func profileSyncKeepsTheTiedCurrentUsersRankAndTieMarker() async {
-        // Renaming or re-photographing yourself must not reset your rank or drop your
-        // tie marker — that would put "2" next to a rival still reading "T2".
+        // Refreshing the private self photo must not reset rank or drop the tie marker.
         let cache = LeaderboardSessionCache()
 
         let viewModel = LeaderboardViewModel(sessionCache: cache)
@@ -112,18 +111,41 @@ struct LeaderboardViewModelTests {
         await viewModel.loadLeaderboard(userId: "zzz")
         viewModel.updateCurrentUserProfile(
             userId: "zzz",
-            displayName: "Renamed",
             photoURL: URL(string: "https://example.com/avatar.jpg")
         )
 
         let listEntry = viewModel.leaderboardEntries.first { $0.userId == "zzz" }
-        #expect(listEntry?.displayName == "Renamed")
+        #expect(listEntry?.displayName == "You")
+        #expect(listEntry?.photoURL == URL(string: "https://example.com/avatar.jpg"))
         #expect(listEntry?.rank == 2)
         #expect(listEntry?.isTied == true)
         #expect(listEntry?.isCurrentUser == true)
         #expect(viewModel.userEntry?.rank == listEntry?.rank)
         #expect(viewModel.userEntry?.isTied == listEntry?.isTied)
-        #expect(viewModel.userEntry?.displayName == "Renamed")
+        #expect(viewModel.userEntry?.displayName == "You")
+    }
+
+    @Test
+    func profileSyncLeavesTheSessionCachePopulated() async {
+        // Cached remote stats carry only sanitized identity; "You" and the private
+        // photo are resolved at build time, so a profile sync must not force a refetch.
+        let cache = LeaderboardSessionCache()
+
+        let viewModel = LeaderboardViewModel(sessionCache: cache)
+        viewModel.selectedMetric = .climb
+        viewModel.selectedTimeFrame = .weekly
+
+        let stats = [makeRemoteStat(userId: "zzz", displayName: "Climber")]
+        await cache.setDetailEntries(stats, for: .climb, timeFrame: .weekly)
+
+        await viewModel.loadLeaderboard(userId: "zzz")
+        viewModel.updateCurrentUserProfile(
+            userId: "zzz",
+            photoURL: URL(string: "https://example.com/avatar.jpg")
+        )
+        await Task.yield()
+
+        #expect(await cache.detailEntries(for: .climb, timeFrame: .weekly)?.count == 1)
     }
 
     @Test

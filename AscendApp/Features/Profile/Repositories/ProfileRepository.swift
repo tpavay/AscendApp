@@ -63,8 +63,8 @@ final class ProfileRepository: Sendable {
     func upsertPublicIdentity(_ identity: ProfileUserIdentity) async throws {
         var data: [String: Any] = [
             "userId": identity.userId,
-            "displayName": identity.displayName,
-            "photoURL": identity.photoURL?.absoluteString ?? "",
+            "displayName": PublicClimberIdentity.storedDisplayName,
+            "photoURL": PublicClimberIdentity.storedPhotoURL,
             "lastUpdated": FieldValue.serverTimestamp()
         ]
 
@@ -94,33 +94,6 @@ final class ProfileRepository: Sendable {
         }
 
         try await publicProfileDocument(userId: identity.userId).setData(data, merge: true)
-    }
-
-    func updatePublicIdentityFields(
-        userId: String,
-        displayName: String? = nil,
-        photoURL: URL? = nil
-    ) async throws {
-        let document = publicProfileDocument(userId: userId)
-        let exists = (try? await document.getDocument().exists) ?? false
-        var data: [String: Any] = [
-            "userId": userId,
-            "lastUpdated": FieldValue.serverTimestamp()
-        ]
-
-        if !exists {
-            let fallbackDisplayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            data["displayName"] = fallbackDisplayName.isEmpty ? "Climber" : fallbackDisplayName
-            data["photoURL"] = photoURL?.absoluteString ?? ""
-        }
-
-        if let displayName {
-            data["displayName"] = displayName
-        }
-        if let photoURL {
-            data["photoURL"] = photoURL.absoluteString
-        }
-        try await document.setData(data, merge: true)
     }
 
     func upsertStats(userId: String, stats: ProfileStatsSnapshot) async throws {
@@ -191,10 +164,17 @@ final class ProfileRepository: Sendable {
     }
 
     private func parseIdentity(userId: String, data: [String: Any]) -> ProfileUserIdentity {
-        ProfileUserIdentity(
-            userId: stringValue(for: "userId", in: data) ?? userId,
-            displayName: stringValue(for: "displayName", in: data) ?? "Climber",
-            photoURL: stringValue(for: "photoURL", in: data).flatMap(URL.init(string:)),
+        let resolvedUserId = stringValue(for: "userId", in: data) ?? userId
+        let identity = PublicClimberIdentity.resolve(
+            userId: resolvedUserId,
+            storedDisplayName: stringValue(for: "displayName", in: data),
+            storedPhotoURL: stringValue(for: "photoURL", in: data).flatMap(URL.init(string:))
+        )
+
+        return ProfileUserIdentity(
+            userId: resolvedUserId,
+            displayName: identity.displayName,
+            photoURL: identity.photoURL,
             age: intValue(for: "age", in: data),
             gender: stringValue(for: "gender", in: data).flatMap(ProfileGender.init(rawValue:)),
             weightKg: doubleValue(for: "weight_kg", in: data),

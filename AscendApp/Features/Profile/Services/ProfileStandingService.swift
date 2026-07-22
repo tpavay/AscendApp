@@ -18,28 +18,20 @@ final class ProfileStandingService: Sendable {
     }
 
     func loadStandings(userId: String) async -> [ProfileStanding] {
-        await loadStandings(userId: userId, localContext: nil)
+        await loadStandings(userId: userId, includesLocalStats: false)
     }
 
     func loadOwnStandings(
         userId: String,
-        displayName: String,
-        photoURL: URL?,
         modelContext: ModelContext
     ) async -> [ProfileStanding] {
         leaderboardService.configure(modelContext: modelContext)
-        return await loadStandings(
-            userId: userId,
-            localContext: LocalStandingContext(
-                displayName: displayName,
-                photoURL: photoURL
-            )
-        )
+        return await loadStandings(userId: userId, includesLocalStats: true)
     }
 
     private func loadStandings(
         userId: String,
-        localContext: LocalStandingContext?
+        includesLocalStats: Bool = false
     ) async -> [ProfileStanding] {
         var standings: [ProfileStanding] = []
 
@@ -55,11 +47,15 @@ final class ProfileStandingService: Sendable {
                     stats,
                     userId: userId,
                     timeFrame: timeFrame,
-                    localContext: localContext
+                    includesLocalStats: includesLocalStats
                 )
                 standings.append(standing(for: userId, timeFrame: timeFrame, stats: resolvedStats))
             } catch {
-                standings.append(fallbackStanding(for: userId, timeFrame: timeFrame, localContext: localContext))
+                standings.append(fallbackStanding(
+                    for: userId,
+                    timeFrame: timeFrame,
+                    includesLocalStats: includesLocalStats
+                ))
             }
         }
 
@@ -70,10 +66,9 @@ final class ProfileStandingService: Sendable {
         _ stats: [FirestoreLeaderboardStats],
         userId: String,
         timeFrame: LeaderboardTimeFrame,
-        localContext: LocalStandingContext?
+        includesLocalStats: Bool
     ) -> [FirestoreLeaderboardStats] {
-        guard
-            let localContext,
+        guard includesLocalStats,
             let localStats = try? leaderboardService.getLocalStats(for: userId, timeFrame: timeFrame)
         else {
             return stats
@@ -83,27 +78,23 @@ final class ProfileStandingService: Sendable {
             stats,
             metric: .climb,
             userId: userId,
-            localStats: localStats,
-            displayName: localContext.displayName,
-            photoURL: localContext.photoURL
+            localStats: localStats
         )
     }
 
     private func fallbackStanding(
         for userId: String,
         timeFrame: LeaderboardTimeFrame,
-        localContext: LocalStandingContext?
+        includesLocalStats: Bool
     ) -> ProfileStanding {
-        if let localContext,
+        if includesLocalStats,
            let localStats = try? leaderboardService.getLocalStats(for: userId, timeFrame: timeFrame),
            localStats.hasActivity {
             let localOnlyStats = LeaderboardCurrentUserReconciler.reconcileDetailStats(
                 [],
                 metric: .climb,
                 userId: userId,
-                localStats: localStats,
-                displayName: localContext.displayName,
-                photoURL: localContext.photoURL
+                localStats: localStats
             )
             return standing(for: userId, timeFrame: timeFrame, stats: localOnlyStats)
         }
@@ -203,10 +194,5 @@ final class ProfileStandingService: Sendable {
     private func stepDelta(from value: Double, to targetValue: Double?) -> Int? {
         guard let targetValue else { return nil }
         return max(Int((targetValue - value).rounded()), 0)
-    }
-
-    private struct LocalStandingContext {
-        let displayName: String
-        let photoURL: URL?
     }
 }

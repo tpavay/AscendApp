@@ -20,10 +20,9 @@ final class LeaderboardTestDataSeeder {
         }
 
         let userId = user.uid
-        let displayName = user.displayName ?? "Test User"
-        let photoURL = user.photoURL?.absoluteString ?? ""
+        let privateDisplayName = user.displayName ?? "Test User"
 
-        debugLog("Seeding leaderboard data for \(displayName) (\(userId))...")
+        debugLog("Seeding leaderboard data for \(privateDisplayName) (\(userId))...")
 
         for timeFrame in LeaderboardTimeFrame.allCases {
             let period = timeFrame.currentPeriod()
@@ -34,8 +33,8 @@ final class LeaderboardTestDataSeeder {
 
             try await docRef.setData([
                 "userId": userId,
-                "displayName": displayName,
-                "photoURL": photoURL,
+                "displayName": PublicClimberIdentity.storedDisplayName,
+                "photoURL": PublicClimberIdentity.storedPhotoURL,
                 "timeFrame": timeFrame.rawValue,
                 "schemaVersion": LeaderboardStats.currentSchemaVersion,
                 "periodKey": period.key,
@@ -49,7 +48,7 @@ final class LeaderboardTestDataSeeder {
             ], merge: true)
         }
 
-        debugLog("Seeded \(LeaderboardTimeFrame.allCases.count) entries for \(displayName)")
+        debugLog("Seeded \(LeaderboardTimeFrame.allCases.count) entries for \(privateDisplayName)")
     }
 
     func clearTestData() async throws {

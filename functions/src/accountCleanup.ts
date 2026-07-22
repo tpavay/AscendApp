@@ -276,6 +276,7 @@ export function makeAdminPort(
         await document.ref.update({
           firstAscentAvatarToken: "",
           firstAscentDisplayName: ANONYMIZED_FIRST_ASCENT_NAME,
+          firstAscentIsSynthetic: false,
           firstAscentPhotoURL: "",
         });
       }

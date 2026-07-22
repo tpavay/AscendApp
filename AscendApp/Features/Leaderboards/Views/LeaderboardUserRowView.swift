@@ -12,16 +12,22 @@ struct LeaderboardUserRowView: View {
     let metric: LeaderboardMetric
     var crownGapText: String? = nil
 
+    private var identity: PublicClimberIdentity.Presentation {
+        PublicClimberIdentity.resolve(
+            userId: entry.userId,
+            storedDisplayName: entry.displayName,
+            storedPhotoURL: entry.photoURL,
+            isCurrentUser: true,
+            currentUserPhotoURL: entry.photoURL
+        )
+    }
+
     private var rowFill: Color {
         colorScheme == .dark ? Color.white.opacity(0.055) : Color.black.opacity(0.045)
     }
 
     private var primaryTextColor: Color {
         colorScheme == .dark ? .white : .black
-    }
-
-    private var shouldShowYouBadge: Bool {
-        entry.displayName.trimmingCharacters(in: .whitespacesAndNewlines).localizedCaseInsensitiveCompare("you") != .orderedSame
     }
 
     var body: some View {
@@ -38,14 +44,7 @@ struct LeaderboardUserRowView: View {
                 .frame(width: 42, height: 42)
 
             VStack(alignment: .leading, spacing: 2) {
-                if shouldShowYouBadge {
-                    Text("YOU")
-                        .font(.montserratBold(size: 9))
-                        .foregroundStyle(.accent)
-                        .lineLimit(1)
-                }
-
-                Text(entry.displayName.uppercased())
+                Text(identity.displayName.uppercased())
                     .font(.montserratBold(size: 15))
                     .foregroundStyle(primaryTextColor)
                     .lineLimit(1)
@@ -103,7 +102,7 @@ struct LeaderboardUserRowView: View {
         let rankText = entry.isTied
             ? "You are tied for rank \(entry.rank)"
             : "Your rank \(entry.rank)"
-        let base = "\(rankText), \(entry.displayName), \(entry.formattedValue) \(metric.displayName)"
+        let base = "\(rankText), \(identity.displayName), \(entry.formattedValue) \(metric.displayName)"
         guard let crownGapText else {
             return base
         }
@@ -112,7 +111,7 @@ struct LeaderboardUserRowView: View {
 
     @ViewBuilder
     private var profileImage: some View {
-        if let photoURL = entry.photoURL {
+        if let photoURL = identity.photoURL {
             AsyncImage(url: photoURL) { phase in
                 switch phase {
                 case .success(let image):

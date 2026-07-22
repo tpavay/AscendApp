@@ -4,7 +4,7 @@ import Testing
 
 struct LeaderboardSessionCacheTests {
     @Test
-    func cacheUpdatesCurrentUserAcrossPreviewAndDetailEntries() async {
+    func invalidationRemovesPreviouslyCachedAccountAuthoredIdentity() async {
         let cache = LeaderboardSessionCache()
 
         let weeklyStats = [
@@ -19,23 +19,10 @@ struct LeaderboardSessionCacheTests {
         await cache.setDetailEntries(monthlyStats, for: .climb, timeFrame: .monthly)
         await cache.setPreviewEntries([.climb: weeklyStats], for: .weekly)
 
-        let updatedPhotoURL = URL(string: "https://example.com/after.png")
-        await cache.updateCurrentUserProfile(userId: "current-user", displayName: "After", photoURL: updatedPhotoURL)
-
-        let weeklyDetail = await cache.detailEntries(for: .climb, timeFrame: .weekly)
-        let monthlyDetail = await cache.detailEntries(for: .climb, timeFrame: .monthly)
-        let weeklyPreview = await cache.previewEntries(for: .weekly)
-
-        #expect(weeklyDetail?.first?.displayName == "After")
-        #expect(weeklyDetail?.first?.photoURL == updatedPhotoURL?.absoluteString)
-        #expect(monthlyDetail?.first?.displayName == "After")
-        #expect(weeklyPreview?[.climb]?.first?.displayName == "After")
-        #expect(weeklyDetail?.last?.displayName == "Other")
-
-        await cache.invalidate(timeFrame: .weekly)
+        await cache.invalidateAll()
         #expect(await cache.detailEntries(for: .climb, timeFrame: .weekly) == nil)
         #expect(await cache.previewEntries(for: .weekly) == nil)
-        #expect(await cache.detailEntries(for: .climb, timeFrame: .monthly)?.count == 1)
+        #expect(await cache.detailEntries(for: .climb, timeFrame: .monthly) == nil)
     }
 
     private func makeRemoteStat(

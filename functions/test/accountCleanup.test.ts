@@ -391,6 +391,7 @@ test("de-identifies a First Ascent the deleted user holds", async () => {
   assert.equal(context.firstAscentDisplayName, ANONYMIZED_FIRST_ASCENT_NAME);
   assert.equal(context.firstAscentPhotoURL, "");
   assert.equal(context.firstAscentAvatarToken, "");
+  assert.equal(context.firstAscentIsSynthetic, false);
 });
 
 test("a de-identified First Ascent keeps its slot and date", async () => {
