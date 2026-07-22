@@ -6,21 +6,23 @@ on:
     branches: [main]
     paths:
       - "AscendApp/**"
+      - "AscendLiveActivityWidgets/**"
       - "AscendApp.xcodeproj/**"
       - "fastlane/**"
-      - "scripts/upload-sentry-dsyms.sh"
+      - "scripts/**"
       - "Gemfile"
       - "Gemfile.lock"
       - "functions/**"
       - "web/**"
       - "firebase.json"
       - "firestore.rules"
+      - "firestore.indexes.json"
       - "storage.rules"
       - ".firebaserc"
       - ".github/workflows/deploy-production.yml"
 
 concurrency:
-  group: deploy-production-${{ github.ref }}
+  group: deploy-production
   cancel-in-progress: false
 
 permissions:
@@ -36,7 +38,8 @@ jobs:
           if [ "${{ vars.PRODUCTION_READY }}" != "true" ]; then
             echo "Production deploy is disabled."
             echo "Set repository variable PRODUCTION_READY=true after provisioning production Firebase + secrets."
-            echo "Workflow will exit without deploy jobs."
+            echo "Workflow will fail before deploy jobs."
+            exit 1
           else
             echo "Production deploy is enabled."
           fi
@@ -154,6 +157,13 @@ jobs:
             exit 1
           fi
 
+      - name: Derive build number
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_number="$(scripts/ci/derive-build-number.sh 1)"
+          echo "BUILD_NUMBER=${build_number}" >> "$GITHUB_ENV"
+
       - name: Build production IPA via Fastlane
         env:
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
@@ -168,7 +178,6 @@ jobs:
           IOS_PRODUCTION_WIDGET_PROVISIONING_PROFILE_SPECIFIER: match AppStore com.TylerPavay.AscendApp.LiveClimbWidgets
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "120"
-          BUILD_NUMBER: ${{ github.run_number }}
         run: bundle exec fastlane build_production
 
       - name: Upload production IPA artifact

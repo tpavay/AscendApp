@@ -112,7 +112,8 @@ platform :ios do
     staging_widget_bundle_identifier = ENV.fetch("IOS_STAGING_WIDGET_BUNDLE_ID", "com.TylerPavay.AscendApp.staging.LiveClimbWidgets")
     staging_widget_profile_specifier = ENV.fetch("IOS_STAGING_WIDGET_PROVISIONING_PROFILE_SPECIFIER", "match AppStore com.TylerPavay.AscendApp.staging.LiveClimbWidgets")
 
-    # Auto-increment build number on CI using the workflow run number
+    # BUILD_NUMBER is derived pre-archive by scripts/ci/derive-build-number.sh
+    # from epoch seconds and the workflow slot, not github.run_number.
     build_number = ENV["BUILD_NUMBER"]
     if build_number
       increment_build_number(
@@ -196,7 +197,8 @@ platform :ios do
     production_widget_bundle_identifier = ENV.fetch("IOS_PRODUCTION_WIDGET_BUNDLE_ID", "com.TylerPavay.AscendApp.LiveClimbWidgets")
     production_widget_profile_specifier = ENV.fetch("IOS_PRODUCTION_WIDGET_PROVISIONING_PROFILE_SPECIFIER", "match AppStore com.TylerPavay.AscendApp.LiveClimbWidgets")
 
-    # Auto-increment build number on CI using the workflow run number
+    # BUILD_NUMBER is derived pre-archive by scripts/ci/derive-build-number.sh
+    # from epoch seconds and the workflow slot, not github.run_number.
     build_number = ENV["BUILD_NUMBER"]
     if build_number
       increment_build_number(
