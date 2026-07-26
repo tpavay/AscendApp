@@ -1,7 +1,7 @@
 {
   "name": "functions",
   "scripts": {
-    "lint": "eslint --ext .js,.ts .",
+    "lint": "eslint .",
     "build": "node -e \"require('fs').rmSync('lib', { recursive: true, force: true })\" && tsc",
     "test": "npm run build && node --test lib/test/*.test.js",
     "build:watch": "tsc --watch",
@@ -20,12 +20,11 @@
     "firebase-functions": "^7.0.0"
   },
   "devDependencies": {
-    "@typescript-eslint/eslint-plugin": "^5.12.0",
-    "@typescript-eslint/parser": "^5.12.0",
-    "eslint": "^8.9.0",
-    "eslint-config-google": "^0.14.0",
-    "eslint-plugin-import": "^2.25.4",
-    "typescript": "^5.7.3"
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.8.0",
+    "globals": "^17.7.0",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.65.0"
   },
   "overrides": {
     "uuid": "^11.1.1"

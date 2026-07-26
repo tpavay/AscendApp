@@ -1,8 +1,6 @@
 import {onSchedule} from "firebase-functions/v2/scheduler";
 import * as admin from "firebase-admin";
 
-/* eslint-disable require-jsdoc */
-
 const LEADERBOARD_STATS_COLLECTION = "leaderboard_stats";
 const LEADERBOARD_PERIODS_COLLECTION = "leaderboard_periods";
 const USERS_COLLECTION = "users";
