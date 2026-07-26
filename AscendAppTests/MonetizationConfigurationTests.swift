@@ -17,6 +17,7 @@ struct MonetizationConfigurationTests {
         #expect(configuration.revenueCatAppStoreAPIKey == "appl_test_key")
         #expect(configuration.revenueCatTestAPIKey == "test_store_key")
         #expect(configuration.superwallAPIKey == "pk_test_key")
+        #expect(!configuration.hasUnreplacedPlaceholderKeys)
     }
 
     @Test
@@ -32,6 +33,48 @@ struct MonetizationConfigurationTests {
         #expect(configuration.revenueCatAPIKey == nil)
         #expect(configuration.revenueCatTestAPIKey == nil)
         #expect(configuration.superwallAPIKey == nil)
+        #expect(!configuration.hasUnreplacedPlaceholderKeys)
+    }
+
+    @Test
+    func treatsUnreplacedPlaceholderKeysAsUnavailable() {
+        let configuration = MonetizationConfiguration(
+            infoDictionary: [
+                MonetizationConfiguration.revenueCatAPIKeyInfoKey: "REPLACE_ME_PRODUCTION_REVENUECAT_KEY",
+                MonetizationConfiguration.revenueCatTestAPIKeyInfoKey: " replace_me_production_revenuecat_test_key ",
+                MonetizationConfiguration.revenueCatUseTestStoreInfoKey: "YES",
+                MonetizationConfiguration.superwallAPIKeyInfoKey: "REPLACE_ME_PRODUCTION_SUPERWALL_KEY",
+                MonetizationConfiguration.superwallTestModeInfoKey: "YES"
+            ],
+            allowsTestMode: true,
+            allowsUnentitledAppAccess: false
+        )
+
+        #expect(configuration.revenueCatAPIKey == nil)
+        #expect(configuration.revenueCatAppStoreAPIKey == nil)
+        #expect(configuration.revenueCatTestAPIKey == nil)
+        #expect(configuration.superwallAPIKey == nil)
+        #expect(configuration.revenueCatStoreMode == .unavailable)
+        #expect(!configuration.isRevenueCatTestStoreEnabled)
+        #expect(!configuration.canConfigureRevenueCat)
+        #expect(!configuration.canConfigureSuperwall)
+        #expect(configuration.hasUnreplacedPlaceholderKeys)
+    }
+
+    @Test
+    func flagsPlaceholdersEvenWhenOnlyOneKeyIsUnreplaced() {
+        let superwallPlaceholderOnly = MonetizationConfiguration(
+            infoDictionary: [
+                MonetizationConfiguration.revenueCatAPIKeyInfoKey: "appl_test_key",
+                MonetizationConfiguration.superwallAPIKeyInfoKey: "REPLACE_ME_STAGING_SUPERWALL_KEY"
+            ]
+        )
+
+        #expect(superwallPlaceholderOnly.revenueCatAPIKey == "appl_test_key")
+        #expect(superwallPlaceholderOnly.superwallAPIKey == nil)
+        #expect(superwallPlaceholderOnly.canConfigureRevenueCat)
+        #expect(!superwallPlaceholderOnly.canConfigureSuperwall)
+        #expect(superwallPlaceholderOnly.hasUnreplacedPlaceholderKeys)
     }
 
     @Test

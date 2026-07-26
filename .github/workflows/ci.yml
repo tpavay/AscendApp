@@ -60,6 +60,10 @@ jobs:
             scripts:
               - "scripts/**"
               - "SharedTestVectors/**"
+              # The monetization build-configuration suite reads both of these,
+              # so a key or Info.plist edit must run it.
+              - "AscendApp.xcodeproj/**"
+              - "AscendApp/Info.plist"
               - ".github/workflows/**"
             web:
               - "web/**"

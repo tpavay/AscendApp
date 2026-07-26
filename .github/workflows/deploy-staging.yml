@@ -146,6 +146,13 @@ jobs:
             exit 1
           fi
 
+      # A placeholder RevenueCat or Superwall key would archive and upload
+      # cleanly while leaving every staging tester behind an unresolvable
+      # paywall, so fail before the archive instead.
+      - name: Verify staging monetization keys
+        shell: bash
+        run: node scripts/ci/assert-monetization-keys-configured.mjs Staging
+
       - name: Derive build number
         shell: bash
         run: |
