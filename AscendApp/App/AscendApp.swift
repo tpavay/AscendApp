@@ -18,19 +18,19 @@ struct AscendApp: App {
     private let launchFailure: AppLaunchFailure?
 
     init() {
-        let firebaseFailure = Self.configureFirebase()
+        let startupFailure = Self.configureFirebase() ?? Self.unreplacedMonetizationKeysFailure()
         let containerResult = Self.createModelContainer()
 
         switch containerResult {
         case .success(let modelContainer):
             self.modelContainer = modelContainer
-            self.launchFailure = firebaseFailure
+            self.launchFailure = startupFailure
         case .failure(let failure):
             self.modelContainer = nil
-            self.launchFailure = firebaseFailure ?? failure
+            self.launchFailure = startupFailure ?? failure
         }
 
-        if firebaseFailure == nil {
+        if startupFailure == nil {
             #if DEBUG || STAGING
             SuperwallStaticConfigCacheBusterURLProtocol.register()
             #endif
@@ -55,6 +55,25 @@ struct AscendApp: App {
         }
         FirebaseApp.configure()
         return nil
+    }
+
+    /// Backstop for the staging and production archive preflight
+    /// (`scripts/ci/assert-monetization-keys-configured.mjs`): a shippable build
+    /// whose monetization keys are still placeholders refuses to start instead of
+    /// stranding every user behind a paywall that can never resolve.
+    private static func unreplacedMonetizationKeysFailure() -> AppLaunchFailure? {
+        #if DEBUG
+        return nil
+        #else
+        guard MonetizationConfiguration.live.hasUnreplacedPlaceholderKeys else { return nil }
+
+        AppDiagnosticsRecorder.shared.record(
+            "monetization_placeholder_keys",
+            level: .error,
+            mirrorToCrashlytics: false
+        )
+        return .monetizationKeysNotReplaced
+        #endif
     }
 
     var body: some Scene {
@@ -141,6 +160,7 @@ private enum ModelContainerCreationResult {
 
 private enum AppLaunchFailure {
     case missingFirebaseConfiguration
+    case monetizationKeysNotReplaced
     case localDataUnavailable
     case startupUnavailable
 
@@ -148,6 +168,8 @@ private enum AppLaunchFailure {
         switch self {
         case .missingFirebaseConfiguration:
             return "This build can't start."
+        case .monetizationKeysNotReplaced:
+            return "This build can't ship."
         case .localDataUnavailable:
             return "Ascend couldn't load your data."
         case .startupUnavailable:
@@ -159,6 +181,8 @@ private enum AppLaunchFailure {
         switch self {
         case .missingFirebaseConfiguration:
             return "Install a fresh build of Ascend and try again."
+        case .monetizationKeysNotReplaced:
+            return "Its RevenueCat and Superwall keys are still placeholders. Replace them, then rebuild."
         case .localDataUnavailable:
             return "Restart the app. If this keeps happening, contact support before reinstalling."
         case .startupUnavailable:

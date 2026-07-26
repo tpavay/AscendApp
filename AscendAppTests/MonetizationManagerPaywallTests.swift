@@ -123,6 +123,67 @@ struct MonetizationManagerPaywallTests {
         #expect(paywallPresenter.registeredPlacement == nil)
         #expect(receivedOutcome == .failed(message: "Superwall is not configured for this build."))
     }
+
+    @Test
+    func placeholderKeysLeaveTheGateOnTheUnconfiguredPath() {
+        let paywallPresenter = PaywallPresenterSpy()
+        let entitlementService = EntitlementServiceStub()
+        let manager = MonetizationManager(
+            entitlementService: entitlementService,
+            paywallPresenter: paywallPresenter
+        )
+        var receivedOutcome: PaywallPresentationOutcome?
+
+        manager.configure(
+            configuration: MonetizationConfiguration(
+                infoDictionary: [
+                    MonetizationConfiguration.revenueCatAPIKeyInfoKey: "REPLACE_ME_PRODUCTION_REVENUECAT_KEY",
+                    MonetizationConfiguration.superwallAPIKeyInfoKey: "REPLACE_ME_PRODUCTION_SUPERWALL_KEY"
+                ],
+                allowsUnentitledAppAccess: false
+            )
+        )
+        manager.presentPaywall(.appAccessGate) { outcome in
+            receivedOutcome = outcome
+        }
+
+        #expect(!manager.isRevenueCatConfigured)
+        #expect(!manager.isSuperwallConfigured)
+        #expect(!manager.hasAppAccess)
+        #expect(paywallPresenter.registeredPlacement == nil)
+        #expect(receivedOutcome == .failed(message: "Superwall is not configured for this build."))
+        #expect(
+            !AppAccessRestoreState.idle.isButtonEnabled(
+                isRevenueCatConfigured: manager.isRevenueCatConfigured
+            )
+        )
+        #expect(
+            AppAccessRestoreState.idle.buttonTitle(
+                isRevenueCatConfigured: manager.isRevenueCatConfigured
+            ) == "Restore Unavailable"
+        )
+    }
+
+    @Test
+    func realKeysConfigureBothMonetizationServices() {
+        let manager = MonetizationManager(
+            entitlementService: EntitlementServiceStub(),
+            paywallPresenter: PaywallPresenterSpy()
+        )
+
+        manager.configure(
+            configuration: MonetizationConfiguration(
+                infoDictionary: [
+                    MonetizationConfiguration.revenueCatAPIKeyInfoKey: "appl_test_key",
+                    MonetizationConfiguration.superwallAPIKeyInfoKey: "pk_test_key"
+                ],
+                allowsUnentitledAppAccess: false
+            )
+        )
+
+        #expect(manager.isRevenueCatConfigured)
+        #expect(manager.isSuperwallConfigured)
+    }
 }
 
 @MainActor
@@ -137,7 +198,10 @@ final class PaywallPresenterSpy: PaywallPresenting {
         self.isConfigured = isConfigured
     }
 
-    func configure(configuration: MonetizationConfiguration) {}
+    /// Mirrors `SuperwallPaywallPresenter.configure`, which needs both keys.
+    func configure(configuration: MonetizationConfiguration) {
+        isConfigured = configuration.canConfigureSuperwall
+    }
 
     func identify(userId: String) {}
 
@@ -163,7 +227,10 @@ final class EntitlementServiceStub: EntitlementServicing {
     var entitlementState = MonetizationEntitlementState.inactive
     var isConfigured = true
 
-    func configure(configuration: MonetizationConfiguration) {}
+    /// Mirrors `RevenueCatEntitlementService.configure`, which needs a usable key.
+    func configure(configuration: MonetizationConfiguration) {
+        isConfigured = configuration.canConfigureRevenueCat
+    }
 
     func refreshCustomerInfo() async {}
 

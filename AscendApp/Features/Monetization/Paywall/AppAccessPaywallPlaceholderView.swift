@@ -5,13 +5,7 @@ struct AppAccessPaywallPlaceholderView: View {
 
     @State private var hasAttemptedAutomaticPresentation = false
     @State private var presentationState = AppAccessPaywallPresentationState.ready
-    @State private var restoreState: RestoreState?
-
-    private enum RestoreState: Equatable {
-        case restoring
-        case restored
-        case failed
-    }
+    @State private var restoreState = AppAccessRestoreState.idle
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -63,7 +57,7 @@ struct AppAccessPaywallPlaceholderView: View {
                 }
 
                 Button(action: restorePurchases) {
-                    Text(restoreButtonTitle)
+                    Text(restoreState.buttonTitle(isRevenueCatConfigured: monetizationManager.isRevenueCatConfigured))
                         .font(.montserratSemiBold(size: 15))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
@@ -74,7 +68,7 @@ struct AppAccessPaywallPlaceholderView: View {
                         )
                 }
                 .buttonStyle(.plain)
-                .disabled(restoreState == .restoring || !monetizationManager.isRevenueCatConfigured)
+                .disabled(!restoreState.isButtonEnabled(isRevenueCatConfigured: monetizationManager.isRevenueCatConfigured))
 
                 #if DEBUG
                 if monetizationManager.debugForcesAppAccessPaywall {
@@ -114,23 +108,6 @@ struct AppAccessPaywallPlaceholderView: View {
             params: ["source": source]
         ) { outcome in
             presentationState.handle(outcome)
-        }
-    }
-
-    private var restoreButtonTitle: String {
-        guard monetizationManager.isRevenueCatConfigured else {
-            return "Restore Unavailable"
-        }
-
-        switch restoreState {
-        case .restoring:
-            return "Restoring..."
-        case .restored:
-            return "Restored"
-        case .failed:
-            return "Restore Failed"
-        case nil:
-            return "Restore Purchases"
         }
     }
 

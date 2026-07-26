@@ -105,7 +105,7 @@ private struct FallbackStatesProof: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Text("Restore Purchases")
+            Text(AppAccessRestoreState.idle.buttonTitle(isRevenueCatConfigured: true))
                 .font(.montserratSemiBold(size: 15))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)

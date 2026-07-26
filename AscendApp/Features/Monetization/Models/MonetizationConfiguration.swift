@@ -15,6 +15,17 @@ struct MonetizationConfiguration: Equatable {
     static let superwallAPIKeyInfoKey = "AscendSuperwallAPIKey"
     static let superwallTestModeInfoKey = "AscendSuperwallTestMode"
 
+    /// Mirrored by `PLACEHOLDER_API_KEY_PREFIX` in
+    /// `scripts/lib/monetization-build-settings.mjs`, which gates staging and
+    /// production archives on the same prefix.
+    static let placeholderAPIKeyPrefix = "REPLACE_ME_"
+
+    static let apiKeyInfoKeys = [
+        revenueCatAPIKeyInfoKey,
+        revenueCatTestAPIKeyInfoKey,
+        superwallAPIKeyInfoKey
+    ]
+
     let revenueCatAPIKey: String?
     let revenueCatAppStoreAPIKey: String?
     let revenueCatTestAPIKey: String?
@@ -24,6 +35,7 @@ struct MonetizationConfiguration: Equatable {
     let isRevenueCatTestStoreEnabled: Bool
     let isSuperwallTestModeEnabled: Bool
     let allowsUnentitledAppAccess: Bool
+    let hasUnreplacedPlaceholderKeys: Bool
 
     var revenueCatStoreMode: RevenueCatStoreMode {
         guard let revenueCatAPIKey else { return .unavailable }
@@ -61,13 +73,26 @@ struct MonetizationConfiguration: Equatable {
         isSuperwallTestModeEnabled = allowsTestMode
             && (Self.normalizedBool(infoDictionary[Self.superwallTestModeInfoKey]) ?? false)
         self.allowsUnentitledAppAccess = allowsUnentitledAppAccess
+        hasUnreplacedPlaceholderKeys = Self.apiKeyInfoKeys.contains { infoKey in
+            guard let rawValue = infoDictionary[infoKey] as? String else { return false }
+            return Self.isPlaceholderAPIKey(rawValue)
+        }
+    }
+
+    static func isPlaceholderAPIKey(_ value: String) -> Bool {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+            .hasPrefix(placeholderAPIKeyPrefix)
     }
 
     private static func normalizedAPIKey(_ value: Any?) -> String? {
         guard let rawValue = value as? String else { return nil }
 
         let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedValue.isEmpty, !trimmedValue.hasPrefix("$(") else {
+        guard !trimmedValue.isEmpty,
+              !trimmedValue.hasPrefix("$("),
+              !Self.isPlaceholderAPIKey(trimmedValue) else {
             return nil
         }
 

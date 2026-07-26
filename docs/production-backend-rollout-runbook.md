@@ -47,6 +47,9 @@ Complete every item before starting the production workflow.
 5. Confirm the `production` environment still requires the intended human approval and `PRODUCTION_READY` is `true` only for the approved release window.
 6. Confirm no other Deploy Production run is queued or in progress.
 7. Rerun the production replay backfill in read-only mode and require zero planned writes, or prepare and separately approve the migration before continuing.
+8. Confirm the `Release` RevenueCat and Superwall keys are real.
+   They currently ship as `REPLACE_ME_` placeholders, and the workflow's monetization preflight fails the run before the archive until they are replaced.
+   The replacement checklist is owned by `docs/superwall-paywall-setup.md`.
 
 Use these read-only GitHub checks:
 

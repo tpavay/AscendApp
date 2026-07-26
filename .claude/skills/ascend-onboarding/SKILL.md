@@ -57,4 +57,4 @@ This sequence will evolve as we learn from SuperWall and RevenueCat funnel analy
 
 ## Reference
 - `docs/onboarding-design-guide.md` (1270 lines) - the full onboarding design guide. Read it when working on onboarding screens; never inline it.
-- `docs/superwall-paywall-setup.md` - live SuperWall paywall/placement IDs and setup.
+- `docs/superwall-paywall-setup.md` - the per-environment RevenueCat/SuperWall project split, the dev-project paywall/placement IDs, and setup. Only the dev (`Debug`) keys are real; staging and production ship `REPLACE_ME_` placeholders, so a paywall will not present there.

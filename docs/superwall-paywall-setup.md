@@ -2,7 +2,49 @@
 
 Date: 2026-06-10
 
-## Superwall IDs
+## Environment Split
+
+RevenueCat and Superwall are split per build configuration, matching the Firebase environment split.
+Each environment owns its own RevenueCat project and its own Superwall project, iOS app, campaign, and placements.
+Keys are selected at build time by the `ASCEND_REVENUECAT_API_KEY` and `ASCEND_SUPERWALL_API_KEY` build settings and reach the app through `Info.plist` substitution.
+
+| Environment | Build configuration | Bundle ID | Monetization keys |
+|---|---|---|---|
+| Dev | `Debug` | `com.TylerPavay.AscendApp.dev` | Real, live (documented below) |
+| Staging | `Staging` | `com.TylerPavay.AscendApp.staging` | `REPLACE_ME_` placeholders |
+| Production | `Release` | `com.TylerPavay.AscendApp` | `REPLACE_ME_` placeholders |
+
+**Staging and production monetization are non-functional until the placeholders are replaced with real keys.**
+The placeholders are enforced, not merely inert:
+
+- `MonetizationConfiguration` nils out any key with the `REPLACE_ME_` prefix, so RevenueCat and Superwall stay unconfigured and the gate falls back to its "not configured for this build" path with the Restore action disabled.
+- `scripts/ci/assert-monetization-keys-configured.mjs` fails the Staging and Release archives before Fastlane runs, so a placeholder build never reaches TestFlight or the App Store.
+- Non-`DEBUG` builds refuse to launch when a placeholder is still present, as a backstop behind the archive gate.
+
+### Replacement checklist
+
+Replace all four settings in `AscendApp.xcodeproj` (target `AscendApp`):
+
+1. `Staging` -> `ASCEND_REVENUECAT_API_KEY` - currently `REPLACE_ME_STAGING_REVENUECAT_KEY`. Use the staging RevenueCat project's Apple publishable key (`appl_...`).
+2. `Staging` -> `ASCEND_SUPERWALL_API_KEY` - currently `REPLACE_ME_STAGING_SUPERWALL_KEY`. Use the staging Superwall app's public key (`pk_...`).
+3. `Release` -> `ASCEND_REVENUECAT_API_KEY` - currently `REPLACE_ME_PRODUCTION_REVENUECAT_KEY`. Use the production RevenueCat project's Apple publishable key (`appl_...`).
+4. `Release` -> `ASCEND_SUPERWALL_API_KEY` - currently `REPLACE_ME_PRODUCTION_SUPERWALL_KEY`. Use the production Superwall app's public key (`pk_...`).
+
+Leave `ASCEND_REVENUECAT_TEST_API_KEY`, `ASCEND_USE_REVENUECAT_TEST_STORE`, and `ASCEND_SUPERWALL_TEST_MODE` alone.
+The split is by project, not by sandbox versus production key type, so those mechanisms stay as they are.
+
+Every `REPLACE_ME_` literal in `scripts/test/monetization-build-configuration.test.mjs` is a deliberate tripwire and must be updated in the same PR as the replacement.
+That covers the per-configuration key assertions, the "today's placeholder keys fail the staging and production preflight" test, and the `projectWithSubstitutions` fixtures that rewrite the placeholders into fake real keys.
+
+Per environment, also provision:
+
+- A RevenueCat project with entitlement `app_access`, offering `default`, and products `ascend_yearly` / `ascend_monthly`.
+- A Superwall project, iOS app, campaign, and paywalls owning placements `app_access_gate` and `onboarding_paywall`.
+
+## Superwall IDs (Debug / dev only)
+
+These IDs belong to the dev Superwall project used by the `Debug` configuration.
+Staging and production each need their own project, app, campaign, and placements - do not reuse these.
 
 - Project: `24464`
 - iOS application: `47442`
@@ -68,7 +110,7 @@ Product reference names expected by the self-hosted page:
 - `primary`: yearly free-trial product
 - `secondary`: monthly product
 
-Superwall product identifiers currently present in project `24464`:
+Superwall product identifiers currently present in the dev project `24464`:
 
 - `ascend_yearly`
 - `ascend_monthly`
@@ -108,6 +150,8 @@ API check on 2026-06-19:
 - The iOS app hard gate now registers placement `app_access_gate`, so no live Superwall campaign will present until a campaign owns that placement.
 
 ## Remaining Setup
+
+Every step below is per environment, and the dev project is the only one it has been run against so far.
 
 1. Confirm App Store Connect and RevenueCat both use product identifiers `ascend_yearly` and `ascend_monthly`, or update Superwall product identifiers to match the final App Store IDs.
 2. Create or repair the two Superwall paywall records.
