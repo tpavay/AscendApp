@@ -33,7 +33,8 @@ Replace all four settings in `AscendApp.xcodeproj` (target `AscendApp`):
 Leave `ASCEND_REVENUECAT_TEST_API_KEY`, `ASCEND_USE_REVENUECAT_TEST_STORE`, and `ASCEND_SUPERWALL_TEST_MODE` alone.
 The split is by project, not by sandbox versus production key type, so those mechanisms stay as they are.
 
-Both key-literal assertions in `scripts/test/monetization-build-configuration.test.mjs` are deliberate tripwires and must be updated in the same PR as the replacement.
+Every `REPLACE_ME_` literal in `scripts/test/monetization-build-configuration.test.mjs` is a deliberate tripwire and must be updated in the same PR as the replacement.
+That covers the per-configuration key assertions, the "today's placeholder keys fail the staging and production preflight" test, and the `projectWithSubstitutions` fixtures that rewrite the placeholders into fake real keys.
 
 Per environment, also provision:
 

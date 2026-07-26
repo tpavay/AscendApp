@@ -25,7 +25,7 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
 ## 🟡 Commerce configuration (dashboards — not auditable from code)
 
 4. **App Store Connect:** create IAPs — yearly $49.99 w/ 7-day trial, monthly $9.99.
-5. **RevenueCat:** products attached to entitlement `app_access`, offering `default` (the exact IDs the code expects — `MonetizationConfiguration.swift:43-44`).
+5. **RevenueCat:** products attached to entitlement `app_access`, offering `default` (the exact IDs the code expects — `MonetizationConfiguration.swift:55-56`). One RevenueCat project per environment; see `docs/superwall-paywall-setup.md`.
 6. **Superwall:** attach the imported paywall to a campaign on the app's placements — `onboarding_paywall` / app-access gate — and publish. Dashboard currently shows only "Example Campaign" and Revenue Tracking: Missing (RevenueCat→Superwall forwarding not set up).
 7. **Sandbox test on device:** purchase → entitlement unlocks → restore works.
 
@@ -44,7 +44,7 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
 ## Secondary findings (lower priority, don't lose these)
 
 **Monetization**
-- Debug/Staging/Release all inject the **production** RevenueCat API key; an `AscendRevenueCatTestAPIKey` placeholder exists but isn't differentiated. Decide whether Debug should use a sandbox/test key.
+- ~~Debug/Staging/Release all inject the **production** RevenueCat API key.~~ **Fixed.** RevenueCat and Superwall are now split per build configuration; staging and production carry enforced `REPLACE_ME_` placeholders until their real keys land. The split, the replacement checklist, and the archive/launch gates are owned by `docs/superwall-paywall-setup.md`.
 - No StoreKit configuration file → can't test purchases in Simulator without sandbox. Optional QoL.
 - Monetization test coverage now spans placement registration, paywall outcome routing, and fallback state transitions (`MonetizationManagerPaywallTests`, `AppAccessPaywallPresentationStateTests`) on top of `MonetizationConfigurationTests`; entitlement transitions and restore remain untested.
 - Superwall placements defined in code: `.onboardingPaywall`, `.appLaunchHardGate`, `.appAccessGate` (`SuperwallPaywallPresenter.swift:38-44`).
