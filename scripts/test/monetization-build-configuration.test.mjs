@@ -8,6 +8,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  MONETIZATION_API_KEY_SETTINGS,
   PLACEHOLDER_API_KEY_PREFIX,
   appBuildConfigurations,
   settingValue
@@ -16,6 +17,10 @@ import {
 const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 const projectPath = join(repositoryRoot, "AscendApp.xcodeproj/project.pbxproj");
 const infoPlistPath = join(repositoryRoot, "AscendApp/Info.plist");
+const configurationSourcePath = join(
+  repositoryRoot,
+  "AscendApp/Features/Monetization/Models/MonetizationConfiguration.swift"
+);
 const preflightScript = join(
   repositoryRoot,
   "scripts/ci/assert-monetization-keys-configured.mjs"
@@ -125,13 +130,49 @@ test("Info.plist resolves the selected build settings for runtime configuration"
 });
 
 test("the placeholder prefix is identical on the build gate and in the app", async () => {
-  const configuration = await readFile(
-    join(repositoryRoot, "AscendApp/Features/Monetization/Models/MonetizationConfiguration.swift"),
-    "utf8"
-  );
+  const configuration = await readFile(configurationSourcePath, "utf8");
   const swiftPrefix = configuration.match(/static let placeholderAPIKeyPrefix = "(.*)"/)?.[1];
 
   assert.equal(swiftPrefix, PLACEHOLDER_API_KEY_PREFIX);
+});
+
+// A key the launch backstop rejects but the gate ignores would archive, upload,
+// and only then refuse to start on a tester's device.
+test("the build gate covers every key the launch backstop rejects", async () => {
+  const [configuration, infoPlist] = await Promise.all([
+    readFile(configurationSourcePath, "utf8"),
+    readFile(infoPlistPath, "utf8")
+  ]);
+
+  const infoKeyForSymbol = new Map(
+    [...configuration.matchAll(/static let (\w+InfoKey) = "(Ascend\w+)"/g)].map(
+      ([, symbol, infoKey]) => [symbol, infoKey]
+    )
+  );
+  const buildSettingForInfoKey = new Map(
+    [...infoPlist.matchAll(/<key>(Ascend\w+)<\/key>\s*<string>\$\(([A-Z_]+)\)<\/string>/g)].map(
+      ([, infoKey, buildSetting]) => [infoKey, buildSetting]
+    )
+  );
+
+  const backstopSymbols = configuration
+    .match(/static let apiKeyInfoKeys = \[([\s\S]*?)\]/)?.[1]
+    .match(/\w+InfoKey/g);
+  assert.ok(backstopSymbols?.length, "Missing apiKeyInfoKeys");
+
+  const backstopSettings = backstopSymbols.map((symbol) => {
+    const infoKey = infoKeyForSymbol.get(symbol);
+    assert.ok(infoKey, `Unresolved Info.plist key for ${symbol}`);
+
+    const buildSetting = buildSettingForInfoKey.get(infoKey);
+    assert.ok(buildSetting, `Unresolved build setting for ${infoKey}`);
+    return buildSetting;
+  });
+
+  assert.deepEqual(
+    backstopSettings.sort(),
+    MONETIZATION_API_KEY_SETTINGS.map(({name}) => name).sort()
+  );
 });
 
 test("today's placeholder keys fail the staging and production preflight", () => {
@@ -166,6 +207,30 @@ test("the preflight passes once real keys replace the placeholders", async () =>
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Verified real RevenueCat and Superwall keys/);
   }
+});
+
+test("the preflight rejects a placeholder test-store key but tolerates an empty one", async () => {
+  const realKeys = {
+    REPLACE_ME_PRODUCTION_REVENUECAT_KEY: "appl_productionRevenueCatKey",
+    REPLACE_ME_PRODUCTION_SUPERWALL_KEY: "pk_productionSuperwallKey"
+  };
+
+  const emptyTestKey = await projectWithSubstitutions(realKeys);
+  const tolerated = runPreflight("Release", emptyTestKey);
+  assert.equal(tolerated.status, 0, tolerated.stderr);
+
+  const placeholderTestKey = await projectWithSubstitutions({
+    ...realKeys,
+    'ASCEND_REVENUECAT_TEST_API_KEY = "";':
+      "ASCEND_REVENUECAT_TEST_API_KEY = REPLACE_ME_PRODUCTION_REVENUECAT_TEST_KEY;"
+  });
+  const rejected = runPreflight("Release", placeholderTestKey);
+
+  assert.equal(rejected.status, 1, rejected.stdout);
+  assert.match(
+    rejected.stderr,
+    /::error::ASCEND_REVENUECAT_TEST_API_KEY is still the REPLACE_ME_ placeholder/
+  );
 });
 
 test("the preflight also rejects emptied and unexpanded keys", async () => {

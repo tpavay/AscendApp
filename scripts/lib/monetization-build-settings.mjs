@@ -2,9 +2,13 @@
 // any key carrying this prefix so the app degrades to its unconfigured path.
 export const PLACEHOLDER_API_KEY_PREFIX = "REPLACE_ME_";
 
+// One entry per build setting behind MonetizationConfiguration.apiKeyInfoKeys, so
+// the archive gate rejects exactly the placeholders that trip the launch backstop.
+// The test key is optional: it ships empty, and only a placeholder makes it fatal.
 export const MONETIZATION_API_KEY_SETTINGS = [
-  "ASCEND_REVENUECAT_API_KEY",
-  "ASCEND_SUPERWALL_API_KEY"
+  {name: "ASCEND_REVENUECAT_API_KEY", isRequired: true},
+  {name: "ASCEND_REVENUECAT_TEST_API_KEY", isRequired: false},
+  {name: "ASCEND_SUPERWALL_API_KEY", isRequired: true}
 ];
 
 // Only the AscendApp target carries the monetization settings; the widget and
@@ -46,26 +50,30 @@ export function isPlaceholderAPIKey(value) {
 export function unshippableMonetizationKeyReasons(buildSettings, configurationName) {
   const reasons = [];
 
-  for (const setting of MONETIZATION_API_KEY_SETTINGS) {
-    const value = settingValue(buildSettings, setting);
+  for (const {name, isRequired} of MONETIZATION_API_KEY_SETTINGS) {
+    const value = settingValue(buildSettings, name);
 
     if (value === null) {
-      reasons.push(`${setting} is not defined for the ${configurationName} configuration.`);
+      if (isRequired) {
+        reasons.push(`${name} is not defined for the ${configurationName} configuration.`);
+      }
       continue;
     }
 
     const trimmed = value.trim();
 
-    if (trimmed === "") {
-      reasons.push(`${setting} is empty for the ${configurationName} configuration.`);
-    } else if (isPlaceholderAPIKey(trimmed)) {
+    if (isPlaceholderAPIKey(trimmed)) {
       reasons.push(
-        `${setting} is still the ${PLACEHOLDER_API_KEY_PREFIX} placeholder "${trimmed}" ` +
+        `${name} is still the ${PLACEHOLDER_API_KEY_PREFIX} placeholder "${trimmed}" ` +
           `for the ${configurationName} configuration.`
       );
+    } else if (!isRequired) {
+      continue;
+    } else if (trimmed === "") {
+      reasons.push(`${name} is empty for the ${configurationName} configuration.`);
     } else if (trimmed.startsWith("$(")) {
       reasons.push(
-        `${setting} is the unexpanded reference "${trimmed}" for the ${configurationName} configuration.`
+        `${name} is the unexpanded reference "${trimmed}" for the ${configurationName} configuration.`
       );
     }
   }
