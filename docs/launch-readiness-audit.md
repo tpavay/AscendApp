@@ -24,9 +24,9 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
 
 ## 🟡 Commerce configuration (dashboards — not auditable from code)
 
-4. **App Store Connect:** create IAPs — yearly $49.99 w/ 7-day trial, monthly $9.99.
-5. **RevenueCat:** products attached to entitlement `app_access`, offering `default` (the exact IDs the code expects — `MonetizationConfiguration.swift:55-56`). One RevenueCat project per environment; see `docs/superwall-paywall-setup.md`.
-6. **Superwall:** attach the imported paywall to a campaign on the app's placements — `onboarding_paywall` / app-access gate — and publish. Dashboard currently shows only "Example Campaign" and Revenue Tracking: Missing (RevenueCat→Superwall forwarding not set up).
+4. **App Store Connect:** verified through RevenueCat's linked App Store integration on July 27, 2026 - `ascend_yearly` is $49.99/year with a seven-day trial and `ascend_monthly` is $9.99/month with no trial.
+5. **RevenueCat:** verified on July 27, 2026 - both products are attached to entitlement `app_access`, and offering `default` is current.
+6. **Superwall:** operator login is required to verify and align the dashboard paywall, product references, and campaign placement. Keep the campaign disabled until the final annual/monthly states render correctly and purchases grant `app_access`.
 7. **Sandbox test on device:** purchase → entitlement unlocks → restore works.
 
 ## 🟠 Promise vs. reality

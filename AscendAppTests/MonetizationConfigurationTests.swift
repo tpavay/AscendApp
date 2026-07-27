@@ -156,6 +156,8 @@ struct MonetizationConfigurationTests {
 
         #expect(configuration.revenueCatEntitlementID == "app_access")
         #expect(configuration.revenueCatOfferingID == "default")
+        #expect(configuration.revenueCatYearlyProductID == "ascend_yearly")
+        #expect(configuration.revenueCatMonthlyProductID == "ascend_monthly")
         #expect(SuperwallPlacement.onboardingPaywall.rawValue == "onboarding_paywall")
         #expect(SuperwallPlacement.appLaunchHardGate.rawValue == "app_launch_hard_gate")
         #expect(SuperwallPlacement.appAccessGate.rawValue == "app_access_gate")
