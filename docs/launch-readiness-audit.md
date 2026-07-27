@@ -8,7 +8,7 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
 | Area | Verdict |
 |---|---|
 | Live Climb hero loop | **Ship-ready** — wired end-to-end, zero TODO/fatalError on the critical path |
-| Monetization | **Plumbing wired; commerce configuration pending** |
+| Monetization | **Plumbing wired; App Store product submission and final paywall publish pending** |
 | Auth & account lifecycle | ~~Two App Review blockers in account deletion~~ - **both fixed** (see blockers 1-2) |
 | Environments & release pipeline | **Solid** — one bundling verification + secrets checklist |
 
@@ -26,13 +26,15 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
 
 4. **App Store Connect:** verified through RevenueCat's linked App Store integration on July 27, 2026 - `ascend_yearly` is $49.99/year with a seven-day trial and `ascend_monthly` is $9.99/month with no trial.
 5. **RevenueCat:** verified on July 27, 2026 - both products are attached to entitlement `app_access`, and offering `default` is current.
-6. **Superwall:** operator login is required to verify and align the dashboard paywall, product references, and campaign placement. Keep the campaign disabled until the final annual/monthly states render correctly and purchases grant `app_access`.
+6. **Superwall:** application `47442`, campaign `91861`, placement `app_access_gate`, and paywall `232372` were verified on July 27, 2026.
+   The aligned revision defaults to Annual, switches every trial-sensitive surface for Monthly, and replaces the unsupported personalized-plan claim with `Compete on global leaderboards`.
+   The retired discount paywall `232373` is archived.
+   Publication is blocked because Superwall reports both App Store products as `Incomplete` while App Store Connect reports them as `READY_TO_SUBMIT`; complete the required App Store submission step, then publish the already verified revision without bypassing the warning.
 7. **Sandbox test on device:** purchase → entitlement unlocks → restore works.
 
 ## 🟠 Promise vs. reality
 
-8. **Paywall overclaims removed.** Repo-controlled paywall and onboarding copy now use the exact 75-landmark catalog count and make no climb-earned trial promise.
-   Verify the same copy in the Superwall dashboard before launch.
+8. **Paywall overclaims removed.** Repo-controlled and Superwall paywalls use the exact 75-landmark catalog count, advertise implemented global leaderboard competition, make no personalized-plan claim, and make no climb-earned trial promise.
 9. **No paywall-priming stage** in `PostAuthOnboardingStage` (stages: displayName, gender, age, weight, location, notifications, planLoading, firstClimb). Flow hits the hard gate cold after onboarding. Conversion polish, not a blocker.
 10. ~~**No fallback UI** on `AppAccessPaywallPlaceholderView` if Superwall config fails — users would see "unavailable" with no purchase path.~~ **Fixed.** Dismissal without purchase, `onSkip`, configuration failure, and `onError` all route back to the visible placeholder with retry/restore actions via `AppAccessPaywallPresentationState`; locked in by `AscendAppTests/AppAccessPaywallPresentationStateTests.swift` and `MonetizationManagerPaywallTests.swift`.
 

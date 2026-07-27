@@ -51,6 +51,8 @@ test("the hosted paywall defaults to the annual trial and binds the final produc
   );
   assert.match(paywall, /data-pw-var="yearly_price">\$49\.99\/year/);
   assert.match(paywall, /data-pw-var="monthly_price">\$9\.99\/month/);
+  assert.match(paywall, /data-pw-var="yearly_badge">BEST VALUE/);
+  assert.match(paywall, /data-pw-var="benefit_2">Compete on global leaderboards/);
   assert.match(
     paywall,
     /data-plan-copy="yearly" data-pw-purchase="primary"[\s\S]*?Try 7 Days Free/
@@ -63,6 +65,7 @@ test("the hosted paywall defaults to the annual trial and binds the final produc
 
 test("switching plans swaps every price, trial, CTA, and legal disclosure surface", async () => {
   const paywall = await source("paywall");
+  const markup = paywall.slice(0, paywall.indexOf("<script>"));
 
   assert.match(
     paywall,
@@ -78,6 +81,32 @@ test("switching plans swaps every price, trial, CTA, and legal disclosure surfac
   );
   assert.match(paywall, /element\.hidden = element\.dataset\.planCopy !== plan/);
   assert.doesNotMatch(paywall, /\$12\.99|data-plan-copy="monthly"[^>]*>[^<]*trial/i);
+
+  const trialCopyTags = [...markup.matchAll(/<([^>]+)>([^<]*(?:trial|free)[^<]*)<\//gi)];
+  assert.ok(trialCopyTags.length > 0);
+  for (const [tag, attributes] of trialCopyTags) {
+    assert.match(
+      attributes,
+      /data-plan-copy="yearly"/,
+      `trial copy must be annual-only: ${tag.trim()}`
+    );
+  }
+});
+
+test("launch paywall claims only implemented leaderboard competition", async () => {
+  const controlledLaunchCopy = (
+    await Promise.all([
+      source("paywall"),
+      source("website"),
+      source("setup"),
+      source("onboardingGuide"),
+      source("appStoreBrief"),
+      source("launchAudit")
+    ])
+  ).join("\n");
+
+  assert.match(controlledLaunchCopy, /Compete on global leaderboards/);
+  assert.doesNotMatch(controlledLaunchCopy, /personalized climbing plan/i);
 });
 
 test("public and legal copy describe the exact annual and immediate monthly offers", async () => {

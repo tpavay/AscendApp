@@ -28,7 +28,7 @@ Do not add either to a Superwall campaign, Hosting content, or release checklist
 
 ## Verified Vendor State
 
-The July 27, 2026 audit used RevenueCat's authenticated project integration and its linked App Store Connect state.
+The July 27, 2026 audit used authenticated RevenueCat, App Store Connect, and Superwall sessions.
 
 - App Store Connect reports `ascend_yearly` as a one-year subscription at `$49.99` in the United States with a one-week introductory trial.
 - App Store Connect reports `ascend_monthly` as a one-month subscription at `$9.99` in the United States with no trial offer.
@@ -36,13 +36,21 @@ The July 27, 2026 audit used RevenueCat's authenticated project integration and 
 - RevenueCat has both products active and attached to `app_access`.
 - RevenueCat offering `default` is current, with annual first and monthly second.
 - RevenueCat has no third launch product.
+- Superwall application `47442` is linked to Apple App ID `6757202987` and bundle ID `com.TylerPavay.AscendApp`.
+- Superwall has imported only `ascend_yearly` and `ascend_monthly` for this launch surface, with the same prices and trial periods shown above.
+- Superwall campaign `91861`, `App Access Gate V2`, targets `app_access_gate` and assigns paywall `232372` to 100 percent of its audience.
+- The verified paywall `232372` draft defaults to Annual and switches its headline, CTA, and legal disclosure to immediate monthly purchase language when Monthly is selected.
+- The paywall benefits include `Compete on global leaderboards` and contain no personalized-plan claim.
+- The retired discount paywall `232373` is archived and is not attached to the active campaign.
 
 The native purchase controller receives the StoreKit 2 product from Superwall and passes it to RevenueCat.
 Keep localized native prices sourced from that StoreKit product.
 Do not replace native StoreKit pricing with repository-hardcoded localized assumptions.
 
-The Superwall dashboard could not be audited on July 27, 2026 because the available browser session required an operator login.
-The repository paywall is final, but the dashboard campaign must remain disabled until an authenticated operator completes the verification checklist below.
+Superwall now recognizes the Apple App ID, but both imported products remain `Incomplete` because their App Store Connect state is only `READY_TO_SUBMIT`.
+Superwall presented an invalid-product warning before publishing the verified paywall revision.
+Do not bypass that warning.
+After the first app version and both subscriptions complete the required App Store submission step, recheck the product status and publish paywall `232372`.
 
 ## Environment Split
 
@@ -81,18 +89,19 @@ Each environment needs the same logical configuration:
 - RevenueCat current offering `default`
 - Superwall placements `app_access_gate` and `onboarding_paywall`
 
-## Dev Superwall References
+## Authenticated Superwall References
 
-These existing IDs belong only to the development Superwall project:
+These IDs identify the application audited on July 27, 2026:
 
-- Project: `24464`
+- Organization project: `24464`
 - iOS application: `47442`
-- Existing campaign: `90307`
-- Existing example paywall: `232089`
+- Active campaign: `91861`
+- Active campaign paywall: `232372`
+- Archived discount paywall: `232373`
 - Hard-gate placement: `app_access_gate`
-- Onboarding experiment placement: `onboarding_paywall`
 
-Do not reuse development IDs for Staging or Production.
+Environment keys still determine which Superwall application each build reaches.
+Do not copy these IDs into another environment without first proving that it uses this application.
 
 ## Self-Hosted Paywall
 
@@ -109,7 +118,7 @@ Its visible state must remain:
 
 - Headline: `Try 7 Days Free`
 - Price: `$49.99/year`
-- Plan disclosure: `7 days free, then billed annually`
+- Plan disclosure: `$49.99/year, billed annually`
 - CTA: `Try 7 Days Free`
 - Legal disclosure: `7 days free, then $49.99/year. Auto-renews until canceled.`
 - Product reference: `primary`
@@ -124,23 +133,25 @@ Its visible state must remain:
 - Product reference: `secondary`
 - No trial badge, promise, CTA, or disclosure
 
-Both states preserve Restore, Terms, Privacy, VoiceOver selection state, and the same purchase analytics path through Superwall and RevenueCat.
+Both states show `Compete on global leaderboards`, preserve Restore, Terms, Privacy, VoiceOver selection state, and use the same purchase analytics path through Superwall and RevenueCat.
+The unsupported personalized climbing-plan claim must not return.
 
 ## Superwall Verification Checklist
 
-Complete these steps in each authenticated Superwall project without publishing an unverified campaign:
+Complete these steps in each authenticated Superwall project without bypassing product validation or publishing an unverified campaign:
 
 1. Confirm the project has only `ascend_yearly` and `ascend_monthly` in the launch paywall.
 2. Bind `ascend_yearly` to `primary`.
 3. Bind `ascend_monthly` to `secondary`.
-4. Point the paywall at `https://ascendstepper.com/superwall/onboarding-paywall.html`.
-5. Confirm Annual is selected when `Try 7 Days Free` is visible.
-6. Switch to Monthly and confirm the headline, CTA, price, and legal disclosure all describe an immediate monthly charge with no trial.
-7. Confirm Restore, Terms, and Privacy still work.
-8. Confirm a sandbox annual purchase and monthly purchase each grant `app_access`.
-9. Wire the verified paywall to `app_access_gate`.
-10. Keep onboarding experiments on `onboarding_paywall`.
-11. Publish only after editor and device previews match the two states above.
+4. Confirm the paywall benefits say `Compete on global leaderboards` and make no personalized-plan claim.
+5. Point a self-hosted paywall at `https://ascendstepper.com/superwall/onboarding-paywall.html` only after the Hosting deployment serves this repository revision.
+6. Confirm Annual is selected when `Try 7 Days Free` is visible.
+7. Switch to Monthly and confirm the headline, CTA, price, and legal disclosure all describe an immediate monthly charge with no trial.
+8. Confirm Restore, Terms, and Privacy still work.
+9. Confirm a sandbox annual purchase and monthly purchase each grant `app_access`.
+10. Wire the verified paywall to `app_access_gate`.
+11. Keep onboarding experiments on `onboarding_paywall`.
+12. Publish only after Superwall accepts both product states and editor and device previews match the two states above.
 
 ## Release Gate
 
@@ -153,3 +164,4 @@ Before the first review submission:
 5. Build the website and confirm the retired discount page returns 404.
 6. Complete sandbox purchase and restore tests on a device.
 7. Verify the enabled Superwall campaign targets `app_access_gate` and contains no weekly or separate discount variant.
+8. Complete the required App Store submission step for both subscriptions, verify Superwall no longer reports them as `Incomplete`, and publish the verified paywall `232372` revision.
