@@ -1050,8 +1050,7 @@ CTA copy:
 - `Build My Field`
 - `View Climb`
 - `Turn On Notifications`
-- `Start Free Trial`
-- `Start Climbing`
+- Paywall CTAs switch with the selected plan - see `### 24. Paywall`.
 
 Do not use arrow icons on CTAs.
 

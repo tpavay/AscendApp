@@ -23,6 +23,10 @@ RevenueCat must use:
 
 The self-hosted Superwall paywall must bind `ascend_yearly` to product reference `primary` and `ascend_monthly` to product reference `secondary`.
 
+App Store builds audit this catalog once per launch against the live RevenueCat offerings (`RevenueCatEntitlementService`).
+A missing offering or product logs an error and emits the `monetization_offering_mismatch` telemetry event to Analytics and Crashlytics, so treat that event as a dashboard misconfiguration rather than a client bug.
+Serving a different current offering is an experiment, not a failure, and is only logged.
+
 There is no weekly launch product and no separate discounted launch offer.
 Do not add either to a Superwall campaign, Hosting content, or release checklist.
 
