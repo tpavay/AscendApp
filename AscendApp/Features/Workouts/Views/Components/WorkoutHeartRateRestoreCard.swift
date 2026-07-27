@@ -11,9 +11,11 @@ struct WorkoutHeartRateRestoreCard: View {
                 .font(.montserratBold(size: 15))
                 .foregroundStyle(.primary)
 
-            Text(message)
-                .font(.montserratMedium(size: 14))
-                .foregroundStyle(.secondary)
+            if message.isEmpty == false {
+                Text(message)
+                    .font(.montserratMedium(size: 14))
+                    .foregroundStyle(.secondary)
+            }
 
             if status != .pending {
                 Button("RETRY CHART RESTORE", action: onRetry)

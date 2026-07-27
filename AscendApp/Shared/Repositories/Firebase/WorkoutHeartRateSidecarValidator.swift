@@ -3,6 +3,30 @@ import Foundation
 
 enum WorkoutHeartRateSidecarValidator {
     static let maximumCompressedBytes = 5 * 1024 * 1024
+    static let maximumPlausibleHeartRate = 400
+
+    /// Firestore quantises reference bounds to whole nanoseconds through `Timestamp`, while the
+    /// sidecar blob round-trips its sample timestamps as full-precision doubles. The two endpoints
+    /// can therefore only ever agree to within that quantisation.
+    static let boundsToleranceSeconds: TimeInterval = 0.001
+
+    static func isPlausibleSample(_ sample: HeartRateDataPoint) -> Bool {
+        sample.heartRate > 0 &&
+            sample.heartRate <= maximumPlausibleHeartRate &&
+            sample.timestamp.timeIntervalSinceReferenceDate.isFinite
+    }
+
+    static func validatedStoragePath(
+        userId: String,
+        workoutId: UUID,
+        reference: FirestoreWorkoutHeartRateSeriesReference
+    ) throws -> String {
+        let expectedPath = WorkoutHeartRateStoragePath.path(userId: userId, workoutId: workoutId)
+        guard reference.storagePath == expectedPath else {
+            throw WorkoutHeartRateSidecarError.invalidReference
+        }
+        return expectedPath
+    }
 
     static func validate(
         compressedData: Data,
@@ -10,15 +34,18 @@ enum WorkoutHeartRateSidecarValidator {
         workoutId: UUID,
         reference: FirestoreWorkoutHeartRateSeriesReference
     ) throws -> WorkoutHeartRateStorageBlob {
-        let expectedPath = WorkoutHeartRateStoragePath.path(userId: userId, workoutId: workoutId)
-        guard reference.storagePath == expectedPath else {
-            throw WorkoutHeartRateSidecarError.invalidReference
-        }
+        _ = try validatedStoragePath(
+            userId: userId,
+            workoutId: workoutId,
+            reference: reference
+        )
         guard reference.encoding == FirestoreWorkoutHeartRateSeriesReference.defaultEncoding else {
             throw WorkoutHeartRateSidecarError.unsupportedEncoding
         }
-        guard compressedData.isEmpty == false,
-              compressedData.count <= maximumCompressedBytes else {
+        guard compressedData.isEmpty == false else {
+            throw WorkoutHeartRateSidecarError.malformed
+        }
+        guard compressedData.count <= maximumCompressedBytes else {
             throw WorkoutHeartRateSidecarError.oversized
         }
         guard reference.compressedByteCount.map({ $0 == compressedData.count }) ?? true else {
@@ -48,17 +75,15 @@ enum WorkoutHeartRateSidecarValidator {
                 WorkoutDocumentID.canonicalString(for: workoutId),
               blob.samples.count == reference.sampleCount,
               blob.samples.isEmpty == false,
-              blob.samples.allSatisfy({
-                  $0.heartRate > 0 &&
-                    $0.heartRate <= 400 &&
-                    $0.timestamp.timeIntervalSinceReferenceDate.isFinite
-              }) else {
+              blob.samples.allSatisfy(isPlausibleSample) else {
             throw WorkoutHeartRateSidecarError.malformed
         }
 
         let orderedSamples = blob.samples.sorted { $0.timestamp < $1.timestamp }
-        guard orderedSamples.first?.timestamp == reference.seriesStartAt,
-              orderedSamples.last?.timestamp == reference.seriesEndAt else {
+        guard let firstTimestamp = orderedSamples.first?.timestamp,
+              let lastTimestamp = orderedSamples.last?.timestamp,
+              abs(firstTimestamp.timeIntervalSince(reference.seriesStartAt)) <= boundsToleranceSeconds,
+              abs(lastTimestamp.timeIntervalSince(reference.seriesEndAt)) <= boundsToleranceSeconds else {
             throw WorkoutHeartRateSidecarError.integrityMismatch
         }
 

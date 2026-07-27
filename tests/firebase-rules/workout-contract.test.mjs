@@ -178,6 +178,10 @@ test('owner can write a valid workout backup document', async () => {
   })));
 });
 
+// The workout write rule sits close to Firestore's 1000-expression evaluation ceiling, so the
+// integrity metadata is guarded by type and domain rather than by an additional byte-count range:
+// a wrong-typed value is what breaks the whole envelope's decode, while a merely wrong byte count
+// is already caught client-side by the exact-size and hash comparison.
 test('workout HR integrity metadata is bounded and validated', async () => {
   const context = testEnv.authenticatedContext(userId);
   const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
@@ -186,6 +190,27 @@ test('workout HR integrity metadata is bounded and validated', async () => {
     heartRateSeries: {
       ...makeHeartRateSeriesReference(userId, workoutId),
       sha256: 'not-a-sha256',
+    },
+  })));
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    heartRateSeries: {
+      ...makeHeartRateSeriesReference(userId, workoutId),
+      compressedByteCount: 'x',
+    },
+  })));
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    heartRateSeries: {
+      ...makeHeartRateSeriesReference(userId, workoutId),
+      objectSchemaVersion: 0,
+    },
+  })));
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    heartRateSeries: {
+      ...makeHeartRateSeriesReference(userId, workoutId),
+      objectSchemaVersion: 'one',
     },
   })));
 });

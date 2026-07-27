@@ -244,7 +244,7 @@ struct WorkoutSyncCoordinatorTests {
         workout.markPendingRemoteUpsert(ownerUserId: "user-123", modifiedAt: workout.createdAt)
         workout.markRemoteSyncSucceeded(
             syncedAt: workout.createdAt,
-            heartRateSeriesStoragePath: nil
+            heartRateSeries: nil
         )
         workout.markPendingRemoteUpsert(ownerUserId: "user-123", modifiedAt: workout.createdAt.addingTimeInterval(60))
         modelContext.insert(workout)
@@ -273,7 +273,7 @@ struct WorkoutSyncCoordinatorTests {
         workout.markPendingRemoteUpsert(ownerUserId: "user-123", modifiedAt: workout.createdAt)
         workout.markRemoteSyncSucceeded(
             syncedAt: workout.createdAt,
-            heartRateSeriesStoragePath: "users/user-123/workout_heart_rate/\(workout.id.uuidString).json.gz"
+            heartRateSeries: makeHeartRateSeriesReference(for: workout)
         )
         workout.markPendingRemoteUpsert(ownerUserId: "user-123", modifiedAt: workout.createdAt.addingTimeInterval(60))
         modelContext.insert(workout)
@@ -295,6 +295,60 @@ struct WorkoutSyncCoordinatorTests {
         let deletes = await heartRateRepository.deletes()
         #expect(deletes.count == 1)
         #expect(deletes.first?.workoutId == workout.id)
+    }
+
+    @Test
+    func unrestoredSidecarSurvivesLocalEditAndStaysReferenced() async throws {
+        let modelContext = try makeModelContext()
+        let workout = makeWorkout(date: makeDate(year: 2026, month: 4, day: 13, hour: 9))
+        workout.markPendingRemoteUpsert(ownerUserId: "user-123", modifiedAt: workout.createdAt)
+        let reference = makeHeartRateSeriesReference(for: workout)
+        workout.markRemoteSyncSucceeded(
+            syncedAt: workout.createdAt,
+            heartRateSeries: reference
+        )
+        workout.heartRateRestoreStatus = .unavailable
+        workout.name = "Renamed after a failed restore"
+        workout.markPendingRemoteUpsert(ownerUserId: "user-123", modifiedAt: workout.createdAt.addingTimeInterval(60))
+        modelContext.insert(workout)
+        try modelContext.save()
+
+        let remoteRepository = FakeWorkoutRemoteRepository()
+        let heartRateRepository = FakeWorkoutHeartRateStorageRepository()
+        let coordinator = WorkoutSyncCoordinator(
+            remoteRepository: remoteRepository,
+            heartRateStorageRepository: heartRateRepository,
+            operationTimeoutSeconds: 1
+        )
+
+        await coordinator.processPendingWorkouts(
+            modelContext: modelContext,
+            currentUserId: "user-123"
+        )
+
+        #expect(await heartRateRepository.deletes().isEmpty)
+        #expect(await heartRateRepository.uploads().isEmpty)
+        let upsert = try #require(await remoteRepository.recordedUpserts().last)
+        #expect(upsert.document.heartRateSeries == reference)
+        let syncedWorkout = try #require(fetchWorkouts(in: modelContext).first)
+        #expect(syncedWorkout.lastRemoteHeartRateSeriesReference == reference)
+    }
+
+    private func makeHeartRateSeriesReference(
+        for workout: Workout
+    ) -> FirestoreWorkoutHeartRateSeriesReference {
+        FirestoreWorkoutHeartRateSeriesReference(
+            storagePath: WorkoutHeartRateStoragePath.path(
+                userId: "user-123",
+                workoutId: workout.id
+            ),
+            sampleCount: 3,
+            seriesStartAt: workout.date,
+            seriesEndAt: workout.date.addingTimeInterval(120),
+            objectSchemaVersion: WorkoutHeartRateStorageBlob.currentSchemaVersion,
+            compressedByteCount: 256,
+            sha256: String(repeating: "a", count: 64)
+        )
     }
 
     @Test

@@ -131,6 +131,7 @@ class Workout {
     var lastModifiedAt: Date = Date()
     var lastRemoteSyncAt: Date?
     var lastRemoteHeartRateSeriesStoragePath: String?
+    var lastRemoteHeartRateSeriesReferenceData: Data?
     var heartRateRestoreStatusRawValue: String = WorkoutHeartRateRestoreStatus.notNeeded.rawValue
     var heartRateRestoreErrorCode: String?
     var remoteSyncStatusRawValue: String = WorkoutRemoteSyncStatus.pendingUpsert.rawValue
@@ -235,6 +236,7 @@ class Workout {
         self.lastModifiedAt = createdAt
         self.lastRemoteSyncAt = nil
         self.lastRemoteHeartRateSeriesStoragePath = nil
+        self.lastRemoteHeartRateSeriesReferenceData = nil
         self.remoteSyncStatusRawValue = WorkoutRemoteSyncStatus.pendingUpsert.rawValue
         self.lastRemoteSyncError = nil
         self.avgHeartRate = avgHeartRate
@@ -273,10 +275,10 @@ class Workout {
 
     func markRemoteSyncSucceeded(
         syncedAt: Date = Date(),
-        heartRateSeriesStoragePath: String?
+        heartRateSeries: FirestoreWorkoutHeartRateSeriesReference?
     ) {
         lastRemoteSyncAt = syncedAt
-        lastRemoteHeartRateSeriesStoragePath = heartRateSeriesStoragePath
+        lastRemoteHeartRateSeriesReference = heartRateSeries
         remoteSyncStatus = .synced
         lastRemoteSyncError = nil
     }
@@ -339,6 +341,23 @@ class Workout {
         }
         set {
             heartRateRestoreStatusRawValue = newValue.rawValue
+        }
+    }
+
+    /// The last heart-rate sidecar reference this device saw on the remote workout envelope. Cached
+    /// in full (not just its path) so a local upsert can carry a still-unrestored sidecar forward
+    /// instead of orphaning it.
+    var lastRemoteHeartRateSeriesReference: FirestoreWorkoutHeartRateSeriesReference? {
+        get {
+            guard let lastRemoteHeartRateSeriesReferenceData else { return nil }
+            return try? JSONDecoder().decode(
+                FirestoreWorkoutHeartRateSeriesReference.self,
+                from: lastRemoteHeartRateSeriesReferenceData
+            )
+        }
+        set {
+            lastRemoteHeartRateSeriesStoragePath = newValue?.storagePath
+            lastRemoteHeartRateSeriesReferenceData = newValue.flatMap { try? JSONEncoder().encode($0) }
         }
     }
     

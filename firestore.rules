@@ -551,9 +551,9 @@ service cloud.firestore {
         reference.encoding == "json+gzip" &&
         reference.sampleCount is int &&
         reference.sampleCount > 0 &&
-        (!reference.keys().hasAny(["sha256"]) ||
-          (reference.sha256 is string &&
-            reference.sha256.matches("^[0-9a-f]{64}$"))) &&
+        reference.get("sha256", "").matches("^([0-9a-f]{64})?$") &&
+        reference.get("objectSchemaVersion", 1) in [1] &&
+        reference.get("compressedByteCount", 1) is int &&
         reference.seriesStartAt is timestamp &&
         reference.seriesEndAt is timestamp &&
         reference.seriesEndAt >= reference.seriesStartAt;

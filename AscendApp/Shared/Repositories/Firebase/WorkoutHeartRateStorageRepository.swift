@@ -41,10 +41,11 @@ final class WorkoutHeartRateStorageRepository: WorkoutHeartRateStorageRepository
         workoutId: UUID,
         reference: FirestoreWorkoutHeartRateSeriesReference
     ) async throws -> WorkoutHeartRateStorageBlob {
-        let expectedPath = WorkoutHeartRateStoragePath.path(userId: userId, workoutId: workoutId)
-        guard reference.storagePath == expectedPath else {
-            throw WorkoutHeartRateSidecarError.invalidReference
-        }
+        let expectedPath = try WorkoutHeartRateSidecarValidator.validatedStoragePath(
+            userId: userId,
+            workoutId: workoutId,
+            reference: reference
+        )
 
         do {
             let data = try await storage.reference()
@@ -62,9 +63,10 @@ final class WorkoutHeartRateStorageRepository: WorkoutHeartRateStorageRepository
             switch error.code {
             case StorageErrorCode.objectNotFound.rawValue:
                 throw WorkoutHeartRateSidecarError.missing
-            case StorageErrorCode.unauthorized.rawValue,
-                 StorageErrorCode.unauthenticated.rawValue:
+            case StorageErrorCode.unauthorized.rawValue:
                 throw WorkoutHeartRateSidecarError.forbidden
+            case StorageErrorCode.unauthenticated.rawValue:
+                throw WorkoutHeartRateSidecarError.transient
             case StorageErrorCode.downloadSizeExceeded.rawValue:
                 throw WorkoutHeartRateSidecarError.oversized
             case StorageErrorCode.nonMatchingChecksum.rawValue:

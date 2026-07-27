@@ -3,6 +3,10 @@ import SwiftData
 
 @MainActor
 enum WorkoutHydrationService {
+    /// Sidecar downloads run in bounded batches so a reinstall with hundreds of heart-rate workouts
+    /// cannot serialise the rest of authenticated bootstrap behind them.
+    static let heartRateRestoreBatchSize = 4
+
     private static var hydratedUserIdsThisSession: Set<String> = []
     private static var hydratingUserIds: Set<String> = []
 
@@ -17,15 +21,29 @@ enum WorkoutHydrationService {
             return 0
         }
 
+        let isInitialHydration = hydratedUserIdsThisSession.contains(currentUserId) == false
+        if isInitialHydration == false {
+            guard try hasWorkoutAwaitingHeartRateRestore(
+                modelContext: modelContext,
+                userId: currentUserId
+            ) else {
+                return 0
+            }
+        }
+
         hydratingUserIds.insert(currentUserId)
         defer { hydratingUserIds.remove(currentUserId) }
 
-        let isInitialHydration = hydratedUserIdsThisSession.contains(currentUserId) == false
         let records = try await remoteRepository.fetchWorkouts(userId: currentUserId)
 
         let localWorkouts = try fetchLocalWorkouts(modelContext: modelContext, userId: currentUserId)
+        let deletedWorkoutIds = try fetchPendingDeletionWorkoutIds(
+            modelContext: modelContext,
+            userId: currentUserId
+        )
         var localByID = Dictionary(uniqueKeysWithValues: localWorkouts.map { ($0.id, $0) })
         var changedCount = 0
+        var pendingRestores: [HeartRateRestorePlan] = []
 
         for record in records.sorted(by: { $0.document.startedAt < $1.document.startedAt }) {
             if let existingWorkout = localByID[record.workoutId] {
@@ -41,6 +59,11 @@ enum WorkoutHydrationService {
                     changedCount += 1
                 }
             } else {
+                // A workout awaiting remote deletion is not missing locally - it was deleted while
+                // offline. Re-inserting it would resurrect it permanently, because the deletion
+                // queue only removes the remote document.
+                guard !deletedWorkoutIds.contains(record.workoutId) else { continue }
+
                 let workout = makeWorkout(
                     from: record.document,
                     workoutId: record.workoutId
@@ -58,18 +81,26 @@ enum WorkoutHydrationService {
             }
 
             guard let workout = localByID[record.workoutId] else { continue }
-            if await restoreHeartRateSeriesIfNeeded(
+            if let reference = heartRateReferenceRequiringRestore(
                 for: workout,
-                userId: currentUserId,
-                reference: record.document.heartRateSeries,
-                repository: heartRateStorageRepository
+                reference: record.document.heartRateSeries
             ) {
-                changedCount += 1
+                pendingRestores.append(
+                    HeartRateRestorePlan(workoutId: workout.id, reference: reference)
+                )
             }
         }
 
         try modelContext.save()
         hydratedUserIdsThisSession.insert(currentUserId)
+
+        changedCount += await restoreHeartRateSeries(
+            pendingRestores,
+            workoutsByID: localByID,
+            userId: currentUserId,
+            repository: heartRateStorageRepository,
+            modelContext: modelContext
+        )
 
         return changedCount
     }
@@ -98,6 +129,39 @@ enum WorkoutHydrationService {
             }
         )
         return try modelContext.fetch(descriptor)
+    }
+
+    private static func fetchPendingDeletionWorkoutIds(
+        modelContext: ModelContext,
+        userId: String
+    ) throws -> Set<UUID> {
+        let descriptor = FetchDescriptor<PendingWorkoutDeletion>(
+            predicate: #Predicate<PendingWorkoutDeletion> { deletion in
+                deletion.ownerUserId == userId
+            }
+        )
+        return Set(try modelContext.fetch(descriptor).map(\.workoutId))
+    }
+
+    /// A repeat pass in the same process exists only to retry sidecars, so it skips the remote fetch
+    /// entirely unless a workout is actually waiting on one.
+    private static func hasWorkoutAwaitingHeartRateRestore(
+        modelContext: ModelContext,
+        userId: String
+    ) throws -> Bool {
+        let pendingRawValue = WorkoutHeartRateRestoreStatus.pending.rawValue
+        let retryPendingRawValue = WorkoutHeartRateRestoreStatus.retryPending.rawValue
+        var descriptor = FetchDescriptor<Workout>(
+            predicate: #Predicate<Workout> { workout in
+                workout.ownerUserId == userId &&
+                    (
+                        workout.heartRateRestoreStatusRawValue == pendingRawValue ||
+                            workout.heartRateRestoreStatusRawValue == retryPendingRawValue
+                    )
+            }
+        )
+        descriptor.fetchLimit = 1
+        return try modelContext.fetch(descriptor).isEmpty == false
     }
 
     private static func makeWorkout(
@@ -149,7 +213,7 @@ enum WorkoutHydrationService {
         workout.ownerUserId = userId
         workout.lastModifiedAt = document.updatedAt
         workout.lastRemoteSyncAt = Date()
-        workout.lastRemoteHeartRateSeriesStoragePath = document.heartRateSeries?.storagePath
+        workout.lastRemoteHeartRateSeriesReference = document.heartRateSeries
         if workout.heartRateData == nil, document.heartRateSeries != nil {
             workout.heartRateRestoreStatus = .pending
             workout.heartRateRestoreErrorCode = nil
@@ -186,55 +250,113 @@ enum WorkoutHydrationService {
         )
     }
 
-    private static func restoreHeartRateSeriesIfNeeded(
+    private struct HeartRateRestorePlan: Sendable {
+        let workoutId: UUID
+        let reference: FirestoreWorkoutHeartRateSeriesReference
+    }
+
+    /// Classifies what the remote reference means for this workout and returns the reference that
+    /// still needs downloading, if any.
+    private static func heartRateReferenceRequiringRestore(
         for workout: Workout,
-        userId: String,
-        reference: FirestoreWorkoutHeartRateSeriesReference?,
-        repository: any WorkoutHeartRateStorageRepositoryProtocol
-    ) async -> Bool {
+        reference: FirestoreWorkoutHeartRateSeriesReference?
+    ) -> FirestoreWorkoutHeartRateSeriesReference? {
         guard let reference else {
+            workout.lastRemoteHeartRateSeriesReference = nil
             if workout.heartRateData == nil {
                 workout.heartRateRestoreStatus = .notNeeded
                 workout.heartRateRestoreErrorCode = nil
             }
-            return false
+            return nil
         }
+
+        workout.lastRemoteHeartRateSeriesReference = reference
+
         guard workout.heartRateTimeSeries.isEmpty else {
             workout.heartRateRestoreStatus = .ready
             workout.heartRateRestoreErrorCode = nil
-            return false
+            return nil
         }
         guard workout.heartRateRestoreStatus != .unavailable else {
-            return false
+            return nil
         }
 
         workout.heartRateRestoreStatus = .pending
         workout.heartRateRestoreErrorCode = nil
-        do {
-            let blob = try await repository.downloadHeartRateSeries(
-                userId: userId,
-                workoutId: workout.id,
-                reference: reference
-            )
-            workout.heartRateData = blob.samples.encoded
-            workout.heartRateRestoreStatus = .ready
-            return true
-        } catch {
-            let sidecarError = (error as? WorkoutHeartRateSidecarError) ?? .transient
-            workout.heartRateRestoreStatus = sidecarError.isTransient ? .retryPending : .unavailable
-            workout.heartRateRestoreErrorCode = sidecarError.diagnosticCode
-            AppDiagnosticsRecorder.shared.record(
-                "workout_hr_restore_failed",
-                level: .warning,
-                details: [
-                    "workout_id": workout.id.uuidString,
-                    "schema_version": String(reference.objectSchemaVersion ?? 1),
-                    "sample_count": String(reference.sampleCount),
-                    "error_class": sidecarError.diagnosticCode
-                ]
-            )
-            return false
+        return reference
+    }
+
+    private static func restoreHeartRateSeries(
+        _ plans: [HeartRateRestorePlan],
+        workoutsByID: [UUID: Workout],
+        userId: String,
+        repository: any WorkoutHeartRateStorageRepositoryProtocol,
+        modelContext: ModelContext
+    ) async -> Int {
+        guard plans.isEmpty == false else { return 0 }
+
+        var restoredCount = 0
+        for batchStart in stride(from: 0, to: plans.count, by: heartRateRestoreBatchSize) {
+            let batch = plans[batchStart..<min(batchStart + heartRateRestoreBatchSize, plans.count)]
+            let outcomes = await withTaskGroup(
+                of: (plan: HeartRateRestorePlan, result: Result<WorkoutHeartRateStorageBlob, WorkoutHeartRateSidecarError>).self
+            ) { group in
+                for plan in batch {
+                    group.addTask {
+                        do {
+                            let blob = try await repository.downloadHeartRateSeries(
+                                userId: userId,
+                                workoutId: plan.workoutId,
+                                reference: plan.reference
+                            )
+                            return (plan, .success(blob))
+                        } catch {
+                            let sidecarError = (error as? WorkoutHeartRateSidecarError) ?? .transient
+                            return (plan, .failure(sidecarError))
+                        }
+                    }
+                }
+
+                var collected: [(plan: HeartRateRestorePlan, result: Result<WorkoutHeartRateStorageBlob, WorkoutHeartRateSidecarError>)] = []
+                for await outcome in group {
+                    collected.append(outcome)
+                }
+                return collected
+            }
+
+            for outcome in outcomes {
+                guard let workout = workoutsByID[outcome.plan.workoutId] else { continue }
+
+                switch outcome.result {
+                case .success(let blob):
+                    workout.heartRateData = blob.samples.encoded
+                    workout.heartRateRestoreStatus = .ready
+                    workout.heartRateRestoreErrorCode = nil
+                    restoredCount += 1
+                case .failure(let sidecarError):
+                    workout.heartRateRestoreStatus = sidecarError.isTransient
+                        ? .retryPending
+                        : .unavailable
+                    workout.heartRateRestoreErrorCode = sidecarError.diagnosticCode
+                    AppDiagnosticsRecorder.shared.record(
+                        "workout_hr_restore_failed",
+                        level: .warning,
+                        details: [
+                            "workout_id": outcome.plan.workoutId.uuidString,
+                            "schema_version": String(outcome.plan.reference.objectSchemaVersion ?? 1),
+                            "sample_count": String(outcome.plan.reference.sampleCount),
+                            "error_class": sidecarError.diagnosticCode
+                        ]
+                    )
+                }
+            }
+
+            // Saved per batch so a suspension or a later failure never discards series that already
+            // downloaded successfully.
+            try? modelContext.save()
         }
+
+        return restoredCount
     }
 
     private static func replaceParticipations(

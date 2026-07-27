@@ -89,12 +89,12 @@ final class WorkoutSyncCoordinator {
 
                 for snapshot in snapshots {
                     do {
-                        let heartRateSeriesStoragePath = try await sync(snapshot)
+                        let heartRateSeries = try await sync(snapshot)
                         try markSynced(
                             workoutId: snapshot.workoutId,
                             userId: snapshot.userId,
                             expectedModifiedAt: snapshot.lastModifiedAt,
-                            heartRateSeriesStoragePath: heartRateSeriesStoragePath,
+                            heartRateSeries: heartRateSeries,
                             modelContext: modelContext
                         )
                     } catch {
@@ -123,7 +123,9 @@ private extension WorkoutSyncCoordinator {
         let ownerUserId: String
     }
 
-    func sync(_ snapshot: WorkoutRemoteSyncSnapshot) async throws -> String? {
+    func sync(
+        _ snapshot: WorkoutRemoteSyncSnapshot
+    ) async throws -> FirestoreWorkoutHeartRateSeriesReference? {
         let baseDocument = snapshot.document
         let finalDocument: FirestoreWorkoutDocument
 
@@ -137,7 +139,8 @@ private extension WorkoutSyncCoordinator {
             }
 
             finalDocument = baseDocument.replacingHeartRateSeries(heartRateSeries)
-        } else if snapshot.previousHeartRateSeriesStoragePath != nil {
+        } else if baseDocument.heartRateSeries == nil,
+                  snapshot.previousHeartRateSeriesStoragePath != nil {
             try await withWorkoutSyncTimeout(seconds: operationTimeoutSeconds) {
                 try await self.heartRateStorageRepository.deleteHeartRateSeriesIfPresent(
                     userId: snapshot.userId,
@@ -157,7 +160,7 @@ private extension WorkoutSyncCoordinator {
             )
         }
 
-        return finalDocument.heartRateSeries?.storagePath
+        return finalDocument.heartRateSeries
     }
 
     func processPendingDeletions(
@@ -270,7 +273,7 @@ private extension WorkoutSyncCoordinator {
         workoutId: UUID,
         userId: String,
         expectedModifiedAt: Date,
-        heartRateSeriesStoragePath: String?,
+        heartRateSeries: FirestoreWorkoutHeartRateSeriesReference?,
         modelContext: ModelContext
     ) throws {
         guard let workout = try Self.fetchWorkout(
@@ -282,7 +285,7 @@ private extension WorkoutSyncCoordinator {
         guard workout.lastModifiedAt <= expectedModifiedAt else { return }
 
         workout.markRemoteSyncSucceeded(
-            heartRateSeriesStoragePath: heartRateSeriesStoragePath
+            heartRateSeries: heartRateSeries
         )
         try modelContext.save()
     }

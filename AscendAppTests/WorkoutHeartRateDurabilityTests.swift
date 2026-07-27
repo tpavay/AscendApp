@@ -137,6 +137,85 @@ struct WorkoutHeartRateDurabilityTests {
         #expect(await repository.downloadCount() == 2)
     }
 
+    @Test
+    func validationToleratesFirestoreTimestampQuantizationOfSeriesBounds() throws {
+        let userId = "quantized-bounds-user"
+        let workoutId = UUID()
+        let start = Date(timeIntervalSince1970: 1_800_000_000.123_456_789)
+        let samples = [
+            HeartRateDataPoint(timestamp: start, heartRate: 118),
+            HeartRateDataPoint(timestamp: start.addingTimeInterval(37.987_654_321), heartRate: 141)
+        ]
+        let blob = WorkoutHeartRateStorageBlob(
+            workoutId: WorkoutDocumentID.canonicalString(for: workoutId),
+            samples: samples
+        )
+        let compressedData = try GzipCodec.compress(JSONEncoder().encode(blob))
+        let reference = FirestoreWorkoutHeartRateSeriesReference(
+            storagePath: WorkoutHeartRateStoragePath.path(userId: userId, workoutId: workoutId),
+            sampleCount: samples.count,
+            seriesStartAt: firestoreQuantized(samples[0].timestamp),
+            seriesEndAt: firestoreQuantized(samples[1].timestamp),
+            objectSchemaVersion: WorkoutHeartRateStorageBlob.currentSchemaVersion,
+            compressedByteCount: compressedData.count
+        )
+
+        let validated = try WorkoutHeartRateSidecarValidator.validate(
+            compressedData: compressedData,
+            userId: userId,
+            workoutId: workoutId,
+            reference: reference
+        )
+        #expect(validated.samples == samples)
+    }
+
+    @Test
+    func hydrationDoesNotResurrectAWorkoutDeletedWhileOffline() async throws {
+        let userId = "offline-deletion-user"
+        let workoutId = UUID()
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        let document = FirestoreWorkoutDocument(
+            userId: userId,
+            name: "Deleted offline",
+            startedAt: start,
+            durationSeconds: 600,
+            steps: 500,
+            floors: 31,
+            stepsPerFloor: 16,
+            notes: "",
+            source: WorkoutSource.appleHealth.rawValue,
+            climbId: nil,
+            integrityLevel: DataIntegrityLevel.verified.rawValue,
+            createdAt: start,
+            updatedAt: start
+        )
+        let context = try makeContext()
+        context.insert(
+            PendingWorkoutDeletion(workoutId: workoutId, ownerUserId: userId)
+        )
+        try context.save()
+
+        _ = try await WorkoutHydrationService.hydrateIfNeeded(
+            modelContext: context,
+            currentUserId: userId,
+            remoteRepository: HeartRateDurabilityRemoteRepository(
+                records: [RemoteWorkoutRecord(workoutId: workoutId, document: document)]
+            ),
+            heartRateStorageRepository: FailingHeartRateDurabilitySidecarRepository(error: .missing)
+        )
+
+        #expect(try context.fetch(FetchDescriptor<Workout>()).isEmpty)
+    }
+
+    /// Mirrors how Firestore's `Timestamp` truncates a `Date` to whole nanoseconds and back, which is
+    /// why the sidecar bounds gate cannot use exact equality.
+    private func firestoreQuantized(_ date: Date) -> Date {
+        let interval = date.timeIntervalSince1970
+        let seconds = interval.rounded(.down)
+        let nanoseconds = ((interval - seconds) * 1_000_000_000).rounded(.down)
+        return Date(timeIntervalSince1970: seconds + nanoseconds / 1_000_000_000)
+    }
+
     private func verifyFailure(
         _ error: WorkoutHeartRateSidecarError,
         expectedStatus: WorkoutHeartRateRestoreStatus
@@ -191,6 +270,7 @@ struct WorkoutHeartRateDurabilityTests {
             WorkoutSourceLink.self,
             WorkoutParticipation.self,
             ClimbAttempt.self,
+            PendingWorkoutDeletion.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
         return ModelContext(container)

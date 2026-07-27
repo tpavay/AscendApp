@@ -44,18 +44,11 @@ enum WorkoutRemoteSyncMapper {
         }
 
         let heartRateBlob = try heartRateBlob(for: workout)
-        let heartRateSeriesReference = heartRateBlob.map { blob in
-            let seriesBounds = seriesBounds(for: blob.samples)
-            return FirestoreWorkoutHeartRateSeriesReference(
-                storagePath: WorkoutHeartRateStoragePath.path(
-                    userId: userId,
-                    workoutId: workout.id
-                ),
-                sampleCount: blob.samples.count,
-                seriesStartAt: seriesBounds.start,
-                seriesEndAt: seriesBounds.end
-            )
-        }
+        let heartRateSeriesReference = heartRateSeriesReference(
+            for: workout,
+            userId: userId,
+            blob: heartRateBlob
+        )
 
         let participations = workout.participations.isEmpty
             ? nil
@@ -162,13 +155,40 @@ private extension WorkoutRemoteSyncMapper {
         let samples = workout.heartRateTimeSeries
         guard !samples.isEmpty else { return nil }
 
-        guard samples.allSatisfy({ $0.heartRate > 0 }) else {
+        guard samples.allSatisfy(WorkoutHeartRateSidecarValidator.isPlausibleSample) else {
             throw WorkoutSyncError.invalidHeartRateSeries
         }
 
         return WorkoutHeartRateStorageBlob(
             workoutId: workout.id.uuidString,
             samples: samples
+        )
+    }
+
+    /// A workout with no local samples only clears its remote sidecar when the local absence is
+    /// authoritative. While a restore is still pending, unavailable, or awaiting retry, the last
+    /// known reference is carried forward so the durable series stays reachable.
+    static func heartRateSeriesReference(
+        for workout: Workout,
+        userId: String,
+        blob: WorkoutHeartRateStorageBlob?
+    ) -> FirestoreWorkoutHeartRateSeriesReference? {
+        guard let blob else {
+            guard workout.heartRateRestoreStatus.treatsLocalAbsenceAsAuthoritative == false else {
+                return nil
+            }
+            return workout.lastRemoteHeartRateSeriesReference
+        }
+
+        let bounds = seriesBounds(for: blob.samples)
+        return FirestoreWorkoutHeartRateSeriesReference(
+            storagePath: WorkoutHeartRateStoragePath.path(
+                userId: userId,
+                workoutId: workout.id
+            ),
+            sampleCount: blob.samples.count,
+            seriesStartAt: bounds.start,
+            seriesEndAt: bounds.end
         )
     }
 
