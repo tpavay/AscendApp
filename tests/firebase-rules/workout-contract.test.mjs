@@ -178,6 +178,18 @@ test('owner can write a valid workout backup document', async () => {
   })));
 });
 
+test('workout HR integrity metadata is bounded and validated', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    heartRateSeries: {
+      ...makeHeartRateSeriesReference(userId, workoutId),
+      sha256: 'not-a-sha256',
+    },
+  })));
+});
+
 test('workout document ids must be the uppercase canonical UUID', async () => {
   const context = testEnv.authenticatedContext(userId);
   const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${lowercaseWorkoutId}`);
@@ -641,6 +653,9 @@ function makeHeartRateSeriesReference(ownerUserId, ownerWorkoutId) {
     sampleCount: 3,
     seriesStartAt: new Date('2026-04-10T06:30:00.000Z'),
     seriesEndAt: new Date('2026-04-10T06:45:00.000Z'),
+    objectSchemaVersion: 1,
+    compressedByteCount: 256,
+    sha256: 'a'.repeat(64),
   };
 }
 

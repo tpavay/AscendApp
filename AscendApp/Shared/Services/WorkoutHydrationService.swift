@@ -9,19 +9,19 @@ enum WorkoutHydrationService {
     static func hydrateIfNeeded(
         modelContext: ModelContext,
         currentUserId: String,
-        remoteRepository: any WorkoutRemoteRepositoryProtocol = WorkoutRemoteRepository.shared
+        remoteRepository: any WorkoutRemoteRepositoryProtocol = WorkoutRemoteRepository.shared,
+        heartRateStorageRepository: any WorkoutHeartRateStorageRepositoryProtocol =
+            WorkoutHeartRateStorageRepository.shared
     ) async throws -> Int {
-        guard !hydratedUserIdsThisSession.contains(currentUserId),
-              !hydratingUserIds.contains(currentUserId) else {
+        guard !hydratingUserIds.contains(currentUserId) else {
             return 0
         }
 
         hydratingUserIds.insert(currentUserId)
         defer { hydratingUserIds.remove(currentUserId) }
 
+        let isInitialHydration = hydratedUserIdsThisSession.contains(currentUserId) == false
         let records = try await remoteRepository.fetchWorkouts(userId: currentUserId)
-        hydratedUserIdsThisSession.insert(currentUserId)
-        guard !records.isEmpty else { return 0 }
 
         let localWorkouts = try fetchLocalWorkouts(modelContext: modelContext, userId: currentUserId)
         var localByID = Dictionary(uniqueKeysWithValues: localWorkouts.map { ($0.id, $0) })
@@ -29,15 +29,17 @@ enum WorkoutHydrationService {
 
         for record in records.sorted(by: { $0.document.startedAt < $1.document.startedAt }) {
             if let existingWorkout = localByID[record.workoutId] {
-                guard shouldApplyRemoteDocument(record.document, to: existingWorkout) else { continue }
-                try apply(
-                    record.document,
-                    workoutId: record.workoutId,
-                    userId: currentUserId,
-                    to: existingWorkout,
-                    modelContext: modelContext
-                )
-                changedCount += 1
+                if isInitialHydration &&
+                    shouldApplyRemoteDocument(record.document, to: existingWorkout) {
+                    try apply(
+                        record.document,
+                        workoutId: record.workoutId,
+                        userId: currentUserId,
+                        to: existingWorkout,
+                        modelContext: modelContext
+                    )
+                    changedCount += 1
+                }
             } else {
                 let workout = makeWorkout(
                     from: record.document,
@@ -54,19 +56,27 @@ enum WorkoutHydrationService {
                 localByID[workout.id] = workout
                 changedCount += 1
             }
+
+            guard let workout = localByID[record.workoutId] else { continue }
+            if await restoreHeartRateSeriesIfNeeded(
+                for: workout,
+                userId: currentUserId,
+                reference: record.document.heartRateSeries,
+                repository: heartRateStorageRepository
+            ) {
+                changedCount += 1
+            }
         }
 
-        if changedCount > 0 {
-            try modelContext.save()
-        }
+        try modelContext.save()
+        hydratedUserIdsThisSession.insert(currentUserId)
 
         return changedCount
     }
 
-    /// Clears the per-process "already hydrated this session" tracking. Hydration runs once per
-    /// launch; a reinstall re-runs it from a cold process. Tests use this to simulate that fresh
-    /// launch (and to prove reconstruction is idempotent when it actually runs twice). Not called
-    /// by the app.
+    /// Clears per-process initial-merge tracking. A reinstall starts from a cold process, while
+    /// later hydration passes in the same process retry pending sidecars without overwriting local
+    /// edits. Tests use this to simulate a fresh launch. Not called by the app.
     static func resetSessionTrackingForTesting() {
         hydratedUserIdsThisSession.removeAll()
         hydratingUserIds.removeAll()
@@ -140,6 +150,13 @@ enum WorkoutHydrationService {
         workout.lastModifiedAt = document.updatedAt
         workout.lastRemoteSyncAt = Date()
         workout.lastRemoteHeartRateSeriesStoragePath = document.heartRateSeries?.storagePath
+        if workout.heartRateData == nil, document.heartRateSeries != nil {
+            workout.heartRateRestoreStatus = .pending
+            workout.heartRateRestoreErrorCode = nil
+        } else if workout.heartRateData != nil {
+            workout.heartRateRestoreStatus = .ready
+            workout.heartRateRestoreErrorCode = nil
+        }
         workout.remoteSyncStatus = .synced
         workout.lastRemoteSyncError = nil
         workout.avgHeartRate = document.avgHeartRateBpm
@@ -167,6 +184,57 @@ enum WorkoutHydrationService {
             userId: userId,
             modelContext: modelContext
         )
+    }
+
+    private static func restoreHeartRateSeriesIfNeeded(
+        for workout: Workout,
+        userId: String,
+        reference: FirestoreWorkoutHeartRateSeriesReference?,
+        repository: any WorkoutHeartRateStorageRepositoryProtocol
+    ) async -> Bool {
+        guard let reference else {
+            if workout.heartRateData == nil {
+                workout.heartRateRestoreStatus = .notNeeded
+                workout.heartRateRestoreErrorCode = nil
+            }
+            return false
+        }
+        guard workout.heartRateTimeSeries.isEmpty else {
+            workout.heartRateRestoreStatus = .ready
+            workout.heartRateRestoreErrorCode = nil
+            return false
+        }
+        guard workout.heartRateRestoreStatus != .unavailable else {
+            return false
+        }
+
+        workout.heartRateRestoreStatus = .pending
+        workout.heartRateRestoreErrorCode = nil
+        do {
+            let blob = try await repository.downloadHeartRateSeries(
+                userId: userId,
+                workoutId: workout.id,
+                reference: reference
+            )
+            workout.heartRateData = blob.samples.encoded
+            workout.heartRateRestoreStatus = .ready
+            return true
+        } catch {
+            let sidecarError = (error as? WorkoutHeartRateSidecarError) ?? .transient
+            workout.heartRateRestoreStatus = sidecarError.isTransient ? .retryPending : .unavailable
+            workout.heartRateRestoreErrorCode = sidecarError.diagnosticCode
+            AppDiagnosticsRecorder.shared.record(
+                "workout_hr_restore_failed",
+                level: .warning,
+                details: [
+                    "workout_id": workout.id.uuidString,
+                    "schema_version": String(reference.objectSchemaVersion ?? 1),
+                    "sample_count": String(reference.sampleCount),
+                    "error_class": sidecarError.diagnosticCode
+                ]
+            )
+            return false
+        }
     }
 
     private static func replaceParticipations(

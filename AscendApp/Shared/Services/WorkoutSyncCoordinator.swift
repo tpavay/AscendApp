@@ -136,35 +136,7 @@ private extension WorkoutSyncCoordinator {
                 )
             }
 
-            finalDocument = FirestoreWorkoutDocument(
-                userId: baseDocument.userId,
-                schemaVersion: baseDocument.schemaVersion,
-                name: baseDocument.name,
-                startedAt: baseDocument.startedAt,
-                durationSeconds: baseDocument.durationSeconds,
-                steps: baseDocument.steps,
-                floors: baseDocument.floors,
-                stepsPerFloor: baseDocument.stepsPerFloor,
-                notes: baseDocument.notes,
-                source: baseDocument.source,
-                climbId: baseDocument.climbId,
-                integrityLevel: baseDocument.integrityLevel,
-                createdAt: baseDocument.createdAt,
-                updatedAt: baseDocument.updatedAt,
-                avgHeartRateBpm: baseDocument.avgHeartRateBpm,
-                maxHeartRateBpm: baseDocument.maxHeartRateBpm,
-                caloriesBurned: baseDocument.caloriesBurned,
-                effortRating: baseDocument.effortRating,
-                averageMETs: baseDocument.averageMETs,
-                deviceModel: baseDocument.deviceModel,
-                sourceMetadata: baseDocument.sourceMetadata,
-                healthKitUUID: baseDocument.healthKitUUID,
-                hevyWorkoutId: baseDocument.hevyWorkoutId,
-                media: baseDocument.media,
-                highlightedMediaId: baseDocument.highlightedMediaId,
-                weightConfiguration: baseDocument.weightConfiguration,
-                heartRateSeries: heartRateSeries
-            )
+            finalDocument = baseDocument.replacingHeartRateSeries(heartRateSeries)
         } else if snapshot.previousHeartRateSeriesStoragePath != nil {
             try await withWorkoutSyncTimeout(seconds: operationTimeoutSeconds) {
                 try await self.heartRateStorageRepository.deleteHeartRateSeriesIfPresent(
@@ -220,6 +192,9 @@ private extension WorkoutSyncCoordinator {
         let userId = pendingDeletion.ownerUserId
         let workoutId = pendingDeletion.workoutId
 
+        // Sidecar-first deletion removes active HR access before deleting the workout envelope.
+        // Preventing stale devices from recreating either record still depends on the planned
+        // revisioned tombstone and grace-period durability slice.
         try await withWorkoutSyncTimeout(seconds: operationTimeoutSeconds) {
             try await self.heartRateStorageRepository.deleteHeartRateSeriesIfPresent(
                 userId: userId,

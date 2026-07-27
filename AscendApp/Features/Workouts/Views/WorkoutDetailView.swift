@@ -608,13 +608,19 @@ struct WorkoutDetailView: View {
 
     @ViewBuilder
     private var heartRateSection: some View {
-        if hasHeartRateData {
+        if workout.heartRateTimeSeries.isEmpty == false {
             HeartRateChartView(
                 heartRateData: workout.heartRateTimeSeries,
                 workoutStartTime: workout.date,
                 workoutDuration: workout.duration,
                 averageHeartRateBpm: workout.avgHeartRate,
                 maxHeartRateBpm: workout.maxHeartRate
+            )
+        } else if shouldShowRemoteHeartRateRestore {
+            WorkoutHeartRateRestoreCard(
+                status: workout.heartRateRestoreStatus,
+                effectiveColorScheme: effectiveColorScheme,
+                onRetry: retryRemoteHeartRateRestore
             )
         } else if shouldShowAppleHealthHeartRateRecovery {
             WorkoutHeartRateRecoveryCard(
@@ -635,7 +641,15 @@ struct WorkoutDetailView: View {
     }
 
     private var shouldShowHeartRateSection: Bool {
-        hasHeartRateData || shouldShowAppleHealthHeartRateRecovery
+        hasHeartRateData ||
+            shouldShowRemoteHeartRateRestore ||
+            shouldShowAppleHealthHeartRateRecovery
+    }
+
+    private var shouldShowRemoteHeartRateRestore: Bool {
+        workout.lastRemoteHeartRateSeriesStoragePath != nil &&
+            workout.heartRateTimeSeries.isEmpty &&
+            workout.heartRateRestoreStatus != .ready
     }
 
     private var shouldShowAppleHealthHeartRateRecovery: Bool {
@@ -1000,6 +1014,19 @@ struct WorkoutDetailView: View {
                 appleHealthHeartRateMessage = "No matching heart-rate samples found yet. Try again after Apple Watch finishes syncing."
                 HapticsManager.shared.trigger(.warning)
             }
+        }
+    }
+
+    private func retryRemoteHeartRateRestore() {
+        guard let userId = workout.ownerUserId else { return }
+
+        Task { @MainActor in
+            workout.heartRateRestoreStatus = .pending
+            try? modelContext.save()
+            _ = try? await WorkoutHydrationService.hydrateIfNeeded(
+                modelContext: modelContext,
+                currentUserId: userId
+            )
         }
     }
 

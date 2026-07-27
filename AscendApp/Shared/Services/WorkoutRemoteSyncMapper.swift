@@ -47,7 +47,10 @@ enum WorkoutRemoteSyncMapper {
         let heartRateSeriesReference = heartRateBlob.map { blob in
             let seriesBounds = seriesBounds(for: blob.samples)
             return FirestoreWorkoutHeartRateSeriesReference(
-                storagePath: "users/\(userId)/workout_heart_rate/\(workout.id.uuidString).json.gz",
+                storagePath: WorkoutHeartRateStoragePath.path(
+                    userId: userId,
+                    workoutId: workout.id
+                ),
                 sampleCount: blob.samples.count,
                 seriesStartAt: seriesBounds.start,
                 seriesEndAt: seriesBounds.end

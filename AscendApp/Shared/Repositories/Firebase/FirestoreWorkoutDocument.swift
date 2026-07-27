@@ -92,3 +92,40 @@ struct FirestoreWorkoutDocument: Codable, Equatable, Sendable {
         self.participations = participations
     }
 }
+
+extension FirestoreWorkoutDocument {
+    func replacingHeartRateSeries(
+        _ heartRateSeries: FirestoreWorkoutHeartRateSeriesReference?
+    ) -> FirestoreWorkoutDocument {
+        FirestoreWorkoutDocument(
+            userId: userId,
+            schemaVersion: schemaVersion,
+            name: name,
+            startedAt: startedAt,
+            durationSeconds: durationSeconds,
+            steps: steps,
+            floors: floors,
+            stepsPerFloor: stepsPerFloor,
+            notes: notes,
+            source: source,
+            climbId: climbId,
+            integrityLevel: integrityLevel,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            avgHeartRateBpm: avgHeartRateBpm,
+            maxHeartRateBpm: maxHeartRateBpm,
+            caloriesBurned: caloriesBurned,
+            effortRating: effortRating,
+            averageMETs: averageMETs,
+            deviceModel: deviceModel,
+            sourceMetadata: sourceMetadata,
+            healthKitUUID: healthKitUUID,
+            hevyWorkoutId: hevyWorkoutId,
+            media: media,
+            highlightedMediaId: highlightedMediaId,
+            weightConfiguration: weightConfiguration,
+            heartRateSeries: heartRateSeries,
+            participations: participations
+        )
+    }
+}

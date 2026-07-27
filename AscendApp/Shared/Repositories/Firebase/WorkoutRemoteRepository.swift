@@ -248,13 +248,23 @@ private extension WorkoutRemoteRepository {
     func firestoreHeartRateSeriesReference(
         _ reference: FirestoreWorkoutHeartRateSeriesReference
     ) -> [String: Any] {
-        [
+        var data: [String: Any] = [
             "storagePath": reference.storagePath,
             "encoding": reference.encoding,
             "sampleCount": reference.sampleCount,
             "seriesStartAt": Timestamp(date: reference.seriesStartAt),
             "seriesEndAt": Timestamp(date: reference.seriesEndAt)
         ]
+        if let objectSchemaVersion = reference.objectSchemaVersion {
+            data["objectSchemaVersion"] = objectSchemaVersion
+        }
+        if let compressedByteCount = reference.compressedByteCount {
+            data["compressedByteCount"] = compressedByteCount
+        }
+        if let sha256 = reference.sha256 {
+            data["sha256"] = sha256
+        }
+        return data
     }
 
     func firestoreParticipation(_ participation: FirestoreWorkoutParticipation) -> [String: Any] {
@@ -352,13 +362,25 @@ private extension WorkoutRemoteRepository {
 
     func firestoreHeartRateSeriesReference(from value: Any?) throws -> FirestoreWorkoutHeartRateSeriesReference? {
         guard let data = value as? [String: Any] else { return nil }
+        let objectSchemaVersion = data["objectSchemaVersion"] == nil
+            ? nil
+            : try intValue("objectSchemaVersion", in: data)
+        let compressedByteCount = data["compressedByteCount"] == nil
+            ? nil
+            : try intValue("compressedByteCount", in: data)
+        let sha256 = data["sha256"] == nil
+            ? nil
+            : try stringValue("sha256", in: data)
 
         return FirestoreWorkoutHeartRateSeriesReference(
             storagePath: try stringValue("storagePath", in: data),
             encoding: try stringValue("encoding", in: data),
             sampleCount: try intValue("sampleCount", in: data),
             seriesStartAt: try dateValue("seriesStartAt", in: data),
-            seriesEndAt: try dateValue("seriesEndAt", in: data)
+            seriesEndAt: try dateValue("seriesEndAt", in: data),
+            objectSchemaVersion: objectSchemaVersion,
+            compressedByteCount: compressedByteCount,
+            sha256: sha256
         )
     }
 

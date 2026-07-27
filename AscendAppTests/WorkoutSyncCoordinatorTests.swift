@@ -48,6 +48,17 @@ struct WorkoutSyncCoordinatorTests {
         )
         workout.markPendingRemoteUpsert(ownerUserId: "user-123", modifiedAt: workout.createdAt)
         modelContext.insert(workout)
+        try WorkoutParticipationService.addRoutineParticipationIfNeeded(
+            for: workout,
+            attribution: RoutineWorkoutAttribution(
+                routineId: UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!,
+                routineSource: .userCreated,
+                templateId: nil,
+                origin: .liveSession(stopReason: .targetReached)
+            ),
+            userId: "user-123",
+            modelContext: modelContext
+        )
         try modelContext.save()
 
         let recorder = CallRecorder()
@@ -74,6 +85,18 @@ struct WorkoutSyncCoordinatorTests {
             heartRateSeries.storagePath ==
                 "users/user-123/workout_heart_rate/\(workout.id.uuidString).json.gz"
         )
+        let participation = try #require(upsert.document.participations?.first)
+        #expect(participation.workoutId == workout.id.uuidString)
+        #expect(participation.userId == "user-123")
+        #expect(participation.contextType == WorkoutParticipationContextType.routine.rawValue)
+        #expect(participation.contextId == "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")
+        #expect(participation.contextVersion == 1)
+        #expect(participation.rulesVersion == WorkoutParticipationService.currentRoutineRulesVersion)
+        #expect(participation.role == WorkoutParticipationRole.primary.rawValue)
+        #expect(participation.leaderboardEligible == false)
+        #expect(participation.verificationTier == WorkoutParticipationVerificationTier.unverified.rawValue)
+        #expect(participation.metricsSnapshot.steps == workout.steps)
+        #expect(participation.createdAt <= Date())
     }
 
     @Test
@@ -669,6 +692,14 @@ private actor FakeWorkoutHeartRateStorageRepository: WorkoutHeartRateStorageRepo
             throw deleteError
         }
         recordedDeletes.append(Delete(userId: userId, workoutId: workoutId))
+    }
+
+    func downloadHeartRateSeries(
+        userId: String,
+        workoutId: UUID,
+        reference: FirestoreWorkoutHeartRateSeriesReference
+    ) async throws -> WorkoutHeartRateStorageBlob {
+        throw WorkoutHeartRateSidecarError.missing
     }
 
     func uploads() -> [Upload] {

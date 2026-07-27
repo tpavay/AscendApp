@@ -131,6 +131,8 @@ class Workout {
     var lastModifiedAt: Date = Date()
     var lastRemoteSyncAt: Date?
     var lastRemoteHeartRateSeriesStoragePath: String?
+    var heartRateRestoreStatusRawValue: String = WorkoutHeartRateRestoreStatus.notNeeded.rawValue
+    var heartRateRestoreErrorCode: String?
     var remoteSyncStatusRawValue: String = WorkoutRemoteSyncStatus.pendingUpsert.rawValue
     var lastRemoteSyncError: String?
     var avgHeartRate: Int? // Average heart rate in BPM
@@ -329,6 +331,15 @@ class Workout {
     var heartRateTimeSeries: [HeartRateDataPoint] {
         guard let data = heartRateData else { return [] }
         return data.decoded ?? []
+    }
+
+    var heartRateRestoreStatus: WorkoutHeartRateRestoreStatus {
+        get {
+            WorkoutHeartRateRestoreStatus(rawValue: heartRateRestoreStatusRawValue) ?? .notNeeded
+        }
+        set {
+            heartRateRestoreStatusRawValue = newValue.rawValue
+        }
     }
     
     // Data integrity computed properties
