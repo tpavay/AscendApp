@@ -109,7 +109,10 @@ The only launch paywall page copied into `web/dist` by the Astro build is:
 
 - Source: `web/public/superwall/onboarding-paywall.html`
 - Shared styles: `web/public/superwall/ascend-paywall.css`
-- Production URL: `https://ascendstepper.com/superwall/onboarding-paywall.html`
+- Production URL: `https://ascendstepper.com/superwall/onboarding-paywall`
+
+Hosting runs with `cleanUrls`, so the `.html` form answers every request with a redirect.
+Configure Superwall with the extensionless URL above.
 
 The page defaults to Annual.
 Its visible state must remain:
@@ -136,6 +139,26 @@ Its visible state must remain:
 Both states show `Compete on global leaderboards`, preserve Restore, Terms, Privacy, VoiceOver selection state, and use the same purchase analytics path through Superwall and RevenueCat.
 The unsupported personalized climbing-plan claim must not return.
 
+### Localized pricing and trial eligibility
+
+The literal strings above are United States fallbacks that the static page renders before Superwall substitutes product values.
+Every price-bearing and trial-bearing string sits inside an element that carries a `data-pw-var` name, so Superwall can replace all of them.
+Bind each name to the localized StoreKit product value in the Superwall paywall editor:
+
+| `data-pw-var` | Bound product value |
+|---|---|
+| `yearly_price`, `yearly_subtitle` | `primary` localized price and billing period |
+| `monthly_price`, `monthly_subtitle`, `monthly_cta` | `secondary` localized price and billing period |
+| `yearly_headline`, `yearly_badge`, `yearly_cta`, `yearly_disclosure` | `primary` localized price and introductory-offer state |
+| `monthly_disclosure` | `secondary` localized price with no introductory offer |
+
+Never hardcode a localized price or a trial promise that Superwall cannot override.
+A price literal that sits outside a `data-pw-var` element is a defect, and `scripts/test/subscription-launch-offer.test.mjs` fails on one.
+
+Apple grants one introductory offer per subscription group per Apple account and Family Sharing group, so the annual trial promise is not true for every account.
+Bind the annual trial surfaces to Superwall's free-trial-eligibility state so an account that already used the offer sees immediate-charge annual copy instead of the trial promise.
+`PaywallAnalyticsContext.isFreeTrialAvailable` records which state each presentation actually showed.
+
 ## Superwall Verification Checklist
 
 Complete these steps in each authenticated Superwall project without bypassing product validation or publishing an unverified campaign:
@@ -144,14 +167,16 @@ Complete these steps in each authenticated Superwall project without bypassing p
 2. Bind `ascend_yearly` to `primary`.
 3. Bind `ascend_monthly` to `secondary`.
 4. Confirm the paywall benefits say `Compete on global leaderboards` and make no personalized-plan claim.
-5. Point a self-hosted paywall at `https://ascendstepper.com/superwall/onboarding-paywall.html` only after the Hosting deployment serves this repository revision.
+5. Point a self-hosted paywall at `https://ascendstepper.com/superwall/onboarding-paywall` only after the Hosting deployment serves this repository revision.
 6. Confirm Annual is selected when `Try 7 Days Free` is visible.
 7. Switch to Monthly and confirm the headline, CTA, price, and legal disclosure all describe an immediate monthly charge with no trial.
-8. Confirm Restore, Terms, and Privacy still work.
-9. Confirm a sandbox annual purchase and monthly purchase each grant `app_access`.
-10. Wire the verified paywall to `app_access_gate`.
-11. Keep onboarding experiments on `onboarding_paywall`.
-12. Publish only after Superwall accepts both product states and editor and device previews match the two states above.
+8. Bind every `data-pw-var` in the localized-pricing table to its product value, then preview a non-United States storefront and confirm each price renders in that storefront's currency.
+9. Preview with an Apple account that already used the introductory offer and confirm no annual surface promises a free trial.
+10. Confirm Restore, Terms, and Privacy still work.
+11. Confirm a sandbox annual purchase and monthly purchase each grant `app_access`.
+12. Wire the verified paywall to `app_access_gate`.
+13. Keep onboarding experiments on `onboarding_paywall`.
+14. Publish only after Superwall accepts both product states and editor and device previews match the two states above.
 
 ## Release Gate
 

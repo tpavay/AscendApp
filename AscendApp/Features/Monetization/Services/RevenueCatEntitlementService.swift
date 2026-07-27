@@ -1,11 +1,13 @@
 import Foundation
 import Observation
+import os
 import RevenueCat
 
 @MainActor
 @Observable
 final class RevenueCatEntitlementService: EntitlementServicing {
     static let shared = RevenueCatEntitlementService()
+    private static let logger = Logger(subsystem: "com.ascendapp.app", category: "Monetization")
 
     private(set) var entitlementState: MonetizationEntitlementState = .unknown
     private(set) var isConfigured = false
@@ -39,7 +41,34 @@ final class RevenueCatEntitlementService: EntitlementServicing {
 
         Task {
             await refreshCustomerInfo()
+            await auditLaunchOffering()
         }
+    }
+
+    func auditLaunchOffering() async {
+        guard isConfigured else { return }
+        guard let offerings = try? await Purchases.shared.offerings() else { return }
+
+        let currentOffering = offerings.current
+        let audit = configuration.auditOffering(
+            identifier: currentOffering?.identifier,
+            productIDs: Set(
+                currentOffering?.availablePackages.map(\.storeProduct.productIdentifier) ?? []
+            )
+        )
+
+        guard !audit.isValid else { return }
+
+        Self.logger.error(
+            "RevenueCat offering does not match the launch contract: \(audit.summary, privacy: .public)"
+        )
+        TelemetryManager.shared.track(
+            TelemetryRecord(
+                name: "monetization_offering_mismatch",
+                parameters: audit.telemetryParameters,
+                destinations: [.analytics, .crashlytics]
+            )
+        )
     }
 
     func refreshCustomerInfo() async {

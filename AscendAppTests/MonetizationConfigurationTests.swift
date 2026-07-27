@@ -162,4 +162,32 @@ struct MonetizationConfigurationTests {
         #expect(SuperwallPlacement.appLaunchHardGate.rawValue == "app_launch_hard_gate")
         #expect(SuperwallPlacement.appAccessGate.rawValue == "app_access_gate")
     }
+
+    @Test
+    func flagsAnOfferingThatDoesNotMatchTheLaunchContract() {
+        let configuration = MonetizationConfiguration(infoDictionary: [:])
+
+        let matching = configuration.auditOffering(
+            identifier: "default",
+            productIDs: ["ascend_yearly", "ascend_monthly"]
+        )
+        let wrongOffering = configuration.auditOffering(
+            identifier: "launch_discount",
+            productIDs: ["ascend_yearly", "ascend_monthly"]
+        )
+        let missingMonthly = configuration.auditOffering(
+            identifier: "default",
+            productIDs: ["ascend_yearly"]
+        )
+        let noOfferings = configuration.auditOffering(identifier: nil, productIDs: [])
+
+        #expect(matching.isValid)
+        #expect(matching.missingProductIDs.isEmpty)
+        #expect(!wrongOffering.isValid)
+        #expect(!wrongOffering.hasExpectedOffering)
+        #expect(!missingMonthly.isValid)
+        #expect(missingMonthly.missingProductIDs == ["ascend_monthly"])
+        #expect(!noOfferings.isValid)
+        #expect(noOfferings.missingProductIDs == ["ascend_yearly", "ascend_monthly"])
+    }
 }

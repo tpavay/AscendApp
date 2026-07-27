@@ -52,6 +52,18 @@ struct MonetizationConfiguration: Equatable {
         revenueCatAPIKey != nil && superwallAPIKey != nil
     }
 
+    var launchProductIDs: [String] {
+        [revenueCatYearlyProductID, revenueCatMonthlyProductID]
+    }
+
+    func auditOffering(identifier: String?, productIDs: Set<String>) -> MonetizationOfferingAudit {
+        MonetizationOfferingAudit(
+            expectedOfferingID: revenueCatOfferingID,
+            actualOfferingID: identifier,
+            missingProductIDs: launchProductIDs.filter { !productIDs.contains($0) }
+        )
+    }
+
     init(
         infoDictionary: [String: Any] = Bundle.main.infoDictionary ?? [:],
         revenueCatEntitlementID: String = "app_access",

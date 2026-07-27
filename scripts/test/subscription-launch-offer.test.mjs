@@ -82,15 +82,40 @@ test("switching plans swaps every price, trial, CTA, and legal disclosure surfac
   assert.match(paywall, /element\.hidden = element\.dataset\.planCopy !== plan/);
   assert.doesNotMatch(paywall, /\$12\.99|data-plan-copy="monthly"[^>]*>[^<]*trial/i);
 
-  const trialCopyTags = [...markup.matchAll(/<([^>]+)>([^<]*(?:trial|free)[^<]*)<\//gi)];
+  const trialCopyTags = [...markup.matchAll(/<([^>]+)>[^<]*(?:trial|free)[^<]*<\//gi)];
   assert.ok(trialCopyTags.length > 0);
-  for (const [tag, attributes] of trialCopyTags) {
+  for (const [, attributes] of trialCopyTags) {
     assert.match(
       attributes,
       /data-plan-copy="yearly"/,
-      `trial copy must be annual-only: ${tag.trim()}`
+      `trial copy must be annual-only: ${attributes.trim()}`
     );
   }
+});
+
+test("every price surface stays overridable by localized StoreKit values", async () => {
+  const paywall = await source("paywall");
+  const markup = paywall.slice(0, paywall.indexOf("<script>"));
+
+  const priceCopyTags = [...markup.matchAll(/<([^>]+)>([^<]*\$[0-9][^<]*)<\//g)];
+  assert.ok(priceCopyTags.length > 0);
+  for (const [, attributes, text] of priceCopyTags) {
+    assert.match(
+      attributes,
+      /data-pw-var="/,
+      `price copy must carry a Superwall variable: ${text.trim()}`
+    );
+  }
+});
+
+test("setup guidance pins localized pricing, trial eligibility, and the served URL", async () => {
+  const setup = await source("setup");
+
+  assert.match(setup, /Never hardcode a localized price or a trial promise that Superwall cannot override\./);
+  assert.match(setup, /one introductory offer per subscription group/);
+  assert.match(setup, /free-trial-eligibility state/);
+  assert.match(setup, /https:\/\/ascendstepper\.com\/superwall\/onboarding-paywall`/);
+  assert.doesNotMatch(setup, /https:\/\/ascendstepper\.com\/superwall\/onboarding-paywall\.html/);
 });
 
 test("launch paywall claims only implemented leaderboard competition", async () => {
@@ -114,9 +139,14 @@ test("public and legal copy describe the exact annual and immediate monthly offe
 
   assert.match(website, /7-day free trial on the \$49\.99\/year plan/);
   assert.match(website, /\$9\.99\/month plan is charged immediately and has no trial/);
-  assert.match(terms, /seven-day free trial, then \$49\.99 per year/);
+  assert.match(terms, /seven-day free trial for eligible Apple accounts, then \$49\.99 per year/);
+  assert.match(
+    terms,
+    /not eligible for the free trial, the annual plan is charged \$49\.99 at confirmation of purchase/
+  );
   assert.match(terms, /\$9\.99 is charged immediately[\s\S]*with no free trial/);
   assert.match(terms, /free trial applies only to the annual plan/);
+  assert.match(terms, /once per Apple account or Family Sharing group/);
 });
 
 test("active guidance contains two launch products and no stale commerce offer", async () => {
@@ -134,8 +164,8 @@ test("active guidance contains two launch products and no stale commerce offer",
     "$9.99/month",
     "ascend_yearly",
     "ascend_monthly",
-    "app_access",
-    "default",
+    "Entitlement: `app_access`",
+    "current offering `default`",
     "$rc_annual",
     "$rc_monthly",
     "product reference `primary`",
