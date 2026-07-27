@@ -456,6 +456,20 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build 2>&1 | tee build-logs/xcodebuild-release.log
 
+      # Its own step, not a tail on the build: the build step's status has to
+      # stay the `xcodebuild` pipeline's status, and `Summarize failure` must
+      # never be handed the log of a build that actually succeeded.
+      #
+      # `ProcessInfoPlistFile` runs independently of compilation, so reading the
+      # source plist would prove nothing about what ships. This reads the
+      # processed bundle plist and requires the boolean - App Store Connect does
+      # not reliably accept a string-typed `false`, which is why the type is
+      # asserted alongside the value.
+      - name: Verify Release bundle export compliance
+        shell: bash
+        run: |
+          set -euo pipefail
+
           built_info_plist="$(
             xcodebuild \
               -project AscendApp.xcodeproj \
@@ -463,21 +477,30 @@ jobs:
               -configuration Release \
               -sdk iphoneos \
               -destination "generic/platform=iOS" \
-              -showBuildSettings |
-              awk -F ' = ' '
-                /^[[:space:]]*TARGET_BUILD_DIR = / { target_build_dir = $2 }
-                /^[[:space:]]*INFOPLIST_PATH = / { info_plist_path = $2 }
-                END { print target_build_dir "/" info_plist_path }
+              CODE_SIGNING_ALLOWED=NO \
+              -showBuildSettings -json |
+              jq -er '
+                (map(select(.target == "AscendApp")) | first
+                  // error("no AscendApp target in -showBuildSettings output"))
+                | .buildSettings
+                | (.TARGET_BUILD_DIR // error("TARGET_BUILD_DIR is unset for the AscendApp target"))
+                  + "/"
+                  + (.INFOPLIST_PATH // error("INFOPLIST_PATH is unset for the AscendApp target"))
               '
           )"
-          encryption_value="$(
-            /usr/libexec/PlistBuddy \
-              -c "Print :ITSAppUsesNonExemptEncryption" \
-              "$built_info_plist" 2>/dev/null || true
-          )"
+
+          if [ ! -f "$built_info_plist" ]; then
+            echo "::error file=AscendApp/Info.plist::Release build produced no processed Info.plist at ${built_info_plist}."
+            exit 1
+          fi
+
+          if ! encryption_value="$(plutil -extract ITSAppUsesNonExemptEncryption raw -expect bool -o - "$built_info_plist" 2>&1)"; then
+            echo "::error file=AscendApp/Info.plist::Release bundle must declare ITSAppUsesNonExemptEncryption as boolean false, or uploads park in Missing Compliance. Reading ${built_info_plist} failed: ${encryption_value//$'\n'/ }"
+            exit 1
+          fi
 
           if [ "$encryption_value" != "false" ]; then
-            echo "::error file=${built_info_plist}::Release bundle must declare ITSAppUsesNonExemptEncryption=false."
+            echo "::error file=AscendApp/Info.plist::Release bundle declares ITSAppUsesNonExemptEncryption=${encryption_value}; it must be boolean false. Built plist: ${built_info_plist}"
             exit 1
           fi
 
