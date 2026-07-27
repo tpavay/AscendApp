@@ -6,7 +6,7 @@ This file is the always-on core. Domain detail lives in `.claude/skills/` - see 
 
 Ascend is a competitive stair stepper companion for iOS. It's built for people who already use the stair stepper (or are about to start) and want their work to count. Users race the world up real landmarks, top per-climb leaderboards, log every session, and watch their progress compound over time. The leaderboard is the conversation.
 
-**Solo dev + AI assisted** (Tyler Pavay). Planned monetization (not yet built): hard paywall, no freemium tier. Two subscription paths - a yearly plan (discounted, includes a free trial) and a shorter recurring plan (monthly or weekly - TBD).
+**Solo dev + AI assisted** (Tyler Pavay). Launch monetization is a hard paywall with no freemium tier: `$49.99/year` with a seven-day free trial, or `$9.99/month` charged immediately with no trial. Both unlock RevenueCat entitlement `app_access`; there is no weekly or separate launch-discount product.
 
 ## What Ascend Is NOT
 

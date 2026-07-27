@@ -623,12 +623,12 @@ Recommended paywall structure:
    - `Track records and trends`
    - `Sync and protect your climb history`
 4. Plan selector:
-   - Yearly highlighted: `Best value`
-   - Trial copy: `Start with a free trial.`
-   - Monthly: `Pay as you go`
+   - Yearly highlighted and selected by default: `$49.99/year`
+   - Yearly trial copy: `7 days free, then $49.99/year`
+   - Monthly: `$9.99/month, charged immediately`
 5. CTA:
-   - Trial available: `Start Free Trial`
-   - No trial: `Start Climbing`
+   - Yearly selected: `Try 7 Days Free`
+   - Monthly selected: `Subscribe for $9.99/month`
 6. Footer:
    - `Restore Purchase`
    - `Terms`
@@ -637,7 +637,9 @@ Recommended paywall structure:
 Pricing display:
 - Show yearly as the default selected plan.
 - Show monthly as the comparison plan.
-- Avoid weekly in V1 unless the pricing strategy is locked.
+- Show trial language only while yearly is selected.
+- Switch the headline, CTA, price, and legal disclosure to immediate monthly billing when monthly is selected.
+- Do not offer a weekly plan.
 
 ## App Workflow Map
 
@@ -1048,8 +1050,7 @@ CTA copy:
 - `Build My Field`
 - `View Climb`
 - `Turn On Notifications`
-- `Start Free Trial`
-- `Start Climbing`
+- Paywall CTAs switch with the selected plan - see `### 24. Paywall`.
 
 Do not use arrow icons on CTAs.
 

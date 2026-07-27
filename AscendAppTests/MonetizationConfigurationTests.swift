@@ -156,8 +156,50 @@ struct MonetizationConfigurationTests {
 
         #expect(configuration.revenueCatEntitlementID == "app_access")
         #expect(configuration.revenueCatOfferingID == "default")
+        #expect(configuration.revenueCatYearlyProductID == "ascend_yearly")
+        #expect(configuration.revenueCatMonthlyProductID == "ascend_monthly")
         #expect(SuperwallPlacement.onboardingPaywall.rawValue == "onboarding_paywall")
         #expect(SuperwallPlacement.appLaunchHardGate.rawValue == "app_launch_hard_gate")
         #expect(SuperwallPlacement.appAccessGate.rawValue == "app_access_gate")
+    }
+
+    @Test
+    func flagsALaunchCatalogThatDoesNotMatchTheContract() {
+        let configuration = MonetizationConfiguration(infoDictionary: [:])
+
+        let complete = configuration.auditOffering(
+            expectedOfferingProductIDs: ["ascend_yearly", "ascend_monthly"],
+            currentOfferingID: "default"
+        )
+        let missingMonthly = configuration.auditOffering(
+            expectedOfferingProductIDs: ["ascend_yearly"],
+            currentOfferingID: "default"
+        )
+        let missingOffering = configuration.auditOffering(
+            expectedOfferingProductIDs: nil,
+            currentOfferingID: nil
+        )
+
+        #expect(complete.isLaunchCatalogComplete)
+        #expect(complete.missingProductIDs.isEmpty)
+        #expect(!missingMonthly.isLaunchCatalogComplete)
+        #expect(missingMonthly.missingProductIDs == ["ascend_monthly"])
+        #expect(!missingOffering.isLaunchCatalogComplete)
+        #expect(!missingOffering.hasExpectedOffering)
+        #expect(missingOffering.missingProductIDs == ["ascend_yearly", "ascend_monthly"])
+    }
+
+    @Test
+    func treatsAnExperimentOfferingAsAServingChoiceRatherThanABrokenCatalog() {
+        let configuration = MonetizationConfiguration(infoDictionary: [:])
+
+        let experiment = configuration.auditOffering(
+            expectedOfferingProductIDs: ["ascend_yearly", "ascend_monthly"],
+            currentOfferingID: "launch_test_b"
+        )
+
+        #expect(experiment.isLaunchCatalogComplete)
+        #expect(!experiment.isServingExpectedOffering)
+        #expect(experiment.currentOfferingID == "launch_test_b")
     }
 }

@@ -32,6 +32,8 @@ struct MonetizationConfiguration: Equatable {
     let superwallAPIKey: String?
     let revenueCatEntitlementID: String
     let revenueCatOfferingID: String
+    let revenueCatYearlyProductID: String
+    let revenueCatMonthlyProductID: String
     let isRevenueCatTestStoreEnabled: Bool
     let isSuperwallTestModeEnabled: Bool
     let allowsUnentitledAppAccess: Bool
@@ -50,10 +52,30 @@ struct MonetizationConfiguration: Equatable {
         revenueCatAPIKey != nil && superwallAPIKey != nil
     }
 
+    var launchProductIDs: [String] {
+        [revenueCatYearlyProductID, revenueCatMonthlyProductID]
+    }
+
+    func auditOffering(
+        expectedOfferingProductIDs: Set<String>?,
+        currentOfferingID: String?
+    ) -> MonetizationOfferingAudit {
+        let productIDs = expectedOfferingProductIDs ?? []
+
+        return MonetizationOfferingAudit(
+            expectedOfferingID: revenueCatOfferingID,
+            currentOfferingID: currentOfferingID,
+            hasExpectedOffering: expectedOfferingProductIDs != nil,
+            missingProductIDs: launchProductIDs.filter { !productIDs.contains($0) }
+        )
+    }
+
     init(
         infoDictionary: [String: Any] = Bundle.main.infoDictionary ?? [:],
         revenueCatEntitlementID: String = "app_access",
         revenueCatOfferingID: String = "default",
+        revenueCatYearlyProductID: String = "ascend_yearly",
+        revenueCatMonthlyProductID: String = "ascend_monthly",
         allowsTestMode: Bool = Self.defaultAllowsTestMode,
         allowsUnentitledAppAccess: Bool = Self.defaultAllowsUnentitledAppAccess
     ) {
@@ -69,6 +91,8 @@ struct MonetizationConfiguration: Equatable {
         superwallAPIKey = Self.normalizedAPIKey(infoDictionary[Self.superwallAPIKeyInfoKey])
         self.revenueCatEntitlementID = revenueCatEntitlementID
         self.revenueCatOfferingID = revenueCatOfferingID
+        self.revenueCatYearlyProductID = revenueCatYearlyProductID
+        self.revenueCatMonthlyProductID = revenueCatMonthlyProductID
         isRevenueCatTestStoreEnabled = shouldUseRevenueCatTestStore
         isSuperwallTestModeEnabled = allowsTestMode
             && (Self.normalizedBool(infoDictionary[Self.superwallTestModeInfoKey]) ?? false)

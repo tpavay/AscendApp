@@ -65,6 +65,16 @@ jobs:
               - "AscendApp.xcodeproj/**"
               - "AscendApp/Info.plist"
               - "AscendApp/Features/Monetization/**"
+              # The launch-offer suite reads the hosted paywall, public copy,
+              # legal terms, and authoritative commerce guidance.
+              - "web/public/superwall/**"
+              - "web/src/pages/index.astro"
+              - "web/src/pages/terms.astro"
+              - "docs/superwall-paywall-setup.md"
+              - "docs/onboarding-design-guide.md"
+              - "docs/app-store-brief.md"
+              - "docs/launch-readiness-audit.md"
+              - "CLAUDE.md"
               - ".github/workflows/**"
             web:
               - "web/**"

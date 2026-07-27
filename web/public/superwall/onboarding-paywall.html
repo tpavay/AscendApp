@@ -19,40 +19,46 @@
           <span>SCEND</span>
         </div>
 
-        <h1 class="headline" data-pw-var="headline">Try 7 Days Free</h1>
+        <h1 class="headline" data-plan-copy="yearly" data-pw-var="yearly_headline">Try 7 Days Free</h1>
+        <h1 class="headline" data-plan-copy="monthly" data-pw-var="monthly_headline" hidden>Climb With Full Access</h1>
 
         <ul class="benefits" data-pw-skip-inner-html="true">
           <li data-pw-var="benefit_1">Choose from 75 landmarks to climb</li>
-          <li data-pw-var="benefit_2">Improve with personalized climbing plan</li>
+          <li data-pw-var="benefit_2">Compete on global leaderboards</li>
           <li data-pw-var="benefit_3">Track records and ascents</li>
         </ul>
 
         <div class="plans" data-pw-skip-inner-html="true">
           <button class="plan selected" type="button" data-plan="yearly" aria-pressed="true">
-            <span class="trial-pill" data-pw-var="yearly_badge">7 DAYS FREE</span>
+            <span class="trial-pill" data-pw-var="yearly_badge">BEST VALUE</span>
             <span class="plan-header">
               <span class="plan-name" data-pw-var="yearly_title">Yearly</span>
-              <span class="plan-price" data-pw-var="yearly_price">$4.16/mo</span>
+              <span class="plan-price" data-pw-var="yearly_price">$49.99/year</span>
             </span>
-            <span class="plan-subtitle" data-pw-var="yearly_subtitle">$49.99/year billed annually</span>
+            <span class="plan-subtitle" data-pw-var="yearly_subtitle">$49.99/year, billed annually</span>
           </button>
 
           <button class="plan" type="button" data-plan="monthly" aria-pressed="false">
             <span class="plan-header">
               <span class="plan-name" data-pw-var="monthly_title">Monthly</span>
-              <span class="plan-price" data-pw-var="monthly_price">$12.99/mo</span>
+              <span class="plan-price" data-pw-var="monthly_price">$9.99/month</span>
             </span>
-            <span class="plan-subtitle" data-pw-var="monthly_subtitle">Billed monthly</span>
+            <span class="plan-subtitle" data-pw-var="monthly_subtitle">Charged immediately, then monthly</span>
           </button>
         </div>
 
-        <div class="assurance" data-pw-var="trial_note">No payment due now. Cancel anytime.</div>
+        <p class="purchase-disclosure" data-plan-copy="yearly" data-pw-var="yearly_disclosure">
+          7 days free, then $49.99/year. Auto-renews until canceled.
+        </p>
+        <p class="purchase-disclosure" data-plan-copy="monthly" data-pw-var="monthly_disclosure" hidden>
+          $9.99 charged now, then monthly. Auto-renews until canceled.
+        </p>
 
-        <button class="cta" data-cta="yearly" data-pw-purchase="primary" type="button" data-pw-var="yearly_cta">
+        <button class="cta" data-plan-copy="yearly" data-pw-purchase="primary" type="button" data-pw-var="yearly_cta">
           Try 7 Days Free
         </button>
-        <button class="cta" data-cta="monthly" data-pw-purchase="secondary" type="button" hidden data-pw-var="monthly_cta">
-          Unlock Everything
+        <button class="cta" data-plan-copy="monthly" data-pw-purchase="secondary" type="button" hidden data-pw-var="monthly_cta">
+          Subscribe for $9.99/month
         </button>
 
         <nav class="footer-links" aria-label="Subscription links">
@@ -68,9 +74,7 @@
     <script>
       const root = document.querySelector(".paywall");
       const plans = Array.from(document.querySelectorAll("[data-plan]"));
-      const assurance = document.querySelector(".assurance");
-      const yearlyCta = document.querySelector('[data-cta="yearly"]');
-      const monthlyCta = document.querySelector('[data-cta="monthly"]');
+      const planCopy = Array.from(document.querySelectorAll("[data-plan-copy]"));
 
       function selectPlan(plan) {
         root.dataset.selectedPlan = plan;
@@ -81,10 +85,9 @@
           button.setAttribute("aria-pressed", isSelected ? "true" : "false");
         });
 
-        const yearly = plan === "yearly";
-        assurance.classList.toggle("hidden", !yearly);
-        yearlyCta.hidden = !yearly;
-        monthlyCta.hidden = yearly;
+        planCopy.forEach((element) => {
+          element.hidden = element.dataset.planCopy !== plan;
+        });
       }
 
       plans.forEach((button) => {
