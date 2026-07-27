@@ -456,6 +456,31 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build 2>&1 | tee build-logs/xcodebuild-release.log
 
+          built_info_plist="$(
+            xcodebuild \
+              -project AscendApp.xcodeproj \
+              -scheme "AscendApp" \
+              -configuration Release \
+              -sdk iphoneos \
+              -destination "generic/platform=iOS" \
+              -showBuildSettings |
+              awk -F ' = ' '
+                /^[[:space:]]*TARGET_BUILD_DIR = / { target_build_dir = $2 }
+                /^[[:space:]]*INFOPLIST_PATH = / { info_plist_path = $2 }
+                END { print target_build_dir "/" info_plist_path }
+              '
+          )"
+          encryption_value="$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :ITSAppUsesNonExemptEncryption" \
+              "$built_info_plist" 2>/dev/null || true
+          )"
+
+          if [ "$encryption_value" != "false" ]; then
+            echo "::error file=${built_info_plist}::Release bundle must declare ITSAppUsesNonExemptEncryption=false."
+            exit 1
+          fi
+
       # A step killed by timeout-minutes reports `cancelled`, not `failure`, and
       # that is exactly the hung-runner case these logs exist to explain. An
       # empty outcome means xcodebuild never ran, so there is no log to read.
