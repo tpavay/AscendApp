@@ -90,6 +90,11 @@ test("switching plans swaps every price, trial, CTA, and legal disclosure surfac
       /data-plan-copy="yearly"/,
       `trial copy must be annual-only: ${attributes.trim()}`
     );
+    assert.match(
+      attributes,
+      /data-pw-var="/,
+      `trial copy must carry a Superwall variable: ${attributes.trim()}`
+    );
   }
 });
 

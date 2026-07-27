@@ -56,10 +56,16 @@ struct MonetizationConfiguration: Equatable {
         [revenueCatYearlyProductID, revenueCatMonthlyProductID]
     }
 
-    func auditOffering(identifier: String?, productIDs: Set<String>) -> MonetizationOfferingAudit {
-        MonetizationOfferingAudit(
+    func auditOffering(
+        expectedOfferingProductIDs: Set<String>?,
+        currentOfferingID: String?
+    ) -> MonetizationOfferingAudit {
+        let productIDs = expectedOfferingProductIDs ?? []
+
+        return MonetizationOfferingAudit(
             expectedOfferingID: revenueCatOfferingID,
-            actualOfferingID: identifier,
+            currentOfferingID: currentOfferingID,
+            hasExpectedOffering: expectedOfferingProductIDs != nil,
             missingProductIDs: launchProductIDs.filter { !productIDs.contains($0) }
         )
     }

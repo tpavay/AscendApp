@@ -164,30 +164,42 @@ struct MonetizationConfigurationTests {
     }
 
     @Test
-    func flagsAnOfferingThatDoesNotMatchTheLaunchContract() {
+    func flagsALaunchCatalogThatDoesNotMatchTheContract() {
         let configuration = MonetizationConfiguration(infoDictionary: [:])
 
-        let matching = configuration.auditOffering(
-            identifier: "default",
-            productIDs: ["ascend_yearly", "ascend_monthly"]
-        )
-        let wrongOffering = configuration.auditOffering(
-            identifier: "launch_discount",
-            productIDs: ["ascend_yearly", "ascend_monthly"]
+        let complete = configuration.auditOffering(
+            expectedOfferingProductIDs: ["ascend_yearly", "ascend_monthly"],
+            currentOfferingID: "default"
         )
         let missingMonthly = configuration.auditOffering(
-            identifier: "default",
-            productIDs: ["ascend_yearly"]
+            expectedOfferingProductIDs: ["ascend_yearly"],
+            currentOfferingID: "default"
         )
-        let noOfferings = configuration.auditOffering(identifier: nil, productIDs: [])
+        let missingOffering = configuration.auditOffering(
+            expectedOfferingProductIDs: nil,
+            currentOfferingID: nil
+        )
 
-        #expect(matching.isValid)
-        #expect(matching.missingProductIDs.isEmpty)
-        #expect(!wrongOffering.isValid)
-        #expect(!wrongOffering.hasExpectedOffering)
-        #expect(!missingMonthly.isValid)
+        #expect(complete.isLaunchCatalogComplete)
+        #expect(complete.missingProductIDs.isEmpty)
+        #expect(!missingMonthly.isLaunchCatalogComplete)
         #expect(missingMonthly.missingProductIDs == ["ascend_monthly"])
-        #expect(!noOfferings.isValid)
-        #expect(noOfferings.missingProductIDs == ["ascend_yearly", "ascend_monthly"])
+        #expect(!missingOffering.isLaunchCatalogComplete)
+        #expect(!missingOffering.hasExpectedOffering)
+        #expect(missingOffering.missingProductIDs == ["ascend_yearly", "ascend_monthly"])
+    }
+
+    @Test
+    func treatsAnExperimentOfferingAsAServingChoiceRatherThanABrokenCatalog() {
+        let configuration = MonetizationConfiguration(infoDictionary: [:])
+
+        let experiment = configuration.auditOffering(
+            expectedOfferingProductIDs: ["ascend_yearly", "ascend_monthly"],
+            currentOfferingID: "launch_test_b"
+        )
+
+        #expect(experiment.isLaunchCatalogComplete)
+        #expect(!experiment.isServingExpectedOffering)
+        #expect(experiment.currentOfferingID == "launch_test_b")
     }
 }
