@@ -223,6 +223,10 @@ struct HeartRateMonitorServiceTests {
         let deviceID = UUID()
         rememberDevice(id: deviceID, in: defaults)
         let client = FakeBluetoothHeartRateClient()
+        // Freshness is judged against a pinned clock: the real reading below must
+        // stay trusted no matter how long a loaded CI runner takes to hop between
+        // the emit and the assertion.
+        let readAt = Date(timeIntervalSince1970: 1_780_000_000)
         let service = HeartRateMonitorService(
             userDefaults: defaults,
             authorizationProvider: { .allowedAlways },
@@ -230,7 +234,8 @@ struct HeartRateMonitorServiceTests {
                 client.onEvent = eventHandler
                 return client
             },
-            connectionSleep: { _ in }
+            connectionSleep: { _ in },
+            now: { readAt }
         )
         let recorder = LiveHeartRateRecorder(sources: [service], minimumSampleInterval: 0)
 
@@ -239,11 +244,11 @@ struct HeartRateMonitorServiceTests {
         let lastRealReading = HeartRateMeasurement(
             beatsPerMinute: 141,
             sensorContact: .detected,
-            receivedAt: Date()
+            receivedAt: readAt
         )
         client.emit(.measurement(lastRealReading))
         await settle()
-        recorder.recordSample()
+        recorder.recordSample(at: readAt)
 
         for artifact in [512, 0] {
             client.emit(
@@ -251,7 +256,7 @@ struct HeartRateMonitorServiceTests {
                     HeartRateMeasurement(
                         beatsPerMinute: artifact,
                         sensorContact: .detected,
-                        receivedAt: Date()
+                        receivedAt: readAt
                     )
                 )
             )
