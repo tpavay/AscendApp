@@ -151,14 +151,13 @@ private extension WorkoutRemoteSyncMapper {
         )
     }
 
-    /// Out-of-range samples are dropped individually, never by rejecting the workout. One glitched
-    /// strap or import reading must not cost the rest of the series, the workout, or - because
-    /// snapshot failures abort the whole pass - every other workout waiting to back up.
-    /// `WorkoutHeartRatePlausibilityRepair` normally clears them from the stored series first; this
-    /// filter is what keeps the uploaded sidecar satisfying the download validator regardless.
+    /// Ingress already filters out-of-range readings, so this is the defensive backstop that keeps
+    /// an uploaded sidecar satisfying the download validator no matter how the series was stored.
+    /// It drops points individually, never rejecting the workout: a snapshot failure here would
+    /// abort the whole pending pass, not just the one workout.
     static func heartRateBlob(for workout: Workout) -> WorkoutHeartRateStorageBlob? {
         let plausibleSamples = workout.heartRateTimeSeries
-            .filter(WorkoutHeartRateSidecarValidator.isPlausibleSample)
+            .filter(WorkoutHeartRatePlausibility.isPlausibleSample)
         guard !plausibleSamples.isEmpty else { return nil }
 
         return WorkoutHeartRateStorageBlob(

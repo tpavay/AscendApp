@@ -3,18 +3,11 @@ import Foundation
 
 enum WorkoutHeartRateSidecarValidator {
     static let maximumCompressedBytes = 5 * 1024 * 1024
-    static let maximumPlausibleHeartRate = 400
 
     /// Firestore quantises reference bounds to whole nanoseconds through `Timestamp`, while the
     /// sidecar blob round-trips its sample timestamps as full-precision doubles. The two endpoints
     /// can therefore only ever agree to within that quantisation.
     static let boundsToleranceSeconds: TimeInterval = 0.001
-
-    static func isPlausibleSample(_ sample: HeartRateDataPoint) -> Bool {
-        sample.heartRate > 0 &&
-            sample.heartRate <= maximumPlausibleHeartRate &&
-            sample.timestamp.timeIntervalSinceReferenceDate.isFinite
-    }
 
     static func validatedStoragePath(
         userId: String,
@@ -75,7 +68,7 @@ enum WorkoutHeartRateSidecarValidator {
                 WorkoutDocumentID.canonicalString(for: workoutId),
               blob.samples.count == reference.sampleCount,
               blob.samples.isEmpty == false,
-              blob.samples.allSatisfy(isPlausibleSample) else {
+              blob.samples.allSatisfy(WorkoutHeartRatePlausibility.isPlausibleSample) else {
             throw WorkoutHeartRateSidecarError.malformed
         }
 

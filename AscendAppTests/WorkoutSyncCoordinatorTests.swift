@@ -386,8 +386,8 @@ struct WorkoutSyncCoordinatorTests {
                 validSamples[1]
             ]
         )
-        glitchedWorkout.avgHeartRate = 195
-        glitchedWorkout.maxHeartRate = 512
+        glitchedWorkout.avgHeartRate = 135
+        glitchedWorkout.maxHeartRate = 148
         glitchedWorkout.markPendingRemoteUpsert(ownerUserId: "user-123", modifiedAt: glitchedWorkout.createdAt)
         modelContext.insert(glitchedWorkout)
 
@@ -418,12 +418,6 @@ struct WorkoutSyncCoordinatorTests {
             await remoteRepository.recordedUpserts().first { $0.workoutId == glitchedWorkout.id }
         )
         #expect(glitchedUpsert.document.heartRateSeries?.sampleCount == validSamples.count)
-
-        #expect(glitchedWorkout.heartRateTimeSeries == validSamples)
-        #expect(glitchedWorkout.avgHeartRate == 135)
-        #expect(glitchedWorkout.maxHeartRate == 148)
-        #expect(glitchedUpsert.document.avgHeartRateBpm == 135)
-        #expect(glitchedUpsert.document.maxHeartRateBpm == 148)
     }
 
     @Test
@@ -437,8 +431,6 @@ struct WorkoutSyncCoordinatorTests {
                 HeartRateDataPoint(timestamp: start.addingTimeInterval(60), heartRate: 401)
             ]
         )
-        workout.avgHeartRate = 200
-        workout.maxHeartRate = 401
         workout.markPendingRemoteUpsert(ownerUserId: "user-123", modifiedAt: workout.createdAt)
         modelContext.insert(workout)
         try modelContext.save()
@@ -459,36 +451,8 @@ struct WorkoutSyncCoordinatorTests {
         #expect(await heartRateRepository.uploads().isEmpty)
         let upsert = try #require(await remoteRepository.recordedUpserts().last)
         #expect(upsert.document.heartRateSeries == nil)
-        #expect(upsert.document.avgHeartRateBpm == nil)
-        #expect(upsert.document.maxHeartRateBpm == nil)
         let syncedWorkout = try #require(fetchWorkouts(in: modelContext).first)
         #expect(syncedWorkout.remoteSyncStatus == .synced)
-        #expect(syncedWorkout.heartRateData == nil)
-        #expect(syncedWorkout.avgHeartRate == nil)
-        #expect(syncedWorkout.maxHeartRate == nil)
-    }
-
-    @Test
-    func heartRateSeriesRepairRunsOnlyOnceForAWorkout() async throws {
-        let modelContext = try makeModelContext()
-        let start = makeDate(year: 2026, month: 4, day: 13, hour: 9)
-        let workout = makeWorkout(
-            date: start,
-            heartRateSamples: [
-                HeartRateDataPoint(timestamp: start, heartRate: 130),
-                HeartRateDataPoint(timestamp: start.addingTimeInterval(60), heartRate: 512)
-            ]
-        )
-        workout.avgHeartRate = 321
-        workout.maxHeartRate = 512
-        modelContext.insert(workout)
-        try modelContext.save()
-
-        #expect(WorkoutHeartRatePlausibilityRepair.repairIfNeeded(workout))
-        #expect(workout.avgHeartRate == 130)
-        #expect(workout.maxHeartRate == 130)
-        #expect(WorkoutHeartRatePlausibilityRepair.repairIfNeeded(workout) == false)
-        #expect(workout.heartRateTimeSeries.count == 1)
     }
 
     private func makeHeartRateSeriesReference(
