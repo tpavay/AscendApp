@@ -59,7 +59,7 @@ final class RevenueCatEntitlementService: EntitlementServicing {
 
     private func auditLaunchOfferingIfNeeded() async {
         guard !didCompleteLaunchOfferingAudit,
-              configuration.revenueCatStoreMode == .appStore else {
+              configuration.shouldAuditLaunchOffering else {
             return
         }
 

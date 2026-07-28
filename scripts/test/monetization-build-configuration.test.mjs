@@ -21,6 +21,10 @@ const configurationSourcePath = join(
   repositoryRoot,
   "AscendApp/Features/Monetization/Models/MonetizationConfiguration.swift"
 );
+const entitlementServiceSourcePath = join(
+  repositoryRoot,
+  "AscendApp/Features/Monetization/Services/RevenueCatEntitlementService.swift"
+);
 const preflightScript = join(
   repositoryRoot,
   "scripts/ci/assert-monetization-keys-configured.mjs"
@@ -177,6 +181,22 @@ test("the build gate covers every key the launch backstop rejects", async () => 
   assert.deepEqual(
     backstopSettings.sort(),
     MONETIZATION_API_KEY_SETTINGS.map(({name}) => name).sort()
+  );
+});
+
+// Staging sells ascend_staging_* against hardcoded production launch product IDs,
+// so an ungated audit would emit monetization_offering_mismatch on every staging
+// launch and bury the production signal.
+test("the launch offering audit stays behind its Release-only gate", async () => {
+  const service = await readFile(entitlementServiceSourcePath, "utf8");
+  const gates = [...service.matchAll(/configuration\.shouldAuditLaunchOffering/g)];
+  const emitters = [...service.matchAll(/"monetization_offering_mismatch"/g)];
+
+  assert.equal(gates.length, 1, "The audit must gate on shouldAuditLaunchOffering exactly once");
+  assert.equal(emitters.length, 1, "monetization_offering_mismatch must have exactly one emitter");
+  assert.ok(
+    gates[0].index < emitters[0].index,
+    "The Release-only gate must precede the mismatch event"
   );
 });
 

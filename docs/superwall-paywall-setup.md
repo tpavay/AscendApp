@@ -23,9 +23,12 @@ RevenueCat must use:
 
 The self-hosted Superwall paywall must bind `ascend_yearly` to product reference `yearly` and `ascend_monthly` to product reference `monthly`.
 
-App Store builds audit this catalog once per launch against the live RevenueCat offerings (`RevenueCatEntitlementService`).
-A missing offering or product logs an error and emits the `monetization_offering_mismatch` telemetry event to Analytics and Crashlytics, so treat that event as a dashboard misconfiguration rather than a client bug.
+Release builds audit this catalog once per launch against the live RevenueCat offerings (`RevenueCatEntitlementService`).
+A missing offering or product logs an error and emits the `monetization_offering_mismatch` telemetry event to Analytics and Crashlytics, so treat that event as a production dashboard misconfiguration rather than a client bug.
 Serving a different current offering is an experiment, not a failure, and is only logged.
+
+The audit is scoped to Release by `MonetizationConfiguration.shouldAuditLaunchOffering` because the product IDs above are hardcoded to the production catalog and Staging sells its own.
+Follow-up `ascend-unentitled-access-build-setting` makes the product IDs configurable per environment and restores the audit for Staging.
 
 There is no weekly launch product and no separate discounted launch offer.
 Do not add either to a Superwall campaign, Hosting content, or release checklist.
@@ -91,10 +94,13 @@ Follow-up `move-api-keys-to-xcconfig-a10` moves these committed publishable keys
 
 Every environment that points at its own vendor projects needs the same logical configuration:
 
-- RevenueCat products `ascend_yearly` and `ascend_monthly`
+- Its own auto-renewing annual and monthly products - `ascend_yearly` and `ascend_monthly` in production, `ascend_staging_yearly` and `ascend_staging_monthly` in staging
 - RevenueCat entitlement `app_access`
 - RevenueCat current offering `default`
 - Superwall placements `app_access_gate` and `onboarding_paywall`
+
+Only the production identifiers are compiled into `MonetizationConfiguration`, so the launch catalog audit runs in Release alone until `ascend-unentitled-access-build-setting` makes them configurable.
+Staging also sets `allowsUnentitledAppAccess`, so its hard gate never fires and it is not a paywall QA surface; it proves SDK configuration and clears the archive preflight.
 
 ## Authenticated Superwall References
 
@@ -113,10 +119,12 @@ These IDs identify the production application audited on July 27, 2026:
 
 These IDs identify the staging application audited on July 28, 2026, when its keys landed:
 
-- iOS application: `51938`, resolving both `ascend_yearly` and `ascend_monthly`
+- iOS application: `51938`
 - Active campaign: `99059`, targeting `app_access_gate`
-- Active campaign paywall: `249435`, published
+- Active campaign paywall: `249435`, published, binding `ascend_staging_yearly` to `yearly` and `ascend_staging_monthly` to `monthly`
 - RevenueCat: entitlement `app_access` served through current offering `default`
+
+Staging has no `onboarding_paywall` campaign.
 
 Environment keys still determine which Superwall application each build reaches.
 Do not copy either set of IDs into another environment without first proving that it uses that application.
@@ -179,11 +187,12 @@ Bind the annual trial surfaces to Superwall's free-trial-eligibility state so an
 
 ## Superwall Verification Checklist
 
-Complete these steps in each authenticated Superwall project without bypassing product validation or publishing an unverified campaign:
+Complete these steps in each authenticated Superwall project without bypassing product validation or publishing an unverified campaign.
+Substitute that environment's own product identifiers throughout - `ascend_yearly` / `ascend_monthly` in production, `ascend_staging_yearly` / `ascend_staging_monthly` in staging - while the reference names stay `yearly` and `monthly` everywhere:
 
-1. Confirm the project has only `ascend_yearly` and `ascend_monthly` in the launch paywall.
-2. Bind `ascend_yearly` to `yearly`.
-3. Bind `ascend_monthly` to `monthly`.
+1. Confirm the project has only that environment's annual and monthly products in the launch paywall.
+2. Bind the annual product to `yearly`.
+3. Bind the monthly product to `monthly`.
 4. Confirm the paywall benefits say `Compete on global leaderboards` and make no personalized-plan claim.
 5. Point a self-hosted paywall at `https://ascendstepper.com/superwall/onboarding-paywall` only after the Hosting deployment serves this repository revision.
 6. Confirm Annual is selected when `Try 7 Days Free` is visible.

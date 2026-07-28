@@ -190,6 +190,69 @@ struct MonetizationConfigurationTests {
     }
 
     @Test
+    func scopesTheLaunchOfferingAuditToReleaseBuilds() {
+        let configuration = MonetizationConfiguration(
+            infoDictionary: [
+                MonetizationConfiguration.revenueCatAPIKeyInfoKey: "appl_test_key"
+            ]
+        )
+
+        #expect(configuration.revenueCatStoreMode == .appStore)
+
+        #if DEBUG || STAGING
+        #expect(!configuration.auditsLaunchOffering)
+        #expect(!configuration.shouldAuditLaunchOffering)
+        #else
+        #expect(configuration.auditsLaunchOffering)
+        #expect(configuration.shouldAuditLaunchOffering)
+        #endif
+    }
+
+    @Test
+    func keepsTheLaunchCatalogAuditFullyEnforcedInRelease() {
+        let release = MonetizationConfiguration(
+            infoDictionary: [
+                MonetizationConfiguration.revenueCatAPIKeyInfoKey: "appl_production_key"
+            ],
+            allowsTestMode: false,
+            allowsUnentitledAppAccess: false,
+            auditsLaunchOffering: true
+        )
+
+        #expect(release.shouldAuditLaunchOffering)
+
+        let audit = release.auditOffering(
+            expectedOfferingProductIDs: ["ascend_yearly"],
+            currentOfferingID: "default"
+        )
+
+        #expect(!audit.isLaunchCatalogComplete)
+        #expect(audit.missingProductIDs == ["ascend_monthly"])
+    }
+
+    @Test
+    func suppressesTheLaunchOfferingAuditWithoutAnAppStoreKey() {
+        let testStore = MonetizationConfiguration(
+            infoDictionary: [
+                MonetizationConfiguration.revenueCatAPIKeyInfoKey: "appl_test_key",
+                MonetizationConfiguration.revenueCatTestAPIKeyInfoKey: "test_store_key",
+                MonetizationConfiguration.revenueCatUseTestStoreInfoKey: "YES"
+            ],
+            allowsTestMode: true,
+            auditsLaunchOffering: true
+        )
+        let unavailable = MonetizationConfiguration(
+            infoDictionary: [:],
+            auditsLaunchOffering: true
+        )
+
+        #expect(testStore.revenueCatStoreMode == .testStore)
+        #expect(!testStore.shouldAuditLaunchOffering)
+        #expect(unavailable.revenueCatStoreMode == .unavailable)
+        #expect(!unavailable.shouldAuditLaunchOffering)
+    }
+
+    @Test
     func treatsAnExperimentOfferingAsAServingChoiceRatherThanABrokenCatalog() {
         let configuration = MonetizationConfiguration(infoDictionary: [:])
 
