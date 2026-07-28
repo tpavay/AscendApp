@@ -54,6 +54,7 @@ final class HeartRateMonitorService {
 
     @ObservationIgnored private var client: (any BluetoothHeartRateClientProtocol)?
     @ObservationIgnored private var connectTimeoutTask: Task<Void, Never>?
+    @ObservationIgnored private var rejectedReadingCount = 0
     @ObservationIgnored private let userDefaults: UserDefaults
     @ObservationIgnored private let authorizationProvider: () -> CBManagerAuthorization
     @ObservationIgnored private let clientFactory: (
@@ -255,7 +256,37 @@ final class HeartRateMonitorService {
             connectedDeviceName = nil
 
         case .measurement(let measurement):
+            // An out-of-range reading is a sensor artifact, not a heart rate. Discarding it here -
+            // the one seam every consumer reads through - keeps it out of the recorded series, the
+            // live readout, its accessibility label, and the zone it would otherwise light up.
+            // Leaving `currentMeasurement` alone means the last real reading stands until the
+            // normal freshness window retires it, exactly as it does during a brief signal drop.
+            guard WorkoutHeartRatePlausibility.isPlausible(
+                beatsPerMinute: measurement.beatsPerMinute
+            ) else {
+                recordRejectedReading()
+                return
+            }
+
             currentMeasurement = measurement
         }
+    }
+
+    /// A malfunctioning strap can emit artifacts every second for an hour, so only the first
+    /// rejection of a session is recorded: enough to make the session traceable without evicting
+    /// every other diagnostic from the ring buffer.
+    private func recordRejectedReading() {
+        rejectedReadingCount += 1
+        guard rejectedReadingCount == 1 else { return }
+
+        AppDiagnosticsRecorder.shared.record(
+            "live_hr_implausible_reading_rejected",
+            level: .warning,
+            details: ["source_kind": String(describing: sourceKind)]
+        )
+    }
+
+    func resetRejectedReadingTracking() {
+        rejectedReadingCount = 0
     }
 }

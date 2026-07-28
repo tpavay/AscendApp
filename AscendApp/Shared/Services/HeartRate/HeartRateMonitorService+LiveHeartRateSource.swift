@@ -4,6 +4,7 @@ extension HeartRateMonitorService: LiveHeartRateSource {
     }
 
     func prepareForLiveSession() {
+        resetRejectedReadingTracking()
         autoConnectIfRemembered()
     }
 }

@@ -215,6 +215,54 @@ struct HeartRateMonitorServiceTests {
         }
     }
 
+    @Test("An out-of-range reading reaches no consumer and leaves the last real reading standing")
+    func implausibleReadingIsDiscardedAtTheSensorSeam() async throws {
+        let suiteName = "HeartRateMonitorServiceTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let deviceID = UUID()
+        rememberDevice(id: deviceID, in: defaults)
+        let client = FakeBluetoothHeartRateClient()
+        let service = HeartRateMonitorService(
+            userDefaults: defaults,
+            authorizationProvider: { .allowedAlways },
+            clientFactory: { eventHandler in
+                client.onEvent = eventHandler
+                return client
+            },
+            connectionSleep: { _ in }
+        )
+        let recorder = LiveHeartRateRecorder(sources: [service], minimumSampleInterval: 0)
+
+        service.autoConnectIfRemembered()
+        client.emit(.connected(id: deviceID, name: "Test Strap"))
+        let lastRealReading = HeartRateMeasurement(
+            beatsPerMinute: 141,
+            sensorContact: .detected,
+            receivedAt: Date()
+        )
+        client.emit(.measurement(lastRealReading))
+        await settle()
+        recorder.recordSample()
+
+        for artifact in [512, 0] {
+            client.emit(
+                .measurement(
+                    HeartRateMeasurement(
+                        beatsPerMinute: artifact,
+                        sensorContact: .detected,
+                        receivedAt: Date()
+                    )
+                )
+            )
+        }
+        await settle()
+
+        #expect(service.currentMeasurement == lastRealReading)
+        #expect(recorder.currentMeasurement == lastRealReading)
+        #expect(recorder.samples.map(\.heartRate) == [141])
+    }
+
     private func rememberDevice(id: UUID, in defaults: UserDefaults) {
         defaults.set(id.uuidString, forKey: "heartRateMonitor.rememberedDeviceID")
         defaults.set("Test Strap", forKey: "heartRateMonitor.rememberedDeviceName")
