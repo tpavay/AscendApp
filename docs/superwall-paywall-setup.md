@@ -86,7 +86,7 @@ Leave `ASCEND_REVENUECAT_TEST_API_KEY`, `ASCEND_USE_REVENUECAT_TEST_STORE`, and 
 Update the deliberate `REPLACE_ME_` tripwires in `scripts/test/monetization-build-configuration.test.mjs` in the same change as real key replacement.
 Never commit the real keys to documentation or test fixtures.
 
-Each environment needs the same logical configuration:
+Every environment that points at its own vendor projects needs the same logical configuration:
 
 - RevenueCat products `ascend_yearly` and `ascend_monthly`
 - RevenueCat entitlement `app_access`
