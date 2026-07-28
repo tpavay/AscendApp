@@ -57,4 +57,4 @@ This sequence will evolve as we learn from SuperWall and RevenueCat funnel analy
 
 ## Reference
 - `docs/onboarding-design-guide.md` (1270 lines) - the full onboarding design guide. Read it when working on onboarding screens; never inline it.
-- `docs/superwall-paywall-setup.md` - the authoritative launch subscription offer (products, entitlement, offering, paywall plan states), the per-environment RevenueCat/SuperWall split, and the audited Superwall IDs. Only the production (`Release`) keys are real, so that is the one configuration where a paywall presents; `Debug` ships unset and `Staging` ships `REPLACE_ME_` placeholders, so no paywall presents in either.
+- `docs/superwall-paywall-setup.md` - the authoritative launch subscription offer (products, entitlement, offering, paywall plan states), the per-environment RevenueCat/SuperWall split, and the audited Superwall IDs. `Release` and `Staging` each carry real keys for their own vendor projects, so a paywall presents in both; only `Debug` ships unset, so no paywall presents there.

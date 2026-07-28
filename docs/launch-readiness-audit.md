@@ -46,7 +46,7 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
 ## Secondary findings (lower priority, don't lose these)
 
 **Monetization**
-- ~~Debug/Staging/Release all inject the **production** RevenueCat API key.~~ **Fixed.** RevenueCat and Superwall are now split per build configuration; Release carries the configured production publishable client keys, Debug is intentionally unset, and staging alone carries enforced `REPLACE_ME_` placeholders until its real keys land. The split, the replacement checklist, and the archive/launch gates are owned by `docs/superwall-paywall-setup.md`.
+- ~~Debug/Staging/Release all inject the **production** RevenueCat API key.~~ **Fixed.** RevenueCat and Superwall are now split per build configuration; Release carries the configured production publishable client keys, Staging carries its own staging publishable client keys, and Debug is intentionally unset. The split, the per-environment vendor references, and the archive/launch gates are owned by `docs/superwall-paywall-setup.md`.
 - No StoreKit configuration file → can't test purchases in Simulator without sandbox. Optional QoL.
 - Monetization test coverage now spans placement registration, paywall outcome routing, and fallback state transitions (`MonetizationManagerPaywallTests`, `AppAccessPaywallPresentationStateTests`) on top of `MonetizationConfigurationTests`; entitlement transitions and restore remain untested.
 - Superwall placements defined in code: `.onboardingPaywall`, `.appLaunchHardGate`, `.appAccessGate` (`SuperwallPaywallPresenter.swift:38-44`).

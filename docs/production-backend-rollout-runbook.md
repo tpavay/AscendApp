@@ -49,8 +49,8 @@ Complete every item before starting the production workflow.
 7. Rerun the production replay backfill in read-only mode and require zero planned writes, or prepare and separately approve the migration before continuing.
 8. Confirm the `Release` RevenueCat and Superwall keys are real.
    They ship as configured production publishable client keys, so the workflow's monetization preflight now verifies them before the archive instead of blocking the run.
-   `Staging` still carries `REPLACE_ME_` placeholders and stays archive-blocked until its own keys land, and `Debug` is intentionally unset.
-   The remaining staging replacement checklist is owned by `docs/superwall-paywall-setup.md`.
+   `Staging` carries its own staging publishable keys and clears the same preflight, and `Debug` is intentionally unset.
+   The per-environment key split is owned by `docs/superwall-paywall-setup.md`.
 
 Use these read-only GitHub checks:
 

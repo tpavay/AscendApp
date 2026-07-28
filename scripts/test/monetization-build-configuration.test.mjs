@@ -203,15 +203,24 @@ test("the production preflight passes with the configured Release keys", async (
   );
 });
 
-test("the staging preflight passes once real keys replace its placeholders", async () => {
-  const replaced = await projectWithConfigurationSettings("Staging", {
-    ASCEND_REVENUECAT_API_KEY: "appl_stagingRevenueCatKey",
-    ASCEND_SUPERWALL_API_KEY: "pk_stagingSuperwallKey"
+test("the preflight rejects a placeholder in either required key", async () => {
+  const placeholders = await projectWithConfigurationSettings("Staging", {
+    ASCEND_REVENUECAT_API_KEY: "REPLACE_ME_STAGING_REVENUECAT_KEY",
+    ASCEND_SUPERWALL_API_KEY: "REPLACE_ME_STAGING_SUPERWALL_KEY"
   });
-  const result = runPreflight("Staging", replaced);
+  const result = runPreflight("Staging", placeholders);
 
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /Verified real RevenueCat and Superwall keys/);
+  assert.equal(result.status, 1, `Staging must be rejected: ${result.stdout}`);
+  assert.match(
+    result.stderr,
+    /::error::ASCEND_REVENUECAT_API_KEY is still the REPLACE_ME_ placeholder/
+  );
+  assert.match(
+    result.stderr,
+    /::error::ASCEND_SUPERWALL_API_KEY is still the REPLACE_ME_ placeholder/
+  );
+  assert.match(result.stderr, /for the Staging configuration/);
+  assert.match(result.stderr, /docs\/superwall-paywall-setup\.md/);
 });
 
 test("the preflight rejects a placeholder test-store key", async () => {

@@ -55,11 +55,11 @@ test("the hosted paywall defaults to the annual trial and binds the final produc
   assert.match(paywall, /data-pw-var="benefit_2">Compete on global leaderboards/);
   assert.match(
     paywall,
-    /data-plan-copy="yearly" data-pw-purchase="primary"[\s\S]*?Try 7 Days Free/
+    /data-plan-copy="yearly" data-pw-purchase="yearly"[\s\S]*?Try 7 Days Free/
   );
   assert.match(
     paywall,
-    /data-plan-copy="monthly" data-pw-purchase="secondary"[\s\S]*?Subscribe for \$9\.99\/month/
+    /data-plan-copy="monthly" data-pw-purchase="monthly"[\s\S]*?Subscribe for \$9\.99\/month/
   );
 });
 
@@ -173,8 +173,8 @@ test("active guidance contains two launch products and no stale commerce offer",
     "current offering `default`",
     "$rc_annual",
     "$rc_monthly",
-    "product reference `primary`",
-    "product reference `secondary`"
+    "product reference `yearly`",
+    "product reference `monthly`"
   ]) {
     assert.match(guidance, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
