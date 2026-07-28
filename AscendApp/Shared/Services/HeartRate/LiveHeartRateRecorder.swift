@@ -9,6 +9,7 @@ final class LiveHeartRateRecorder {
     private let sources: [any LiveHeartRateSource]
     private let minimumSampleInterval: TimeInterval
     private var buffer: HeartRateSessionSampleBuffer
+    private var rejectedReadingCount = 0
 
     init(
         sources: [any LiveHeartRateSource] = [HeartRateMonitorService.shared],
@@ -62,8 +63,25 @@ final class LiveHeartRateRecorder {
     }
 
     func prepareForSession(restoring samples: [HeartRateDataPoint] = []) {
+        rejectedReadingCount = 0
         restore(samples: samples)
         sources.forEach { $0.prepareForLiveSession() }
+    }
+
+    /// A malfunctioning strap can emit artifacts every second for an hour, so only the first
+    /// rejection of a session is recorded: enough to make the session traceable without evicting
+    /// every other diagnostic from the ring buffer.
+    private func recordRejectedReading() {
+        rejectedReadingCount += 1
+        guard rejectedReadingCount == 1 else { return }
+
+        AppDiagnosticsRecorder.shared.record(
+            "live_hr_implausible_reading_rejected",
+            level: .warning,
+            details: [
+                "source_kind": currentSourceKind.map { String(describing: $0) } ?? "unknown"
+            ]
+        )
     }
 
     /// `sessionStartedAt` anchors the reading on the session's logical timeline,
@@ -91,6 +109,13 @@ final class LiveHeartRateRecorder {
         sessionStartedAt: Date? = nil,
         sessionElapsed: TimeInterval = 0
     ) {
+        guard WorkoutHeartRatePlausibility.isPlausible(
+            beatsPerMinute: measurement.beatsPerMinute
+        ) else {
+            recordRejectedReading()
+            return
+        }
+
         buffer.record(
             beatsPerMinute: measurement.beatsPerMinute,
             capturedAt: capturedAt,

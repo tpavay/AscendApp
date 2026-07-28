@@ -102,7 +102,8 @@ final class HealthKitMetricsReader: HealthKitMetricsReading {
                 summary: heartRateData
             ),
             average: heartRateData.average,
-            maximum: heartRateData.maximum
+            maximum: heartRateData.maximum,
+            sourceWorkoutId: workout?.uuid.uuidString
         )
         metrics.avgHeartRate = heartRateSeries.average
         metrics.maxHeartRate = heartRateSeries.maximum

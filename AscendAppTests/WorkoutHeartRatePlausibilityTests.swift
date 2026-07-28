@@ -47,6 +47,39 @@ struct WorkoutHeartRatePlausibilityTests {
     }
 
     @Test
+    func anOutOfRangeSourceSummaryIsReplacedEvenWhenTheSeriesIsClean() {
+        let samples = [
+            HeartRateDataPoint(timestamp: start, heartRate: 121),
+            HeartRateDataPoint(timestamp: start.addingTimeInterval(60), heartRate: 148)
+        ]
+
+        let normalized = WorkoutHeartRatePlausibility.normalized(
+            samples: samples,
+            average: 130,
+            maximum: 512
+        )
+
+        #expect(normalized.samples == samples)
+        #expect(normalized.average == 130)
+        #expect(normalized.maximum == 148)
+    }
+
+    @Test
+    func aMissingSourceSummaryStaysMissing() {
+        let samples = [HeartRateDataPoint(timestamp: start, heartRate: 121)]
+
+        let normalized = WorkoutHeartRatePlausibility.normalized(
+            samples: samples,
+            average: nil,
+            maximum: nil
+        )
+
+        #expect(normalized.samples == samples)
+        #expect(normalized.average == nil)
+        #expect(normalized.maximum == nil)
+    }
+
+    @Test
     func aSeriesWithNoUsablePointsClearsTheSummaryToo() {
         let normalized = WorkoutHeartRatePlausibility.normalized(
             samples: [
