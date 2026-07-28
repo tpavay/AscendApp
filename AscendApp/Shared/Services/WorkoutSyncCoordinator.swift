@@ -242,7 +242,12 @@ private extension WorkoutSyncCoordinator {
             }
 
         var snapshots: [WorkoutRemoteSyncSnapshot] = []
+        var didRepairHeartRateSeries = false
         for workout in workouts {
+            if WorkoutHeartRatePlausibilityRepair.repairIfNeeded(workout) {
+                didRepairHeartRateSeries = true
+            }
+
             do {
                 snapshots.append(try WorkoutRemoteSyncMapper.snapshot(from: workout))
             } catch WorkoutSyncError.implausibleWorkoutTotals {
@@ -250,6 +255,18 @@ private extension WorkoutSyncCoordinator {
                 try modelContext.save()
             } catch {
                 throw error
+            }
+        }
+
+        if didRepairHeartRateSeries {
+            do {
+                try modelContext.save()
+            } catch {
+                AppDiagnosticsRecorder.shared.record(
+                    "workout_hr_repair_persist_failed",
+                    level: .warning,
+                    details: ["reason": String(describing: type(of: error))]
+                )
             }
         }
 

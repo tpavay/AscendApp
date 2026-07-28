@@ -154,23 +154,11 @@ private extension WorkoutRemoteSyncMapper {
     /// Out-of-range samples are dropped individually, never by rejecting the workout. One glitched
     /// strap or import reading must not cost the rest of the series, the workout, or - because
     /// snapshot failures abort the whole pass - every other workout waiting to back up.
+    /// `WorkoutHeartRatePlausibilityRepair` normally clears them from the stored series first; this
+    /// filter is what keeps the uploaded sidecar satisfying the download validator regardless.
     static func heartRateBlob(for workout: Workout) -> WorkoutHeartRateStorageBlob? {
-        let samples = workout.heartRateTimeSeries
-        guard !samples.isEmpty else { return nil }
-
-        let plausibleSamples = samples.filter(WorkoutHeartRateSidecarValidator.isPlausibleSample)
-        if plausibleSamples.count != samples.count {
-            AppDiagnosticsRecorder.shared.record(
-                "workout_hr_implausible_samples_dropped",
-                level: .warning,
-                details: [
-                    "workout_id": workout.id.uuidString,
-                    "dropped_count": String(samples.count - plausibleSamples.count),
-                    "kept_count": String(plausibleSamples.count)
-                ]
-            )
-        }
-
+        let plausibleSamples = workout.heartRateTimeSeries
+            .filter(WorkoutHeartRateSidecarValidator.isPlausibleSample)
         guard !plausibleSamples.isEmpty else { return nil }
 
         return WorkoutHeartRateStorageBlob(
