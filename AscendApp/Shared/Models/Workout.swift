@@ -344,6 +344,10 @@ class Workout {
         }
     }
 
+    var lastHeartRateSidecarFailure: WorkoutHeartRateSidecarError? {
+        heartRateRestoreErrorCode.flatMap(WorkoutHeartRateSidecarError.init(rawValue:))
+    }
+
     /// The last heart-rate sidecar reference this device saw on the remote workout envelope. Cached
     /// in full (not just its path) so a local upsert can carry a still-unrestored sidecar forward
     /// instead of orphaning it.

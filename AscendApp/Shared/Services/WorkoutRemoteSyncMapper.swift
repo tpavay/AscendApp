@@ -43,7 +43,7 @@ enum WorkoutRemoteSyncMapper {
             )
         }
 
-        let heartRateBlob = try heartRateBlob(for: workout)
+        let heartRateBlob = heartRateBlob(for: workout)
         let heartRateSeriesReference = heartRateSeriesReference(
             for: workout,
             userId: userId,
@@ -151,30 +151,46 @@ private extension WorkoutRemoteSyncMapper {
         )
     }
 
-    static func heartRateBlob(for workout: Workout) throws -> WorkoutHeartRateStorageBlob? {
+    /// Out-of-range samples are dropped individually, never by rejecting the workout. One glitched
+    /// strap or import reading must not cost the rest of the series, the workout, or - because
+    /// snapshot failures abort the whole pass - every other workout waiting to back up.
+    static func heartRateBlob(for workout: Workout) -> WorkoutHeartRateStorageBlob? {
         let samples = workout.heartRateTimeSeries
         guard !samples.isEmpty else { return nil }
 
-        guard samples.allSatisfy(WorkoutHeartRateSidecarValidator.isPlausibleSample) else {
-            throw WorkoutSyncError.invalidHeartRateSeries
+        let plausibleSamples = samples.filter(WorkoutHeartRateSidecarValidator.isPlausibleSample)
+        if plausibleSamples.count != samples.count {
+            AppDiagnosticsRecorder.shared.record(
+                "workout_hr_implausible_samples_dropped",
+                level: .warning,
+                details: [
+                    "workout_id": workout.id.uuidString,
+                    "dropped_count": String(samples.count - plausibleSamples.count),
+                    "kept_count": String(plausibleSamples.count)
+                ]
+            )
         }
+
+        guard !plausibleSamples.isEmpty else { return nil }
 
         return WorkoutHeartRateStorageBlob(
             workoutId: workout.id.uuidString,
-            samples: samples
+            samples: plausibleSamples
         )
     }
 
     /// A workout with no local samples only clears its remote sidecar when the local absence is
     /// authoritative. While a restore is still pending, unavailable, or awaiting retry, the last
-    /// known reference is carried forward so the durable series stays reachable.
+    /// known reference is carried forward so the durable series stays reachable - unless the
+    /// sidecar it points at was confirmed absent, in which case the dangling reference is dropped.
     static func heartRateSeriesReference(
         for workout: Workout,
         userId: String,
         blob: WorkoutHeartRateStorageBlob?
     ) -> FirestoreWorkoutHeartRateSeriesReference? {
         guard let blob else {
-            guard workout.heartRateRestoreStatus.treatsLocalAbsenceAsAuthoritative == false else {
+            guard workout.heartRateRestoreStatus.treatsLocalAbsenceAsAuthoritative == false,
+                  workout.lastHeartRateSidecarFailure?.preservesRemoteReference ?? true else {
                 return nil
             }
             return workout.lastRemoteHeartRateSeriesReference
