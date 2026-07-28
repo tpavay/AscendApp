@@ -67,7 +67,9 @@ The values reach the app through `Info.plist` substitution.
 | Staging | `Staging` | `com.TylerPavay.AscendApp.staging` | `REPLACE_ME_` placeholders |
 | Production | `Release` | `com.TylerPavay.AscendApp` | Production publishable client keys |
 
-Debug tolerates absent monetization keys and does not connect the development bundle to the production vendor projects.
+Debug is intentionally unset: it previously carried the real production RevenueCat and Superwall keys, which pointed the development bundle at the production vendor projects, and those keys now live only in `Release`.
+No replacement dev keys were invented, so Debug tolerates absent monetization keys and simply cannot configure either vendor.
+The long-term intent for Debug is a RevenueCat Test Store key through `ASCEND_REVENUECAT_TEST_API_KEY` and `ASCEND_USE_REVENUECAT_TEST_STORE`, never a real vendor key; that decision is not made here.
 Staging monetization remains non-functional until its placeholders are replaced.
 Release carries the production publishable keys and passes the archive preflight.
 
