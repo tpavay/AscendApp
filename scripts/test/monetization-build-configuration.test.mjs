@@ -88,8 +88,8 @@ test("each app build configuration owns its monetization project keys", async ()
   assert.equal(debug.superwallAPIKey, "");
 
   assert.equal(staging.bundleID, "com.TylerPavay.AscendApp.staging");
-  assert.equal(staging.revenueCatAPIKey, "REPLACE_ME_STAGING_REVENUECAT_KEY");
-  assert.equal(staging.superwallAPIKey, "REPLACE_ME_STAGING_SUPERWALL_KEY");
+  assert.match(staging.revenueCatAPIKey, /^appl_/);
+  assert.match(staging.superwallAPIKey, /^pk_/);
 
   assert.equal(release.bundleID, "com.TylerPavay.AscendApp");
   assert.match(release.revenueCatAPIKey, /^appl_/);
@@ -180,20 +180,14 @@ test("the build gate covers every key the launch backstop rejects", async () => 
   );
 });
 
-test("today's placeholder keys fail the staging preflight", () => {
+test("the configured Staging keys pass the staging preflight", () => {
   const result = runPreflight("Staging");
 
-  assert.equal(result.status, 1, `Staging must be rejected: ${result.stdout}`);
+  assert.equal(result.status, 0, result.stderr);
   assert.match(
-    result.stderr,
-    /::error::ASCEND_REVENUECAT_API_KEY is still the REPLACE_ME_ placeholder/
+    result.stdout,
+    /Verified real RevenueCat and Superwall keys for com\.TylerPavay\.AscendApp\.staging \(Staging\)/
   );
-  assert.match(
-    result.stderr,
-    /::error::ASCEND_SUPERWALL_API_KEY is still the REPLACE_ME_ placeholder/
-  );
-  assert.match(result.stderr, /for the Staging configuration/);
-  assert.match(result.stderr, /docs\/superwall-paywall-setup\.md/);
 });
 
 test("the production preflight passes with the configured Release keys", async () => {
