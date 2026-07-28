@@ -190,22 +190,25 @@ struct MonetizationConfigurationTests {
     }
 
     @Test
-    func scopesTheLaunchOfferingAuditToReleaseBuilds() {
-        let configuration = MonetizationConfiguration(
-            infoDictionary: [
-                MonetizationConfiguration.revenueCatAPIKeyInfoKey: "appl_test_key"
-            ]
+    func gatesTheLaunchOfferingAuditOnTheInjectedAuditFlag() {
+        let infoDictionary: [String: Any] = [
+            MonetizationConfiguration.revenueCatAPIKeyInfoKey: "appl_test_key"
+        ]
+        let audited = MonetizationConfiguration(
+            infoDictionary: infoDictionary,
+            auditsLaunchOffering: true
+        )
+        let unaudited = MonetizationConfiguration(
+            infoDictionary: infoDictionary,
+            auditsLaunchOffering: false
         )
 
-        #expect(configuration.revenueCatStoreMode == .appStore)
-
-        #if DEBUG || STAGING
-        #expect(!configuration.auditsLaunchOffering)
-        #expect(!configuration.shouldAuditLaunchOffering)
-        #else
-        #expect(configuration.auditsLaunchOffering)
-        #expect(configuration.shouldAuditLaunchOffering)
-        #endif
+        #expect(audited.revenueCatStoreMode == .appStore)
+        #expect(unaudited.revenueCatStoreMode == .appStore)
+        #expect(audited.auditsLaunchOffering)
+        #expect(audited.shouldAuditLaunchOffering)
+        #expect(!unaudited.auditsLaunchOffering)
+        #expect(!unaudited.shouldAuditLaunchOffering)
     }
 
     @Test

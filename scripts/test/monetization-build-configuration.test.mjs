@@ -184,6 +184,28 @@ test("the build gate covers every key the launch backstop rejects", async () => 
   );
 });
 
+// No Swift test can observe both sides of a build-configuration branch, and CI
+// only runs the suite under Staging, so the Release-only default is pinned here.
+test("the launch offering audit defaults on for Release alone", async () => {
+  const configuration = await readFile(configurationSourcePath, "utf8");
+  const auditDefault = configuration.match(
+    /private static var defaultAuditsLaunchOffering: Bool \{\s*#if ([^\n]+)\n\s*(\w+)\n\s*#else\n\s*(\w+)\n\s*#endif/
+  );
+
+  assert.ok(auditDefault, "Missing defaultAuditsLaunchOffering");
+
+  const [, condition, whenConditionHolds, otherwise] = auditDefault;
+
+  assert.equal(condition.trim(), "DEBUG || STAGING");
+  assert.equal(whenConditionHolds, "false");
+  assert.equal(otherwise, "true");
+  assert.match(
+    configuration,
+    /auditsLaunchOffering: Bool = Self\.defaultAuditsLaunchOffering/,
+    "Shipped builds must take the audit flag from the build-configuration default"
+  );
+});
+
 // Staging sells ascend_staging_* against hardcoded production launch product IDs,
 // so an ungated audit would emit monetization_offering_mismatch on every staging
 // launch and bury the production signal.
