@@ -56,14 +56,19 @@ function runPreflight(configurationName, projectFilePath = projectPath) {
   });
 }
 
-async function projectWithSubstitutions(substitutions) {
+async function projectWithConfigurationSettings(configurationName, settings) {
   let project = await readFile(projectPath, "utf8");
+  const configuration = appBuildConfigurations(project).get(configurationName);
+  assert.ok(configuration, `Missing ${configurationName} configuration`);
+  let buildSettings = configuration.buildSettings;
 
-  for (const [from, to] of Object.entries(substitutions)) {
-    assert.ok(project.includes(from), `Project no longer contains ${from}`);
-    project = project.replaceAll(from, to);
+  for (const [name, value] of Object.entries(settings)) {
+    const pattern = new RegExp(`^(\\s*${name} = ).*;$`, "m");
+    assert.match(buildSettings, pattern, `Missing ${name} in ${configurationName}`);
+    buildSettings = buildSettings.replace(pattern, (_, prefix) => `${prefix}${value};`);
   }
 
+  project = project.replace(configuration.buildSettings, buildSettings);
   const path = join(mkdtempSync(join(tmpdir(), "ascend-monetization-")), "project.pbxproj");
   writeFileSync(path, project);
   return path;
@@ -79,16 +84,16 @@ test("each app build configuration owns its monetization project keys", async ()
   const release = configurations.get("Release");
 
   assert.equal(debug.bundleID, "com.TylerPavay.AscendApp.dev");
-  assert.match(debug.revenueCatAPIKey, /^appl_/);
-  assert.match(debug.superwallAPIKey, /^pk_/);
+  assert.equal(debug.revenueCatAPIKey, "");
+  assert.equal(debug.superwallAPIKey, "");
 
   assert.equal(staging.bundleID, "com.TylerPavay.AscendApp.staging");
   assert.equal(staging.revenueCatAPIKey, "REPLACE_ME_STAGING_REVENUECAT_KEY");
   assert.equal(staging.superwallAPIKey, "REPLACE_ME_STAGING_SUPERWALL_KEY");
 
   assert.equal(release.bundleID, "com.TylerPavay.AscendApp");
-  assert.equal(release.revenueCatAPIKey, "REPLACE_ME_PRODUCTION_REVENUECAT_KEY");
-  assert.equal(release.superwallAPIKey, "REPLACE_ME_PRODUCTION_SUPERWALL_KEY");
+  assert.match(release.revenueCatAPIKey, /^appl_/);
+  assert.match(release.superwallAPIKey, /^pk_/);
 
   assert.equal(
     new Set([...configurations.values()].map((configuration) => configuration.revenueCatAPIKey)).size,
@@ -175,54 +180,49 @@ test("the build gate covers every key the launch backstop rejects", async () => 
   );
 });
 
-test("today's placeholder keys fail the staging and production preflight", () => {
-  for (const configurationName of ["Staging", "Release"]) {
-    const result = runPreflight(configurationName);
+test("today's placeholder keys fail the staging preflight", () => {
+  const result = runPreflight("Staging");
 
-    assert.equal(result.status, 1, `${configurationName} must be rejected: ${result.stdout}`);
-    assert.match(
-      result.stderr,
-      /::error::ASCEND_REVENUECAT_API_KEY is still the REPLACE_ME_ placeholder/
-    );
-    assert.match(
-      result.stderr,
-      /::error::ASCEND_SUPERWALL_API_KEY is still the REPLACE_ME_ placeholder/
-    );
-    assert.match(result.stderr, new RegExp(`for the ${configurationName} configuration`));
-    assert.match(result.stderr, /docs\/superwall-paywall-setup\.md/);
-  }
+  assert.equal(result.status, 1, `Staging must be rejected: ${result.stdout}`);
+  assert.match(
+    result.stderr,
+    /::error::ASCEND_REVENUECAT_API_KEY is still the REPLACE_ME_ placeholder/
+  );
+  assert.match(
+    result.stderr,
+    /::error::ASCEND_SUPERWALL_API_KEY is still the REPLACE_ME_ placeholder/
+  );
+  assert.match(result.stderr, /for the Staging configuration/);
+  assert.match(result.stderr, /docs\/superwall-paywall-setup\.md/);
 });
 
-test("the preflight passes once real keys replace the placeholders", async () => {
-  const replaced = await projectWithSubstitutions({
-    REPLACE_ME_STAGING_REVENUECAT_KEY: "appl_stagingRevenueCatKey",
-    REPLACE_ME_STAGING_SUPERWALL_KEY: "pk_stagingSuperwallKey",
-    REPLACE_ME_PRODUCTION_REVENUECAT_KEY: "appl_productionRevenueCatKey",
-    REPLACE_ME_PRODUCTION_SUPERWALL_KEY: "pk_productionSuperwallKey"
+test("the production preflight passes with the configured Release keys", async () => {
+  const release = (await monetizationConfigurations()).get("Release");
+  assert.equal(release.revenueCatTestAPIKey, "");
+
+  const result = runPreflight("Release");
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(
+    result.stdout,
+    /Verified real RevenueCat and Superwall keys for com\.TylerPavay\.AscendApp \(Release\)/
+  );
+});
+
+test("the staging preflight passes once real keys replace its placeholders", async () => {
+  const replaced = await projectWithConfigurationSettings("Staging", {
+    ASCEND_REVENUECAT_API_KEY: "appl_stagingRevenueCatKey",
+    ASCEND_SUPERWALL_API_KEY: "pk_stagingSuperwallKey"
   });
+  const result = runPreflight("Staging", replaced);
 
-  for (const configurationName of ["Staging", "Release"]) {
-    const result = runPreflight(configurationName, replaced);
-
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /Verified real RevenueCat and Superwall keys/);
-  }
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Verified real RevenueCat and Superwall keys/);
 });
 
-test("the preflight rejects a placeholder test-store key but tolerates an empty one", async () => {
-  const realKeys = {
-    REPLACE_ME_PRODUCTION_REVENUECAT_KEY: "appl_productionRevenueCatKey",
-    REPLACE_ME_PRODUCTION_SUPERWALL_KEY: "pk_productionSuperwallKey"
-  };
-
-  const emptyTestKey = await projectWithSubstitutions(realKeys);
-  const tolerated = runPreflight("Release", emptyTestKey);
-  assert.equal(tolerated.status, 0, tolerated.stderr);
-
-  const placeholderTestKey = await projectWithSubstitutions({
-    ...realKeys,
-    'ASCEND_REVENUECAT_TEST_API_KEY = "";':
-      "ASCEND_REVENUECAT_TEST_API_KEY = REPLACE_ME_PRODUCTION_REVENUECAT_TEST_KEY;"
+test("the preflight rejects a placeholder test-store key", async () => {
+  const placeholderTestKey = await projectWithConfigurationSettings("Release", {
+    ASCEND_REVENUECAT_TEST_API_KEY: "REPLACE_ME_PRODUCTION_REVENUECAT_TEST_KEY"
   });
   const rejected = runPreflight("Release", placeholderTestKey);
 
@@ -234,11 +234,9 @@ test("the preflight rejects a placeholder test-store key but tolerates an empty 
 });
 
 test("the preflight also rejects emptied and unexpanded keys", async () => {
-  const emptied = await projectWithSubstitutions({
-    "ASCEND_REVENUECAT_API_KEY = REPLACE_ME_PRODUCTION_REVENUECAT_KEY;":
-      'ASCEND_REVENUECAT_API_KEY = "";',
-    "ASCEND_SUPERWALL_API_KEY = REPLACE_ME_PRODUCTION_SUPERWALL_KEY;":
-      'ASCEND_SUPERWALL_API_KEY = "$(ASCEND_SUPERWALL_API_KEY)";'
+  const emptied = await projectWithConfigurationSettings("Release", {
+    ASCEND_REVENUECAT_API_KEY: '""',
+    ASCEND_SUPERWALL_API_KEY: '"$(ASCEND_SUPERWALL_API_KEY)"'
   });
   const result = runPreflight("Release", emptied);
 
