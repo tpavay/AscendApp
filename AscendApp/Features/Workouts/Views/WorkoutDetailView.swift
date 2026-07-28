@@ -354,9 +354,7 @@ struct WorkoutDetailView: View {
                 )
             }
 
-            if shouldShowHeartRateSection {
-                heartRateSection
-            }
+            heartRateSectionIfNeeded
 
             if shouldShowPaceSplitsSection {
                 WorkoutPaceSplitsSection(
@@ -606,15 +604,32 @@ struct WorkoutDetailView: View {
         )
     }
 
+    /// Decodes the stored series exactly once per render pass and hands it to every predicate that
+    /// needs it - the decode is a full JSON pass over the sample array.
     @ViewBuilder
-    private var heartRateSection: some View {
-        if hasHeartRateData {
+    private var heartRateSectionIfNeeded: some View {
+        let heartRateSamples = workout.heartRateTimeSeries
+
+        if shouldShowHeartRateSection(heartRateSamples: heartRateSamples) {
+            heartRateSection(heartRateSamples: heartRateSamples)
+        }
+    }
+
+    @ViewBuilder
+    private func heartRateSection(heartRateSamples: [HeartRateDataPoint]) -> some View {
+        if heartRateSamples.isEmpty == false {
             HeartRateChartView(
-                heartRateData: workout.heartRateTimeSeries,
+                heartRateData: heartRateSamples,
                 workoutStartTime: workout.date,
                 workoutDuration: workout.duration,
                 averageHeartRateBpm: workout.avgHeartRate,
                 maxHeartRateBpm: workout.maxHeartRate
+            )
+        } else if shouldShowRemoteHeartRateRestore(heartRateSamples: heartRateSamples) {
+            WorkoutHeartRateRestoreCard(
+                status: workout.heartRateRestoreStatus,
+                effectiveColorScheme: effectiveColorScheme,
+                onRetry: retryRemoteHeartRateRestore
             )
         } else if shouldShowAppleHealthHeartRateRecovery {
             WorkoutHeartRateRecoveryCard(
@@ -628,14 +643,22 @@ struct WorkoutDetailView: View {
         }
     }
 
-    private var hasHeartRateData: Bool {
-        !workout.heartRateTimeSeries.isEmpty ||
+    private func hasHeartRateData(heartRateSamples: [HeartRateDataPoint]) -> Bool {
+        !heartRateSamples.isEmpty ||
             workout.avgHeartRate != nil ||
             workout.maxHeartRate != nil
     }
 
-    private var shouldShowHeartRateSection: Bool {
-        hasHeartRateData || shouldShowAppleHealthHeartRateRecovery
+    private func shouldShowHeartRateSection(heartRateSamples: [HeartRateDataPoint]) -> Bool {
+        hasHeartRateData(heartRateSamples: heartRateSamples) ||
+            shouldShowRemoteHeartRateRestore(heartRateSamples: heartRateSamples) ||
+            shouldShowAppleHealthHeartRateRecovery
+    }
+
+    private func shouldShowRemoteHeartRateRestore(heartRateSamples: [HeartRateDataPoint]) -> Bool {
+        workout.lastRemoteHeartRateSeriesStoragePath != nil &&
+            heartRateSamples.isEmpty &&
+            workout.heartRateRestoreStatus.treatsLocalAbsenceAsAuthoritative == false
     }
 
     private var shouldShowAppleHealthHeartRateRecovery: Bool {
@@ -993,13 +1016,37 @@ struct WorkoutDetailView: View {
 
             refreshAppleHealthHeartRateStatus()
 
-            if hasHeartRateData {
+            if hasHeartRateData(heartRateSamples: workout.heartRateTimeSeries) {
                 appleHealthHeartRateMessage = nil
                 HapticsManager.shared.trigger(.success)
             } else {
                 appleHealthHeartRateMessage = "No matching heart-rate samples found yet. Try again after Apple Watch finishes syncing."
                 HapticsManager.shared.trigger(.warning)
             }
+        }
+    }
+
+    private func retryRemoteHeartRateRestore() {
+        guard let userId = workout.ownerUserId else { return }
+
+        Task { @MainActor in
+            let previousStatus = workout.heartRateRestoreStatus
+            let previousErrorCode = workout.heartRateRestoreErrorCode
+            workout.heartRateRestoreStatus = .pending
+            try? modelContext.save()
+
+            _ = try? await WorkoutHydrationService.hydrateIfNeeded(
+                modelContext: modelContext,
+                currentUserId: userId
+            )
+
+            // Hydration always leaves a terminal status behind. Still `.pending` means it never got
+            // as far as this workout, so the card must not be stranded without a retry affordance.
+            guard workout.heartRateRestoreStatus == .pending else { return }
+
+            workout.heartRateRestoreStatus = previousStatus
+            workout.heartRateRestoreErrorCode = previousErrorCode
+            try? modelContext.save()
         }
     }
 

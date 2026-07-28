@@ -532,7 +532,10 @@ service cloud.firestore {
           "encoding",
           "sampleCount",
           "seriesStartAt",
-          "seriesEndAt"
+          "seriesEndAt",
+          "objectSchemaVersion",
+          "compressedByteCount",
+          "sha256"
         ]) &&
         reference.keys().hasAll([
           "storagePath",
@@ -548,6 +551,9 @@ service cloud.firestore {
         reference.encoding == "json+gzip" &&
         reference.sampleCount is int &&
         reference.sampleCount > 0 &&
+        reference.get("sha256", "").matches("^([0-9a-f]{64})?$") &&
+        reference.get("objectSchemaVersion", 1) in [1] &&
+        reference.get("compressedByteCount", 1) is int &&
         reference.seriesStartAt is timestamp &&
         reference.seriesEndAt is timestamp &&
         reference.seriesEndAt >= reference.seriesStartAt;

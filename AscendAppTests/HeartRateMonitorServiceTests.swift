@@ -215,6 +215,59 @@ struct HeartRateMonitorServiceTests {
         }
     }
 
+    @Test("An out-of-range reading reaches no consumer and leaves the last real reading standing")
+    func implausibleReadingIsDiscardedAtTheSensorSeam() async throws {
+        let suiteName = "HeartRateMonitorServiceTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let deviceID = UUID()
+        rememberDevice(id: deviceID, in: defaults)
+        let client = FakeBluetoothHeartRateClient()
+        // Freshness is judged against a pinned clock: the real reading below must
+        // stay trusted no matter how long a loaded CI runner takes to hop between
+        // the emit and the assertion.
+        let readAt = Date(timeIntervalSince1970: 1_780_000_000)
+        let service = HeartRateMonitorService(
+            userDefaults: defaults,
+            authorizationProvider: { .allowedAlways },
+            clientFactory: { eventHandler in
+                client.onEvent = eventHandler
+                return client
+            },
+            connectionSleep: { _ in },
+            now: { readAt }
+        )
+        let recorder = LiveHeartRateRecorder(sources: [service], minimumSampleInterval: 0)
+
+        service.autoConnectIfRemembered()
+        client.emit(.connected(id: deviceID, name: "Test Strap"))
+        let lastRealReading = HeartRateMeasurement(
+            beatsPerMinute: 141,
+            sensorContact: .detected,
+            receivedAt: readAt
+        )
+        client.emit(.measurement(lastRealReading))
+        await settle()
+        recorder.recordSample(at: readAt)
+
+        for artifact in [512, 0] {
+            client.emit(
+                .measurement(
+                    HeartRateMeasurement(
+                        beatsPerMinute: artifact,
+                        sensorContact: .detected,
+                        receivedAt: readAt
+                    )
+                )
+            )
+        }
+        await settle()
+
+        #expect(service.currentMeasurement == lastRealReading)
+        #expect(recorder.currentMeasurement == lastRealReading)
+        #expect(recorder.samples.map(\.heartRate) == [141])
+    }
+
     private func rememberDevice(id: UUID, in defaults: UserDefaults) {
         defaults.set(id.uuidString, forKey: "heartRateMonitor.rememberedDeviceID")
         defaults.set("Test Strap", forKey: "heartRateMonitor.rememberedDeviceName")

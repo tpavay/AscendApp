@@ -27,7 +27,9 @@ struct HeartRateSessionSampleBuffer: Equatable, Sendable {
         self.lastCaptureAt = nil
         self.encodedElements = Data()
 
-        for sample in samples.filter({ $0.heartRate > 0 }).sorted(by: { $0.timestamp < $1.timestamp }) {
+        for sample in samples
+            .filter(WorkoutHeartRatePlausibility.isPlausibleSample)
+            .sorted(by: { $0.timestamp < $1.timestamp }) {
             append(sample)
         }
     }
@@ -50,7 +52,7 @@ struct HeartRateSessionSampleBuffer: Equatable, Sendable {
         sessionStartedAt: Date,
         sessionElapsed: TimeInterval
     ) {
-        guard beatsPerMinute > 0 else { return }
+        guard WorkoutHeartRatePlausibility.isPlausible(beatsPerMinute: beatsPerMinute) else { return }
         if let lastCaptureAt,
            capturedAt.timeIntervalSince(lastCaptureAt) < minimumCaptureInterval {
             return

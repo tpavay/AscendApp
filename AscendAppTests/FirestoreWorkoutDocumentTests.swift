@@ -168,6 +168,90 @@ struct FirestoreWorkoutDocumentTests {
         #expect(decoded == blob)
     }
 
+    @Test
+    func currentSchemaOneSidecarRemainsReadableWithoutNewIntegrityMetadata() throws {
+        let workoutId = UUID(uuidString: "550E8400-E29B-41D4-A716-446655440000")!
+        let start = makeDate(year: 2026, month: 4, day: 10, hour: 6)
+        let blob = WorkoutHeartRateStorageBlob(
+            workoutId: workoutId.uuidString,
+            samples: [
+                HeartRateDataPoint(timestamp: start, heartRate: 118),
+                HeartRateDataPoint(timestamp: start.addingTimeInterval(300), heartRate: 132)
+            ]
+        )
+        let compressed = try GzipCodec.compress(JSONEncoder().encode(blob))
+        let legacyReference = FirestoreWorkoutHeartRateSeriesReference(
+            storagePath: WorkoutHeartRateStoragePath.path(userId: "user-123", workoutId: workoutId),
+            sampleCount: 2,
+            seriesStartAt: start,
+            seriesEndAt: start.addingTimeInterval(300)
+        )
+
+        let restored = try WorkoutHeartRateSidecarValidator.validate(
+            compressedData: compressed,
+            userId: "user-123",
+            workoutId: workoutId,
+            reference: legacyReference
+        )
+
+        #expect(restored.samples == blob.samples)
+    }
+
+    @Test
+    func sidecarValidationRejectsWrongOwnerPathCorruptionAndMalformedPayload() throws {
+        let workoutId = UUID(uuidString: "550E8400-E29B-41D4-A716-446655440000")!
+        let start = makeDate(year: 2026, month: 4, day: 10, hour: 6)
+        let blob = WorkoutHeartRateStorageBlob(
+            workoutId: workoutId.uuidString,
+            samples: [HeartRateDataPoint(timestamp: start, heartRate: 118)]
+        )
+        let compressed = try GzipCodec.compress(JSONEncoder().encode(blob))
+        let wrongPath = FirestoreWorkoutHeartRateSeriesReference(
+            storagePath: WorkoutHeartRateStoragePath.path(userId: "other-user", workoutId: workoutId),
+            sampleCount: 1,
+            seriesStartAt: start,
+            seriesEndAt: start
+        )
+        let wrongHash = FirestoreWorkoutHeartRateSeriesReference(
+            storagePath: WorkoutHeartRateStoragePath.path(userId: "user-123", workoutId: workoutId),
+            sampleCount: 1,
+            seriesStartAt: start,
+            seriesEndAt: start,
+            sha256: String(repeating: "0", count: 64)
+        )
+        let legacyReference = FirestoreWorkoutHeartRateSeriesReference(
+            storagePath: WorkoutHeartRateStoragePath.path(userId: "user-123", workoutId: workoutId),
+            sampleCount: 1,
+            seriesStartAt: start,
+            seriesEndAt: start
+        )
+
+        #expect(throws: WorkoutHeartRateSidecarError.invalidReference) {
+            try WorkoutHeartRateSidecarValidator.validate(
+                compressedData: compressed,
+                userId: "user-123",
+                workoutId: workoutId,
+                reference: wrongPath
+            )
+        }
+        #expect(throws: WorkoutHeartRateSidecarError.integrityMismatch) {
+            try WorkoutHeartRateSidecarValidator.validate(
+                compressedData: compressed,
+                userId: "user-123",
+                workoutId: workoutId,
+                reference: wrongHash
+            )
+        }
+        #expect(throws: WorkoutHeartRateSidecarError.malformed) {
+            try WorkoutHeartRateSidecarValidator.validate(
+                compressedData: Data([0x1f, 0x8b, 0x08]),
+                userId: "user-123",
+                workoutId: workoutId,
+                reference: legacyReference
+            )
+        }
+    }
+
     private func makeDate(
         year: Int,
         month: Int,
