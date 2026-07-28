@@ -63,24 +63,24 @@ The values reach the app through `Info.plist` substitution.
 
 | Environment | Build configuration | Bundle ID | Monetization keys |
 |---|---|---|---|
-| Dev | `Debug` | `com.TylerPavay.AscendApp.dev` | Real local-development keys |
+| Dev | `Debug` | `com.TylerPavay.AscendApp.dev` | Unset; no vendor project selected |
 | Staging | `Staging` | `com.TylerPavay.AscendApp.staging` | `REPLACE_ME_` placeholders |
-| Production | `Release` | `com.TylerPavay.AscendApp` | `REPLACE_ME_` placeholders |
+| Production | `Release` | `com.TylerPavay.AscendApp` | Production publishable client keys |
 
-Staging and production monetization remain non-functional until their placeholders are replaced.
+Debug tolerates absent monetization keys and does not connect the development bundle to the production vendor projects.
+Staging monetization remains non-functional until its placeholders are replaced.
+Release carries the production publishable keys and passes the archive preflight.
 
 - `MonetizationConfiguration` rejects any key with the `REPLACE_ME_` prefix.
-- `scripts/ci/assert-monetization-keys-configured.mjs` fails Staging and Release archives before Fastlane.
+- `scripts/ci/assert-monetization-keys-configured.mjs` fails any Staging or Release archive that still carries placeholders before Fastlane.
 - Non-Debug builds refuse to launch with unreplaced placeholder keys.
 
 ### Key replacement checklist
 
-Replace all four settings in `AscendApp.xcodeproj`:
+Replace the two remaining Staging settings in `AscendApp.xcodeproj`:
 
 1. Replace the Staging `ASCEND_REVENUECAT_API_KEY` with that RevenueCat app's Apple publishable key.
 2. Replace the Staging `ASCEND_SUPERWALL_API_KEY` with that Superwall app's public key.
-3. Replace the Release `ASCEND_REVENUECAT_API_KEY` with that RevenueCat app's Apple publishable key.
-4. Replace the Release `ASCEND_SUPERWALL_API_KEY` with that Superwall app's public key.
 
 Leave `ASCEND_REVENUECAT_TEST_API_KEY`, `ASCEND_USE_REVENUECAT_TEST_STORE`, and `ASCEND_SUPERWALL_TEST_MODE` unchanged.
 Update the deliberate `REPLACE_ME_` tripwires in `scripts/test/monetization-build-configuration.test.mjs` in the same change as real key replacement.
@@ -186,7 +186,7 @@ Complete these steps in each authenticated Superwall project without bypassing p
 
 Before the first review submission:
 
-1. Replace Staging and Release placeholder keys through the approved secret/configuration workflow.
+1. Replace the Staging placeholder keys through the approved secret/configuration workflow and verify the configured Release keys.
 2. Run `node --test scripts/test/*.test.mjs`.
 3. Run the Staging iOS test suite.
 4. Build the unsigned Release configuration.
