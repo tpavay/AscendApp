@@ -196,7 +196,10 @@ test("today's placeholder keys fail the staging preflight", () => {
   assert.match(result.stderr, /docs\/superwall-paywall-setup\.md/);
 });
 
-test("the production preflight passes with the configured Release keys", () => {
+test("the production preflight passes with the configured Release keys", async () => {
+  const release = (await monetizationConfigurations()).get("Release");
+  assert.equal(release.revenueCatTestAPIKey, "");
+
   const result = runPreflight("Release");
 
   assert.equal(result.status, 0, result.stderr);
@@ -217,10 +220,7 @@ test("the staging preflight passes once real keys replace its placeholders", asy
   assert.match(result.stdout, /Verified real RevenueCat and Superwall keys/);
 });
 
-test("the preflight rejects a placeholder test-store key but tolerates an empty one", async () => {
-  const tolerated = runPreflight("Release");
-  assert.equal(tolerated.status, 0, tolerated.stderr);
-
+test("the preflight rejects a placeholder test-store key", async () => {
   const placeholderTestKey = await projectWithConfigurationSettings("Release", {
     ASCEND_REVENUECAT_TEST_API_KEY: "REPLACE_ME_PRODUCTION_REVENUECAT_TEST_KEY"
   });
