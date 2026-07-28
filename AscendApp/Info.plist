@@ -43,6 +43,8 @@
 	</array>
 	<key>FacebookAppID</key>
 	<string>1546524626613679</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>instagram-stories</string>
