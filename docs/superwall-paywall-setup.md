@@ -1,6 +1,6 @@
 # Subscription Paywall Setup
 
-Last verified: July 27, 2026
+Last verified: July 28, 2026
 
 This file is the authoritative repository guide for Ascend's launch subscription configuration.
 The repo-controlled contract is enforced by `scripts/test/subscription-launch-offer.test.mjs`.
@@ -21,11 +21,15 @@ RevenueCat must use:
 - Annual package: `$rc_annual` containing `ascend_yearly`
 - Monthly package: `$rc_monthly` containing `ascend_monthly`
 
-The self-hosted Superwall paywall must bind `ascend_yearly` to product reference `primary` and `ascend_monthly` to product reference `secondary`.
+The self-hosted Superwall paywall must bind `ascend_yearly` to product reference `yearly` and `ascend_monthly` to product reference `monthly`.
 
-App Store builds audit this catalog once per launch against the live RevenueCat offerings (`RevenueCatEntitlementService`).
-A missing offering or product logs an error and emits the `monetization_offering_mismatch` telemetry event to Analytics and Crashlytics, so treat that event as a dashboard misconfiguration rather than a client bug.
+Release builds audit this catalog once per launch against the live RevenueCat offerings (`RevenueCatEntitlementService`).
+A missing offering or product logs an error and emits the `monetization_offering_mismatch` telemetry event to Analytics and Crashlytics, so treat that event as a production dashboard misconfiguration rather than a client bug.
 Serving a different current offering is an experiment, not a failure, and is only logged.
+
+The audit is scoped to Release by `MonetizationConfiguration.shouldAuditLaunchOffering` because the product IDs above are hardcoded to the production catalog and Staging sells its own.
+The launch product IDs are not yet environment-aware.
+Making them configurable per environment and restoring the audit for Staging are intended to land together, and neither happens here.
 
 There is no weekly launch product and no separate discounted launch offer.
 Do not add either to a Superwall campaign, Hosting content, or release checklist.
@@ -64,40 +68,47 @@ The values reach the app through `Info.plist` substitution.
 | Environment | Build configuration | Bundle ID | Monetization keys |
 |---|---|---|---|
 | Dev | `Debug` | `com.TylerPavay.AscendApp.dev` | Unset; no vendor project selected |
-| Staging | `Staging` | `com.TylerPavay.AscendApp.staging` | `REPLACE_ME_` placeholders |
+| Staging | `Staging` | `com.TylerPavay.AscendApp.staging` | Staging publishable client keys |
 | Production | `Release` | `com.TylerPavay.AscendApp` | Production publishable client keys |
 
 Debug is intentionally unset: it previously carried the real production RevenueCat and Superwall keys, which pointed the development bundle at the production vendor projects, and those keys now live only in `Release`.
 No replacement dev keys were invented, so Debug tolerates absent monetization keys and simply cannot configure either vendor.
 The long-term intent for Debug is a RevenueCat Test Store key through `ASCEND_REVENUECAT_TEST_API_KEY` and `ASCEND_USE_REVENUECAT_TEST_STORE`, never a real vendor key; that decision is not made here.
-Staging monetization remains non-functional until its placeholders are replaced.
+Staging carries the Ascend Staging publishable keys, drives the staging RevenueCat and Superwall projects, and passes the archive preflight.
 Release carries the production publishable keys and passes the archive preflight.
 
 - `MonetizationConfiguration` rejects any key with the `REPLACE_ME_` prefix.
 - `scripts/ci/assert-monetization-keys-configured.mjs` fails any Staging or Release archive that still carries placeholders before Fastlane.
 - Non-Debug builds refuse to launch with unreplaced placeholder keys.
 
-### Key replacement checklist
+### Key state
 
-Replace the two remaining Staging settings in `AscendApp.xcodeproj`:
+Both shippable configurations carry real publishable client keys, so no placeholder replacement remains:
 
-1. Replace the Staging `ASCEND_REVENUECAT_API_KEY` with that RevenueCat app's Apple publishable key.
-2. Replace the Staging `ASCEND_SUPERWALL_API_KEY` with that Superwall app's public key.
+1. `Staging` carries the Ascend Staging RevenueCat Apple publishable key and the Ascend Staging Superwall public key.
+2. `Release` carries the production RevenueCat Apple publishable key and the production Superwall public key.
 
-Leave `ASCEND_REVENUECAT_TEST_API_KEY`, `ASCEND_USE_REVENUECAT_TEST_STORE`, and `ASCEND_SUPERWALL_TEST_MODE` unchanged.
-Update the deliberate `REPLACE_ME_` tripwires in `scripts/test/monetization-build-configuration.test.mjs` in the same change as real key replacement.
+`ASCEND_REVENUECAT_TEST_API_KEY` stays empty and `ASCEND_USE_REVENUECAT_TEST_STORE` and `ASCEND_SUPERWALL_TEST_MODE` stay `NO` in every configuration.
+`scripts/test/monetization-build-configuration.test.mjs` pins the shape of each configured key and still proves the preflight rejects a placeholder in either required key against a synthetic project; keep both aligned with any future key move.
 Never commit the real keys to documentation or test fixtures.
+These publishable client keys are currently committed in `AscendApp.xcodeproj`.
+They are intended to move into gitignored xcconfig files and CI secrets; that migration is deliberately not performed here.
 
 Every environment that points at its own vendor projects needs the same logical configuration:
 
-- RevenueCat products `ascend_yearly` and `ascend_monthly`
+- Its own auto-renewing annual and monthly products - `ascend_yearly` and `ascend_monthly` in production, `ascend_staging_yearly` and `ascend_staging_monthly` in staging
 - RevenueCat entitlement `app_access`
 - RevenueCat current offering `default`
-- Superwall placements `app_access_gate` and `onboarding_paywall`
+- Superwall placements `app_access_gate` and `onboarding_paywall` - staging carries only `app_access_gate` today, which is all its SDK-configuration role needs
+
+Only the production identifiers are compiled into `MonetizationConfiguration`, so the launch catalog audit runs in Release alone until the launch product IDs become environment-aware.
+Staging also sets `allowsUnentitledAppAccess`, so its hard gate never fires and it is not a paywall QA surface; it proves SDK configuration and clears the archive preflight.
 
 ## Authenticated Superwall References
 
-These IDs identify the application audited on July 27, 2026:
+### Production
+
+These IDs identify the production application audited on July 27, 2026:
 
 - Organization project: `24464`
 - iOS application: `47442`
@@ -106,8 +117,19 @@ These IDs identify the application audited on July 27, 2026:
 - Archived discount paywall: `232373`
 - Hard-gate placement: `app_access_gate`
 
+### Staging
+
+These IDs identify the staging application audited on July 28, 2026, when its keys landed:
+
+- iOS application: `51938`
+- Active campaign: `99059`, targeting `app_access_gate`
+- Active campaign paywall: `249435`, published, binding `ascend_staging_yearly` to `yearly` and `ascend_staging_monthly` to `monthly`
+- RevenueCat: entitlement `app_access` served through current offering `default`
+
+Staging has no `onboarding_paywall` campaign.
+
 Environment keys still determine which Superwall application each build reaches.
-Do not copy these IDs into another environment without first proving that it uses this application.
+Do not copy either set of IDs into another environment without first proving that it uses that application.
 
 ## Self-Hosted Paywall
 
@@ -130,7 +152,7 @@ Its visible state must remain:
 - Plan disclosure: `$49.99/year, billed annually`
 - CTA: `Try 7 Days Free`
 - Legal disclosure: `7 days free, then $49.99/year. Auto-renews until canceled.`
-- Product reference: `primary`
+- Product reference: `yearly`
 
 ### Monthly selected
 
@@ -139,7 +161,7 @@ Its visible state must remain:
 - Plan disclosure: `Charged immediately, then monthly`
 - CTA: `Subscribe for $9.99/month`
 - Legal disclosure: `$9.99 charged now, then monthly. Auto-renews until canceled.`
-- Product reference: `secondary`
+- Product reference: `monthly`
 - No trial badge, promise, CTA, or disclosure
 
 Both states show `Compete on global leaderboards`, preserve Restore, Terms, Privacy, VoiceOver selection state, and use the same purchase analytics path through Superwall and RevenueCat.
@@ -153,10 +175,10 @@ Bind each name to the localized StoreKit product value in the Superwall paywall 
 
 | `data-pw-var` | Bound product value |
 |---|---|
-| `yearly_price`, `yearly_subtitle` | `primary` localized price and billing period |
-| `monthly_price`, `monthly_subtitle`, `monthly_cta` | `secondary` localized price and billing period |
-| `yearly_headline`, `yearly_badge`, `yearly_cta`, `yearly_disclosure` | `primary` localized price and introductory-offer state |
-| `monthly_disclosure` | `secondary` localized price with no introductory offer |
+| `yearly_price`, `yearly_subtitle` | `yearly` localized price and billing period |
+| `monthly_price`, `monthly_subtitle`, `monthly_cta` | `monthly` localized price and billing period |
+| `yearly_headline`, `yearly_badge`, `yearly_cta`, `yearly_disclosure` | `yearly` localized price and introductory-offer state |
+| `monthly_disclosure` | `monthly` localized price with no introductory offer |
 
 Never hardcode a localized price or a trial promise that Superwall cannot override.
 A price literal that sits outside a `data-pw-var` element is a defect, and `scripts/test/subscription-launch-offer.test.mjs` fails on one.
@@ -167,11 +189,12 @@ Bind the annual trial surfaces to Superwall's free-trial-eligibility state so an
 
 ## Superwall Verification Checklist
 
-Complete these steps in each authenticated Superwall project without bypassing product validation or publishing an unverified campaign:
+Complete these steps in each authenticated Superwall project without bypassing product validation or publishing an unverified campaign.
+Substitute that environment's own product identifiers throughout - `ascend_yearly` / `ascend_monthly` in production, `ascend_staging_yearly` / `ascend_staging_monthly` in staging - while the reference names stay `yearly` and `monthly` everywhere:
 
-1. Confirm the project has only `ascend_yearly` and `ascend_monthly` in the launch paywall.
-2. Bind `ascend_yearly` to `primary`.
-3. Bind `ascend_monthly` to `secondary`.
+1. Confirm the project has only that environment's annual and monthly products in the launch paywall.
+2. Bind the annual product to `yearly`.
+3. Bind the monthly product to `monthly`.
 4. Confirm the paywall benefits say `Compete on global leaderboards` and make no personalized-plan claim.
 5. Point a self-hosted paywall at `https://ascendstepper.com/superwall/onboarding-paywall` only after the Hosting deployment serves this repository revision.
 6. Confirm Annual is selected when `Try 7 Days Free` is visible.
@@ -188,7 +211,7 @@ Complete these steps in each authenticated Superwall project without bypassing p
 
 Before the first review submission:
 
-1. Replace the Staging placeholder keys through the approved secret/configuration workflow and verify the configured Release keys.
+1. Verify the configured Staging and Release keys still reach their own vendor projects.
 2. Run `node --test scripts/test/*.test.mjs`.
 3. Run the Staging iOS test suite.
 4. Build the unsigned Release configuration.

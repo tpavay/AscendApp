@@ -21,6 +21,10 @@ const configurationSourcePath = join(
   repositoryRoot,
   "AscendApp/Features/Monetization/Models/MonetizationConfiguration.swift"
 );
+const entitlementServiceSourcePath = join(
+  repositoryRoot,
+  "AscendApp/Features/Monetization/Services/RevenueCatEntitlementService.swift"
+);
 const preflightScript = join(
   repositoryRoot,
   "scripts/ci/assert-monetization-keys-configured.mjs"
@@ -88,8 +92,8 @@ test("each app build configuration owns its monetization project keys", async ()
   assert.equal(debug.superwallAPIKey, "");
 
   assert.equal(staging.bundleID, "com.TylerPavay.AscendApp.staging");
-  assert.equal(staging.revenueCatAPIKey, "REPLACE_ME_STAGING_REVENUECAT_KEY");
-  assert.equal(staging.superwallAPIKey, "REPLACE_ME_STAGING_SUPERWALL_KEY");
+  assert.match(staging.revenueCatAPIKey, /^appl_/);
+  assert.match(staging.superwallAPIKey, /^pk_/);
 
   assert.equal(release.bundleID, "com.TylerPavay.AscendApp");
   assert.match(release.revenueCatAPIKey, /^appl_/);
@@ -180,20 +184,52 @@ test("the build gate covers every key the launch backstop rejects", async () => 
   );
 });
 
-test("today's placeholder keys fail the staging preflight", () => {
+// No Swift test can observe both sides of a build-configuration branch, and CI
+// only runs the suite under Staging, so the Release-only default is pinned here.
+test("the launch offering audit defaults on for Release alone", async () => {
+  const configuration = await readFile(configurationSourcePath, "utf8");
+  const auditDefault = configuration.match(
+    /private static var defaultAuditsLaunchOffering: Bool \{\s*#if ([^\n]+)\n\s*(\w+)\n\s*#else\n\s*(\w+)\n\s*#endif/
+  );
+
+  assert.ok(auditDefault, "Missing defaultAuditsLaunchOffering");
+
+  const [, condition, whenConditionHolds, otherwise] = auditDefault;
+
+  assert.equal(condition.trim(), "DEBUG || STAGING");
+  assert.equal(whenConditionHolds, "false");
+  assert.equal(otherwise, "true");
+  assert.match(
+    configuration,
+    /auditsLaunchOffering: Bool = Self\.defaultAuditsLaunchOffering/,
+    "Shipped builds must take the audit flag from the build-configuration default"
+  );
+});
+
+// Staging sells ascend_staging_* against hardcoded production launch product IDs,
+// so an ungated audit would emit monetization_offering_mismatch on every staging
+// launch and bury the production signal.
+test("the launch offering audit stays behind its Release-only gate", async () => {
+  const service = await readFile(entitlementServiceSourcePath, "utf8");
+  const gates = [...service.matchAll(/configuration\.shouldAuditLaunchOffering/g)];
+  const emitters = [...service.matchAll(/"monetization_offering_mismatch"/g)];
+
+  assert.equal(gates.length, 1, "The audit must gate on shouldAuditLaunchOffering exactly once");
+  assert.equal(emitters.length, 1, "monetization_offering_mismatch must have exactly one emitter");
+  assert.ok(
+    gates[0].index < emitters[0].index,
+    "The Release-only gate must precede the mismatch event"
+  );
+});
+
+test("the configured Staging keys pass the staging preflight", () => {
   const result = runPreflight("Staging");
 
-  assert.equal(result.status, 1, `Staging must be rejected: ${result.stdout}`);
+  assert.equal(result.status, 0, result.stderr);
   assert.match(
-    result.stderr,
-    /::error::ASCEND_REVENUECAT_API_KEY is still the REPLACE_ME_ placeholder/
+    result.stdout,
+    /Verified real RevenueCat and Superwall keys for com\.TylerPavay\.AscendApp\.staging \(Staging\)/
   );
-  assert.match(
-    result.stderr,
-    /::error::ASCEND_SUPERWALL_API_KEY is still the REPLACE_ME_ placeholder/
-  );
-  assert.match(result.stderr, /for the Staging configuration/);
-  assert.match(result.stderr, /docs\/superwall-paywall-setup\.md/);
 });
 
 test("the production preflight passes with the configured Release keys", async () => {
@@ -209,15 +245,24 @@ test("the production preflight passes with the configured Release keys", async (
   );
 });
 
-test("the staging preflight passes once real keys replace its placeholders", async () => {
-  const replaced = await projectWithConfigurationSettings("Staging", {
-    ASCEND_REVENUECAT_API_KEY: "appl_stagingRevenueCatKey",
-    ASCEND_SUPERWALL_API_KEY: "pk_stagingSuperwallKey"
+test("the preflight rejects a placeholder in either required key", async () => {
+  const placeholders = await projectWithConfigurationSettings("Staging", {
+    ASCEND_REVENUECAT_API_KEY: "REPLACE_ME_STAGING_REVENUECAT_KEY",
+    ASCEND_SUPERWALL_API_KEY: "REPLACE_ME_STAGING_SUPERWALL_KEY"
   });
-  const result = runPreflight("Staging", replaced);
+  const result = runPreflight("Staging", placeholders);
 
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /Verified real RevenueCat and Superwall keys/);
+  assert.equal(result.status, 1, `Staging must be rejected: ${result.stdout}`);
+  assert.match(
+    result.stderr,
+    /::error::ASCEND_REVENUECAT_API_KEY is still the REPLACE_ME_ placeholder/
+  );
+  assert.match(
+    result.stderr,
+    /::error::ASCEND_SUPERWALL_API_KEY is still the REPLACE_ME_ placeholder/
+  );
+  assert.match(result.stderr, /for the Staging configuration/);
+  assert.match(result.stderr, /docs\/superwall-paywall-setup\.md/);
 });
 
 test("the preflight rejects a placeholder test-store key", async () => {

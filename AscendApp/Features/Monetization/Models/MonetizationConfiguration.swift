@@ -37,6 +37,7 @@ struct MonetizationConfiguration: Equatable {
     let isRevenueCatTestStoreEnabled: Bool
     let isSuperwallTestModeEnabled: Bool
     let allowsUnentitledAppAccess: Bool
+    let auditsLaunchOffering: Bool
     let hasUnreplacedPlaceholderKeys: Bool
 
     var revenueCatStoreMode: RevenueCatStoreMode {
@@ -54,6 +55,15 @@ struct MonetizationConfiguration: Equatable {
 
     var launchProductIDs: [String] {
         [revenueCatYearlyProductID, revenueCatMonthlyProductID]
+    }
+
+    /// The launch product IDs are hardcoded to the production catalog, but Staging
+    /// sells `ascend_staging_*`, so auditing there would emit
+    /// `monetization_offering_mismatch` on every launch and drown the production
+    /// signal the event exists to carry. Making the product IDs environment-aware
+    /// and restoring this audit for Staging are intended to land together.
+    var shouldAuditLaunchOffering: Bool {
+        auditsLaunchOffering && revenueCatStoreMode == .appStore
     }
 
     func auditOffering(
@@ -77,7 +87,8 @@ struct MonetizationConfiguration: Equatable {
         revenueCatYearlyProductID: String = "ascend_yearly",
         revenueCatMonthlyProductID: String = "ascend_monthly",
         allowsTestMode: Bool = Self.defaultAllowsTestMode,
-        allowsUnentitledAppAccess: Bool = Self.defaultAllowsUnentitledAppAccess
+        allowsUnentitledAppAccess: Bool = Self.defaultAllowsUnentitledAppAccess,
+        auditsLaunchOffering: Bool = Self.defaultAuditsLaunchOffering
     ) {
         let appStoreAPIKey = Self.normalizedAPIKey(infoDictionary[Self.revenueCatAPIKeyInfoKey])
         let testAPIKey = Self.normalizedAPIKey(infoDictionary[Self.revenueCatTestAPIKeyInfoKey])
@@ -97,6 +108,7 @@ struct MonetizationConfiguration: Equatable {
         isSuperwallTestModeEnabled = allowsTestMode
             && (Self.normalizedBool(infoDictionary[Self.superwallTestModeInfoKey]) ?? false)
         self.allowsUnentitledAppAccess = allowsUnentitledAppAccess
+        self.auditsLaunchOffering = auditsLaunchOffering
         hasUnreplacedPlaceholderKeys = Self.apiKeyInfoKeys.contains { infoKey in
             guard let rawValue = infoDictionary[infoKey] as? String else { return false }
             return Self.isPlaceholderAPIKey(rawValue)
@@ -153,6 +165,14 @@ struct MonetizationConfiguration: Equatable {
         true
         #else
         false
+        #endif
+    }
+
+    private static var defaultAuditsLaunchOffering: Bool {
+        #if DEBUG || STAGING
+        false
+        #else
+        true
         #endif
     }
 }
