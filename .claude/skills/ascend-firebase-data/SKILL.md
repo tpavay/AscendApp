@@ -21,6 +21,7 @@ When changing Firestore document schemas, always update in this order:
 The same `firestore.rules` file must be deployed to all environments (dev, staging, production) to catch schema mismatches early. Never test against loose rules in dev while production has strict ones.
 
 Verify with `npm run test:firebase-rules` (emulator-backed rules tests under `tests/firebase-rules/`).
+CI runs the same command on any PR touching rules, indexes, or Firebase config - see `ascend-deploy` for that job.
 
 ## Storage pathing + rules
 

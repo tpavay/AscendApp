@@ -35,7 +35,9 @@ Every verify job is gated on the changed paths, so a functions-only PR skips the
 - `firebase-verify` - structurally validates `firebase.json`, `.firebaserc`, and `firestore.indexes.json`, then starts the Firestore and Storage emulators and runs `tests/firebase-rules/*.test.mjs`. The emulators load both rules files before the suite, so syntax failures stop the job.
   `npm run test:firebase-rules` pins `firebase-tools` to the same version the deploy steps run, so the CLI that validates the rules is the CLI that ships them; bump both pins together (`docs/dependency-security.md`).
   It runs no `npm audit` - `root-npm-verify` owns that signal for the root tree.
-- `ruby-verify` - selects `.ruby-version`, runs `bundle install --deployment`, and loads the lane DSL with `bundle exec fastlane lanes`. Gated on the Ruby version, Gem bundle, and `fastlane/**`.
+- `ruby-verify` - pins `ruby-version: "3.1"`, runs `bundle install --deployment`, and loads the lane DSL with `bundle exec fastlane lanes`. Gated on the Ruby version, Gem bundle, and `fastlane/**`.
+  That pin deliberately ignores `.ruby-version` (3.2.2, the local development Ruby) and matches the `3.1` every deploy job pins, so the gate resolves the `Gemfile` under the Ruby that actually builds and signs releases.
+  Keep it identical to the deploy pins.
   It runs on `ubuntu-latest`: the lockfile's `PLATFORMS` is generic `ruby` and nothing here touches a macOS-only toolchain, so keep any macOS-only step out of it rather than moving the job.
 - `ios-verify` - gated on the iOS source/project paths plus `SharedTestVectors/**`, because the Swift halves of the cross-language parity suites read those vectors directly and would otherwise skip the PRs that break them.
   It runs `test` only (no build step) with `-scheme "AscendApp-Staging" -configuration Staging ENABLE_TESTABILITY=YES`. It provisions the simulator at runtime via `xcrun simctl` against the newest installed iOS runtime - downloading the runtime if the image ships none - then reuses a preferred iPhone model, falls back to any iPhone, and finally creates one, failing only when the runtime supports no iPhone device type. It does not pass `CODE_SIGNING_ALLOWED=NO`.
@@ -52,11 +54,12 @@ For anything else the fallback job takes a different display name and is skipped
 **The router is an allowlist, not the inverse of the CI trigger.** `classifyChangedPaths` answers "is every changed path positively known to need no verification?" - `VERIFICATION_IRRELEVANT_PATHS` is `docs/**`, `AppStoreAssets/**`, `data/ascend-support-page-and-product-page-package/**`, `.claude/skills/**`, `README.md`, and `.gitignore`, and CI-relevance is evaluated first so the four gated `docs/*.md` files still route to real CI.
 Anything unrecognised is blocked, which is the deliberate fail-closed default.
 Two root files look like trivia and are deliberately CI-relevant: `.ruby-version` selects the Ruby that resolves the `Gemfile`, and `AGENTS.md` is a git-mode-120000 symlink to `CLAUDE.md`.
-The Ruby path runs `ruby-verify`, while the project-guide path runs the same `scripts` filter as `CLAUDE.md`.
+The Ruby path runs `ruby-verify` - which resolves the bundle under the pinned deploy Ruby, not the value in `.ruby-version` - while the project-guide path runs the same `scripts` filter as `CLAUDE.md`.
 
 Firebase rules, Firebase configuration, the root rules-test package, Ruby dependencies, and `fastlane/**` are all in the CI-relevant contract.
 Do not add any of them to the fallback allowlist.
 Their dedicated jobs are the verification that makes routing them to real CI safe.
+`iOS Verify (Staging)` is still the only name branch protection requires: `firebase-verify` and `ruby-verify` run and report, but they are advisory until someone adds their names to branch protection.
 
 The contract lives once, in `CI_RELEVANT_PATHS`, and `scripts/test/ci-required-check-routing.test.mjs` asserts it byte-identical to the `required-check-paths` block in `ci.yml`.
 That contract must stay a superset of every job-level `dorny/paths-filter` path in `ci.yml`; the test derives the filters itself and fails on any path a verify job gates on that the trigger omits - so adding a path to the `scripts` or `ios` filter without adding it to the contract is a build failure, not a silent coverage hole.

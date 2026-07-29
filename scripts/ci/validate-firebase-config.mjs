@@ -195,9 +195,12 @@ export function validateFirestoreIndexes(config) {
       `${label}.queryScope must be COLLECTION or COLLECTION_GROUP.`,
     );
     requireArray(definition.fields, `${label}.fields`);
+    // A COLLECTION index with one field duplicates Firestore's automatic
+    // single-field index, so it is always a mistake. COLLECTION_GROUP has no
+    // automatic equivalent, and the CLI legitimately exports one-field ones.
     requireCondition(
-      definition.fields.length >= 2,
-      `${label}.fields must contain at least two fields.`,
+      definition.queryScope !== "COLLECTION" || definition.fields.length >= 2,
+      `${label}.fields must contain at least two fields for a COLLECTION index.`,
     );
 
     for (const [fieldIndex, field] of definition.fields.entries()) {

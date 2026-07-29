@@ -269,6 +269,8 @@ jobs:
       - name: Validate rules and run emulator tests
         run: npm run test:firebase-rules
 
+  # Verifies the bundle under the Ruby the deploy workflows pin, not the local
+  # .ruby-version, so the gate resolves the Gemfile the way releases do.
   ruby-verify:
     name: Ruby and Fastlane Verify
     needs: changes
@@ -282,6 +284,8 @@ jobs:
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.1"
 
       - name: Install dependencies in deployment mode
         run: bundle install --deployment --jobs 4 --retry 3
