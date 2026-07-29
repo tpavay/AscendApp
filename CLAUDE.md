@@ -57,6 +57,7 @@ AscendApp/
 AscendAppTests/         # Swift Testing suite
 AscendLiveActivityWidgets/  # Live Activity / Dynamic Island extension
 .claude/skills/         # Project skills (see Skill Router)
+AppStoreAssets/         # Shipped en-US iPhone screenshot set and its renderer
 data/ascend-support-page-and-product-page-package/  # Durable en-US App Store product copy
 docs/                   # Reference material - link to it, never duplicate it
 functions/src/          # Cloud Functions (TypeScript)

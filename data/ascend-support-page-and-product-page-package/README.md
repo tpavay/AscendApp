@@ -7,14 +7,10 @@ Locale: en-US
 - Support page: `web/src/pages/support.astro`, linked from the site footer and slide menu
 - Final App Store copy: `app-store-copy.md`
 
-## Screenshots are not in this PR
+## Screenshots
 
-The seven-screen iPhone screenshot set was deliberately split into a separate design follow-up.
-Iterative composition fixes kept regressing decisions that had already been approved, so the set
-needs one deliberate design pass rather than another review round.
-
-No screenshot set ships here. Two blockers remain open: screen 06 still shows a disabled
-"Start Live Climb" CTA, and screen 02's inset is off-message against its Everest headline.
+The seven-screen iPhone set was split out of this package and now lives under `AppStoreAssets/`.
+See `AppStoreAssets/README.md` for the delivered files and the renderer that produces them.
 
 ## Support URL
 
