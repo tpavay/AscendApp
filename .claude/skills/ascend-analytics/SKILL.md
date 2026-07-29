@@ -103,3 +103,4 @@ Those tests are the executable source of truth; this table is the readable one.
 
 ## Related
 - Adding a new analytics SDK, or starting cross-app tracking, is a privacy-manifest tripwire - see `ascend-privacy-manifest`. The current manifest declares NO tracking and NO ads.
+- Adding a Firebase Analytics or Mixpanel **user property** is the same tripwire: `AscendAppTests/PrivacyManifestTests.swift` scans the app target for literal `setUserProperty("…")` names and fails until the new one is classified against a declared, linked, non-tracking data type carrying the Analytics purpose. New event parameters aren't scanned - classify those by hand in `AscendAppTests/PrivacyAnalyticsClassification.md`, which owns the property-and-parameter-to-data-type mapping.

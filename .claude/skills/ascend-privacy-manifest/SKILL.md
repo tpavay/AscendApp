@@ -16,6 +16,16 @@ Load the `app-store-review` skill for submission prep and rejection-risk audits,
 3. **Add or upgrade a third-party SDK** - open the SDK's bundled `PrivacyInfo.xcprivacy` and add any new data type / API reason it forces on the host app.
 4. **Start performing tracking** in the ATT sense (cross-app or cross-site identifiers, ad networks, IDFA collection) - flip `NSPrivacyTracking` to `true`, populate `NSPrivacyTrackingDomains`, implement the ATT prompt via `ATTrackingManager`, and add `NSUserTrackingUsageDescription` to `Info.plist`.
 
+## What the tests enforce
+
+`AscendAppTests/PrivacyManifestTests.swift` is the executable check on the manifest, and it is stricter than a spot review.
+It pins every `NSPrivacyCollectedDataTypes` entry to its expected `Linked` flag and purpose set, rejects any purpose outside Apple's six valid values, and pins every `NSPrivacyAccessedAPITypes` category to its reason codes.
+It also scans every Swift file under `AscendApp/` for literal `setUserProperty("…")` names, plus the `set("…")` wrapper inside `OnboardingAnalyticsUserProperties`, and fails until each one is classified against the manifest data type that declares it - which must be linked, non-tracking, and carry the Analytics purpose.
+
+Analytics **event parameters** are not scanned, because a parameter's data type can depend on call-site context rather than on its name (`selected_value` on `leaderboard_filter_changed` is Health, Other Data Types, or Coarse Location depending on `filter_type`).
+The tests only guarantee that every category such a parameter can land in is declared for Analytics.
+`AscendAppTests/PrivacyAnalyticsClassification.md` owns the property-and-parameter-to-data-type mapping, including the context-dependent cases; classify a new parameter there in the same change as the manifest.
+
 ## The four artifacts must agree
 
 The privacy manifest, the user-facing Privacy Policy at `ascendstepper.com/privacy`, the App Store Connect "App Privacy" questionnaire (nutrition labels), and the `NS*UsageDescription` strings in `Info.plist` must all describe the SAME set of data practices. If you change one, change all four.

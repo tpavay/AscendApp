@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  PrivacyInfo.xcprivacy — Apple privacy manifest for AscendApp.
+  PrivacyInfo.xcprivacy - Apple privacy manifest for AscendApp.
 
   WHAT THIS IS
   This file is the machine-readable declaration Apple uses at submission/upload
@@ -29,7 +29,9 @@
 
   See the `ascend-privacy-manifest` skill
   (.claude/skills/ascend-privacy-manifest/SKILL.md) for the full checklist
-  tied to concrete code-change triggers.
+  tied to concrete code-change triggers, and
+  AscendAppTests/PrivacyAnalyticsClassification.md for which analytics user
+  property or event parameter maps to which data type below.
 
   Apple references:
     - https://developer.apple.com/documentation/bundleresources/privacy_manifest_files
@@ -58,7 +60,7 @@
     <!-- ============================================================ -->
     <key>NSPrivacyCollectedDataTypes</key>
     <array>
-        <!-- Email Address — Sign in with Apple / Google, profile, feedback -->
+        <!-- Email Address - Sign in with Apple / Google, profile, feedback -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeEmailAddress</string>
@@ -69,11 +71,10 @@
             <key>NSPrivacyCollectedDataTypePurposes</key>
             <array>
                 <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
-                <string>NSPrivacyCollectedDataTypePurposeCustomerSupport</string>
             </array>
         </dict>
 
-        <!-- Name — first name, last name, display name -->
+        <!-- Name - first name, last name, display name -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeName</string>
@@ -87,7 +88,12 @@
             </array>
         </dict>
 
-        <!-- Other Data Types — onboarding survey choices, declared profile demographics, and onboarding first-climb preference -->
+        <!--
+          Other Data Types - declared gender or division and age band, the
+          notification preference, the first-climb result fields, and the
+          leaderboard age-group filter. The onboarding fitness answers belong to
+          the Fitness declaration below, not here.
+        -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeOtherDataTypes</string>
@@ -98,11 +104,12 @@
             <key>NSPrivacyCollectedDataTypePurposes</key>
             <array>
                 <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+                <string>NSPrivacyCollectedDataTypePurposeProductPersonalization</string>
                 <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
             </array>
         </dict>
 
-        <!-- Coarse Location — profile city, region, and country selected by search or one-time current-location lookup; country is also used for first-party analytics segmentation -->
+        <!-- Coarse Location - profile city, region, and country selected by search or one-time current-location lookup; country is also used for first-party analytics segmentation -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeCoarseLocation</string>
@@ -117,7 +124,13 @@
             </array>
         </dict>
 
-        <!-- Health & Fitness — HealthKit reads, workout metrics, Live Climb completion and rank state -->
+        <!--
+          Health - HealthKit reads plus user-entered body metrics (height, weight).
+          Analytics is declared because banded body values reach Firebase Analytics
+          and Mixpanel: `profile_weight_group` as a user property, and
+          `profile_height_group` and the leaderboard `body_weight_filter` as event
+          parameters.
+        -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeHealth</string>
@@ -127,9 +140,17 @@
             <false/>
             <key>NSPrivacyCollectedDataTypePurposes</key>
             <array>
+                <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
                 <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
             </array>
         </dict>
+
+        <!--
+          Fitness - workout metrics, Live Climb completion and rank state, plus the
+          onboarding fitness answers sent to Firebase Analytics and Mixpanel as user
+          properties: `stair_stepper_exp`, `exercise_level`, `motivation`,
+          `planned_frequency`, and the `goal_*` selections.
+        -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeFitness</string>
@@ -139,11 +160,13 @@
             <false/>
             <key>NSPrivacyCollectedDataTypePurposes</key>
             <array>
+                <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+                <string>NSPrivacyCollectedDataTypePurposeProductPersonalization</string>
                 <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
             </array>
         </dict>
 
-        <!-- Photos or Videos — workout media stored under users/{uid}/ -->
+        <!-- Photos or Videos - workout media stored under users/{uid}/ -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypePhotosorVideos</string>
@@ -172,7 +195,7 @@
             </array>
         </dict>
 
-        <!-- Device ID - APNs/FCM push registration tokens and Firebase Analytics IDFV -->
+        <!-- Device ID - APNs/FCM push registration tokens and app-specific analytics identifiers (Firebase Analytics IDFV, Mixpanel, Superwall) -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeDeviceID</string>
@@ -187,7 +210,21 @@
             </array>
         </dict>
 
-        <!-- Other User Content — feedback submissions (free-text) -->
+        <!-- Customer Support - feedback and support requests submitted in the app -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeCustomerSupport</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+
+        <!-- Other User Content - workout notes -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeOtherUserContent</string>
@@ -197,12 +234,11 @@
             <false/>
             <key>NSPrivacyCollectedDataTypePurposes</key>
             <array>
-                <string>NSPrivacyCollectedDataTypePurposeCustomerSupport</string>
                 <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
             </array>
         </dict>
 
-        <!-- Product Interaction — first-party telemetry via Firebase Analytics and Mixpanel (Release/TestFlight only) -->
+        <!-- Product Interaction - first-party telemetry via Firebase Analytics and Mixpanel (Release/TestFlight only) -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeProductInteraction</string>
@@ -217,7 +253,7 @@
             </array>
         </dict>
 
-        <!-- Purchase History — RevenueCat and Superwall subscription/paywall SDKs, including first-party purchase outcome analytics -->
+        <!-- Purchase History - RevenueCat and Superwall subscription/paywall SDKs, including first-party purchase outcome analytics -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypePurchaseHistory</string>
@@ -232,7 +268,7 @@
             </array>
         </dict>
 
-        <!-- Crash Data — Firebase Crashlytics and Sentry diagnostics -->
+        <!-- Crash Data - Firebase Crashlytics and Sentry diagnostics -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeCrashData</string>
@@ -246,7 +282,7 @@
             </array>
         </dict>
 
-        <!-- Performance Data — non-fatal error logging via Crashlytics.recordError and Sentry.capture(error:) -->
+        <!-- Performance Data - non-fatal error logging via Crashlytics.recordError and Sentry.capture(error:) -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypePerformanceData</string>
@@ -260,7 +296,13 @@
             </array>
         </dict>
 
-        <!-- Other Diagnostic Data — feedback submission attaches device model, OS version, app/build version -->
+        <!--
+          Other Diagnostic Data - feedback and diagnostic submissions attach device
+          model, OS version, app/build version. Analytics is declared because the
+          `paywall_skipped` reason and `paywall_error` error descriptions built in
+          SuperwallPaywallPresenter use TelemetryRecord's default
+          `destinations: [.analytics]`, so they reach Firebase Analytics and Mixpanel.
+        -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeOtherDiagnosticData</string>
@@ -270,7 +312,7 @@
             <false/>
             <key>NSPrivacyCollectedDataTypePurposes</key>
             <array>
-                <string>NSPrivacyCollectedDataTypePurposeCustomerSupport</string>
+                <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
                 <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
             </array>
         </dict>
@@ -282,7 +324,7 @@
     <key>NSPrivacyAccessedAPITypes</key>
     <array>
         <!--
-          UserDefaults — pervasive use across SettingsManager, UserDataRepository,
+          UserDefaults - pervasive use across SettingsManager, UserDataRepository,
           FeedbackService for first-party preferences and caches.
           Reason CA92.1: access info from same app, same group, or same App Clip.
         -->
@@ -296,7 +338,7 @@
         </dict>
 
         <!--
-          File Timestamp — DiskAssetCache reads .contentModificationDateKey on
+          File Timestamp - DiskAssetCache reads .contentModificationDateKey on
           files inside the app's caches directory for cache eviction.
           Reason C617.1: access timestamps for files inside the app container,
           app group container, or the app's CloudKit container.
@@ -308,11 +350,10 @@
             <array>
                 <string>C617.1</string>
             </array>
-
         </dict>
 
         <!--
-          Disk Space — MapboxCommon / MapboxCoreMaps use disk-capacity APIs to
+          Disk Space - MapboxCommon / MapboxCoreMaps use disk-capacity APIs to
           manage SDK-owned map tile caches and storage.
           Reason E174.1: check available disk space before writing files.
         -->
@@ -326,7 +367,7 @@
         </dict>
 
         <!--
-          System Boot Time — MapboxCommon / MapboxCoreMaps use uptime APIs for
+          System Boot Time - MapboxCommon / MapboxCoreMaps use uptime APIs for
           SDK timing, diagnostics, and cache/network coordination.
           Reason 35F9.1: measure elapsed time inside the app process.
         -->
