@@ -20,6 +20,7 @@ The existing suite uses Node's test runner and injectable gateways, so the unuse
 
 ## Web
 
-Keep Astro on the latest 6.x release until an Astro 7 migration deliberately accepts its Rust compiler and changed HTML whitespace defaults.
-Astro 6.4.8 fixes the deployed Astro advisories but still requests vulnerable `esbuild` 0.27.x, so `web/package.json` overrides `esbuild` to `^0.28.1`.
+Keep Astro at or above 7.1.5.
+Astro 6.4.8 became vulnerable to new XSS advisories and kept `sharp` below the patched 0.35.0 release, so the website accepted Astro 7's Rust compiler and changed HTML whitespace defaults.
+Astro still requests vulnerable `esbuild` 0.27.x, so `web/package.json` overrides `esbuild` to `^0.28.1`.
 Remove the override once Astro's declared range resolves to a patched `esbuild` release, after `npm run build` passes.
