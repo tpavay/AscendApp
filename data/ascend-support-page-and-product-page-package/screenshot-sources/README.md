@@ -1,9 +1,9 @@
 # App Store screenshot sources
 
 The two transformation photographs were generated specifically for Ascend with the built-in OpenAI image generator.
-They contain no text, logos, phones, or app interface.
+The raw photographs contain no text, logos, phones, or app interface; the renderer composites a real Ascend app surface onto each one.
 
-The five feature screenshots use real Ascend app imagery already tracked in the repository:
+All app imagery, including the insets on the transformation screens, is real Ascend app imagery already tracked in the repository:
 
 - Browse: `web/public/images/ascend-globe-browse.jpg`
 - Live race: `web/public/images/ascend-live-climb-leaderboard-preview.png`
