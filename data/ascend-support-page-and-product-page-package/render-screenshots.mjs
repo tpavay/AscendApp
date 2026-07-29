@@ -56,13 +56,13 @@ const featureScreens = [
   },
   {
     filename: '05-every-step-ranked.png',
-    source: 'web/public/images/ascend-live-climb-results.png',
+    source: 'web/public/images/ascend-climb-leaderboard.jpg',
     lines: ['EVERY STEP', 'RANKED.'],
-    capturedStatusBar: false,
+    capturedStatusBar: true,
   },
   {
     filename: '06-first-ascent-forever.png',
-    source: 'web/public/images/ascend-climb-leaderboard.jpg',
+    source: 'web/public/images/ascend-climb-detail.jpg',
     lines: ['BE THE FIRST.', 'CLAIMED ONCE.', 'HELD FOREVER.'],
     capturedStatusBar: true,
     badge: true,
@@ -94,9 +94,10 @@ const transformationScreens = [
     inset: {
       source: 'web/public/images/ascend-home-live-climb.jpg',
       capturedStatusBar: true,
-      // Home, framing two whole cards - today's Live Climb and the catalogue
-      // entry point. Both edges land in gaps between sections.
-      crop: { top: 0.2925, bottom: 0.615625 },
+      // Home, framing the catalogue entry point through Add Workout. Starts
+      // below the featured-climb card so no landmark competes with the
+      // headline, and both edges land in gaps between sections.
+      crop: { top: 0.509375, bottom: 0.8875 },
     },
   },
 ];
