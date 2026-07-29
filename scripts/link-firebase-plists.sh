@@ -22,7 +22,7 @@ esac
 
 skip_linking=0
 if [ -n "$required_plist" ] && [ -f "$TARGET_DIR/$required_plist" ]; then
-  echo "Firebase plist already present at $TARGET_DIR/$required_plist — skipping link."
+  echo "Firebase plist already present at $TARGET_DIR/$required_plist - skipping link."
   skip_linking=1
 fi
 
@@ -66,6 +66,11 @@ link_plist() {
   source_file="$source_dir/$file_name"
   target_file="$TARGET_DIR/$file_name"
   required="${2:-0}"
+
+  if git -C "$PROJECT_ROOT" ls-files --error-unmatch -- "$target_file" >/dev/null 2>&1; then
+    echo "Firebase plist is tracked at $target_file - leaving it unchanged."
+    return 0
+  fi
 
   if [ ! -f "$source_file" ]; then
     if [ "$required" = "1" ]; then
