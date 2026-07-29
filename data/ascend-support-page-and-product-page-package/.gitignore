@@ -1,0 +1,13 @@
+# The App Store screenshot set is a separate design follow-up and is not tracked
+# here. The renderer, its sources and its outputs are kept locally so they can be
+# copied out, but they stay out of git: the outputs and the contact sheet are
+# derived artifacts, and the set still has open blockers.
+#
+# See screenshot-follow-up-notes.md (also local-only) for the full history,
+# the two unresolved blockers, and how to run the renderer.
+
+render-screenshots.mjs
+screenshot-sources/
+screenshots/
+qa/
+screenshot-follow-up-notes.md

@@ -10,11 +10,8 @@
   "dependencies": {
     "astro": "^7.1.5"
   },
-  "devDependencies": {
-    "sharp": "^0.35.3"
-  },
   "overrides": {
     "esbuild": "^0.28.1",
-    "sharp": "$sharp"
+    "sharp": "^0.35.0"
   }
 }
