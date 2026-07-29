@@ -37,6 +37,9 @@ Every verify job is gated on the changed paths, so a functions-only PR skips the
 It always inspects the PR diff, but its fallback job claims the required `iOS Verify (Staging)` name only after the routing job succeeds and reports no CI-relevant change.
 For a CI-relevant PR, the fallback job uses a different display name and is skipped, so it cannot satisfy branch protection in place of the real check.
 The path lists marked `required-check-paths` in both workflows are a single contract enforced by `scripts/test/ci-required-check-routing.test.mjs`.
+That contract must stay a superset of every job-level `dorny/paths-filter` path in `ci.yml`, and the test derives the filters itself and fails on any path a verify job gates on that the trigger omits - so adding a path to the `scripts` or `ios` filter without adding it to the contract is a build failure, not a silent coverage hole.
+That is why `CLAUDE.md` and the four gated `docs/*.md` files appear in the trigger: the `scripts` filter already declares them, and `scripts/test/subscription-launch-offer.test.mjs` asserts against them.
+They cost nothing on the iOS side - the `ios` filter excludes them, so `ios-verify` is skipped rather than built.
 Do not replace the router with an inverse `paths-ignore` trigger: GitHub runs `paths-ignore` workflows when any changed file is outside the ignored set, so a mixed code-and-docs PR would run both workflows.
 
 `ios-verify` is the **only** job anywhere that compiles `AscendAppTests`. `ios-verify-release` builds the app target alone, and both deploy pipelines only build the IPA. So a test target that stops compiling shows up on exactly one check, and "Release passed" or "Deploy Staging on develop passed" is not evidence that the tree is healthy. That asymmetry is what made the 2026-07-20 `develop` breakage read as CI infrastructure flake.

@@ -42,6 +42,11 @@ jobs:
               - "package.json"
               - "package-lock.json"
               - "SharedTestVectors/**"
+              - "docs/superwall-paywall-setup.md"
+              - "docs/onboarding-design-guide.md"
+              - "docs/app-store-brief.md"
+              - "docs/launch-readiness-audit.md"
+              - "CLAUDE.md"
               - ".github/workflows/**"
               # required-check-paths:end
 
