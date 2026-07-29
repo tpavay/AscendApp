@@ -42,11 +42,11 @@ struct PrivacyManifestTests {
     }
 
     @Test(
-        "Each classified onboarding analytics attribute resolves to a declared Analytics data type",
-        arguments: Self.analyticsProfileAttributes
+        "Each classified analytics attribute resolves to a linked data type declared for Analytics",
+        arguments: Self.analyticsAttributes
     )
     func classifiedAnalyticsAttributesDeclareAnalyticsPurpose(
-        attribute: AnalyticsProfileAttribute
+        attribute: AnalyticsAttribute
     ) throws {
         let manifest = try loadManifest()
         let declaration = try #require(
@@ -59,48 +59,130 @@ struct PrivacyManifestTests {
         #expect(declaration.tracking == false)
     }
 
-    @Test("Every literally named OnboardingAnalyticsUserProperties property is classified")
-    func onboardingUserPropertyNamesAreClassified() throws {
-        let source = try loadOnboardingUserPropertySource()
-        let pattern = try Regex(#"\bset\("([a-z0-9_]+)""#)
-        let emitted = Set(
-            source.matches(of: pattern).compactMap { $0[1].substring.map(String.init) }
-        )
+    @Test("Every literally named user property in the app target is classified")
+    func userPropertyCallSitesAreFullyClassified() throws {
+        let sources = appTargetSwiftSources()
+        #expect(sources.isEmpty == false)
 
-        #expect(emitted.isEmpty == false)
-        #expect(emitted == Set(Self.analyticsProfileAttributes.filter(\.isUserProperty).map(\.name)))
+        let directCall = try Regex(#"setUserProperty\("([A-Za-z0-9_]+)""#)
+        let wrapperCall = try Regex(#"\bset\("([A-Za-z0-9_]+)""#)
+        var emitted: Set<String> = []
+
+        for url in sources {
+            let source = try String(contentsOf: url, encoding: .utf8)
+            emitted.formUnion(source.captures(of: directCall))
+
+            if url.lastPathComponent == Self.userPropertyWrapperFile {
+                emitted.formUnion(source.captures(of: wrapperCall))
+            }
+        }
+
+        let classified = Set(
+            Self.analyticsAttributes.filter(\.isScannedUserProperty).map(\.name)
+        )
+        #expect(emitted == classified)
     }
 
-    /// Onboarding attributes that reach Firebase Analytics and Mixpanel, each mapped to the manifest
-    /// data type it belongs to.
+    @Test("Indirectly named analytics attributes still appear in the source that emits them")
+    func indirectlyNamedAttributesAppearInSource() throws {
+        let sources = appTargetSwiftSources()
+
+        for attribute in Self.analyticsAttributes {
+            guard case .literal(let fileName) = attribute.origin else { continue }
+            let url = try #require(
+                sources.first { $0.lastPathComponent == fileName },
+                "\(fileName) no longer exists in the app target"
+            )
+            let source = try String(contentsOf: url, encoding: .utf8)
+
+            #expect(
+                source.contains("\"\(attribute.name)\""),
+                "\(attribute.name) is no longer emitted by \(fileName)"
+            )
+        }
+    }
+
+    /// Every analytics attribute the app can attach to a Firebase Analytics or Mixpanel identity,
+    /// mapped to the manifest data type that has to declare it. Mixpanel receives all of them after
+    /// `identify`, so each one is linked to the user.
     ///
-    /// `onboardingUserPropertyNamesAreClassified` pins the `isUserProperty` rows against the literal
-    /// `set("…")` calls in `OnboardingAnalyticsUserProperties`, so a new user property added there
-    /// fails until it is classified here. Two categories sit outside that scan and still have to be
-    /// added by hand: attributes emitted as event parameters from elsewhere, such as
-    /// `profile_height_group` on the body-metrics event in `PostAuthOnboardingFlowView`, and the goal
-    /// properties whose names come from `knownGoalProperties` rather than a literal argument.
-    static let analyticsProfileAttributes: [AnalyticsProfileAttribute] = [
-        AnalyticsProfileAttribute(name: "profile_gender", dataType: otherDataTypes),
-        AnalyticsProfileAttribute(name: "profile_age_group", dataType: otherDataTypes),
-        AnalyticsProfileAttribute(name: "profile_weight_group", dataType: health),
-        AnalyticsProfileAttribute(name: "profile_country", dataType: coarseLocation),
-        AnalyticsProfileAttribute(name: "stair_stepper_exp", dataType: otherDataTypes),
-        AnalyticsProfileAttribute(name: "exercise_level", dataType: otherDataTypes),
-        AnalyticsProfileAttribute(name: "motivation", dataType: otherDataTypes),
-        AnalyticsProfileAttribute(name: "planned_frequency", dataType: otherDataTypes),
-        AnalyticsProfileAttribute(name: "goal_answer_count", dataType: otherDataTypes),
-        AnalyticsProfileAttribute(name: "notifications_choice", dataType: otherDataTypes),
-        AnalyticsProfileAttribute(name: "first_climb_id", dataType: otherDataTypes),
-        AnalyticsProfileAttribute(name: "first_climb_tier", dataType: otherDataTypes),
-        AnalyticsProfileAttribute(name: "first_climb_steps", dataType: otherDataTypes),
-        AnalyticsProfileAttribute(name: "display_name_set", dataType: productInteraction),
-        AnalyticsProfileAttribute(name: "profile_location_set", dataType: productInteraction),
-        AnalyticsProfileAttribute(name: "onboarding_complete", dataType: productInteraction),
-        AnalyticsProfileAttribute(
+    /// The two origins differ in how much the tests can promise:
+    ///
+    /// - `.scannedUserProperty` names are pinned by `userPropertyCallSitesAreFullyClassified`, which
+    ///   scans every Swift file under `AscendApp/` for literal `setUserProperty("…")` calls plus the
+    ///   `set("…")` wrapper inside `OnboardingAnalyticsUserProperties`. A new literal user property
+    ///   anywhere in the app target fails that test until it is classified here.
+    /// - `.literal(inFile:)` names are the ones that scan cannot see: goal properties assembled from
+    ///   `knownGoalProperties`, and event parameters carrying body or demographic values.
+    ///   `indirectlyNamedAttributesAppearInSource` only checks that each still appears in the file it
+    ///   comes from, so a newly added one has to be classified by hand.
+    ///
+    /// Event parameters beyond the three listed here are not scanned. They are inventoried by hand in
+    /// `data/asc-app-privacy-answers.md`, and each resolves to Product Interaction or Other Data
+    /// Types, both already declared with Analytics.
+    static let analyticsAttributes: [AnalyticsAttribute] = [
+        AnalyticsAttribute(name: "profile_weight_group", dataType: health),
+        AnalyticsAttribute(name: "profile_gender", dataType: otherDataTypes),
+        AnalyticsAttribute(name: "profile_age_group", dataType: otherDataTypes),
+        AnalyticsAttribute(name: "profile_country", dataType: coarseLocation),
+        AnalyticsAttribute(name: "stair_stepper_exp", dataType: fitness),
+        AnalyticsAttribute(name: "exercise_level", dataType: fitness),
+        AnalyticsAttribute(name: "motivation", dataType: fitness),
+        AnalyticsAttribute(name: "planned_frequency", dataType: fitness),
+        AnalyticsAttribute(name: "goal_answer_count", dataType: fitness),
+        AnalyticsAttribute(name: "notifications_choice", dataType: otherDataTypes),
+        AnalyticsAttribute(name: "first_climb_id", dataType: otherDataTypes),
+        AnalyticsAttribute(name: "first_climb_tier", dataType: otherDataTypes),
+        AnalyticsAttribute(name: "first_climb_steps", dataType: otherDataTypes),
+        AnalyticsAttribute(name: "display_name_set", dataType: productInteraction),
+        AnalyticsAttribute(name: "profile_location_set", dataType: productInteraction),
+        AnalyticsAttribute(name: "onboarding_complete", dataType: productInteraction),
+        AnalyticsAttribute(name: "name_inputted", dataType: productInteraction),
+        AnalyticsAttribute(name: "division_inputted", dataType: productInteraction),
+        AnalyticsAttribute(name: "age_inputted", dataType: productInteraction),
+        AnalyticsAttribute(name: "body_metrics_inputted", dataType: productInteraction),
+        AnalyticsAttribute(name: "location_inputted", dataType: productInteraction),
+        AnalyticsAttribute(name: "notifications_inputted", dataType: productInteraction),
+        AnalyticsAttribute(name: "first_climb_selected", dataType: productInteraction),
+        AnalyticsAttribute(
+            name: "goal_lose_weight",
+            dataType: fitness,
+            origin: .literal(inFile: userPropertyWrapperFile)
+        ),
+        AnalyticsAttribute(
+            name: "goal_build_endurance",
+            dataType: fitness,
+            origin: .literal(inFile: userPropertyWrapperFile)
+        ),
+        AnalyticsAttribute(
+            name: "goal_track_progress",
+            dataType: fitness,
+            origin: .literal(inFile: userPropertyWrapperFile)
+        ),
+        AnalyticsAttribute(
+            name: "goal_exciting_workouts",
+            dataType: fitness,
+            origin: .literal(inFile: userPropertyWrapperFile)
+        ),
+        AnalyticsAttribute(
+            name: "goal_healthier_life",
+            dataType: fitness,
+            origin: .literal(inFile: userPropertyWrapperFile)
+        ),
+        AnalyticsAttribute(
             name: "profile_height_group",
             dataType: health,
-            isUserProperty: false
+            origin: .literal(inFile: "PostAuthOnboardingFlowView.swift")
+        ),
+        AnalyticsAttribute(
+            name: "body_weight_filter",
+            dataType: health,
+            origin: .literal(inFile: "LeaderboardAnalyticsEvent.swift")
+        ),
+        AnalyticsAttribute(
+            name: "age_group",
+            dataType: otherDataTypes,
+            origin: .literal(inFile: "LeaderboardAnalyticsEvent.swift")
         )
     ]
 
@@ -110,25 +192,35 @@ struct PrivacyManifestTests {
         return try PropertyListDecoder().decode(PrivacyManifest.self, from: data)
     }
 
-    private func loadOnboardingUserPropertySource() throws -> String {
-        let sourceURL = Self.repositoryRoot.appending(
-            path: "AscendApp/Features/Onboarding/Analytics/OnboardingAnalyticsUserProperties.swift"
-        )
-        return try String(contentsOf: sourceURL, encoding: .utf8)
+    private func appTargetSwiftSources() -> [URL] {
+        let root = Self.repositoryRoot.appending(path: "AscendApp")
+        guard let enumerator = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: nil
+        ) else {
+            return []
+        }
+
+        return enumerator
+            .compactMap { $0 as? URL }
+            .filter { $0.pathExtension == "swift" }
     }
 
     private static let repositoryRoot = URL(filePath: #filePath)
         .deletingLastPathComponent()
         .deletingLastPathComponent()
 
-    private static let health = "NSPrivacyCollectedDataTypeHealth"
-    private static let coarseLocation = "NSPrivacyCollectedDataTypeCoarseLocation"
-    private static let otherDataTypes = "NSPrivacyCollectedDataTypeOtherDataTypes"
-    private static let productInteraction = "NSPrivacyCollectedDataTypeProductInteraction"
+    private static let userPropertyWrapperFile = "OnboardingAnalyticsUserProperties.swift"
 
     private static let analytics = "NSPrivacyCollectedDataTypePurposeAnalytics"
     private static let appFunctionality = "NSPrivacyCollectedDataTypePurposeAppFunctionality"
     private static let productPersonalization = "NSPrivacyCollectedDataTypePurposeProductPersonalization"
+
+    private static let health = "NSPrivacyCollectedDataTypeHealth"
+    private static let fitness = "NSPrivacyCollectedDataTypeFitness"
+    private static let coarseLocation = "NSPrivacyCollectedDataTypeCoarseLocation"
+    private static let otherDataTypes = "NSPrivacyCollectedDataTypeOtherDataTypes"
+    private static let productInteraction = "NSPrivacyCollectedDataTypeProductInteraction"
 
     /// The complete set Apple accepts for `NSPrivacyCollectedDataTypePurposes`. A value outside it
     /// is not a recognized purpose, so the declaration it sits on reads as under-declared.
@@ -168,12 +260,28 @@ struct PrivacyManifestTests {
     ]
 }
 
-struct AnalyticsProfileAttribute: Sendable, CustomTestStringConvertible {
+struct AnalyticsAttribute: Sendable, CustomTestStringConvertible {
+    enum Origin: Sendable {
+        case scannedUserProperty
+        case literal(inFile: String)
+    }
+
     let name: String
     let dataType: String
-    var isUserProperty: Bool = true
+    var origin: Origin = .scannedUserProperty
+
+    var isScannedUserProperty: Bool {
+        if case .scannedUserProperty = origin { return true }
+        return false
+    }
 
     var testDescription: String { "\(name) -> \(dataType)" }
+}
+
+private extension String {
+    func captures(of pattern: Regex<AnyRegexOutput>) -> [String] {
+        matches(of: pattern).compactMap { $0[1].substring.map(String.init) }
+    }
 }
 
 private struct ExpectedDataType: Sendable {

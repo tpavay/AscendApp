@@ -119,10 +119,10 @@
 
         <!--
           Health - HealthKit reads plus user-entered body metrics (height, weight).
-          Analytics is declared because the bucketed body weight is sent to
-          Firebase Analytics and Mixpanel as the `profile_weight_group` user
-          property, and the bucketed height rides along on the onboarding input
-          event as `profile_height_group`.
+          Analytics is declared because banded body values reach Firebase Analytics
+          and Mixpanel: `profile_weight_group` as a user property, and
+          `profile_height_group` and the leaderboard `body_weight_filter` as event
+          parameters.
         -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
@@ -138,7 +138,12 @@
             </array>
         </dict>
 
-        <!-- Fitness - workout metrics, Live Climb completion and rank state -->
+        <!--
+          Fitness - workout metrics, Live Climb completion and rank state, plus the
+          onboarding fitness answers sent to Firebase Analytics and Mixpanel as user
+          properties: `stair_stepper_exp`, `exercise_level`, `motivation`,
+          `planned_frequency`, and the `goal_*` selections.
+        -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeFitness</string>
