@@ -23,6 +23,10 @@ const accent = '#86D30A';
 // captured status bar occupies before normalisation.
 const devicePointWidth = 402;
 const statusBarPoints = 62;
+const statusContentCenterPoints = 32.4;
+const islandWidthPoints = 125.6;
+const islandHeightPoints = 36.6;
+const statusBandSurface = { left: 'rgb(11,11,11)', right: 'rgb(17,17,17)' };
 
 const fontPath = path.join(
   root,
@@ -220,39 +224,45 @@ function transformationScrimSvg() {
 }
 
 /**
- * One uniform marketing status bar for every screen: 9:41, full signal, Wi-Fi
- * and a full battery, drawn at the proportions of the captured device.
+ * One uniform marketing status bar for every screen: 9:41, full signal, Wi-Fi,
+ * a full battery and the Dynamic Island. Every measurement below is in device
+ * points read off the real capture in `web/public/images/ascend-climb-detail.jpg`,
+ * so the band matches the hardware the 1320 x 2868 canvas advertises.
  */
-function statusBarSvg(barWidth, barHeight) {
+function statusBarSvg(barWidth, barHeight, bandFill) {
   const unit = barWidth / devicePointWidth;
-  const centerY = 30 * unit;
-  const barBottom = centerY + 5.5 * unit;
+  const centerY = statusContentCenterPoints * unit;
+  const iconBottom = 38.2 * unit;
+
   const signalBars = [4, 6, 8.5, 11]
     .map((barPointHeight, index) => {
       const barX = 286 * unit + index * 6.4 * unit;
       const drawHeight = barPointHeight * unit;
-      return `<rect x="${barX}" y="${barBottom - drawHeight}" width="${4.2 * unit}" height="${drawHeight}" rx="${1.4 * unit}" fill="#FFFFFF" />`;
+      return `<rect x="${barX}" y="${iconBottom - drawHeight}" width="${4.2 * unit}" height="${drawHeight}" rx="${1.4 * unit}" fill="#FFFFFF" />`;
     })
     .join('');
 
-  const wifiX = 318 * unit;
-  const wifiScale = unit;
   const wifi = `
-    <g transform="translate(${wifiX} ${centerY - 5 * wifiScale}) scale(${wifiScale})">
-      <path d="M0.6 4.2 A 13 13 0 0 1 17.4 4.2" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" />
-      <path d="M4.2 8.2 A 8 8 0 0 1 13.8 8.2" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" />
-      <circle cx="9" cy="12.6" r="1.9" fill="#FFFFFF" />
+    <g transform="translate(${315.2 * unit} ${26.2 * unit}) scale(${unit})">
+      <path d="M0.8 4.6 A 11.5 11.5 0 0 1 15.0 4.6" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" />
+      <path d="M4.0 8.0 A 7 7 0 0 1 11.8 8.0" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" />
+      <circle cx="7.9" cy="11.1" r="1.7" fill="#FFFFFF" />
     </g>
   `;
 
-  const batteryX = 342 * unit;
-  const batteryWidth = 27 * unit;
-  const batteryHeight = 13 * unit;
+  const batteryX = 341.4 * unit;
+  const batteryWidth = 25 * unit;
+  const batteryHeight = 12 * unit;
   const batteryY = centerY - batteryHeight / 2;
   const battery = `
-    <rect x="${batteryX}" y="${batteryY}" width="${batteryWidth}" height="${batteryHeight}" rx="${4 * unit}" fill="none" stroke="#FFFFFF" stroke-opacity="0.45" stroke-width="${1.3 * unit}" />
-    <rect x="${batteryX + 2 * unit}" y="${batteryY + 2 * unit}" width="${batteryWidth - 4 * unit}" height="${batteryHeight - 4 * unit}" rx="${2 * unit}" fill="#FFFFFF" />
-    <path d="M ${batteryX + batteryWidth + 1.4 * unit} ${centerY - 3 * unit} a ${3 * unit} ${3 * unit} 0 0 1 0 ${6 * unit} z" fill="#FFFFFF" fill-opacity="0.45" />
+    <rect x="${batteryX}" y="${batteryY}" width="${batteryWidth}" height="${batteryHeight}" rx="${3.5 * unit}" fill="none" stroke="#FFFFFF" stroke-opacity="0.45" stroke-width="${1.3 * unit}" />
+    <rect x="${batteryX + 2 * unit}" y="${batteryY + 2 * unit}" width="${batteryWidth - 4 * unit}" height="${batteryHeight - 4 * unit}" rx="${1.8 * unit}" fill="#FFFFFF" />
+    <path d="M ${batteryX + batteryWidth + 1.3 * unit} ${centerY - 2.8 * unit} a ${2.8 * unit} ${2.8 * unit} 0 0 1 0 ${5.6 * unit} z" fill="#FFFFFF" fill-opacity="0.45" />
+  `;
+
+  const island = `
+    <rect x="${(devicePointWidth - islandWidthPoints) / 2 * unit}" y="${(statusContentCenterPoints - islandHeightPoints / 2) * unit}"
+      width="${islandWidthPoints * unit}" height="${islandHeightPoints * unit}" rx="${islandHeightPoints / 2 * unit}" fill="#000000" />
   `;
 
   return Buffer.from(`
@@ -265,15 +275,27 @@ function statusBarSvg(barWidth, barHeight) {
         .clock {
           fill: #FFFFFF;
           font-family: AscendStatus, sans-serif;
-          font-size: ${17 * unit}px;
+          font-size: ${17.5 * unit}px;
           font-weight: 600;
         }
       </style>
-      <rect width="100%" height="100%" fill="#000000" />
-      <text class="clock" x="${67 * unit}" y="${centerY}" text-anchor="middle" dominant-baseline="central">9:41</text>
+      <defs>
+        <linearGradient id="surface" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="${statusBandSurface.left}" />
+          <stop offset="100%" stop-color="${statusBandSurface.right}" />
+        </linearGradient>
+        <linearGradient id="seam" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${bandFill}" stop-opacity="0" />
+          <stop offset="100%" stop-color="${bandFill}" stop-opacity="1" />
+        </linearGradient>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#surface)" />
+      <rect x="0" y="${barHeight * 0.84}" width="100%" height="${barHeight * 0.16 + 1}" fill="url(#seam)" />
+      <text class="clock" x="${73.8 * unit}" y="${centerY}" text-anchor="middle" dominant-baseline="central">9:41</text>
       ${signalBars}
       ${wifi}
       ${battery}
+      ${island}
     </svg>
   `);
 }
@@ -283,7 +305,7 @@ function statusBarSvg(barWidth, barHeight) {
  * renderer can no longer letterbox a screen with a black band. The aspect guard
  * keeps the resulting edge crop small enough that no UI row is sliced away.
  */
-async function captureWindow(sourcePath, { capturedStatusBar, crop }) {
+async function fillScreenBox(sourcePath, { boxWidth, boxHeight, capturedStatusBar, crop }) {
   const pipeline = sharp(sourcePath).flatten({ background: '#000000' });
   const metadata = await pipeline.metadata();
 
@@ -291,23 +313,18 @@ async function captureWindow(sourcePath, { capturedStatusBar, crop }) {
     ? Math.round(metadata.height * crop.top)
     : (capturedStatusBar ? Math.round((metadata.width / devicePointWidth) * statusBarPoints) : 0);
   const cropBottom = crop ? Math.round(metadata.height * (1 - crop.bottom)) : 0;
+  const cropWidth = metadata.width;
   const cropHeight = metadata.height - cropTop - cropBottom;
 
   if (cropHeight <= 0) {
     throw new Error(`Capture crop leaves no content: ${sourcePath}`);
   }
 
-  return { pipeline, cropTop, cropWidth: metadata.width, cropHeight };
-}
-
-async function fillScreenBox(sourcePath, { boxWidth, boxHeight, capturedStatusBar, crop }) {
-  const { pipeline, cropTop, cropWidth, cropHeight } = await captureWindow(sourcePath, {
-    capturedStatusBar,
-    crop,
-  });
+  const targetWidth = Math.round(boxWidth);
+  const targetHeight = Math.round(boxHeight ?? boxWidth * (cropHeight / cropWidth));
 
   const sourceAspect = cropWidth / cropHeight;
-  const boxAspect = boxWidth / boxHeight;
+  const boxAspect = targetWidth / targetHeight;
   const edgeCrop = Math.abs(1 - sourceAspect / boxAspect);
   if (edgeCrop > 0.14) {
     throw new Error(
@@ -316,43 +333,78 @@ async function fillScreenBox(sourcePath, { boxWidth, boxHeight, capturedStatusBa
     );
   }
 
-  return pipeline
+  const buffer = await pipeline
     .extract({ left: 0, top: cropTop, width: cropWidth, height: cropHeight })
-    .resize(Math.round(boxWidth), Math.round(boxHeight), {
+    .resize(targetWidth, targetHeight, {
       fit: 'cover',
       position: 'top',
     })
     .png()
     .toBuffer();
+
+  return { buffer, boxWidth: targetWidth, boxHeight: targetHeight };
 }
 
 /**
- * Builds the framed app screen: normalised status bar band on top, capture
- * filling everything beneath it.
+ * The status band carries one fixed surface tint on every screen so the
+ * pure-black Dynamic Island always reads, and blends over the capture's own
+ * first row at its lower edge so no seam appears where the two meet.
  */
-async function renderFramedScreen(screen, { boxWidth, boxHeight }) {
-  const statusBarHeight = Math.round((boxWidth / devicePointWidth) * statusBarPoints);
-  const capture = await fillScreenBox(path.join(root, screen.source), {
-    boxWidth,
-    boxHeight: boxHeight - statusBarHeight,
-    capturedStatusBar: screen.capturedStatusBar,
-    crop: screen.crop,
-  });
+async function sampleBandFill(captureBuffer) {
+  const { data, info } = await sharp(captureBuffer).raw().toBuffer({ resolveWithObject: true });
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+  for (let x = 0; x < info.width; x += 1) {
+    const i = x * info.channels;
+    red += data[i];
+    green += data[i + 1];
+    blue += data[i + 2];
+  }
+  return `rgb(${Math.round(red / info.width)},${Math.round(green / info.width)},${Math.round(blue / info.width)})`;
+}
 
-  return sharp({
+/**
+ * Every app surface in the set - framed device screens and the transformation
+ * insets alike - is built here, so all seven carry an identical status band.
+ */
+async function composeDeviceScreen(capture, { boxWidth, contentHeight }) {
+  const statusBarHeight = Math.round((boxWidth / devicePointWidth) * statusBarPoints);
+  const bandFill = await sampleBandFill(capture);
+
+  const screen = await sharp({
     create: {
       width: Math.round(boxWidth),
-      height: Math.round(boxHeight),
+      height: statusBarHeight + contentHeight,
       channels: 4,
       background: '#000000',
     },
   })
     .composite([
       { input: capture, top: statusBarHeight, left: 0 },
-      { input: statusBarSvg(boxWidth, statusBarHeight), top: 0, left: 0 },
+      { input: statusBarSvg(boxWidth, statusBarHeight, bandFill), top: 0, left: 0 },
     ])
     .png()
     .toBuffer();
+
+  return { screen, statusBarHeight, screenHeight: statusBarHeight + contentHeight };
+}
+
+async function renderFramedScreen(screen, { boxWidth, boxHeight }) {
+  const statusBarHeight = Math.round((boxWidth / devicePointWidth) * statusBarPoints);
+  const contentHeight = Math.round(boxHeight) - statusBarHeight;
+  const capture = await fillScreenBox(path.join(root, screen.source), {
+    boxWidth,
+    boxHeight: contentHeight,
+    capturedStatusBar: screen.capturedStatusBar,
+    crop: screen.crop,
+  });
+
+  const { screen: framed } = await composeDeviceScreen(capture.buffer, {
+    boxWidth,
+    contentHeight,
+  });
+  return framed;
 }
 
 function insetPanelMaskSvg(panelWidth, panelHeight, radius) {
@@ -378,29 +430,26 @@ function insetPanelBorderSvg(panelWidth, panelHeight, radius) {
  */
 async function renderAppSurfaceInset(inset, { panelWidth }) {
   const radius = 44;
-  const sourcePath = path.join(root, inset.source);
-  const window = await captureWindow(sourcePath, {
-    capturedStatusBar: inset.capturedStatusBar,
-    crop: inset.crop,
-  });
-  const panelHeight = Math.round(panelWidth * (window.cropHeight / window.cropWidth));
-
-  const surface = await fillScreenBox(sourcePath, {
+  const surface = await fillScreenBox(path.join(root, inset.source), {
     boxWidth: panelWidth,
-    boxHeight: panelHeight,
     capturedStatusBar: inset.capturedStatusBar,
     crop: inset.crop,
   });
 
-  const panel = await sharp(surface)
+  const { screen, screenHeight } = await composeDeviceScreen(surface.buffer, {
+    boxWidth: panelWidth,
+    contentHeight: surface.boxHeight,
+  });
+
+  const panel = await sharp(screen)
     .composite([
-      { input: insetPanelMaskSvg(panelWidth, panelHeight, radius), blend: 'dest-in' },
-      { input: insetPanelBorderSvg(panelWidth, panelHeight, radius), blend: 'over' },
+      { input: insetPanelMaskSvg(panelWidth, screenHeight, radius), blend: 'dest-in' },
+      { input: insetPanelBorderSvg(panelWidth, screenHeight, radius), blend: 'over' },
     ])
     .png()
     .toBuffer();
 
-  return { panel, panelHeight };
+  return { panel, panelHeight: screenHeight };
 }
 
 async function renderTransformation(screen) {
@@ -522,17 +571,66 @@ for (const screen of [...transformationScreens, ...featureScreens]) {
   }
 
   const headline = renderedHeadlines.get(screen.filename);
-  if (headline.bounds.right > width - margin || headline.bounds.left < margin - 8) {
-    throw new Error(`Headline overflows the safe column: ${screen.filename}`);
+  const rendered = await measureHeadlineInOutput(outputPath, headline.bounds);
+
+  if (rendered.pixels < 500) {
+    throw new Error(
+      `Headline is missing or obscured in the written screenshot: ${screen.filename}`
+    );
+  }
+  if (rendered.left < margin - 8 || rendered.right > width - margin) {
+    throw new Error(
+      `Headline ink runs from x=${rendered.left} to x=${rendered.right}, outside the `
+      + `${margin}..${width - margin} safe column: ${screen.filename}`
+    );
+  }
+  if (rendered.right < headline.bounds.right - 12) {
+    throw new Error(
+      `Headline is clipped in the written screenshot: measured x=${rendered.right}, `
+      + `expected x=${headline.bounds.right}: ${screen.filename}`
+    );
   }
 
   console.log(
     `${screen.filename}: ${metadata.width}x${metadata.height}, ${metadata.space}, alpha=${metadata.hasAlpha}, `
-    + `headline ${headline.fontSize}px ending at x=${headline.bounds.right}`
+    + `headline ${headline.fontSize}px, written ink x=${rendered.left}..${rendered.right}`
   );
 }
 
 await writeContactSheet([...transformationScreens, ...featureScreens]);
+
+/**
+ * Reads the headline band back out of the PNG that was actually written, so a
+ * composite-stage regression - a wrong offset, a later layer covering the copy -
+ * fails the render instead of passing on the pre-composite layer's own bounds.
+ */
+async function measureHeadlineInOutput(outputPath, bounds) {
+  const bandTop = Math.max(0, bounds.top - 4);
+  const bandHeight = Math.min(height - bandTop, bounds.bottom - bounds.top + 9);
+  const { data, info } = await sharp(outputPath)
+    .extract({ left: 0, top: bandTop, width, height: bandHeight })
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  let left = info.width;
+  let right = -1;
+  let pixels = 0;
+
+  for (let y = 0; y < info.height; y += 1) {
+    const rowStart = y * info.width * info.channels;
+    for (let x = 0; x < info.width; x += 1) {
+      const i = rowStart + x * info.channels;
+      if (data[i] < 210 || data[i + 1] < 210 || data[i + 2] < 210) {
+        continue;
+      }
+      pixels += 1;
+      if (x < left) left = x;
+      if (x > right) right = x;
+    }
+  }
+
+  return { left, right, pixels };
+}
 
 async function writeContactSheet(screens) {
   const columns = 4;

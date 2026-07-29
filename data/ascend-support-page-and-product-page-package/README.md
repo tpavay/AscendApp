@@ -20,9 +20,10 @@ The first two screens use generated transformation photography.
 Each one also carries a real Ascend app surface as an inset panel, so the opening screens show the app in use and satisfy App Store Review Guideline 2.3.3 without replacing the photographic treatment.
 The final five screens use real Ascend app captures inside a device frame, with the real First Ascent app asset used as a marketing breakout on screen six.
 
-Every visible status bar is normalised by the renderer to the same marketing state: 9:41, full signal, Wi-Fi, and a full battery.
+All seven screens carry the same normalised status bar: 9:41, full signal, Wi-Fi, a full battery, and the Dynamic Island.
+The band geometry is measured in device points off `web/public/images/ascend-climb-detail.jpg`, so the 125.6 x 36.6 point pill matches the hardware the 1320 x 2868 canvas advertises.
 Captures fill their screen box rather than being letterboxed, and headlines auto-fit to the safe text column.
-The renderer fails the build if a headline overflows the safe column or a capture aspect would crop a screen by more than 14 percent.
+The renderer fails the build if a capture aspect would crop a screen by more than 14 percent, or if the headline measured back out of the written PNG is missing, clipped, or outside the safe column.
 
 No iPad screenshots were created because the production app target is iPhone-only.
 
