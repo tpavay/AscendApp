@@ -258,6 +258,15 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
+      # The Firestore and Storage emulators are JVM processes, and the pinned
+      # firebase-tools refuses to start them on a JDK older than 21. The runner
+      # image's default JDK is older than that, so pin one the CLI accepts.
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
       - name: Install dependencies
         run: npm ci --ignore-scripts
 

@@ -35,6 +35,8 @@ Every verify job is gated on the changed paths, so a functions-only PR skips the
 - `firebase-verify` - structurally validates `firebase.json`, `.firebaserc`, and `firestore.indexes.json`, then starts the Firestore and Storage emulators and runs `tests/firebase-rules/*.test.mjs`. The emulators load both rules files before the suite, so syntax failures stop the job.
   `npm run test:firebase-rules` pins `firebase-tools` to the same version the deploy steps run, so the CLI that validates the rules is the CLI that ships them. `docs/dependency-security.md` owns that pin and lists every place it is repeated; bump them together.
   It runs no `npm audit` - `root-npm-verify` owns that signal for the root tree.
+  It pins a Temurin JDK 21 with `actions/setup-java` before the emulator step: the emulators are JVM processes and `firebase-tools` refuses to start them on a JDK older than 21, which is what the runner image defaults to.
+  Keep that step whenever the `firebase-tools` pin moves - a newer CLI raises the floor, it never lowers it.
 - `ruby-verify` - pins `ruby-version: "3.1"`, runs `bundle install --deployment`, and loads the lane DSL with `bundle exec fastlane lanes`. Gated on the Ruby version, Gem bundle, and `fastlane/**`.
   That pin deliberately ignores `.ruby-version` (3.2.2, the local development Ruby) and matches the `3.1` every deploy job pins, so the gate resolves the `Gemfile` under the Ruby that actually builds and signs releases.
   Keep it identical to the deploy pins.
