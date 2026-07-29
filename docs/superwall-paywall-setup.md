@@ -28,7 +28,8 @@ A missing offering or product logs an error and emits the `monetization_offering
 Serving a different current offering is an experiment, not a failure, and is only logged.
 
 The audit is scoped to Release by `MonetizationConfiguration.shouldAuditLaunchOffering` because the product IDs above are hardcoded to the production catalog and Staging sells its own.
-Follow-up `ascend-unentitled-access-build-setting` makes the product IDs configurable per environment and restores the audit for Staging.
+The launch product IDs are not yet environment-aware.
+Making them configurable per environment and restoring the audit for Staging are intended to land together, and neither happens here.
 
 There is no weekly launch product and no separate discounted launch offer.
 Do not add either to a Superwall campaign, Hosting content, or release checklist.
@@ -90,7 +91,8 @@ Both shippable configurations carry real publishable client keys, so no placehol
 `ASCEND_REVENUECAT_TEST_API_KEY` stays empty and `ASCEND_USE_REVENUECAT_TEST_STORE` and `ASCEND_SUPERWALL_TEST_MODE` stay `NO` in every configuration.
 `scripts/test/monetization-build-configuration.test.mjs` pins the shape of each configured key and still proves the preflight rejects a placeholder in either required key against a synthetic project; keep both aligned with any future key move.
 Never commit the real keys to documentation or test fixtures.
-Follow-up `move-api-keys-to-xcconfig-a10` moves these committed publishable keys out of `AscendApp.xcodeproj` into gitignored xcconfig files and CI secrets.
+These publishable client keys are currently committed in `AscendApp.xcodeproj`.
+They are intended to move into gitignored xcconfig files and CI secrets; that migration is deliberately not performed here.
 
 Every environment that points at its own vendor projects needs the same logical configuration:
 
@@ -99,7 +101,7 @@ Every environment that points at its own vendor projects needs the same logical 
 - RevenueCat current offering `default`
 - Superwall placements `app_access_gate` and `onboarding_paywall` - staging carries only `app_access_gate` today, which is all its SDK-configuration role needs
 
-Only the production identifiers are compiled into `MonetizationConfiguration`, so the launch catalog audit runs in Release alone until `ascend-unentitled-access-build-setting` makes them configurable.
+Only the production identifiers are compiled into `MonetizationConfiguration`, so the launch catalog audit runs in Release alone until the launch product IDs become environment-aware.
 Staging also sets `allowsUnentitledAppAccess`, so its hard gate never fires and it is not a paywall QA surface; it proves SDK configuration and clears the archive preflight.
 
 ## Authenticated Superwall References

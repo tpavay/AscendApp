@@ -60,9 +60,8 @@ struct MonetizationConfiguration: Equatable {
     /// The launch product IDs are hardcoded to the production catalog, but Staging
     /// sells `ascend_staging_*`, so auditing there would emit
     /// `monetization_offering_mismatch` on every launch and drown the production
-    /// signal the event exists to carry. Follow-up
-    /// `ascend-unentitled-access-build-setting` makes the product IDs configurable
-    /// per environment and restores this audit for Staging.
+    /// signal the event exists to carry. Making the product IDs environment-aware
+    /// and restoring this audit for Staging are intended to land together.
     var shouldAuditLaunchOffering: Bool {
         auditsLaunchOffering && revenueCatStoreMode == .appStore
     }
