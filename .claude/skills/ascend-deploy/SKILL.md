@@ -33,7 +33,7 @@ Every verify job is gated on the changed paths, so a functions-only PR skips the
   Keep it a distinct step rather than a tail on the build: `Summarize failure` is gated on the `build` step's outcome, so folding the check into that step would hand the summarizer the log of a build that actually succeeded.
   `ProcessInfoPlistFile` runs independently of compilation, which is why the check reads the built bundle plist instead of `AscendApp/Info.plist`.
 
-`.github/workflows/ci-required-check-fallback.yml` is the companion required-check router, and it runs on every PR.
+`.github/workflows/ci-required-check-fallback.yml` is the companion required-check router, and unlike `ci.yml` it is unfiltered: it runs on every PR targeting `develop` or `main`, whatever the changed paths.
 Its `route` job lists the PR's changed files and hands them to `scripts/ci/classify-required-check-route.mjs`, which decides through `scripts/lib/required-check-routing.mjs`; the `fallback` job claims the required `iOS Verify (Staging)` name only when that job succeeded *and* returned `fallback_eligible=true`.
 For anything else the fallback job takes a different display name and is skipped, so it can never satisfy branch protection in place of the real check.
 

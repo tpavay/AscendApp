@@ -110,7 +110,10 @@ function parseChangedFileCount(value) {
 // allowlist-only verdict over paths the API never returned.
 export function changedPathsFromApiEntries(entries, expectedChangedFiles) {
   if (!Array.isArray(entries)) {
-    return { ok: false, reason: "The pull request file list was not a JSON array." };
+    return {
+      ok: false,
+      reason: "The pull request file list was not a JSON array.",
+    };
   }
 
   const expected = parseChangedFileCount(expectedChangedFiles);
