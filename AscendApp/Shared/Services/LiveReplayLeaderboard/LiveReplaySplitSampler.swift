@@ -10,7 +10,9 @@ import Foundation
 ///
 /// Summary display, Best Efforts segment math, and the server's `normalizeReplaySplitSteps`
 /// all depend on this same end anchoring. Re-basing the buckets on one side only
-/// silently desynchronizes the others rather than failing loudly.
+/// silently desynchronizes the others rather than failing loudly, which is why the two
+/// normalizers are pinned together by
+/// `SharedTestVectors/live-replay-split-normalization-vector.json`.
 struct LiveReplaySplitCurve: Codable, Equatable, Sendable {
     let intervalSeconds: Int
     let steps: [Int]

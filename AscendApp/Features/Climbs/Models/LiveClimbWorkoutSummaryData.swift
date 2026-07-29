@@ -171,7 +171,10 @@ enum LiveClimbWorkoutSummaryData {
         return min(bucketEndSeconds, safeDurationSeconds)
     }
 
-    private static func normalizedSplitSteps(
+    /// Twin of the server's `normalizeReplaySplitSteps`. Both sides are pinned to the same
+    /// end-anchored bucket contract by `SharedTestVectors/live-replay-split-normalization-vector.json`,
+    /// so this stays module-visible for that parity test rather than private.
+    static func normalizedSplitSteps(
         _ splitSteps: [Int],
         intervalSeconds: Int,
         finalDurationSeconds: Int,
@@ -269,6 +272,8 @@ enum LiveClimbWorkoutSummaryData {
         var lastStep = 0
 
         for index in 0..<bucketCount {
+            // Bucket `index` is read at the end of its window, so it projects the
+            // progress reached by `(index + 1) * intervalSeconds`.
             let elapsedSeconds = (index + 1) * intervalSeconds
             let progress = min(Double(elapsedSeconds) / Double(safeDurationSeconds), 1)
             let projectedStep = elapsedSeconds >= safeDurationSeconds
