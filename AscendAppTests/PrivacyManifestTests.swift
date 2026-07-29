@@ -42,16 +42,16 @@ struct PrivacyManifestTests {
     }
 
     @Test(
-        "Every profile user property sent to analytics has an Analytics purpose on its data type",
-        arguments: Self.analyticsProfileUserProperties
+        "Each classified onboarding analytics attribute resolves to a declared Analytics data type",
+        arguments: Self.analyticsProfileAttributes
     )
-    func analyticsProfileUserPropertiesDeclareAnalyticsPurpose(
-        property: AnalyticsProfileUserProperty
+    func classifiedAnalyticsAttributesDeclareAnalyticsPurpose(
+        attribute: AnalyticsProfileAttribute
     ) throws {
         let manifest = try loadManifest()
         let declaration = try #require(
-            manifest.collectedDataTypes.first { $0.type == property.dataType },
-            "\(property.name) is sent to Firebase Analytics and Mixpanel but \(property.dataType) is not declared"
+            manifest.collectedDataTypes.first { $0.type == attribute.dataType },
+            "\(attribute.name) reaches Firebase Analytics and Mixpanel but \(attribute.dataType) is not declared"
         )
 
         #expect(declaration.purposes.contains(Self.analytics))
@@ -59,36 +59,72 @@ struct PrivacyManifestTests {
         #expect(declaration.tracking == false)
     }
 
-    /// Profile attributes the app attaches to Firebase Analytics and Mixpanel as account-level user
-    /// properties. Adding a demographic user property without adding its row here - or stripping
-    /// Analytics off the data type it belongs to - is exactly the under-declaration this guards.
-    static let analyticsProfileUserProperties: [AnalyticsProfileUserProperty] = [
-        AnalyticsProfileUserProperty(
-            name: "profile_gender",
-            dataType: "NSPrivacyCollectedDataTypeOtherDataTypes"
-        ),
-        AnalyticsProfileUserProperty(
-            name: "profile_age_group",
-            dataType: "NSPrivacyCollectedDataTypeOtherDataTypes"
-        ),
-        AnalyticsProfileUserProperty(
-            name: "profile_weight_group",
-            dataType: "NSPrivacyCollectedDataTypeHealth"
-        ),
-        AnalyticsProfileUserProperty(
-            name: "profile_country",
-            dataType: "NSPrivacyCollectedDataTypeCoarseLocation"
+    @Test("Every literally named OnboardingAnalyticsUserProperties property is classified")
+    func onboardingUserPropertyNamesAreClassified() throws {
+        let source = try loadOnboardingUserPropertySource()
+        let pattern = try Regex(#"\bset\("([a-z0-9_]+)""#)
+        let emitted = Set(
+            source.matches(of: pattern).compactMap { $0[1].substring.map(String.init) }
+        )
+
+        #expect(emitted.isEmpty == false)
+        #expect(emitted == Set(Self.analyticsProfileAttributes.filter(\.isUserProperty).map(\.name)))
+    }
+
+    /// Onboarding attributes that reach Firebase Analytics and Mixpanel, each mapped to the manifest
+    /// data type it belongs to.
+    ///
+    /// `onboardingUserPropertyNamesAreClassified` pins the `isUserProperty` rows against the literal
+    /// `set("…")` calls in `OnboardingAnalyticsUserProperties`, so a new user property added there
+    /// fails until it is classified here. Two categories sit outside that scan and still have to be
+    /// added by hand: attributes emitted as event parameters from elsewhere, such as
+    /// `profile_height_group` on the body-metrics event in `PostAuthOnboardingFlowView`, and the goal
+    /// properties whose names come from `knownGoalProperties` rather than a literal argument.
+    static let analyticsProfileAttributes: [AnalyticsProfileAttribute] = [
+        AnalyticsProfileAttribute(name: "profile_gender", dataType: otherDataTypes),
+        AnalyticsProfileAttribute(name: "profile_age_group", dataType: otherDataTypes),
+        AnalyticsProfileAttribute(name: "profile_weight_group", dataType: health),
+        AnalyticsProfileAttribute(name: "profile_country", dataType: coarseLocation),
+        AnalyticsProfileAttribute(name: "stair_stepper_exp", dataType: otherDataTypes),
+        AnalyticsProfileAttribute(name: "exercise_level", dataType: otherDataTypes),
+        AnalyticsProfileAttribute(name: "motivation", dataType: otherDataTypes),
+        AnalyticsProfileAttribute(name: "planned_frequency", dataType: otherDataTypes),
+        AnalyticsProfileAttribute(name: "goal_answer_count", dataType: otherDataTypes),
+        AnalyticsProfileAttribute(name: "notifications_choice", dataType: otherDataTypes),
+        AnalyticsProfileAttribute(name: "first_climb_id", dataType: otherDataTypes),
+        AnalyticsProfileAttribute(name: "first_climb_tier", dataType: otherDataTypes),
+        AnalyticsProfileAttribute(name: "first_climb_steps", dataType: otherDataTypes),
+        AnalyticsProfileAttribute(name: "display_name_set", dataType: productInteraction),
+        AnalyticsProfileAttribute(name: "profile_location_set", dataType: productInteraction),
+        AnalyticsProfileAttribute(name: "onboarding_complete", dataType: productInteraction),
+        AnalyticsProfileAttribute(
+            name: "profile_height_group",
+            dataType: health,
+            isUserProperty: false
         )
     ]
 
     private func loadManifest() throws -> PrivacyManifest {
-        let repositoryRoot = URL(filePath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let manifestURL = repositoryRoot.appending(path: "AscendApp/PrivacyInfo.xcprivacy")
+        let manifestURL = Self.repositoryRoot.appending(path: "AscendApp/PrivacyInfo.xcprivacy")
         let data = try Data(contentsOf: manifestURL)
         return try PropertyListDecoder().decode(PrivacyManifest.self, from: data)
     }
+
+    private func loadOnboardingUserPropertySource() throws -> String {
+        let sourceURL = Self.repositoryRoot.appending(
+            path: "AscendApp/Features/Onboarding/Analytics/OnboardingAnalyticsUserProperties.swift"
+        )
+        return try String(contentsOf: sourceURL, encoding: .utf8)
+    }
+
+    private static let repositoryRoot = URL(filePath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+
+    private static let health = "NSPrivacyCollectedDataTypeHealth"
+    private static let coarseLocation = "NSPrivacyCollectedDataTypeCoarseLocation"
+    private static let otherDataTypes = "NSPrivacyCollectedDataTypeOtherDataTypes"
+    private static let productInteraction = "NSPrivacyCollectedDataTypeProductInteraction"
 
     private static let analytics = "NSPrivacyCollectedDataTypePurposeAnalytics"
     private static let appFunctionality = "NSPrivacyCollectedDataTypePurposeAppFunctionality"
@@ -132,9 +168,10 @@ struct PrivacyManifestTests {
     ]
 }
 
-struct AnalyticsProfileUserProperty: Sendable, CustomTestStringConvertible {
+struct AnalyticsProfileAttribute: Sendable, CustomTestStringConvertible {
     let name: String
     let dataType: String
+    var isUserProperty: Bool = true
 
     var testDescription: String { "\(name) -> \(dataType)" }
 }
