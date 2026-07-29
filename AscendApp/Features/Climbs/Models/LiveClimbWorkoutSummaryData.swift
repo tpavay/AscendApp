@@ -136,6 +136,8 @@ enum LiveClimbWorkoutSummaryData {
             points = []
         }
 
+        // Workout progress at elapsed zero is zero, whatever a recovered or legacy curve stored.
+        points.removeAll { $0.elapsedSeconds == 0 }
         points.insert(LiveClimbProgressPoint(elapsedSeconds: 0, steps: 0), at: 0)
 
         if points.last?.elapsedSeconds != durationSeconds || points.last?.steps != workout.steps {
@@ -154,21 +156,25 @@ enum LiveClimbWorkoutSummaryData {
         max(elapsedSeconds, 0) / max(intervalSeconds, 1)
     }
 
+    /// A bucket is interpreted at the end of its window, not its start - see
+    /// `LiveReplaySplitCurve` for the anchoring contract this places points against.
     private static func splitElapsedSeconds(
         forBucketIndex index: Int,
         intervalSeconds: Int,
         finalDurationSeconds: Int,
         finalBucketIndex: Int
     ) -> Int {
-        let bucketStartSeconds = max(index, 0) * max(intervalSeconds, 1)
-        if index == finalBucketIndex {
-            return max(finalDurationSeconds, 1)
-        }
+        let safeDurationSeconds = max(finalDurationSeconds, 1)
+        guard index < finalBucketIndex else { return safeDurationSeconds }
 
-        return min(bucketStartSeconds, max(finalDurationSeconds, 1))
+        let bucketEndSeconds = (max(index, 0) + 1) * max(intervalSeconds, 1)
+        return min(bucketEndSeconds, safeDurationSeconds)
     }
 
-    private static func normalizedSplitSteps(
+    /// Twin of the server's `normalizeReplaySplitSteps`. Both sides are pinned to the same
+    /// end-anchored bucket contract by `SharedTestVectors/live-replay-split-normalization-vector.json`,
+    /// so this stays module-visible for that parity test rather than private.
+    static func normalizedSplitSteps(
         _ splitSteps: [Int],
         intervalSeconds: Int,
         finalDurationSeconds: Int,
@@ -266,7 +272,9 @@ enum LiveClimbWorkoutSummaryData {
         var lastStep = 0
 
         for index in 0..<bucketCount {
-            let elapsedSeconds = index * intervalSeconds
+            // Bucket `index` is read at the end of its window, so it projects the
+            // progress reached by `(index + 1) * intervalSeconds`.
+            let elapsedSeconds = (index + 1) * intervalSeconds
             let progress = min(Double(elapsedSeconds) / Double(safeDurationSeconds), 1)
             let projectedStep = elapsedSeconds >= safeDurationSeconds
                 ? finalSteps

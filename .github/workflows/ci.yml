@@ -51,6 +51,9 @@ jobs:
               - "AscendAppTests/**"
               - "AscendLiveActivityWidgets/**"
               - "AscendApp.xcodeproj/**"
+              # The Swift halves of the shared cross-language vectors assert
+              # against these files directly, so a vector-only edit must run them.
+              - "SharedTestVectors/**"
               - ".github/workflows/**"
             functions:
               - "functions/**"

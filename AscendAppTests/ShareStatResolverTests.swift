@@ -46,7 +46,7 @@ struct ShareStatResolverTests {
         let startedAt = Date(timeIntervalSince1970: 1_800)
         let splitCurve = LiveReplaySplitCurve(
             intervalSeconds: 30,
-            steps: [0, 40, 80, 130, 180]
+            steps: [40, 80, 130, 180, 180]
         )
         let metadata = HeadphoneMotionWorkoutMetadata(
             sampleCount: 900,

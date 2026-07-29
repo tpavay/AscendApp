@@ -140,6 +140,47 @@ struct BestEffortCacheStoreTests {
         #expect(snapshot.primaryEffort(for: foreignWorkout) == nil)
     }
 
+    @Test
+    @MainActor
+    func rebuildIfNeededDiscardsCacheWrittenByAnOlderVersion() throws {
+        let modelContext = try makeModelContext()
+        let referenceDate = makeDate(year: 2026, month: 5, day: 10)
+        let workout = makeWorkout(
+            name: "Owned Record",
+            date: referenceDate,
+            duration: 600,
+            steps: 1_000
+        )
+
+        modelContext.insert(workout)
+        try modelContext.save()
+
+        try BestEffortCacheStore.rebuild(
+            modelContext: modelContext,
+            referenceDate: referenceDate
+        )
+
+        // An install that cached its efforts before the split-curve fix.
+        let staleMetadata = try #require(try fetchCacheMetadata(in: modelContext))
+        staleMetadata.cacheVersion = BestEffortCacheStore.currentVersion - 1
+        for entry in try fetchCacheEntries(in: modelContext) {
+            entry.cacheVersion = BestEffortCacheStore.currentVersion - 1
+        }
+        try modelContext.save()
+
+        try BestEffortCacheStore.rebuildIfNeeded(
+            modelContext: modelContext,
+            referenceDate: referenceDate
+        )
+
+        let refreshedMetadata = try #require(try fetchCacheMetadata(in: modelContext))
+        let refreshedEntries = try fetchCacheEntries(in: modelContext)
+
+        #expect(refreshedMetadata.cacheVersion == BestEffortCacheStore.currentVersion)
+        #expect(!refreshedEntries.isEmpty)
+        #expect(refreshedEntries.allSatisfy { $0.cacheVersion == BestEffortCacheStore.currentVersion })
+    }
+
     private func makeModelContext() throws -> ModelContext {
         let container = try ModelContainer(
             for: Workout.self,
@@ -166,6 +207,10 @@ struct BestEffortCacheStoreTests {
                 sortBy: [SortDescriptor(\.sortKey)]
             )
         )
+    }
+
+    private func fetchCacheMetadata(in modelContext: ModelContext) throws -> BestEffortCacheMetadata? {
+        try modelContext.fetch(FetchDescriptor<BestEffortCacheMetadata>()).first
     }
 
     private func makeWorkout(

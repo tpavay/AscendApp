@@ -1,5 +1,18 @@
 import Foundation
 
+/// Bucket-indexed cumulative step curve for a live session, and the one place the bucket
+/// contract is stated.
+///
+/// `steps[i]` is the latest cumulative step count sampled anywhere inside
+/// `[i * intervalSeconds, (i + 1) * intervalSeconds)`, and is interpreted at that window's
+/// **end**: index `i` sits at `(i + 1) * intervalSeconds` on a time axis. There is no leading
+/// zero-steps entry - index 0 already carries the first interval's progress.
+///
+/// Summary display, Best Efforts segment math, and the server's `normalizeReplaySplitSteps`
+/// all depend on this same end anchoring. Re-basing the buckets on one side only
+/// silently desynchronizes the others rather than failing loudly, which is why the two
+/// normalizers are pinned together by
+/// `SharedTestVectors/live-replay-split-normalization-vector.json`.
 struct LiveReplaySplitCurve: Codable, Equatable, Sendable {
     let intervalSeconds: Int
     let steps: [Int]

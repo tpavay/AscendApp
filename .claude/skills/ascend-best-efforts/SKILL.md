@@ -15,6 +15,7 @@ paths:
 
 ## Caching
 - Best Effort rankings are persisted as a derived cache. Views read cheap cache lookups; they don't recompute rankings from raw workouts inside `body`. The cache is rebuilt after workout mutations (create / edit / delete / import) and during startup if the persisted signature is stale.
+- Staleness is keyed on the workouts and on `BestEffortCacheStore.currentVersion`, never on the derivation code itself, so changing how an effort is computed leaves existing installs serving values the old logic produced. Any change to effort derivation - including upstream progress-timeline math - must bump `currentVersion` in the same change, which invalidates the persisted cache and rebuilds it on next launch.
 
 ## Display direction
 - Progress surfaces show Best Efforts as a **record book**, not a dashboard. Each metric appears once with its current best; depth (progression chart, history) lives on the per-metric detail screen. Don't ship filter-heavy comparison surfaces as the default.
