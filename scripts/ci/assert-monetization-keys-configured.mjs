@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Fails a staging or production archive whose RevenueCat / Superwall keys are
-// still placeholders. Without this, the deploy pipeline happily ships a build
-// whose hard paywall can never resolve an entitlement.
+// still placeholders, or whose access and test-mode settings would reopen the
+// hard paywall. Without this, the deploy pipeline happily ships a build whose
+// hard paywall can never resolve an entitlement, or never fires at all.
 //
 // Usage: assert-monetization-keys-configured.mjs <Staging|Release> [project.pbxproj]
 //
@@ -11,7 +12,7 @@ import process from "node:process";
 
 import {
   appBuildConfigurations,
-  unshippableMonetizationKeyReasons
+  unshippableMonetizationReasons
 } from "../lib/monetization-build-settings.mjs";
 
 const SHIPPABLE_CONFIGURATIONS = ["Staging", "Release"];
@@ -46,7 +47,7 @@ if (!configuration) {
   );
 }
 
-const reasons = unshippableMonetizationKeyReasons(
+const reasons = unshippableMonetizationReasons(
   configuration.buildSettings,
   configurationName
 );
@@ -56,12 +57,13 @@ if (reasons.length > 0) {
     console.error(`::error::${reason}`);
   }
   console.error(
-    "Replace the placeholder monetization keys before shipping this build. " +
+    "Correct the monetization build settings before shipping this build. " +
       "See docs/superwall-paywall-setup.md."
   );
   process.exit(1);
 }
 
 console.log(
-  `Verified real RevenueCat and Superwall keys for ${configuration.bundleID} (${configurationName}).`
+  `Verified real RevenueCat and Superwall keys and a gated paywall for ` +
+    `${configuration.bundleID} (${configurationName}).`
 );

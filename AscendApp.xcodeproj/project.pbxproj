@@ -484,6 +484,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APS_ENVIRONMENT = production;
+				/* Staging gates on app_access. To unblock locked-out testers, set this to YES and rebuild - no code change. */
 				ASCEND_ALLOWS_UNENTITLED_APP_ACCESS = NO;
 				ASCEND_MIXPANEL_TOKEN = 354ccda8eef57e08d823eebc8598aab7;
 				ASCEND_REVENUECAT_API_KEY = appl_KljWLRCYwBqgmGsWDGKOeZoeuqP;

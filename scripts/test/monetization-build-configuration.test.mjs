@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   MONETIZATION_API_KEY_SETTINGS,
+  MONETIZATION_SAFETY_SETTINGS,
   PLACEHOLDER_API_KEY_PREFIX,
   appBuildConfigurations,
   settingValue
@@ -266,10 +267,7 @@ test("the configured Staging keys pass the staging preflight", () => {
   const result = runPreflight("Staging");
 
   assert.equal(result.status, 0, result.stderr);
-  assert.match(
-    result.stdout,
-    /Verified real RevenueCat and Superwall keys for com\.TylerPavay\.AscendApp\.staging \(Staging\)/
-  );
+  assert.match(result.stdout, /com\.TylerPavay\.AscendApp\.staging \(Staging\)/);
 });
 
 test("the production preflight passes with the configured Release keys", async () => {
@@ -279,10 +277,102 @@ test("the production preflight passes with the configured Release keys", async (
   const result = runPreflight("Release");
 
   assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /com\.TylerPavay\.AscendApp \(Release\)/);
+});
+
+// The Swift side can no longer compile the bypass out, so the archive gate is
+// the last thing standing between a flipped build setting and an App Store
+// build with no paywall.
+test("the production preflight rejects a reopened paywall and test mode", async () => {
+  const reopened = await projectWithConfigurationSettings("Release", {
+    ASCEND_ALLOWS_UNENTITLED_APP_ACCESS: "YES",
+    ASCEND_SUPERWALL_TEST_MODE: "YES"
+  });
+  const result = runPreflight("Release", reopened);
+
+  assert.equal(result.status, 1, `Release must be rejected: ${result.stdout}`);
   assert.match(
-    result.stdout,
-    /Verified real RevenueCat and Superwall keys for com\.TylerPavay\.AscendApp \(Release\)/
+    result.stderr,
+    /::error::ASCEND_ALLOWS_UNENTITLED_APP_ACCESS is "YES" for the Release configuration/
   );
+  assert.match(
+    result.stderr,
+    /::error::ASCEND_SUPERWALL_TEST_MODE is "YES" for the Release configuration/
+  );
+});
+
+// Staging keeps the documented tester-lockout lever shippable; test mode has no
+// such role, so it stays pinned there too.
+test("the staging preflight allows the access lever but still rejects test mode", async () => {
+  const bypassed = await projectWithConfigurationSettings("Staging", {
+    ASCEND_ALLOWS_UNENTITLED_APP_ACCESS: "YES"
+  });
+  const allowed = runPreflight("Staging", bypassed);
+  assert.equal(allowed.status, 0, allowed.stderr);
+
+  const testMode = await projectWithConfigurationSettings("Staging", {
+    ASCEND_SUPERWALL_TEST_MODE: "YES"
+  });
+  const rejected = runPreflight("Staging", testMode);
+
+  assert.equal(rejected.status, 1, rejected.stdout);
+  assert.match(
+    rejected.stderr,
+    /::error::ASCEND_SUPERWALL_TEST_MODE is "YES" for the Staging configuration/
+  );
+});
+
+// An undefined setting is an unsubstituted Info.plist value, which the app then
+// resolves from nothing rather than from a decision someone made.
+test("the preflight requires every safety setting to be defined", async () => {
+  const project = await readFile(projectPath, "utf8");
+  const release = appBuildConfigurations(project).get("Release");
+
+  for (const {name} of MONETIZATION_SAFETY_SETTINGS) {
+    const stripped = project.replace(
+      release.buildSettings,
+      release.buildSettings.replace(new RegExp(`^\\s*${name} = .*;$\n`, "m"), "")
+    );
+    const path = join(mkdtempSync(join(tmpdir(), "ascend-monetization-")), "project.pbxproj");
+    writeFileSync(path, stripped);
+
+    const result = runPreflight("Release", path);
+
+    assert.equal(result.status, 1, `${name} must be required: ${result.stdout}`);
+    assert.match(
+      result.stderr,
+      new RegExp(`::error::${name} is not defined for the Release configuration`)
+    );
+  }
+});
+
+// A truthy value the build system honors but the gate waves through is the same
+// shipped bypass by another spelling.
+test("the preflight rejects any spelling of an ungated release but NO", async () => {
+  for (const value of ["yes", "1", "true", '""']) {
+    const reopened = await projectWithConfigurationSettings("Release", {
+      ASCEND_ALLOWS_UNENTITLED_APP_ACCESS: value
+    });
+    const result = runPreflight("Release", reopened);
+
+    assert.equal(result.status, 1, `${value} must be rejected: ${result.stdout}`);
+    assert.match(result.stderr, /ASCEND_ALLOWS_UNENTITLED_APP_ACCESS .*It must be NO\./);
+  }
+});
+
+// Every safety setting must reach the app, or the gate pins a value no build
+// actually reads.
+test("every pinned safety setting is substituted into Info.plist", async () => {
+  const infoPlist = await readFile(infoPlistPath, "utf8");
+
+  assert.deepEqual(
+    MONETIZATION_SAFETY_SETTINGS.map(({name}) => name).sort(),
+    ["ASCEND_ALLOWS_UNENTITLED_APP_ACCESS", "ASCEND_SUPERWALL_TEST_MODE"]
+  );
+
+  for (const {name} of MONETIZATION_SAFETY_SETTINGS) {
+    assert.match(infoPlist, new RegExp(`<string>\\$\\(${name}\\)</string>`), name);
+  }
 });
 
 test("the preflight rejects a placeholder in either required key", async () => {

@@ -90,9 +90,9 @@ Both shippable configurations carry real publishable client keys, so no placehol
 
 `ASCEND_REVENUECAT_TEST_API_KEY` stays empty and `ASCEND_USE_REVENUECAT_TEST_STORE` and `ASCEND_SUPERWALL_TEST_MODE` stay `NO` in every configuration.
 `ASCEND_ALLOWS_UNENTITLED_APP_ACCESS` is `YES` in Debug for local convenience and `NO` in Staging and Release.
-Changing Staging back to bypassed access requires only a build-setting change, not a code edit.
+Changing Staging back to bypassed access requires only a build-setting change, not a code edit - see the tester-lockout recovery note at the end of this section.
 Debug and Staging use `ascend_staging_yearly` and `ascend_staging_monthly`; Release uses `ascend_yearly` and `ascend_monthly`.
-`scripts/test/monetization-build-configuration.test.mjs` pins the shape of each configured key and still proves the preflight rejects a placeholder in either required key against a synthetic project; keep both aligned with any future key move.
+`scripts/test/monetization-build-configuration.test.mjs` pins the shape of each configured key, the per-configuration access and launch-product values, and proves the preflight rejects a placeholder key, a reopened Release paywall, and Superwall test mode against a synthetic project; keep all of it aligned with any future setting move.
 Never commit the real keys to documentation or test fixtures.
 These publishable client keys are currently committed in `AscendApp.xcodeproj`.
 They are intended to move into gitignored xcconfig files and CI secrets; that migration is deliberately not performed here.
@@ -102,10 +102,16 @@ Every environment that points at its own vendor projects needs the same logical 
 - Its own auto-renewing annual and monthly products - `ascend_yearly` and `ascend_monthly` in production, `ascend_staging_yearly` and `ascend_staging_monthly` in staging
 - RevenueCat entitlement `app_access`
 - RevenueCat current offering `default`
-- Superwall placements `app_access_gate` and `onboarding_paywall` - staging carries only `app_access_gate` today, which is all its SDK-configuration role needs
+- Superwall placements `app_access_gate` and `onboarding_paywall` - staging carries only `app_access_gate` today, so the `.onboardingPaywall` placement always takes its `onSkip` path in Staging even though the hard gate is live there
 
 Staging and Release both require an active `app_access` entitlement and audit the launch catalog for their configured RevenueCat environment.
+Staging is therefore a real paywall QA surface for the hard gate, and a staging tester reaches the app by completing a sandbox purchase of `ascend_staging_yearly` or `ascend_staging_monthly` through campaign `99059`, or by restoring one.
 Debug allows unentitled app access for local convenience, while its existing force-paywall control can still exercise the gate.
+
+If the staging campaign, the sandbox purchase, or the RevenueCat catalog leaves testers stuck at the gate, recovery is a build-setting change and nothing else: set `ASCEND_ALLOWS_UNENTITLED_APP_ACCESS` to `YES` in the `Staging` configuration and rebuild.
+The app deliberately ships no in-app bypass, sign-out escape, or debug affordance in Staging.
+The lever works for a local build and for a staging archive alike, so a stranded TestFlight group can be unblocked without a code change; set it back to `NO` once the gate is healthy.
+Release carries no such lever: `scripts/ci/assert-monetization-keys-configured.mjs` fails any production archive whose `ASCEND_ALLOWS_UNENTITLED_APP_ACCESS` is not `NO`, and fails either shippable archive whose `ASCEND_SUPERWALL_TEST_MODE` is not `NO`.
 
 ## Authenticated Superwall References
 
