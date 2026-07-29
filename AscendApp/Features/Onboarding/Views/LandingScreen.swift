@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct LandingScreen: View {
-    @ScaledMetric(relativeTo: .largeTitle) private var primaryActionHeight: CGFloat = 56
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @State private var isShowingValueCarousel = false
     @State private var isShowingSignIn = false
@@ -42,7 +42,7 @@ struct LandingScreen: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             bottomActions
                 .padding(.horizontal, 28)
-                .padding(.bottom, 8)
+                .padding(.bottom, LandingScreenActionLayoutPolicy.bottomPadding)
         }
         .background(Color.black)
         .toolbar(.hidden, for: .navigationBar)
@@ -56,13 +56,13 @@ struct LandingScreen: View {
     }
 
     private var bottomActions: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: LandingScreenActionLayoutPolicy.actionSpacing) {
             Button(action: startOnboarding) {
                 Text("GET STARTED")
             }
             .buttonStyle(
                 OnboardingPrimaryCTAButtonStyle(
-                    height: primaryActionHeight,
+                    height: LandingScreenActionLayoutPolicy.primaryActionHeight,
                     cornerRadius: 12,
                     fontSize: 16,
                     tint: brandAccentColor,
@@ -72,33 +72,40 @@ struct LandingScreen: View {
 
             Button(action: openSignIn) {
                 ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 4) {
-                        Text("Already have an account?")
-                            .foregroundStyle(.white.opacity(0.78))
-
-                        Text("Sign in")
+                    if LandingScreenActionLayoutPolicy.usesCompactSignInLabel(
+                        for: dynamicTypeSize
+                    ) {
+                        Text(LandingScreenActionLayoutPolicy.signInTitle)
                             .foregroundStyle(.white)
+                    } else {
+                        HStack(spacing: 4) {
+                            Text(LandingScreenActionLayoutPolicy.signInPrompt)
+                                .foregroundStyle(.white.opacity(0.78))
+
+                            Text(LandingScreenActionLayoutPolicy.signInTitle)
+                                .foregroundStyle(.white)
+                        }
                     }
 
-                    VStack(spacing: 2) {
-                        Text("Already have an account?")
-                            .foregroundStyle(.white.opacity(0.78))
-
-                        Text("Sign in")
-                            .foregroundStyle(.white)
-                    }
+                    Text(LandingScreenActionLayoutPolicy.signInTitle)
+                        .foregroundStyle(.white)
                 }
                 .font(.montserratSemiBold(size: 14))
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(1)
+                .frame(
+                    maxWidth: .infinity,
+                    minHeight: LandingScreenActionLayoutPolicy.secondaryActionHeight,
+                    maxHeight: LandingScreenActionLayoutPolicy.secondaryActionHeight
+                )
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Already have an account? Sign in")
+            .accessibilityLabel(LandingScreenActionLayoutPolicy.signInAccessibilityLabel)
             .accessibilityHint("Opens the sign-in screen.")
         }
         .frame(maxWidth: 334)
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 
     private func startOnboarding() {
