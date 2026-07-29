@@ -41,6 +41,46 @@ struct PrivacyManifestTests {
         }
     }
 
+    @Test(
+        "Every profile user property sent to analytics has an Analytics purpose on its data type",
+        arguments: Self.analyticsProfileUserProperties
+    )
+    func analyticsProfileUserPropertiesDeclareAnalyticsPurpose(
+        property: AnalyticsProfileUserProperty
+    ) throws {
+        let manifest = try loadManifest()
+        let declaration = try #require(
+            manifest.collectedDataTypes.first { $0.type == property.dataType },
+            "\(property.name) is sent to Firebase Analytics and Mixpanel but \(property.dataType) is not declared"
+        )
+
+        #expect(declaration.purposes.contains(Self.analytics))
+        #expect(declaration.linked)
+        #expect(declaration.tracking == false)
+    }
+
+    /// Profile attributes the app attaches to Firebase Analytics and Mixpanel as account-level user
+    /// properties. Adding a demographic user property without adding its row here - or stripping
+    /// Analytics off the data type it belongs to - is exactly the under-declaration this guards.
+    static let analyticsProfileUserProperties: [AnalyticsProfileUserProperty] = [
+        AnalyticsProfileUserProperty(
+            name: "profile_gender",
+            dataType: "NSPrivacyCollectedDataTypeOtherDataTypes"
+        ),
+        AnalyticsProfileUserProperty(
+            name: "profile_age_group",
+            dataType: "NSPrivacyCollectedDataTypeOtherDataTypes"
+        ),
+        AnalyticsProfileUserProperty(
+            name: "profile_weight_group",
+            dataType: "NSPrivacyCollectedDataTypeHealth"
+        ),
+        AnalyticsProfileUserProperty(
+            name: "profile_country",
+            dataType: "NSPrivacyCollectedDataTypeCoarseLocation"
+        )
+    ]
+
     private func loadManifest() throws -> PrivacyManifest {
         let repositoryRoot = URL(filePath: #filePath)
             .deletingLastPathComponent()
@@ -70,7 +110,7 @@ struct PrivacyManifestTests {
         "NSPrivacyCollectedDataTypeName": .linked(appFunctionality),
         "NSPrivacyCollectedDataTypeOtherDataTypes": .linked(analytics, productPersonalization, appFunctionality),
         "NSPrivacyCollectedDataTypeCoarseLocation": .linked(analytics, appFunctionality),
-        "NSPrivacyCollectedDataTypeHealth": .linked(appFunctionality),
+        "NSPrivacyCollectedDataTypeHealth": .linked(analytics, appFunctionality),
         "NSPrivacyCollectedDataTypeFitness": .linked(analytics, productPersonalization, appFunctionality),
         "NSPrivacyCollectedDataTypePhotosorVideos": .linked(appFunctionality),
         "NSPrivacyCollectedDataTypeUserID": .linked(analytics, appFunctionality),
@@ -90,6 +130,13 @@ struct PrivacyManifestTests {
         "NSPrivacyAccessedAPICategoryDiskSpace": ["E174.1"],
         "NSPrivacyAccessedAPICategorySystemBootTime": ["35F9.1"]
     ]
+}
+
+struct AnalyticsProfileUserProperty: Sendable, CustomTestStringConvertible {
+    let name: String
+    let dataType: String
+
+    var testDescription: String { "\(name) -> \(dataType)" }
 }
 
 private struct ExpectedDataType: Sendable {

@@ -117,7 +117,13 @@
             </array>
         </dict>
 
-        <!-- Health & Fitness - HealthKit reads, workout metrics, Live Climb completion and rank state -->
+        <!--
+          Health - HealthKit reads plus user-entered body metrics (height, weight).
+          Analytics is declared because the bucketed body weight is sent to
+          Firebase Analytics and Mixpanel as the `profile_weight_group` user
+          property, and the bucketed height rides along on the onboarding input
+          event as `profile_height_group`.
+        -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeHealth</string>
@@ -127,9 +133,12 @@
             <false/>
             <key>NSPrivacyCollectedDataTypePurposes</key>
             <array>
+                <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
                 <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
             </array>
         </dict>
+
+        <!-- Fitness - workout metrics, Live Climb completion and rank state -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeFitness</string>
@@ -175,7 +184,6 @@
         </dict>
 
         <!-- Device ID - APNs/FCM push registration tokens and app-specific analytics identifiers (Firebase Analytics IDFV, Mixpanel, Superwall) -->
-
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeDeviceID</string>
@@ -323,7 +331,6 @@
             <array>
                 <string>C617.1</string>
             </array>
-
         </dict>
 
         <!--
