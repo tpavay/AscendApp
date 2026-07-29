@@ -72,7 +72,7 @@ struct WorkoutImportCoordinatorLiveClimbAppleHealthEnrichmentTests {
     }
   }
 
-  @Test
+  @Test("Linked workout remains eligible until delayed metrics arrive", .bug(id: 251))
   func refreshRevisitsLinkedWorkoutWhenHeartRateSamplesArriveLater() async throws {
     try await HealthKitImportCoordinatorTestIsolation.shared.run {
       let modelContext = try makeModelContext()
@@ -128,6 +128,8 @@ struct WorkoutImportCoordinatorLiveClimbAppleHealthEnrichmentTests {
       #expect(
         liveWorkout.sourceLink(for: .appleHealth)?.externalRecordID == appleSample.externalRecordID)
       #expect(liveWorkout.avgHeartRate == nil)
+      #expect(coordinator.appleHealthEnrichmentStatus(for: liveWorkout) == .metricsPending)
+      #expect(coordinator.appleHealthHeartRateEnrichmentStatus(for: liveWorkout) == .metricsPending)
 
       await coordinator.refreshPendingImports(trigger: .backgroundObserver)
 
@@ -140,6 +142,8 @@ struct WorkoutImportCoordinatorLiveClimbAppleHealthEnrichmentTests {
       #expect(liveWorkout.caloriesBurned == 210)
       #expect(liveWorkout.averageMETs == 7.4)
       #expect(liveWorkout.heartRateTimeSeries.count == 2)
+      #expect(coordinator.appleHealthEnrichmentStatus(for: liveWorkout) == .complete)
+      #expect(coordinator.appleHealthHeartRateEnrichmentStatus(for: liveWorkout) == .complete)
     }
   }
 
