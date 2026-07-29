@@ -90,9 +90,9 @@ Both shippable configurations carry real publishable client keys, so no placehol
 
 `ASCEND_REVENUECAT_TEST_API_KEY` stays empty and `ASCEND_USE_REVENUECAT_TEST_STORE` and `ASCEND_SUPERWALL_TEST_MODE` stay `NO` in every configuration.
 `ASCEND_ALLOWS_UNENTITLED_APP_ACCESS` is `YES` in Debug for local convenience and `NO` in Staging and Release.
-Changing Staging back to bypassed access requires only a build-setting change, not a code edit - see the tester-lockout recovery note at the end of this section.
+Changing Staging back to bypassed access requires no app code edit - see Tester-lockout recovery below for the two configuration steps it does require.
 Debug and Staging use `ascend_staging_yearly` and `ascend_staging_monthly`; Release uses `ascend_yearly` and `ascend_monthly`.
-`scripts/test/monetization-build-configuration.test.mjs` pins the shape of each configured key, the per-configuration access and launch-product values, and proves the preflight rejects a placeholder key, a reopened Release paywall, and Superwall test mode against a synthetic project; keep all of it aligned with any future setting move.
+`scripts/test/monetization-build-configuration.test.mjs` pins the shape of each configured key, the per-configuration access and launch-product values, and proves the preflight rejects a placeholder key, a reopened Release paywall, and either vendor test surface against a synthetic project; keep all of it aligned with any future setting move.
 Never commit the real keys to documentation or test fixtures.
 These publishable client keys are currently committed in `AscendApp.xcodeproj`.
 They are intended to move into gitignored xcconfig files and CI secrets; that migration is deliberately not performed here.
@@ -108,10 +108,20 @@ Staging and Release both require an active `app_access` entitlement and audit th
 Staging is therefore a real paywall QA surface for the hard gate, and a staging tester reaches the app by completing a sandbox purchase of `ascend_staging_yearly` or `ascend_staging_monthly` through campaign `99059`, or by restoring one.
 Debug allows unentitled app access for local convenience, while its existing force-paywall control can still exercise the gate.
 
-If the staging campaign, the sandbox purchase, or the RevenueCat catalog leaves testers stuck at the gate, recovery is a build-setting change and nothing else: set `ASCEND_ALLOWS_UNENTITLED_APP_ACCESS` to `YES` in the `Staging` configuration and rebuild.
-The app deliberately ships no in-app bypass, sign-out escape, or debug affordance in Staging.
-The lever works for a local build and for a staging archive alike, so a stranded TestFlight group can be unblocked without a code change; set it back to `NO` once the gate is healthy.
-Release carries no such lever: `scripts/ci/assert-monetization-keys-configured.mjs` fails any production archive whose `ASCEND_ALLOWS_UNENTITLED_APP_ACCESS` is not `NO`, and fails either shippable archive whose `ASCEND_SUPERWALL_TEST_MODE` is not `NO`.
+### Tester-lockout recovery
+
+If the staging campaign, the sandbox purchase, or the RevenueCat catalog leaves testers stuck at the gate, recovery needs no app code change and no in-app escape - the app deliberately ships no bypass, sign-out affordance, or debug control at the Staging gate.
+It is a deliberate two-step configuration diff:
+
+1. Set `ASCEND_ALLOWS_UNENTITLED_APP_ACCESS` to `YES` in the `Staging` build configuration.
+2. Update the pinned Staging expectation in `scripts/test/monetization-build-configuration.test.mjs` to match, in the same PR.
+
+Step 2 is required, not incidental. That suite runs on every PR touching `AscendApp.xcodeproj/**`, and it hard-asserts Staging is `NO`, so step 1 alone goes red.
+Pinning it that way is the point: reopening staging access cannot be a one-line build-setting flip that slips through review unnoticed, and the two-step diff states plainly in the PR that the staging gate is temporarily off.
+Revert both steps once the gate is healthy.
+
+The archive preflight deliberately permits step 1 so a stranded TestFlight group can be unblocked by a staging build.
+Release carries no lever at all: `scripts/ci/assert-monetization-keys-configured.mjs` fails any production archive whose `ASCEND_ALLOWS_UNENTITLED_APP_ACCESS` is not `NO`, and fails either shippable archive whose `ASCEND_SUPERWALL_TEST_MODE` or `ASCEND_USE_REVENUECAT_TEST_STORE` is not `NO`.
 
 ## Authenticated Superwall References
 

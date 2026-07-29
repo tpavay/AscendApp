@@ -283,10 +283,11 @@ test("the production preflight passes with the configured Release keys", async (
 // The Swift side can no longer compile the bypass out, so the archive gate is
 // the last thing standing between a flipped build setting and an App Store
 // build with no paywall.
-test("the production preflight rejects a reopened paywall and test mode", async () => {
+test("the production preflight rejects a reopened paywall and both test surfaces", async () => {
   const reopened = await projectWithConfigurationSettings("Release", {
     ASCEND_ALLOWS_UNENTITLED_APP_ACCESS: "YES",
-    ASCEND_SUPERWALL_TEST_MODE: "YES"
+    ASCEND_SUPERWALL_TEST_MODE: "YES",
+    ASCEND_USE_REVENUECAT_TEST_STORE: "YES"
   });
   const result = runPreflight("Release", reopened);
 
@@ -299,26 +300,36 @@ test("the production preflight rejects a reopened paywall and test mode", async 
     result.stderr,
     /::error::ASCEND_SUPERWALL_TEST_MODE is "YES" for the Release configuration/
   );
+  assert.match(
+    result.stderr,
+    /::error::ASCEND_USE_REVENUECAT_TEST_STORE is "YES" for the Release configuration/
+  );
 });
 
-// Staging keeps the documented tester-lockout lever shippable; test mode has no
-// such role, so it stays pinned there too.
-test("the staging preflight allows the access lever but still rejects test mode", async () => {
+// Staging keeps the documented tester-lockout lever shippable at the archive
+// gate; the vendor test surfaces have no such role, so they stay pinned there.
+// A staging archive on the RevenueCat test store would sell nothing real.
+test("the staging preflight allows the access lever but still rejects test surfaces", async () => {
   const bypassed = await projectWithConfigurationSettings("Staging", {
     ASCEND_ALLOWS_UNENTITLED_APP_ACCESS: "YES"
   });
   const allowed = runPreflight("Staging", bypassed);
   assert.equal(allowed.status, 0, allowed.stderr);
 
-  const testMode = await projectWithConfigurationSettings("Staging", {
-    ASCEND_SUPERWALL_TEST_MODE: "YES"
+  const testSurfaces = await projectWithConfigurationSettings("Staging", {
+    ASCEND_SUPERWALL_TEST_MODE: "YES",
+    ASCEND_USE_REVENUECAT_TEST_STORE: "YES"
   });
-  const rejected = runPreflight("Staging", testMode);
+  const rejected = runPreflight("Staging", testSurfaces);
 
   assert.equal(rejected.status, 1, rejected.stdout);
   assert.match(
     rejected.stderr,
     /::error::ASCEND_SUPERWALL_TEST_MODE is "YES" for the Staging configuration/
+  );
+  assert.match(
+    rejected.stderr,
+    /::error::ASCEND_USE_REVENUECAT_TEST_STORE is "YES" for the Staging configuration/
   );
 });
 
@@ -367,7 +378,11 @@ test("every pinned safety setting is substituted into Info.plist", async () => {
 
   assert.deepEqual(
     MONETIZATION_SAFETY_SETTINGS.map(({name}) => name).sort(),
-    ["ASCEND_ALLOWS_UNENTITLED_APP_ACCESS", "ASCEND_SUPERWALL_TEST_MODE"]
+    [
+      "ASCEND_ALLOWS_UNENTITLED_APP_ACCESS",
+      "ASCEND_SUPERWALL_TEST_MODE",
+      "ASCEND_USE_REVENUECAT_TEST_STORE"
+    ]
   );
 
   for (const {name} of MONETIZATION_SAFETY_SETTINGS) {

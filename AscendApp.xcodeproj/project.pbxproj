@@ -484,7 +484,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APS_ENVIRONMENT = production;
-				/* Staging gates on app_access. To unblock locked-out testers, set this to YES and rebuild - no code change. */
+				/* Staging gates on app_access. To unblock locked-out testers: set this to YES and update the pinned Staging expectation in scripts/test/monetization-build-configuration.test.mjs in the same PR. No app code change. See docs/superwall-paywall-setup.md. */
 				ASCEND_ALLOWS_UNENTITLED_APP_ACCESS = NO;
 				ASCEND_MIXPANEL_TOKEN = 354ccda8eef57e08d823eebc8598aab7;
 				ASCEND_REVENUECAT_API_KEY = appl_KljWLRCYwBqgmGsWDGKOeZoeuqP;

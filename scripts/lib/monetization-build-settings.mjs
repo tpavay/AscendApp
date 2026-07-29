@@ -17,7 +17,10 @@ export const MONETIZATION_API_KEY_SETTINGS = [
 // reopened paywall can still be stopped.
 //
 // Access is pinned for Release alone because setting Staging to YES is the
-// documented recovery lever for testers stranded at the staging gate
+// documented recovery lever for testers stranded at the staging gate. That
+// recovery is deliberately two steps: this gate lets the staging archive
+// through, while scripts/test/monetization-build-configuration.test.mjs still
+// pins Staging to NO, so relaxing it has to be an explicit reviewable diff
 // (docs/superwall-paywall-setup.md). Production has no such escape hatch.
 export const MONETIZATION_SAFETY_SETTINGS = [
   {
@@ -29,6 +32,11 @@ export const MONETIZATION_SAFETY_SETTINGS = [
     name: "ASCEND_SUPERWALL_TEST_MODE",
     pinnedConfigurations: ["Staging", "Release"],
     consequence: "would ship against the Superwall test surface"
+  },
+  {
+    name: "ASCEND_USE_REVENUECAT_TEST_STORE",
+    pinnedConfigurations: ["Staging", "Release"],
+    consequence: "would ship against the RevenueCat test store instead of the App Store"
   }
 ];
 
