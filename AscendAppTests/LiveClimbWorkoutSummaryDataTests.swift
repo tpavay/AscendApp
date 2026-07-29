@@ -8,7 +8,7 @@ struct LiveClimbWorkoutSummaryDataTests {
         let workout = makeLiveClimbWorkout(
             duration: 65,
             steps: 65,
-            splitSteps: [0, 10, 20, 30, 40, 50, 65]
+            splitSteps: [10, 20, 30, 40, 50, 60, 65]
         )
 
         let splits = LiveClimbWorkoutSummaryData.paceSplits(
@@ -67,15 +67,41 @@ struct LiveClimbWorkoutSummaryDataTests {
         )
 
         let firstSplit = try #require(splits.first)
+        let secondSplit = try #require(splits.dropFirst().first)
         let lastSplit = try #require(splits.last)
         #expect(splits.count == 8)
         #expect(firstSplit.startElapsedSeconds == 0)
         #expect(lastSplit.endElapsedSeconds == durationSeconds)
         #expect(splits.reduce(0) { $0 + $1.durationSeconds } == durationSeconds)
         #expect(splits.reduce(0) { $0 + $1.steps } == workoutSteps)
+        #expect(firstSplit.steps == 157)
+        #expect(abs(firstSplit.steps - secondSplit.steps) <= 1)
         for (split, nextSplit) in zip(splits, splits.dropFirst()) {
             #expect(split.endElapsedSeconds == nextSplit.startElapsedSeconds)
         }
+    }
+
+    @Test
+    func progressPointsKeepFirstBucketStepsInsideTheirRecordedInterval() throws {
+        let durationSeconds = 15 * 60 + 30
+        let workoutSteps = 1_240
+        let splitSteps = (0...93).map { bucket in
+            min(14 + bucket * 13, workoutSteps)
+        }
+        let workout = makeLiveClimbWorkout(
+            duration: TimeInterval(durationSeconds),
+            steps: workoutSteps,
+            splitSteps: splitSteps
+        )
+
+        let points = LiveClimbWorkoutSummaryData.progressPoints(
+            for: workout,
+            targetSteps: workoutSteps
+        )
+
+        #expect(points.first == LiveClimbProgressPoint(elapsedSeconds: 0, steps: 0))
+        #expect(points.contains(LiveClimbProgressPoint(elapsedSeconds: 10, steps: 14)))
+        #expect(points.last == LiveClimbProgressPoint(elapsedSeconds: durationSeconds, steps: workoutSteps))
     }
 
     private func makeLiveClimbWorkout(

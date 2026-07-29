@@ -136,7 +136,7 @@ enum LiveClimbWorkoutSummaryData {
             points = []
         }
 
-        // Recovered and legacy curves can contain steps in bucket zero, but workout progress starts at zero.
+        // Workout progress at elapsed zero is zero, whatever a recovered or legacy curve stored.
         points.removeAll { $0.elapsedSeconds == 0 }
         points.insert(LiveClimbProgressPoint(elapsedSeconds: 0, steps: 0), at: 0)
 
@@ -156,18 +156,20 @@ enum LiveClimbWorkoutSummaryData {
         max(elapsedSeconds, 0) / max(intervalSeconds, 1)
     }
 
+    /// A bucket holds the latest cumulative step count sampled anywhere inside
+    /// `[index * interval, (index + 1) * interval)`, so it belongs on the time axis at the
+    /// end of that window, not its start.
     private static func splitElapsedSeconds(
         forBucketIndex index: Int,
         intervalSeconds: Int,
         finalDurationSeconds: Int,
         finalBucketIndex: Int
     ) -> Int {
-        let bucketStartSeconds = max(index, 0) * max(intervalSeconds, 1)
-        if index == finalBucketIndex {
-            return max(finalDurationSeconds, 1)
-        }
+        let safeDurationSeconds = max(finalDurationSeconds, 1)
+        guard index < finalBucketIndex else { return safeDurationSeconds }
 
-        return min(bucketStartSeconds, max(finalDurationSeconds, 1))
+        let bucketEndSeconds = (max(index, 0) + 1) * max(intervalSeconds, 1)
+        return min(bucketEndSeconds, safeDurationSeconds)
     }
 
     private static func normalizedSplitSteps(
@@ -268,7 +270,7 @@ enum LiveClimbWorkoutSummaryData {
         var lastStep = 0
 
         for index in 0..<bucketCount {
-            let elapsedSeconds = index * intervalSeconds
+            let elapsedSeconds = (index + 1) * intervalSeconds
             let progress = min(Double(elapsedSeconds) / Double(safeDurationSeconds), 1)
             let projectedStep = elapsedSeconds >= safeDurationSeconds
                 ? finalSteps

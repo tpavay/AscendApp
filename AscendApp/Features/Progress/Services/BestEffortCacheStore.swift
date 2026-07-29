@@ -11,7 +11,7 @@ import SwiftData
 
 @MainActor
 enum BestEffortCacheStore {
-    static let currentVersion = 1
+    static let currentVersion = 2
     private static let metadataID = "best-effort-cache"
 
     static func rebuildIfNeeded(

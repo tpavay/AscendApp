@@ -147,7 +147,7 @@ struct BestEffortRankingBuilderTests {
             date: referenceDate,
             duration: 1_800,
             steps: 3_000,
-            splitSteps: [0, 1_000, 1_800, 2_400, 2_800, 3_000],
+            splitSteps: [1_000, 1_800, 2_400, 2_800, 3_000, 3_000],
             intervalSeconds: 300
         )
         let importWithoutTimeline = makeWorkout(
