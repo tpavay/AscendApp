@@ -3,7 +3,7 @@ import Observation
 
 @MainActor
 @Observable
-final class MonetizationManager {
+final class MonetizationManager: MonetizationIdentityManaging {
     static let shared = MonetizationManager()
     #if DEBUG
     private static let debugForcesAppAccessPaywallKey = "debug.monetization.forceAppAccessPaywall"

@@ -5,8 +5,8 @@ struct MonetizationIdentityTransitionStateTests {
     @Test
     func preparingIdentitySynchronouslyInvalidatesPriorInactiveState() {
         var state = MonetizationIdentityTransitionState()
-        let initialSnapshot = state.snapshot()
-        state.applyRefresh(.inactive, for: initialSnapshot)
+        let anonymousIdentity = state.prepare(userID: nil)
+        state.resolve(.inactive, for: anonymousIdentity)
 
         _ = state.prepare(userID: "subscriber")
 
@@ -34,17 +34,33 @@ struct MonetizationIdentityTransitionStateTests {
     }
 
     @Test
-    func refreshStartedBeforeIdentityChangeCannotPublishInactiveState() {
+    func refreshStartedBeforeIdentityChangeCannotPublishInactiveState() throws {
         var state = MonetizationIdentityTransitionState()
-        let anonymousSnapshot = state.snapshot()
+        let anonymousIdentity = state.prepare(userID: nil)
+        state.resolve(.inactive, for: anonymousIdentity)
+        let anonymousRefreshToken = try #require(state.refreshToken())
 
         _ = state.prepare(userID: "subscriber")
         let acceptedRefresh = state.applyRefresh(
             .inactive,
-            for: anonymousSnapshot
+            for: anonymousRefreshToken
         )
 
         #expect(acceptedRefresh == false)
+        #expect(state.entitlementState == .unknown)
+    }
+
+    @Test
+    func unresolvedIdentityCannotIssueARefreshToken() {
+        var state = MonetizationIdentityTransitionState()
+        let identity = state.prepare(userID: "subscriber")
+
+        #expect(state.refreshToken() == nil)
+
+        state.resolve(.unknown, for: identity)
+
+        #expect(state.pendingTransition == identity)
+        #expect(state.refreshToken() == nil)
         #expect(state.entitlementState == .unknown)
     }
 }

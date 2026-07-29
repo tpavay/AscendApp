@@ -91,8 +91,7 @@ private struct AppAccessHandoffProof: View {
                 .font(.montserratMedium(size: 14))
                 .foregroundStyle(.white.opacity(0.68))
 
-            ProgressView()
-                .tint(Color.ascendAccent)
+            AscendLoadingIndicator()
         }
         .frame(maxWidth: .infinity)
         .padding(20)

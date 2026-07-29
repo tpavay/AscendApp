@@ -3,6 +3,7 @@ import Foundation
 struct MonetizationIdentityTransitionState: Equatable, Sendable {
     private(set) var entitlementState: MonetizationEntitlementState = .unknown
     private(set) var pendingTransition: MonetizationIdentityTransition?
+    private var resolvedTransition: MonetizationIdentityTransition?
     private var revision: UInt = 0
     private var userID: String?
 
@@ -10,6 +11,7 @@ struct MonetizationIdentityTransitionState: Equatable, Sendable {
         revision &+= 1
         self.userID = userID
         entitlementState = .unknown
+        resolvedTransition = nil
 
         let transition = MonetizationIdentityTransition(
             revision: revision,
@@ -29,11 +31,29 @@ struct MonetizationIdentityTransitionState: Equatable, Sendable {
         }
 
         entitlementState = state
+        guard state != .unknown else {
+            return true
+        }
+
         pendingTransition = nil
+        resolvedTransition = transition
         return true
     }
 
-    func snapshot() -> MonetizationIdentityTransition {
+    func isPending(_ transition: MonetizationIdentityTransition) -> Bool {
+        pendingTransition == transition
+    }
+
+    func refreshToken() -> MonetizationIdentityTransition? {
+        guard pendingTransition == nil,
+              resolvedTransition == snapshot() else {
+            return nil
+        }
+
+        return resolvedTransition
+    }
+
+    private func snapshot() -> MonetizationIdentityTransition {
         MonetizationIdentityTransition(
             revision: revision,
             userID: userID
@@ -43,9 +63,11 @@ struct MonetizationIdentityTransitionState: Equatable, Sendable {
     @discardableResult
     mutating func applyRefresh(
         _ state: MonetizationEntitlementState,
-        for snapshot: MonetizationIdentityTransition
+        for token: MonetizationIdentityTransition
     ) -> Bool {
-        guard pendingTransition == nil, snapshot == self.snapshot() else {
+        guard pendingTransition == nil,
+              resolvedTransition == token,
+              token == snapshot() else {
             return false
         }
 

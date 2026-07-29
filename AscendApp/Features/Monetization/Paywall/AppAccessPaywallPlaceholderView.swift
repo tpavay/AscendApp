@@ -43,9 +43,7 @@ struct AppAccessPaywallPlaceholderView: View {
                     .multilineTextAlignment(.center)
             }
 
-            ProgressView()
-                .tint(Color.ascendAccent)
-                .controlSize(.regular)
+            AscendLoadingIndicator()
         }
         .padding(.horizontal, 28)
         .accessibilityElement(children: .combine)
