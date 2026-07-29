@@ -141,16 +141,6 @@ final class TelemetryManager: @unchecked Sendable {
     }
     #endif
 
-    private static var appEnvironmentName: String {
-        #if DEBUG
-        return "dev"
-        #elseif STAGING
-        return "staging"
-        #else
-        return "production"
-        #endif
-    }
-
     // MARK: - User Identity
 
     func setUserId(_ userId: String) {
@@ -198,7 +188,7 @@ final class TelemetryManager: @unchecked Sendable {
 
     private func enrich(_ record: TelemetryRecord) -> TelemetryRecord {
         var parameters = record.parameters
-        parameters["app_environment"] = .string(Self.appEnvironmentName)
+        parameters["app_environment"] = .string(TelemetryBuildMetadata.current.appEnvironment)
         return TelemetryRecord(
             name: record.name,
             parameters: parameters,
@@ -208,7 +198,7 @@ final class TelemetryManager: @unchecked Sendable {
 
     private func enrich(_ screen: TelemetryScreen) -> TelemetryScreen {
         var parameters = screen.parameters
-        parameters["app_environment"] = .string(Self.appEnvironmentName)
+        parameters["app_environment"] = .string(TelemetryBuildMetadata.current.appEnvironment)
         return TelemetryScreen(
             name: screen.name,
             screenClass: screen.screenClass,
@@ -243,16 +233,10 @@ final class TelemetryManager: @unchecked Sendable {
 
     func setAppMetadata() {
         guard isCollectionEnabled else { return }
-        let bundle = Bundle.main
-        #if DEBUG
-        set(.buildConfig, value: "debug")
-        #elseif STAGING
-        set(.buildConfig, value: "staging")
-        #else
-        set(.buildConfig, value: "release")
-        #endif
-        set(.appVersion, value: bundle.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")
-        set(.buildNumber, value: bundle.infoDictionary?["CFBundleVersion"] as? String ?? "unknown")
+        let metadata = TelemetryBuildMetadata.current
+        set(.buildConfig, value: metadata.buildConfig)
+        set(.appVersion, value: metadata.appVersion)
+        set(.buildNumber, value: metadata.buildNumber)
     }
 
     // MARK: - Breadcrumbs (Structured Tokens)

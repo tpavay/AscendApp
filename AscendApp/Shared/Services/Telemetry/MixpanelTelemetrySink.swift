@@ -5,93 +5,95 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
     let supportedDestinations: Set<TelemetryDestination> = [.analytics]
 
     private let configuration: AnalyticsConfiguration
+    private let buildMetadata: TelemetryBuildMetadata
+    private let makeClient: (String, Double) -> any MixpanelClient
     private let lock = NSLock()
-    private var instance: MixpanelInstance?
+    private var client: (any MixpanelClient)?
 
-    init(configuration: AnalyticsConfiguration = .live) {
+    init(
+        configuration: AnalyticsConfiguration = .live,
+        buildMetadata: TelemetryBuildMetadata = .current,
+        makeClient: @escaping (String, Double) -> any MixpanelClient = {
+            MixpanelSDKClient(token: $0, flushInterval: $1)
+        }
+    ) {
         self.configuration = configuration
+        self.buildMetadata = buildMetadata
+        self.makeClient = makeClient
     }
 
     func setCollectionEnabled(_ enabled: Bool) {
-        guard let instance = configuredInstance() else { return }
-
-        if enabled {
-            instance.optInTracking()
-        } else {
-            instance.optOutTracking()
+        withConfiguredClient { client, isNewClient in
+            if enabled && !isNewClient {
+                client.registerSuperProperties(buildMetadata.properties)
+            }
+            client.setCollectionEnabled(enabled)
         }
     }
 
     func setUserID(_ userID: String?) {
-        guard let instance = configuredInstance() else { return }
-
-        if let userID {
-            instance.identify(distinctId: userID, usePeople: true)
-        } else {
-            instance.reset()
+        withConfiguredClient { client, _ in
+            client.setUserID(userID)
+            if userID == nil {
+                client.registerSuperProperties(buildMetadata.properties)
+            }
         }
     }
 
     func setUserProperty(_ name: String, value: String?) {
-        guard let instance = configuredInstance() else { return }
-
-        if let value {
-            instance.people.set(property: name, to: value)
-            instance.registerSuperProperties([name: value])
-        } else {
-            instance.people.unset(properties: [name])
-            instance.unregisterSuperProperty(name)
+        withConfiguredClient { client, _ in
+            client.setUserProperty(name, value: value)
+            if buildMetadata.properties[name] != nil {
+                client.registerSuperProperties(buildMetadata.properties)
+            }
+            flushAfterDebugEvent(client)
         }
-
-        flushAfterDebugEvent(instance)
     }
 
     func record(_ record: TelemetryRecord) {
-        guard let instance = configuredInstance() else { return }
-
-        instance.track(
-            event: record.name,
-            properties: record.parameters.mixpanelProperties
-        )
-
-        flushAfterDebugEvent(instance)
+        withConfiguredClient { client, _ in
+            client.track(
+                event: record.name,
+                properties: record.parameters.mixpanelProperties
+            )
+            flushAfterDebugEvent(client)
+        }
     }
 
     func record(screen: TelemetryScreen) {
-        guard let instance = configuredInstance() else { return }
+        withConfiguredClient { client, _ in
+            var properties = screen.parameters.mixpanelProperties
+            properties["screen_name"] = screen.name
+            properties["screen_class"] = screen.screenClass
 
-        var properties = screen.parameters.mixpanelProperties
-        properties["screen_name"] = screen.name
-        properties["screen_class"] = screen.screenClass
-
-        instance.track(
-            event: "screen_view",
-            properties: properties
-        )
-
-        flushAfterDebugEvent(instance)
+            client.track(
+                event: "screen_view",
+                properties: properties
+            )
+            flushAfterDebugEvent(client)
+        }
     }
 
-    private func configuredInstance() -> MixpanelInstance? {
-        guard let token = configuration.mixpanelToken else { return nil }
+    private func withConfiguredClient(
+        _ action: (any MixpanelClient, _ isNewClient: Bool) -> Void
+    ) {
+        guard let token = configuration.mixpanelToken else { return }
 
         lock.lock()
         defer { lock.unlock() }
 
-        if let instance {
-            return instance
+        if let client {
+            action(client, false)
+            return
         }
 
-        let instance = Mixpanel.initialize(
-            token: token,
-            trackAutomaticEvents: false,
-            flushInterval: flushInterval
-        )
+        let client = makeClient(token, flushInterval)
         #if DEBUG
-        instance.loggingEnabled = true
+        client.loggingEnabled = true
         #endif
-        self.instance = instance
-        return instance
+        client.registerSuperProperties(buildMetadata.properties)
+        self.client = client
+        action(client, true)
     }
 
     private var flushInterval: Double {
@@ -102,9 +104,9 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
         #endif
     }
 
-    private func flushAfterDebugEvent(_ instance: MixpanelInstance) {
+    private func flushAfterDebugEvent(_ client: any MixpanelClient) {
         #if DEBUG
-        instance.flush(performFullFlush: true)
+        client.flush(performFullFlush: true)
         #endif
     }
 }
