@@ -21,6 +21,7 @@ The existing suite uses Node's test runner and injectable gateways, so the unuse
 ## Web
 
 Keep Astro at or above 7.1.5.
-Astro 6.4.8 became vulnerable to new XSS advisories and kept `sharp` below the patched 0.35.0 release, so the website accepted Astro 7's Rust compiler and changed HTML whitespace defaults.
-Astro still requests vulnerable `esbuild` 0.27.x, so `web/package.json` overrides `esbuild` to `^0.28.1`.
-Remove the override once Astro's declared range resolves to a patched `esbuild` release, after `npm run build` passes.
+Astro 6.4.8 became vulnerable to new XSS advisories and capped `sharp` at the unpatched 0.34 line, so the website accepted Astro 7's Rust compiler and changed HTML whitespace defaults.
+Astro 7 still declares `sharp` as `^0.34.0 || ^0.35.0` while the inherited libvips advisory covers every release below 0.35.0, so `web/package.json` overrides `sharp` to `^0.35.0`.
+Astro 7 declares `esbuild` as `^0.28.0` and its `vite` dependency declares `^0.27.0 || ^0.28.0`, both of which still admit the releases covered by the dev-server path-traversal advisory (`>=0.27.3 <0.28.1`), so `web/package.json` overrides `esbuild` to `^0.28.1`.
+Remove either override once every declared range in the tree resolves only to patched releases, after `npm run build` passes.

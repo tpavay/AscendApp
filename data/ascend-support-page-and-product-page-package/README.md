@@ -22,5 +22,6 @@ Production deployment was completed on July 28, 2026.
 Both `https://ascendstepper.com/support` and `https://ascend-prod-9c8f2.web.app/support` returned
 HTTP 200 after deployment, verified independently of the deploy tooling.
 
-The deployed page currently predates the heading-hierarchy fix in this PR; a redeploy after merge
-closes that gap. The HTTP 200 requirement holds either way.
+The deployed page predates the later presentation fixes in this PR (the topic-heading hierarchy and
+the list-to-paragraph spacing); a redeploy after merge closes that gap. The HTTP 200 requirement
+holds either way.
