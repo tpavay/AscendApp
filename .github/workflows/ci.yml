@@ -4,6 +4,7 @@ on:
   pull_request:
     branches: [develop, main]
     paths:
+      # required-check-paths:start
       - "AscendApp/**"
       - "AscendAppTests/**"
       - "AscendLiveActivityWidgets/**"
@@ -16,6 +17,7 @@ on:
       - "package-lock.json"
       - "SharedTestVectors/**"
       - ".github/workflows/**"
+      # required-check-paths:end
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

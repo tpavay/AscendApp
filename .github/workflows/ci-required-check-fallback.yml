@@ -1,0 +1,57 @@
+name: CI Required Check Fallback
+
+on:
+  pull_request:
+    branches: [develop, main]
+
+concurrency:
+  group: ci-required-check-fallback-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  route:
+    name: Detect CI-Relevant Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ci_relevant: ${{ steps.filter.outputs.ci_relevant }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Filter changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            ci_relevant:
+              # required-check-paths:start
+              - "AscendApp/**"
+              - "AscendAppTests/**"
+              - "AscendLiveActivityWidgets/**"
+              - "AscendApp.xcodeproj/**"
+              - "functions/**"
+              - "firestore.indexes.json"
+              - "scripts/**"
+              - "web/**"
+              - "package.json"
+              - "package-lock.json"
+              - "SharedTestVectors/**"
+              - ".github/workflows/**"
+              # required-check-paths:end
+
+  fallback:
+    needs: route
+    name: ${{ needs.route.result == 'success' && needs.route.outputs.ci_relevant == 'false' && 'iOS Verify (Staging)' || 'iOS Verify Fallback (Not Required)' }}
+    if: needs.route.result == 'success' && needs.route.outputs.ci_relevant == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Satisfy required check for non-CI changes
+        run: echo "No CI-relevant paths changed. The required iOS verification check is satisfied by the fallback."
