@@ -3,8 +3,7 @@
 Run `npm audit --package-lock-only` from the repository root and from each npm project before upgrading dependencies.
 Treat `functions/` as production code because it runs with Firebase Admin credentials, while `web/` is the deployed static site.
 The root package intentionally does not install `firebase-tools`; its rules-test command invokes the CLI directly, so a second pinned CLI tree would be unused and vulnerable between releases.
-That command previously invoked `firebase-tools@latest` on purpose, and the choice was revisited once `ci.yml`'s `firebase-verify` job made it a pull-request gate.
-It now pins `firebase-tools@15.22.1`, the same version every deploy step runs, so rules are validated by the CLI that ships them and an upstream release cannot turn unrelated required checks red.
+It pins `firebase-tools@15.22.1`, the same version every deploy step runs, because `ci.yml`'s `firebase-verify` job makes that command a pull-request gate: rules have to be validated by the CLI that ships them, and an unpinned `@latest` would let an upstream release turn unrelated required checks red.
 Bump this pin and the deploy-step pins together.
 
 ## Functions
