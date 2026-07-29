@@ -23,8 +23,8 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
     }
 
     func setCollectionEnabled(_ enabled: Bool) {
-        withConfiguredClient { client, isNewClient in
-            if enabled && !isNewClient {
+        withConfiguredClient { client in
+            if enabled {
                 client.registerSuperProperties(buildMetadata.properties)
             }
             client.setCollectionEnabled(enabled)
@@ -32,7 +32,7 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
     }
 
     func setUserID(_ userID: String?) {
-        withConfiguredClient { client, _ in
+        withConfiguredClient { client in
             client.setUserID(userID)
             if userID == nil {
                 client.registerSuperProperties(buildMetadata.properties)
@@ -41,8 +41,10 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
     }
 
     func setUserProperty(_ name: String, value: String?) {
-        withConfiguredClient { client, _ in
+        withConfiguredClient { client in
             client.setUserProperty(name, value: value)
+            // A caller can pass any name, including one of the reserved build-metadata
+            // keys; the build's own values stay authoritative after such a collision.
             if buildMetadata.properties[name] != nil {
                 client.registerSuperProperties(buildMetadata.properties)
             }
@@ -51,7 +53,7 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
     }
 
     func record(_ record: TelemetryRecord) {
-        withConfiguredClient { client, _ in
+        withConfiguredClient { client in
             client.track(
                 event: record.name,
                 properties: record.parameters.mixpanelProperties
@@ -61,7 +63,7 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
     }
 
     func record(screen: TelemetryScreen) {
-        withConfiguredClient { client, _ in
+        withConfiguredClient { client in
             var properties = screen.parameters.mixpanelProperties
             properties["screen_name"] = screen.name
             properties["screen_class"] = screen.screenClass
@@ -74,16 +76,14 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
         }
     }
 
-    private func withConfiguredClient(
-        _ action: (any MixpanelClient, _ isNewClient: Bool) -> Void
-    ) {
+    private func withConfiguredClient(_ action: (any MixpanelClient) -> Void) {
         guard let token = configuration.mixpanelToken else { return }
 
         lock.lock()
         defer { lock.unlock() }
 
         if let client {
-            action(client, false)
+            action(client)
             return
         }
 
@@ -93,7 +93,7 @@ final class MixpanelTelemetrySink: TelemetrySink, @unchecked Sendable {
         #endif
         client.registerSuperProperties(buildMetadata.properties)
         self.client = client
-        action(client, true)
+        action(client)
     }
 
     private var flushInterval: Double {
