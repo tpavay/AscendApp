@@ -56,6 +56,9 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         }
 
         isConfigured = true
+        Task {
+            await auditLaunchOfferingIfNeeded()
+        }
 
         if identityTransitionState.refreshToken() != nil {
             observeCustomerInfoUpdates()
