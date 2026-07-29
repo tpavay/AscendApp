@@ -35,6 +35,20 @@
                ReferencedContainer = "container:AscendApp.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "B30000012F90000000000007"
+               BuildableName = "AscendAppUITests.xctest"
+               BlueprintName = "AscendAppUITests"
+               ReferencedContainer = "container:AscendApp.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -51,6 +65,16 @@
                BlueprintIdentifier = "A10600012F0A000000000008"
                BuildableName = "AscendAppTests.xctest"
                BlueprintName = "AscendAppTests"
+               ReferencedContainer = "container:AscendApp.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "B30000012F90000000000007"
+               BuildableName = "AscendAppUITests.xctest"
+               BlueprintName = "AscendAppUITests"
                ReferencedContainer = "container:AscendApp.xcodeproj">
             </BuildableReference>
          </TestableReference>

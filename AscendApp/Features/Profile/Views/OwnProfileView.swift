@@ -32,7 +32,7 @@ struct OwnProfileView: View {
                 ownIdentity.photoURL = authVM.displayPhotoURL
             }
             if ownIdentity.joinedAt == nil {
-                ownIdentity.joinedAt = authVM.user?.metadata.creationDate
+                ownIdentity.joinedAt = authVM.user?.creationDate
             }
             return ownIdentity
         }
@@ -41,7 +41,7 @@ struct OwnProfileView: View {
             userId: userId,
             displayName: displayName,
             photoURL: authVM.displayPhotoURL,
-            joinedAt: authVM.user?.metadata.creationDate
+            joinedAt: authVM.user?.creationDate
         )
     }
 
@@ -113,7 +113,7 @@ struct OwnProfileView: View {
                 userId: userId,
                 displayName: displayName,
                 photoURL: authVM.displayPhotoURL,
-                joinedAt: authVM.user?.metadata.creationDate,
+                joinedAt: authVM.user?.creationDate,
                 climbs: climbs,
                 modelContext: modelContext,
                 taskKey: supportTaskKey

@@ -8,7 +8,7 @@ struct AuthenticationViewModelIdentityOrderingTests {
         let monetizationManager = MonetizationIdentityManagerSpy()
         let viewModel = AuthenticationViewModel(
             monetizationIdentityManager: monetizationManager,
-            observesFirebaseAuth: false
+            authenticationStateObserver: AuthenticationStateObserverStub()
         )
         monetizationManager.authenticationState = {
             viewModel.authenticationState
@@ -23,6 +23,19 @@ struct AuthenticationViewModelIdentityOrderingTests {
         #expect(monetizationManager.preparedUserID == "returning-subscriber")
         #expect(viewModel.authenticatedUserID == "returning-subscriber")
         #expect(viewModel.authenticationState == .authenticated)
+    }
+}
+
+@MainActor
+private final class AuthenticationStateObserverStub: AuthenticationStateObserving {
+    var currentUser: AuthenticatedUser? {
+        nil
+    }
+
+    func observe(
+        _ listener: @escaping @MainActor (AuthenticatedUser?) -> Void
+    ) -> AuthenticationStateObservation {
+        AuthenticationStateObservation {}
     }
 }
 

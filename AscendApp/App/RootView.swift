@@ -219,7 +219,7 @@ struct RootView: View {
             await ProfilePublicationService.publishCurrentUserProfile(
                 modelContext: modelContext,
                 userId: currentUserId,
-                joinedAt: user.metadata.creationDate
+                joinedAt: user.creationDate
             )
         } catch {
             debugLog("Authenticated bootstrap failed: \(error)")

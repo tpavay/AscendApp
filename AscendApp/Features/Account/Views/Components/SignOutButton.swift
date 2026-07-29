@@ -31,6 +31,7 @@ struct SignOutButton: View {
                     )
             )
         }
+        .accessibilityIdentifier("accountSignOut")
     }
 }
 

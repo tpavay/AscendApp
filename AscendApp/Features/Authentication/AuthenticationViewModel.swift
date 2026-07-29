@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import FirebaseAuth
 import FirebaseCore
 import Observation
 import PhotosUI
@@ -38,7 +37,7 @@ enum AuthenticationState {
 @Observable
 class AuthenticationViewModel {
     var displayName: String = ""
-    var user: User?
+    var user: AuthenticatedUser?
     var authenticationState: AuthenticationState = .unauthenticated
     var errorMessage: String?
     var isErrorAlertPresented: Bool = false
@@ -52,115 +51,108 @@ class AuthenticationViewModel {
     /// Used to avoid showing authenticated UI before profile state is known.
     private(set) var isProfileLoaded: Bool = false
 
-    private var authenticationService = AuthenticationService()
+    private let authenticationClient: any AuthenticationClient
+    private let authenticationStateObserver: any AuthenticationStateObserving
+    private let profileSessionProvider: any AuthenticationProfileSessionProviding
     private let accountSessionStore = AccountSessionStore.shared
     private let monetizationIdentityManager: any MonetizationIdentityManaging
+    private var authStateObservation: AuthenticationStateObservation?
 
     init(
         monetizationIdentityManager: any MonetizationIdentityManaging = MonetizationManager.shared,
-        observesFirebaseAuth: Bool = true
+        authenticationClient: any AuthenticationClient = LiveAuthenticationClient(),
+        authenticationStateObserver: any AuthenticationStateObserving = FirebaseAuthenticationStateObserver(),
+        profileSessionProvider: any AuthenticationProfileSessionProviding = LiveAuthenticationProfileSessionProvider()
     ) {
         self.monetizationIdentityManager = monetizationIdentityManager
+        self.authenticationClient = authenticationClient
+        self.authenticationStateObserver = authenticationStateObserver
+        self.profileSessionProvider = profileSessionProvider
         lastUsedProvider = accountSessionStore.lastUsedProvider
 
         // Load cached display name immediately for UI responsiveness
-        displayName = UserDataRepository.shared.getCachedDisplayName() ?? ""
+        displayName = profileSessionProvider.cachedDisplayName() ?? ""
         
         // Load cached profile picture URL
-        if let cachedURLString = UserDataRepository.shared.getCachedProfilePictureURL() {
+        if let cachedURLString = profileSessionProvider.cachedProfilePictureURL() {
             customProfilePictureURL = URL(string: cachedURLString)
         }
 
-        if observesFirebaseAuth, let currentUser = Auth.auth().currentUser {
+        if let currentUser = authenticationStateObserver.currentUser {
             user = currentUser
             authenticatedUserID = currentUser.uid
             photoURL = currentUser.photoURL
             authenticationState = .restoringSession
         }
 
-        if observesFirebaseAuth {
-            registerAuthStateHandler()
-        }
+        registerAuthStateHandler()
     }
-    private var authStateHandle: AuthStateDidChangeListenerHandle?
 
     func registerAuthStateHandler() {
-        if authStateHandle == nil {
-            authStateHandle = Auth.auth().addStateDidChangeListener({ auth, user in
-                self.user = user
-                self.photoURL = user?.photoURL ?? URL(string: "")
+        guard authStateObservation == nil else { return }
 
-                if let user = user {
-                    // Set telemetry user ID and log session restored
-                    TelemetryManager.shared.setUserId(user.uid)
-                    TelemetryManager.shared.log(.authSessionRestored)
+        authStateObservation = authenticationStateObserver.observe { [weak self] user in
+            self?.handleAuthenticationStateChange(user)
+        }
+    }
 
-                    // Check if we're in an interactive sign-in flow (already showing progress)
-                    let isInteractiveSignIn = self.authenticationState == .authenticatingWithGoogle ||
-                                               self.authenticationState == .authenticatingWithApple ||
-                                               self.authenticationState == .authenticatingWithInternalQA
+    private func handleAuthenticationStateChange(_ user: AuthenticatedUser?) {
+        self.user = user
+        photoURL = user?.photoURL
 
-                    // Load cached display name immediately
-                    let cachedDisplayName = UserDataRepository.shared.getCachedDisplayName() ?? ""
-                    self.displayName = cachedDisplayName
-                    let shouldSaveInitialUserRecord = !isInteractiveSignIn || !cachedDisplayName.isEmpty
+        guard let user else {
+            endAuthenticatedSession()
+            return
+        }
 
-                    let initialAuthenticationState: AuthenticationState
-                    if !cachedDisplayName.isEmpty {
-                        self.isProfileLoaded = true
-                        initialAuthenticationState = .authenticated
-                    } else if isInteractiveSignIn {
-                        initialAuthenticationState = .authenticated
-                    } else {
-                        self.isProfileLoaded = false
-                        initialAuthenticationState = .restoringSession
-                    }
-                    self.beginAuthenticatedSession(
-                        userID: user.uid,
-                        initialState: initialAuthenticationState
-                    )
+        TelemetryManager.shared.setUserId(user.uid)
+        TelemetryManager.shared.log(.authSessionRestored)
 
-                    // Handle Firestore operations in background
-                    Task {
-                        // Avoid writing a provider-derived or empty display name during new sign-up.
-                        // The post-auth name step creates the profile document with the user's chosen name.
-                        if shouldSaveInitialUserRecord {
-                            try? await self.saveUserToFirestore(user: user)
-                        }
+        let isInteractiveSignIn = authenticationState == .authenticatingWithGoogle ||
+            authenticationState == .authenticatingWithApple ||
+            authenticationState == .authenticatingWithInternalQA
 
-                        // Fetch the authoritative display name from Firestore
-                        let firestoreDisplayName = await UserDataRepository.shared.getDisplayName(userId: user.uid)
+        let cachedDisplayName = profileSessionProvider.cachedDisplayName() ?? ""
+        displayName = cachedDisplayName
+        let shouldSaveInitialUserRecord = !isInteractiveSignIn || !cachedDisplayName.isEmpty
 
-                        // Fetch custom profile picture URL from Firestore
-                        let profilePictureURLString = await UserDataRepository.shared.getProfilePictureURL(userId: user.uid)
+        let initialAuthenticationState: AuthenticationState
+        if !cachedDisplayName.isEmpty {
+            isProfileLoaded = true
+            initialAuthenticationState = .authenticated
+        } else if isInteractiveSignIn {
+            initialAuthenticationState = .authenticated
+        } else {
+            isProfileLoaded = false
+            initialAuthenticationState = .restoringSession
+        }
+        beginAuthenticatedSession(
+            userID: user.uid,
+            initialState: initialAuthenticationState
+        )
 
-                        await MainActor.run {
-                            // Update display name if we got one from Firestore
-                            if let firestoreDisplayName, !firestoreDisplayName.isEmpty {
-                                self.displayName = firestoreDisplayName
-                                self.hasRemoteDisplayName = true
-                            } else {
-                                self.hasRemoteDisplayName = false
-                            }
+        Task {
+            if shouldSaveInitialUserRecord {
+                try? await profileSessionProvider.saveInitialUser(user)
+            }
 
-                            // Update profile picture URL
-                            if let profilePictureURLString {
-                                self.customProfilePictureURL = URL(string: profilePictureURLString)
-                            }
+            let firestoreDisplayName = await profileSessionProvider.displayName(userID: user.uid)
+            let profilePictureURLString = await profileSessionProvider.profilePictureURL(userID: user.uid)
 
-                            // Now that profile is loaded, evaluate the final auth state
-                            self.isProfileLoaded = true
-                            let finalState = self.getAuthenticationState()
-                            self.authenticationState = finalState
+            if let firestoreDisplayName, !firestoreDisplayName.isEmpty {
+                displayName = firestoreDisplayName
+                hasRemoteDisplayName = true
+            } else {
+                hasRemoteDisplayName = false
+            }
 
-                            // Log the outcome for debugging
-                            TelemetryManager.shared.log(.authProfileLoaded)
-                        }
-                    }
-                } else {
-                    self.endAuthenticatedSession()
-                }
-            })
+            if let profilePictureURLString {
+                customProfilePictureURL = URL(string: profilePictureURLString)
+            }
+
+            isProfileLoaded = true
+            authenticationState = getAuthenticationState()
+            TelemetryManager.shared.log(.authProfileLoaded)
         }
     }
 
@@ -194,13 +186,15 @@ class AuthenticationViewModel {
 
         TelemetryManager.shared.log(.authSignOut)
         TelemetryManager.shared.clearUserId()
+        user = nil
+        photoURL = nil
         authenticatedUserID = nil
         displayName = ""
         customProfilePictureURL = nil
         hasRemoteDisplayName = false
         isProfileLoaded = false
         authenticationState = .unauthenticated
-        UserDataRepository.shared.clearUserCache()
+        profileSessionProvider.clearCache()
         return identityTask
     }
 }
@@ -212,7 +206,7 @@ extension AuthenticationViewModel {
             await PushNotificationService.shared.unregisterCurrentDevice()
 
             do {
-                try authenticationService.signOut()
+                try authenticationClient.signOut()
                 errorMessage = nil
             }
             catch {
@@ -229,7 +223,7 @@ extension AuthenticationViewModel {
         )
 
         do {
-            _ = try await authenticationService.signInWithGoogle()
+            try await authenticationClient.signInWithGoogle()
             recordSuccessfulSignIn(provider: .google)
             TelemetryManager.shared.track(
                 OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.google.rawValue)
@@ -289,7 +283,7 @@ extension AuthenticationViewModel {
         )
 
         do {
-            _ = try await authenticationService.signInWithEmail(email: trimmedEmail, password: password)
+            try await authenticationClient.signInWithEmail(email: trimmedEmail, password: password)
             recordSuccessfulSignIn(provider: .internalQA)
             TelemetryManager.shared.track(
                 OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.internalQA.rawValue)
@@ -322,7 +316,7 @@ extension AuthenticationViewModel {
         )
 
         do {
-            _ = try await authenticationService.signInWithApple()
+            try await authenticationClient.signInWithApple()
             recordSuccessfulSignIn(provider: .apple)
             TelemetryManager.shared.track(
                 OnboardingAnalyticsEvent.authCompleted(provider: AuthProviderKind.apple.rawValue)
@@ -357,7 +351,7 @@ extension AuthenticationViewModel {
     func setDisplayName(firstName: String, lastName: String) async {
         do {
             let fullDisplayName = "\(firstName) \(lastName)"
-            try await authenticationService.updateUserDisplayName(displayName: fullDisplayName)
+            try await authenticationClient.updateUserDisplayName(displayName: fullDisplayName)
             displayName = fullDisplayName
             
             // Cache display name for immediate UI updates
@@ -393,27 +387,6 @@ extension AuthenticationViewModel {
     private func recordSuccessfulSignIn(provider: AuthProviderKind) {
         accountSessionStore.recordSuccessfulSignIn(provider: provider)
         lastUsedProvider = provider
-    }
-    
-    private func saveUserToFirestore(user: User) async throws {
-        let existingData = try? await UserDataRepository.shared.getUserFromFirestore(userId: user.uid)
-        
-        try await UserDataRepository.shared.saveUserToFirestore(
-            userId: user.uid,
-            email: user.email,
-            firstName: existingData?.firstName,
-            lastName: existingData?.lastName,
-            displayName: existingData?.displayName,
-            age: existingData?.age,
-            gender: existingData?.gender,
-            weightKg: existingData?.weightKg,
-            heightCm: existingData?.heightCm,
-            locationCity: existingData?.locationCity,
-            locationCountry: existingData?.locationCountry,
-            locationRegion: existingData?.locationRegion,
-            onboardingFirstClimbId: existingData?.onboardingFirstClimbId,
-            joinedAt: existingData?.joinedAt ?? user.metadata.creationDate
-        )
     }
     
     func updateProfilePicture(photoPickerItem: PhotosPickerItem) async {
@@ -502,7 +475,7 @@ extension AuthenticationViewModel {
             // Update local state immediately for responsive UI
             displayName = trimmedName
 
-            try await authenticationService.updateUserDisplayName(displayName: trimmedName)
+            try await authenticationClient.updateUserDisplayName(displayName: trimmedName)
             
             // Save to Firestore user document
             try await UserDataRepository.shared.updateDisplayName(
@@ -547,7 +520,7 @@ extension AuthenticationViewModel {
         do {
             displayName = trimmedName
 
-            try await authenticationService.updateUserDisplayName(displayName: trimmedName)
+            try await authenticationClient.updateUserDisplayName(displayName: trimmedName)
 
             try await UserDataRepository.shared.updateOnboardingProfile(
                 userId: user.uid,

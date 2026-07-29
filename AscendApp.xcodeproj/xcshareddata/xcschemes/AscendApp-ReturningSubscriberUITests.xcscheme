@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
-   LastUpgradeVersion = "2620"
+   LastUpgradeVersion = "1640"
    version = "1.7">
    <BuildAction
       parallelizeBuildables = "YES"
@@ -18,20 +18,6 @@
                BlueprintIdentifier = "9A5E4D812E2406F8008DE803"
                BuildableName = "AscendApp.app"
                BlueprintName = "AscendApp"
-               ReferencedContainer = "container:AscendApp.xcodeproj">
-            </BuildableReference>
-         </BuildActionEntry>
-         <BuildActionEntry
-            buildForTesting = "YES"
-            buildForRunning = "NO"
-            buildForProfiling = "NO"
-            buildForArchiving = "NO"
-            buildForAnalyzing = "NO">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "A10600012F0A000000000008"
-               BuildableName = "AscendAppTests.xctest"
-               BlueprintName = "AscendAppTests"
                ReferencedContainer = "container:AscendApp.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -62,16 +48,6 @@
             skipped = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "A10600012F0A000000000008"
-               BuildableName = "AscendAppTests.xctest"
-               BlueprintName = "AscendAppTests"
-               ReferencedContainer = "container:AscendApp.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
-         <TestableReference
-            skipped = "NO">
-            <BuildableReference
-               BuildableIdentifier = "primary"
                BlueprintIdentifier = "B30000012F90000000000007"
                BuildableName = "AscendAppUITests.xctest"
                BlueprintName = "AscendAppUITests"
@@ -81,7 +57,7 @@
       </Testables>
    </TestAction>
    <LaunchAction
-      buildConfiguration = "Staging"
+      buildConfiguration = "Debug"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       launchStyle = "0"
@@ -122,7 +98,7 @@
       buildConfiguration = "Debug">
    </AnalyzeAction>
    <ArchiveAction
-      buildConfiguration = "Staging"
+      buildConfiguration = "Release"
       revealArchiveInOrganizer = "YES">
    </ArchiveAction>
 </Scheme>

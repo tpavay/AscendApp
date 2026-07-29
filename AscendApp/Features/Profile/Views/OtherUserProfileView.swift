@@ -43,7 +43,7 @@ struct OtherUserProfileView: View {
                 ownIdentity.photoURL = authVM.displayPhotoURL
             }
             if ownIdentity.joinedAt == nil {
-                ownIdentity.joinedAt = authVM.user?.metadata.creationDate
+                ownIdentity.joinedAt = authVM.user?.creationDate
             }
             return ownIdentity
         }
@@ -52,7 +52,7 @@ struct OtherUserProfileView: View {
             userId: authVM.user?.uid ?? "viewer",
             displayName: authVM.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "You" : authVM.displayName,
             photoURL: authVM.displayPhotoURL,
-            joinedAt: authVM.user?.metadata.creationDate
+            joinedAt: authVM.user?.creationDate
         )
     }
 
@@ -152,7 +152,7 @@ struct OtherUserProfileView: View {
                     userId: user.uid,
                     displayName: authVM.displayName,
                     photoURL: authVM.displayPhotoURL,
-                    joinedAt: user.metadata.creationDate,
+                    joinedAt: user.creationDate,
                     climbs: climbs,
                     modelContext: modelContext,
                     taskKey: "comparison-own-\(taskKey)"

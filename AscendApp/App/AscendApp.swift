@@ -15,10 +15,29 @@ struct AscendApp: App {
     @UIApplicationDelegateAdaptor(AscendAppDelegate.self) private var appDelegate
     @State private var authVM: AuthenticationViewModel?
     private let modelContainer: ModelContainer?
+    private let monetizationManager: MonetizationManager
     private let launchFailure: AppLaunchFailure?
+    #if DEBUG
+    private let returningSubscriberJourneyProbe: ReturningSubscriberJourneyProbe?
+    #endif
 
     init() {
         let startupFailure = Self.configureFirebase() ?? Self.unreplacedMonetizationKeysFailure()
+
+        #if DEBUG
+        if startupFailure == nil,
+           let scenario = ReturningSubscriberJourneyUITestScenario.makeIfRequested() {
+            modelContainer = scenario.modelContainer
+            monetizationManager = scenario.monetizationManager
+            launchFailure = nil
+            returningSubscriberJourneyProbe = scenario.probe
+            _authVM = State(initialValue: scenario.authenticationViewModel)
+            return
+        }
+        returningSubscriberJourneyProbe = nil
+        #endif
+
+        monetizationManager = .shared
         let containerResult = Self.createModelContainer()
 
         switch containerResult {
@@ -97,15 +116,27 @@ struct AscendApp: App {
         if let launchFailure {
             AppLaunchFailureView(failure: launchFailure)
         } else if let authVM, let modelContainer {
-            RootNavigationHost(authVM: authVM)
+            rootNavigationHost(authVM: authVM)
                 .environment(authVM)
                 .environment(NetworkConnectivityService.shared)
-                .environment(MonetizationManager.shared)
+                .environment(monetizationManager)
                 .environment(MediaUploadManager.shared)
                 .modelContainer(modelContainer)
         } else {
             AppLaunchFailureView(failure: .startupUnavailable)
         }
+    }
+
+    @ViewBuilder
+    private func rootNavigationHost(authVM: AuthenticationViewModel) -> some View {
+        #if DEBUG
+        RootNavigationHost(
+            authVM: authVM,
+            returningSubscriberJourneyProbe: returningSubscriberJourneyProbe
+        )
+        #else
+        RootNavigationHost(authVM: authVM)
+        #endif
     }
 
     @MainActor
@@ -122,7 +153,22 @@ struct AscendApp: App {
     
     private static func createModelContainer() -> ModelContainerCreationResult {
         do {
-            let config = ModelConfiguration(schema: Schema([
+            return .success(try makeModelContainer())
+        } catch {
+            AppDiagnosticsRecorder.shared.record(
+                "model_container_creation_failed",
+                level: .error,
+                details: ["error_type": String(describing: type(of: error))],
+                mirrorToCrashlytics: false
+            )
+            debugLog("Failed to create model container: \(error)")
+            return .failure(.localDataUnavailable)
+        }
+    }
+
+    static func makeModelContainer(isStoredInMemoryOnly: Bool = false) throws -> ModelContainer {
+        let config = ModelConfiguration(
+            schema: Schema([
                 Workout.self,
                 WorkoutSourceLink.self,
                 WorkoutParticipation.self,
@@ -135,21 +181,13 @@ struct AscendApp: App {
                 PendingWorkoutDeletion.self,
                 BestEffortCacheEntry.self,
                 BestEffortCacheMetadata.self
-            ]))
-            return .success(try ModelContainer(
-                for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, ActiveHeadphoneWorkoutDraft.self, LeaderboardStats.self, Routine.self, RoutineFolder.self, ClimbAttempt.self, PendingMediaUpload.self, PendingWorkoutDeletion.self, BestEffortCacheEntry.self, BestEffortCacheMetadata.self,
-                configurations: config
-            ))
-        } catch {
-            AppDiagnosticsRecorder.shared.record(
-                "model_container_creation_failed",
-                level: .error,
-                details: ["error_type": String(describing: type(of: error))],
-                mirrorToCrashlytics: false
-            )
-            debugLog("Failed to create model container: \(error)")
-            return .failure(.localDataUnavailable)
-        }
+            ]),
+            isStoredInMemoryOnly: isStoredInMemoryOnly
+        )
+        return try ModelContainer(
+            for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, ActiveHeadphoneWorkoutDraft.self, LeaderboardStats.self, Routine.self, RoutineFolder.self, ClimbAttempt.self, PendingMediaUpload.self, PendingWorkoutDeletion.self, BestEffortCacheEntry.self, BestEffortCacheMetadata.self,
+            configurations: config
+        )
     }
 }
 
@@ -223,6 +261,9 @@ private struct AppLaunchFailureView: View {
 
 private struct RootNavigationHost: View {
     let authVM: AuthenticationViewModel
+    #if DEBUG
+    let returningSubscriberJourneyProbe: ReturningSubscriberJourneyProbe?
+    #endif
     @State private var navigationPath = NavigationPath()
 
     var body: some View {
@@ -233,5 +274,21 @@ private struct RootNavigationHost: View {
         .onChange(of: authVM.authenticatedUserID) { _, _ in
             navigationPath = NavigationPath()
         }
+        #if DEBUG
+        .overlay(alignment: .topLeading) {
+            if let returningSubscriberJourneyProbe {
+                Text(returningSubscriberJourneyProbe.paywallRegistrationCount.formatted())
+                    .accessibilityLabel("Paywall registrations")
+                    .accessibilityValue(
+                        returningSubscriberJourneyProbe.paywallRegistrationCount.formatted()
+                    )
+                    .accessibilityIdentifier(
+                        "returningSubscriberJourney.paywallRegistrations"
+                    )
+                    .frame(width: 1, height: 1)
+                    .opacity(0.01)
+            }
+        }
+        #endif
     }
 }

@@ -78,6 +78,7 @@ struct MainTabBarView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("tab.\(tab.title)")
     }
 
     @ViewBuilder

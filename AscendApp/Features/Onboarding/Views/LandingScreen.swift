@@ -112,6 +112,7 @@ struct LandingScreen: View {
             .buttonStyle(.plain)
             .accessibilityLabel(LandingScreenActionLayoutPolicy.signInAccessibilityLabel)
             .accessibilityHint("Opens the sign-in screen.")
+            .accessibilityIdentifier("welcomeSignIn")
         }
         .frame(maxWidth: 334)
     }
