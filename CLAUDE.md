@@ -89,7 +89,8 @@ cd functions && npm run lint && npm test   # Cloud Functions
 cd web && npm run build                    # Website -> web/dist/
 
 # Deploy (aliases in .firebaserc: dev · staging · production)
-npx -y firebase-tools@latest deploy --project staging \
+# Pinned CLI - see docs/dependency-security.md before changing the version
+npx -y firebase-tools@15.22.1 deploy --project staging \
   --only functions,firestore:rules,firestore:indexes,storage,hosting
 ```
 

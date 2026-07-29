@@ -10,11 +10,20 @@ on:
       - "AscendLiveActivityWidgets/**"
       - "AscendApp.xcodeproj/**"
       - "functions/**"
+      - "firestore.rules"
+      - "storage.rules"
       - "firestore.indexes.json"
+      - "firebase.json"
+      - ".firebaserc"
+      - "tests/firebase-rules/**"
       - "scripts/**"
       - "web/**"
       - "package.json"
       - "package-lock.json"
+      - "Gemfile"
+      - "Gemfile.lock"
+      - ".ruby-version"
+      - "fastlane/**"
       - "SharedTestVectors/**"
       - "docs/superwall-paywall-setup.md"
       - "docs/onboarding-design-guide.md"
@@ -44,6 +53,8 @@ jobs:
       scripts: ${{ steps.filter.outputs.scripts }}
       web: ${{ steps.filter.outputs.web }}
       root_npm: ${{ steps.filter.outputs.root_npm }}
+      firebase: ${{ steps.filter.outputs.firebase }}
+      ruby: ${{ steps.filter.outputs.ruby }}
 
     steps:
       - name: Checkout repository
@@ -76,6 +87,10 @@ jobs:
               - "AscendApp.xcodeproj/**"
               - "AscendApp/Info.plist"
               - "AscendApp/Features/Monetization/**"
+              # The Firebase configuration suite validates all three directly.
+              - "firebase.json"
+              - ".firebaserc"
+              - "firestore.indexes.json"
               # The launch-offer suite reads the hosted paywall, public copy,
               # legal terms, and authoritative commerce guidance.
               - "web/public/superwall/**"
@@ -95,6 +110,22 @@ jobs:
             root_npm:
               - "package.json"
               - "package-lock.json"
+              - ".github/workflows/**"
+            firebase:
+              - "firestore.rules"
+              - "storage.rules"
+              - "firestore.indexes.json"
+              - "firebase.json"
+              - ".firebaserc"
+              - "tests/firebase-rules/**"
+              - "package.json"
+              - "package-lock.json"
+              - ".github/workflows/**"
+            ruby:
+              - "Gemfile"
+              - "Gemfile.lock"
+              - ".ruby-version"
+              - "fastlane/**"
               - ".github/workflows/**"
 
   functions-verify:
@@ -208,6 +239,68 @@ jobs:
 
       - name: Audit dependencies
         run: npm audit --package-lock-only --audit-level=low
+
+  firebase-verify:
+    name: Firebase Verify
+    needs: changes
+    if: needs.changes.outputs.firebase == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      # The Firestore and Storage emulators are JVM processes, and the pinned
+      # firebase-tools refuses to start them on a JDK older than 21. The runner
+      # image's default JDK is older than that, so pin one the CLI accepts.
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Validate Firebase configuration
+        run: node scripts/ci/validate-firebase-config.mjs
+
+      # The emulators load firestore.rules and storage.rules before executing
+      # the suite, so invalid syntax fails the job before any unit test runs.
+      - name: Validate rules and run emulator tests
+        run: npm run test:firebase-rules
+
+  # Verifies the bundle under the Ruby the deploy workflows pin, not the local
+  # .ruby-version, so the gate resolves the Gemfile the way releases do.
+  ruby-verify:
+    name: Ruby and Fastlane Verify
+    needs: changes
+    if: needs.changes.outputs.ruby == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.1"
+
+      - name: Install dependencies in deployment mode
+        run: bundle install --deployment --jobs 4 --retry 3
+
+      - name: Validate Fastlane lanes
+        run: bundle exec fastlane lanes
 
   ios-verify:
     name: iOS Verify (Staging)

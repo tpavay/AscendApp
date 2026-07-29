@@ -166,10 +166,12 @@ xcodebuild -scheme AscendApp -configuration Debug -destination 'generic/platform
 Deploy only the intended environment.
 
 ```bash
-npx -y firebase-tools@latest deploy --only hosting --project dev
-npx -y firebase-tools@latest deploy --only hosting --project staging
-npx -y firebase-tools@latest deploy --only hosting --project production
+npx -y firebase-tools@15.22.1 deploy --only hosting --project dev
+npx -y firebase-tools@15.22.1 deploy --only hosting --project staging
+npx -y firebase-tools@15.22.1 deploy --only hosting --project production
 ```
+
+The CLI version is pinned repo-wide; see `docs/dependency-security.md` before changing it.
 
 For ordinary catalog additions, do not change Firestore rules, Storage rules, PrivacyInfo, or app code.
 
