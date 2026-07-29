@@ -102,6 +102,34 @@ struct PrivacyManifestTests {
         }
     }
 
+    @Test(
+        "Every data type an analytics event parameter can land in is declared for Analytics",
+        arguments: Self.eventParameterDataTypes
+    )
+    func eventParameterDataTypesAreDeclaredForAnalytics(dataType: String) throws {
+        let manifest = try loadManifest()
+        let declaration = try #require(
+            manifest.collectedDataTypes.first { $0.type == dataType },
+            "event parameters reach \(dataType) but it is not declared"
+        )
+
+        #expect(declaration.purposes.contains(Self.analytics))
+        #expect(declaration.linked)
+        #expect(declaration.tracking == false)
+    }
+
+    /// The categories analytics event parameters resolve to across the hand inventory: banded body
+    /// values, workout metrics, paywall and purchase fields, the location filter, onboarding answers,
+    /// and interaction fields.
+    static let eventParameterDataTypes: [String] = [
+        health,
+        fitness,
+        purchaseHistory,
+        coarseLocation,
+        otherDataTypes,
+        productInteraction
+    ]
+
     /// Every analytics attribute the app can attach to a Firebase Analytics or Mixpanel identity,
     /// mapped to the manifest data type that has to declare it. Mixpanel receives all of them after
     /// `identify`, so each one is linked to the user.
@@ -117,9 +145,16 @@ struct PrivacyManifestTests {
     ///   `indirectlyNamedAttributesAppearInSource` only checks that each still appears in the file it
     ///   comes from, so a newly added one has to be classified by hand.
     ///
-    /// Event parameters beyond the three listed here are not scanned. They are inventoried by hand in
-    /// `data/asc-app-privacy-answers.md`, and each resolves to Product Interaction or Other Data
-    /// Types, both already declared with Analytics.
+    /// Event parameters beyond the three listed here are not scanned and are not established by the
+    /// user-property scan at all. They are inventoried by hand in the untracked local working file
+    /// `data/asc-app-privacy-answers.md`, which is not part of the repository. Their classification can
+    /// depend on call-site context rather than on the parameter name: `selected_value` on
+    /// `leaderboard_filter_changed` is Health when `filter_type` is `body_weight`, Other Data Types
+    /// when it is `age_group`, and Coarse Location when it is `location`. Across the inventory those
+    /// parameters land in Fitness, Purchase History, Health, and Coarse Location as well as Product
+    /// Interaction and Other Data Types, so no blanket claim about them is made here.
+    /// `eventParameterDataTypesAreDeclaredForAnalytics` checks only that every category they can land
+    /// in is declared linked and non-tracking with the Analytics purpose.
     static let analyticsAttributes: [AnalyticsAttribute] = [
         AnalyticsAttribute(name: "profile_weight_group", dataType: health),
         AnalyticsAttribute(name: "profile_gender", dataType: otherDataTypes),
@@ -221,6 +256,7 @@ struct PrivacyManifestTests {
     private static let coarseLocation = "NSPrivacyCollectedDataTypeCoarseLocation"
     private static let otherDataTypes = "NSPrivacyCollectedDataTypeOtherDataTypes"
     private static let productInteraction = "NSPrivacyCollectedDataTypeProductInteraction"
+    private static let purchaseHistory = "NSPrivacyCollectedDataTypePurchaseHistory"
 
     /// The complete set Apple accepts for `NSPrivacyCollectedDataTypePurposes`. A value outside it
     /// is not a recognized purpose, so the declaration it sits on reads as under-declared.

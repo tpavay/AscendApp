@@ -86,7 +86,12 @@
             </array>
         </dict>
 
-        <!-- Other Data Types - onboarding survey choices and profile demographics used for analytics, app features, and first-climb personalization -->
+        <!--
+          Other Data Types - declared gender or division and age band, the
+          notification preference, the first-climb result fields, and the
+          leaderboard age-group filter. The onboarding fitness answers belong to
+          the Fitness declaration below, not here.
+        -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeOtherDataTypes</string>
