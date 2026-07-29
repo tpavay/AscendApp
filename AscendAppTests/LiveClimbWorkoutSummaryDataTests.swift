@@ -48,6 +48,36 @@ struct LiveClimbWorkoutSummaryDataTests {
         #expect(abs(split.stepsPerMinute - (143.0 / (56.0 / 60.0))) < 0.001)
     }
 
+    @Test
+    func paceSplitsReconcileWithWorkoutWhenFirstBucketContainsSteps() throws {
+        let durationSeconds = 15 * 60 + 30
+        let workoutSteps = 1_240
+        let splitSteps = (0...93).map { bucket in
+            min(14 + bucket * 13, workoutSteps)
+        }
+        let workout = makeLiveClimbWorkout(
+            duration: TimeInterval(durationSeconds),
+            steps: workoutSteps,
+            splitSteps: splitSteps
+        )
+
+        let splits = LiveClimbWorkoutSummaryData.paceSplits(
+            for: workout,
+            targetSteps: workoutSteps
+        )
+
+        let firstSplit = try #require(splits.first)
+        let lastSplit = try #require(splits.last)
+        #expect(splits.count == 8)
+        #expect(firstSplit.startElapsedSeconds == 0)
+        #expect(lastSplit.endElapsedSeconds == durationSeconds)
+        #expect(splits.reduce(0) { $0 + $1.durationSeconds } == durationSeconds)
+        #expect(splits.reduce(0) { $0 + $1.steps } == workoutSteps)
+        for (split, nextSplit) in zip(splits, splits.dropFirst()) {
+            #expect(split.endElapsedSeconds == nextSplit.startElapsedSeconds)
+        }
+    }
+
     private func makeLiveClimbWorkout(
         duration: TimeInterval,
         steps: Int,

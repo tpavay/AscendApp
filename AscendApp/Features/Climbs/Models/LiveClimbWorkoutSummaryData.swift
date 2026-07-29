@@ -136,6 +136,8 @@ enum LiveClimbWorkoutSummaryData {
             points = []
         }
 
+        // Recovered and legacy curves can contain steps in bucket zero, but workout progress starts at zero.
+        points.removeAll { $0.elapsedSeconds == 0 }
         points.insert(LiveClimbProgressPoint(elapsedSeconds: 0, steps: 0), at: 0)
 
         if points.last?.elapsedSeconds != durationSeconds || points.last?.steps != workout.steps {
