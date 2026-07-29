@@ -3,11 +3,16 @@ import Foundation
 
 final class SentryDiagnosticsReporter: CrashlyticsReporting, @unchecked Sendable {
     private let configuration: SentryConfiguration
+    private let buildMetadata: TelemetryBuildMetadata
     private let lock = NSLock()
     private var didStart = false
 
-    init(configuration: SentryConfiguration = .live) {
+    init(
+        configuration: SentryConfiguration = .live,
+        buildMetadata: TelemetryBuildMetadata = .current
+    ) {
         self.configuration = configuration
+        self.buildMetadata = buildMetadata
     }
 
     func setCollectionEnabled(_ enabled: Bool) {
@@ -23,9 +28,9 @@ final class SentryDiagnosticsReporter: CrashlyticsReporting, @unchecked Sendable
 
         let options = Options()
         options.dsn = dsn
-        options.environment = Self.appEnvironmentName
-        options.releaseName = Self.releaseName
-        options.dist = Self.buildNumber
+        options.environment = buildMetadata.appEnvironment
+        options.releaseName = buildMetadata.releaseName
+        options.dist = buildMetadata.buildNumber
         options.sendDefaultPii = false
         options.attachScreenshot = false
         options.attachViewHierarchy = false
@@ -40,10 +45,9 @@ final class SentryDiagnosticsReporter: CrashlyticsReporting, @unchecked Sendable
 
         SentrySDK.start(options: options)
         SentrySDK.configureScope { scope in
-            scope.setTag(value: Self.appEnvironmentName, key: "app_environment")
-            scope.setTag(value: Self.buildConfigName, key: "build_config")
-            scope.setTag(value: Self.appVersion, key: "app_version")
-            scope.setTag(value: Self.buildNumber, key: "build_number")
+            self.buildMetadata.properties.forEach { key, value in
+                scope.setTag(value: value, key: key)
+            }
         }
         didStart = true
     }
@@ -103,37 +107,5 @@ final class SentryDiagnosticsReporter: CrashlyticsReporting, @unchecked Sendable
         guard didStart else { return }
         SentrySDK.close()
         didStart = false
-    }
-
-    private static var appEnvironmentName: String {
-        #if DEBUG
-        return "dev"
-        #elseif STAGING
-        return "staging"
-        #else
-        return "production"
-        #endif
-    }
-
-    private static var buildConfigName: String {
-        #if DEBUG
-        return "debug"
-        #elseif STAGING
-        return "staging"
-        #else
-        return "release"
-        #endif
-    }
-
-    private static var appVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
-    }
-
-    private static var buildNumber: String {
-        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown"
-    }
-
-    private static var releaseName: String {
-        "\(Bundle.main.bundleIdentifier ?? "AscendApp")@\(appVersion)+\(buildNumber)"
     }
 }
