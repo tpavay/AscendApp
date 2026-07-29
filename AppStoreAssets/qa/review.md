@@ -25,7 +25,8 @@ The seven screens form a coherent progression from stair-stepper effort, to Ever
 
 ## Content coherence
 
-- Screen 01 pairs stair-stepper effort photography with a real completed-workout share surface.
+- Screen 01 pairs stair-stepper effort photography with the genuine Live Climb recap itself: 15th global rank, 2,096 steps, 98 SPM, 23:53, 110 floors, and Empire State Building.
+- Screen 01 contains no share-sheet title, dismissal control, explanatory copy, or share-destination buttons.
 - Screen 02 pairs its Everest headline with an app surface that visibly includes the Everest card and names Mt. Everest in its supporting copy.
 - Screen 03 shows the live globe and real landmark catalog.
 - Screen 04 shows an in-progress replay leaderboard with the current climber highlighted.

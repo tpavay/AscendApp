@@ -38,7 +38,11 @@ const screens = [
     filename: '01-get-fit-stair-stepper.png',
     source: path.join(sourceDirectory, '01-stair-stepper-effort.png'),
     uiSource: path.join(root, 'web/public/images/ascend-live-climb-share.png'),
-    sourceStatusHeight: 130,
+    sourceCrop: { left: 50, top: 530, width: 753, height: 790 },
+    bodyBackground: 'recapGlow',
+    bodyWidth: 940,
+    bodyTop: 330,
+    bodyRadius: 86,
     lines: ['GET FIT ON THE', 'STAIR STEPPER.'],
     photo: true,
   },
@@ -165,18 +169,18 @@ async function normalizedStatusBar() {
 
 async function phoneBuffer(screen, statusBar) {
   const metadata = await sharp(screen.uiSource).metadata();
-  const sourceStatusHeight = screen.sourceStatusHeight;
+  const sourceStatusHeight = screen.sourceStatusHeight ?? 0;
   const sourceBottomCrop = screen.sourceBottomCrop ?? 0;
   const sourceBottomPadding = screen.sourceBottomPadding ?? 0;
-  const sourceBodyHeight = metadata.height - sourceStatusHeight - sourceBottomCrop;
+  const sourceCrop = screen.sourceCrop ?? {
+    left: 0,
+    top: sourceStatusHeight,
+    width: metadata.width,
+    height: metadata.height - sourceStatusHeight - sourceBottomCrop,
+  };
 
   const croppedBody = await sharp(screen.uiSource)
-    .extract({
-      left: 0,
-      top: sourceStatusHeight,
-      width: metadata.width,
-      height: sourceBodyHeight,
-    })
+    .extract(sourceCrop)
     .flatten({ background: '#000000' })
     .png()
     .toBuffer();
@@ -184,8 +188,8 @@ async function phoneBuffer(screen, statusBar) {
   const paddedBody = sourceBottomPadding > 0
     ? await sharp({
       create: {
-        width: metadata.width,
-        height: sourceBodyHeight + sourceBottomPadding,
+        width: sourceCrop.width,
+        height: sourceCrop.height + sourceBottomPadding,
         channels: 3,
         background: '#000000',
       },
@@ -195,13 +199,85 @@ async function phoneBuffer(screen, statusBar) {
       .toBuffer()
     : croppedBody;
 
-  const body = await sharp(paddedBody)
-    .resize(innerWidth, bodyHeight, {
-      fit: 'cover',
-      position: 'top',
+  let body;
+  if (screen.bodyWidth) {
+    const resizedInset = await sharp(paddedBody)
+      .resize({ width: screen.bodyWidth })
+      .png()
+      .toBuffer();
+    const resizedInsetMetadata = await sharp(resizedInset).metadata();
+    const inset = screen.bodyRadius
+      ? await sharp(resizedInset)
+        .composite([{
+          input: Buffer.from(`
+            <svg width="${resizedInsetMetadata.width}" height="${resizedInsetMetadata.height}" xmlns="http://www.w3.org/2000/svg">
+              <rect
+                width="${resizedInsetMetadata.width}"
+                height="${resizedInsetMetadata.height}"
+                rx="${screen.bodyRadius}"
+                fill="#FFFFFF"
+              />
+            </svg>
+          `),
+          blend: 'dest-in',
+        }])
+        .png()
+        .toBuffer()
+      : resizedInset;
+    const insetMetadata = await sharp(inset).metadata();
+    const bodyBackground = screen.bodyBackground === 'recapGlow'
+      ? Buffer.from(`
+        <svg width="${innerWidth}" height="${bodyHeight}" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <radialGradient id="warm" cx="50%" cy="26%" r="72%">
+              <stop offset="0%" stop-color="#8A3E0C" stop-opacity="0.64" />
+              <stop offset="48%" stop-color="#35180B" stop-opacity="0.48" />
+              <stop offset="100%" stop-color="#050607" stop-opacity="0" />
+            </radialGradient>
+            <radialGradient id="lime" cx="50%" cy="61%" r="52%">
+              <stop offset="0%" stop-color="${accent}" stop-opacity="0.1" />
+              <stop offset="100%" stop-color="${accent}" stop-opacity="0" />
+            </radialGradient>
+            <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#110B08" />
+              <stop offset="100%" stop-color="#020304" />
+            </linearGradient>
+          </defs>
+          <rect width="${innerWidth}" height="${bodyHeight}" fill="url(#fade)" />
+          <rect width="${innerWidth}" height="${bodyHeight}" fill="url(#warm)" />
+          <rect width="${innerWidth}" height="${bodyHeight}" fill="url(#lime)" />
+        </svg>
+      `)
+      : null;
+    const bodyComposites = [];
+    if (bodyBackground) {
+      bodyComposites.push({ input: bodyBackground, top: 0, left: 0 });
+    }
+    bodyComposites.push({
+      input: inset,
+      top: screen.bodyTop ?? 0,
+      left: Math.round((innerWidth - insetMetadata.width) / 2),
+    });
+    body = await sharp({
+      create: {
+        width: innerWidth,
+        height: bodyHeight,
+        channels: 3,
+        background: '#000000',
+      },
     })
-    .png()
-    .toBuffer();
+      .composite(bodyComposites)
+      .png()
+      .toBuffer();
+  } else {
+    body = await sharp(paddedBody)
+      .resize(innerWidth, bodyHeight, {
+        fit: 'cover',
+        position: 'top',
+      })
+      .png()
+      .toBuffer();
+  }
 
   const ui = await sharp({
     create: {

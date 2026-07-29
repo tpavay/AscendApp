@@ -18,7 +18,7 @@ The two approved transformation photographs are preserved in `sources/`.
 They are used as full-bleed backgrounds rather than replaced.
 
 Every screen contains genuine Ascend UI.
-Screen 01 uses the real Live Climb share capture.
+Screen 01 isolates the genuine Live Climb recap card from the real app capture, with the surrounding share workflow removed.
 Screen 02 uses a Simulator capture of Ascend's landmark onboarding surface, including its Everest card.
 Screens 03 through 05 use the real globe, live replay leaderboard, and per-climb leaderboard captures.
 Screen 06 uses a Simulator capture of Ascend's First Ascent notification surface with its genuinely enabled primary action.
