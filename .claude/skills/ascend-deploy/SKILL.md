@@ -138,7 +138,7 @@ Do not introduce a *new* long-lived JSON service-account key for deploy auth; th
 
 ## CI Firebase plists
 
-`GoogleService-Info*.plist` files are gitignored. CI decodes them from base64 secrets into `AscendApp/App/Firebase/` before building:
+The Staging and Production plists are gitignored; the Dev plist is committed (see `AscendApp/App/Firebase/README.md`). CI decodes all three from base64 secrets into `AscendApp/App/Firebase/` before building:
 `GOOGLE_SERVICE_INFO_DEV_BASE64`, `GOOGLE_SERVICE_INFO_STAGING_BASE64`, `GOOGLE_SERVICE_INFO_PRODUCTION_BASE64`.
 
 ## Related

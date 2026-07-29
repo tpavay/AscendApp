@@ -70,7 +70,7 @@ web/                    # Website source
 
 ## Build, Test, Run
 
-`GoogleService-Info*.plist` files are gitignored. `AscendApp/App/Firebase/` needs the plist for the environment you're building; see the README there. CI decodes them from base64 secrets.
+`AscendApp/App/Firebase/` needs the plist for the environment you're building - the Dev plist is committed, Staging and Production are gitignored and linked in locally; see the README there. CI decodes them from base64 secrets.
 
 ```bash
 # iOS tests (mirrors CI - .github/workflows/ci.yml)
