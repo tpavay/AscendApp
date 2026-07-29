@@ -47,6 +47,9 @@ struct LiveClimbStepTimelineRecorder: Equatable, Sendable {
         splitSampler.reset()
     }
 
+    /// Re-seeds the sampler from a persisted curve. Replaying bucket `i` at
+    /// `i * intervalSeconds` lands inside bucket `i` again, so indices round-trip unchanged;
+    /// see `LiveReplaySplitCurve` for the end-anchored bucket contract this must preserve.
     mutating func restore(curve: LiveReplaySplitCurve) {
         splitSampler.reset()
 

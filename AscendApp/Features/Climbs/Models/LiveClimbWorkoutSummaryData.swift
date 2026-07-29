@@ -156,9 +156,8 @@ enum LiveClimbWorkoutSummaryData {
         max(elapsedSeconds, 0) / max(intervalSeconds, 1)
     }
 
-    /// A bucket holds the latest cumulative step count sampled anywhere inside
-    /// `[index * interval, (index + 1) * interval)`, so it belongs on the time axis at the
-    /// end of that window, not its start.
+    /// A bucket is interpreted at the end of its window, not its start - see
+    /// `LiveReplaySplitCurve` for the anchoring contract this places points against.
     private static func splitElapsedSeconds(
         forBucketIndex index: Int,
         intervalSeconds: Int,

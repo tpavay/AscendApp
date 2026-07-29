@@ -1,3 +1,19 @@
+/*
+ * Split curves are bucket-indexed, and every producer and consumer must agree
+ * on the same anchoring:
+ * `splitSteps[i]` is the latest cumulative step count sampled anywhere inside
+ * `[i * splitIntervalSeconds, (i + 1) * splitIntervalSeconds)`, and is
+ * interpreted at that window's *end* - index `i` sits at
+ * `(i + 1) * splitIntervalSeconds` on a time axis. There is no leading
+ * zero-steps entry; index 0 already carries the first interval's progress.
+ *
+ * The iOS producer (`LiveReplaySplitCurve`, which owns the full statement of
+ * this contract), the workout summary chart, Best Efforts segment math, and the
+ * replay bucket entries written from this output all assume that same end
+ * anchoring. Re-basing buckets here alone silently desynchronizes the others
+ * rather than failing loudly.
+ */
+
 export const MAX_REPLAY_SPLIT_CHECKPOINTS = 360;
 
 export interface NormalizeReplaySplitStepsInput {
