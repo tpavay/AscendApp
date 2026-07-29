@@ -10,11 +10,27 @@ final class RevenueCatEntitlementService: EntitlementServicing {
     var entitlementState: MonetizationEntitlementState {
         identityTransitionState.entitlementState
     }
-    private(set) var isConfigured = false
+    private(set) var isConfigured: Bool
+    var scheduledIdentityMutationCount: Int {
+        identityMutationTasks.count
+    }
 
+    private let provider: any RevenueCatEntitlementProviding
     private var configuration = MonetizationConfiguration.live
     private var customerInfoTask: Task<Void, Never>?
+    private var identityMutationTail: Task<Void, Never>?
+    private var identityMutationTasks: [
+        MonetizationIdentityTransition: Task<Void, Never>
+    ] = [:]
     private var identityTransitionState = MonetizationIdentityTransitionState()
+
+    init(
+        provider: any RevenueCatEntitlementProviding = RevenueCatPurchasesProvider(),
+        startsConfigured: Bool = false
+    ) {
+        self.provider = provider
+        isConfigured = startsConfigured
+    }
 
     func configure(configuration: MonetizationConfiguration = .live) {
         guard !isConfigured else { return }
@@ -22,7 +38,6 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         self.configuration = configuration
 
         guard let apiKey = configuration.revenueCatAPIKey else {
-            applyCurrentState(.inactive)
             TelemetryManager.shared.set(.hasAppAccess, value: false)
             return
         }
@@ -38,117 +53,117 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         }
 
         isConfigured = true
-        observeCustomerInfo()
 
-        Task {
-            await refreshCustomerInfo()
+        if identityTransitionState.refreshToken() != nil {
+            observeCustomerInfoUpdates()
+            Task {
+                await refreshCustomerInfo()
+            }
         }
     }
 
     func refreshCustomerInfo() async {
-        guard isConfigured else { return }
-        let identitySnapshot = identityTransitionState.snapshot()
+        guard isConfigured,
+              let refreshToken = identityTransitionState.refreshToken() else {
+            return
+        }
 
         do {
-            let customerInfo = try await Purchases.shared.customerInfo()
-            apply(
-                customerInfo: customerInfo,
-                forRefreshOf: identitySnapshot
-            )
+            let state = try await provider.customerInfoState()
+            applyRefreshState(state, for: refreshToken)
         } catch {
-            applyRefreshState(.unknown, for: identitySnapshot)
+            applyRefreshState(.unknown, for: refreshToken)
         }
     }
 
     func prepareIdentity(userId: String) -> MonetizationIdentityTransition {
-        identityTransitionState.prepare(userID: userId)
+        prepareIdentityMutation(
+            userID: userId,
+            mutation: .identify(userID: userId)
+        )
     }
 
     func identify(
         userId: String,
         transition: MonetizationIdentityTransition
     ) async {
-        guard isConfigured else {
-            resolve(.inactive, for: transition)
-            return
-        }
-
-        do {
-            let logInResult = try await Purchases.shared.logIn(userId)
-            resolve(
-                entitlementState(from: logInResult.customerInfo),
-                for: transition
-            )
-        } catch {
-            resolve(.unknown, for: transition)
-        }
+        guard transition.userID == userId else { return }
+        await identityMutationTasks[transition]?.value
     }
 
     func prepareIdentityReset() -> MonetizationIdentityTransition {
-        identityTransitionState.prepare(userID: nil)
+        prepareIdentityMutation(userID: nil, mutation: .reset)
     }
 
     func resetIdentity(transition: MonetizationIdentityTransition) async {
-        guard isConfigured else {
-            resolve(.inactive, for: transition)
-            return
-        }
-
-        do {
-            let customerInfo = try await Purchases.shared.logOut()
-            resolve(
-                entitlementState(from: customerInfo),
-                for: transition
-            )
-        } catch {
-            resolve(.unknown, for: transition)
-        }
+        guard transition.userID == nil else { return }
+        await identityMutationTasks[transition]?.value
     }
 
     func restorePurchases() async throws {
         guard isConfigured else { return }
-        let identitySnapshot = identityTransitionState.snapshot()
+        let refreshToken = identityTransitionState.refreshToken()
+        let state = try await provider.restorePurchasesState()
 
-        let customerInfo = try await Purchases.shared.restorePurchases()
-        apply(
-            customerInfo: customerInfo,
-            forRefreshOf: identitySnapshot
-        )
-    }
-
-    private func observeCustomerInfo() {
-        customerInfoTask?.cancel()
-        customerInfoTask = Task { [weak self] in
-            for await customerInfo in Purchases.shared.customerInfoStream {
-                self?.applyCurrent(customerInfo: customerInfo)
-            }
+        if let refreshToken {
+            applyRefreshState(state, for: refreshToken)
         }
     }
 
-    private func applyCurrent(customerInfo: CustomerInfo) {
-        let snapshot = identityTransitionState.snapshot()
-        apply(customerInfo: customerInfo, forRefreshOf: snapshot)
+    private func prepareIdentityMutation(
+        userID: String?,
+        mutation: RevenueCatIdentityMutation
+    ) -> MonetizationIdentityTransition {
+        customerInfoTask?.cancel()
+        customerInfoTask = nil
+
+        let transition = identityTransitionState.prepare(userID: userID)
+        let priorMutation = identityMutationTail
+        let mutationTask = Task { @MainActor [weak self] in
+            await priorMutation?.value
+
+            guard let self else {
+                return
+            }
+            defer {
+                self.identityMutationTasks[transition] = nil
+            }
+
+            guard self.identityTransitionState.isPending(transition) else {
+                return
+            }
+
+            let state = await self.performIdentityMutation(mutation)
+            self.finishIdentityMutation(state, for: transition)
+        }
+
+        identityMutationTasks[transition] = mutationTask
+        identityMutationTail = Task { @MainActor in
+            await mutationTask.value
+        }
+        return transition
     }
 
-    private func apply(
-        customerInfo: CustomerInfo,
-        forRefreshOf snapshot: MonetizationIdentityTransition
-    ) {
-        applyRefreshState(
-            entitlementState(from: customerInfo),
-            for: snapshot
-        )
+    private func performIdentityMutation(
+        _ mutation: RevenueCatIdentityMutation
+    ) async -> MonetizationEntitlementState {
+        guard isConfigured else {
+            return .inactive
+        }
+
+        do {
+            switch mutation {
+            case .identify(let userID):
+                return try await provider.logInState(userID: userID)
+            case .reset:
+                return try await provider.logOutState()
+            }
+        } catch {
+            return .unknown
+        }
     }
 
-    private func entitlementState(from customerInfo: CustomerInfo) -> MonetizationEntitlementState {
-        let activeEntitlementIDs = Set(customerInfo.entitlements.activeInCurrentEnvironment.keys)
-
-        return activeEntitlementIDs.isEmpty
-            ? .inactive
-            : .active(activeEntitlementIDs)
-    }
-
-    private func resolve(
+    private func finishIdentityMutation(
         _ state: MonetizationEntitlementState,
         for transition: MonetizationIdentityTransition
     ) {
@@ -156,23 +171,29 @@ final class RevenueCatEntitlementService: EntitlementServicing {
             return
         }
 
-        updateTelemetry(for: state)
-    }
-
-    private func applyRefreshState(
-        _ state: MonetizationEntitlementState,
-        for snapshot: MonetizationIdentityTransition
-    ) {
-        guard identityTransitionState.applyRefresh(state, for: snapshot) else {
+        guard state != .unknown else {
             return
         }
 
         updateTelemetry(for: state)
+        observeCustomerInfoUpdates()
     }
 
-    private func applyCurrentState(_ state: MonetizationEntitlementState) {
-        let snapshot = identityTransitionState.snapshot()
-        guard identityTransitionState.applyRefresh(state, for: snapshot) else {
+    private func observeCustomerInfoUpdates() {
+        customerInfoTask?.cancel()
+        customerInfoTask = Task { @MainActor [weak self, provider] in
+            for await _ in provider.customerInfoUpdates {
+                guard !Task.isCancelled else { return }
+                await self?.refreshCustomerInfo()
+            }
+        }
+    }
+
+    private func applyRefreshState(
+        _ state: MonetizationEntitlementState,
+        for refreshToken: MonetizationIdentityTransition
+    ) {
+        guard identityTransitionState.applyRefresh(state, for: refreshToken) else {
             return
         }
 

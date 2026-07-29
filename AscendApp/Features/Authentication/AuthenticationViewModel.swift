@@ -53,8 +53,13 @@ class AuthenticationViewModel {
 
     private var authenticationService = AuthenticationService()
     private let accountSessionStore = AccountSessionStore.shared
+    private let monetizationIdentityManager: any MonetizationIdentityManaging
 
-    init() {
+    init(
+        monetizationIdentityManager: any MonetizationIdentityManaging = MonetizationManager.shared,
+        observesFirebaseAuth: Bool = true
+    ) {
+        self.monetizationIdentityManager = monetizationIdentityManager
         lastUsedProvider = accountSessionStore.lastUsedProvider
 
         // Load cached display name immediately for UI responsiveness
@@ -65,13 +70,15 @@ class AuthenticationViewModel {
             customProfilePictureURL = URL(string: cachedURLString)
         }
 
-        if let currentUser = Auth.auth().currentUser {
+        if observesFirebaseAuth, let currentUser = Auth.auth().currentUser {
             user = currentUser
             photoURL = currentUser.photoURL
             authenticationState = .restoringSession
         }
-        
-        registerAuthStateHandler()
+
+        if observesFirebaseAuth {
+            registerAuthStateHandler()
+        }
     }
     private var authStateHandle: AuthStateDidChangeListenerHandle?
 
@@ -82,19 +89,9 @@ class AuthenticationViewModel {
                 self.photoURL = user?.photoURL ?? URL(string: "")
 
                 if let user = user {
-                    let monetizationTransition = MonetizationManager.shared.prepareIdentity(
-                        userId: user.uid
-                    )
-
                     // Set telemetry user ID and log session restored
                     TelemetryManager.shared.setUserId(user.uid)
                     TelemetryManager.shared.log(.authSessionRestored)
-                    Task {
-                        await MonetizationManager.shared.identify(
-                            userId: user.uid,
-                            transition: monetizationTransition
-                        )
-                    }
 
                     // Check if we're in an interactive sign-in flow (already showing progress)
                     let isInteractiveSignIn = self.authenticationState == .authenticatingWithGoogle ||
@@ -106,19 +103,20 @@ class AuthenticationViewModel {
                     self.displayName = cachedDisplayName
                     let shouldSaveInitialUserRecord = !isInteractiveSignIn || !cachedDisplayName.isEmpty
 
-                    // If we have a cached name, we can show authenticated immediately
-                    // Otherwise, show restoring session while we fetch from Firestore
+                    let initialAuthenticationState: AuthenticationState
                     if !cachedDisplayName.isEmpty {
                         self.isProfileLoaded = true
-                        self.authenticationState = .authenticated
+                        initialAuthenticationState = .authenticated
                     } else if isInteractiveSignIn {
-                        // Interactive sign-in: set authenticated immediately even without display name
-                        self.authenticationState = .authenticated
+                        initialAuthenticationState = .authenticated
                     } else {
-                        // Cold launch without cached name: show restoring session
                         self.isProfileLoaded = false
-                        self.authenticationState = .restoringSession
+                        initialAuthenticationState = .restoringSession
                     }
+                    self.beginAuthenticatedSession(
+                        userID: user.uid,
+                        initialState: initialAuthenticationState
+                    )
 
                     // Handle Firestore operations in background
                     Task {
@@ -158,13 +156,13 @@ class AuthenticationViewModel {
                         }
                     }
                 } else {
-                    let monetizationTransition = MonetizationManager.shared.prepareIdentityReset()
+                    let monetizationTransition = self.monetizationIdentityManager.prepareIdentityReset()
 
                     // User signed out - reset all state
                     TelemetryManager.shared.log(.authSignOut)
                     TelemetryManager.shared.clearUserId()
                     Task {
-                        await MonetizationManager.shared.resetIdentity(
+                        await self.monetizationIdentityManager.resetIdentity(
                             transition: monetizationTransition
                         )
                     }
@@ -178,6 +176,22 @@ class AuthenticationViewModel {
                 }
             })
         }
+    }
+
+    func beginAuthenticatedSession(
+        userID: String,
+        initialState: AuthenticationState
+    ) {
+        let monetizationTransition = monetizationIdentityManager.prepareIdentity(
+            userId: userID
+        )
+        Task {
+            await monetizationIdentityManager.identify(
+                userId: userID,
+                transition: monetizationTransition
+            )
+        }
+        authenticationState = initialState
     }
 }
 

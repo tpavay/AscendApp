@@ -1,6 +1,6 @@
 import Foundation
 
-struct MonetizationIdentityTransition: Equatable, Sendable {
+struct MonetizationIdentityTransition: Equatable, Hashable, Sendable {
     let revision: UInt
     let userID: String?
 }
