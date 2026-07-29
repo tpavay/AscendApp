@@ -148,15 +148,16 @@ struct PrivacyManifestTests {
     ///   comes from, so a newly added one has to be classified by hand.
     ///
     /// Event parameters beyond the three listed here are not scanned and are not established by the
-    /// user-property scan at all. They are inventoried by hand in the untracked local working file
-    /// `data/asc-app-privacy-answers.md`, which is not part of the repository. Their classification can
-    /// depend on call-site context rather than on the parameter name: `selected_value` on
-    /// `leaderboard_filter_changed` is Health when `filter_type` is `body_weight`, Other Data Types
-    /// when it is `age_group`, and Coarse Location when it is `location`. Across the inventory those
-    /// parameters land in Fitness, Purchase History, Health, and Coarse Location as well as Product
-    /// Interaction and Other Data Types, so no blanket claim about them is made here.
-    /// `eventParameterDataTypesAreDeclaredForAnalytics` checks only that every category they can land
-    /// in is declared linked and non-tracking with the Analytics purpose.
+    /// user-property scan at all. They are inventoried by hand in
+    /// `AscendAppTests/PrivacyAnalyticsClassification.md`, which owns the parameter-to-data-type
+    /// mapping. Their classification can depend on call-site context rather than on the parameter
+    /// name: `selected_value` on `leaderboard_filter_changed` is Health when `filter_type` is
+    /// `body_weight`, Other Data Types when it is `age_group`, and Coarse Location when it is
+    /// `location`. Across the inventory those parameters land in Fitness, Purchase History, Health,
+    /// and Coarse Location as well as Product Interaction and Other Data Types, so no blanket claim
+    /// about them is made here. `eventParameterDataTypesAreDeclaredForAnalytics` checks only that
+    /// every category they can land in is declared linked and non-tracking with the Analytics
+    /// purpose.
     static let analyticsAttributes: [AnalyticsAttribute] = [
         AnalyticsAttribute(name: "profile_weight_group", dataType: health),
         AnalyticsAttribute(name: "profile_gender", dataType: otherDataTypes),

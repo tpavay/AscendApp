@@ -29,7 +29,9 @@
 
   See the `ascend-privacy-manifest` skill
   (.claude/skills/ascend-privacy-manifest/SKILL.md) for the full checklist
-  tied to concrete code-change triggers.
+  tied to concrete code-change triggers, and
+  AscendAppTests/PrivacyAnalyticsClassification.md for which analytics user
+  property or event parameter maps to which data type below.
 
   Apple references:
     - https://developer.apple.com/documentation/bundleresources/privacy_manifest_files

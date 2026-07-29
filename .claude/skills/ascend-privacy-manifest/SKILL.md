@@ -23,7 +23,8 @@ It pins every `NSPrivacyCollectedDataTypes` entry to its expected `Linked` flag 
 It also scans every Swift file under `AscendApp/` for literal `setUserProperty("…")` names, plus the `set("…")` wrapper inside `OnboardingAnalyticsUserProperties`, and fails until each one is classified against the manifest data type that declares it - which must be linked, non-tracking, and carry the Analytics purpose.
 
 Analytics **event parameters** are not scanned, because a parameter's data type can depend on call-site context rather than on its name (`selected_value` on `leaderboard_filter_changed` is Health, Other Data Types, or Coarse Location depending on `filter_type`).
-Classify a new event parameter by hand; the tests only guarantee that every category such a parameter can land in is declared for Analytics.
+The tests only guarantee that every category such a parameter can land in is declared for Analytics.
+`AscendAppTests/PrivacyAnalyticsClassification.md` owns the property-and-parameter-to-data-type mapping, including the context-dependent cases; classify a new parameter there in the same change as the manifest.
 
 ## The four artifacts must agree
 
