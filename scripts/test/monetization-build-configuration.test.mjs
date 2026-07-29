@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   MONETIZATION_API_KEY_SETTINGS,
+  MONETIZATION_SAFETY_SETTINGS,
   PLACEHOLDER_API_KEY_PREFIX,
   appBuildConfigurations,
   settingValue
@@ -46,8 +47,20 @@ async function monetizationConfigurations() {
       revenueCatAPIKey: requiredSetting(buildSettings, "ASCEND_REVENUECAT_API_KEY"),
       revenueCatTestAPIKey: requiredSetting(buildSettings, "ASCEND_REVENUECAT_TEST_API_KEY"),
       revenueCatTestStore: requiredSetting(buildSettings, "ASCEND_USE_REVENUECAT_TEST_STORE"),
+      revenueCatYearlyProductID: requiredSetting(
+        buildSettings,
+        "ASCEND_REVENUECAT_YEARLY_PRODUCT_ID"
+      ),
+      revenueCatMonthlyProductID: requiredSetting(
+        buildSettings,
+        "ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID"
+      ),
       superwallAPIKey: requiredSetting(buildSettings, "ASCEND_SUPERWALL_API_KEY"),
-      superwallTestMode: requiredSetting(buildSettings, "ASCEND_SUPERWALL_TEST_MODE")
+      superwallTestMode: requiredSetting(buildSettings, "ASCEND_SUPERWALL_TEST_MODE"),
+      allowsUnentitledAppAccess: requiredSetting(
+        buildSettings,
+        "ASCEND_ALLOWS_UNENTITLED_APP_ACCESS"
+      )
     });
   }
 
@@ -119,14 +132,35 @@ test("test-store and test-mode settings remain disabled in every environment", a
   }
 });
 
+test("app access and launch products are explicit and safe in every environment", async () => {
+  const configurations = await monetizationConfigurations();
+  const debug = configurations.get("Debug");
+  const staging = configurations.get("Staging");
+  const release = configurations.get("Release");
+
+  assert.equal(debug.allowsUnentitledAppAccess, "YES");
+  assert.equal(staging.allowsUnentitledAppAccess, "NO");
+  assert.equal(release.allowsUnentitledAppAccess, "NO");
+
+  assert.equal(debug.revenueCatYearlyProductID, "ascend_staging_yearly");
+  assert.equal(debug.revenueCatMonthlyProductID, "ascend_staging_monthly");
+  assert.equal(staging.revenueCatYearlyProductID, "ascend_staging_yearly");
+  assert.equal(staging.revenueCatMonthlyProductID, "ascend_staging_monthly");
+  assert.equal(release.revenueCatYearlyProductID, "ascend_yearly");
+  assert.equal(release.revenueCatMonthlyProductID, "ascend_monthly");
+});
+
 test("Info.plist resolves the selected build settings for runtime configuration", async () => {
   const infoPlist = await readFile(infoPlistPath, "utf8");
   const runtimeMappings = new Map([
     ["AscendRevenueCatAPIKey", "ASCEND_REVENUECAT_API_KEY"],
     ["AscendRevenueCatTestAPIKey", "ASCEND_REVENUECAT_TEST_API_KEY"],
     ["AscendUseRevenueCatTestStore", "ASCEND_USE_REVENUECAT_TEST_STORE"],
+    ["AscendRevenueCatYearlyProductID", "ASCEND_REVENUECAT_YEARLY_PRODUCT_ID"],
+    ["AscendRevenueCatMonthlyProductID", "ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID"],
     ["AscendSuperwallAPIKey", "ASCEND_SUPERWALL_API_KEY"],
-    ["AscendSuperwallTestMode", "ASCEND_SUPERWALL_TEST_MODE"]
+    ["AscendSuperwallTestMode", "ASCEND_SUPERWALL_TEST_MODE"],
+    ["AscendAllowsUnentitledAppAccess", "ASCEND_ALLOWS_UNENTITLED_APP_ACCESS"]
   ]);
 
   for (const [infoKey, buildSetting] of runtimeMappings) {
@@ -184,32 +218,33 @@ test("the build gate covers every key the launch backstop rejects", async () => 
   );
 });
 
-// No Swift test can observe both sides of a build-configuration branch, and CI
-// only runs the suite under Staging, so the Release-only default is pinned here.
-test("the launch offering audit defaults on for Release alone", async () => {
+test("unentitled access is read only from Info.plist and fails closed", async () => {
   const configuration = await readFile(configurationSourcePath, "utf8");
-  const auditDefault = configuration.match(
-    /private static var defaultAuditsLaunchOffering: Bool \{\s*#if ([^\n]+)\n\s*(\w+)\n\s*#else\n\s*(\w+)\n\s*#endif/
-  );
 
-  assert.ok(auditDefault, "Missing defaultAuditsLaunchOffering");
-
-  const [, condition, whenConditionHolds, otherwise] = auditDefault;
-
-  assert.equal(condition.trim(), "DEBUG || STAGING");
-  assert.equal(whenConditionHolds, "false");
-  assert.equal(otherwise, "true");
   assert.match(
     configuration,
-    /auditsLaunchOffering: Bool = Self\.defaultAuditsLaunchOffering/,
-    "Shipped builds must take the audit flag from the build-configuration default"
+    /allowsUnentitledAppAccess = Self\.normalizedBool\(\s*infoDictionary\[Self\.allowsUnentitledAppAccessInfoKey\]\s*\) \?\? false/,
+    "Missing or malformed unentitled access settings must stay gated"
+  );
+  assert.doesNotMatch(configuration, /defaultAllowsUnentitledAppAccess/);
+  assert.doesNotMatch(configuration, /allowsUnentitledAppAccess: Bool =/);
+});
+
+test("Superwall test mode is controlled only by its build setting", async () => {
+  const configuration = await readFile(configurationSourcePath, "utf8");
+
+  assert.match(
+    configuration,
+    /isSuperwallTestModeEnabled =\s*Self\.normalizedBool\(infoDictionary\[Self\.superwallTestModeInfoKey\]\) \?\? false/
+  );
+  assert.doesNotMatch(
+    configuration,
+    /isSuperwallTestModeEnabled = allowsRevenueCatTestStore/
   );
 });
 
-// Staging sells ascend_staging_* against hardcoded production launch product IDs,
-// so an ungated audit would emit monetization_offering_mismatch on every staging
-// launch and bury the production signal.
-test("the launch offering audit stays behind its Release-only gate", async () => {
+test("the launch offering audit runs for every configured App Store environment", async () => {
+  const configuration = await readFile(configurationSourcePath, "utf8");
   const service = await readFile(entitlementServiceSourcePath, "utf8");
   const gates = [...service.matchAll(/configuration\.shouldAuditLaunchOffering/g)];
   const emitters = [...service.matchAll(/"monetization_offering_mismatch"/g)];
@@ -218,18 +253,21 @@ test("the launch offering audit stays behind its Release-only gate", async () =>
   assert.equal(emitters.length, 1, "monetization_offering_mismatch must have exactly one emitter");
   assert.ok(
     gates[0].index < emitters[0].index,
-    "The Release-only gate must precede the mismatch event"
+    "The App Store environment gate must precede the mismatch event"
   );
+  assert.match(
+    configuration,
+    /var shouldAuditLaunchOffering: Bool \{\s*revenueCatStoreMode == \.appStore\s*\}/
+  );
+  assert.doesNotMatch(configuration, /auditsLaunchOffering/);
+  assert.doesNotMatch(configuration, /defaultAuditsLaunchOffering/);
 });
 
 test("the configured Staging keys pass the staging preflight", () => {
   const result = runPreflight("Staging");
 
   assert.equal(result.status, 0, result.stderr);
-  assert.match(
-    result.stdout,
-    /Verified real RevenueCat and Superwall keys for com\.TylerPavay\.AscendApp\.staging \(Staging\)/
-  );
+  assert.match(result.stdout, /com\.TylerPavay\.AscendApp\.staging \(Staging\)/);
 });
 
 test("the production preflight passes with the configured Release keys", async () => {
@@ -239,10 +277,117 @@ test("the production preflight passes with the configured Release keys", async (
   const result = runPreflight("Release");
 
   assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /com\.TylerPavay\.AscendApp \(Release\)/);
+});
+
+// The Swift side can no longer compile the bypass out, so the archive gate is
+// the last thing standing between a flipped build setting and an App Store
+// build with no paywall.
+test("the production preflight rejects a reopened paywall and both test surfaces", async () => {
+  const reopened = await projectWithConfigurationSettings("Release", {
+    ASCEND_ALLOWS_UNENTITLED_APP_ACCESS: "YES",
+    ASCEND_SUPERWALL_TEST_MODE: "YES",
+    ASCEND_USE_REVENUECAT_TEST_STORE: "YES"
+  });
+  const result = runPreflight("Release", reopened);
+
+  assert.equal(result.status, 1, `Release must be rejected: ${result.stdout}`);
   assert.match(
-    result.stdout,
-    /Verified real RevenueCat and Superwall keys for com\.TylerPavay\.AscendApp \(Release\)/
+    result.stderr,
+    /::error::ASCEND_ALLOWS_UNENTITLED_APP_ACCESS is "YES" for the Release configuration/
   );
+  assert.match(
+    result.stderr,
+    /::error::ASCEND_SUPERWALL_TEST_MODE is "YES" for the Release configuration/
+  );
+  assert.match(
+    result.stderr,
+    /::error::ASCEND_USE_REVENUECAT_TEST_STORE is "YES" for the Release configuration/
+  );
+});
+
+// Staging keeps the documented tester-lockout lever shippable at the archive
+// gate; the vendor test surfaces have no such role, so they stay pinned there.
+// A staging archive on the RevenueCat test store would sell nothing real.
+test("the staging preflight allows the access lever but still rejects test surfaces", async () => {
+  const bypassed = await projectWithConfigurationSettings("Staging", {
+    ASCEND_ALLOWS_UNENTITLED_APP_ACCESS: "YES"
+  });
+  const allowed = runPreflight("Staging", bypassed);
+  assert.equal(allowed.status, 0, allowed.stderr);
+
+  const testSurfaces = await projectWithConfigurationSettings("Staging", {
+    ASCEND_SUPERWALL_TEST_MODE: "YES",
+    ASCEND_USE_REVENUECAT_TEST_STORE: "YES"
+  });
+  const rejected = runPreflight("Staging", testSurfaces);
+
+  assert.equal(rejected.status, 1, rejected.stdout);
+  assert.match(
+    rejected.stderr,
+    /::error::ASCEND_SUPERWALL_TEST_MODE is "YES" for the Staging configuration/
+  );
+  assert.match(
+    rejected.stderr,
+    /::error::ASCEND_USE_REVENUECAT_TEST_STORE is "YES" for the Staging configuration/
+  );
+});
+
+// An undefined setting is an unsubstituted Info.plist value, which the app then
+// resolves from nothing rather than from a decision someone made.
+test("the preflight requires every safety setting to be defined", async () => {
+  const project = await readFile(projectPath, "utf8");
+  const release = appBuildConfigurations(project).get("Release");
+
+  for (const {name} of MONETIZATION_SAFETY_SETTINGS) {
+    const stripped = project.replace(
+      release.buildSettings,
+      release.buildSettings.replace(new RegExp(`^\\s*${name} = .*;$\n`, "m"), "")
+    );
+    const path = join(mkdtempSync(join(tmpdir(), "ascend-monetization-")), "project.pbxproj");
+    writeFileSync(path, stripped);
+
+    const result = runPreflight("Release", path);
+
+    assert.equal(result.status, 1, `${name} must be required: ${result.stdout}`);
+    assert.match(
+      result.stderr,
+      new RegExp(`::error::${name} is not defined for the Release configuration`)
+    );
+  }
+});
+
+// A truthy value the build system honors but the gate waves through is the same
+// shipped bypass by another spelling.
+test("the preflight rejects any spelling of an ungated release but NO", async () => {
+  for (const value of ["yes", "1", "true", '""']) {
+    const reopened = await projectWithConfigurationSettings("Release", {
+      ASCEND_ALLOWS_UNENTITLED_APP_ACCESS: value
+    });
+    const result = runPreflight("Release", reopened);
+
+    assert.equal(result.status, 1, `${value} must be rejected: ${result.stdout}`);
+    assert.match(result.stderr, /ASCEND_ALLOWS_UNENTITLED_APP_ACCESS .*It must be NO\./);
+  }
+});
+
+// Every safety setting must reach the app, or the gate pins a value no build
+// actually reads.
+test("every pinned safety setting is substituted into Info.plist", async () => {
+  const infoPlist = await readFile(infoPlistPath, "utf8");
+
+  assert.deepEqual(
+    MONETIZATION_SAFETY_SETTINGS.map(({name}) => name).sort(),
+    [
+      "ASCEND_ALLOWS_UNENTITLED_APP_ACCESS",
+      "ASCEND_SUPERWALL_TEST_MODE",
+      "ASCEND_USE_REVENUECAT_TEST_STORE"
+    ]
+  );
+
+  for (const {name} of MONETIZATION_SAFETY_SETTINGS) {
+    assert.match(infoPlist, new RegExp(`<string>\\$\\(${name}\\)</string>`), name);
+  }
 });
 
 test("the preflight rejects a placeholder in either required key", async () => {

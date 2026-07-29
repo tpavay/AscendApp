@@ -11,6 +11,35 @@ export const MONETIZATION_API_KEY_SETTINGS = [
   {name: "ASCEND_SUPERWALL_API_KEY", isRequired: true}
 ];
 
+// Settings that must be explicitly configured everywhere and can only be NO in
+// the configurations listed. Nothing in Swift can catch these: access is now
+// data-driven rather than compiled out, so an archive is the last place a
+// reopened paywall can still be stopped.
+//
+// Access is pinned for Release alone because setting Staging to YES is the
+// documented recovery lever for testers stranded at the staging gate. That
+// recovery is deliberately two steps: this gate lets the staging archive
+// through, while scripts/test/monetization-build-configuration.test.mjs still
+// pins Staging to NO, so relaxing it has to be an explicit reviewable diff
+// (docs/superwall-paywall-setup.md). Production has no such escape hatch.
+export const MONETIZATION_SAFETY_SETTINGS = [
+  {
+    name: "ASCEND_ALLOWS_UNENTITLED_APP_ACCESS",
+    pinnedConfigurations: ["Release"],
+    consequence: "would ship the App Store build with the hard paywall bypassed"
+  },
+  {
+    name: "ASCEND_SUPERWALL_TEST_MODE",
+    pinnedConfigurations: ["Staging", "Release"],
+    consequence: "would ship against the Superwall test surface"
+  },
+  {
+    name: "ASCEND_USE_REVENUECAT_TEST_STORE",
+    pinnedConfigurations: ["Staging", "Release"],
+    consequence: "would ship against the RevenueCat test store instead of the App Store"
+  }
+];
+
 // Only the AscendApp target carries the monetization settings; the widget and
 // test targets share the same configuration names, so bundle ID is the filter.
 const APP_BUNDLE_IDENTIFIERS = new Set([
@@ -46,8 +75,8 @@ export function isPlaceholderAPIKey(value) {
   return value.trim().toUpperCase().startsWith(PLACEHOLDER_API_KEY_PREFIX);
 }
 
-// Every reason the configuration's monetization keys cannot reach real users.
-export function unshippableMonetizationKeyReasons(buildSettings, configurationName) {
+// Every reason the configuration's monetization settings cannot reach real users.
+export function unshippableMonetizationReasons(buildSettings, configurationName) {
   const reasons = [];
 
   for (const {name, isRequired} of MONETIZATION_API_KEY_SETTINGS) {
@@ -74,6 +103,31 @@ export function unshippableMonetizationKeyReasons(buildSettings, configurationNa
     } else if (trimmed.startsWith("$(")) {
       reasons.push(
         `${name} is the unexpanded reference "${trimmed}" for the ${configurationName} configuration.`
+      );
+    }
+  }
+
+  for (const {name, pinnedConfigurations, consequence} of MONETIZATION_SAFETY_SETTINGS) {
+    const value = settingValue(buildSettings, name);
+
+    if (value === null) {
+      reasons.push(
+        `${name} is not defined for the ${configurationName} configuration; ` +
+          "every configuration must set it explicitly."
+      );
+      continue;
+    }
+
+    if (!pinnedConfigurations.includes(configurationName)) {
+      continue;
+    }
+
+    const trimmed = value.trim();
+
+    if (trimmed !== "NO") {
+      reasons.push(
+        `${name} is "${trimmed}" for the ${configurationName} configuration, which ${consequence}. ` +
+          "It must be NO."
       );
     }
   }

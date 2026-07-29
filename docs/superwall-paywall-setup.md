@@ -23,13 +23,12 @@ RevenueCat must use:
 
 The self-hosted Superwall paywall must bind `ascend_yearly` to product reference `yearly` and `ascend_monthly` to product reference `monthly`.
 
-Release builds audit this catalog once per launch against the live RevenueCat offerings (`RevenueCatEntitlementService`).
-A missing offering or product logs an error and emits the `monetization_offering_mismatch` telemetry event to Analytics and Crashlytics, so treat that event as a production dashboard misconfiguration rather than a client bug.
+Staging and Release builds audit their configured catalog once per launch against the live RevenueCat offerings (`RevenueCatEntitlementService`).
+A missing offering or product logs an error and emits the `monetization_offering_mismatch` telemetry event to Analytics and Crashlytics, so treat that event as a dashboard misconfiguration in the corresponding environment rather than a client bug.
 Serving a different current offering is an experiment, not a failure, and is only logged.
 
-The audit is scoped to Release by `MonetizationConfiguration.shouldAuditLaunchOffering` because the product IDs above are hardcoded to the production catalog and Staging sells its own.
-The launch product IDs are not yet environment-aware.
-Making them configurable per environment and restoring the audit for Staging are intended to land together, and neither happens here.
+The launch product IDs come from the `ASCEND_REVENUECAT_YEARLY_PRODUCT_ID` and `ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID` build settings.
+Staging audits `ascend_staging_yearly` and `ascend_staging_monthly`; Release audits `ascend_yearly` and `ascend_monthly`.
 
 There is no weekly launch product and no separate discounted launch offer.
 Do not add either to a Superwall campaign, Hosting content, or release checklist.
@@ -63,6 +62,7 @@ After the first app version and both subscriptions complete the required App Sto
 ## Environment Split
 
 RevenueCat and Superwall keys are selected per build configuration through `ASCEND_REVENUECAT_API_KEY` and `ASCEND_SUPERWALL_API_KEY`.
+Access bypass, Superwall test mode, and launch product IDs are also explicit build settings.
 The values reach the app through `Info.plist` substitution.
 
 | Environment | Build configuration | Bundle ID | Monetization keys |
@@ -89,7 +89,10 @@ Both shippable configurations carry real publishable client keys, so no placehol
 2. `Release` carries the production RevenueCat Apple publishable key and the production Superwall public key.
 
 `ASCEND_REVENUECAT_TEST_API_KEY` stays empty and `ASCEND_USE_REVENUECAT_TEST_STORE` and `ASCEND_SUPERWALL_TEST_MODE` stay `NO` in every configuration.
-`scripts/test/monetization-build-configuration.test.mjs` pins the shape of each configured key and still proves the preflight rejects a placeholder in either required key against a synthetic project; keep both aligned with any future key move.
+`ASCEND_ALLOWS_UNENTITLED_APP_ACCESS` is `YES` in Debug for local convenience and `NO` in Staging and Release.
+Changing Staging back to bypassed access requires no app code edit - see Tester-lockout recovery below for the two configuration steps it does require.
+Debug and Staging use `ascend_staging_yearly` and `ascend_staging_monthly`; Release uses `ascend_yearly` and `ascend_monthly`.
+`scripts/test/monetization-build-configuration.test.mjs` pins the shape of each configured key, the per-configuration access and launch-product values, and proves the preflight rejects a placeholder key, a reopened Release paywall, and either vendor test surface against a synthetic project; keep all of it aligned with any future setting move.
 Never commit the real keys to documentation or test fixtures.
 These publishable client keys are currently committed in `AscendApp.xcodeproj`.
 They are intended to move into gitignored xcconfig files and CI secrets; that migration is deliberately not performed here.
@@ -99,10 +102,26 @@ Every environment that points at its own vendor projects needs the same logical 
 - Its own auto-renewing annual and monthly products - `ascend_yearly` and `ascend_monthly` in production, `ascend_staging_yearly` and `ascend_staging_monthly` in staging
 - RevenueCat entitlement `app_access`
 - RevenueCat current offering `default`
-- Superwall placements `app_access_gate` and `onboarding_paywall` - staging carries only `app_access_gate` today, which is all its SDK-configuration role needs
+- Superwall placements `app_access_gate` and `onboarding_paywall` - staging carries only `app_access_gate` today, so the `.onboardingPaywall` placement always takes its `onSkip` path in Staging even though the hard gate is live there
 
-Only the production identifiers are compiled into `MonetizationConfiguration`, so the launch catalog audit runs in Release alone until the launch product IDs become environment-aware.
-Staging also sets `allowsUnentitledAppAccess`, so its hard gate never fires and it is not a paywall QA surface; it proves SDK configuration and clears the archive preflight.
+Staging and Release both require an active `app_access` entitlement and audit the launch catalog for their configured RevenueCat environment.
+Staging is therefore a real paywall QA surface for the hard gate, and a staging tester reaches the app by completing a sandbox purchase of `ascend_staging_yearly` or `ascend_staging_monthly` through campaign `99059`, or by restoring one.
+Debug allows unentitled app access for local convenience, while its existing force-paywall control can still exercise the gate.
+
+### Tester-lockout recovery
+
+If the staging campaign, the sandbox purchase, or the RevenueCat catalog leaves testers stuck at the gate, recovery needs no app code change and no in-app escape - the app deliberately ships no bypass, sign-out affordance, or debug control at the Staging gate.
+It is a deliberate two-step configuration diff:
+
+1. Set `ASCEND_ALLOWS_UNENTITLED_APP_ACCESS` to `YES` in the `Staging` build configuration.
+2. Update the pinned Staging expectation in `scripts/test/monetization-build-configuration.test.mjs` to match, in the same PR.
+
+Step 2 is required, not incidental. That suite runs on every PR touching `AscendApp.xcodeproj/**`, and it hard-asserts Staging is `NO`, so step 1 alone goes red.
+Pinning it that way is the point: reopening staging access cannot be a one-line build-setting flip that slips through review unnoticed, and the two-step diff states plainly in the PR that the staging gate is temporarily off.
+Revert both steps once the gate is healthy.
+
+The archive preflight deliberately permits step 1 so a stranded TestFlight group can be unblocked by a staging build.
+Release carries no lever at all: `scripts/ci/assert-monetization-keys-configured.mjs` fails any production archive whose `ASCEND_ALLOWS_UNENTITLED_APP_ACCESS` is not `NO`, and fails either shippable archive whose `ASCEND_SUPERWALL_TEST_MODE` or `ASCEND_USE_REVENUECAT_TEST_STORE` is not `NO`.
 
 ## Authenticated Superwall References
 

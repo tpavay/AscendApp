@@ -31,8 +31,16 @@ test("the iOS integration names the final RevenueCat contract", async () => {
 
   assert.match(configuration, /revenueCatEntitlementID: String = "app_access"/);
   assert.match(configuration, /revenueCatOfferingID: String = "default"/);
-  assert.match(configuration, /revenueCatYearlyProductID: String = "ascend_yearly"/);
-  assert.match(configuration, /revenueCatMonthlyProductID: String = "ascend_monthly"/);
+  assert.match(
+    configuration,
+    /revenueCatYearlyProductIDInfoKey = "AscendRevenueCatYearlyProductID"/
+  );
+  assert.match(
+    configuration,
+    /revenueCatMonthlyProductIDInfoKey = "AscendRevenueCatMonthlyProductID"/
+  );
+  assert.doesNotMatch(configuration, /revenueCatYearlyProductID: String =/);
+  assert.doesNotMatch(configuration, /revenueCatMonthlyProductID: String =/);
 });
 
 test("the hosted paywall defaults to the annual trial and binds the final products", async () => {

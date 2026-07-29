@@ -4,6 +4,53 @@ import Testing
 @MainActor
 struct MonetizationManagerPaywallTests {
     @Test
+    func gatesAccessWithoutAnEntitlementWhenBuildSettingIsDisabled() {
+        let manager = MonetizationManager(
+            configuration: MonetizationConfiguration(
+                infoDictionary: [
+                    MonetizationConfiguration.allowsUnentitledAppAccessInfoKey: "NO"
+                ]
+            ),
+            entitlementService: EntitlementServiceStub(),
+            paywallPresenter: PaywallPresenterSpy()
+        )
+
+        #expect(manager.hasAppAccess == false)
+    }
+
+    @Test
+    func allowsAccessWithoutAnEntitlementWhenBuildSettingIsEnabled() {
+        let manager = MonetizationManager(
+            configuration: MonetizationConfiguration(
+                infoDictionary: [
+                    MonetizationConfiguration.allowsUnentitledAppAccessInfoKey: "YES"
+                ]
+            ),
+            entitlementService: EntitlementServiceStub(),
+            paywallPresenter: PaywallPresenterSpy()
+        )
+
+        #expect(manager.hasAppAccess)
+    }
+
+    @Test
+    func allowsAccessWithActiveAppAccessEntitlementWhenBuildSettingIsDisabled() {
+        let manager = MonetizationManager(
+            configuration: MonetizationConfiguration(
+                infoDictionary: [
+                    MonetizationConfiguration.allowsUnentitledAppAccessInfoKey: "NO"
+                ]
+            ),
+            entitlementService: EntitlementServiceStub(
+                entitlementState: .active(["app_access"])
+            ),
+            paywallPresenter: PaywallPresenterSpy()
+        )
+
+        #expect(manager.hasAppAccess)
+    }
+
+    @Test
     func registersAppAccessGateWithSourceParameters() {
         let paywallPresenter = PaywallPresenterSpy()
         let manager = MonetizationManager(
@@ -138,18 +185,18 @@ struct MonetizationManagerPaywallTests {
             configuration: MonetizationConfiguration(
                 infoDictionary: [
                     MonetizationConfiguration.revenueCatAPIKeyInfoKey: "REPLACE_ME_PRODUCTION_REVENUECAT_KEY",
-                    MonetizationConfiguration.superwallAPIKeyInfoKey: "REPLACE_ME_PRODUCTION_SUPERWALL_KEY"
-                ],
-                allowsUnentitledAppAccess: false
+                    MonetizationConfiguration.superwallAPIKeyInfoKey: "REPLACE_ME_PRODUCTION_SUPERWALL_KEY",
+                    MonetizationConfiguration.allowsUnentitledAppAccessInfoKey: "NO"
+                ]
             )
         )
         manager.presentPaywall(.appAccessGate) { outcome in
             receivedOutcome = outcome
         }
 
-        #expect(!manager.isRevenueCatConfigured)
-        #expect(!manager.isSuperwallConfigured)
-        #expect(!manager.hasAppAccess)
+        #expect(manager.isRevenueCatConfigured == false)
+        #expect(manager.isSuperwallConfigured == false)
+        #expect(manager.hasAppAccess == false)
         #expect(paywallPresenter.registeredPlacement == nil)
         #expect(receivedOutcome == .failed(message: "Superwall is not configured for this build."))
         #expect(
@@ -175,9 +222,9 @@ struct MonetizationManagerPaywallTests {
             configuration: MonetizationConfiguration(
                 infoDictionary: [
                     MonetizationConfiguration.revenueCatAPIKeyInfoKey: "appl_test_key",
-                    MonetizationConfiguration.superwallAPIKeyInfoKey: "pk_test_key"
-                ],
-                allowsUnentitledAppAccess: false
+                    MonetizationConfiguration.superwallAPIKeyInfoKey: "pk_test_key",
+                    MonetizationConfiguration.allowsUnentitledAppAccessInfoKey: "NO"
+                ]
             )
         )
 
@@ -224,8 +271,12 @@ final class PaywallPresenterSpy: PaywallPresenting {
 
 @MainActor
 final class EntitlementServiceStub: EntitlementServicing {
-    var entitlementState = MonetizationEntitlementState.inactive
+    var entitlementState: MonetizationEntitlementState
     var isConfigured = true
+
+    init(entitlementState: MonetizationEntitlementState = .inactive) {
+        self.entitlementState = entitlementState
+    }
 
     /// Mirrors `RevenueCatEntitlementService.configure`, which needs a usable key.
     func configure(configuration: MonetizationConfiguration) {
