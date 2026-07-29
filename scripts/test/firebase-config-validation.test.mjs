@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import {resolve} from "node:path";
+import {mkdtempSync} from "node:fs";
+import {tmpdir} from "node:os";
+import {join, resolve} from "node:path";
 import test from "node:test";
 import {fileURLToPath} from "node:url";
 
@@ -60,6 +62,34 @@ test("Firebase config rejects missing or escaping rule files", () => {
   );
 });
 
+test("Firebase config names the missing key rather than an invented entry", () => {
+  const baseConfig = {
+    firestore: {rules: "firestore.rules", indexes: "firestore.indexes.json"},
+    storage: {rules: "storage.rules"},
+    functions: [{source: "functions"}],
+    hosting: {public: "web/dist"},
+  };
+  const fileExists = () => true;
+
+  for (const key of ["functions", "hosting"]) {
+    const {[key]: _omitted, ...withoutKey} = baseConfig;
+
+    assert.throws(
+      () => validateFirebaseConfig(withoutKey, {repoRoot, fileExists}),
+      new RegExp(`firebase\\.json ${key} is missing`),
+    );
+  }
+});
+
+test("a missing configuration file reads as unreadable, not as invalid JSON", () => {
+  const emptyRoot = mkdtempSync(join(tmpdir(), "firebase-config-"));
+
+  assert.throws(
+    () => validateRepositoryFirebaseConfiguration(emptyRoot),
+    /firebase\.json could not be read: ENOENT/,
+  );
+});
+
 test("Firebase aliases require targets for every configured project", () => {
   assert.throws(
     () =>
@@ -98,6 +128,15 @@ test("Firestore index fields require exactly one supported index mode", () => {
   };
 
   assert.doesNotThrow(() => validateFirestoreIndexes(baseConfig));
+
+  const {fieldOverrides: _omitted, ...withoutFieldOverrides} = baseConfig;
+
+  assert.doesNotThrow(() => validateFirestoreIndexes(withoutFieldOverrides));
+  assert.throws(
+    () =>
+      validateFirestoreIndexes({...baseConfig, fieldOverrides: {}}),
+    /fieldOverrides must be an array/,
+  );
   assert.throws(
     () =>
       validateFirestoreIndexes({

@@ -73,6 +73,11 @@ export function validateFirebaseConfig(
     fileExists,
   );
 
+  requireCondition(
+    config.functions !== undefined,
+    "firebase.json functions is missing.",
+  );
+
   const functionsConfigs = Array.isArray(config.functions)
     ? config.functions
     : [config.functions];
@@ -88,6 +93,11 @@ export function validateFirebaseConfig(
       `firebase.json functions[${index}].source`,
     );
   }
+
+  requireCondition(
+    config.hosting !== undefined,
+    "firebase.json hosting is missing.",
+  );
 
   const hostingConfigs = Array.isArray(config.hosting)
     ? config.hosting
@@ -167,10 +177,10 @@ export function validateFirebaseRc(config) {
 export function validateFirestoreIndexes(config) {
   requireObject(config, "firestore.indexes.json");
   requireArray(config.indexes, "firestore.indexes.json indexes");
-  requireArray(
-    config.fieldOverrides,
-    "firestore.indexes.json fieldOverrides",
-  );
+
+  if (config.fieldOverrides !== undefined) {
+    requireArray(config.fieldOverrides, "firestore.indexes.json fieldOverrides");
+  }
 
   for (const [index, definition] of config.indexes.entries()) {
     const label = `firestore.indexes.json indexes[${index}]`;
@@ -221,9 +231,16 @@ export function validateFirestoreIndexes(config) {
 
 function readJson(repoRoot, fileName) {
   const filePath = resolve(repoRoot, fileName);
+  let contents;
 
   try {
-    return JSON.parse(readFileSync(filePath, "utf8"));
+    contents = readFileSync(filePath, "utf8");
+  } catch (error) {
+    throw new Error(`${fileName} could not be read: ${error.message}`);
+  }
+
+  try {
+    return JSON.parse(contents);
   } catch (error) {
     throw new Error(`${fileName} is not valid JSON: ${error.message}`);
   }

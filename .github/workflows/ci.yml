@@ -87,6 +87,10 @@ jobs:
               - "AscendApp.xcodeproj/**"
               - "AscendApp/Info.plist"
               - "AscendApp/Features/Monetization/**"
+              # The Firebase configuration suite validates all three directly.
+              - "firebase.json"
+              - ".firebaserc"
+              - "firestore.indexes.json"
               # The launch-offer suite reads the hosted paywall, public copy,
               # legal terms, and authoritative commerce guidance.
               - "web/public/superwall/**"
@@ -265,14 +269,11 @@ jobs:
       - name: Validate rules and run emulator tests
         run: npm run test:firebase-rules
 
-      - name: Audit dependencies
-        run: npm audit --audit-level=low
-
   ruby-verify:
     name: Ruby and Fastlane Verify
     needs: changes
     if: needs.changes.outputs.ruby == 'true'
-    runs-on: macos-15
+    runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:

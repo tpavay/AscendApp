@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "test:firebase-rules": "npx -y firebase-tools@latest emulators:exec --project demo-ascendapp-rules --only firestore,storage \"node --test tests/firebase-rules/*.test.mjs\""
+    "test:firebase-rules": "npx -y firebase-tools@15.22.1 emulators:exec --project demo-ascendapp-rules --only firestore,storage \"node --test tests/firebase-rules/*.test.mjs\""
   },
   "repository": {
     "type": "git",
