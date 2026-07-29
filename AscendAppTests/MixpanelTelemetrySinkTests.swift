@@ -101,19 +101,26 @@ private extension MixpanelTelemetrySinkTests {
 
         func setCollectionEnabled(_ enabled: Bool) {
             calls.append(enabled ? "opt_in" : "opt_out")
+            if !enabled {
+                registeredSuperProperties.removeAll()
+            }
         }
 
         func setUserID(_ userID: String?) {
             calls.append(userID == nil ? "reset" : "identify")
+            if userID == nil {
+                registeredSuperProperties.removeAll()
+            }
         }
 
         func setUserProperty(_ name: String, value: String?) {
             calls.append("set_user_property")
+            registeredSuperProperties[name] = value
         }
 
         func registerSuperProperties(_ properties: [String: String]) {
             calls.append("register_super_properties")
-            registeredSuperProperties = properties
+            registeredSuperProperties.merge(properties) { _, registered in registered }
         }
 
         func track(event: String, properties: Properties) {
