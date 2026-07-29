@@ -1,0 +1,290 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+<BaseLayout
+  title="Support - Ascend"
+  description="Get help with your Ascend account, subscription, Apple Health imports, Bluetooth heart-rate monitor, notifications, or account deletion."
+>
+  <style>
+    .support-page {
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 12% 0%, rgba(134, 211, 10, 0.11), transparent 32%),
+        radial-gradient(circle at 100% 24%, #202735 0, var(--bg) 42%);
+    }
+
+    .support-page main {
+      width: min(100%, 920px);
+      margin: 0 auto;
+      padding: 132px 24px 72px;
+    }
+
+    .eyebrow {
+      margin-bottom: 14px;
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    .support-page h1 {
+      max-width: 720px;
+      margin-bottom: 18px;
+      font-size: clamp(40px, 6vw, 68px);
+      line-height: 1.02;
+      letter-spacing: -0.035em;
+    }
+
+    .intro {
+      max-width: 700px;
+      color: #b9c2cf;
+      font-size: 18px;
+      line-height: 1.65;
+    }
+
+    .contact-card {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 24px;
+      margin: 40px 0 56px;
+      padding: 24px;
+      border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+      border-radius: 16px;
+      background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+    }
+
+    .contact-card h2 {
+      margin-bottom: 6px;
+      font-size: 21px;
+      line-height: 1.25;
+    }
+
+    .contact-card p {
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.6;
+    }
+
+    .contact-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 48px;
+      padding: 12px 18px;
+      border: 1px solid var(--accent);
+      border-radius: 10px;
+      background: var(--accent);
+      color: #080c10;
+      font-size: 15px;
+      font-weight: 800;
+      text-decoration: none;
+      white-space: nowrap;
+      transition: background 0.2s, border-color 0.2s, transform 0.1s;
+    }
+
+    .contact-button:hover {
+      border-color: var(--accent-hover);
+      background: var(--accent-hover);
+    }
+
+    .contact-button:active {
+      transform: scale(0.98);
+    }
+
+    .section-heading {
+      margin-bottom: 18px;
+      font-size: 24px;
+      line-height: 1.2;
+    }
+
+    .support-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .support-topic {
+      padding: 24px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: rgba(28, 35, 51, 0.86);
+    }
+
+    .support-topic h3 {
+      margin-bottom: 10px;
+      font-size: 19px;
+      line-height: 1.3;
+    }
+
+    .support-topic p,
+    .support-topic li {
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.7;
+    }
+
+    .support-topic p + p,
+    .support-topic ul + p {
+      margin-top: 12px;
+    }
+
+    .support-topic ul {
+      margin: 10px 0 0;
+      padding-left: 20px;
+    }
+
+    .support-topic li + li {
+      margin-top: 7px;
+    }
+
+    .support-topic strong {
+      color: var(--text);
+    }
+
+    .support-page a:not(.contact-button) {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .support-page a:not(.contact-button):hover {
+      text-decoration: underline;
+    }
+
+    .support-note {
+      margin-top: 32px;
+      padding: 20px 22px;
+      border-left: 3px solid var(--accent);
+      border-radius: 0 12px 12px 0;
+      background: rgba(255, 255, 255, 0.035);
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    @media (max-width: 720px) {
+      .support-page main {
+        padding: 108px 16px 56px;
+      }
+
+      .contact-card {
+        grid-template-columns: 1fr;
+        margin: 32px 0 44px;
+      }
+
+      .contact-button {
+        width: 100%;
+      }
+
+      .support-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+
+  <div class="support-page">
+    <main>
+      <p class="eyebrow">Ascend Support</p>
+      <h1>Get back to climbing.</h1>
+      <p class="intro">
+        Fix account access, restore a subscription, reconnect workout data, or remove your account.
+        Start with the steps below, then email us if the problem keeps you off the stair stepper.
+      </p>
+
+      <section class="contact-card" aria-labelledby="contact-heading">
+        <div>
+          <h2 id="contact-heading">Contact Ascend Support</h2>
+          <p>
+            Email <a href="mailto:pavayt@gmail.com">pavayt@gmail.com</a>.
+            Include your device model, iOS version, Ascend app version, and what happened.
+            Never send your password.
+          </p>
+        </div>
+        <a
+          class="contact-button"
+          href="mailto:pavayt@gmail.com?subject=Ascend%20Support"
+        >
+          Email Support
+        </a>
+      </section>
+
+      <h2 class="section-heading">Support paths</h2>
+      <div class="support-grid">
+        <section class="support-topic">
+          <h3>Account access</h3>
+          <p>
+            Sign in with the same Apple or Google account you used to create Ascend.
+            Passwords and account recovery stay with that sign-in provider.
+          </p>
+          <p>
+            If the correct provider still does not restore your account, email support with the provider name and the error message.
+            Do not send your password or verification code.
+          </p>
+        </section>
+
+        <section class="support-topic">
+          <h3>Subscription purchase or restore</h3>
+          <ul>
+            <li>Start a new subscription from Ascend's in-app paywall.</li>
+            <li>Restore an existing purchase from the paywall or <strong>Settings &gt; Restore Purchases</strong>.</li>
+            <li>Manage or cancel through your Apple Account subscription settings.</li>
+          </ul>
+          <p>
+            Deleting Ascend or your Ascend account does not cancel an App Store subscription.
+            Apple handles App Store billing and refund requests through <a href="https://reportaproblem.apple.com/">Report a Problem</a>.
+          </p>
+        </section>
+
+        <section class="support-topic">
+          <h3>Apple Health import</h3>
+          <p>
+            Open <strong>Settings &gt; Edit Profile &gt; Integrations &gt; Apple Health</strong> to connect, reconnect, or change automatic import.
+            In the Health app, confirm Ascend can read workouts and the fitness data you want imported.
+          </p>
+          <p>
+            Ascend imports supported stair-stepper workouts.
+            If a workout is missing, confirm it appears in Apple Health, then reopen Ascend and check the import flow again.
+          </p>
+        </section>
+
+        <section class="support-topic">
+          <h3>Bluetooth heart-rate monitors</h3>
+          <p>
+            Open <strong>Settings &gt; Edit Profile &gt; Integrations &gt; Heart Rate Monitor</strong>.
+            Ascend connects to Bluetooth chest straps that use the standard Bluetooth Heart Rate service.
+          </p>
+          <p>
+            Turn on Bluetooth, allow Ascend's Bluetooth permission, and disconnect the strap from any other app that is holding the connection.
+            An Apple Watch cannot stream live heart rate directly to Ascend.
+          </p>
+        </section>
+
+        <section class="support-topic">
+          <h3>Notifications</h3>
+          <p>
+            Open <strong>Settings &gt; Notifications</strong> in Ascend to change climb-drop alerts.
+            If iOS permission is off, open <strong>iOS Settings &gt; Apps &gt; Ascend &gt; Notifications</strong> and allow the notification types you want.
+          </p>
+        </section>
+
+        <section class="support-topic">
+          <h3>Account deletion</h3>
+          <p>
+            Open <strong>Settings</strong>, scroll to <strong>Delete Account</strong>, and confirm deletion.
+            For security, Ascend may ask you to sign in again.
+          </p>
+          <p>
+            If you cannot access the in-app deletion flow, email <a href="mailto:pavayt@gmail.com?subject=Ascend%20Account%20Deletion">pavayt@gmail.com</a> from the address tied to your account.
+            We will verify ownership before acting.
+          </p>
+        </section>
+      </div>
+
+      <p class="support-note">
+        Ascend is a fitness tracking and competition app, not a medical service.
+        Stop exercising and seek appropriate medical care if you experience pain, dizziness, chest pain, faintness, or another concerning symptom.
+      </p>
+    </main>
+  </div>
+</BaseLayout>
