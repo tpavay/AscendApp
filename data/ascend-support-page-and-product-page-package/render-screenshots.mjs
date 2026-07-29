@@ -94,8 +94,9 @@ const transformationScreens = [
     inset: {
       source: 'web/public/images/ascend-climb-detail.jpg',
       capturedStatusBar: true,
-      // Climb detail: landmark card footer through the completion stats.
-      crop: { top: 0.5, bottom: 0.84 },
+      // Climb detail, scrolled past the landmark card so the status bar sits
+      // above a whole element: stats row through the Start Live Climb button.
+      crop: { top: 0.644, bottom: 0.9375 },
     },
   },
 ];
