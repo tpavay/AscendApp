@@ -18,45 +18,45 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      ci_relevant: ${{ steps.filter.outputs.ci_relevant }}
+      fallback_eligible: ${{ steps.classify.outputs.fallback_eligible }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Filter changed paths
-        id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            ci_relevant:
-              # required-check-paths:start
-              - "AscendApp/**"
-              - "AscendAppTests/**"
-              - "AscendLiveActivityWidgets/**"
-              - "AscendApp.xcodeproj/**"
-              - "functions/**"
-              - "firestore.indexes.json"
-              - "scripts/**"
-              - "web/**"
-              - "package.json"
-              - "package-lock.json"
-              - "SharedTestVectors/**"
-              - "docs/superwall-paywall-setup.md"
-              - "docs/onboarding-design-guide.md"
-              - "docs/app-store-brief.md"
-              - "docs/launch-readiness-audit.md"
-              - "CLAUDE.md"
-              - ".github/workflows/**"
-              # required-check-paths:end
+      # The classifier is an allowlist over the whole diff, which dorny cannot
+      # express: it ORs its rules per file, so a negated rule reads as "any file
+      # that is not this" rather than as an exclusion. Every failure here leaves
+      # the job unsuccessful, and the fallback job below refuses to claim the
+      # required name unless this job succeeded.
+      - name: Classify changed paths
+        id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/pulls/${PULL_REQUEST_NUMBER}/files" \
+            > pull-request-files.json
+
+          changed_files="$(
+            gh api "repos/${GITHUB_REPOSITORY}/pulls/${PULL_REQUEST_NUMBER}" \
+              --jq '.changed_files'
+          )"
+
+          node scripts/ci/classify-required-check-route.mjs \
+            pull-request-files.json "$changed_files"
 
   fallback:
     needs: route
-    name: ${{ needs.route.result == 'success' && needs.route.outputs.ci_relevant == 'false' && 'iOS Verify (Staging)' || 'iOS Verify Fallback (Not Required)' }}
-    if: needs.route.result == 'success' && needs.route.outputs.ci_relevant == 'false'
+    name: ${{ needs.route.result == 'success' && needs.route.outputs.fallback_eligible == 'true' && 'iOS Verify (Staging)' || 'iOS Verify Fallback (Not Required)' }}
+    if: needs.route.result == 'success' && needs.route.outputs.fallback_eligible == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
     steps:
       - name: Satisfy required check for non-CI changes
-        run: echo "No CI-relevant paths changed. The required iOS verification check is satisfied by the fallback."
+        run: echo "Every changed path is verification-irrelevant. The required iOS verification check is satisfied by the fallback."

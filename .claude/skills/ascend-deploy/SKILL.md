@@ -33,14 +33,26 @@ Every verify job is gated on the changed paths, so a functions-only PR skips the
   Keep it a distinct step rather than a tail on the build: `Summarize failure` is gated on the `build` step's outcome, so folding the check into that step would hand the summarizer the log of a build that actually succeeded.
   `ProcessInfoPlistFile` runs independently of compilation, which is why the check reads the built bundle plist instead of `AscendApp/Info.plist`.
 
-`.github/workflows/ci-required-check-fallback.yml` is the companion required-check router for PRs that touch no CI-relevant path.
-It always inspects the PR diff, but its fallback job claims the required `iOS Verify (Staging)` name only after the routing job succeeds and reports no CI-relevant change.
-For a CI-relevant PR, the fallback job uses a different display name and is skipped, so it cannot satisfy branch protection in place of the real check.
-The path lists marked `required-check-paths` in both workflows are a single contract enforced by `scripts/test/ci-required-check-routing.test.mjs`.
-That contract must stay a superset of every job-level `dorny/paths-filter` path in `ci.yml`, and the test derives the filters itself and fails on any path a verify job gates on that the trigger omits - so adding a path to the `scripts` or `ios` filter without adding it to the contract is a build failure, not a silent coverage hole.
+`.github/workflows/ci-required-check-fallback.yml` is the companion required-check router, and it runs on every PR.
+Its `route` job lists the PR's changed files and hands them to `scripts/ci/classify-required-check-route.mjs`, which decides through `scripts/lib/required-check-routing.mjs`; the `fallback` job claims the required `iOS Verify (Staging)` name only when that job succeeded *and* returned `fallback_eligible=true`.
+For anything else the fallback job takes a different display name and is skipped, so it can never satisfy branch protection in place of the real check.
+
+**The router is an allowlist, not the inverse of the CI trigger.** `classifyChangedPaths` answers "is every changed path positively known to need no verification?" - `VERIFICATION_IRRELEVANT_PATHS` is currently `docs/**`, `AppStoreAssets/**`, and `README.md`, and CI-relevance is evaluated first so the four gated `docs/*.md` files still route to real CI.
+Anything unrecognised is blocked, which is the deliberate consequence below.
+
+> **Known gap: `firestore.rules`, `storage.rules`, `firebase.json`, `.firebaserc`, `Gemfile`, `Gemfile.lock`, and `fastlane/**` have no PR gate at all.**
+> `ci.yml` has no job for them, so it does not trigger; the router will not auto-green them either, because `deploy-staging.yml` ships every one on merge to `develop`.
+> A PR touching only those paths therefore gets no `iOS Verify (Staging)` check and cannot merge - the same as before the router existed, and intentionally so, since auto-greening them would deploy security rules with zero verification.
+> `tests/firebase-rules/*.test.mjs` and `npm run test:firebase-rules` already exist and are wired into no workflow. The fix is a `rules-verify` job in `ci.yml` plus those paths in the contract, not an allowlist entry.
+
+The contract lives once, in `CI_RELEVANT_PATHS`, and `scripts/test/ci-required-check-routing.test.mjs` asserts it byte-identical to the `required-check-paths` block in `ci.yml`.
+That contract must stay a superset of every job-level `dorny/paths-filter` path in `ci.yml`; the test derives the filters itself and fails on any path a verify job gates on that the trigger omits - so adding a path to the `scripts` or `ios` filter without adding it to the contract is a build failure, not a silent coverage hole.
 That is why `CLAUDE.md` and the four gated `docs/*.md` files appear in the trigger: the `scripts` filter already declares them, and `scripts/test/subscription-launch-offer.test.mjs` asserts against them.
 They cost nothing on the iOS side - the `ios` filter excludes them, so `ios-verify` is skipped rather than built.
-Do not replace the router with an inverse `paths-ignore` trigger: GitHub runs `paths-ignore` workflows when any changed file is outside the ignored set, so a mixed code-and-docs PR would run both workflows.
+
+Two shapes the router deliberately avoids.
+Do not replace it with an inverse `paths-ignore` trigger: GitHub runs `paths-ignore` workflows when any changed file is outside the ignored set, so a mixed code-and-docs PR would run both workflows.
+Do not express the allowlist as `dorny/paths-filter` negation rules: dorny ORs its rules per file, so `!docs/**` reads as "any file that is not under docs", which inverts the decision instead of excluding anything.
 
 `ios-verify` is the **only** job anywhere that compiles `AscendAppTests`. `ios-verify-release` builds the app target alone, and both deploy pipelines only build the IPA. So a test target that stops compiling shows up on exactly one check, and "Release passed" or "Deploy Staging on develop passed" is not evidence that the tree is healthy. That asymmetry is what made the 2026-07-20 `develop` breakage read as CI infrastructure flake.
 
