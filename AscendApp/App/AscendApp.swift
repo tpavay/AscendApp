@@ -229,8 +229,8 @@ private struct RootNavigationHost: View {
         NavigationStack(path: $navigationPath) {
             RootView()
         }
-        .id(authVM.user?.uid ?? "signedOut")
-        .onChange(of: authVM.user?.uid) { _, _ in
+        .id(authVM.authenticatedUserID ?? "signedOut")
+        .onChange(of: authVM.authenticatedUserID) { _, _ in
             navigationPath = NavigationPath()
         }
     }

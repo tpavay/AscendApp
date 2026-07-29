@@ -11,6 +11,22 @@ enum AppRootRoute: Equatable, Sendable {
 }
 
 struct AppRootRouteResolver {
+    @MainActor
+    static func resolve(
+        authenticationViewModel: AuthenticationViewModel,
+        postAuthOnboardingPhase: PostAuthOnboardingPhase,
+        monetizationManager: MonetizationManager
+    ) -> AppRootRoute {
+        resolve(
+            authenticationState: authenticationViewModel.authenticationState,
+            userId: authenticationViewModel.authenticatedUserID,
+            postAuthOnboardingPhase: postAuthOnboardingPhase,
+            entitlementState: monetizationManager.entitlementStateForRouting,
+            requiredEntitlementID: monetizationManager.configuration.revenueCatEntitlementID,
+            allowsUnentitledAppAccess: monetizationManager.allowsUnentitledAppAccessForRouting
+        )
+    }
+
     static func resolve(
         authenticationState: AuthenticationState,
         userId: String?,

@@ -3,10 +3,17 @@ import SwiftUI
 struct LandingScreen: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    @State private var isShowingValueCarousel = false
-    @State private var isShowingSignIn = false
+    @State private var navigationState: LandingScreenNavigationState
+
+    init(
+        navigationState: LandingScreenNavigationState = LandingScreenNavigationState()
+    ) {
+        _navigationState = State(initialValue: navigationState)
+    }
 
     var body: some View {
+        @Bindable var navigationState = navigationState
+
         ZStack {
             OnboardingWelcomeBackground()
 
@@ -46,11 +53,13 @@ struct LandingScreen: View {
         }
         .background(Color.black)
         .toolbar(.hidden, for: .navigationBar)
-        .navigationDestination(isPresented: $isShowingValueCarousel) {
-            PreAuthOnboardingValueCarouselScreen()
-        }
-        .navigationDestination(isPresented: $isShowingSignIn) {
-            SignUpView()
+        .navigationDestination(item: $navigationState.destination) { destination in
+            switch destination {
+            case .valueCarousel:
+                PreAuthOnboardingValueCarouselScreen()
+            case .signIn:
+                SignUpView()
+            }
         }
         .trackOnboardingScreenView(OnboardingAnalyticsEvent.welcomeContext)
     }
@@ -92,11 +101,11 @@ struct LandingScreen: View {
                 }
                 .font(.montserratSemiBold(size: 14))
                 .multilineTextAlignment(.center)
-                .lineLimit(1)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(
                     maxWidth: .infinity,
-                    minHeight: LandingScreenActionLayoutPolicy.secondaryActionHeight,
-                    maxHeight: LandingScreenActionLayoutPolicy.secondaryActionHeight
+                    minHeight: LandingScreenActionLayoutPolicy.secondaryActionMinimumHeight
                 )
                 .contentShape(Rectangle())
             }
@@ -105,7 +114,6 @@ struct LandingScreen: View {
             .accessibilityHint("Opens the sign-in screen.")
         }
         .frame(maxWidth: 334)
-        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 
     private func startOnboarding() {
@@ -116,7 +124,7 @@ struct LandingScreen: View {
                 properties: ["action_id": .string("get_started")]
             )
         )
-        isShowingValueCarousel = true
+        navigationState.openValueCarousel()
     }
 
     private func openSignIn() {
@@ -127,7 +135,7 @@ struct LandingScreen: View {
                 properties: ["action_id": .string("sign_in")]
             )
         )
-        isShowingSignIn = true
+        navigationState.openSignIn()
     }
 
     private func welcomeHeadline(typeScale: CGFloat) -> Text {

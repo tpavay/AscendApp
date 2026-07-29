@@ -25,19 +25,30 @@ struct RootView: View {
             case .signedOut:
                 LandingScreen()
             case .signingIn:
-                ProgressView("Signing In...")
-                    .themedBackground()
+                AscendLoadingView(
+                    title: "Signing in",
+                    message: "Connecting your account."
+                )
             case .restoringSession:
-                ProgressView("Restoring Session...")
-                    .themedBackground()
-            case .resolving:
-                authenticatedContent(for: .resolving)
-            case .onboarding:
-                authenticatedContent(for: rootRoute)
-            case .paywall:
-                authenticatedContent(for: .paywall)
-            case .mainApp:
-                authenticatedContent(for: .mainApp)
+                AscendLoadingView(
+                    title: "Restoring your climb field",
+                    message: "Loading your account."
+                )
+            case .resolving, .onboarding, .paywall, .mainApp:
+                if let accountDataConflict {
+                    AccountDataConflictView(
+                        conflict: accountDataConflict,
+                        onSignOut: authVM.signOut
+                    )
+                } else {
+                    AppRootContentView(
+                        route: rootRoute,
+                        onOnboardingBack: postAuthOnboardingCoordinator.moveBack,
+                        onOnboardingContinue: postAuthOnboardingCoordinator.completeCurrentStage
+                    ) {
+                        MainTabView(tabRouter: tabRouter)
+                    }
+                }
             }
         }
         .environment(tabRouter)
@@ -49,7 +60,7 @@ struct RootView: View {
                 details: ["route": rootRoute.diagnosticName]
             )
             importCoordinator.configure(modelContext: modelContext)
-            postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
+            postAuthOnboardingCoordinator.resolve(userId: authVM.authenticatedUserID)
             advancePostAuthOnboardingPastDisplayNameIfAvailable()
             await monetizationManager.refreshEntitlements()
             // Resume any pending uploads from previous session
@@ -84,7 +95,7 @@ struct RootView: View {
                 details: ["route": rootRoute.diagnosticName]
             )
         }
-        .onChange(of: authVM.user?.uid) { _, _ in
+        .onChange(of: authVM.authenticatedUserID) { _, _ in
             AppDiagnosticsRecorder.shared.record(
                 "auth_user_changed",
                 details: [
@@ -93,7 +104,7 @@ struct RootView: View {
                 ]
             )
             Task {
-                postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid)
+                postAuthOnboardingCoordinator.resolve(userId: authVM.authenticatedUserID)
                 advancePostAuthOnboardingPastDisplayNameIfAvailable()
                 completePostAuthOnboardingIfRemoteProfileExists()
                 await monetizationManager.refreshEntitlements()
@@ -110,19 +121,16 @@ struct RootView: View {
             completePostAuthOnboardingIfRemoteProfileExists()
         }
         .onReceive(NotificationCenter.default.publisher(for: .postAuthOnboardingStateDidChange)) { _ in
-            postAuthOnboardingCoordinator.resolve(userId: authVM.user?.uid, force: true)
+            postAuthOnboardingCoordinator.resolve(userId: authVM.authenticatedUserID, force: true)
             advancePostAuthOnboardingPastDisplayNameIfAvailable()
         }
     }
 
     private var rootRoute: AppRootRoute {
         let resolvedRoute = AppRootRouteResolver.resolve(
-            authenticationState: authVM.authenticationState,
-            userId: authVM.user?.uid,
+            authenticationViewModel: authVM,
             postAuthOnboardingPhase: postAuthOnboardingCoordinator.phase,
-            entitlementState: monetizationManager.entitlementStateForRouting,
-            requiredEntitlementID: monetizationManager.configuration.revenueCatEntitlementID,
-            allowsUnentitledAppAccess: monetizationManager.allowsUnentitledAppAccessForRouting
+            monetizationManager: monetizationManager
         )
 
         if case .onboarding(.displayName) = resolvedRoute,
@@ -132,43 +140,6 @@ struct RootView: View {
         }
 
         return resolvedRoute
-    }
-
-    @ViewBuilder
-    private func authenticatedContent(for route: AppRootRoute) -> some View {
-        if let accountDataConflict {
-            AccountDataConflictView(
-                conflict: accountDataConflict,
-                onSignOut: authVM.signOut
-            )
-        } else {
-            switch route {
-            case .signedOut:
-                LandingScreen()
-            case .signingIn:
-                ProgressView("Signing In...")
-                    .themedBackground()
-            case .restoringSession:
-                ProgressView("Restoring Session...")
-                    .themedBackground()
-            case .resolving:
-                ProgressView("Setting Up...")
-                    .themedBackground()
-
-            case .onboarding(let stage):
-                PostAuthOnboardingFlowView(
-                    stage: stage,
-                    onBack: postAuthOnboardingCoordinator.moveBack,
-                    onContinue: postAuthOnboardingCoordinator.completeCurrentStage
-                )
-
-            case .paywall:
-                AppAccessPaywallPlaceholderView()
-
-            case .mainApp:
-                MainTabView(tabRouter: tabRouter)
-            }
-        }
     }
 
     @MainActor

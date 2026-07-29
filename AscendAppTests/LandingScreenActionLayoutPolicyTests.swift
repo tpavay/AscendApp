@@ -16,9 +16,9 @@ struct LandingScreenActionLayoutPolicyTests {
             )
         )
         #expect(
-            !LandingScreenActionLayoutPolicy.usesCompactSignInLabel(
+            LandingScreenActionLayoutPolicy.usesCompactSignInLabel(
                 for: .xxxLarge
-            )
+            ) == false
         )
         #expect(LandingScreenActionLayoutPolicy.signInTitle == "Sign in")
         #expect(
@@ -28,9 +28,9 @@ struct LandingScreenActionLayoutPolicyTests {
     }
 
     @Test
-    func bottomActionsHaveBoundedContentHeight() {
-        #expect(
-            LandingScreenActionLayoutPolicy.maximumBottomContentHeight == 116
-        )
+    func bottomActionsPreserveMinimumTouchTargets() {
+        #expect(LandingScreenActionLayoutPolicy.primaryActionHeight >= 44)
+        #expect(LandingScreenActionLayoutPolicy.secondaryActionMinimumHeight >= 44)
+        #expect(LandingScreenActionLayoutPolicy.minimumBottomContentHeight == 116)
     }
 }

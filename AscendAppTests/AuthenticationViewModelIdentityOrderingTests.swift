@@ -14,13 +14,14 @@ struct AuthenticationViewModelIdentityOrderingTests {
             viewModel.authenticationState
         }
 
-        viewModel.beginAuthenticatedSession(
+        _ = viewModel.beginAuthenticatedSession(
             userID: "returning-subscriber",
             initialState: .authenticated
         )
 
         #expect(monetizationManager.stateObservedDuringPreparation == .unauthenticated)
         #expect(monetizationManager.preparedUserID == "returning-subscriber")
+        #expect(viewModel.authenticatedUserID == "returning-subscriber")
         #expect(viewModel.authenticationState == .authenticated)
     }
 }

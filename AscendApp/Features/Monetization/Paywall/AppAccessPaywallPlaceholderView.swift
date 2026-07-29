@@ -24,31 +24,9 @@ struct AppAccessPaywallPlaceholderView: View {
     }
 
     private var loadingContent: some View {
-        VStack(spacing: 20) {
-            Image("AppIconInternalAccent")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 68, height: 68)
-                .accessibilityHidden(true)
-
-            VStack(spacing: 8) {
-                Text("Preparing your climb field")
-                    .font(.montserratBold(size: 24))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-
-                Text("Checking your access...")
-                    .font(.montserratMedium(size: 15))
-                    .foregroundStyle(.white.opacity(0.68))
-                    .multilineTextAlignment(.center)
-            }
-
-            AscendLoadingIndicator()
-        }
-        .padding(.horizontal, 28)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Preparing your climb field. Checking your access.")
-        .accessibilityIdentifier("appAccessPaywallLoading")
+        AscendLoadingView(
+            accessibilityIdentifier: "appAccessPaywallLoading"
+        )
     }
 
     private var recoveryContent: some View {

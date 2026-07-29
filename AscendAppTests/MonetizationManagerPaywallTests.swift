@@ -1,4 +1,7 @@
+import Foundation
+import SwiftUI
 import Testing
+import UIKit
 @testable import AscendApp
 
 @MainActor
@@ -142,66 +145,125 @@ struct MonetizationManagerPaywallTests {
         #expect(sink.records.filter { $0.name == "onboarding_screen_viewed" }.count == 1)
     }
 
-    @Test
-    func returningActiveSubscriberNeverRegistersAppAccessPaywall() async {
+    @Test(.timeLimit(.minutes(1)))
+    func returningActiveSubscriberSignsBackInWithoutMountingAppAccessPaywall() async throws {
+        let userID = "returning-subscriber"
+        let defaultsName = "returning-subscriber-journey-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer {
+            defaults.removePersistentDomain(forName: defaultsName)
+        }
+
+        let onboardingStore = PostAuthOnboardingStore(userDefaults: defaults)
+        onboardingStore.markComplete(for: userID)
+        let onboardingCoordinator = PostAuthOnboardingCoordinator(
+            store: onboardingStore
+        )
         let entitlementService = EntitlementServiceStub(
             initialState: .active(["app_access"])
         )
+        entitlementService.identityResolution = .active(["app_access"])
         let paywallPresenter = PaywallPresenterSpy()
         let manager = MonetizationManager(
+            configuration: MonetizationConfiguration(
+                infoDictionary: [
+                    MonetizationConfiguration.allowsUnentitledAppAccessInfoKey: "NO"
+                ]
+            ),
             entitlementService: entitlementService,
             paywallPresenter: paywallPresenter
         )
+        let authenticationViewModel = AuthenticationViewModel(
+            monetizationIdentityManager: manager,
+            observesFirebaseAuth: false
+        )
 
-        let reset = manager.prepareIdentityReset()
-        await manager.resetIdentity(transition: reset)
+        let initialSignIn = authenticationViewModel.beginAuthenticatedSession(
+            userID: userID,
+            initialState: .authenticated
+        )
+        onboardingCoordinator.resolve(
+            userId: authenticationViewModel.authenticatedUserID
+        )
+        await initialSignIn.value
 
-        entitlementService.identityResolution = .active(["app_access"])
-        let signIn = manager.prepareIdentity(userId: "returning-subscriber")
+        #expect(
+            AppRootRouteResolver.resolve(
+                authenticationViewModel: authenticationViewModel,
+                postAuthOnboardingPhase: onboardingCoordinator.phase,
+                monetizationManager: manager
+            ) == .mainApp
+        )
+
+        let signOut = authenticationViewModel.endAuthenticatedSession()
+        onboardingCoordinator.resolve(
+            userId: authenticationViewModel.authenticatedUserID
+        )
+        await signOut.value
+
+        #expect(
+            AppRootRouteResolver.resolve(
+                authenticationViewModel: authenticationViewModel,
+                postAuthOnboardingPhase: onboardingCoordinator.phase,
+                monetizationManager: manager
+            ) == .signedOut
+        )
+
+        let welcomeNavigation = LandingScreenNavigationState()
+        welcomeNavigation.openSignIn()
+        #expect(welcomeNavigation.destination == .signIn)
+
+        let returningSignIn = authenticationViewModel.beginAuthenticatedSession(
+            userID: userID,
+            initialState: .authenticated
+        )
+        onboardingCoordinator.resolve(
+            userId: authenticationViewModel.authenticatedUserID
+        )
 
         let resolvingRoute = AppRootRouteResolver.resolve(
-            authenticationState: .authenticated,
-            userId: "returning-subscriber",
-            postAuthOnboardingPhase: .complete,
-            entitlementState: manager.entitlementStateForRouting,
-            requiredEntitlementID: "app_access"
+            authenticationViewModel: authenticationViewModel,
+            postAuthOnboardingPhase: onboardingCoordinator.phase,
+            monetizationManager: manager
         )
-        registerPaywallIfNeeded(
-            for: resolvingRoute,
-            with: manager
-        )
+        let rootContent = AppRootContentView(
+            route: resolvingRoute,
+            onOnboardingBack: {},
+            onOnboardingContinue: {}
+        ) {
+            Color.clear.accessibilityIdentifier("mainApp")
+        }
+        .environment(manager)
+        let hostingController = UIHostingController(rootView: rootContent)
+        hostingController.loadViewIfNeeded()
+        hostingController.beginAppearanceTransition(true, animated: false)
+        hostingController.endAppearanceTransition()
+        hostingController.view.layoutIfNeeded()
 
         #expect(manager.entitlementStateForRouting == .unknown)
         #expect(resolvingRoute == .resolving)
-        #expect(paywallPresenter.registeredPlacement == nil)
+        #expect(onboardingCoordinator.phase == .complete)
+        #expect(paywallPresenter.registrations.isEmpty)
 
-        await manager.identify(
-            userId: "returning-subscriber",
-            transition: signIn
-        )
+        await returningSignIn.value
 
         let entitledRoute = AppRootRouteResolver.resolve(
-            authenticationState: .authenticated,
-            userId: "returning-subscriber",
-            postAuthOnboardingPhase: .complete,
-            entitlementState: manager.entitlementStateForRouting,
-            requiredEntitlementID: "app_access"
+            authenticationViewModel: authenticationViewModel,
+            postAuthOnboardingPhase: onboardingCoordinator.phase,
+            monetizationManager: manager
         )
-        registerPaywallIfNeeded(
-            for: entitledRoute,
-            with: manager
-        )
+        hostingController.rootView = AppRootContentView(
+            route: entitledRoute,
+            onOnboardingBack: {},
+            onOnboardingContinue: {}
+        ) {
+            Color.clear.accessibilityIdentifier("mainApp")
+        }
+        .environment(manager)
+        hostingController.view.layoutIfNeeded()
 
         #expect(entitledRoute == .mainApp)
-        #expect(paywallPresenter.registeredPlacement == nil)
-    }
-
-    private func registerPaywallIfNeeded(
-        for route: AppRootRoute,
-        with manager: MonetizationManager
-    ) {
-        guard route == .paywall else { return }
-        manager.presentPaywall(.appAccessGate)
+        #expect(paywallPresenter.registrations.isEmpty)
     }
 
     @Test
@@ -306,6 +368,7 @@ final class PaywallPresenterSpy: PaywallPresenting {
     var isConfigured: Bool
     private(set) var registeredPlacement: SuperwallPlacement?
     private(set) var registeredSource: String?
+    private(set) var registrations: [SuperwallPlacement] = []
     private var outcomeHandler: (@MainActor (PaywallPresentationOutcome) -> Void)?
 
     init(isConfigured: Bool = true) {
@@ -328,6 +391,7 @@ final class PaywallPresenterSpy: PaywallPresenting {
     ) {
         registeredPlacement = placement
         registeredSource = params?["source"] as? String
+        registrations.append(placement)
         outcomeHandler = onOutcome
     }
 

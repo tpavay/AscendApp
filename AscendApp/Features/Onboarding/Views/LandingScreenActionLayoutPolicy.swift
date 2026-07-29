@@ -2,7 +2,7 @@ import SwiftUI
 
 enum LandingScreenActionLayoutPolicy {
     static let primaryActionHeight: CGFloat = 56
-    static let secondaryActionHeight: CGFloat = 44
+    static let secondaryActionMinimumHeight: CGFloat = 44
     static let actionSpacing: CGFloat = 8
     static let bottomPadding: CGFloat = 8
 
@@ -10,10 +10,10 @@ enum LandingScreenActionLayoutPolicy {
     static let signInTitle = "Sign in"
     static let signInAccessibilityLabel = "\(signInPrompt) \(signInTitle)"
 
-    static var maximumBottomContentHeight: CGFloat {
+    static var minimumBottomContentHeight: CGFloat {
         primaryActionHeight
             + actionSpacing
-            + secondaryActionHeight
+            + secondaryActionMinimumHeight
             + bottomPadding
     }
 

@@ -46,6 +46,7 @@ class AuthenticationViewModel {
     var customProfilePictureURL: URL?
     private(set) var lastUsedProvider: AuthProviderKind?
     private(set) var hasRemoteDisplayName: Bool = false
+    private(set) var authenticatedUserID: String?
 
     /// Indicates whether the profile data has been loaded from Firestore/cache after auth restore.
     /// Used to avoid showing authenticated UI before profile state is known.
@@ -72,6 +73,7 @@ class AuthenticationViewModel {
 
         if observesFirebaseAuth, let currentUser = Auth.auth().currentUser {
             user = currentUser
+            authenticatedUserID = currentUser.uid
             photoURL = currentUser.photoURL
             authenticationState = .restoringSession
         }
@@ -156,42 +158,50 @@ class AuthenticationViewModel {
                         }
                     }
                 } else {
-                    let monetizationTransition = self.monetizationIdentityManager.prepareIdentityReset()
-
-                    // User signed out - reset all state
-                    TelemetryManager.shared.log(.authSignOut)
-                    TelemetryManager.shared.clearUserId()
-                    Task {
-                        await self.monetizationIdentityManager.resetIdentity(
-                            transition: monetizationTransition
-                        )
-                    }
-
-                    self.displayName = ""
-                    self.customProfilePictureURL = nil
-                    self.hasRemoteDisplayName = false
-                    self.isProfileLoaded = false
-                    self.authenticationState = .unauthenticated
-                    UserDataRepository.shared.clearUserCache()
+                    self.endAuthenticatedSession()
                 }
             })
         }
     }
 
+    @discardableResult
     func beginAuthenticatedSession(
         userID: String,
         initialState: AuthenticationState
-    ) {
+    ) -> Task<Void, Never> {
+        authenticatedUserID = userID
         let monetizationTransition = monetizationIdentityManager.prepareIdentity(
             userId: userID
         )
-        Task {
+        let identityTask = Task {
             await monetizationIdentityManager.identify(
                 userId: userID,
                 transition: monetizationTransition
             )
         }
         authenticationState = initialState
+        return identityTask
+    }
+
+    @discardableResult
+    func endAuthenticatedSession() -> Task<Void, Never> {
+        let monetizationTransition = monetizationIdentityManager.prepareIdentityReset()
+        let identityTask = Task {
+            await monetizationIdentityManager.resetIdentity(
+                transition: monetizationTransition
+            )
+        }
+
+        TelemetryManager.shared.log(.authSignOut)
+        TelemetryManager.shared.clearUserId()
+        authenticatedUserID = nil
+        displayName = ""
+        customProfilePictureURL = nil
+        hasRemoteDisplayName = false
+        isProfileLoaded = false
+        authenticationState = .unauthenticated
+        UserDataRepository.shared.clearUserCache()
+        return identityTask
     }
 }
 
