@@ -95,8 +95,9 @@ const transformationScreens = [
       source: 'web/public/images/ascend-climb-detail.jpg',
       capturedStatusBar: true,
       // Climb detail, scrolled past the landmark card so the status bar sits
-      // above a whole element: stats row through the Start Live Climb button.
-      crop: { top: 0.644, bottom: 0.9375 },
+      // above a whole element. Both edges land in gaps between rows: stats row
+      // through the completion count, stopping short of the disabled CTA.
+      crop: { top: 0.644, bottom: 0.8375 },
     },
   },
 ];
