@@ -108,5 +108,4 @@ final class SentryDiagnosticsReporter: CrashlyticsReporting, @unchecked Sendable
         SentrySDK.close()
         didStart = false
     }
-
 }

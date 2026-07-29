@@ -21,12 +21,24 @@ If an event wouldn't change a decision, don't log it. Volume of events != value 
 Multiple analytics destinations are sanctioned - each is best at a different job. Route events to the right destination through a single facade; never call providers directly from feature code.
 
 - **Firebase Analytics** - broad funnel, cohort, retention analysis. Most product events go here.
-- **Mixpanel** - product funnel, retention, and behavior analytics. Implemented as `MixpanelTelemetrySink`, configured from the `AscendMixpanelToken` Info.plist key; the sink is inert when no token is present.
+- **Mixpanel** - product funnel, retention, and behavior analytics. Implemented as `MixpanelTelemetrySink`, configured from the `AscendMixpanelToken` Info.plist key; the sink is inert when no token is present. Dev, staging, and production all report into one project and are separated by super-properties - see "Mixpanel environment tagging" below.
 - **SuperWall** - onboarding-flow step-level conversion + paywall presentation analytics (its specialty).
 - **Crashlytics** - crashes, fatal errors, stability metrics.
 - **Sentry** - error/crash diagnostics mirror alongside Crashlytics (non-fatal errors, app hangs, symbolicated traces). When reading, triaging, or updating Sentry issues/events, use the `sentry` skill.
 
 When evaluating new providers, justify them by what they uniquely measure that the existing set doesn't.
+
+## Mixpanel environment tagging
+
+Dev, staging, and production share a single Mixpanel project (`4032860`).
+There are no per-environment projects or tokens; environments are told apart by the `app_environment`, `build_config`, `app_version`, and `build_number` super-properties on every event.
+Those values come from `TelemetryBuildMetadata`, the same source Sentry tags its events with, so the two providers always agree for a given build.
+
+The invariant: the super-properties are registered before any event can be tracked, and re-registered after anything that clears Mixpanel SDK state - `reset()` on sign-out, opting back in to collection, or a user property whose name collides with one of those reserved keys.
+`AscendAppTests/MixpanelTelemetrySinkTests.swift` enforces it.
+
+Events recorded before this tagging shipped carry none of these properties, and that history cannot be separated retroactively.
+Filter on `app_environment` when analyzing, and treat untagged events as unattributable rather than as clean production data.
 
 ## Implementation principles
 - One analytics facade. Feature code never imports a provider directly; it logs through the facade, which routes to the right destination. Sinks conform to `TelemetrySink` under `AscendApp/Shared/Services/Telemetry/`.

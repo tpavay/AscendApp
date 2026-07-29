@@ -31,6 +31,9 @@ Events are tagged with:
 - `build_number`
 - `ascend_error_context` and `ascend_error_code` for handled errors
 
+The first four come from `TelemetryBuildMetadata`, which also supplies Sentry's release name and dist and Mixpanel's environment super-properties, so a build reports identical values to both providers.
+See `.claude/skills/ascend-analytics/SKILL.md` for the Mixpanel side.
+
 ## MCP Workflow
 
 Use Sentry MCP for agent triage:
