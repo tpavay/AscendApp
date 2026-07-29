@@ -7,7 +7,9 @@ protocol EntitlementServicing: AnyObject {
 
     func configure(configuration: MonetizationConfiguration)
     func refreshCustomerInfo() async
-    func identify(userId: String) async
-    func resetIdentity() async
+    func prepareIdentity(userId: String) -> MonetizationIdentityTransition
+    func identify(userId: String, transition: MonetizationIdentityTransition) async
+    func prepareIdentityReset() -> MonetizationIdentityTransition
+    func resetIdentity(transition: MonetizationIdentityTransition) async
     func restorePurchases() async throws
 }

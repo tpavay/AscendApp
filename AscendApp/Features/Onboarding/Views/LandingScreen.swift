@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LandingScreen: View {
     @State private var isShowingValueCarousel = false
+    @State private var isShowingSignIn = false
 
     var body: some View {
         ZStack {
@@ -43,8 +44,25 @@ struct LandingScreen: View {
                         )
                     )
                     .frame(width: 334 * scaleX)
-                    .position(x: centerX, y: 752 * scaleY)
+                    .position(x: centerX, y: 724 * scaleY)
 
+                    Button(action: openSignIn) {
+                        HStack(spacing: 4 * typeScale) {
+                            Text("Already have an account?")
+                                .foregroundStyle(.white.opacity(0.78))
+
+                            Text("Sign in")
+                                .foregroundStyle(.white)
+                        }
+                        .font(.montserratSemiBold(size: 14 * typeScale))
+                        .frame(maxWidth: .infinity, minHeight: 44 * scaleY)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .frame(width: 334 * scaleX)
+                    .position(x: centerX, y: 786 * scaleY)
+                    .accessibilityLabel("Already have an account? Sign in")
+                    .accessibilityHint("Opens the sign-in screen.")
                 }
             }
             .ignoresSafeArea()
@@ -53,6 +71,9 @@ struct LandingScreen: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(isPresented: $isShowingValueCarousel) {
             PreAuthOnboardingValueCarouselScreen()
+        }
+        .navigationDestination(isPresented: $isShowingSignIn) {
+            SignUpView()
         }
         .trackOnboardingScreenView(OnboardingAnalyticsEvent.welcomeContext)
     }
@@ -66,6 +87,17 @@ struct LandingScreen: View {
             )
         )
         isShowingValueCarousel = true
+    }
+
+    private func openSignIn() {
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.screenCompleted(
+                context: OnboardingAnalyticsEvent.welcomeContext,
+                inputType: "button",
+                properties: ["action_id": .string("sign_in")]
+            )
+        )
+        isShowingSignIn = true
     }
 
     private func welcomeHeadline(typeScale: CGFloat) -> Text {
