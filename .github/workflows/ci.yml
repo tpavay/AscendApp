@@ -21,6 +21,7 @@ on:
       - "docs/app-store-brief.md"
       - "docs/launch-readiness-audit.md"
       - "CLAUDE.md"
+      - "AGENTS.md"
       - ".github/workflows/**"
       # required-check-paths:end
 
@@ -84,7 +85,9 @@ jobs:
               - "docs/onboarding-design-guide.md"
               - "docs/app-store-brief.md"
               - "docs/launch-readiness-audit.md"
+              # AGENTS.md is a symlink to CLAUDE.md, so it gates identically.
               - "CLAUDE.md"
+              - "AGENTS.md"
               - ".github/workflows/**"
             web:
               - "web/**"

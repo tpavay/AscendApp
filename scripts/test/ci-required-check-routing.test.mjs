@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   CI_RELEVANT_PATHS,
   VERIFICATION_IRRELEVANT_PATHS,
   assertSupportedPattern,
+  changedPathsFromApiEntries,
   classifyChangedPaths,
   matchesPattern,
 } from "../lib/required-check-routing.mjs";
@@ -259,9 +264,9 @@ test("the fallback routes through the classifier this suite covers", () => {
     "the classifier must decide eligibility with the tested routing module",
   );
   assert.match(
-    classifierScript,
-    /fallback_eligible=\$\{result\.fallbackEligible\}/,
-    "the classifier must publish the routing decision as fallback_eligible",
+    fallbackWorkflow,
+    /fallback_eligible: \$\{\{ steps\.classify\.outputs\.fallback_eligible \}\}/,
+    "the route job must publish the classifier's verdict as its output",
   );
 });
 
@@ -284,6 +289,7 @@ test("CI-relevant changes never reach the fallback", () => {
       "project guide the scripts suite asserts against",
       ["CLAUDE.md", "docs/release-process.md"],
     ],
+    ["the AGENTS.md symlink to that guide", ["AGENTS.md"]],
   ];
 
   for (const [name, paths] of scenarios) {
@@ -304,6 +310,12 @@ test("only explicitly allowlisted changes let the fallback claim the check", () 
     ["App Store assets only", ["AppStoreAssets/screenshots/01.png"]],
     ["readme only", ["README.md"]],
     ["docs and assets", ["README.md", "AppStoreAssets/qa/review.md"]],
+    [
+      "App Store product copy package",
+      ["data/ascend-support-page-and-product-page-package/app-store-copy.md"],
+    ],
+    ["project skills only", [".claude/skills/ascend-deploy/SKILL.md"]],
+    ["gitignore only", [".gitignore"]],
   ];
 
   for (const [name, paths] of eligible) {
@@ -324,6 +336,9 @@ test("unverified deployment inputs stay blocked rather than auto-greened", () =>
     "Gemfile.lock",
     "fastlane/Fastfile",
     "fastlane/Matchfile",
+    // Selects the Ruby that resolves the Gemfile, so it picks the Fastlane
+    // build and signing toolchain despite looking like trivia.
+    ".ruby-version",
   ];
 
   for (const path of deploymentInputs) {
@@ -348,9 +363,8 @@ test("unclassified paths fail closed", () => {
   const unlisted = [
     ["a brand new top-level directory", ["marketing/launch-plan.md"]],
     ["a new root file", ["Package.swift"]],
-    ["a dotfile", [".gitignore"]],
-    ["project skills", [".claude/skills/ascend-deploy/SKILL.md"]],
-    ["the product copy package", ["data/app-store-copy.md"]],
+    ["harness configuration outside skills", [".claude/settings.json"]],
+    ["data outside the allowlisted copy package", ["data/scratch-notes.md"]],
     ["rules tests", ["tests/firebase-rules/firestore.test.mjs"]],
     ["a partly allowlisted diff", ["docs/plan.md", "marketing/plan.md"]],
     ["a file named like an allowlisted directory", ["docs"]],
@@ -368,6 +382,152 @@ test("unclassified paths fail closed", () => {
   ]) {
     assert.equal(classifyChangedPaths(paths).fallbackEligible, false, name);
   }
+});
+
+test("a truncated or unreadable file list is refused, never classified", () => {
+  const refusals = [
+    ["a diff capped by the API", [{ filename: "docs/plan.md" }], 3000],
+    ["more entries than the PR reports", [{ filename: "a" }, { filename: "b" }], 1],
+    ["a non-array payload", { files: [] }, 0],
+    ["a null payload", null, 0],
+    ["an entry with no filename", [{ status: "added" }], 1],
+    ["an entry with an empty filename", [{ filename: "" }], 1],
+    ["a non-string filename", [{ filename: 7 }], 1],
+    ["an empty previous_filename", [{ filename: "a", previous_filename: "" }], 1],
+    [
+      "a non-string previous_filename",
+      [{ filename: "a", previous_filename: 7 }],
+      1,
+    ],
+    ["a negative count", [], -1],
+    ["a non-numeric count", [{ filename: "a" }], "one"],
+    ["a partly numeric count", [{ filename: "a" }], "1abc"],
+    ["a fractional count", [{ filename: "a" }], 1.5],
+    ["a missing count", [{ filename: "a" }], undefined],
+    ["a null count", [{ filename: "a" }], null],
+  ];
+
+  for (const [name, entries, expected] of refusals) {
+    const result = changedPathsFromApiEntries(entries, expected);
+
+    assert.equal(result.ok, false, name);
+    assert.equal(typeof result.reason, "string", `${name} must explain itself`);
+    assert.equal(result.paths, undefined, `${name} must yield no paths`);
+  }
+});
+
+test("renames contribute both of their paths", () => {
+  const renamedOut = changedPathsFromApiEntries(
+    [{ filename: "docs/moved.md", previous_filename: "AscendApp/Moved.swift" }],
+    1,
+  );
+
+  assert.deepEqual(renamedOut.paths, [
+    "docs/moved.md",
+    "AscendApp/Moved.swift",
+  ]);
+  assert.equal(
+    classifyChangedPaths(renamedOut.paths).fallbackEligible,
+    false,
+    "moving a Swift file out of AscendApp/ is still an iOS change",
+  );
+
+  const plain = changedPathsFromApiEntries(
+    [{ filename: "docs/a.md" }, { filename: "docs/b.md" }],
+    2,
+  );
+
+  assert.deepEqual(plain.paths, ["docs/a.md", "docs/b.md"]);
+
+  const duplicated = changedPathsFromApiEntries(
+    [
+      { filename: "docs/a.md", previous_filename: "docs/b.md" },
+      { filename: "docs/b.md" },
+    ],
+    2,
+  );
+
+  assert.deepEqual(duplicated.paths, ["docs/a.md", "docs/b.md"]);
+});
+
+test("the classifier entry point publishes and fails closed end to end", () => {
+  const script = fileURLToPath(
+    new URL("../ci/classify-required-check-route.mjs", import.meta.url),
+  );
+  const workspace = mkdtempSync(join(tmpdir(), "required-check-route-"));
+
+  function run(payload, expectedCount, { omitArguments = false } = {}) {
+    const filesPath = join(workspace, "files.json");
+    const outputPath = join(workspace, "github-output");
+
+    writeFileSync(filesPath, payload);
+    writeFileSync(outputPath, "");
+
+    const result = spawnSync(
+      process.execPath,
+      omitArguments ? [script] : [script, filesPath, String(expectedCount)],
+      { encoding: "utf8", env: { ...process.env, GITHUB_OUTPUT: outputPath } },
+    );
+
+    return {
+      status: result.status,
+      stderr: result.stderr,
+      output: readFileSync(outputPath, "utf8").trim(),
+    };
+  }
+
+  const eligible = run(
+    JSON.stringify([{ filename: "docs/plan.md" }, { filename: ".gitignore" }]),
+    2,
+  );
+
+  assert.equal(eligible.status, 0);
+  assert.equal(eligible.output, "fallback_eligible=true");
+
+  const blocked = run(JSON.stringify([{ filename: "firestore.rules" }]), 1);
+
+  assert.equal(blocked.status, 0);
+  assert.equal(blocked.output, "fallback_eligible=false");
+
+  const ciRelevant = run(
+    JSON.stringify([{ filename: "AscendApp/App/AscendApp.swift" }]),
+    1,
+  );
+
+  assert.equal(ciRelevant.status, 0);
+  assert.equal(ciRelevant.output, "fallback_eligible=false");
+
+  // Every one of these must exit non-zero and publish nothing: the routing job
+  // then fails, and the fallback's `if:` guard keeps it from claiming the name.
+  const refusals = [
+    ["a truncated diff", JSON.stringify([{ filename: "docs/plan.md" }]), 3000],
+    ["malformed JSON", "not json", 1],
+    ["a non-array payload", JSON.stringify({}), 0],
+    ["an entry with no filename", JSON.stringify([{ status: "added" }]), 1],
+    ["a non-numeric count", JSON.stringify([{ filename: "docs/a.md" }]), "one"],
+  ];
+
+  for (const [name, payload, expectedCount] of refusals) {
+    const refused = run(payload, expectedCount);
+
+    assert.notEqual(refused.status, 0, name);
+    assert.equal(refused.output, "", `${name} must publish no verdict`);
+    assert.match(refused.stderr, /^::error::/m, `${name} must annotate why`);
+  }
+
+  const withoutArguments = run("[]", 0, { omitArguments: true });
+
+  assert.notEqual(withoutArguments.status, 0);
+  assert.equal(withoutArguments.output, "");
+
+  const missingFile = spawnSync(
+    process.execPath,
+    [script, join(workspace, "absent.json"), "1"],
+    { encoding: "utf8" },
+  );
+
+  assert.notEqual(missingFile.status, 0);
+  assert.match(missingFile.stderr, /^::error::/m);
 });
 
 test("the allowlist never overrides the CI trigger", () => {

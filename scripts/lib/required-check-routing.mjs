@@ -28,16 +28,26 @@ export const CI_RELEVANT_PATHS = [
   "docs/app-store-brief.md",
   "docs/launch-readiness-audit.md",
   "CLAUDE.md",
+  // AGENTS.md is a git-mode-120000 symlink to CLAUDE.md and nothing reads it by
+  // name, so it gates exactly as CLAUDE.md does. Allowlisting it would let a PR
+  // replace the symlink with a divergent file behind an unverified check.
+  "AGENTS.md",
   ".github/workflows/**",
 ];
 
 // Every entry here has to be defensible as "no job anywhere verifies this, and
 // nothing deploys it". `docs/**` qualifies only because the four docs the
 // scripts suite reads are in CI_RELEVANT_PATHS, which is checked first.
+//
+// `.ruby-version` is deliberately absent: it selects the Ruby that resolves the
+// Gemfile, which is the Fastlane build and signing toolchain.
 export const VERIFICATION_IRRELEVANT_PATHS = [
   "docs/**",
   "AppStoreAssets/**",
+  "data/ascend-support-page-and-product-page-package/**",
+  ".claude/skills/**",
   "README.md",
+  ".gitignore",
 ];
 
 // dorny/paths-filter and GitHub both accept full picomatch syntax, and this
@@ -79,6 +89,86 @@ for (const [source, patterns] of [
   for (const pattern of patterns) {
     assertSupportedPattern(pattern, source);
   }
+}
+
+function parseChangedFileCount(value) {
+  if (typeof value === "number") {
+    return Number.isInteger(value) && value >= 0 ? value : null;
+  }
+
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+    return Number.parseInt(value.trim(), 10);
+  }
+
+  return null;
+}
+
+// Turns the pull request files endpoint's payload into the path list to
+// classify, refusing rather than guessing whenever the payload cannot be
+// trusted. This lives here, not in the entry point, because the truncation
+// guard is the only thing standing between a silently capped diff and an
+// allowlist-only verdict over paths the API never returned.
+export function changedPathsFromApiEntries(entries, expectedChangedFiles) {
+  if (!Array.isArray(entries)) {
+    return { ok: false, reason: "The pull request file list was not a JSON array." };
+  }
+
+  const expected = parseChangedFileCount(expectedChangedFiles);
+
+  if (expected === null) {
+    return {
+      ok: false,
+      reason: `"${expectedChangedFiles}" is not a valid changed-file count.`,
+    };
+  }
+
+  const filenames = entries.map((entry) => entry?.filename);
+
+  if (filenames.some((name) => typeof name !== "string" || name.length === 0)) {
+    return {
+      ok: false,
+      reason: "The pull request file list contained an entry with no filename.",
+    };
+  }
+
+  // The files endpoint caps out at 3000 entries, and a silently truncated diff
+  // would classify the paths it never saw as absent.
+  if (filenames.length !== expected) {
+    return {
+      ok: false,
+      reason: `The pull request reports ${expected} changed files but the API listed ${filenames.length}. Refusing to classify a truncated diff.`,
+    };
+  }
+
+  const previousNames = entries.map((entry) => entry?.previous_filename);
+
+  if (
+    previousNames.some(
+      (name) =>
+        name !== undefined && (typeof name !== "string" || name.length === 0),
+    )
+  ) {
+    return {
+      ok: false,
+      reason:
+        "The pull request file list contained an unreadable previous_filename.",
+    };
+  }
+
+  // A rename reports only its new path in `filename`, so the old path is pulled
+  // in separately - moving a Swift file out of AscendApp/ is still an iOS
+  // change.
+  const paths = [
+    ...new Set(
+      entries.flatMap((entry) =>
+        [entry.filename, entry.previous_filename].filter(
+          (path) => typeof path === "string" && path.length > 0,
+        ),
+      ),
+    ),
+  ];
+
+  return { ok: true, paths };
 }
 
 // CI-relevance is decided before the allowlist, so a path may appear under both
