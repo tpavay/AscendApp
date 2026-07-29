@@ -56,13 +56,13 @@ const featureScreens = [
   },
   {
     filename: '05-every-step-ranked.png',
-    source: 'web/public/images/ascend-climb-leaderboard.jpg',
+    source: 'web/public/images/ascend-live-climb-results.png',
     lines: ['EVERY STEP', 'RANKED.'],
-    capturedStatusBar: true,
+    capturedStatusBar: false,
   },
   {
     filename: '06-first-ascent-forever.png',
-    source: 'web/public/images/ascend-climb-detail.jpg',
+    source: 'web/public/images/ascend-climb-leaderboard.jpg',
     lines: ['BE THE FIRST.', 'CLAIMED ONCE.', 'HELD FOREVER.'],
     capturedStatusBar: true,
     badge: true,
@@ -92,12 +92,11 @@ const transformationScreens = [
     source: path.join(sourceDirectory, '02-everest-summit.png'),
     lines: ['CLIMB EVEREST FROM', 'YOUR STAIR STEPPER.'],
     inset: {
-      source: 'web/public/images/ascend-climb-detail.jpg',
+      source: 'web/public/images/ascend-home-live-climb.jpg',
       capturedStatusBar: true,
-      // Climb detail, scrolled past the landmark card so the status bar sits
-      // above a whole element. Both edges land in gaps between rows: stats row
-      // through the completion count, stopping short of the disabled CTA.
-      crop: { top: 0.644, bottom: 0.8375 },
+      // Home, framing two whole cards - today's Live Climb and the catalogue
+      // entry point. Both edges land in gaps between sections.
+      crop: { top: 0.2925, bottom: 0.615625 },
     },
   },
 ];
@@ -484,7 +483,7 @@ async function renderTransformation(screen) {
     .withMetadata({ density: 72 })
     .toFile(outputPath);
 
-  return headline;
+  return { ...headline, panelHeight };
 }
 
 async function renderFeature(screen) {
@@ -558,6 +557,17 @@ for (const screen of transformationScreens) {
 
 for (const screen of featureScreens) {
   renderedHeadlines.set(screen.filename, await renderFeature(screen));
+}
+
+const insetHeights = transformationScreens.map(
+  (screen) => renderedHeadlines.get(screen.filename).panelHeight
+);
+const insetSpread = Math.max(...insetHeights) / Math.min(...insetHeights) - 1;
+if (insetSpread > 0.08) {
+  throw new Error(
+    `Transformation insets are visually unbalanced at ${insetHeights.join(' vs ')}px `
+    + `(${Math.round(insetSpread * 100)}% apart); they lead the storefront side by side`
+  );
 }
 
 for (const screen of [...transformationScreens, ...featureScreens]) {
