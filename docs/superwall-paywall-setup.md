@@ -23,13 +23,12 @@ RevenueCat must use:
 
 The self-hosted Superwall paywall must bind `ascend_yearly` to product reference `yearly` and `ascend_monthly` to product reference `monthly`.
 
-Release builds audit this catalog once per launch against the live RevenueCat offerings (`RevenueCatEntitlementService`).
-A missing offering or product logs an error and emits the `monetization_offering_mismatch` telemetry event to Analytics and Crashlytics, so treat that event as a production dashboard misconfiguration rather than a client bug.
+Staging and Release builds audit their configured catalog once per launch against the live RevenueCat offerings (`RevenueCatEntitlementService`).
+A missing offering or product logs an error and emits the `monetization_offering_mismatch` telemetry event to Analytics and Crashlytics, so treat that event as a dashboard misconfiguration in the corresponding environment rather than a client bug.
 Serving a different current offering is an experiment, not a failure, and is only logged.
 
-The audit is scoped to Release by `MonetizationConfiguration.shouldAuditLaunchOffering` because the product IDs above are hardcoded to the production catalog and Staging sells its own.
-The launch product IDs are not yet environment-aware.
-Making them configurable per environment and restoring the audit for Staging are intended to land together, and neither happens here.
+The launch product IDs come from the `ASCEND_REVENUECAT_YEARLY_PRODUCT_ID` and `ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID` build settings.
+Staging audits `ascend_staging_yearly` and `ascend_staging_monthly`; Release audits `ascend_yearly` and `ascend_monthly`.
 
 There is no weekly launch product and no separate discounted launch offer.
 Do not add either to a Superwall campaign, Hosting content, or release checklist.
@@ -63,6 +62,7 @@ After the first app version and both subscriptions complete the required App Sto
 ## Environment Split
 
 RevenueCat and Superwall keys are selected per build configuration through `ASCEND_REVENUECAT_API_KEY` and `ASCEND_SUPERWALL_API_KEY`.
+Access bypass, Superwall test mode, and launch product IDs are also explicit build settings.
 The values reach the app through `Info.plist` substitution.
 
 | Environment | Build configuration | Bundle ID | Monetization keys |
@@ -89,6 +89,9 @@ Both shippable configurations carry real publishable client keys, so no placehol
 2. `Release` carries the production RevenueCat Apple publishable key and the production Superwall public key.
 
 `ASCEND_REVENUECAT_TEST_API_KEY` stays empty and `ASCEND_USE_REVENUECAT_TEST_STORE` and `ASCEND_SUPERWALL_TEST_MODE` stay `NO` in every configuration.
+`ASCEND_ALLOWS_UNENTITLED_APP_ACCESS` is `YES` in Debug for local convenience and `NO` in Staging and Release.
+Changing Staging back to bypassed access requires only a build-setting change, not a code edit.
+Debug and Staging use `ascend_staging_yearly` and `ascend_staging_monthly`; Release uses `ascend_yearly` and `ascend_monthly`.
 `scripts/test/monetization-build-configuration.test.mjs` pins the shape of each configured key and still proves the preflight rejects a placeholder in either required key against a synthetic project; keep both aligned with any future key move.
 Never commit the real keys to documentation or test fixtures.
 These publishable client keys are currently committed in `AscendApp.xcodeproj`.
@@ -101,8 +104,8 @@ Every environment that points at its own vendor projects needs the same logical 
 - RevenueCat current offering `default`
 - Superwall placements `app_access_gate` and `onboarding_paywall` - staging carries only `app_access_gate` today, which is all its SDK-configuration role needs
 
-Only the production identifiers are compiled into `MonetizationConfiguration`, so the launch catalog audit runs in Release alone until the launch product IDs become environment-aware.
-Staging also sets `allowsUnentitledAppAccess`, so its hard gate never fires and it is not a paywall QA surface; it proves SDK configuration and clears the archive preflight.
+Staging and Release both require an active `app_access` entitlement and audit the launch catalog for their configured RevenueCat environment.
+Debug allows unentitled app access for local convenience, while its existing force-paywall control can still exercise the gate.
 
 ## Authenticated Superwall References
 

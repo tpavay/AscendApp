@@ -12,8 +12,17 @@ struct MonetizationConfiguration: Equatable {
     static let revenueCatAPIKeyInfoKey = "AscendRevenueCatAPIKey"
     static let revenueCatTestAPIKeyInfoKey = "AscendRevenueCatTestAPIKey"
     static let revenueCatUseTestStoreInfoKey = "AscendUseRevenueCatTestStore"
+    static let revenueCatYearlyProductIDInfoKey = "AscendRevenueCatYearlyProductID"
+    static let revenueCatMonthlyProductIDInfoKey = "AscendRevenueCatMonthlyProductID"
     static let superwallAPIKeyInfoKey = "AscendSuperwallAPIKey"
     static let superwallTestModeInfoKey = "AscendSuperwallTestMode"
+    static let allowsUnentitledAppAccessInfoKey = "AscendAllowsUnentitledAppAccess"
+    // Missing substitutions must fail the offering audit instead of silently
+    // accepting an empty expected catalog.
+    private static let unconfiguredYearlyProductID =
+        "UNCONFIGURED_ASCEND_REVENUECAT_YEARLY_PRODUCT_ID"
+    private static let unconfiguredMonthlyProductID =
+        "UNCONFIGURED_ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID"
 
     /// Mirrored by `PLACEHOLDER_API_KEY_PREFIX` in
     /// `scripts/lib/monetization-build-settings.mjs`, which gates staging and
@@ -37,7 +46,6 @@ struct MonetizationConfiguration: Equatable {
     let isRevenueCatTestStoreEnabled: Bool
     let isSuperwallTestModeEnabled: Bool
     let allowsUnentitledAppAccess: Bool
-    let auditsLaunchOffering: Bool
     let hasUnreplacedPlaceholderKeys: Bool
 
     var revenueCatStoreMode: RevenueCatStoreMode {
@@ -57,13 +65,8 @@ struct MonetizationConfiguration: Equatable {
         [revenueCatYearlyProductID, revenueCatMonthlyProductID]
     }
 
-    /// The launch product IDs are hardcoded to the production catalog, but Staging
-    /// sells `ascend_staging_*`, so auditing there would emit
-    /// `monetization_offering_mismatch` on every launch and drown the production
-    /// signal the event exists to carry. Making the product IDs environment-aware
-    /// and restoring this audit for Staging are intended to land together.
     var shouldAuditLaunchOffering: Bool {
-        auditsLaunchOffering && revenueCatStoreMode == .appStore
+        revenueCatStoreMode == .appStore
     }
 
     func auditOffering(
@@ -84,15 +87,11 @@ struct MonetizationConfiguration: Equatable {
         infoDictionary: [String: Any] = Bundle.main.infoDictionary ?? [:],
         revenueCatEntitlementID: String = "app_access",
         revenueCatOfferingID: String = "default",
-        revenueCatYearlyProductID: String = "ascend_yearly",
-        revenueCatMonthlyProductID: String = "ascend_monthly",
-        allowsTestMode: Bool = Self.defaultAllowsTestMode,
-        allowsUnentitledAppAccess: Bool = Self.defaultAllowsUnentitledAppAccess,
-        auditsLaunchOffering: Bool = Self.defaultAuditsLaunchOffering
+        allowsRevenueCatTestStore: Bool = Self.defaultAllowsRevenueCatTestStore
     ) {
         let appStoreAPIKey = Self.normalizedAPIKey(infoDictionary[Self.revenueCatAPIKeyInfoKey])
         let testAPIKey = Self.normalizedAPIKey(infoDictionary[Self.revenueCatTestAPIKeyInfoKey])
-        let shouldUseRevenueCatTestStore = allowsTestMode
+        let shouldUseRevenueCatTestStore = allowsRevenueCatTestStore
             && (Self.normalizedBool(infoDictionary[Self.revenueCatUseTestStoreInfoKey]) ?? false)
             && testAPIKey != nil
 
@@ -102,13 +101,18 @@ struct MonetizationConfiguration: Equatable {
         superwallAPIKey = Self.normalizedAPIKey(infoDictionary[Self.superwallAPIKeyInfoKey])
         self.revenueCatEntitlementID = revenueCatEntitlementID
         self.revenueCatOfferingID = revenueCatOfferingID
-        self.revenueCatYearlyProductID = revenueCatYearlyProductID
-        self.revenueCatMonthlyProductID = revenueCatMonthlyProductID
+        revenueCatYearlyProductID = Self.normalizedString(
+            infoDictionary[Self.revenueCatYearlyProductIDInfoKey]
+        ) ?? Self.unconfiguredYearlyProductID
+        revenueCatMonthlyProductID = Self.normalizedString(
+            infoDictionary[Self.revenueCatMonthlyProductIDInfoKey]
+        ) ?? Self.unconfiguredMonthlyProductID
         isRevenueCatTestStoreEnabled = shouldUseRevenueCatTestStore
-        isSuperwallTestModeEnabled = allowsTestMode
-            && (Self.normalizedBool(infoDictionary[Self.superwallTestModeInfoKey]) ?? false)
-        self.allowsUnentitledAppAccess = allowsUnentitledAppAccess
-        self.auditsLaunchOffering = auditsLaunchOffering
+        isSuperwallTestModeEnabled =
+            Self.normalizedBool(infoDictionary[Self.superwallTestModeInfoKey]) ?? false
+        allowsUnentitledAppAccess = Self.normalizedBool(
+            infoDictionary[Self.allowsUnentitledAppAccessInfoKey]
+        ) ?? false
         hasUnreplacedPlaceholderKeys = Self.apiKeyInfoKeys.contains { infoKey in
             guard let rawValue = infoDictionary[infoKey] as? String else { return false }
             return Self.isPlaceholderAPIKey(rawValue)
@@ -123,15 +127,16 @@ struct MonetizationConfiguration: Equatable {
     }
 
     private static func normalizedAPIKey(_ value: Any?) -> String? {
+        guard let normalizedValue = normalizedString(value),
+              !Self.isPlaceholderAPIKey(normalizedValue) else { return nil }
+        return normalizedValue
+    }
+
+    private static func normalizedString(_ value: Any?) -> String? {
         guard let rawValue = value as? String else { return nil }
 
         let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedValue.isEmpty,
-              !trimmedValue.hasPrefix("$("),
-              !Self.isPlaceholderAPIKey(trimmedValue) else {
-            return nil
-        }
-
+        guard !trimmedValue.isEmpty, !trimmedValue.hasPrefix("$(") else { return nil }
         return trimmedValue
     }
 
@@ -152,27 +157,11 @@ struct MonetizationConfiguration: Equatable {
         }
     }
 
-    private static var defaultAllowsTestMode: Bool {
+    private static var defaultAllowsRevenueCatTestStore: Bool {
         #if DEBUG || STAGING
         true
         #else
         false
-        #endif
-    }
-
-    private static var defaultAllowsUnentitledAppAccess: Bool {
-        #if DEBUG || STAGING
-        true
-        #else
-        false
-        #endif
-    }
-
-    private static var defaultAuditsLaunchOffering: Bool {
-        #if DEBUG || STAGING
-        false
-        #else
-        true
         #endif
     }
 }

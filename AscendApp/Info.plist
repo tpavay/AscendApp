@@ -8,10 +8,16 @@
 	<string>$(ASCEND_REVENUECAT_TEST_API_KEY)</string>
 	<key>AscendUseRevenueCatTestStore</key>
 	<string>$(ASCEND_USE_REVENUECAT_TEST_STORE)</string>
+	<key>AscendRevenueCatYearlyProductID</key>
+	<string>$(ASCEND_REVENUECAT_YEARLY_PRODUCT_ID)</string>
+	<key>AscendRevenueCatMonthlyProductID</key>
+	<string>$(ASCEND_REVENUECAT_MONTHLY_PRODUCT_ID)</string>
 	<key>AscendSuperwallAPIKey</key>
 	<string>$(ASCEND_SUPERWALL_API_KEY)</string>
 	<key>AscendSuperwallTestMode</key>
 	<string>$(ASCEND_SUPERWALL_TEST_MODE)</string>
+	<key>AscendAllowsUnentitledAppAccess</key>
+	<string>$(ASCEND_ALLOWS_UNENTITLED_APP_ACCESS)</string>
 	<key>AscendMixpanelToken</key>
 	<string>$(ASCEND_MIXPANEL_TOKEN)</string>
 	<key>AscendSentryDSN</key>

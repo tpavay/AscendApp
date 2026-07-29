@@ -48,7 +48,7 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
 **Monetization**
 - ~~Debug/Staging/Release all inject the **production** RevenueCat API key.~~ **Fixed.** RevenueCat and Superwall are now split per build configuration; Release carries the configured production publishable client keys, Staging carries its own staging publishable client keys, and Debug is intentionally unset. The split, the per-environment vendor references, and the archive/launch gates are owned by `docs/superwall-paywall-setup.md`.
 - No StoreKit configuration file → can't test purchases in Simulator without sandbox. Optional QoL.
-- Monetization test coverage now spans placement registration, paywall outcome routing, and fallback state transitions (`MonetizationManagerPaywallTests`, `AppAccessPaywallPresentationStateTests`) on top of `MonetizationConfigurationTests`; entitlement transitions and restore remain untested.
+- Monetization test coverage now spans access routing with and without `app_access`, placement registration, paywall outcome routing, and fallback state transitions (`MonetizationManagerPaywallTests`, `AppAccessPaywallPresentationStateTests`) on top of `MonetizationConfigurationTests`; restore remains untested.
 - Superwall placements defined in code: `.onboardingPaywall`, `.appLaunchHardGate`, `.appAccessGate` (`SuperwallPaywallPresenter.swift:38-44`).
 
 **Live Climbs**
@@ -69,7 +69,7 @@ Method: four parallel read-only passes — monetization, Live Climb hero loop, a
 
 ## Confirmed good (no action)
 
-- Hard paywall gating is real in Release (`AppRootRoute.swift:45-63`; `allowsUnentitledAppAccess` compiles to false outside DEBUG/STAGING) with no runtime bypass.
+- Hard paywall gating is real in Staging and Release (`AppRootRoute.swift:45-63`; `ASCEND_ALLOWS_UNENTITLED_APP_ACCESS = NO`) with no runtime bypass.
 - Restore purchases wired end-to-end (RootView → MonetizationManager → `Purchases.shared.restorePurchases()`).
 - Post-auth onboarding properly blocks until profile completion; resolver handles first-time/returning/interrupted.
 - Privacy boundaries enforced: other-user reads go through public mirrors; Storage prefixes owner-only.
