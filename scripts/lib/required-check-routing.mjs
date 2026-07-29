@@ -4,10 +4,7 @@
 // is positively known to need no verification.
 //
 // It is an allowlist, not the inverse of the CI trigger. ci.yml gates only the
-// paths its jobs verify, so unverified-but-shippable inputs - firestore.rules,
-// storage.rules, firebase.json, .firebaserc, Gemfile, fastlane/** - are neither
-// CI-relevant nor safe to auto-green: deploy-staging.yml ships them on merge.
-// Anything unrecognised stays blocked.
+// paths its jobs verify. Anything unrecognised stays blocked.
 
 // Mirrors the `required-check-paths` block in .github/workflows/ci.yml. The two
 // are asserted byte-identical by scripts/test/ci-required-check-routing.test.mjs.
@@ -17,11 +14,20 @@ export const CI_RELEVANT_PATHS = [
   "AscendLiveActivityWidgets/**",
   "AscendApp.xcodeproj/**",
   "functions/**",
+  "firestore.rules",
+  "storage.rules",
   "firestore.indexes.json",
+  "firebase.json",
+  ".firebaserc",
+  "tests/firebase-rules/**",
   "scripts/**",
   "web/**",
   "package.json",
   "package-lock.json",
+  "Gemfile",
+  "Gemfile.lock",
+  ".ruby-version",
+  "fastlane/**",
   "SharedTestVectors/**",
   "docs/superwall-paywall-setup.md",
   "docs/onboarding-design-guide.md",
@@ -38,9 +44,6 @@ export const CI_RELEVANT_PATHS = [
 // Every entry here has to be defensible as "no job anywhere verifies this, and
 // nothing deploys it". `docs/**` qualifies only because the four docs the
 // scripts suite reads are in CI_RELEVANT_PATHS, which is checked first.
-//
-// `.ruby-version` is deliberately absent: it selects the Ruby that resolves the
-// Gemfile, which is the Fastlane build and signing toolchain.
 export const VERIFICATION_IRRELEVANT_PATHS = [
   "docs/**",
   "AppStoreAssets/**",

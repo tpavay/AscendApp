@@ -6,6 +6,13 @@ paths:
   - scripts/ci/**
   - fastlane/**
   - Gemfile
+  - Gemfile.lock
+  - .ruby-version
+  - firebase.json
+  - .firebaserc
+  - firestore.rules
+  - firestore.indexes.json
+  - storage.rules
 ---
 
 # Deploy
@@ -16,7 +23,7 @@ Read the workflow file before changing it - the job graph below is the contract,
 
 `.github/workflows/ci.yml` runs on CI-relevant PR changes targeting `develop` and `main`.
 Every verify job is gated on the changed paths, so a functions-only PR skips the iOS jobs and an iOS-only PR skips the functions job:
-- `changes` - a `dorny/paths-filter` job that resolves the `ios`, `functions`, `scripts`, `web`, and `root_npm` outputs. Every other job declares `needs: changes` and an `if:` on one of those outputs, so a new verify job is skipped by default until you add it to the filter.
+- `changes` - a `dorny/paths-filter` job that resolves the `ios`, `functions`, `scripts`, `web`, `root_npm`, `firebase`, and `ruby` outputs. Every other job declares `needs: changes` and an `if:` on one of those outputs, so a new verify job is skipped by default until you add it to the filter.
 - `functions-verify` - installs `functions/`, then lints, tests, and audits (`npm --prefix functions ci`, `run lint`, `test`, `audit --audit-level=low`).
 - `scripts-verify` - audits the `scripts/` lockfile (`--package-lock-only`) and runs the `scripts/test/*.test.mjs` suite with `node --test`.
   No dependency install from `scripts/package.json` - the migration-discipline libraries and the shared vector-pinned predicate/derivation are pure Node; the one install is a globally pinned `@sentry/cli`, because the dSYM-upload suite asserts the release script's flags against that exact CLI's help.
@@ -25,6 +32,8 @@ Every verify job is gated on the changed paths, so a functions-only PR skips the
   A suite here that asserts against tracked non-`scripts/` files must add its inputs to this filter, or the assertion silently stops running on the PRs that break it.
 - `web-verify` - installs `web/`, builds the Astro site, then audits. Gated on changes to `web/**`.
 - `root-npm-verify` - audits the committed root lockfile with `--package-lock-only` (no install). Gated on changes to `package.json` / `package-lock.json`.
+- `firebase-verify` - structurally validates `firebase.json`, `.firebaserc`, and `firestore.indexes.json`, then starts the Firestore and Storage emulators and runs `tests/firebase-rules/*.test.mjs`. The emulators load both rules files before the suite, so syntax failures stop the job.
+- `ruby-verify` - selects `.ruby-version`, runs `bundle install --deployment`, and loads the lane DSL with `bundle exec fastlane lanes`. Gated on the Ruby version, Gem bundle, and `fastlane/**`.
 - `ios-verify` - gated on the iOS source/project paths plus `SharedTestVectors/**`, because the Swift halves of the cross-language parity suites read those vectors directly and would otherwise skip the PRs that break them.
   It runs `test` only (no build step) with `-scheme "AscendApp-Staging" -configuration Staging ENABLE_TESTABILITY=YES`. It provisions the simulator at runtime via `xcrun simctl` against the newest installed iOS runtime - downloading the runtime if the image ships none - then reuses a preferred iPhone model, falls back to any iPhone, and finally creates one, failing only when the runtime supports no iPhone device type. It does not pass `CODE_SIGNING_ALLOWED=NO`.
 - `ios-verify-release` - the only job that compiles Release and the only place `CODE_SIGNING_ALLOWED=NO` appears, paired with `-scheme "AscendApp" -configuration Release -sdk iphoneos -destination "generic/platform=iOS"`. It exists so Release-only build errors surface on the PR instead of on the production deploy.
@@ -38,13 +47,13 @@ Its `route` job lists the PR's changed files and hands them to `scripts/ci/class
 For anything else the fallback job takes a different display name and is skipped, so it can never satisfy branch protection in place of the real check.
 
 **The router is an allowlist, not the inverse of the CI trigger.** `classifyChangedPaths` answers "is every changed path positively known to need no verification?" - `VERIFICATION_IRRELEVANT_PATHS` is `docs/**`, `AppStoreAssets/**`, `data/ascend-support-page-and-product-page-package/**`, `.claude/skills/**`, `README.md`, and `.gitignore`, and CI-relevance is evaluated first so the four gated `docs/*.md` files still route to real CI.
-Anything unrecognised is blocked, which is the deliberate consequence below.
-Two root files look like trivia and are deliberately *not* allowlisted: `.ruby-version` selects the Ruby that resolves the `Gemfile`, which is the Fastlane build and signing toolchain, and `AGENTS.md` is a git-mode-120000 symlink to `CLAUDE.md` (nothing in the repo reads it by name), so it sits in the CI-relevant contract and the `scripts` filter exactly as `CLAUDE.md` does - allowlisting it would let a PR replace the symlink with a divergent file behind an unverified check.
+Anything unrecognised is blocked, which is the deliberate fail-closed default.
+Two root files look like trivia and are deliberately CI-relevant: `.ruby-version` selects the Ruby that resolves the `Gemfile`, and `AGENTS.md` is a git-mode-120000 symlink to `CLAUDE.md`.
+The Ruby path runs `ruby-verify`, while the project-guide path runs the same `scripts` filter as `CLAUDE.md`.
 
-> **Known gap: `firestore.rules`, `storage.rules`, `firebase.json`, `.firebaserc`, `Gemfile`, `Gemfile.lock`, and `fastlane/**` have no PR gate at all.**
-> `ci.yml` has no job for them, so it does not trigger; the router will not auto-green them either, because `deploy-staging.yml` ships every one on merge to `develop`.
-> A PR touching only those paths therefore gets no `iOS Verify (Staging)` check and cannot merge - the same as before the router existed, and intentionally so, since auto-greening them would deploy security rules with zero verification.
-> `tests/firebase-rules/*.test.mjs` and `npm run test:firebase-rules` already exist and are wired into no workflow. The fix is a `rules-verify` job in `ci.yml` plus those paths in the contract, not an allowlist entry.
+Firebase rules, Firebase configuration, the root rules-test package, Ruby dependencies, and `fastlane/**` are all in the CI-relevant contract.
+Do not add any of them to the fallback allowlist.
+Their dedicated jobs are the verification that makes routing them to real CI safe.
 
 The contract lives once, in `CI_RELEVANT_PATHS`, and `scripts/test/ci-required-check-routing.test.mjs` asserts it byte-identical to the `required-check-paths` block in `ci.yml`.
 That contract must stay a superset of every job-level `dorny/paths-filter` path in `ci.yml`; the test derives the filters itself and fails on any path a verify job gates on that the trigger omits - so adding a path to the `scripts` or `ios` filter without adding it to the contract is a build failure, not a silent coverage hole.

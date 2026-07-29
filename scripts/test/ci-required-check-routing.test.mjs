@@ -125,7 +125,7 @@ function declaredFilterOutputs() {
   return outputs;
 }
 
-function jobName(jobId) {
+function jobBody(jobId) {
   const lines = ciWorkflow.split("\n");
   const start = lines.findIndex((line) => line === `  ${jobId}:`);
 
@@ -141,9 +141,13 @@ function jobName(jobId) {
     body.push(line);
   }
 
-  const name = body
-    .join("\n")
-    .match(/^ {4}name:\s+(?<name>.+?)\s*$/m)?.groups?.name;
+  return body.join("\n");
+}
+
+function jobName(jobId) {
+  const name = jobBody(jobId).match(
+    /^ {4}name:\s+(?<name>.+?)\s*$/m,
+  )?.groups?.name;
 
   assert.ok(name, `ci.yml job "${jobId}" must declare a display name`);
 
@@ -279,6 +283,15 @@ test("CI-relevant changes never reach the fallback", () => {
       ["AscendLiveActivityWidgets/AscendLiveActivityWidget.swift"],
     ],
     ["Firestore index only", ["firestore.indexes.json"]],
+    ["Firestore rules only", ["firestore.rules"]],
+    ["Storage rules only", ["storage.rules"]],
+    ["Firebase config only", ["firebase.json"]],
+    ["Firebase project aliases only", [".firebaserc"]],
+    ["rules tests only", ["tests/firebase-rules/workout-contract.test.mjs"]],
+    ["Gemfile only", ["Gemfile"]],
+    ["Gemfile lock only", ["Gemfile.lock"]],
+    ["Fastlane config only", ["fastlane/Fastfile"]],
+    ["Ruby version only", [".ruby-version"]],
     ["workflow change", [".github/workflows/ci.yml"]],
     ["mixed code and docs", ["AscendApp/App/AscendApp.swift", "docs/plan.md"]],
     [
@@ -323,15 +336,14 @@ test("only explicitly allowlisted changes let the fallback claim the check", () 
   }
 });
 
-test("unverified deployment inputs stay blocked rather than auto-greened", () => {
-  // deploy-staging.yml ships every one of these on merge to develop, and no
-  // ci.yml job verifies any of them. Auto-greening them would deploy security
-  // rules and signing configuration with no pull-request gate at all.
+test("deployment inputs route to real verification rather than the fallback", () => {
   const deploymentInputs = [
     "firestore.rules",
     "storage.rules",
+    "firestore.indexes.json",
     "firebase.json",
     ".firebaserc",
+    "tests/firebase-rules/workout-contract.test.mjs",
     "Gemfile",
     "Gemfile.lock",
     "fastlane/Fastfile",
@@ -347,7 +359,7 @@ test("unverified deployment inputs stay blocked rather than auto-greened", () =>
     assert.equal(
       result.fallbackEligible,
       false,
-      `${path} must not be auto-greened by the fallback`,
+      `${path} must route to real CI`,
     );
     assert.deepEqual(result.blockedBy, [path]);
   }
@@ -355,8 +367,25 @@ test("unverified deployment inputs stay blocked rather than auto-greened", () =>
   assert.equal(
     classifyChangedPaths(["docs/plan.md", "firestore.rules"]).fallbackEligible,
     false,
-    "one unverified deployment input must block an otherwise allowlisted diff",
+    "one deployment input must route an otherwise allowlisted diff to real CI",
   );
+});
+
+test("deployment verify jobs execute the required checks", () => {
+  const firebaseJob = jobBody("firebase-verify");
+  const rubyJob = jobBody("ruby-verify");
+
+  assert.match(firebaseJob, /if: needs\.changes\.outputs\.firebase == 'true'/);
+  assert.match(firebaseJob, /run: npm ci --ignore-scripts/);
+  assert.match(firebaseJob, /run: node scripts\/ci\/validate-firebase-config\.mjs/);
+  assert.match(firebaseJob, /run: npm run test:firebase-rules/);
+  assert.match(rubyJob, /if: needs\.changes\.outputs\.ruby == 'true'/);
+  assert.match(rubyJob, /uses: ruby\/setup-ruby@v1/);
+  assert.match(
+    rubyJob,
+    /run: bundle install --deployment --jobs 4 --retry 3/,
+  );
+  assert.match(rubyJob, /run: bundle exec fastlane lanes/);
 });
 
 test("unclassified paths fail closed", () => {
@@ -365,7 +394,6 @@ test("unclassified paths fail closed", () => {
     ["a new root file", ["Package.swift"]],
     ["harness configuration outside skills", [".claude/settings.json"]],
     ["data outside the allowlisted copy package", ["data/scratch-notes.md"]],
-    ["rules tests", ["tests/firebase-rules/firestore.test.mjs"]],
     ["a partly allowlisted diff", ["docs/plan.md", "marketing/plan.md"]],
     ["a file named like an allowlisted directory", ["docs"]],
   ];
