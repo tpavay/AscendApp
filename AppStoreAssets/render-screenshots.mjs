@@ -1,13 +1,14 @@
-import { readFile, readdir } from 'node:fs/promises';
+import { mkdir, readFile, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const require = createRequire(new URL('../web/package.json', import.meta.url));
 const sharp = require('sharp');
 
-const root = process.cwd();
-const assetDirectory = path.join(root, 'AppStoreAssets');
+const assetDirectory = path.dirname(fileURLToPath(import.meta.url));
+const repositoryRoot = path.dirname(assetDirectory);
 const sourceDirectory = path.join(assetDirectory, 'sources');
 const outputDirectory = path.join(assetDirectory, 'screenshots/iphone-6.9-en-US');
 const qaDirectory = path.join(assetDirectory, 'qa');
@@ -16,74 +17,84 @@ const canvasWidth = 1320;
 const canvasHeight = 2868;
 const background = '#0D1117';
 const accent = '#86D30A';
-const phoneWidth = 1040;
-const phoneHeight = 2490;
-const phoneX = 140;
-const phoneY = 585;
+
+// The phone screen is sized from the captures rather than the other way round:
+// every app capture is a whole 19.5:9 iPhone screen, so the inner screen keeps
+// that aspect and each capture lands at its true proportions. Scaling is always
+// width-driven, which is what keeps app text and card edges off the crop line.
 const phoneFrame = 18;
-const innerWidth = phoneWidth - phoneFrame * 2;
-const innerHeight = phoneHeight - phoneFrame * 2;
+const innerWidth = 1012;
 const statusBarHeight = 130;
-const bodyHeight = innerHeight - statusBarHeight;
+const bodyHeight = 2062;
+const innerHeight = statusBarHeight + bodyHeight;
+const phoneWidth = innerWidth + phoneFrame * 2;
+const phoneHeight = innerHeight + phoneFrame * 2;
+const phoneX = Math.round((canvasWidth - phoneWidth) / 2);
+const phoneY = 585;
+
+const statusBarMaster = {
+  file: 'real-ui-first-ascent.png',
+  crop: { left: 0, top: 0, width: 1206, height: 155 },
+};
 
 const fontPath = path.join(
-  root,
+  repositoryRoot,
   'AscendApp/Resources/Fonts/Montserrat/Montserrat-Bold.ttf'
 );
 const fontData = await readFile(fontPath);
 const fontBase64 = fontData.toString('base64');
 
+// `sourceTop` is the capture's own status band (or, for a capture taken with the
+// status bar hidden, its blank leading padding). Everything below it is genuine
+// app surface and is shown whole.
 const screens = [
   {
     filename: '01-get-fit-stair-stepper.png',
-    source: path.join(sourceDirectory, '01-stair-stepper-effort.png'),
-    uiSource: path.join(root, 'web/public/images/ascend-live-climb-share.png'),
-    sourceCrop: { left: 50, top: 530, width: 753, height: 790 },
-    bodyBackground: 'recapGlow',
-    bodyWidth: 940,
-    bodyTop: 330,
-    bodyRadius: 86,
+    photo: '01-stair-stepper-effort.png',
+    uiSource: 'real-ui-live-climb-share.png',
+    // The share sheet's recap card is the only surface carrying the full climb
+    // story, and it is half a screen tall. Take the widest chrome-free window of
+    // the real capture - card plus the app background around it, with the sheet
+    // header, page dots, caption and destination buttons all outside it - and
+    // extend that window's own edge rows to the rest of the screen.
+    inset: { top: 262, height: 1084, focusY: 928 },
     lines: ['GET FIT ON THE', 'STAIR STEPPER.'],
-    photo: true,
   },
   {
     filename: '02-climb-everest-stair-stepper.png',
-    source: path.join(sourceDirectory, '02-everest-summit.png'),
-    uiSource: path.join(sourceDirectory, 'real-ui-landmarks.png'),
-    sourceStatusHeight: 155,
+    photo: '02-everest-summit.png',
+    uiSource: 'real-ui-landmarks.png',
+    sourceTop: 155,
     lines: ['CLIMB EVEREST FROM', 'YOUR STAIR STEPPER.'],
-    photo: true,
   },
   {
     filename: '03-race-real-landmarks.png',
-    uiSource: path.join(root, 'web/public/images/ascend-globe-browse.jpg'),
-    sourceStatusHeight: 100,
+    uiSource: 'real-ui-globe-browse.jpg',
+    sourceTop: 100,
     lines: ['RACE THE WORLD UP', 'REAL LANDMARKS.'],
   },
   {
     filename: '04-race-real-climbers.png',
-    uiSource: path.join(root, 'web/public/images/ascend-live-climb-leaderboard-preview.png'),
-    sourceStatusHeight: 0,
-    sourceBottomCrop: 230,
-    sourceBottomPadding: 300,
+    uiSource: 'real-ui-live-attempt-leaderboard.png',
+    sourceTop: 43,
     lines: ['RACE REAL CLIMBERS,', 'STEP FOR STEP.'],
   },
   {
     filename: '05-every-step-ranked.png',
-    uiSource: path.join(root, 'web/public/images/ascend-climb-leaderboard.jpg'),
-    sourceStatusHeight: 100,
+    uiSource: 'real-ui-climb-leaderboard.jpg',
+    sourceTop: 100,
     lines: ['EVERY STEP', 'RANKED.'],
   },
   {
     filename: '06-first-ascent-forever.png',
-    uiSource: path.join(sourceDirectory, 'real-ui-first-ascent.png'),
-    sourceStatusHeight: 155,
+    uiSource: 'real-ui-first-ascent.png',
+    sourceTop: 155,
     lines: ['BE THE FIRST.', 'CLAIM IT FOREVER.'],
   },
   {
     filename: '07-record-book-climbing.png',
-    uiSource: path.join(root, 'web/public/images/ascend-best-effort-detail.png'),
-    sourceStatusHeight: 155,
+    uiSource: 'real-ui-best-effort.png',
+    sourceTop: 155,
     lines: ['YOUR RECORD BOOK.', "AND IT'S CLIMBING."],
   },
 ];
@@ -145,10 +156,10 @@ function photoScrimSvg() {
     <svg width="${canvasWidth}" height="${canvasHeight}" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <linearGradient id="scrim" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#05080C" stop-opacity="0.72" />
-          <stop offset="25%" stop-color="#05080C" stop-opacity="0.46" />
-          <stop offset="64%" stop-color="#05080C" stop-opacity="0.34" />
-          <stop offset="100%" stop-color="#05080C" stop-opacity="0.78" />
+          <stop offset="0%" stop-color="#05080C" stop-opacity="0.66" />
+          <stop offset="25%" stop-color="#05080C" stop-opacity="0.34" />
+          <stop offset="64%" stop-color="#05080C" stop-opacity="0.26" />
+          <stop offset="100%" stop-color="#05080C" stop-opacity="0.72" />
         </linearGradient>
       </defs>
       <rect width="${canvasWidth}" height="${canvasHeight}" fill="url(#scrim)" />
@@ -158,126 +169,115 @@ function photoScrimSvg() {
 }
 
 async function normalizedStatusBar() {
-  const masterPath = path.join(sourceDirectory, 'real-ui-first-ascent.png');
-  return sharp(masterPath)
-    .extract({ left: 0, top: 0, width: 1206, height: 155 })
+  return sharp(path.join(sourceDirectory, statusBarMaster.file))
+    .extract(statusBarMaster.crop)
     .resize(innerWidth, statusBarHeight, { fit: 'fill' })
     .flatten({ background: '#101010' })
     .png()
     .toBuffer();
 }
 
-async function phoneBuffer(screen, statusBar) {
-  const metadata = await sharp(screen.uiSource).metadata();
-  const sourceStatusHeight = screen.sourceStatusHeight ?? 0;
-  const sourceBottomCrop = screen.sourceBottomCrop ?? 0;
-  const sourceBottomPadding = screen.sourceBottomPadding ?? 0;
-  const sourceCrop = screen.sourceCrop ?? {
-    left: 0,
-    top: sourceStatusHeight,
-    width: metadata.width,
-    height: metadata.height - sourceStatusHeight - sourceBottomCrop,
-  };
+/// A whole app screen, scaled by width so nothing is ever lost sideways. The
+/// window taken from the capture already carries the phone body's aspect, so the
+/// final resize neither crops nor visibly stretches.
+async function fullScreenBody(screen) {
+  const uiPath = path.join(sourceDirectory, screen.uiSource);
+  const metadata = await sharp(uiPath).metadata();
+  const sourceTop = screen.sourceTop ?? 0;
+  const windowHeight = Math.ceil(metadata.width * bodyHeight / innerWidth);
+  const available = metadata.height - sourceTop;
 
-  const croppedBody = await sharp(screen.uiSource)
-    .extract(sourceCrop)
+  if (windowHeight > available) {
+    throw new Error(
+      `${screen.filename}: ${screen.uiSource} offers ${available} rows below its status band, `
+      + `but the phone body needs ${windowHeight} to fill without cropping sideways`
+    );
+  }
+
+  return sharp(uiPath)
+    .extract({ left: 0, top: sourceTop, width: metadata.width, height: windowHeight })
+    .resize(innerWidth, bodyHeight, { fit: 'fill' })
     .flatten({ background: '#000000' })
     .png()
     .toBuffer();
+}
 
-  const paddedBody = sourceBottomPadding > 0
-    ? await sharp({
-      create: {
-        width: sourceCrop.width,
-        height: sourceCrop.height + sourceBottomPadding,
-        channels: 3,
-        background: '#000000',
-      },
-    })
-      .composite([{ input: croppedBody, top: 0, left: 0 }])
-      .png()
-      .toBuffer()
-    : croppedBody;
+/// A chrome-free window of a real capture, scaled by width and centred on its
+/// subject. The rest of the screen continues the window's own edge rows, so the
+/// surrounding surface is the app's background rather than an invented one.
+async function insetBody(screen) {
+  const uiPath = path.join(sourceDirectory, screen.uiSource);
+  const metadata = await sharp(uiPath).metadata();
+  const { top, height, focusY } = screen.inset;
 
-  let body;
-  if (screen.bodyWidth) {
-    const resizedInset = await sharp(paddedBody)
-      .resize({ width: screen.bodyWidth })
-      .png()
-      .toBuffer();
-    const resizedInsetMetadata = await sharp(resizedInset).metadata();
-    const inset = screen.bodyRadius
-      ? await sharp(resizedInset)
-        .composite([{
-          input: Buffer.from(`
-            <svg width="${resizedInsetMetadata.width}" height="${resizedInsetMetadata.height}" xmlns="http://www.w3.org/2000/svg">
-              <rect
-                width="${resizedInsetMetadata.width}"
-                height="${resizedInsetMetadata.height}"
-                rx="${screen.bodyRadius}"
-                fill="#FFFFFF"
-              />
-            </svg>
-          `),
-          blend: 'dest-in',
-        }])
-        .png()
-        .toBuffer()
-      : resizedInset;
-    const insetMetadata = await sharp(inset).metadata();
-    const bodyBackground = screen.bodyBackground === 'recapGlow'
-      ? Buffer.from(`
-        <svg width="${innerWidth}" height="${bodyHeight}" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <radialGradient id="warm" cx="50%" cy="26%" r="72%">
-              <stop offset="0%" stop-color="#8A3E0C" stop-opacity="0.64" />
-              <stop offset="48%" stop-color="#35180B" stop-opacity="0.48" />
-              <stop offset="100%" stop-color="#050607" stop-opacity="0" />
-            </radialGradient>
-            <radialGradient id="lime" cx="50%" cy="61%" r="52%">
-              <stop offset="0%" stop-color="${accent}" stop-opacity="0.1" />
-              <stop offset="100%" stop-color="${accent}" stop-opacity="0" />
-            </radialGradient>
-            <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#110B08" />
-              <stop offset="100%" stop-color="#020304" />
-            </linearGradient>
-          </defs>
-          <rect width="${innerWidth}" height="${bodyHeight}" fill="url(#fade)" />
-          <rect width="${innerWidth}" height="${bodyHeight}" fill="url(#warm)" />
-          <rect width="${innerWidth}" height="${bodyHeight}" fill="url(#lime)" />
-        </svg>
-      `)
-      : null;
-    const bodyComposites = [];
-    if (bodyBackground) {
-      bodyComposites.push({ input: bodyBackground, top: 0, left: 0 });
-    }
-    bodyComposites.push({
-      input: inset,
-      top: screen.bodyTop ?? 0,
-      left: Math.round((innerWidth - insetMetadata.width) / 2),
-    });
-    body = await sharp({
-      create: {
-        width: innerWidth,
-        height: bodyHeight,
-        channels: 3,
-        background: '#000000',
-      },
-    })
-      .composite(bodyComposites)
-      .png()
-      .toBuffer();
-  } else {
-    body = await sharp(paddedBody)
-      .resize(innerWidth, bodyHeight, {
-        fit: 'cover',
-        position: 'top',
-      })
-      .png()
-      .toBuffer();
+  if (top + height > metadata.height) {
+    throw new Error(`${screen.filename}: inset window falls outside ${screen.uiSource}`);
   }
+
+  const scaled = await sharp(uiPath)
+    .extract({ left: 0, top, width: metadata.width, height })
+    .resize({ width: innerWidth })
+    .flatten({ background: '#000000' })
+    .png()
+    .toBuffer();
+  const scaledHeight = (await sharp(scaled).metadata()).height;
+
+  if (scaledHeight > bodyHeight) {
+    throw new Error(`${screen.filename}: inset is taller than the phone body`);
+  }
+
+  const focusOffset = Math.round((focusY - top) * innerWidth / metadata.width);
+  const insetTop = Math.min(
+    Math.max(Math.round(bodyHeight / 2 - focusOffset), 0),
+    bodyHeight - scaledHeight
+  );
+  const insetBottom = bodyHeight - insetTop - scaledHeight;
+  const edge = 8;
+
+  // Collapse the slice to a single column first: the capture's background is a
+  // flat vertical ramp, so averaging across it keeps the ramp and drops the
+  // capture noise that stretching would otherwise smear into vertical streaks.
+  const edgeBand = async (sourceRow, bandHeight) => {
+    const column = await sharp(scaled)
+      .extract({ left: 0, top: sourceRow, width: innerWidth, height: edge })
+      .resize(1, bandHeight, { fit: 'fill' })
+      .png()
+      .toBuffer();
+
+    return sharp(column)
+      .resize(innerWidth, bandHeight, { fit: 'fill' })
+      .png()
+      .toBuffer();
+  };
+
+  const composites = [];
+  if (insetTop > 0) {
+    composites.push({ input: await edgeBand(0, insetTop), top: 0, left: 0 });
+  }
+  composites.push({ input: scaled, top: insetTop, left: 0 });
+  if (insetBottom > 0) {
+    composites.push({
+      input: await edgeBand(scaledHeight - edge, insetBottom),
+      top: insetTop + scaledHeight,
+      left: 0,
+    });
+  }
+
+  return sharp({
+    create: {
+      width: innerWidth,
+      height: bodyHeight,
+      channels: 3,
+      background: '#000000',
+    },
+  })
+    .composite(composites)
+    .png()
+    .toBuffer();
+}
+
+async function phoneBuffer(screen, statusBar) {
+  const body = screen.inset ? await insetBody(screen) : await fullScreenBody(screen);
 
   const ui = await sharp({
     create: {
@@ -341,7 +341,7 @@ async function phoneBuffer(screen, statusBar) {
 
 async function renderScreen(screen, statusBar) {
   const backgroundLayer = screen.photo
-    ? await sharp(screen.source)
+    ? await sharp(path.join(sourceDirectory, screen.photo))
       .resize(canvasWidth, canvasHeight, { fit: 'cover', position: 'centre' })
       .flatten({ background })
       .png()
@@ -412,6 +412,19 @@ async function renderContactSheet() {
     .toFile(path.join(qaDirectory, 'app-store-contact-sheet.png'));
 }
 
+function validateLayout() {
+  if (phoneX < 0 || phoneY < 0) {
+    throw new Error('The phone frame starts outside the canvas');
+  }
+
+  if (phoneX + phoneWidth > canvasWidth || phoneY + phoneHeight > canvasHeight) {
+    throw new Error(
+      `The phone frame (${phoneWidth}x${phoneHeight} at ${phoneX},${phoneY}) bleeds past the `
+      + `${canvasWidth}x${canvasHeight} canvas, which would slice whatever sits at the screen's edge`
+    );
+  }
+}
+
 async function validateOutputs() {
   const expectedFilenames = screens.map((screen) => screen.filename).sort();
   const actualFilenames = (await readdir(outputDirectory))
@@ -460,6 +473,10 @@ async function validateOutputs() {
     throw new Error('Status-bar pixels are not identical across all seven screenshots');
   }
 }
+
+validateLayout();
+await mkdir(outputDirectory, { recursive: true });
+await mkdir(qaDirectory, { recursive: true });
 
 const statusBar = await normalizedStatusBar();
 
