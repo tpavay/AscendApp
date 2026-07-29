@@ -19,21 +19,21 @@ const background = '#0D1117';
 const accent = '#86D30A';
 const accentRuleBottom = 515;
 
-// The phone screen is sized from the captures rather than the other way round:
-// every app capture is a whole 19.5:9 iPhone screen, so the inner screen keeps
-// that aspect and each capture lands at its true proportions. Scaling is always
-// width-driven, which is what keeps app text and card edges off the crop line.
-// The body height is then tuned so that every screen's bottom edge lands in the
-// gap between two real elements - see `lastRow` / `nextRow` on each screen.
+// The phone is sized from the captures rather than the other way round. Every
+// body is scaled by width only, so no column of app UI is ever lost, and each
+// screen's window runs from below its capture's own status chrome down to a
+// row that sits in a gap between two real elements. Because the captures are
+// scrolled to different places, those gaps do not all land at the same height,
+// so the body height is derived per screen and the devices are centred in one
+// band; `maxDeviceSpread` keeps that variation small enough to read as one
+// device across the set.
 const phoneFrame = 18;
 const innerWidth = 1012;
 const statusBarHeight = 130;
-const bodyHeight = 2052;
-const innerHeight = statusBarHeight + bodyHeight;
 const phoneWidth = innerWidth + phoneFrame * 2;
-const phoneHeight = innerHeight + phoneFrame * 2;
 const phoneX = Math.round((canvasWidth - phoneWidth) / 2);
-const phoneY = 585;
+const deviceBandTop = 585;
+const maxDeviceSpread = 40;
 
 const statusBarMaster = {
   file: 'real-ui-first-ascent.png',
@@ -47,12 +47,14 @@ const fontPath = path.join(
 const fontData = await readFile(fontPath);
 const fontBase64 = fontData.toString('base64');
 
-// `sourceTop` is the first capture row the phone body shows: past the capture's
-// own status band, inside the blank gap above the first real element.
-// `lastRow` is the final row of the last element that must be whole on screen and
-// `nextRow` the first row of the element that must not appear at all. The renderer
-// asserts the body's bottom edge falls between them, so no card, row, glyph or
-// control can be sliced by a later change to the geometry or to a capture.
+// `statusBandBottom` is the first capture row clear of the device's own status
+// chrome - one past the bottom of its Dynamic Island, which is drawn black and
+// so is invisible on a dark capture but shows as a second pill over a lighter
+// app surface. `sourceTop` must start at or below it.
+// `lastRow` is the final row of the last element that must be whole on screen
+// and `nextRow` the first row of the element that must not appear at all;
+// `sourceBottom` is asserted to fall between them, so no card, row, glyph or
+// control can be sliced by a later change to a capture or to the geometry.
 const screens = [
   {
     filename: '01-get-fit-stair-stepper.png',
@@ -63,6 +65,7 @@ const screens = [
     // chrome-free window: the card and the app background above it, ending
     // before the page dots. Nothing is synthesized to fill a taller body.
     bleed: true,
+    statusBandBottom: 108,
     sourceTop: 262,
     sourceBottom: 1346,
     lastRow: 1339,
@@ -73,7 +76,9 @@ const screens = [
     filename: '02-climb-everest-stair-stepper.png',
     photo: '02-everest-summit.png',
     uiSource: 'real-ui-landmarks.png',
-    sourceTop: 155,
+    statusBandBottom: 153,
+    sourceTop: 153,
+    sourceBottom: 2586,
     lastRow: 2107,
     nextRow: 2622,
     lines: ['CLIMB EVEREST FROM', 'YOUR STAIR STEPPER.'],
@@ -81,15 +86,21 @@ const screens = [
   {
     filename: '03-race-real-landmarks.png',
     uiSource: 'real-ui-globe-browse.jpg',
-    sourceTop: 72,
+    statusBandBottom: 93,
+    sourceTop: 93,
+    sourceBottom: 1566,
     lastRow: 1546,
-    nextRow: 1570,
+    nextRow: 1567,
     lines: ['RACE THE WORLD UP', 'REAL LANDMARKS.'],
   },
   {
     filename: '04-race-real-climbers.png',
     uiSource: 'real-ui-live-attempt-leaderboard.png',
+    // This capture was taken with the status bar hidden, so its first row is
+    // already app surface and the normalized band sits above it.
+    statusBandBottom: 0,
     sourceTop: 44,
+    sourceBottom: 1772,
     lastRow: 1766,
     nextRow: 1816,
     lines: ['RACE REAL CLIMBERS,', 'STEP FOR STEP.'],
@@ -97,7 +108,9 @@ const screens = [
   {
     filename: '05-every-step-ranked.png',
     uiSource: 'real-ui-climb-leaderboard.jpg',
-    sourceTop: 72,
+    statusBandBottom: 93,
+    sourceTop: 93,
+    sourceBottom: 1573,
     lastRow: 1550,
     nextRow: 1574,
     lines: ['EVERY STEP', 'RANKED.'],
@@ -105,7 +118,9 @@ const screens = [
   {
     filename: '06-first-ascent-forever.png',
     uiSource: 'real-ui-first-ascent.png',
-    sourceTop: 155,
+    statusBandBottom: 153,
+    sourceTop: 153,
+    sourceBottom: 2586,
     lastRow: 2380,
     nextRow: 2622,
     lines: ['BE THE FIRST.', 'CLAIM IT FOREVER.'],
@@ -113,7 +128,9 @@ const screens = [
   {
     filename: '07-record-book-climbing.png',
     uiSource: 'real-ui-best-effort.png',
-    sourceTop: 176,
+    statusBandBottom: 153,
+    sourceTop: 170,
+    sourceBottom: 2622,
     lastRow: 2621,
     nextRow: 2622,
     lines: ['YOUR RECORD BOOK.', "AND IT'S CLIMBING."],
@@ -198,56 +215,76 @@ async function normalizedStatusBar() {
     .toBuffer();
 }
 
-/// The capture window the phone body shows, scaled by width so no column of app
-/// UI is ever lost. Every visible pixel comes from the capture.
-async function bodyBuffer(screen) {
-  const uiPath = path.join(sourceDirectory, screen.uiSource);
-  const metadata = await sharp(uiPath).metadata();
-  const windowHeight = screen.bleed
-    ? screen.sourceBottom - screen.sourceTop
-    : Math.ceil(metadata.width * bodyHeight / innerWidth);
-  const bottomEdge = screen.sourceTop + windowHeight;
+/// Resolves and checks the capture window each screen shows, and the body height
+/// that window scales to. Scaling is width-driven, so nothing is lost sideways.
+async function measureScreen(screen) {
+  const metadata = await sharp(path.join(sourceDirectory, screen.uiSource)).metadata();
 
-  if (bottomEdge > metadata.height) {
+  if (screen.sourceTop < screen.statusBandBottom) {
     throw new Error(
-      `${screen.filename}: ${screen.uiSource} offers ${metadata.height - screen.sourceTop} rows `
-      + `below its status band, but the phone body needs ${windowHeight} to fill without cropping sideways`
+      `${screen.filename}: the body starts at capture row ${screen.sourceTop}, inside `
+      + `${screen.uiSource}'s own status chrome, which reaches row ${screen.statusBandBottom - 1}. `
+      + 'Those rows would render as a second status bar below the normalized one'
     );
   }
 
-  if (bottomEdge <= screen.lastRow) {
+  if (screen.sourceBottom > metadata.height) {
     throw new Error(
-      `${screen.filename}: the body ends at capture row ${bottomEdge}, which slices the element `
-      + `running to row ${screen.lastRow}`
+      `${screen.filename}: the body ends at capture row ${screen.sourceBottom}, past the end of `
+      + `${screen.uiSource} at row ${metadata.height}`
     );
   }
 
-  if (bottomEdge > screen.nextRow) {
+  if (screen.sourceBottom <= screen.lastRow) {
     throw new Error(
-      `${screen.filename}: the body ends at capture row ${bottomEdge}, which slices the element `
-      + `starting at row ${screen.nextRow}`
+      `${screen.filename}: the body ends at capture row ${screen.sourceBottom}, which slices the `
+      + `element running to row ${screen.lastRow}`
     );
   }
 
-  const height = screen.bleed
-    ? Math.round(windowHeight * innerWidth / metadata.width)
-    : bodyHeight;
+  if (screen.sourceBottom > screen.nextRow) {
+    throw new Error(
+      `${screen.filename}: the body ends at capture row ${screen.sourceBottom}, which slices the `
+      + `element starting at row ${screen.nextRow}`
+    );
+  }
 
-  const buffer = await sharp(uiPath)
-    .extract({ left: 0, top: screen.sourceTop, width: metadata.width, height: windowHeight })
-    .resize(innerWidth, height, { fit: 'fill' })
+  const window = screen.sourceBottom - screen.sourceTop;
+
+  return {
+    sourceWidth: metadata.width,
+    window,
+    bodyHeight: Math.round(window * innerWidth / metadata.width),
+  };
+}
+
+async function bodyBuffer(screen, measurement) {
+  return sharp(path.join(sourceDirectory, screen.uiSource))
+    .extract({
+      left: 0,
+      top: screen.sourceTop,
+      width: measurement.sourceWidth,
+      height: measurement.window,
+    })
+    .resize(innerWidth, measurement.bodyHeight, { fit: 'fill' })
     .flatten({ background: '#000000' })
     .png()
     .toBuffer();
-
-  return { buffer, height };
 }
 
-async function phoneBuffer(screen, statusBar) {
-  const body = await bodyBuffer(screen);
-  const visibleInnerHeight = statusBarHeight + body.height;
+async function phoneBuffer(screen, measurement, statusBar, device) {
+  const visibleInnerHeight = statusBarHeight + measurement.bodyHeight;
   // A bleeding device shows its top bezel only; its bottom bezel is off canvas.
+  const outlineInnerHeight = screen.bleed ? device.innerHeight : visibleInnerHeight;
+  const outlinePhoneHeight = outlineInnerHeight + phoneFrame * 2;
   const visiblePhoneHeight = visibleInnerHeight + phoneFrame * (screen.bleed ? 1 : 2);
+
+  if (visibleInnerHeight > outlineInnerHeight) {
+    throw new Error(
+      `${screen.filename}: its ${visibleInnerHeight}px screen is taller than the ${outlineInnerHeight}px `
+      + 'device it is drawn inside, so the rounded mask would blank the bottom of the composite'
+    );
+  }
 
   const ui = await sharp({
     create: {
@@ -259,11 +296,11 @@ async function phoneBuffer(screen, statusBar) {
   })
     .composite([
       { input: statusBar, top: 0, left: 0 },
-      { input: body.buffer, top: statusBarHeight, left: 0 },
+      { input: await bodyBuffer(screen, measurement), top: statusBarHeight, left: 0 },
       {
         input: Buffer.from(`
           <svg width="${innerWidth}" height="${visibleInnerHeight}" xmlns="http://www.w3.org/2000/svg">
-            <rect width="${innerWidth}" height="${innerHeight}" rx="66" fill="#FFFFFF" />
+            <rect width="${innerWidth}" height="${outlineInnerHeight}" rx="66" fill="#FFFFFF" />
           </svg>
         `),
         blend: 'dest-in',
@@ -283,7 +320,7 @@ async function phoneBuffer(screen, statusBar) {
         x="4"
         y="4"
         width="${phoneWidth - 8}"
-        height="${phoneHeight - 8}"
+        height="${outlinePhoneHeight - 8}"
         rx="82"
         fill="#080A0C"
         stroke="#353A40"
@@ -308,7 +345,9 @@ async function phoneBuffer(screen, statusBar) {
     .png()
     .toBuffer();
 
-  const top = screen.bleed ? canvasHeight - visiblePhoneHeight : phoneY;
+  const top = screen.bleed
+    ? canvasHeight - visiblePhoneHeight
+    : deviceBandTop + Math.round((device.phoneHeight - visiblePhoneHeight) / 2);
 
   if (top + visiblePhoneHeight > canvasHeight || top <= accentRuleBottom) {
     throw new Error(
@@ -320,7 +359,7 @@ async function phoneBuffer(screen, statusBar) {
   return { buffer, top };
 }
 
-async function renderScreen(screen, statusBar) {
+async function renderScreen(screen, measurement, statusBar, device) {
   const backgroundLayer = screen.photo
     ? await sharp(path.join(sourceDirectory, screen.photo))
       .resize(canvasWidth, canvasHeight, { fit: 'cover', position: 'centre' })
@@ -329,7 +368,7 @@ async function renderScreen(screen, statusBar) {
       .toBuffer()
     : marketingChromeSvg();
 
-  const phone = await phoneBuffer(screen, statusBar);
+  const phone = await phoneBuffer(screen, measurement, statusBar, device);
   const composites = [{ input: backgroundLayer, top: 0, left: 0 }];
 
   if (screen.photo) {
@@ -395,6 +434,33 @@ async function renderContactSheet() {
     .toFile(path.join(qaDirectory, 'app-store-contact-sheet.png'));
 }
 
+function resolveDevice(measurements) {
+  const framed = screens
+    .filter((screen) => !screen.bleed)
+    .map((screen) => measurements.get(screen.filename).bodyHeight);
+  const tallest = Math.max(...framed);
+  const spread = tallest - Math.min(...framed);
+
+  if (spread > maxDeviceSpread) {
+    throw new Error(
+      `The framed screens' body heights span ${spread}px, past the ${maxDeviceSpread}px that still `
+      + 'reads as one device across the set'
+    );
+  }
+
+  const innerHeight = statusBarHeight + tallest;
+  const phoneHeight = innerHeight + phoneFrame * 2;
+
+  if (deviceBandTop + phoneHeight > canvasHeight) {
+    throw new Error(
+      `The device band (${phoneHeight}px from ${deviceBandTop}) runs past the bottom of the `
+      + `${canvasWidth}x${canvasHeight} canvas`
+    );
+  }
+
+  return { innerHeight, phoneHeight, spread };
+}
+
 async function validateOutputs(phoneTops) {
   const expectedFilenames = screens.map((screen) => screen.filename).sort();
   const actualFilenames = (await readdir(outputDirectory))
@@ -447,12 +513,23 @@ async function validateOutputs(phoneTops) {
 await mkdir(outputDirectory, { recursive: true });
 await mkdir(qaDirectory, { recursive: true });
 
+const measurements = new Map();
+for (const screen of screens) {
+  measurements.set(screen.filename, await measureScreen(screen));
+}
+
+const device = resolveDevice(measurements);
 const statusBar = await normalizedStatusBar();
 const phoneTops = new Map();
 
 for (const screen of screens) {
-  phoneTops.set(screen.filename, await renderScreen(screen, statusBar));
+  phoneTops.set(
+    screen.filename,
+    await renderScreen(screen, measurements.get(screen.filename), statusBar, device)
+  );
 }
 
 await validateOutputs(phoneTops);
 await renderContactSheet();
+
+console.log(`device ${phoneWidth}x${device.phoneHeight}, body-height spread ${device.spread}px`);

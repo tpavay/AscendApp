@@ -34,19 +34,22 @@ Every screen contains genuine Ascend UI, and every pixel inside every phone scre
 
 ## Geometry
 
-The phone screen is sized from the captures rather than the other way round.
-Every capture is a whole 19.5:9 iPhone screen, so the screen is 1012 x 2182 and each capture lands at its true proportions.
-Scaling is always width-driven, which is what keeps app text, card edges and controls off the crop line.
+The phone is sized from the captures rather than the other way round.
+Every capture is a whole 19.5:9 iPhone screen, the screen is 1012px wide, and scaling is always width-driven, which is what keeps app text, card edges and controls off the crop line.
 
-Each screen declares the last capture row that must be whole and the first row that must not appear at all.
-The body height was chosen so every screen's bottom edge lands in the gap between those two rows, and the renderer refuses to build a body that falls outside it.
-`qa/review.md` tabulates the boundary chosen for each screen.
+Each screen declares three capture rows: the first row clear of that device's own status chrome, the last row that must be whole on screen, and the first row that must not appear at all.
+The window between them is what the phone shows, and the renderer refuses to build a body that starts inside the status chrome or ends outside the gap.
+`qa/review.md` tabulates all three for each screen.
+
+Body height therefore follows the capture rather than being fixed, because the captures are scrolled to different places and their clean boundaries do not all land at the same height.
+Across the framed screens it spans 33px - 1.5% of the device - and the devices are centred in one band so the set still reads as one phone; the renderer rejects a spread past 40px.
 
 Screens 02 through 07 show the whole device inside the canvas.
 Screen 01 runs its device off the bottom: the recap card is about half a screen tall and the capture has no further chrome-free surface below it, so a fully framed device could only have been completed with invented pixels. Bleeding it instead keeps the lead screenshot entirely real.
 
 The renderer reuses one status-bar master on all seven screens.
 That master supplies the same 9:41 clock, full signal, full Wi-Fi, full battery, and correctly placed Dynamic Island pill.
+The island is drawn black, so a capture's own island hides against a dark app surface and shows as a second pill against a lighter one; the declared status-chrome row is what keeps it out of every body.
 
 ## Render
 
@@ -60,5 +63,5 @@ node AppStoreAssets/render-screenshots.mjs
 
 Every path other than that Sharp lookup is derived from the script's own location, so the working directory does not matter.
 
-Before writing anything the renderer checks that each device fits between the headline rule and the bottom of the canvas, that each capture is tall enough to fill the screen without cropping sideways, and that no body's bottom edge slices a declared element.
+Before writing anything the renderer checks that no body starts inside its capture's own status chrome, that no body's bottom edge slices a declared element or runs past the end of its capture, that the framed body heights stay close enough to read as one device, that each device fits between the headline rule and the bottom of the canvas, and that a bleeding screen is never taller than the device outline it is drawn inside.
 After rendering it validates the exact file count, dimensions, sRGB color space, absence of alpha, and status-bar uniformity, then writes the contact sheet.
