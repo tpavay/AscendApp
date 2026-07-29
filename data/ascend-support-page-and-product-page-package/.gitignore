@@ -1,10 +1,16 @@
-# The App Store screenshot set is a separate design follow-up and is not tracked
-# here. The renderer, its sources and its outputs are kept locally so they can be
-# copied out, but they stay out of git: the outputs and the contact sheet are
-# derived artifacts, and the set still has open blockers.
+# The App Store screenshot set is a separate design follow-up and does not ship
+# in this PR. Iterative composition fixes kept regressing decisions that had
+# already been approved, so the set needs one deliberate design pass; two
+# blockers are still open (screen 06 shows a disabled CTA, screen 02 is
+# off-message against its headline).
 #
-# See screenshot-follow-up-notes.md (also local-only) for the full history,
-# the two unresolved blockers, and how to run the renderer.
+# The renderer, its sources and its outputs are kept out of git here because the
+# outputs and the contact sheet are derived artifacts and the set is unfinished.
+# They are preserved in the authoring worktree alongside a
+# screenshot-follow-up-notes.md that carries the full history; that notes file is
+# ignored by this same list, so it travels with the working copy rather than the
+# repository. Delete the entries below to bring any of this back under version
+# control.
 
 render-screenshots.mjs
 screenshot-sources/
