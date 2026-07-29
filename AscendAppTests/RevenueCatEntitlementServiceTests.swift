@@ -100,7 +100,7 @@ struct RevenueCatEntitlementServiceTests {
     }
 
     @Test
-    func delayedStreamRefreshCannotOverwriteNewIdentity() async throws {
+    func delayedRefreshCannotOverwriteNewIdentity() async throws {
         let provider = ControlledRevenueCatEntitlementProvider()
         var invocations = provider.invocations.makeAsyncIterator()
         let service = RevenueCatEntitlementService(
@@ -116,7 +116,9 @@ struct RevenueCatEntitlementServiceTests {
         provider.completeLogIn(with: .active(["app_access"]))
         await firstIdentifyTask.value
 
-        provider.sendCustomerInfoUpdate()
+        let staleRefreshTask = Task {
+            await service.refreshCustomerInfo()
+        }
         #expect(await invocations.next() == .customerInfo)
 
         let currentIdentity = service.prepareIdentity(userId: "current-user")
@@ -128,8 +130,32 @@ struct RevenueCatEntitlementServiceTests {
         await currentIdentifyTask.value
 
         provider.completeCustomerInfo(with: .inactive)
+        await staleRefreshTask.value
 
         #expect(service.entitlementState == .active(["app_access"]))
+    }
+
+    @Test
+    func customerInfoUpdateTriggersRefresh() async throws {
+        let provider = ControlledRevenueCatEntitlementProvider()
+        var invocations = provider.invocations.makeAsyncIterator()
+        let service = RevenueCatEntitlementService(
+            provider: provider,
+            startsConfigured: true
+        )
+
+        let identity = service.prepareIdentity(userId: "subscriber")
+        let identifyTask = Task {
+            await service.identify(userId: "subscriber", transition: identity)
+        }
+        #expect(await invocations.next() == .logIn(userID: "subscriber"))
+        provider.completeLogIn(with: .active(["app_access"]))
+        await identifyTask.value
+
+        provider.sendCustomerInfoUpdate()
+        #expect(await invocations.next() == .customerInfo)
+        #expect(provider.customerInfoCallCount == 1)
+        provider.completeCustomerInfo(with: .active(["app_access"]))
     }
 }
 
