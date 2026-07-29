@@ -28,7 +28,7 @@ Every screen contains genuine Ascend UI, and every pixel inside every phone scre
 | 02 | `real-ui-landmarks.png` - landmark onboarding, including the Everest card |
 | 03 | `real-ui-globe-browse.jpg` - the live globe and climb catalog |
 | 04 | `real-ui-live-attempt-leaderboard.png` - an in-progress replay leaderboard |
-| 05 | `real-ui-climb-leaderboard.jpg` - the per-climb completion leaderboard |
+| 05 | `real-ui-climb-leaderboard-20.png` - the per-climb completion leaderboard, captured at the same 20-finisher state as screen 01 |
 | 06 | `real-ui-first-ascent.png` - the First Ascent notification surface |
 | 07 | `real-ui-best-effort.png` - a Best Effort record and its progression chart |
 
