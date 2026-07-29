@@ -120,14 +120,16 @@ struct PrivacyManifestTests {
 
     /// The categories analytics event parameters resolve to across the hand inventory: banded body
     /// values, workout metrics, paywall and purchase fields, the location filter, onboarding answers,
-    /// and interaction fields.
+    /// interaction fields, and the Superwall skip-reason and error descriptions that ride
+    /// `TelemetryRecord`'s default `destinations: [.analytics]`.
     static let eventParameterDataTypes: [String] = [
         health,
         fitness,
         purchaseHistory,
         coarseLocation,
         otherDataTypes,
-        productInteraction
+        productInteraction,
+        otherDiagnosticData
     ]
 
     /// Every analytics attribute the app can attach to a Firebase Analytics or Mixpanel identity,
@@ -257,6 +259,7 @@ struct PrivacyManifestTests {
     private static let otherDataTypes = "NSPrivacyCollectedDataTypeOtherDataTypes"
     private static let productInteraction = "NSPrivacyCollectedDataTypeProductInteraction"
     private static let purchaseHistory = "NSPrivacyCollectedDataTypePurchaseHistory"
+    private static let otherDiagnosticData = "NSPrivacyCollectedDataTypeOtherDiagnosticData"
 
     /// The complete set Apple accepts for `NSPrivacyCollectedDataTypePurposes`. A value outside it
     /// is not a recognized purpose, so the declaration it sits on reads as under-declared.
@@ -285,7 +288,7 @@ struct PrivacyManifestTests {
         "NSPrivacyCollectedDataTypePurchaseHistory": .linked(analytics, appFunctionality),
         "NSPrivacyCollectedDataTypeCrashData": .linked(appFunctionality),
         "NSPrivacyCollectedDataTypePerformanceData": .linked(appFunctionality),
-        "NSPrivacyCollectedDataTypeOtherDiagnosticData": .linked(appFunctionality)
+        "NSPrivacyCollectedDataTypeOtherDiagnosticData": .linked(analytics, appFunctionality)
     ]
 
     private static let expectedAccessedAPITypes: [String: Set<String>] = [

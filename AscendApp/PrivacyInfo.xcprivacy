@@ -294,7 +294,13 @@
             </array>
         </dict>
 
-        <!-- Other Diagnostic Data - feedback and diagnostic submissions attach device model, OS version, app/build version -->
+        <!--
+          Other Diagnostic Data - feedback and diagnostic submissions attach device
+          model, OS version, app/build version. Analytics is declared because the
+          `paywall_skipped` reason and `paywall_error` error descriptions built in
+          SuperwallPaywallPresenter use TelemetryRecord's default
+          `destinations: [.analytics]`, so they reach Firebase Analytics and Mixpanel.
+        -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeOtherDiagnosticData</string>
@@ -304,6 +310,7 @@
             <false/>
             <key>NSPrivacyCollectedDataTypePurposes</key>
             <array>
+                <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
                 <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
             </array>
         </dict>

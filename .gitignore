@@ -91,5 +91,5 @@ web/.astro/
 .bundle/
 vendor/bundle/
 
-# Local-only privacy audit working file, not part of the repository
+# Captain-private App Store Connect App Privacy checklist - must never be committed
 data/asc-app-privacy-answers.md
