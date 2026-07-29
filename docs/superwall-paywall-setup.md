@@ -97,7 +97,7 @@ Every environment that points at its own vendor projects needs the same logical 
 - Its own auto-renewing annual and monthly products - `ascend_yearly` and `ascend_monthly` in production, `ascend_staging_yearly` and `ascend_staging_monthly` in staging
 - RevenueCat entitlement `app_access`
 - RevenueCat current offering `default`
-- Superwall placements `app_access_gate` and `onboarding_paywall`
+- Superwall placements `app_access_gate` and `onboarding_paywall` - staging carries only `app_access_gate` today, which is all its SDK-configuration role needs
 
 Only the production identifiers are compiled into `MonetizationConfiguration`, so the launch catalog audit runs in Release alone until `ascend-unentitled-access-build-setting` makes them configurable.
 Staging also sets `allowsUnentitledAppAccess`, so its hard gate never fires and it is not a paywall QA surface; it proves SDK configuration and clears the archive preflight.
