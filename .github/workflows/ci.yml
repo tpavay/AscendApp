@@ -4,6 +4,7 @@ on:
   pull_request:
     branches: [develop, main]
     paths:
+      # required-check-paths:start
       - "AscendApp/**"
       - "AscendAppTests/**"
       - "AscendLiveActivityWidgets/**"
@@ -15,7 +16,14 @@ on:
       - "package.json"
       - "package-lock.json"
       - "SharedTestVectors/**"
+      - "docs/superwall-paywall-setup.md"
+      - "docs/onboarding-design-guide.md"
+      - "docs/app-store-brief.md"
+      - "docs/launch-readiness-audit.md"
+      - "CLAUDE.md"
+      - "AGENTS.md"
       - ".github/workflows/**"
+      # required-check-paths:end
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -77,7 +85,9 @@ jobs:
               - "docs/onboarding-design-guide.md"
               - "docs/app-store-brief.md"
               - "docs/launch-readiness-audit.md"
+              # AGENTS.md is a symlink to CLAUDE.md, so it gates identically.
               - "CLAUDE.md"
+              - "AGENTS.md"
               - ".github/workflows/**"
             web:
               - "web/**"
