@@ -2,6 +2,11 @@
 
 *Paste this whole file into ChatGPT. It's self-contained — you don't have my codebase.*
 
+> **Status: the set has shipped.**
+> `AppStoreAssets/README.md` and `AppStoreAssets/qa/review.md` are the authoritative record of what was delivered, including per-screen sources, geometry, and the rendered output contract.
+> This file is kept only as the photo-generation and caption brief that produced the two transformation photographs; where it disagrees with the shipped set, the shipped set wins.
+> The one deliberate divergence: screens 1 and 2 pair those photographs with genuine Ascend UI instead of showing no interface, so the "zero app interface" rule in §6 describes the original plan, not what shipped.
+
 ---
 
 ## 0. What I want from you
