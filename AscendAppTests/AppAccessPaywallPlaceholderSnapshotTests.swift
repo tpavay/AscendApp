@@ -4,28 +4,20 @@ import Testing
 import UIKit
 @testable import AscendApp
 
-/// Visual evidence for the Superwall hard-gate fallback states.
+/// Visual evidence for the Superwall app-access handoff states.
 ///
-/// The live `AppAccessPaywallPlaceholderView` drives its primary button title,
-/// enabled state, and status message entirely from `AppAccessPaywallPresentationState`
-/// (see AppAccessPaywallPlaceholderView.swift L41-L63). That view depends on a
-/// `MonetizationManager` environment and `ImageRenderer` cannot flatten the live
-/// Firebase-auth-gated gate screen, so this reproduces the placeholder's action
-/// stack verbatim from source - same copy, Font/Color tokens, and modifiers - and
-/// renders every fallback state to a single PNG a reviewer can inspect.
+/// The live `AppAccessPaywallPlaceholderView` depends on a `MonetizationManager`
+/// environment and `ImageRenderer` cannot flatten the live Firebase-auth-gated
+/// screen. This proof renders the same neutral loading state and recovery actions
+/// to a single PNG a reviewer can inspect.
 ///
-/// Each row is the exact user-visible surface after one real Superwall outcome:
-///   ready              -> first presentation / purchase or restore succeeded
-///   presenting         -> paywall opening (primary disabled, no stuck blank)
-///   readyToRetry       -> dismissed without purchase or onSkip
-///   failed             -> configuration failure or onError
-/// In every state the placeholder stays visible with an actionable primary button
-/// and the Restore Purchases action.
+/// The loading state has no button or access-denied message. Recovery states retain
+/// actionable retry and Restore Purchases controls after a Superwall outcome.
 @MainActor
 struct AppAccessPaywallPlaceholderSnapshotTests {
     @Test
-    func rendersEveryFallbackStateWithVisibleRetryAndRestore() throws {
-        let renderer = ImageRenderer(content: FallbackStatesProof())
+    func rendersNeutralLoadingAndActionableRecoveryStates() throws {
+        let renderer = ImageRenderer(content: AppAccessHandoffProof())
         renderer.scale = 3
 
         let image = try #require(renderer.uiImage, "ImageRenderer produced no image")
@@ -50,18 +42,19 @@ private struct FallbackScenario: Identifiable {
 }
 
 private let fallbackScenarios: [FallbackScenario] = [
-    .init(id: "ready", outcome: "First presentation · purchase or restore succeeded", state: .ready),
-    .init(id: "presenting", outcome: "Paywall opening", state: .presenting),
-    .init(id: "retry", outcome: "Dismissed without purchase · onSkip", state: .readyToRetry),
-    .init(id: "failed", outcome: "Configuration failure · onError", state: .failed),
+    .init(id: "ready", outcome: "First presentation or restored", state: .ready),
+    .init(id: "retry", outcome: "Dismissed without purchase", state: .readyToRetry),
+    .init(id: "failed", outcome: "Configuration failure", state: .failed),
 ]
 
-private struct FallbackStatesProof: View {
+private struct AppAccessHandoffProof: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            Text("Access Required gate · Superwall fallback states")
+            Text("App access handoff")
                 .font(.montserratBold(size: 20))
                 .foregroundStyle(.white)
+
+            loadingState
 
             ForEach(fallbackScenarios) { scenario in
                 VStack(alignment: .leading, spacing: 10) {
@@ -83,17 +76,42 @@ private struct FallbackStatesProof: View {
         .background(Color.black)
     }
 
-    // Faithful reproduction of AppAccessPaywallPlaceholderView's action stack.
+    private var loadingState: some View {
+        VStack(spacing: 14) {
+            Image("AppIconInternalAccent")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 56, height: 56)
+
+            Text("Preparing your climb field")
+                .font(.montserratBold(size: 22))
+                .foregroundStyle(.white)
+
+            Text("Checking your access...")
+                .font(.montserratMedium(size: 14))
+                .foregroundStyle(.white.opacity(0.68))
+
+            ProgressView()
+                .tint(Color.ascendAccent)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(.white.opacity(0.05))
+        )
+    }
+
     private func actionStack(for state: AppAccessPaywallPresentationState) -> some View {
         VStack(spacing: 12) {
             Text(state.primaryButtonTitle)
                 .font(.montserratBold(size: 16))
-                .foregroundStyle(.black.opacity(state.isPrimaryButtonEnabled ? 0.9 : 0.48))
+                .foregroundStyle(.black.opacity(0.9))
                 .frame(maxWidth: .infinity)
                 .frame(height: 54)
                 .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.ascendAccent.opacity(state.isPrimaryButtonEnabled ? 1 : 0.52))
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.ascendAccent)
                 )
 
             if let statusMessage = state.statusMessage {

@@ -82,11 +82,18 @@ class AuthenticationViewModel {
                 self.photoURL = user?.photoURL ?? URL(string: "")
 
                 if let user = user {
+                    let monetizationTransition = MonetizationManager.shared.prepareIdentity(
+                        userId: user.uid
+                    )
+
                     // Set telemetry user ID and log session restored
                     TelemetryManager.shared.setUserId(user.uid)
                     TelemetryManager.shared.log(.authSessionRestored)
                     Task {
-                        await MonetizationManager.shared.identify(userId: user.uid)
+                        await MonetizationManager.shared.identify(
+                            userId: user.uid,
+                            transition: monetizationTransition
+                        )
                     }
 
                     // Check if we're in an interactive sign-in flow (already showing progress)
@@ -151,11 +158,15 @@ class AuthenticationViewModel {
                         }
                     }
                 } else {
+                    let monetizationTransition = MonetizationManager.shared.prepareIdentityReset()
+
                     // User signed out - reset all state
                     TelemetryManager.shared.log(.authSignOut)
                     TelemetryManager.shared.clearUserId()
                     Task {
-                        await MonetizationManager.shared.resetIdentity()
+                        await MonetizationManager.shared.resetIdentity(
+                            transition: monetizationTransition
+                        )
                     }
 
                     self.displayName = ""
