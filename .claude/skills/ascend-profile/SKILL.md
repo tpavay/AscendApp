@@ -14,7 +14,7 @@ paths:
   `PublicClimberIdentity` (`AscendApp/Shared/Models/`) resolves account-authored identity, a stable UID-derived fallback, synthetic fixture identity, and the deleted-account `Anonymous Climber` sentinel.
   Every cross-user view must pass that presentation through `ResolvedUserIdentity.Resolver`, which replaces only a blocked climber's name and photo while preserving rank, metrics, and demographics.
   Public profile, leaderboard, Live Replay, finisher, and First Ascent mirrors store validated identity, and the server propagation trigger keeps existing projections current.
-  Restoring existing projections and rollout order: `docs/public-identity-restoration-runbook.md`.
+  There is no identity backfill: the propagation trigger and its indexes must be deployed before the binary that publishes identity. Rollout order: `docs/production-backend-rollout-runbook.md`.
 - Firestore does not support field-level read masking on a document. Keep `users/{uid}` owner-readable because it contains private account fields, and mirror only public-safe profile fields into public profile documents/subcollections for other-user profile reads.
 
 ## Profile Architecture

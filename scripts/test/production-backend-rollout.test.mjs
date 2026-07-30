@@ -438,30 +438,18 @@ test("production deploy waits for indexes and rolls the backend out in dependenc
   );
 });
 
-test("production release documentation gates TestFlight on identity restoration v7", () => {
+test("production release documentation orders identity backend ahead of the binary", () => {
   const runbook = readFileSync(
     join(repositoryRoot, "docs/production-backend-rollout-runbook.md"),
     "utf8"
   );
-  const identityRunbook = readFileSync(
-    join(repositoryRoot, "docs/public-identity-restoration-runbook.md"),
-    "utf8"
-  );
 
+  assert.match(runbook, /There is no public identity backfill to run/);
   assert.match(
     runbook,
-    /Complete public identity restoration operation version 7/
+    /onPublicProfileIdentityWritten[\s\S]*?onPublicIdentityPropagationJobWritten[\s\S]*?before the binary that publishes identity/
   );
-  assert.match(
-    runbook,
-    /restore-public-identities\.mjs[\s\S]*?--apply[\s\S]*?--audit/
-  );
-  assert.match(
-    runbook,
-    /Do not approve the protected `production` environment while the audit reports/
-  );
-  assert.match(identityRunbook, /identityChangedAt/);
-  assert.match(identityRunbook, /freshly enumerates user roots and every projection/);
+  assert.doesNotMatch(runbook, /restore-public-identities/);
 });
 
 function runNode(script, argumentsList, input) {

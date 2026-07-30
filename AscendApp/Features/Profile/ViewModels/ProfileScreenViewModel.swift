@@ -91,6 +91,11 @@ final class ProfileScreenViewModel {
             userId: userId,
             initialIdentity: initialIdentity
         )
+        // A hidden climber contributes no presentation values either, so an empty
+        // remote field falls through to the stable UID-derived handle instead of
+        // adopting the placeholder label as if it were an account name.
+        let fallbackDisplayName = initialIdentity.isHidden ? "" : initialIdentity.displayName
+        let fallbackPhotoURL = initialIdentity.isHidden ? nil : initialIdentity.photoURL
         otherUserIdentity = seedIdentity
 
         do {
@@ -113,15 +118,14 @@ final class ProfileScreenViewModel {
                 achievementCounts: achievementCounts
             )
             let stats = mergedStats(remote: bundle.stats, fallback: fallbackStats)
-            let identity = (bundle.identity ?? seedIdentity)
+            otherUserIdentity = (bundle.identity ?? seedIdentity)?
                 .applyingPresentationFallback(
-                    displayName: initialIdentity.unmoderatedDisplayName,
-                    photoURL: initialIdentity.unmoderatedPhotoURL
+                    displayName: fallbackDisplayName,
+                    photoURL: fallbackPhotoURL
                 )
-            otherUserIdentity = identity
 
             let snapshot = ProfileSnapshotBuilder.makeRemoteSnapshot(
-                demographics: identity.demographicsSnapshot,
+                demographics: otherUserDemographics(userId: userId),
                 stats: stats,
                 achievements: achievementCounts,
                 achievementRecords: bundle.achievements,
@@ -141,7 +145,7 @@ final class ProfileScreenViewModel {
             errorMessage = "Couldn't load this profile right now."
             otherUserIdentity = seedIdentity
             otherUserSnapshot = ProfileSnapshotBuilder.makeRemoteSnapshot(
-                demographics: seedIdentity.demographicsSnapshot,
+                demographics: otherUserDemographics(userId: userId),
                 stats: .empty,
                 achievements: .zero,
                 achievementRecords: [],
@@ -157,14 +161,22 @@ final class ProfileScreenViewModel {
         isLoading = false
     }
 
+    /// Pre-populates the screen from the identity it was navigated with.
+    ///
+    /// That identity is already resolved, so no raw name or photo has to travel
+    /// with the navigation. A hidden climber seeds nothing at all: the screen
+    /// keeps rendering the placeholder it arrived with until the remote profile
+    /// loads and can be moderated on its own terms.
     nonisolated static func initialOtherUserIdentity(
         userId: String,
         initialIdentity: ResolvedUserIdentity
-    ) -> ProfileUserIdentity {
+    ) -> ProfileUserIdentity? {
+        guard !initialIdentity.isHidden else { return nil }
+
         return ProfileUserIdentity(
             userId: userId,
-            displayName: initialIdentity.unmoderatedDisplayName,
-            photoURL: initialIdentity.unmoderatedPhotoURL
+            displayName: initialIdentity.displayName,
+            photoURL: initialIdentity.photoURL
         )
     }
 

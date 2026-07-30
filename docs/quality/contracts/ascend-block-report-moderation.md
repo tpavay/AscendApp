@@ -32,7 +32,7 @@ Blocks follow the account to new devices, and saved display names are screened b
 - [ ] PA-6: Profile photo and display-name edits propagate to public profile and existing leaderboard mirrors without changing ranking data.
 - [ ] PA-7: Part A ships only with the complete Part B moderation boundary in this same change.
 - [ ] PA-8: The user root may keep an empty display name before onboarding completes, but every public mirror stores a non-empty validated account name or stable UID-derived fallback.
-- [ ] PA-9: The ledger-backed restoration migration updates every existing real-user public projection, preserves synthetic and deletion-anonymized identity, and records a per-user marker only after all of that user's writes succeed.
+- [ ] PA-9: No historical backfill ships. Ascend is pre-launch and production holds no user or projection data, so account-authored identity reaches every projection through the live write path and the server propagation trigger only.
 - [ ] PA-10: Public profile propagation updates leaderboard, Live Replay entry, finisher, and First Ascent identity with bounded retry and leaves all non-identity fields unchanged.
 
 ### Part B - block, report, and write-time filtering
@@ -67,7 +67,7 @@ Blocks follow the account to new devices, and saved display names are screened b
 | PA-1, PA-4, PA-5 | Public identity and audited identity-surface tests | Confirms account-authored values, stable fallback, deleted-account anonymity, and block masking across every public surface |
 | PA-2, PA-3, PA-6, PA-8 | Publication/payload tests and Firestore emulator rules tests | Confirms actual identity persistence, the pre-onboarding root exception, non-empty public fallbacks, bounded server validation, profanity enforcement, and edit propagation |
 | PA-7 | Feature diff and complete Part B test suite | Confirms public identity is not separated from its moderation controls |
-| PA-9 | Public identity restoration planner, partial-failure marker, idempotency, and audit tests | Confirms every existing projection is restored without overwriting synthetic or deletion identity and incomplete work cannot claim completion |
+| PA-9 | Production rollout runbook test | Confirms the runbook ships no backfill step and orders the identity backend ahead of the publishing binary |
 | PA-10 | Cloud Function identity propagation and stable-handle parity tests | Confirms profile edits converge across every projection with exact identity-only writes and bounded retry |
 | AC-1 | Other-user profile view inspection and UI interaction evidence | Confirms the single approved placement and available actions |
 | AC-2 | Blocked-identity store and resolver tests | Confirms no reason is required and the local render cache changes immediately after server success |
@@ -95,7 +95,7 @@ Blocks follow the account to new devices, and saved display names are screened b
 ## Risk and rollout
 
 Firestore rules must deploy to dev, staging, and production before or alongside the app binary because the new client writes use strict schema validation.
-The `entries.userId` and `finishers.userId` collection-group indexes and the retry-enabled identity propagation function must deploy before running `docs/public-identity-restoration-runbook.md`.
+The `entries.userId` and `finishers.userId` collection-group indexes and the retry-enabled identity propagation function must deploy before the binary that publishes account-authored identity, so the first published profile propagates from the start.
 The client remains backward compatible with accounts that have no blocked subcollection.
 Block documents and reports are new user data and must be included in account-deletion cleanup and aligned with the privacy policy and App Store privacy declarations.
 The moderation queue is intentionally write-only to clients, so captain review requires existing trusted console or Admin SDK access.

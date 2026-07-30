@@ -105,20 +105,22 @@ struct PublicClimberIdentityTests {
     }
 
     @Test
-    func deletedProfileSeedRemainsAnonymousWhenRemoteProfileIsMissing() {
+    func deletedProfileSeedRemainsAnonymousWhenRemoteProfileIsMissing() throws {
         let initialIdentity = ResolvedUserIdentity.Resolver.resolve(
             userId: "deleted-user",
-            displayName: "Anonymous Climber",
+            displayName: PublicClimberIdentity.anonymousDisplayName,
             photoURL: nil,
             isCurrentUser: false,
             blockedUserIds: [],
-            isBlockListHydrated: false
+            isBlockListHydrated: true
         )
 
-        #expect(initialIdentity.isHidden)
-        let seededIdentity = ProfileScreenViewModel.initialOtherUserIdentity(
-            userId: "deleted-user",
-            initialIdentity: initialIdentity
+        #expect(initialIdentity.isHidden == false)
+        let seededIdentity = try #require(
+            ProfileScreenViewModel.initialOtherUserIdentity(
+                userId: "deleted-user",
+                initialIdentity: initialIdentity
+            )
         )
         let renderedIdentity = CrossUserIdentityAdapter.profileIdentity(
             seededIdentity,
@@ -127,8 +129,29 @@ struct PublicClimberIdentityTests {
             isBlockListHydrated: true
         )
 
-        #expect(renderedIdentity.displayName == "Anonymous Climber")
+        #expect(renderedIdentity.displayName == PublicClimberIdentity.anonymousDisplayName)
         #expect(renderedIdentity.photoURL == nil)
+    }
+
+    @Test
+    func blockedProfileSeedsNothingSoTheResolvedPlaceholderKeepsRendering() {
+        let realPhotoURL = URL(string: "https://example.com/real-photo.jpg")
+        let initialIdentity = ResolvedUserIdentity.Resolver.resolve(
+            userId: "blocked-user",
+            displayName: "Real Name",
+            photoURL: realPhotoURL,
+            isCurrentUser: false,
+            blockedUserIds: ["blocked-user"],
+            isBlockListHydrated: true
+        )
+
+        #expect(initialIdentity.isHidden)
+        #expect(
+            ProfileScreenViewModel.initialOtherUserIdentity(
+                userId: "blocked-user",
+                initialIdentity: initialIdentity
+            ) == nil
+        )
     }
 
     @Test

@@ -52,9 +52,6 @@ Complete every item before starting the production workflow.
    They ship as configured production publishable client keys, so the workflow's monetization preflight now verifies them before the archive instead of blocking the run.
    `Staging` carries its own staging publishable keys and clears the same preflight, and `Debug` is intentionally unset.
    The per-environment key split is owned by `docs/superwall-paywall-setup.md`.
-9. Complete public identity restoration operation version 7 and require a green production audit before approving the workflow environment.
-   This gate adds `identityPolicyVersion`, `identityChangedAt`, and global leaderboard `identityState` before the production binary can upload.
-
 Use these read-only GitHub checks:
 
 ```sh
@@ -72,16 +69,9 @@ node scripts/backfill-live-replay-best-per-user.mjs --project prod --dry-run
 Do not use `--confirm-production` for this preflight.
 If the dry-run reports writes, stop and prepare a separate migration review before deploying the binary.
 
-The captain-only public identity gate is:
-
-```sh
-node scripts/restore-public-identities.mjs --env prod --confirm-production ascend-prod-9c8f2 --dry-run
-node scripts/restore-public-identities.mjs --env prod --confirm-production ascend-prod-9c8f2 --apply
-node scripts/restore-public-identities.mjs --env prod --confirm-production ascend-prod-9c8f2 --audit
-```
-
-Run these commands only after the moderation rules, identity policy rules, required indexes, `onPublicProfileIdentityWritten`, and `onPublicIdentityPropagationJobWritten` are deployed.
-Do not approve the protected `production` environment while the audit reports a stale projection, an orphan public identity with noncurrent deleted identity, a missing public profile, or an incomplete version 7 marker.
+There is no public identity backfill to run.
+Ascend is pre-launch: production holds no `users`, no `leaderboard_stats`, and no public-profile data, so account-authored identity only ever reaches production through the live write path.
+Deploy the moderation rules, identity policy rules, required indexes, `onPublicProfileIdentityWritten`, and `onPublicIdentityPropagationJobWritten` before the binary that publishes identity, so the first published profile is validated and propagated by the server from the start.
 For the first rollout of this policy, deploy that backend preparation as a separately reviewed captain operation before approving the release workflow.
 The release workflow may redeploy the same backend SHA after approval because those deployments are idempotent.
 

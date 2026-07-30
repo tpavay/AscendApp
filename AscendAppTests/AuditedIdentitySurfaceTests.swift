@@ -372,6 +372,31 @@ struct AuditedIdentitySurfaceTests {
     }
 
     @Test
+    func resolvedIdentityCarriesNothingButItsModeratedValues() throws {
+        let source = try source(
+            at: "AscendApp/Features/Moderation/Models/ResolvedUserIdentity.swift"
+        )
+        let storedPropertyBlock = source.prefix(
+            upTo: try #require(source.range(of: "private init(")).lowerBound
+        )
+        let storedProperties = storedPropertyBlock
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.hasPrefix("let ") }
+
+        // Anything beyond these five would let a surface read past the mask by
+        // reading the property directly, which is exactly the bypass the
+        // moderation boundary exists to make impossible.
+        #expect(storedProperties == [
+            "let userId: String?",
+            "let displayName: String",
+            "let photoURL: URL?",
+            "let avatarToken: String",
+            "let isHidden: Bool",
+        ])
+    }
+
+    @Test
     func resolvedIdentityConstructionExistsOnlyInsideItsPrivateResolver() throws {
         let sourceRoot = projectRoot.appending(path: "AscendApp")
         let enumerator = try #require(

@@ -1,30 +1,29 @@
 import Foundation
 
+/// The only identity a view may render for another climber.
+///
+/// It deliberately carries nothing but the moderated values. Attaching the raw
+/// account-authored name or photo alongside them would remove the
+/// compiler-enforced boundary, because a surface could then read past the mask.
 struct ResolvedUserIdentity: Equatable, Sendable {
     let userId: String?
     let displayName: String
     let photoURL: URL?
     let avatarToken: String
     let isHidden: Bool
-    let unmoderatedDisplayName: String
-    let unmoderatedPhotoURL: URL?
 
     private init(
         userId: String?,
         displayName: String,
         photoURL: URL?,
         avatarToken: String,
-        isHidden: Bool,
-        unmoderatedDisplayName: String,
-        unmoderatedPhotoURL: URL?
+        isHidden: Bool
     ) {
         self.userId = userId
         self.displayName = displayName
         self.photoURL = photoURL
         self.avatarToken = avatarToken
         self.isHidden = isHidden
-        self.unmoderatedDisplayName = unmoderatedDisplayName
-        self.unmoderatedPhotoURL = unmoderatedPhotoURL
     }
 
     enum Resolver {
@@ -41,33 +40,15 @@ struct ResolvedUserIdentity: Equatable, Sendable {
             isBlockListHydrated: Bool
         ) -> ResolvedUserIdentity {
             if isCurrentUser {
-                let unmoderatedDisplayName = normalizedName(
-                    displayName,
-                    fallback: "You"
-                )
-                let unmoderatedAvatarToken = normalizedName(
-                    avatarToken,
-                    fallback: "YOU"
-                )
                 return ResolvedUserIdentity(
                     userId: userId,
-                    displayName: unmoderatedDisplayName,
+                    displayName: normalizedName(displayName, fallback: "You"),
                     photoURL: photoURL,
-                    avatarToken: unmoderatedAvatarToken,
-                    isHidden: false,
-                    unmoderatedDisplayName: unmoderatedDisplayName,
-                    unmoderatedPhotoURL: photoURL
+                    avatarToken: normalizedName(avatarToken, fallback: "YOU"),
+                    isHidden: false
                 )
             }
 
-            let unmoderatedDisplayName = normalizedName(
-                displayName,
-                fallback: "Climber"
-            )
-            let unmoderatedAvatarToken = normalizedName(
-                avatarToken,
-                fallback: "CL"
-            )
             let isBlocked = userId.map { blockedUserIds.contains($0) } ?? false
             let mustHideIdentity = !isBlockListHydrated ||
                 userId == nil ||
@@ -79,20 +60,16 @@ struct ResolvedUserIdentity: Equatable, Sendable {
                     displayName: hiddenDisplayName(for: userId),
                     photoURL: nil,
                     avatarToken: hiddenAvatarToken,
-                    isHidden: true,
-                    unmoderatedDisplayName: unmoderatedDisplayName,
-                    unmoderatedPhotoURL: photoURL
+                    isHidden: true
                 )
             }
 
             return ResolvedUserIdentity(
                 userId: userId,
-                displayName: unmoderatedDisplayName,
+                displayName: normalizedName(displayName, fallback: "Climber"),
                 photoURL: photoURL,
-                avatarToken: unmoderatedAvatarToken,
-                isHidden: false,
-                unmoderatedDisplayName: unmoderatedDisplayName,
-                unmoderatedPhotoURL: photoURL
+                avatarToken: normalizedName(avatarToken, fallback: "CL"),
+                isHidden: false
             )
         }
 

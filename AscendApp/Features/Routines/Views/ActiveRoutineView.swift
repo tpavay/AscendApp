@@ -27,25 +27,32 @@ struct ActiveRoutineView: View {
     var body: some View {
         @Bindable var bindableViewModel = viewModel
 
-        ZStack {
-            Color.black.ignoresSafeArea()
+        // The live leaderboard links to a rival's profile, so this screen owns
+        // its navigation stack: it is always presented as a root (full-screen
+        // cover or headphone recovery) and never pushed. Session lifecycle stays
+        // on the stack so pushing a profile cannot restart the running routine.
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
 
-            if let savedWorkout = viewModel.savedWorkout {
-                routineCompletionSummary(workout: savedWorkout)
-            } else {
-                switch viewModel.phase {
-                case .countdown:
-                    LiveSessionCountdownOverlay(value: viewModel.countdownValue)
-                case .active, .complete, .finishing, .saving:
-                    activeWorkoutView
-                case .failed(let message):
-                    failedView(message: message)
-                }
+                if let savedWorkout = viewModel.savedWorkout {
+                    routineCompletionSummary(workout: savedWorkout)
+                } else {
+                    switch viewModel.phase {
+                    case .countdown:
+                        LiveSessionCountdownOverlay(value: viewModel.countdownValue)
+                    case .active, .complete, .finishing, .saving:
+                        activeWorkoutView
+                    case .failed(let message):
+                        failedView(message: message)
+                    }
 
-                if let stepSyncPrompt = viewModel.stepSyncPrompt {
-                    stepSyncOverlay(prompt: stepSyncPrompt)
+                    if let stepSyncPrompt = viewModel.stepSyncPrompt {
+                        stepSyncOverlay(prompt: stepSyncPrompt)
+                    }
                 }
             }
+            .toolbar(.hidden, for: .navigationBar)
         }
         .onAppear {
             viewModel.startSession(modelContext: modelContext)
