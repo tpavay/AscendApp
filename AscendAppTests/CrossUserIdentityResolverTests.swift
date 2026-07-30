@@ -24,6 +24,8 @@ struct CrossUserIdentityResolverTests {
         #expect(resolved.photoURL == nil)
         #expect(resolved.avatarToken.isEmpty)
         #expect(resolved.isHidden)
+        #expect(resolved.unmoderatedDisplayName == "Real Name")
+        #expect(resolved.unmoderatedPhotoURL == realPhotoURL)
     }
 
     @Test
@@ -44,6 +46,8 @@ struct CrossUserIdentityResolverTests {
         )
         #expect(resolved.photoURL == nil)
         #expect(resolved.avatarToken.isEmpty)
+        #expect(resolved.unmoderatedDisplayName == "Real Name")
+        #expect(resolved.unmoderatedPhotoURL == realPhotoURL)
     }
 
     @Test

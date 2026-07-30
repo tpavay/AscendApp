@@ -438,7 +438,7 @@ test("production deploy waits for indexes and rolls the backend out in dependenc
   );
 });
 
-test("production release documentation gates TestFlight on identity restoration v6", () => {
+test("production release documentation gates TestFlight on identity restoration v7", () => {
   const runbook = readFileSync(
     join(repositoryRoot, "docs/production-backend-rollout-runbook.md"),
     "utf8"
@@ -450,7 +450,7 @@ test("production release documentation gates TestFlight on identity restoration 
 
   assert.match(
     runbook,
-    /Complete public identity restoration operation version 6/
+    /Complete public identity restoration operation version 7/
   );
   assert.match(
     runbook,

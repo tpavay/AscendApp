@@ -141,7 +141,8 @@ export function isAllowedDisplayName(value: string): boolean {
   const trimmed = value.trim();
   if (
     trimmed.length === 0 ||
-    Array.from(trimmed).length > MAXIMUM_DISPLAY_NAME_LENGTH
+    Array.from(trimmed).length > MAXIMUM_DISPLAY_NAME_LENGTH ||
+    containsUnsupportedCompatibilityGlyph(trimmed)
   ) {
     return false;
   }
@@ -241,6 +242,25 @@ function normalizedForScreening(value: string): string {
     .join("");
 
   return substituted;
+}
+
+function containsUnsupportedCompatibilityGlyph(value: string): boolean {
+  return Array.from(value).some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return (
+      (codePoint >= 0x02B0 && codePoint <= 0x02FF) ||
+      (codePoint >= 0x1D00 && codePoint <= 0x1D7F) ||
+      (codePoint >= 0x2070 && codePoint <= 0x209F) ||
+      (codePoint >= 0x2100 && codePoint <= 0x218F) ||
+      (codePoint >= 0x2460 && codePoint <= 0x24FF) ||
+      (codePoint >= 0x3200 && codePoint <= 0x33FF) ||
+      (codePoint >= 0xFB00 && codePoint <= 0xFB06) ||
+      (codePoint >= 0xFE10 && codePoint <= 0xFE6B) ||
+      (codePoint >= 0xFF00 && codePoint <= 0xFFEF) ||
+      (codePoint >= 0x1D400 && codePoint <= 0x1D7FF) ||
+      (codePoint >= 0x1F100 && codePoint <= 0x1F2FF)
+    );
+  });
 }
 
 /**

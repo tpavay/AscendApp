@@ -1,7 +1,7 @@
 import {createHash} from "node:crypto";
 
 export const DEFAULT_RESTORATION_BATCH_SIZE = 400;
-export const RESTORATION_OPERATION_VERSION = 6;
+export const RESTORATION_OPERATION_VERSION = 7;
 export const ANONYMOUS_CLIMBER_NAME = "Anonymous Climber";
 export const PUBLIC_IDENTITY_POLICY_VERSION = 1;
 export const PUBLIC_IDENTITY_STATE_PUBLISHED = "published";
@@ -778,7 +778,11 @@ function identityDigest(userId, identity, sourceVersion) {
  */
 function isAllowedDisplayName(value) {
   const trimmed = value.trim();
-  if (trimmed.length === 0 || Array.from(trimmed).length > 80) {
+  if (
+    trimmed.length === 0 ||
+    Array.from(trimmed).length > 80 ||
+    containsUnsupportedCompatibilityGlyph(trimmed)
+  ) {
     return false;
   }
 
@@ -848,6 +852,25 @@ function normalizedForScreening(value) {
     .join("");
 
   return substituted;
+}
+
+function containsUnsupportedCompatibilityGlyph(value) {
+  return Array.from(value).some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return (
+      (codePoint >= 0x02B0 && codePoint <= 0x02FF) ||
+      (codePoint >= 0x1D00 && codePoint <= 0x1D7F) ||
+      (codePoint >= 0x2070 && codePoint <= 0x209F) ||
+      (codePoint >= 0x2100 && codePoint <= 0x218F) ||
+      (codePoint >= 0x2460 && codePoint <= 0x24FF) ||
+      (codePoint >= 0x3200 && codePoint <= 0x33FF) ||
+      (codePoint >= 0xFB00 && codePoint <= 0xFB06) ||
+      (codePoint >= 0xFE10 && codePoint <= 0xFE6B) ||
+      (codePoint >= 0xFF00 && codePoint <= 0xFFEF) ||
+      (codePoint >= 0x1D400 && codePoint <= 0x1D7FF) ||
+      (codePoint >= 0x1F100 && codePoint <= 0x1F2FF)
+    );
+  });
 }
 
 /**

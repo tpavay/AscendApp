@@ -6,19 +6,25 @@ struct ResolvedUserIdentity: Equatable, Sendable {
     let photoURL: URL?
     let avatarToken: String
     let isHidden: Bool
+    let unmoderatedDisplayName: String
+    let unmoderatedPhotoURL: URL?
 
     private init(
         userId: String?,
         displayName: String,
         photoURL: URL?,
         avatarToken: String,
-        isHidden: Bool
+        isHidden: Bool,
+        unmoderatedDisplayName: String,
+        unmoderatedPhotoURL: URL?
     ) {
         self.userId = userId
         self.displayName = displayName
         self.photoURL = photoURL
         self.avatarToken = avatarToken
         self.isHidden = isHidden
+        self.unmoderatedDisplayName = unmoderatedDisplayName
+        self.unmoderatedPhotoURL = unmoderatedPhotoURL
     }
 
     enum Resolver {
@@ -35,15 +41,33 @@ struct ResolvedUserIdentity: Equatable, Sendable {
             isBlockListHydrated: Bool
         ) -> ResolvedUserIdentity {
             if isCurrentUser {
+                let unmoderatedDisplayName = normalizedName(
+                    displayName,
+                    fallback: "You"
+                )
+                let unmoderatedAvatarToken = normalizedName(
+                    avatarToken,
+                    fallback: "YOU"
+                )
                 return ResolvedUserIdentity(
                     userId: userId,
-                    displayName: normalizedName(displayName, fallback: "You"),
+                    displayName: unmoderatedDisplayName,
                     photoURL: photoURL,
-                    avatarToken: normalizedName(avatarToken, fallback: "YOU"),
-                    isHidden: false
+                    avatarToken: unmoderatedAvatarToken,
+                    isHidden: false,
+                    unmoderatedDisplayName: unmoderatedDisplayName,
+                    unmoderatedPhotoURL: photoURL
                 )
             }
 
+            let unmoderatedDisplayName = normalizedName(
+                displayName,
+                fallback: "Climber"
+            )
+            let unmoderatedAvatarToken = normalizedName(
+                avatarToken,
+                fallback: "CL"
+            )
             let isBlocked = userId.map { blockedUserIds.contains($0) } ?? false
             let mustHideIdentity = !isBlockListHydrated ||
                 userId == nil ||
@@ -55,16 +79,20 @@ struct ResolvedUserIdentity: Equatable, Sendable {
                     displayName: hiddenDisplayName(for: userId),
                     photoURL: nil,
                     avatarToken: hiddenAvatarToken,
-                    isHidden: true
+                    isHidden: true,
+                    unmoderatedDisplayName: unmoderatedDisplayName,
+                    unmoderatedPhotoURL: photoURL
                 )
             }
 
             return ResolvedUserIdentity(
                 userId: userId,
-                displayName: normalizedName(displayName, fallback: "Climber"),
+                displayName: unmoderatedDisplayName,
                 photoURL: photoURL,
-                avatarToken: normalizedName(avatarToken, fallback: "CL"),
-                isHidden: false
+                avatarToken: unmoderatedAvatarToken,
+                isHidden: false,
+                unmoderatedDisplayName: unmoderatedDisplayName,
+                unmoderatedPhotoURL: photoURL
             )
         }
 

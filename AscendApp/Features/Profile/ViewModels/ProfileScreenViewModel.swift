@@ -115,8 +115,8 @@ final class ProfileScreenViewModel {
             let stats = mergedStats(remote: bundle.stats, fallback: fallbackStats)
             let identity = (bundle.identity ?? seedIdentity)
                 .applyingPresentationFallback(
-                    displayName: initialIdentity.displayName,
-                    photoURL: initialIdentity.photoURL
+                    displayName: initialIdentity.unmoderatedDisplayName,
+                    photoURL: initialIdentity.unmoderatedPhotoURL
                 )
             otherUserIdentity = identity
 
@@ -161,23 +161,10 @@ final class ProfileScreenViewModel {
         userId: String,
         initialIdentity: ResolvedUserIdentity
     ) -> ProfileUserIdentity {
-        if initialIdentity.isHidden {
-            let fallback = PublicClimberIdentity.resolve(
-                userId: userId,
-                storedDisplayName: nil,
-                storedPhotoURL: nil
-            )
-            return ProfileUserIdentity(
-                userId: userId,
-                displayName: fallback.displayName,
-                photoURL: fallback.photoURL
-            )
-        }
-
         return ProfileUserIdentity(
             userId: userId,
-            displayName: initialIdentity.displayName,
-            photoURL: initialIdentity.photoURL
+            displayName: initialIdentity.unmoderatedDisplayName,
+            photoURL: initialIdentity.unmoderatedPhotoURL
         )
     }
 

@@ -57,6 +57,9 @@ enum DisplayNamePolicy {
         guard !trimmed.isEmpty, trimmed.count <= maximumLength else {
             throw DisplayNamePolicyError.invalidLength
         }
+        guard containsUnsupportedCompatibilityGlyph(trimmed) == false else {
+            throw DisplayNamePolicyError.objectionable
+        }
 
         let normalized = normalizedForScreening(trimmed)
         guard containsLongASCIILetterRun(normalized) == false else {
@@ -126,6 +129,25 @@ enum DisplayNamePolicy {
         ]
 
         return String(folded.map { substitutions[$0] ?? $0 })
+    }
+
+    private static func containsUnsupportedCompatibilityGlyph(
+        _ value: String
+    ) -> Bool {
+        value.unicodeScalars.contains { scalar in
+            let codePoint = scalar.value
+            return (0x02B0...0x02FF).contains(codePoint) ||
+                (0x1D00...0x1D7F).contains(codePoint) ||
+                (0x2070...0x209F).contains(codePoint) ||
+                (0x2100...0x218F).contains(codePoint) ||
+                (0x2460...0x24FF).contains(codePoint) ||
+                (0x3200...0x33FF).contains(codePoint) ||
+                (0xFB00...0xFB06).contains(codePoint) ||
+                (0xFE10...0xFE6B).contains(codePoint) ||
+                (0xFF00...0xFFEF).contains(codePoint) ||
+                (0x1D400...0x1D7FF).contains(codePoint) ||
+                (0x1F100...0x1F2FF).contains(codePoint)
+        }
     }
 
     private static func containsLongASCIILetterRun(_ value: String) -> Bool {

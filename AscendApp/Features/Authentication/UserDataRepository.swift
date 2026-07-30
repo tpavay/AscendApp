@@ -439,7 +439,7 @@ final class UserDataRepository: Sendable {
         _ = try await db.runTransaction { transaction, errorPointer -> Any? in
             do {
                 let userSnapshot = try transaction.getDocument(userRef)
-                _ = try transaction.getDocument(publicProfileRef)
+                let publicProfileSnapshot = try transaction.getDocument(publicProfileRef)
                 var mergedUserData = userSnapshot.data() ?? [:]
                 var userWrite = userFields
 
@@ -464,12 +464,18 @@ final class UserDataRepository: Sendable {
                     .isEmpty == false
                 let publicPayload: [String: Any]?
                 if alwaysPublish || hasAuthoredDisplayName {
-                    publicPayload = try ProfileRepository.publicIdentityPayload(
-                        Self.publicIdentity(
-                            userId: userId,
-                            userData: mergedUserData
-                        )
+                    let identity = try Self.publicIdentity(
+                        userId: userId,
+                        userData: mergedUserData
                     )
+                    publicPayload = try ProfileRepository.publicIdentityPayload(
+                        identity,
+                        advancesIdentityVersion: try ProfileRepository
+                            .publicIdentityNeedsVersionAdvance(
+                                identity,
+                                existingData: publicProfileSnapshot.data()
+                            )
+                        )
                 } else {
                     publicPayload = nil
                 }

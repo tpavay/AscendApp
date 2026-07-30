@@ -13,6 +13,7 @@ import {
   identitySourceGeneration,
   processIdentityPropagationJob,
   propagateCurrentPublicIdentity,
+  publicIdentitySourceChanged,
   scheduledIdentityPropagationJob,
   shouldScheduleIdentityPropagationJobs,
 } from "../src/publicIdentityPropagation.js";
@@ -26,6 +27,35 @@ const identity = {
   identityState: "published" as const,
   photoURL: "https://example.com/maya.jpg",
 };
+
+test("demographic-only profile writes do not schedule identity fanout", () => {
+  const before = {
+    displayName: "Maya Chen",
+    photoURL: "https://example.com/maya.jpg",
+    identityPolicyVersion: 1,
+    identityChangedAt: {seconds: 100, nanoseconds: 5},
+    age: 31,
+  };
+
+  assert.equal(
+    publicIdentitySourceChanged(before, {...before, age: 32}),
+    false
+  );
+  assert.equal(
+    publicIdentitySourceChanged(before, {
+      ...before,
+      displayName: "Maya Patel",
+    }),
+    true
+  );
+  assert.equal(
+    publicIdentitySourceChanged(before, {
+      ...before,
+      identityChangedAt: {seconds: 101, nanoseconds: 0},
+    }),
+    true
+  );
+});
 
 test("writes identity only and copies policy metadata to leaderboard", () => {
   const fields = identityFieldsForProjection(

@@ -1,4 +1,5 @@
 import Foundation
+@preconcurrency import FirebaseFirestore
 import Testing
 @testable import AscendApp
 
@@ -111,9 +112,10 @@ struct PublicClimberIdentityTests {
             photoURL: nil,
             isCurrentUser: false,
             blockedUserIds: [],
-            isBlockListHydrated: true
+            isBlockListHydrated: false
         )
 
+        #expect(initialIdentity.isHidden)
         let seededIdentity = ProfileScreenViewModel.initialOtherUserIdentity(
             userId: "deleted-user",
             initialIdentity: initialIdentity
@@ -127,5 +129,36 @@ struct PublicClimberIdentityTests {
 
         #expect(renderedIdentity.displayName == "Anonymous Climber")
         #expect(renderedIdentity.photoURL == nil)
+    }
+
+    @Test
+    func demographicPublicationPreservesIdentityVersion() throws {
+        let changedAt = Timestamp(seconds: 100, nanoseconds: 5)
+        let identity = ProfileUserIdentity(
+            userId: "user-123",
+            displayName: "Maya Chen",
+            photoURL: URL(string: "https://example.com/maya.jpg"),
+            age: 32
+        )
+        let existingData: [String: Any] = [
+            "displayName": "Maya Chen",
+            "photoURL": "https://example.com/maya.jpg",
+            "identityPolicyVersion": PublicClimberIdentity.policyVersion,
+            "identityChangedAt": changedAt,
+            "age": 31
+        ]
+
+        #expect(
+            try ProfileRepository.publicIdentityNeedsVersionAdvance(
+                identity,
+                existingData: existingData
+            ) == false
+        )
+        let payload = try ProfileRepository.publicIdentityPayload(
+            identity,
+            advancesIdentityVersion: false
+        )
+        #expect(payload["identityChangedAt"] == nil)
+        #expect(payload["age"] as? Int == 32)
     }
 }

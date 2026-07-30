@@ -77,6 +77,10 @@ test("restoration rejects compatibility and Unicode confusable profanity", () =>
     "ｎｉｇｇｅｒ",
     "fųck",
     "f𝕦ck",
+    "fⓤck",
+    "f⒰ck",
+    "f🅤ck",
+    "fᵘck",
     "Maaaya",
   ]) {
     assert.equal(
@@ -514,6 +518,28 @@ test("runner independently audits every orphan projection collection", () => {
     restorationRunnerSource,
     /collection\("live_replay_leaderboards"\)/
   );
+});
+
+test("runner bounds plans, concurrency, failure details, and ledger state", () => {
+  assert.match(
+    restorationRunnerSource,
+    /const TRANSACTION_PAGE_LIMIT = 100/
+  );
+  assert.match(
+    restorationRunnerSource,
+    /Math\.min\(\s*requestedPageSize,\s*TRANSACTION_PAGE_LIMIT\s*\)/
+  );
+  assert.match(
+    restorationRunnerSource,
+    /const FAILURE_DETAIL_LIMIT = 10/
+  );
+  assert.match(
+    restorationRunnerSource,
+    /recordPending\(\[\{\s*cursor,\s*stage,\s*\}\]\)/
+  );
+  assert.doesNotMatch(restorationRunnerSource, /const plans = \[\]/);
+  assert.doesNotMatch(restorationRunnerSource, /readPaginated/);
+  assert.doesNotMatch(restorationRunnerSource, /readMarkers/);
 });
 
 test("legacy anonymous migration changes the audit fingerprint and converges", () => {

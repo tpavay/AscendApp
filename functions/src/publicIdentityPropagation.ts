@@ -106,12 +106,32 @@ interface CurrentPublicIdentity extends PublicIdentity {
   identityState: PublicIdentityState;
 }
 
+const PUBLIC_IDENTITY_SOURCE_FIELDS = [
+  "displayName",
+  "photoURL",
+  "identityPolicyVersion",
+  "identityChangedAt",
+] as const;
+
+export function publicIdentitySourceChanged(
+  before: Record<string, unknown> | undefined,
+  after: Record<string, unknown> | undefined
+): boolean {
+  if (before === undefined || after === undefined) {
+    return before !== after;
+  }
+  return PUBLIC_IDENTITY_SOURCE_FIELDS.some((field) =>
+    comparableIdentitySourceValue(before[field]) !==
+      comparableIdentitySourceValue(after[field])
+  );
+}
+
 /**
  * Reconciles every projection from the current source document.
  *
- * Event payloads are deliberately ignored. A transaction rereads both the
- * source and target before each write, so an out-of-order event cannot publish
- * an older identity and a concurrent source edit forces a retry.
+ * Event payloads gate demographic-only writes. A transaction rereads both the
+ * source and target before each identity write, so an out-of-order event cannot
+ * publish an older identity and a concurrent source edit forces a retry.
  */
 export const onPublicProfileIdentityWritten = onDocumentWritten(
   {
@@ -119,6 +139,14 @@ export const onPublicProfileIdentityWritten = onDocumentWritten(
     retry: true,
   },
   async (event) => {
+    if (
+      !publicIdentitySourceChanged(
+        event.data?.before.data(),
+        event.data?.after.data()
+      )
+    ) {
+      return;
+    }
     await scheduleIdentityPropagationJobs(
       event.params.userId,
       event.id,
@@ -130,6 +158,20 @@ export const onPublicProfileIdentityWritten = onDocumentWritten(
     );
   }
 );
+
+function comparableIdentitySourceValue(value: unknown): string {
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    "seconds" in value &&
+    "nanoseconds" in value &&
+    typeof value.seconds === "number" &&
+    typeof value.nanoseconds === "number"
+  ) {
+    return `${value.seconds}:${value.nanoseconds}`;
+  }
+  return JSON.stringify(value) ?? "undefined";
+}
 
 /**
  * Processes one bounded page for one projection kind.

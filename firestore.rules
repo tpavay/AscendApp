@@ -92,11 +92,18 @@ service cloud.firestore {
         !value.matches("^[\\s]*$");
     }
 
+    function hasUnsupportedCompatibilityDisplayNameGlyph(value) {
+      return value.matches(
+        ".*[ʰ-˿ᴀ-ᵿ⁰-₟℀-↏①-⓿㈀-㏿ﬀ-ﬆ︐-﹫＀-￯𝐀-𝟿🄀-🋿].*"
+      );
+    }
+
     function isAllowedDisplayName(value) {
       let normalized = collapsedDisplayName(value);
       return value is string &&
         value.size() <= 80 &&
         (value.size() == 0 || hasVisibleDisplayName(value)) &&
+        !hasUnsupportedCompatibilityDisplayNameGlyph(value) &&
         !normalized.matches(
           "^[^a-z]*a[^a-z]*n[^a-z]*o[^a-z]*n[^a-z]*y[^a-z]*m[^a-z]*o[^a-z]*u[^a-z]*s" +
           "[^a-z]*c[^a-z]*l[^a-z]*i[^a-z]*m[^a-z]*b[^a-z]*e[^a-z]*r[^a-z]*$"

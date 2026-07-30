@@ -7,10 +7,13 @@ The migration restores validated account-authored display names and profile phot
 
 The command requires an explicit named environment and exactly one of `--dry-run`, `--apply`, or `--audit`.
 Production also requires `--confirm-production ascend-prod-9c8f2`.
-Apply is protected by the `_migrations` ledger operation `migration/public-identity-restoration` version 6.
-Each user receives a completion marker only after every projection write for that user succeeds.
-Every transactional page rereads the private user root and every target, then compares their Firestore update-time versions before writing.
-A concurrent root or target edit invalidates the plan, causes a fresh full replan, and is retried at most three times.
+Apply is protected by the `_migrations` ledger operation `migration/public-identity-restoration` version 7.
+The runner streams user roots, public profiles, completion markers, and every projection collection in bounded pages.
+Each page caps its user-root, public-profile, marker, and target reads before any transaction starts.
+The ledger stores only the current stage and cursor, so pending repair state remains bounded regardless of account volume.
+Each user receives a completion marker only after the public-profile and projection apply stages finish.
+Every transactional page reads the private user root, public profile, and targets in the same transaction before writing.
+A concurrent source or target edit causes the Firestore transaction to retry, and the final bounded audit freshly verifies every page.
 The completion marker records the exact source version that produced the restored identity.
 Reruns are idempotent and plan zero projection writes after all identity fields converge.
 Trusted synthetic fixtures are never overwritten.
@@ -25,7 +28,7 @@ Deleted projections remain protected, and legacy anonymous global rows are migra
 The migration changes only identity fields and never changes ranks, metrics, demographics, completion dates, or First Ascent ownership.
 Missing `public_profile/current` documents are never fabricated.
 They are reported as explicit skips, and audit remains failed until the source profile is repaired through the normal publication path.
-Independent bounded sweeps cover global leaderboard rows, Live Replay entries, replay finishers, and First Ascent holders that the root-first pass cannot enumerate.
+Independent bounded sweeps cover global leaderboard rows, Live Replay entries, replay finishers, and First Ascent holders without retaining whole-dataset plans.
 Every non-synthetic projection whose `users/{uid}` root is absent is transactionally normalized to permanent `deleted` identity, including stale real identity left by interrupted account cleanup.
 Each sweep reads projection rows and user roots in the same transaction and changes only identity fields.
 Final verification freshly enumerates user roots and every projection, so a user or projection created during apply cannot escape audit.
@@ -77,8 +80,8 @@ Record the migration ledger run ID and the final audit output with the release e
 Do not delete the ledger or per-user markers after a partial failure.
 Fix the underlying Firestore or index problem, then rerun apply with `--rerun`.
 Users whose projections and marker already match plan zero writes.
-Users without a matching marker are reapplied, and their marker lands only after all of their writes succeed.
-If a concurrent edit repeatedly exhausts the three-attempt replan budget, stop and investigate the writer instead of increasing the retry count.
+Users without a matching marker receive one after the bounded apply stages complete.
+If concurrent edits keep the final audit from converging, stop and investigate the writer before rerunning.
 
 ## Audit meaning
 
