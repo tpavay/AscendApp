@@ -30,6 +30,9 @@ import {
   assertSeedableProject,
   resolveProjectId as resolveFirebaseProjectId,
 } from "./seed/lib/environments.mjs";
+import {
+  assertPublishablePublicIdentity,
+} from "./seed/lib/public-identity-contract.mjs";
 
 const BATCH_TARGET_ORDER = ["profiles", "leaderboard", "live-replay", "routine-templates"];
 const VALID_GENDERS = new Set(["woman", "man", "non_binary", "prefer_not_to_say"]);
@@ -821,6 +824,7 @@ async function hydrateUser(projectId, args) {
   const existing = existingSnapshot.data() ?? {};
   const displayName = trimmed(args.displayName) ?? trimmed(existing.displayName) ?? "Climber";
   const photoURL = trimmed(args.photoURL) ?? trimmed(existing.profilePictureURL) ?? "";
+  assertPublishablePublicIdentity({displayName, photoURL}, "hydrate-user");
   const joinedAt = args.joinedAt ?? timestampDate(existing.joined_at) ?? new Date();
   const firstName = trimmed(args.firstName) ?? firstNameFromDisplayName(displayName);
   const lastName = trimmed(args.lastName) ?? lastNameFromDisplayName(displayName);
@@ -901,6 +905,13 @@ function validateHydrateUserArgs(args) {
   if (args.locationRegion && !/^[A-Z0-9-]{1,8}$/.test(args.locationRegion)) {
     throw new Error("--region must be 1-8 uppercase letters, numbers, or hyphens");
   }
+  assertPublishablePublicIdentity(
+    {
+      displayName: trimmed(args.displayName),
+      photoURL: trimmed(args.photoURL),
+    },
+    "hydrate-user"
+  );
 }
 
 function printHydratePlan(projectId, userId, privateData, publicData, dryRun) {

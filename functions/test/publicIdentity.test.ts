@@ -1,10 +1,30 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+import {join} from "node:path";
 import {
   isAllowedDisplayName,
   publicIdentityFromData,
   publicSystemHandle,
 } from "../src/publicIdentity.js";
+
+// Compiled output is CommonJS, so __dirname is the compiled lib/test directory;
+// walk up to the repo root.
+const screeningVector = JSON.parse(readFileSync(
+  join(__dirname, "../../../SharedTestVectors/display-name-screening-vector.json"),
+  "utf8"
+)) as {allowed: string[]; rejected: string[]};
+
+// scripts/seed/lib/public-identity-contract.mjs asserts the same vector, which
+// is what keeps the seeding tools and the server from drifting apart.
+test("display-name screening matches the shared parity vector", () => {
+  for (const name of screeningVector.allowed) {
+    assert.equal(isAllowedDisplayName(name), true, `allowed: ${name}`);
+  }
+  for (const name of screeningVector.rejected) {
+    assert.equal(isAllowedDisplayName(name), false, `rejected: ${name}`);
+  }
+});
 
 test("matches the Swift stable public handle vectors", () => {
   assert.equal(publicSystemHandle("user-123"), "Climber QRN9QT");

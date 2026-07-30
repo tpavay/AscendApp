@@ -1,4 +1,7 @@
 import {canonicalWorkoutDocumentId} from "../../lib/workout-document-id.mjs";
+import {PUBLIC_PHOTO_URL_PATTERN} from "../lib/public-identity-contract.mjs";
+
+export {PUBLIC_PHOTO_URL_PATTERN};
 
 export const PROFILE_SEED_PACK_ID = "v1-profile-test";
 export const PROFILE_SEED_SOURCE = "seed-test-users";
@@ -27,12 +30,6 @@ export const PROFILE_SEED_PERSONAS = [
   {id: "profile_older_athlete", name: "Victor P.", age: 68, gender: "man", weightLb: 195, country: "US", region: "AZ", climbs: 18, firstAscents: 1, top1: 0, top3: 2, top10: 8, top100: 18, streak: 9, climbIds: ["willis-tower", "one-world-trade-center", "empire-state-building"]},
   {id: "profile_empty_achievements", name: "Linnea S.", age: 24, gender: "non_binary", weightLb: 160, country: "SE", region: "AB", climbs: 2, firstAscents: 0, top1: 0, top3: 0, top10: 0, top100: 0, streak: 1, climbIds: ["space-needle", "statue-of-liberty"]},
 ];
-
-// Mirrors isValidPublicPhotoURL in firestore.rules and validPhotoURL in
-// functions/src/publicIdentity.ts, including the default port the Firebase iOS
-// SDK leaves in every download URL it emits.
-export const PUBLIC_PHOTO_URL_PATTERN =
-  /^https:\/\/firebasestorage\.googleapis\.com(:443)?\/v0\/b\/[A-Za-z0-9][A-Za-z0-9._-]*\/o\/[^/]+$/u;
 
 export const PROFILE_FIELD_SETS = {
   user: new Set([

@@ -31,6 +31,11 @@ paths:
   `users/{uid}/public_profile/current` needs `identityPolicyVersion` and `identityChangedAt`; `leaderboard_stats` rows additionally need `identityState`.
   Strict `hasOnly`/`hasAll` means a seeder that omits them is denied outright, so keep `scripts/seed/fixtures/profile-fixtures.mjs` as the reference shape.
 - Fixture display names must satisfy the same screening as production names - `DisplayNamePolicy` in Swift, `isAllowedDisplayName` in `functions/src/publicIdentity.ts`, and `isAllowedDisplayName` in `firestore.rules` all agree, and a name any one of them rejects is rejected for a fixture too.
+- `scripts/seed/lib/public-identity-contract.mjs` is the JavaScript home of that contract - the display-name screening, the photo-URL pattern, and `assertPublishablePublicIdentity`.
+  Every seeding entry point validates through it, because the Admin SDK bypasses `firestore.rules` and is therefore the one writer that could publish an identity the server would strip on projection.
+  `SharedTestVectors/display-name-screening-vector.json` pins it against the Cloud Functions implementation; add a case there rather than editing one screening copy in isolation.
+- `scripts/dev-db.mjs hydrate-user` fails before writing when `--display-name` fails screening or `--photo-url` is not a Firebase Storage download URL, including when the offending value is inherited from the existing user document rather than passed on the command line.
+  Pass an empty photo URL to publish no photo.
 - Fixture `photoURL` values must be Firebase Storage download URLs (`https://firebasestorage.googleapis.com[:443]/v0/b/<bucket>/o/<object>`).
   Rules reject any other host, and the identity propagation trigger drops one rather than copying it onto a projection, so a fixture pointing at an external avatar service loses its photo on the way to the leaderboard.
   The `:443` is not optional cosmetics: the Firebase iOS SDK builds download URLs through `URLComponents` with `port` set to `Storage.port`, which defaults to 443, so every real upload carries it. Validate any new photo-URL rule against a captured SDK string, never a hand-written one.
