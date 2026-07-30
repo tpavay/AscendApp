@@ -23,10 +23,10 @@ import {
   StaleIdentityRestorationPlanError,
   applyFreshUserIdentityRestoration,
   auditFreshUserIdentityRestoration,
-  auditOrphanLeaderboardIdentityRestoration,
+  auditOrphanProjectionIdentityRestoration,
   auditUserIdentityRestoration,
   parseRestorationArgs,
-  planOrphanLeaderboardIdentityRestoration,
+  planOrphanProjectionIdentityRestoration,
   planUserIdentityRestoration,
 } from "./lib/public-identity-restoration.mjs";
 
@@ -54,7 +54,7 @@ for (const userDocument of userDocuments) {
 }
 
 const markerSnapshots = await readMarkers(operationRef, plans);
-const orphanState = await reconcileOrphanLeaderboardRows(
+const orphanState = await reconcileOrphanProjections(
   db,
   args.batchSize,
   false
@@ -124,7 +124,7 @@ try {
     }
   }
 
-  const appliedOrphans = await reconcileOrphanLeaderboardRows(
+  const appliedOrphans = await reconcileOrphanProjections(
     db,
     args.batchSize,
     true
@@ -380,7 +380,7 @@ async function readFreshAuditState(
     markers.set(result.plan.userId, result.marker);
   }
 
-  const orphanState = await reconcileOrphanLeaderboardRows(
+  const orphanState = await reconcileOrphanProjections(
     firestore,
     pageSize,
     false
@@ -393,8 +393,8 @@ async function readFreshAuditState(
 }
 
 /**
- * Independently scans every global row so missing user roots cannot hide from
- * the root-first per-user restoration pass.
+ * Independently scans every public identity projection so missing user roots
+ * cannot hide from the root-first per-user restoration pass.
  *
  * Each page reads rows and their user roots in one transaction. A concurrent
  * root creation or deletion therefore retries against the current state before
@@ -404,8 +404,51 @@ async function readFreshAuditState(
  * @param {boolean} apply Whether to commit planned identity merges.
  * @return {Promise<object>} Planned/applied writes and audit failures.
  */
-async function reconcileOrphanLeaderboardRows(
+async function reconcileOrphanProjections(
   firestore,
+  pageSize,
+  apply
+) {
+  let projectionWrites = 0;
+  const failures = [];
+  const scans = [
+    {
+      kind: "leaderboard",
+      query: firestore.collection("leaderboard_stats"),
+    },
+    {
+      kind: "replay",
+      query: firestore.collectionGroup("entries"),
+    },
+    {
+      kind: "replay",
+      query: firestore.collectionGroup("finishers"),
+    },
+    {
+      kind: "firstAscent",
+      query: firestore.collection("live_replay_leaderboards"),
+    },
+  ];
+
+  for (const scan of scans) {
+    const result = await reconcileOrphanProjectionScan(
+      firestore,
+      scan.query,
+      scan.kind,
+      pageSize,
+      apply
+    );
+    projectionWrites += result.projectionWrites;
+    failures.push(...result.failures);
+  }
+
+  return {failures, projectionWrites};
+}
+
+async function reconcileOrphanProjectionScan(
+  firestore,
+  queryBase,
+  kind,
   pageSize,
   apply
 ) {
@@ -415,8 +458,7 @@ async function reconcileOrphanLeaderboardRows(
 
   while (true) {
     const result = await firestore.runTransaction(async (transaction) => {
-      let query = firestore
-        .collection("leaderboard_stats")
+      let query = queryBase
         .orderBy(FieldPath.documentId())
         .limit(pageSize);
       if (cursor !== null) {
@@ -431,7 +473,7 @@ async function reconcileOrphanLeaderboardRows(
         version: versionKey(document.updateTime),
       }));
       const userIds = [...new Set(records
-        .map((record) => record.data?.userId)
+        .map((record) => projectionUserId(record.data, kind))
         .filter((userId) =>
           typeof userId === "string" && userId.length > 0
         ))];
@@ -450,15 +492,20 @@ async function reconcileOrphanLeaderboardRows(
       let pageWrites = 0;
       const pageFailures = [];
       for (const record of records) {
-        const userId = record.data?.userId;
+        const userId = projectionUserId(record.data, kind);
         const rootExists = typeof userId === "string" &&
           userRootExists.get(userId) === true;
-        const write = planOrphanLeaderboardIdentityRestoration(
+        const write = planOrphanProjectionIdentityRestoration(
           record,
-          rootExists
+          rootExists,
+          kind
         );
         pageFailures.push(
-          ...auditOrphanLeaderboardIdentityRestoration(record, rootExists)
+          ...auditOrphanProjectionIdentityRestoration(
+            record,
+            rootExists,
+            kind
+          )
         );
         if (write !== null) {
           pageWrites += 1;
@@ -470,7 +517,7 @@ async function reconcileOrphanLeaderboardRows(
 
       return {
         failures: pageFailures,
-        lastId: snapshot.docs.at(-1)?.id ?? null,
+        lastDocument: snapshot.docs.at(-1) ?? null,
         pageSize: snapshot.size,
         projectionWrites: pageWrites,
       };
@@ -478,13 +525,19 @@ async function reconcileOrphanLeaderboardRows(
 
     projectionWrites += result.projectionWrites;
     failures.push(...result.failures);
-    if (result.pageSize < pageSize || result.lastId === null) {
+    if (result.pageSize < pageSize || result.lastDocument === null) {
       break;
     }
-    cursor = result.lastId;
+    cursor = result.lastDocument;
   }
 
   return {failures, projectionWrites};
+}
+
+function projectionUserId(data, kind) {
+  return kind === "firstAscent" ?
+    data?.firstAscentUserId :
+    data?.userId;
 }
 
 /**
@@ -629,7 +682,7 @@ function printSummary(summary, environmentValue, mode) {
     `Mode: ${mode}`,
     `Users scanned: ${summary.users}`,
     `Users skipped for audit: ${summary.skippedUsers}`,
-    `Orphan leaderboard writes required: ${summary.orphanProjectionWrites}`,
+    `Orphan projection writes required: ${summary.orphanProjectionWrites}`,
     `Projection writes required: ${summary.projectionWrites}`,
     `User markers required: ${summary.userMarkers}`,
   ].join("\n"));

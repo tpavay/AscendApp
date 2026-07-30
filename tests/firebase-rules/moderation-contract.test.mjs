@@ -310,10 +310,14 @@ test('display-name screening is enforced on every client-writable publication', 
     'fսck',
     'ｆｕｃｋ',
     'ｎｉｇｇｅｒ',
+    'fųck',
+    'f𝕦ck',
     'fuuuck',
     'Maaaya',
     'asshole',
     ' Anonymous Climber ',
+    '   ',
+    '\t\n',
   ]) {
     await assertFails(setDoc(
       doc(db, `users/${userId}`),
@@ -357,9 +361,46 @@ test('display-name screening is enforced on every client-writable publication', 
     makeUserDocument({displayName: 'Марія'})
   ));
   await assertSucceeds(setDoc(
+    doc(db, `users/${userId}/public_profile/current`),
+    makePublicProfileDocument({
+      displayName: 'José',
+      identityChangedAt: serverTimestamp(),
+    })
+  ));
+  await assertSucceeds(setDoc(
     doc(db, `users/${userId}`),
     makeUserDocument({displayName: ''})
   ));
+});
+
+test('account and public identity can commit atomically', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const db = context.firestore();
+  const batch = writeBatch(db);
+
+  batch.set(
+    doc(db, `users/${userId}`),
+    makeUserDocument({displayName: 'Atomic Climber'})
+  );
+  batch.set(
+    doc(db, `users/${userId}/public_profile/current`),
+    makePublicProfileDocument({
+      displayName: 'Atomic Climber',
+      identityChangedAt: serverTimestamp(),
+    })
+  );
+
+  await assertSucceeds(batch.commit());
+  assert.equal(
+    (await getDoc(doc(db, `users/${userId}`))).data().displayName,
+    'Atomic Climber'
+  );
+  assert.equal(
+    (
+      await getDoc(doc(db, `users/${userId}/public_profile/current`))
+    ).data().displayName,
+    'Atomic Climber'
+  );
 });
 
 test('public identity requires bounded nonempty names and bounded photo urls', async () => {

@@ -54,6 +54,8 @@ test("screens canonical, repeated, and confusable objectionable names", () => {
   assert.equal(isAllowedDisplayName("fսck"), false);
   assert.equal(isAllowedDisplayName("ｆｕｃｋ"), false);
   assert.equal(isAllowedDisplayName("ｎｉｇｇｅｒ"), false);
+  assert.equal(isAllowedDisplayName("fųck"), false);
+  assert.equal(isAllowedDisplayName("f𝕦ck"), false);
   assert.equal(isAllowedDisplayName("Maaaya"), false);
   assert.equal(isAllowedDisplayName("Марія"), true);
 });

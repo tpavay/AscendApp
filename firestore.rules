@@ -20,7 +20,44 @@ service cloud.firestore {
     }
 
     function normalizedDisplayName(value) {
-      return value.lower()
+      return value
+        .replace("[ªÀÁÂÃÄÅàáâãäåĀāĂăĄąǍǎǞǟǠǡǺǻȀȁȂȃȦȧᴬᵃḀḁẚẠạẢảẤấẦầẨẩẪẫẬậẮắẰằẲẳẴẵẶặₐÅＡａ𝐀𝐚𝐴𝑎𝑨𝒂𝒜𝒶𝓐𝓪𝔄𝔞𝔸𝕒𝕬𝖆𝖠𝖺𝗔𝗮𝘈𝘢𝘼𝙖𝙰𝚊]", "a")
+        .replace("[ᴮᵇḂḃḄḅḆḇℬＢｂ𝐁𝐛𝐵𝑏𝑩𝒃𝒷𝓑𝓫𝔅𝔟𝔹𝕓𝕭𝖇𝖡𝖻𝗕𝗯𝘉𝘣𝘽𝙗𝙱𝚋]", "b")
+        .replace("[ÇçĆćĈĉĊċČčᶜḈḉℂℭꟲＣｃ𝐂𝐜𝐶𝑐𝑪𝒄𝒞𝒸𝓒𝓬𝔠𝕔𝕮𝖈𝖢𝖼𝗖𝗰𝘊𝘤𝘾𝙘𝙲𝚌]", "c")
+        .replace("[ĎďᴰᵈḊḋḌḍḎḏḐḑḒḓⅅⅆＤｄ𝐃𝐝𝐷𝑑𝑫𝒅𝒟𝒹𝓓𝓭𝔇𝔡𝔻𝕕𝕯𝖉𝖣𝖽𝗗𝗱𝘋𝘥𝘿𝙙𝙳𝚍]", "d")
+        .replace("[ÈÉÊËèéêëĒēĔĕĖėĘęĚěȄȅȆȇȨȩᴱᵉḔḕḖḗḘḙḚḛḜḝẸẹẺẻẼẽẾếỀềỂểỄễỆệₑℯℰⅇＥｅ𝐄𝐞𝐸𝑒𝑬𝒆𝓔𝓮𝔈𝔢𝔼𝕖𝕰𝖊𝖤𝖾𝗘𝗲𝘌𝘦𝙀𝙚𝙴𝚎]", "e")
+        .replace("[ᶠḞḟℱꟳＦｆ𝐅𝐟𝐹𝑓𝑭𝒇𝒻𝓕𝓯𝔉𝔣𝔽𝕗𝕱𝖋𝖥𝖿𝗙𝗳𝘍𝘧𝙁𝙛𝙵𝚏]", "f")
+        .replace("[ĜĝĞğĠġĢģǦǧǴǵᴳᵍḠḡℊＧｇ𝐆𝐠𝐺𝑔𝑮𝒈𝒢𝓖𝓰𝔊𝔤𝔾𝕘𝕲𝖌𝖦𝗀𝗚𝗴𝘎𝘨𝙂𝙜𝙶𝚐]", "g")
+        .replace("[ĤĥȞȟʰᴴḢḣḤḥḦḧḨḩḪḫẖₕℋℌℍℎＨｈ𝐇𝐡𝐻𝑯𝒉𝒽𝓗𝓱𝔥𝕙𝕳𝖍𝖧𝗁𝗛𝗵𝘏𝘩𝙃𝙝𝙷𝚑]", "h")
+        .replace("[ÌÍÎÏìíîïĨĩĪīĬĭĮįİǏǐȈȉȊȋᴵᵢḬḭḮḯỈỉỊịⁱℐℑℹⅈＩｉ𝐈𝐢𝐼𝑖𝑰𝒊𝒾𝓘𝓲𝔦𝕀𝕚𝕴𝖎𝖨𝗂𝗜𝗶𝘐𝘪𝙄𝙞𝙸𝚒]", "i")
+        .replace("[ĴĵǰʲᴶⅉⱼＪｊ𝐉𝐣𝐽𝑗𝑱𝒋𝒥𝒿𝓙𝓳𝔍𝔧𝕁𝕛𝕵𝖏𝖩𝗃𝗝𝗷𝘑𝘫𝙅𝙟𝙹𝚓]", "j")
+        .replace("[ĶķǨǩᴷᵏḰḱḲḳḴḵₖＫｋ𝐊𝐤𝐾𝑘𝑲𝒌𝒦𝓀𝓚𝓴𝔎𝔨𝕂𝕜𝕶𝖐𝖪𝗄𝗞𝗸𝘒𝘬𝙆𝙠𝙺𝚔]", "k")
+        .replace("[ĹĺĻļĽľĿŀˡᴸḶḷḸḹḺḻḼḽₗℒℓＬｌ𝐋𝐥𝐿𝑙𝑳𝒍𝓁𝓛𝓵𝔏𝔩𝕃𝕝𝕷𝖑𝖫𝗅𝗟𝗹𝘓𝘭𝙇𝙡𝙻𝚕]", "l")
+        .replace("[ᴹᵐḾḿṀṁṂṃₘℳＭｍ𝐌𝐦𝑀𝑚𝑴𝒎𝓂𝓜𝓶𝔐𝔪𝕄𝕞𝕸𝖒𝖬𝗆𝗠𝗺𝘔𝘮𝙈𝙢𝙼𝚖]", "m")
+        .replace("[ÑñŃńŅņŇňŉǸǹᴺṄṅṆṇṈṉṊṋⁿₙℕＮｎ𝐍𝐧𝑁𝑛𝑵𝒏𝒩𝓃𝓝𝓷𝔑𝔫𝕟𝕹𝖓𝖭𝗇𝗡𝗻𝘕𝘯𝙉𝙣𝙽𝚗]", "n")
+        .replace("[ºÒÓÔÕÖòóôõöŌōŎŏŐőƠơǑǒǪǫǬǭȌȍȎȏȪȫȬȭȮȯȰȱᴼᵒṌṍṎṏṐṑṒṓỌọỎỏỐốỒồỔổỖỗỘộỚớỜờỞởỠỡỢợₒℴＯｏ𝐎𝐨𝑂𝑜𝑶𝒐𝒪𝓞𝓸𝔒𝔬𝕆𝕠𝕺𝖔𝖮𝗈𝗢𝗼𝘖𝘰𝙊𝙤𝙾𝚘]", "o")
+        .replace("[ᴾᵖṔṕṖṗₚℙＰｐ𝐏𝐩𝑃𝑝𝑷𝒑𝒫𝓅𝓟𝓹𝔓𝔭𝕡𝕻𝖕𝖯𝗉𝗣𝗽𝘗𝘱𝙋𝙥𝙿𝚙]", "p")
+        .replace("[ℚꟴＱｑ𐞥𝐐𝐪𝑄𝑞𝑸𝒒𝒬𝓆𝓠𝓺𝔔𝔮𝕢𝕼𝖖𝖰𝗊𝗤𝗾𝘘𝘲𝙌𝙦𝚀𝚚]", "q")
+        .replace("[ŔŕŖŗŘřȐȑȒȓʳᴿᵣṘṙṚṛṜṝṞṟℛℜℝＲｒ𝐑𝐫𝑅𝑟𝑹𝒓𝓇𝓡𝓻𝔯𝕣𝕽𝖗𝖱𝗋𝗥𝗿𝘙𝘳𝙍𝙧𝚁𝚛]", "r")
+        .replace("[ŚśŜŝŞşŠšſȘșˢṠṡṢṣṤṥṦṧṨṩẛₛ꟱Ｓｓ𝐒𝐬𝑆𝑠𝑺𝒔𝒮𝓈𝓢𝓼𝔖𝔰𝕊𝕤𝕾𝖘𝖲𝗌𝗦𝘀𝘚𝘴𝙎𝙨𝚂𝚜]", "s")
+        .replace("[ŢţŤťȚțᵀᵗṪṫṬṭṮṯṰṱẗₜＴｔ𝐓𝐭𝑇𝑡𝑻𝒕𝒯𝓉𝓣𝓽𝔗𝔱𝕋𝕥𝕿𝖙𝖳𝗍𝗧𝘁𝘛𝘵𝙏𝙩𝚃𝚝]", "t")
+        .replace("[ÙÚÛÜùúûüŨũŪūŬŭŮůŰűŲųƯưǓǔǕǖǗǘǙǚǛǜȔȕȖȗᵁᵘᵤṲṳṴṵṶṷṸṹṺṻỤụỦủỨứỪừỬửỮữỰựＵｕ𝐔𝐮𝑈𝑢𝑼𝒖𝒰𝓊𝓤𝓾𝔘𝔲𝕌𝕦𝖀𝖚𝖴𝗎𝗨𝘂𝘜𝘶𝙐𝙪𝚄𝚞]", "u")
+        .replace("[ᵛᵥṼṽṾṿⱽＶｖ𝐕𝐯𝑉𝑣𝑽𝒗𝒱𝓋𝓥𝓿𝔙𝔳𝕍𝕧𝖁𝖛𝖵𝗏𝗩𝘃𝘝𝘷𝙑𝙫𝚅𝚟]", "v")
+        .replace("[ŴŵʷᵂẀẁẂẃẄẅẆẇẈẉẘＷｗ𝐖𝐰𝑊𝑤𝑾𝒘𝒲𝓌𝓦𝔀𝔚𝔴𝕎𝕨𝖂𝖜𝖶𝗐𝗪𝘄𝘞𝘸𝙒𝙬𝚆𝚠]", "w")
+        .replace("[ˣẊẋẌẍₓＸｘ𝐗𝐱𝑋𝑥𝑿𝒙𝒳𝓍𝓧𝔁𝔛𝔵𝕏𝕩𝖃𝖝𝖷𝗑𝗫𝘅𝘟𝘹𝙓𝙭𝚇𝚡]", "x")
+        .replace("[ÝýÿŶŷŸȲȳʸẎẏẙỲỳỴỵỶỷỸỹＹｙ𝐘𝐲𝑌𝑦𝒀𝒚𝒴𝓎𝓨𝔂𝔜𝔶𝕐𝕪𝖄𝖞𝖸𝗒𝗬𝘆𝘠𝘺𝙔𝙮𝚈𝚢]", "y")
+        .replace("[ŹźŻżŽžᶻẐẑẒẓẔẕℤℨＺｚ𝐙𝐳𝑍𝑧𝒁𝒛𝒵𝓏𝓩𝔃𝔷𝕫𝖅𝖟𝖹𝗓𝗭𝘇𝘡𝘻𝙕𝙯𝚉𝚣]", "z")
+        .replace("[Ĳĳ]", "ij")
+        .replace("[ǄǅǆǱǲǳ]", "dz")
+        .replace("[Ǉǈǉ]", "lj")
+        .replace("[Ǌǋǌ]", "nj")
+        .replace("ﬀ", "ff")
+        .replace("ﬁ", "fi")
+        .replace("ﬂ", "fl")
+        .replace("ﬃ", "ffi")
+        .replace("ﬄ", "ffl")
+        .replace("[ﬅﬆ]", "st")
+        .lower()
         .replace("0", "o")
         .replace("1", "i")
         .replace("3", "e")
@@ -30,37 +67,6 @@ service cloud.firestore {
         .replace("@", "a")
         .replace("\\$", "s")
         .replace("!", "i")
-        .replace("ａ", "a")
-        .replace("ｂ", "b")
-        .replace("ｃ", "c")
-        .replace("ｄ", "d")
-        .replace("ｅ", "e")
-        .replace("ｆ", "f")
-        .replace("ｇ", "g")
-        .replace("ｈ", "h")
-        .replace("ｉ", "i")
-        .replace("ｊ", "j")
-        .replace("ｋ", "k")
-        .replace("ｌ", "l")
-        .replace("ｍ", "m")
-        .replace("ｎ", "n")
-        .replace("ｏ", "o")
-        .replace("ｐ", "p")
-        .replace("ｑ", "q")
-        .replace("ｒ", "r")
-        .replace("ｓ", "s")
-        .replace("ｔ", "t")
-        .replace("ｕ", "u")
-        .replace("ｖ", "v")
-        .replace("ｗ", "w")
-        .replace("ｘ", "x")
-        .replace("ｙ", "y")
-        .replace("ｚ", "z")
-        .replace("[àáâãäå]", "a")
-        .replace("[èéêë]", "e")
-        .replace("[ìíîï]", "i")
-        .replace("[òóôõö]", "o")
-        .replace("[ùúûü]", "u")
         .replace("[аɑα]", "a")
         .replace("β", "b")
         .replace("[еёε]", "e")
@@ -80,10 +86,17 @@ service cloud.firestore {
       return normalizedDisplayName(value);
     }
 
+    function hasVisibleDisplayName(value) {
+      return value is string &&
+        value.trim().size() > 0 &&
+        !value.matches("^[\\s]*$");
+    }
+
     function isAllowedDisplayName(value) {
       let normalized = collapsedDisplayName(value);
       return value is string &&
         value.size() <= 80 &&
+        (value.size() == 0 || hasVisibleDisplayName(value)) &&
         !normalized.matches(
           "^[^a-z]*a[^a-z]*n[^a-z]*o[^a-z]*n[^a-z]*y[^a-z]*m[^a-z]*o[^a-z]*u[^a-z]*s" +
           "[^a-z]*c[^a-z]*l[^a-z]*i[^a-z]*m[^a-z]*b[^a-z]*e[^a-z]*r[^a-z]*$"
@@ -278,7 +291,7 @@ service cloud.firestore {
           "lastUpdated"
         ]) &&
         request.resource.data.userId == userId &&
-        request.resource.data.displayName.size() > 0 &&
+        hasVisibleDisplayName(request.resource.data.displayName) &&
         isAllowedDisplayName(request.resource.data.displayName) &&
         request.resource.data.photoURL is string &&
         request.resource.data.photoURL.size() <= 2048 &&
@@ -583,7 +596,7 @@ service cloud.firestore {
       let isPublished =
         state == "published" &&
         request.resource.data.displayName is string &&
-        request.resource.data.displayName.size() > 0 &&
+        hasVisibleDisplayName(request.resource.data.displayName) &&
         isAllowedDisplayName(request.resource.data.displayName) &&
         request.resource.data.photoURL is string &&
         request.resource.data.photoURL.size() <= 2048 &&

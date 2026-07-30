@@ -78,6 +78,7 @@ final class ProfileScreenViewModel {
 
     func loadOtherUser(
         userId: String,
+        initialIdentity: ResolvedUserIdentity,
         viewerSnapshot: ProfileSnapshot,
         climbs: [Climb],
         taskKey: String
@@ -86,15 +87,9 @@ final class ProfileScreenViewModel {
         lastLoadedOtherKey = taskKey
         isLoading = true
         errorMessage = nil
-        let publicIdentity = PublicClimberIdentity.resolve(
+        let seedIdentity = Self.initialOtherUserIdentity(
             userId: userId,
-            storedDisplayName: nil,
-            storedPhotoURL: nil
-        )
-        let seedIdentity = ProfileUserIdentity(
-            userId: userId,
-            displayName: publicIdentity.displayName,
-            photoURL: publicIdentity.photoURL
+            initialIdentity: initialIdentity
         )
         otherUserIdentity = seedIdentity
 
@@ -120,8 +115,8 @@ final class ProfileScreenViewModel {
             let stats = mergedStats(remote: bundle.stats, fallback: fallbackStats)
             let identity = (bundle.identity ?? seedIdentity)
                 .applyingPresentationFallback(
-                    displayName: publicIdentity.displayName,
-                    photoURL: publicIdentity.photoURL
+                    displayName: initialIdentity.displayName,
+                    photoURL: initialIdentity.photoURL
                 )
             otherUserIdentity = identity
 
@@ -160,6 +155,30 @@ final class ProfileScreenViewModel {
         }
 
         isLoading = false
+    }
+
+    nonisolated static func initialOtherUserIdentity(
+        userId: String,
+        initialIdentity: ResolvedUserIdentity
+    ) -> ProfileUserIdentity {
+        if initialIdentity.isHidden {
+            let fallback = PublicClimberIdentity.resolve(
+                userId: userId,
+                storedDisplayName: nil,
+                storedPhotoURL: nil
+            )
+            return ProfileUserIdentity(
+                userId: userId,
+                displayName: fallback.displayName,
+                photoURL: fallback.photoURL
+            )
+        }
+
+        return ProfileUserIdentity(
+            userId: userId,
+            displayName: initialIdentity.displayName,
+            photoURL: initialIdentity.photoURL
+        )
     }
 
     func ownDemographics(

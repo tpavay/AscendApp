@@ -102,4 +102,30 @@ struct PublicClimberIdentityTests {
         #expect(deleted.photoURL == nil)
         #expect(deleted.usesGenericAvatar)
     }
+
+    @Test
+    func deletedProfileSeedRemainsAnonymousWhenRemoteProfileIsMissing() {
+        let initialIdentity = ResolvedUserIdentity.Resolver.resolve(
+            userId: "deleted-user",
+            displayName: "Anonymous Climber",
+            photoURL: nil,
+            isCurrentUser: false,
+            blockedUserIds: [],
+            isBlockListHydrated: true
+        )
+
+        let seededIdentity = ProfileScreenViewModel.initialOtherUserIdentity(
+            userId: "deleted-user",
+            initialIdentity: initialIdentity
+        )
+        let renderedIdentity = CrossUserIdentityAdapter.profileIdentity(
+            seededIdentity,
+            isCurrentUser: false,
+            blockedUserIds: [],
+            isBlockListHydrated: true
+        )
+
+        #expect(renderedIdentity.displayName == "Anonymous Climber")
+        #expect(renderedIdentity.photoURL == nil)
+    }
 }

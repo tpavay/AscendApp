@@ -169,6 +169,7 @@ struct OtherUserProfileView: View {
 
             await viewModel.loadOtherUser(
                 userId: userId,
+                initialIdentity: initialIdentity,
                 viewerSnapshot: viewerSnapshot,
                 climbs: climbs,
                 taskKey: taskKey

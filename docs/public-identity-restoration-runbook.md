@@ -7,7 +7,7 @@ The migration restores validated account-authored display names and profile phot
 
 The command requires an explicit named environment and exactly one of `--dry-run`, `--apply`, or `--audit`.
 Production also requires `--confirm-production ascend-prod-9c8f2`.
-Apply is protected by the `_migrations` ledger operation `migration/public-identity-restoration` version 5.
+Apply is protected by the `_migrations` ledger operation `migration/public-identity-restoration` version 6.
 Each user receives a completion marker only after every projection write for that user succeeds.
 Every transactional page rereads the private user root and every target, then compares their Firestore update-time versions before writing.
 A concurrent root or target edit invalidates the plan, causes a fresh full replan, and is retried at most three times.
@@ -25,9 +25,9 @@ Deleted projections remain protected, and legacy anonymous global rows are migra
 The migration changes only identity fields and never changes ranks, metrics, demographics, completion dates, or First Ascent ownership.
 Missing `public_profile/current` documents are never fabricated.
 They are reported as explicit skips, and audit remains failed until the source profile is repaired through the normal publication path.
-An independent bounded global leaderboard sweep finds rows that the root-first pass cannot enumerate.
-Every non-synthetic row whose `users/{uid}` root is absent is transactionally normalized to permanent `deleted` identity, including stale real identity left by interrupted account cleanup.
-The sweep reads each row and user root in the same transaction and changes only identity fields.
+Independent bounded sweeps cover global leaderboard rows, Live Replay entries, replay finishers, and First Ascent holders that the root-first pass cannot enumerate.
+Every non-synthetic projection whose `users/{uid}` root is absent is transactionally normalized to permanent `deleted` identity, including stale real identity left by interrupted account cleanup.
+Each sweep reads projection rows and user roots in the same transaction and changes only identity fields.
 Final verification freshly enumerates user roots and every projection, so a user or projection created during apply cannot escape audit.
 
 ## Required deployment order

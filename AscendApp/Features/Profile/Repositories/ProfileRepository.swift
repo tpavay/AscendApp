@@ -61,6 +61,13 @@ final class ProfileRepository: Sendable {
     }
 
     func upsertPublicIdentity(_ identity: ProfileUserIdentity) async throws {
+        let data = try Self.publicIdentityPayload(identity)
+        try await publicProfileDocument(userId: identity.userId).setData(data, merge: true)
+    }
+
+    static func publicIdentityPayload(
+        _ identity: ProfileUserIdentity
+    ) throws -> [String: Any] {
         let publication = try ProfileIdentityPersistenceAdapter.validatedFields(
             for: identity
         )
@@ -98,39 +105,7 @@ final class ProfileRepository: Sendable {
             data["joined_at"] = Timestamp(date: joinedAt)
         }
 
-        try await publicProfileDocument(userId: identity.userId).setData(data, merge: true)
-    }
-
-    func updatePublicIdentityFields(
-        userId: String,
-        displayName: String? = nil,
-        photoURL: URL? = nil
-    ) async throws {
-        let displayName = try displayName.map(DisplayNamePolicy.validated)
-        let document = publicProfileDocument(userId: userId)
-        let exists = try await document.getDocument().exists
-        var data: [String: Any] = [
-            "userId": userId,
-            "identityPolicyVersion": PublicClimberIdentity.policyVersion,
-            "identityChangedAt": FieldValue.serverTimestamp(),
-            "lastUpdated": FieldValue.serverTimestamp()
-        ]
-
-        if !exists {
-            let fallbackDisplayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            data["displayName"] = fallbackDisplayName.isEmpty ?
-                PublicClimberIdentity.systemHandle(for: userId) :
-                fallbackDisplayName
-            data["photoURL"] = photoURL?.absoluteString ?? ""
-        }
-
-        if let displayName {
-            data["displayName"] = displayName
-        }
-        if let photoURL {
-            data["photoURL"] = photoURL.absoluteString
-        }
-        try await document.setData(data, merge: true)
+        return data
     }
 
     func upsertStats(userId: String, stats: ProfileStatsSnapshot) async throws {

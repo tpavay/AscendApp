@@ -1,18 +1,24 @@
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
 import test from "node:test";
 import {
   RESTORATION_OPERATION_VERSION,
   StaleIdentityRestorationPlanError,
   applyFreshUserIdentityRestoration,
   auditFreshUserIdentityRestoration,
-  auditOrphanLeaderboardIdentityRestoration,
+  auditOrphanProjectionIdentityRestoration,
   auditUserIdentityRestoration,
   parseRestorationArgs,
-  planOrphanLeaderboardIdentityRestoration,
+  planOrphanProjectionIdentityRestoration,
   planUserIdentityRestoration,
   publicSystemHandle,
   restoredIdentityForUser,
 } from "../lib/public-identity-restoration.mjs";
+
+const restorationRunnerSource = readFileSync(
+  new URL("../restore-public-identities.mjs", import.meta.url),
+  "utf8"
+);
 
 test("requires one explicit mode and a named environment", () => {
   assert.throws(
@@ -69,6 +75,8 @@ test("restoration rejects compatibility and Unicode confusable profanity", () =>
     "fսck",
     "ｆｕｃｋ",
     "ｎｉｇｇｅｒ",
+    "fųck",
+    "f𝕦ck",
     "Maaaya",
   ]) {
     assert.equal(
@@ -317,7 +325,11 @@ test("normalizes an orphan global row while preserving rank and metrics", () => 
     version: "row-v1",
   };
 
-  const write = planOrphanLeaderboardIdentityRestoration(record, false);
+  const write = planOrphanProjectionIdentityRestoration(
+    record,
+    false,
+    "leaderboard"
+  );
 
   assert.deepEqual(write, {
     fields: {
@@ -336,13 +348,18 @@ test("normalizes an orphan global row while preserving rank and metrics", () => 
   assert.equal(merged.age, 31);
   assert.equal(merged.location_city, "Chicago");
   assert.match(
-    auditOrphanLeaderboardIdentityRestoration(record, false)[0],
+    auditOrphanProjectionIdentityRestoration(
+      record,
+      false,
+      "leaderboard"
+    )[0],
     /without a user root/
   );
   assert.equal(
-    auditOrphanLeaderboardIdentityRestoration(
+    auditOrphanProjectionIdentityRestoration(
       {...record, data: merged},
-      false
+      false,
+      "leaderboard"
     ).length,
     0
   );
@@ -370,12 +387,132 @@ test("orphan sweep leaves existing users and trusted fixtures untouched", () => 
   };
 
   assert.equal(
-    planOrphanLeaderboardIdentityRestoration(realRow, true),
+    planOrphanProjectionIdentityRestoration(realRow, true, "leaderboard"),
     null
   );
   assert.equal(
-    planOrphanLeaderboardIdentityRestoration(seededRow, false),
+    planOrphanProjectionIdentityRestoration(
+      seededRow,
+      false,
+      "leaderboard"
+    ),
     null
+  );
+});
+
+test("normalizes every orphan replay identity shape without deleting results", () => {
+  const replayRecord = {
+    path: "contexts/a/splitBuckets/0/entries/workout",
+    data: {
+      avatarToken: "SR",
+      displayName: "Stale Rival",
+      finalSteps: 3_200,
+      identityState: "published",
+      isSynthetic: false,
+      photoURL: "https://example.com/stale.jpg",
+      rank: 2,
+      userId: "deleted-user",
+    },
+    version: "entry-v1",
+  };
+  const finisherRecord = {
+    ...replayRecord,
+    path: "contexts/a/finishers/deleted-user",
+    version: "finisher-v1",
+  };
+  const firstAscentRecord = {
+    path: "live_replay_leaderboards/a",
+    data: {
+      completedCount: 7,
+      firstAscentAvatarToken: "SR",
+      firstAscentDisplayName: "Stale Rival",
+      firstAscentIdentityState: "published",
+      firstAscentIsSynthetic: false,
+      firstAscentPhotoURL: "https://example.com/stale.jpg",
+      firstAscentUserId: "deleted-user",
+    },
+    version: "context-v1",
+  };
+
+  for (const record of [replayRecord, finisherRecord]) {
+    const write = planOrphanProjectionIdentityRestoration(
+      record,
+      false,
+      "replay"
+    );
+    assert.deepEqual(write?.fields, {
+      avatarToken: "",
+      displayName: "Anonymous Climber",
+      identityState: "deleted",
+      isSynthetic: false,
+      photoURL: "",
+    });
+    const merged = {...record.data, ...write.fields};
+    assert.equal(merged.rank, 2);
+    assert.equal(merged.finalSteps, 3_200);
+  }
+
+  const firstAscentWrite = planOrphanProjectionIdentityRestoration(
+    firstAscentRecord,
+    false,
+    "firstAscent"
+  );
+  assert.deepEqual(firstAscentWrite?.fields, {
+    firstAscentAvatarToken: "",
+    firstAscentDisplayName: "Anonymous Climber",
+    firstAscentIdentityState: "deleted",
+    firstAscentIsSynthetic: false,
+    firstAscentPhotoURL: "",
+  });
+  const mergedFirstAscent = {
+    ...firstAscentRecord.data,
+    ...firstAscentWrite.fields,
+  };
+  assert.equal(mergedFirstAscent.completedCount, 7);
+  assert.equal(mergedFirstAscent.firstAscentUserId, "deleted-user");
+});
+
+test("orphan sweep ignores open first ascents and synthetic replay fixtures", () => {
+  assert.equal(
+    planOrphanProjectionIdentityRestoration(
+      {
+        path: "live_replay_leaderboards/open",
+        data: {completedCount: 0},
+        version: "open-v1",
+      },
+      false,
+      "firstAscent"
+    ),
+    null
+  );
+  assert.equal(
+    planOrphanProjectionIdentityRestoration(
+      {
+        path: "contexts/a/splitBuckets/0/entries/seeded",
+        data: {
+          displayName: "Summit Sprinter",
+          isSynthetic: true,
+          userId: "seeded:summit",
+        },
+        version: "seed-v1",
+      },
+      false,
+      "replay"
+    ),
+    null
+  );
+});
+
+test("runner independently audits every orphan projection collection", () => {
+  assert.match(
+    restorationRunnerSource,
+    /collection\("leaderboard_stats"\)/
+  );
+  assert.match(restorationRunnerSource, /collectionGroup\("entries"\)/);
+  assert.match(restorationRunnerSource, /collectionGroup\("finishers"\)/);
+  assert.match(
+    restorationRunnerSource,
+    /collection\("live_replay_leaderboards"\)/
   );
 });
 

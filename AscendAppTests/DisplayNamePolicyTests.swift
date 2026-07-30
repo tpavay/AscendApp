@@ -25,6 +25,8 @@ struct DisplayNamePolicyTests {
         "fսck",
         "ｆｕｃｋ",
         "ｎｉｇｇｅｒ",
+        "fųck",
+        "f𝕦ck",
         "fuuuck",
         "Maaaya",
         "asshole",

@@ -1,7 +1,7 @@
 import {createHash} from "node:crypto";
 
 export const DEFAULT_RESTORATION_BATCH_SIZE = 400;
-export const RESTORATION_OPERATION_VERSION = 5;
+export const RESTORATION_OPERATION_VERSION = 6;
 export const ANONYMOUS_CLIMBER_NAME = "Anonymous Climber";
 export const PUBLIC_IDENTITY_POLICY_VERSION = 1;
 export const PUBLIC_IDENTITY_STATE_PUBLISHED = "published";
@@ -253,22 +253,26 @@ export function planUserIdentityRestoration(input) {
 }
 
 /**
- * Plans permanent anonymization for a global row whose account root is gone.
+ * Plans permanent anonymization for a projection whose account root is gone.
  *
  * Seeded competitors intentionally have no users/{uid} root and remain
- * untouched. Every other orphan row is de-identified, including stale real
- * identity left by interrupted account cleanup.
- * @param {object} record Current leaderboard projection.
+ * untouched.
+ * Every other orphan projection is de-identified.
+ * @param {object} record Current public identity projection.
  * @param {boolean} userRootExists Whether users/{uid} exists.
+ * @param {string} kind Projection shape.
  * @return {object | null} Identity-only merge write, if required.
  */
-export function planOrphanLeaderboardIdentityRestoration(
+export function planOrphanProjectionIdentityRestoration(
   record,
-  userRootExists
+  userRootExists,
+  kind
 ) {
+  const userId = projectionUserId(record?.data, kind);
   if (
+    userId === null ||
     userRootExists ||
-    isTrustedSyntheticProjection(record?.data, "leaderboard")
+    isTrustedSyntheticProjection(record?.data, kind)
   ) {
     return null;
   }
@@ -277,24 +281,27 @@ export function planOrphanLeaderboardIdentityRestoration(
   appendWriteIfChanged(
     writes,
     record,
-    deletedLeaderboardIdentityFields()
+    deletedIdentityFieldsForKind(kind)
   );
   return writes[0] ?? null;
 }
 
 /**
- * Audits one global row against root existence and deletion identity policy.
- * @param {object} record Current leaderboard projection.
+ * Audits one projection against root existence and deletion identity policy.
+ * @param {object} record Current public identity projection.
  * @param {boolean} userRootExists Whether users/{uid} exists.
+ * @param {string} kind Projection shape.
  * @return {string[]} Human-readable audit failures.
  */
-export function auditOrphanLeaderboardIdentityRestoration(
+export function auditOrphanProjectionIdentityRestoration(
   record,
-  userRootExists
+  userRootExists,
+  kind
 ) {
-  const write = planOrphanLeaderboardIdentityRestoration(
+  const write = planOrphanProjectionIdentityRestoration(
     record,
-    userRootExists
+    userRootExists,
+    kind
   );
   return write === null ?
     [] :
@@ -646,6 +653,38 @@ function deletedLeaderboardIdentityFields() {
     identityState: PUBLIC_IDENTITY_STATE_DELETED,
     photoURL: "",
   };
+}
+
+function deletedIdentityFieldsForKind(kind) {
+  if (kind === "leaderboard") {
+    return deletedLeaderboardIdentityFields();
+  }
+  if (kind === "firstAscent") {
+    return {
+      firstAscentAvatarToken: "",
+      firstAscentDisplayName: ANONYMOUS_CLIMBER_NAME,
+      firstAscentIdentityState: PUBLIC_IDENTITY_STATE_DELETED,
+      firstAscentIsSynthetic: false,
+      firstAscentPhotoURL: "",
+    };
+  }
+  if (kind === "replay") {
+    return {
+      avatarToken: "",
+      displayName: ANONYMOUS_CLIMBER_NAME,
+      identityState: PUBLIC_IDENTITY_STATE_DELETED,
+      isSynthetic: false,
+      photoURL: "",
+    };
+  }
+  throw new Error(`Unsupported orphan projection kind: ${kind}`);
+}
+
+function projectionUserId(data, kind) {
+  const value = kind === "firstAscent" ?
+    data?.firstAscentUserId :
+    data?.userId;
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 /**

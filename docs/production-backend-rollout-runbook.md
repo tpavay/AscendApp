@@ -52,7 +52,7 @@ Complete every item before starting the production workflow.
    They ship as configured production publishable client keys, so the workflow's monetization preflight now verifies them before the archive instead of blocking the run.
    `Staging` carries its own staging publishable keys and clears the same preflight, and `Debug` is intentionally unset.
    The per-environment key split is owned by `docs/superwall-paywall-setup.md`.
-9. Complete public identity restoration operation version 5 and require a green production audit before approving the workflow environment.
+9. Complete public identity restoration operation version 6 and require a green production audit before approving the workflow environment.
    This gate adds `identityPolicyVersion`, `identityChangedAt`, and global leaderboard `identityState` before the production binary can upload.
 
 Use these read-only GitHub checks:
@@ -81,7 +81,7 @@ node scripts/restore-public-identities.mjs --env prod --confirm-production ascen
 ```
 
 Run these commands only after the moderation rules, identity policy rules, required indexes, `onPublicProfileIdentityWritten`, and `onPublicIdentityPropagationJobWritten` are deployed.
-Do not approve the protected `production` environment while the audit reports a stale projection, an orphan global row with noncurrent deleted identity, a missing public profile, or an incomplete version 5 marker.
+Do not approve the protected `production` environment while the audit reports a stale projection, an orphan public identity with noncurrent deleted identity, a missing public profile, or an incomplete version 6 marker.
 For the first rollout of this policy, deploy that backend preparation as a separately reviewed captain operation before approving the release workflow.
 The release workflow may redeploy the same backend SHA after approval because those deployments are idempotent.
 
