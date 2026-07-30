@@ -7,6 +7,7 @@ on:
       # required-check-paths:start
       - "AscendApp/**"
       - "AscendAppTests/**"
+      - "AscendAppUITests/**"
       - "AscendLiveActivityWidgets/**"
       - "AscendApp.xcodeproj/**"
       - "functions/**"
@@ -68,6 +69,7 @@ jobs:
             ios:
               - "AscendApp/**"
               - "AscendAppTests/**"
+              - "AscendAppUITests/**"
               - "AscendLiveActivityWidgets/**"
               - "AscendApp.xcodeproj/**"
               # The Swift halves of the shared cross-language vectors assert
@@ -498,6 +500,20 @@ jobs:
             ENABLE_TESTABILITY=YES \
             test 2>&1 | tee build-logs/xcodebuild-staging.log
 
+      - name: Run returning subscriber journey
+        id: returning_subscriber_journey
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project AscendApp.xcodeproj \
+            -scheme "AscendApp-ReturningSubscriberUITests" \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.id }}" \
+            -resultBundlePath build-logs/ReturningSubscriberJourney.xcresult \
+            -only-testing:AscendAppUITests/ReturningSubscriberJourneyUITests \
+            test 2>&1 | tee build-logs/xcodebuild-returning-subscriber.log
+
       # A step killed by timeout-minutes reports `cancelled`, not `failure`, and
       # that is exactly the hung-runner case these logs exist to explain. An
       # empty outcome means xcodebuild never ran, so there is no log to read.
@@ -506,8 +522,13 @@ jobs:
         shell: bash
         run: ./scripts/ci/summarize-xcodebuild-failure.sh build-logs/xcodebuild-staging.log
 
+      - name: Summarize returning subscriber journey failure
+        if: always() && steps.returning_subscriber_journey.outcome != 'success' && steps.returning_subscriber_journey.outcome != 'skipped' && steps.returning_subscriber_journey.outcome != ''
+        shell: bash
+        run: ./scripts/ci/summarize-xcodebuild-failure.sh build-logs/xcodebuild-returning-subscriber.log
+
       - name: Upload build logs
-        if: always() && steps.tests.outcome != 'success' && steps.tests.outcome != 'skipped' && steps.tests.outcome != ''
+        if: always() && ((steps.tests.outcome != 'success' && steps.tests.outcome != 'skipped' && steps.tests.outcome != '') || (steps.returning_subscriber_journey.outcome != 'success' && steps.returning_subscriber_journey.outcome != 'skipped' && steps.returning_subscriber_journey.outcome != ''))
         uses: actions/upload-artifact@v4
         with:
           name: ios-verify-staging-logs

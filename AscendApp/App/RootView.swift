@@ -12,12 +12,20 @@ struct RootView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(MonetizationManager.self) private var monetizationManager
     @Environment(\.modelContext) private var modelContext
-    @Environment(MediaUploadManager.self) private var uploadManager
+    private let lifecycleClient: RootViewLifecycleClient
     @State private var importCoordinator = WorkoutImportCoordinator.shared
-    @State private var postAuthOnboardingCoordinator = PostAuthOnboardingCoordinator()
+    @State private var postAuthOnboardingCoordinator: PostAuthOnboardingCoordinator
     @State private var tabRouter = TabRouter()
     @State private var accountDataConflict: AccountDataOwnershipConflict?
     @State private var profileCompletionCheckTask: Task<Void, Never>?
+
+    init(
+        postAuthOnboardingCoordinator: PostAuthOnboardingCoordinator = PostAuthOnboardingCoordinator(),
+        lifecycleClient: RootViewLifecycleClient = .live
+    ) {
+        _postAuthOnboardingCoordinator = State(initialValue: postAuthOnboardingCoordinator)
+        self.lifecycleClient = lifecycleClient
+    }
 
     var body: some View {
         Group {
@@ -63,10 +71,12 @@ struct RootView: View {
             postAuthOnboardingCoordinator.resolve(userId: authVM.authenticatedUserID)
             advancePostAuthOnboardingPastDisplayNameIfAvailable()
             await monetizationManager.refreshEntitlements()
-            // Resume any pending uploads from previous session
-            await uploadManager.processPendingUploads(modelContext: modelContext)
-            await bootstrapAuthenticatedLocalState()
-            await PushNotificationService.shared.synchronizeAuthenticatedDeviceIfNeeded()
+            await lifecycleClient.processPendingUploads(modelContext)
+            accountDataConflict = await lifecycleClient.bootstrapAuthenticatedLocalState(
+                modelContext,
+                authVM.user
+            )
+            await lifecycleClient.synchronizePushNotifications()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             AppDiagnosticsRecorder.shared.record(
@@ -77,9 +87,12 @@ struct RootView: View {
             Task {
                 importCoordinator.configure(modelContext: modelContext)
                 await monetizationManager.refreshEntitlements()
-                await uploadManager.processPendingUploads(modelContext: modelContext)
-                await bootstrapAuthenticatedLocalState()
-                await PushNotificationService.shared.synchronizeAuthenticatedDeviceIfNeeded()
+                await lifecycleClient.processPendingUploads(modelContext)
+                accountDataConflict = await lifecycleClient.bootstrapAuthenticatedLocalState(
+                    modelContext,
+                    authVM.user
+                )
+                await lifecycleClient.synchronizePushNotifications()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
@@ -108,8 +121,11 @@ struct RootView: View {
                 advancePostAuthOnboardingPastDisplayNameIfAvailable()
                 completePostAuthOnboardingIfRemoteProfileExists()
                 await monetizationManager.refreshEntitlements()
-                await bootstrapAuthenticatedLocalState()
-                await PushNotificationService.shared.synchronizeAuthenticatedDeviceIfNeeded()
+                accountDataConflict = await lifecycleClient.bootstrapAuthenticatedLocalState(
+                    modelContext,
+                    authVM.user
+                )
+                await lifecycleClient.synchronizePushNotifications()
             }
         }
         .onChange(of: authVM.hasRemoteDisplayName) { _, _ in
@@ -140,90 +156,6 @@ struct RootView: View {
         }
 
         return resolvedRoute
-    }
-
-    @MainActor
-    private func bootstrapAuthenticatedLocalState() async {
-        guard let user = authVM.user else {
-            accountDataConflict = nil
-            return
-        }
-        let currentUserId = user.uid
-
-        do {
-            switch try AccountDataOwnershipService.evaluateAccess(
-                modelContext: modelContext,
-                signedInUserId: currentUserId
-            ) {
-            case .allowed:
-                accountDataConflict = nil
-            case .blocked(let conflict):
-                accountDataConflict = conflict
-                return
-            }
-
-            try WorkoutRemoteSyncMigrationService.runIfNeeded(
-                modelContext: modelContext,
-                currentUserId: currentUserId
-            )
-            AccountDataOwnershipService.recordAuthorizedOwner(signedInUserId: currentUserId)
-
-            do {
-                _ = try await WorkoutHydrationService.hydrateIfNeeded(
-                    modelContext: modelContext,
-                    currentUserId: currentUserId
-                )
-            } catch {
-                debugLog("Workout hydration failed: \(error)")
-            }
-
-            // Pull the server-derived completed-climb projection into the cache
-            // so the globe / Collection / totalClimbsCompleted are correct on an
-            // in-place UPDATE too, not just a reinstall - independent of whether
-            // the legacy hydration path ran on this install.
-            await ClimbCompletionRepository.shared.refresh(
-                userId: currentUserId,
-                modelContext: modelContext
-            )
-
-            await WorkoutSyncCoordinator.shared.processPendingWorkouts(
-                modelContext: modelContext,
-                currentUserId: currentUserId
-            )
-
-            let leaderboardService = LeaderboardService.shared
-            leaderboardService.configure(modelContext: modelContext)
-
-            let workouts = try modelContext.fetch(
-                FetchDescriptor<Workout>(
-                    predicate: #Predicate<Workout> { workout in
-                        workout.ownerUserId == currentUserId
-                    },
-                    sortBy: [SortDescriptor(\.date, order: .forward)]
-                )
-            )
-            let didRebuild = try leaderboardService.rebuildCurrentStatsIfNeeded(
-                for: currentUserId,
-                workouts: workouts
-            )
-
-            if didRebuild {
-                try await leaderboardService.deleteLegacyRemoteStats(userId: currentUserId)
-                await LeaderboardSessionCache.shared.invalidateAll()
-            }
-
-            await LeaderboardSyncCoordinator.shared.enqueueSync(
-                userId: currentUserId
-            )
-
-            await ProfilePublicationService.publishCurrentUserProfile(
-                modelContext: modelContext,
-                userId: currentUserId,
-                joinedAt: user.creationDate
-            )
-        } catch {
-            debugLog("Authenticated bootstrap failed: \(error)")
-        }
     }
 
     @MainActor
@@ -261,7 +193,7 @@ struct RootView: View {
 
         profileCompletionCheckTask?.cancel()
         profileCompletionCheckTask = Task { @MainActor in
-            let userData = try? await UserDataRepository.shared.getUserFromFirestore(userId: user.uid)
+            let userData = await lifecycleClient.loadUserData(user.uid)
             guard !Task.isCancelled,
                   let userData,
                   isCompletePostAuthProfile(userData) else {

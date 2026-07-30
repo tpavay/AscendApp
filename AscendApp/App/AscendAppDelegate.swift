@@ -15,6 +15,10 @@ final class AscendAppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
+        #if DEBUG
+        guard !ReturningSubscriberJourneyUITestScenario.isRequested else { return }
+        #endif
+
         Messaging.messaging().apnsToken = deviceToken
         Task { @MainActor in
             await PushNotificationService.shared.synchronizeAuthenticatedDeviceIfNeeded()

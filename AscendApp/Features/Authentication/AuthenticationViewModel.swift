@@ -54,20 +54,25 @@ class AuthenticationViewModel {
     private let authenticationClient: any AuthenticationClient
     private let authenticationStateObserver: any AuthenticationStateObserving
     private let profileSessionProvider: any AuthenticationProfileSessionProviding
-    private let accountSessionStore = AccountSessionStore.shared
+    private let accountSessionStore: AccountSessionStore
     private let monetizationIdentityManager: any MonetizationIdentityManaging
+    private let pushNotificationManager: any AuthenticatedPushNotificationManaging
     private var authStateObservation: AuthenticationStateObservation?
 
     init(
         monetizationIdentityManager: any MonetizationIdentityManaging = MonetizationManager.shared,
         authenticationClient: any AuthenticationClient = LiveAuthenticationClient(),
         authenticationStateObserver: any AuthenticationStateObserving = FirebaseAuthenticationStateObserver(),
-        profileSessionProvider: any AuthenticationProfileSessionProviding = LiveAuthenticationProfileSessionProvider()
+        profileSessionProvider: any AuthenticationProfileSessionProviding = LiveAuthenticationProfileSessionProvider(),
+        accountSessionStore: AccountSessionStore = .shared,
+        pushNotificationManager: any AuthenticatedPushNotificationManaging = PushNotificationService.shared
     ) {
         self.monetizationIdentityManager = monetizationIdentityManager
         self.authenticationClient = authenticationClient
         self.authenticationStateObserver = authenticationStateObserver
         self.profileSessionProvider = profileSessionProvider
+        self.accountSessionStore = accountSessionStore
+        self.pushNotificationManager = pushNotificationManager
         lastUsedProvider = accountSessionStore.lastUsedProvider
 
         // Load cached display name immediately for UI responsiveness
@@ -203,7 +208,7 @@ class AuthenticationViewModel {
 extension AuthenticationViewModel {
     func signOut() {
         Task { @MainActor in
-            await PushNotificationService.shared.unregisterCurrentDevice()
+            await pushNotificationManager.unregisterCurrentDevice()
 
             do {
                 try authenticationClient.signOut()

@@ -26,6 +26,10 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         MonetizationIdentityTransition: Task<Void, Never>
     ] = [:]
     private var identityTransitionState = MonetizationIdentityTransitionState()
+    private var pendingIdentityMutation: (
+        transition: MonetizationIdentityTransition,
+        mutation: RevenueCatIdentityMutation
+    )?
 
     init(
         provider: any RevenueCatEntitlementProviding = RevenueCatPurchasesProvider(),
@@ -69,8 +73,25 @@ final class RevenueCatEntitlementService: EntitlementServicing {
     }
 
     func refreshCustomerInfo() async {
-        guard isConfigured,
-              let refreshToken = identityTransitionState.refreshToken() else {
+        guard isConfigured else {
+            return
+        }
+
+        if let pendingIdentityMutation {
+            let transition = pendingIdentityMutation.transition
+            guard identityMutationTasks[transition] == nil else {
+                return
+            }
+
+            let mutationTask = scheduleIdentityMutation(
+                transition: transition,
+                mutation: pendingIdentityMutation.mutation
+            )
+            await mutationTask.value
+            return
+        }
+
+        guard let refreshToken = identityTransitionState.refreshToken() else {
             return
         }
 
@@ -171,6 +192,15 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         customerInfoTask = nil
 
         let transition = identityTransitionState.prepare(userID: userID)
+        pendingIdentityMutation = (transition, mutation)
+        _ = scheduleIdentityMutation(transition: transition, mutation: mutation)
+        return transition
+    }
+
+    private func scheduleIdentityMutation(
+        transition: MonetizationIdentityTransition,
+        mutation: RevenueCatIdentityMutation
+    ) -> Task<Void, Never> {
         let priorMutation = identityMutationTail
         let mutationTask = Task { @MainActor [weak self] in
             await priorMutation?.value
@@ -194,7 +224,7 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         identityMutationTail = Task { @MainActor in
             await mutationTask.value
         }
-        return transition
+        return mutationTask
     }
 
     private func performIdentityMutation(
@@ -228,11 +258,18 @@ final class RevenueCatEntitlementService: EntitlementServicing {
             return
         }
 
+        if pendingIdentityMutation?.transition == transition {
+            pendingIdentityMutation = nil
+        }
         updateTelemetry(for: state)
         observeCustomerInfoUpdates()
     }
 
     private func observeCustomerInfoUpdates() {
+        guard isConfigured else {
+            return
+        }
+
         customerInfoTask?.cancel()
         customerInfoTask = Task { @MainActor [weak self, provider] in
             for await _ in provider.customerInfoUpdates {

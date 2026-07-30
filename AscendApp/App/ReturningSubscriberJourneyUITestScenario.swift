@@ -20,6 +20,8 @@ enum ReturningSubscriberJourneyUITestScenario {
         let monetizationManager: MonetizationManager
         let modelContainer: ModelContainer
         let probe: ReturningSubscriberJourneyProbe
+        let postAuthOnboardingCoordinator: PostAuthOnboardingCoordinator
+        let userDefaults: UserDefaults
     }
 
     private static let launchArgument = "-uiTestReturningSubscriberJourney"
@@ -27,13 +29,22 @@ enum ReturningSubscriberJourneyUITestScenario {
     private static let displayName = "Returning Climber"
     private static let workoutName = "Returning Subscriber Workout"
 
+    static var isRequested: Bool {
+        ProcessInfo.processInfo.arguments.contains(launchArgument)
+    }
+
     static func makeIfRequested() -> Configuration? {
-        guard ProcessInfo.processInfo.arguments.contains(launchArgument) else {
+        guard isRequested else {
             return nil
         }
 
         guard let modelContainer = try? AscendApp.makeModelContainer(
             isStoredInMemoryOnly: true
+        ) else {
+            return nil
+        }
+        guard let userDefaults = UserDefaults(
+            suiteName: "com.TylerPavay.AscendApp.ReturningSubscriberUITests.\(UUID().uuidString)"
         ) else {
             return nil
         }
@@ -64,27 +75,34 @@ enum ReturningSubscriberJourneyUITestScenario {
                 ]
             ),
             entitlementService: entitlementService,
-            paywallPresenter: paywallPresenter
+            paywallPresenter: paywallPresenter,
+            userDefaults: userDefaults
         )
         monetizationManager.setDebugForcesAppAccessPaywall(false)
 
-        PostAuthOnboardingStore().reset(for: userID)
-        PostAuthOnboardingStore().markComplete(for: userID)
-        AccountSessionStore.shared.recordLocalDataOwner(userId: userID)
+        let onboardingStore = PostAuthOnboardingStore(userDefaults: userDefaults)
+        onboardingStore.markComplete(for: userID)
+        let postAuthOnboardingCoordinator = PostAuthOnboardingCoordinator(
+            store: onboardingStore
+        )
         seedWorkout(in: modelContainer)
 
         let authenticationViewModel = AuthenticationViewModel(
             monetizationIdentityManager: monetizationManager,
             authenticationClient: authenticationClient,
             authenticationStateObserver: authenticationStateObserver,
-            profileSessionProvider: profileSessionProvider
+            profileSessionProvider: profileSessionProvider,
+            accountSessionStore: AccountSessionStore(userDefaults: userDefaults),
+            pushNotificationManager: ReturningSubscriberPushNotificationManager()
         )
 
         return Configuration(
             authenticationViewModel: authenticationViewModel,
             monetizationManager: monetizationManager,
             modelContainer: modelContainer,
-            probe: probe
+            probe: probe,
+            postAuthOnboardingCoordinator: postAuthOnboardingCoordinator,
+            userDefaults: userDefaults
         )
     }
 
@@ -104,6 +122,15 @@ enum ReturningSubscriberJourneyUITestScenario {
         modelContainer.mainContext.insert(workout)
         try? modelContainer.mainContext.save()
     }
+}
+
+@MainActor
+private final class ReturningSubscriberPushNotificationManager:
+    AuthenticatedPushNotificationManaging
+{
+    func synchronizeAuthenticatedDeviceIfNeeded() async {}
+
+    func unregisterCurrentDevice() async {}
 }
 
 @MainActor

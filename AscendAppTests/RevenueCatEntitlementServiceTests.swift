@@ -100,6 +100,49 @@ struct RevenueCatEntitlementServiceTests {
     }
 
     @Test
+    func unconfiguredIdentityDoesNotStartCustomerInfoUpdates() async {
+        let provider = ControlledRevenueCatEntitlementProvider()
+        let service = RevenueCatEntitlementService(provider: provider)
+
+        let identity = service.prepareIdentity(userId: "subscriber")
+        await service.identify(userId: "subscriber", transition: identity)
+
+        #expect(service.entitlementState == .inactive)
+        #expect(provider.customerInfoUpdatesAccessCount == 0)
+    }
+
+    @Test
+    func foregroundRefreshRetriesFailedIdentityAndStartsCustomerInfoUpdates() async throws {
+        let provider = ControlledRevenueCatEntitlementProvider()
+        var invocations = provider.invocations.makeAsyncIterator()
+        let service = RevenueCatEntitlementService(
+            provider: provider,
+            startsConfigured: true
+        )
+
+        let identity = service.prepareIdentity(userId: "subscriber")
+        let identifyTask = Task {
+            await service.identify(userId: "subscriber", transition: identity)
+        }
+        #expect(await invocations.next() == .logIn(userID: "subscriber"))
+        provider.failLogIn()
+        await identifyTask.value
+
+        let refreshTask = Task {
+            await service.refreshCustomerInfo()
+        }
+        #expect(await invocations.next() == .logIn(userID: "subscriber"))
+        provider.completeLogIn(with: .active(["app_access"]))
+        await refreshTask.value
+
+        #expect(service.entitlementState == .active(["app_access"]))
+
+        provider.sendCustomerInfoUpdate()
+        #expect(await invocations.next() == .customerInfo)
+        provider.completeCustomerInfo(with: .active(["app_access"]))
+    }
+
+    @Test
     func delayedRefreshCannotOverwriteNewIdentity() async throws {
         let provider = ControlledRevenueCatEntitlementProvider()
         var invocations = provider.invocations.makeAsyncIterator()
@@ -169,14 +212,20 @@ private enum RevenueCatProviderInvocation: Equatable {
 @MainActor
 private final class ControlledRevenueCatEntitlementProvider: RevenueCatEntitlementProviding {
     private(set) var customerInfoCallCount = 0
+    private(set) var customerInfoUpdatesAccessCount = 0
     private(set) var completedIdentityMutations: [RevenueCatProviderInvocation] = []
 
     lazy var invocations = AsyncStream<RevenueCatProviderInvocation> { continuation in
         invocationContinuation = continuation
     }
 
-    lazy var customerInfoUpdates = AsyncStream<Void> { continuation in
-        customerInfoUpdateContinuation = continuation
+    var customerInfoUpdates: AsyncStream<Void> {
+        customerInfoUpdatesAccessCount += 1
+        return customerInfoUpdateStream
+    }
+
+    private lazy var customerInfoUpdateStream = AsyncStream<Void> { continuation in
+        self.customerInfoUpdateContinuation = continuation
     }
 
     private var invocationContinuation: AsyncStream<RevenueCatProviderInvocation>.Continuation?

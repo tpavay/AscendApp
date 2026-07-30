@@ -11,6 +11,7 @@
 export const CI_RELEVANT_PATHS = [
   "AscendApp/**",
   "AscendAppTests/**",
+  "AscendAppUITests/**",
   "AscendLiveActivityWidgets/**",
   "AscendApp.xcodeproj/**",
   "functions/**",

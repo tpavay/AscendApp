@@ -17,8 +17,10 @@ struct AscendApp: App {
     private let modelContainer: ModelContainer?
     private let monetizationManager: MonetizationManager
     private let launchFailure: AppLaunchFailure?
+    private let appStorage: UserDefaults
     #if DEBUG
-    private let returningSubscriberJourneyProbe: ReturningSubscriberJourneyProbe?
+    private let returningSubscriberJourneyConfiguration:
+        ReturningSubscriberJourneyUITestScenario.Configuration?
     #endif
 
     init() {
@@ -30,13 +32,15 @@ struct AscendApp: App {
             modelContainer = scenario.modelContainer
             monetizationManager = scenario.monetizationManager
             launchFailure = nil
-            returningSubscriberJourneyProbe = scenario.probe
+            appStorage = scenario.userDefaults
+            returningSubscriberJourneyConfiguration = scenario
             _authVM = State(initialValue: scenario.authenticationViewModel)
             return
         }
-        returningSubscriberJourneyProbe = nil
+        returningSubscriberJourneyConfiguration = nil
         #endif
 
+        appStorage = .standard
         monetizationManager = .shared
         let containerResult = Self.createModelContainer()
 
@@ -122,6 +126,7 @@ struct AscendApp: App {
                 .environment(monetizationManager)
                 .environment(MediaUploadManager.shared)
                 .modelContainer(modelContainer)
+                .defaultAppStorage(appStorage)
         } else {
             AppLaunchFailureView(failure: .startupUnavailable)
         }
@@ -132,7 +137,7 @@ struct AscendApp: App {
         #if DEBUG
         RootNavigationHost(
             authVM: authVM,
-            returningSubscriberJourneyProbe: returningSubscriberJourneyProbe
+            returningSubscriberJourneyConfiguration: returningSubscriberJourneyConfiguration
         )
         #else
         RootNavigationHost(authVM: authVM)
@@ -262,13 +267,26 @@ private struct AppLaunchFailureView: View {
 private struct RootNavigationHost: View {
     let authVM: AuthenticationViewModel
     #if DEBUG
-    let returningSubscriberJourneyProbe: ReturningSubscriberJourneyProbe?
+    let returningSubscriberJourneyConfiguration:
+        ReturningSubscriberJourneyUITestScenario.Configuration?
     #endif
     @State private var navigationPath = NavigationPath()
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
+            #if DEBUG
+            if let returningSubscriberJourneyConfiguration {
+                RootView(
+                    postAuthOnboardingCoordinator:
+                        returningSubscriberJourneyConfiguration.postAuthOnboardingCoordinator,
+                    lifecycleClient: .noOp
+                )
+            } else {
+                RootView()
+            }
+            #else
             RootView()
+            #endif
         }
         .id(authVM.authenticatedUserID ?? "signedOut")
         .onChange(of: authVM.authenticatedUserID) { _, _ in
@@ -276,11 +294,11 @@ private struct RootNavigationHost: View {
         }
         #if DEBUG
         .overlay(alignment: .topLeading) {
-            if let returningSubscriberJourneyProbe {
-                Text(returningSubscriberJourneyProbe.paywallRegistrationCount.formatted())
+            if let returningSubscriberJourneyConfiguration {
+                Text(returningSubscriberJourneyConfiguration.probe.paywallRegistrationCount.formatted())
                     .accessibilityLabel("Paywall registrations")
                     .accessibilityValue(
-                        returningSubscriberJourneyProbe.paywallRegistrationCount.formatted()
+                        returningSubscriberJourneyConfiguration.probe.paywallRegistrationCount.formatted()
                     )
                     .accessibilityIdentifier(
                         "returningSubscriberJourney.paywallRegistrations"

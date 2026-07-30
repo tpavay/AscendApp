@@ -12,6 +12,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
     private let entitlementService: any EntitlementServicing
     private let paywallPresenter: any PaywallPresenting
     private let telemetry: TelemetryManager
+    private let userDefaults: UserDefaults
     @ObservationIgnored
     private var onboardingScreenViewRecorder = OnboardingScreenViewRecorder()
     @ObservationIgnored
@@ -20,9 +21,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
     private var preparedIdentityTransition: MonetizationIdentityTransition?
     private(set) var configuration: MonetizationConfiguration
     #if DEBUG
-    private(set) var debugForcesAppAccessPaywall = UserDefaults.standard.bool(
-        forKey: MonetizationManager.debugForcesAppAccessPaywallKey
-    )
+    private(set) var debugForcesAppAccessPaywall: Bool
     #endif
 
     var entitlementState: MonetizationEntitlementState {
@@ -64,12 +63,19 @@ final class MonetizationManager: MonetizationIdentityManaging {
         configuration: MonetizationConfiguration = .live,
         entitlementService: any EntitlementServicing = RevenueCatEntitlementService.shared,
         paywallPresenter: any PaywallPresenting = SuperwallPaywallPresenter.shared,
-        telemetry: TelemetryManager = .shared
+        telemetry: TelemetryManager = .shared,
+        userDefaults: UserDefaults = .standard
     ) {
         self.configuration = configuration
         self.entitlementService = entitlementService
         self.paywallPresenter = paywallPresenter
         self.telemetry = telemetry
+        self.userDefaults = userDefaults
+        #if DEBUG
+        debugForcesAppAccessPaywall = userDefaults.bool(
+            forKey: MonetizationManager.debugForcesAppAccessPaywallKey
+        )
+        #endif
     }
 
     func configure(configuration: MonetizationConfiguration = .live) {
@@ -165,7 +171,7 @@ final class MonetizationManager: MonetizationIdentityManaging {
     #if DEBUG
     func setDebugForcesAppAccessPaywall(_ shouldForce: Bool) {
         debugForcesAppAccessPaywall = shouldForce
-        UserDefaults.standard.set(shouldForce, forKey: Self.debugForcesAppAccessPaywallKey)
+        userDefaults.set(shouldForce, forKey: Self.debugForcesAppAccessPaywallKey)
     }
     #endif
 
