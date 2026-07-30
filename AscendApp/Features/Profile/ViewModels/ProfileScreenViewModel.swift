@@ -10,15 +10,20 @@ final class ProfileScreenViewModel {
     var achievementRecords: [ProfileAchievementRecord] = []
     var firstAscentsHeld: [ProfileFirstAscentSummary] = []
     var openFirstAscents: [ProfileFirstAscentSummary] = []
-    var ownIdentity: ProfileUserIdentity?
     var otherUserSnapshot: ProfileSnapshot?
     var comparison: ProfileComparisonSummary?
     var errorMessage: String?
     var isLoading = false
 
+    var hasLoadedOwnIdentity: Bool {
+        ownIdentity != nil
+    }
+
     private let profileRepository: ProfileRepository
     private let standingService: ProfileStandingService
     private let firstAscentService: ProfileFirstAscentService
+    private var ownIdentity: ProfileUserIdentity?
+    private var otherUserIdentity: ProfileUserIdentity?
     private var lastLoadedOwnKey: String?
     private var lastLoadedOtherKey: String?
 
@@ -91,6 +96,7 @@ final class ProfileScreenViewModel {
             displayName: publicIdentity.displayName,
             photoURL: publicIdentity.photoURL
         )
+        otherUserIdentity = seedIdentity
 
         do {
             async let remoteBundle = profileRepository.fetchRemoteBundle(userId: userId)
@@ -112,13 +118,15 @@ final class ProfileScreenViewModel {
                 achievementCounts: achievementCounts
             )
             let stats = mergedStats(remote: bundle.stats, fallback: fallbackStats)
-            var identity = bundle.identity ?? seedIdentity
-            if identity.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                identity.displayName = seedIdentity.displayName
-            }
+            let identity = (bundle.identity ?? seedIdentity)
+                .applyingPresentationFallback(
+                    displayName: publicIdentity.displayName,
+                    photoURL: publicIdentity.photoURL
+                )
+            otherUserIdentity = identity
 
             let snapshot = ProfileSnapshotBuilder.makeRemoteSnapshot(
-                identity: identity,
+                demographics: identity.demographicsSnapshot,
                 stats: stats,
                 achievements: achievementCounts,
                 achievementRecords: bundle.achievements,
@@ -136,8 +144,9 @@ final class ProfileScreenViewModel {
             )
         } catch {
             errorMessage = "Couldn't load this profile right now."
+            otherUserIdentity = seedIdentity
             otherUserSnapshot = ProfileSnapshotBuilder.makeRemoteSnapshot(
-                identity: seedIdentity,
+                demographics: seedIdentity.demographicsSnapshot,
                 stats: .empty,
                 achievements: .zero,
                 achievementRecords: [],
@@ -151,6 +160,57 @@ final class ProfileScreenViewModel {
         }
 
         isLoading = false
+    }
+
+    func ownDemographics(
+        userId: String,
+        displayName: String,
+        photoURL: URL?,
+        joinedAt: Date?
+    ) -> ProfileDemographicsSnapshot {
+        ownProfileIdentity(
+            userId: userId,
+            displayName: displayName,
+            photoURL: photoURL,
+            joinedAt: joinedAt
+        ).demographicsSnapshot
+    }
+
+    func resolvedOwnIdentity(
+        using moderationStore: ModerationStore,
+        userId: String,
+        displayName: String,
+        photoURL: URL?,
+        joinedAt: Date?
+    ) -> ResolvedUserIdentity {
+        moderationStore.moderate(
+            ownProfileIdentity(
+                userId: userId,
+                displayName: displayName,
+                photoURL: photoURL,
+                joinedAt: joinedAt
+            ),
+            isCurrentUser: true
+        )
+    }
+
+    func otherUserDemographics(userId: String) -> ProfileDemographicsSnapshot {
+        otherUserIdentity?.demographicsSnapshot ??
+            ProfileDemographicsSnapshot(userId: userId)
+    }
+
+    func resolvedOtherIdentity(
+        using moderationStore: ModerationStore,
+        fallback: ResolvedUserIdentity
+    ) -> ResolvedUserIdentity {
+        guard let otherUserIdentity else {
+            return fallback
+        }
+
+        return moderationStore.moderate(
+            otherUserIdentity,
+            isCurrentUser: false
+        )
     }
 
     private func loadAchievements(
@@ -196,6 +256,28 @@ final class ProfileScreenViewModel {
             locationCountryCode: storedProfile?.locationCountry,
             locationRegionCode: storedProfile?.locationRegion,
             joinedAt: storedProfile?.joinedAt ?? joinedAt
+        )
+    }
+
+    private func ownProfileIdentity(
+        userId: String,
+        displayName: String,
+        photoURL: URL?,
+        joinedAt: Date?
+    ) -> ProfileUserIdentity {
+        if let ownIdentity {
+            return ownIdentity.applyingPresentationFallback(
+                displayName: displayName,
+                photoURL: photoURL,
+                joinedAt: joinedAt
+            )
+        }
+
+        return ProfileUserIdentity(
+            userId: userId,
+            displayName: displayName,
+            photoURL: photoURL,
+            joinedAt: joinedAt
         )
     }
 

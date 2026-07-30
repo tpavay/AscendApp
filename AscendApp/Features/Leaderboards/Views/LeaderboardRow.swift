@@ -10,21 +10,11 @@ import SwiftUI
 struct LeaderboardRow: View {
     @Environment(\.colorScheme) private var colorScheme
 
-    let entry: LeaderboardEntry
+    let entry: ModeratedLeaderboardEntry
     let metric: LeaderboardMetric
 
     private var primaryTextColor: Color {
         colorScheme == .dark ? .white : .black
-    }
-
-    private var identity: PublicClimberIdentity.Presentation {
-        PublicClimberIdentity.resolve(
-            userId: entry.userId,
-            storedDisplayName: entry.displayName,
-            storedPhotoURL: entry.photoURL,
-            isCurrentUser: entry.isCurrentUser,
-            currentUserPhotoURL: entry.photoURL
-        )
     }
 
     var body: some View {
@@ -35,7 +25,7 @@ struct LeaderboardRow: View {
                 .frame(width: 34, alignment: .leading)
                 .monospacedDigit()
 
-            Text(identity.displayName.uppercased())
+            Text(entry.identity.displayName.uppercased())
                 .font(.montserratMedium(size: 13))
                 .foregroundStyle(entry.isCurrentUser ? .accent : primaryTextColor.opacity(0.82))
                 .lineLimit(1)
@@ -49,12 +39,12 @@ struct LeaderboardRow: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.74)
         }
-        .frame(height: 36)
+        .frame(minHeight: 44)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
             "\(CompetitionRanking.rankAccessibilityLabel(entry.rank, isTied: entry.isTied)), "
-                + "\(identity.displayName), \(entry.formattedValue) \(metric.displayName)"
+                + "\(entry.identity.displayName), \(entry.formattedValue) \(metric.displayName)"
         )
     }
 }
@@ -62,7 +52,7 @@ struct LeaderboardRow: View {
 #Preview {
     VStack(spacing: 0) {
         LeaderboardRow(
-            entry: LeaderboardEntry(
+            entry: .preview(
                 userId: "1",
                 displayName: "Alex P.",
                 rank: 5,
@@ -75,7 +65,7 @@ struct LeaderboardRow: View {
         Divider()
 
         LeaderboardRow(
-            entry: LeaderboardEntry(
+            entry: .preview(
                 userId: "2",
                 displayName: "Mia K.",
                 rank: 6,

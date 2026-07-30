@@ -61,10 +61,15 @@ final class ProfileRepository: Sendable {
     }
 
     func upsertPublicIdentity(_ identity: ProfileUserIdentity) async throws {
+        let publication = try ProfileIdentityPersistenceAdapter.validatedFields(
+            for: identity
+        )
         var data: [String: Any] = [
             "userId": identity.userId,
-            "displayName": PublicClimberIdentity.storedDisplayName,
-            "photoURL": PublicClimberIdentity.storedPhotoURL,
+            "displayName": publication.displayName,
+            "photoURL": publication.photoURL?.absoluteString ?? "",
+            "identityPolicyVersion": PublicClimberIdentity.policyVersion,
+            "identityChangedAt": FieldValue.serverTimestamp(),
             "lastUpdated": FieldValue.serverTimestamp()
         ]
 
@@ -94,6 +99,38 @@ final class ProfileRepository: Sendable {
         }
 
         try await publicProfileDocument(userId: identity.userId).setData(data, merge: true)
+    }
+
+    func updatePublicIdentityFields(
+        userId: String,
+        displayName: String? = nil,
+        photoURL: URL? = nil
+    ) async throws {
+        let displayName = try displayName.map(DisplayNamePolicy.validated)
+        let document = publicProfileDocument(userId: userId)
+        let exists = try await document.getDocument().exists
+        var data: [String: Any] = [
+            "userId": userId,
+            "identityPolicyVersion": PublicClimberIdentity.policyVersion,
+            "identityChangedAt": FieldValue.serverTimestamp(),
+            "lastUpdated": FieldValue.serverTimestamp()
+        ]
+
+        if !exists {
+            let fallbackDisplayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            data["displayName"] = fallbackDisplayName.isEmpty ?
+                PublicClimberIdentity.systemHandle(for: userId) :
+                fallbackDisplayName
+            data["photoURL"] = photoURL?.absoluteString ?? ""
+        }
+
+        if let displayName {
+            data["displayName"] = displayName
+        }
+        if let photoURL {
+            data["photoURL"] = photoURL.absoluteString
+        }
+        try await document.setData(data, merge: true)
     }
 
     func upsertStats(userId: String, stats: ProfileStatsSnapshot) async throws {
@@ -163,7 +200,11 @@ final class ProfileRepository: Sendable {
             .document("current")
     }
 
-    private func parseIdentity(userId: String, data: [String: Any]) -> ProfileUserIdentity {
+    private func parseIdentity(userId: String, data: [String: Any]) -> ProfileUserIdentity? {
+        guard intValue(for: "identityPolicyVersion", in: data) == PublicClimberIdentity.policyVersion,
+              timestampValue(for: "identityChangedAt", in: data) != nil else {
+            return nil
+        }
         let resolvedUserId = stringValue(for: "userId", in: data) ?? userId
         let identity = PublicClimberIdentity.resolve(
             userId: resolvedUserId,

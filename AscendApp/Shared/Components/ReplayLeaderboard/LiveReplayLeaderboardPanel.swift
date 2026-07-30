@@ -4,7 +4,7 @@ struct LiveReplayLeaderboardPanel: View {
     @State private var selectedFilter: LiveReplayLeaderboardFilter = .everyone
     @State private var hasScrolledToInitialCurrentUser = false
 
-    let rows: [LiveReplayLeaderboardRow]
+    let rows: [ModeratedReplayLeaderboardRow]
     let progressScaleSteps: Int
     let targetStepGoal: Int?
     let progress: Double
@@ -14,7 +14,7 @@ struct LiveReplayLeaderboardPanel: View {
     let effectiveColorScheme: ColorScheme
     var showsFilter: Bool = true
 
-    private var visibleRows: [LiveReplayLeaderboardRow] {
+    private var visibleRows: [ModeratedReplayLeaderboardRow] {
         switch selectedFilter {
         case .everyone:
             return rows
@@ -51,14 +51,7 @@ struct LiveReplayLeaderboardPanel: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(visibleRows) { row in
-                            LiveReplayLeaderboardRowView(
-                                row: row,
-                                progressScaleSteps: progressScaleSteps,
-                                progress: progress,
-                                currentUserPhotoURL: currentUserPhotoURL,
-                                tint: tint,
-                                effectiveColorScheme: effectiveColorScheme
-                            )
+                            resolvedRowView(for: row)
                             .id(row.id)
                         }
                     }
@@ -174,19 +167,46 @@ struct LiveReplayLeaderboardPanel: View {
             }
         }
     }
+
+    @ViewBuilder
+    private func resolvedRowView(
+        for row: ModeratedReplayLeaderboardRow
+    ) -> some View {
+        if !row.isCurrentUser, row.userId != nil {
+            NavigationLink {
+                OtherUserProfileView(
+                    identity: row.identity,
+                    moderationSource: .liveReplay
+                )
+            } label: {
+                rowView(row)
+            }
+            .buttonStyle(.plain)
+        } else {
+            rowView(row)
+        }
+    }
+
+    private func rowView(_ row: ModeratedReplayLeaderboardRow) -> some View {
+        LiveReplayLeaderboardRowView(
+            row: row,
+            progressScaleSteps: progressScaleSteps,
+            progress: progress,
+            currentUserPhotoURL: currentUserPhotoURL,
+            tint: tint,
+            effectiveColorScheme: effectiveColorScheme
+        )
+    }
+
 }
 
 private struct LiveReplayLeaderboardRowView: View {
-    let row: LiveReplayLeaderboardRow
+    let row: ModeratedReplayLeaderboardRow
     let progressScaleSteps: Int
     let progress: Double
     let currentUserPhotoURL: URL?
     let tint: Color
     let effectiveColorScheme: ColorScheme
-
-    private var identity: PublicClimberIdentity.Presentation {
-        row.publicIdentity(currentUserPhotoURL: currentUserPhotoURL)
-    }
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -204,7 +224,7 @@ private struct LiveReplayLeaderboardRowView: View {
                 avatarView
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(identity.displayName)
+                    Text(row.isCurrentUser ? "You" : row.identity.displayName)
                         .font(.montserratBold(size: 17))
                         .foregroundStyle(primaryColor)
                         .lineLimit(1)
@@ -295,24 +315,25 @@ private struct LiveReplayLeaderboardRowView: View {
     }
 
     private var resolvedPhotoURL: URL? {
-        identity.photoURL
+        row.isCurrentUser ?
+            (row.identity.photoURL ?? currentUserPhotoURL) :
+            row.identity.photoURL
     }
 
     @ViewBuilder
     private var avatarTokenView: some View {
-        if identity.usesGenericAvatar {
-            Image(systemName: PublicClimberIdentity.genericAvatarSystemName)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(row.isCurrentUser ? .black : secondaryColor)
-                .frame(width: 44, height: 44)
-                .background(Circle().fill(row.isCurrentUser ? tint : avatarColor.opacity(0.28)))
-        } else {
-            Text(identity.avatarToken)
-                .font(.montserratBold(size: 13))
-                .foregroundStyle(row.isCurrentUser ? .black : .white)
-                .frame(width: 44, height: 44)
-                .background(Circle().fill(row.isCurrentUser ? tint : avatarColor))
+        Group {
+            if row.identity.avatarToken.isEmpty {
+                Image(systemName: "person.fill")
+                    .accessibilityHidden(true)
+            } else {
+                Text(row.identity.avatarToken)
+                    .font(.montserratBold(size: 13))
+            }
         }
+            .foregroundStyle(row.isCurrentUser ? .black : .white)
+            .frame(width: 44, height: 44)
+            .background(Circle().fill(row.isCurrentUser ? tint : avatarColor))
     }
 
     private var primaryColor: Color {

@@ -6,6 +6,7 @@ struct LiveClimbSessionView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(ModerationStore.self) private var moderationStore
 
     @State private var viewModel: LiveClimbSessionViewModel
     @State private var showingZeroStepEndOptions = false
@@ -272,7 +273,7 @@ struct LiveClimbSessionView: View {
 
     private var leaderboardPanel: some View {
         LiveReplayLeaderboardPanel(
-            rows: viewModel.leaderboardRows,
+            rows: viewModel.leaderboardRows.map(moderationStore.moderate),
             progressScaleSteps: viewModel.leaderboardProgressScale,
             targetStepGoal: viewModel.mode.targetStepCount,
             progress: viewModel.leaderboardCurrentProgressFraction,

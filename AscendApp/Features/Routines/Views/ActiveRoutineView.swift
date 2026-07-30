@@ -10,6 +10,7 @@ struct ActiveRoutineView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(ModerationStore.self) private var moderationStore
     @State private var viewModel: ActiveRoutineViewModel
     @State private var stepSyncValue = ""
 
@@ -238,7 +239,7 @@ struct ActiveRoutineView: View {
 
     private var liveLeaderboardSection: some View {
         LiveReplayLeaderboardPanel(
-            rows: viewModel.leaderboardRows,
+            rows: viewModel.leaderboardRows.map(moderationStore.moderate),
             progressScaleSteps: viewModel.leaderboardProgressScale,
             targetStepGoal: viewModel.targetStepGoal,
             progress: viewModel.leaderboardCurrentProgressFraction,

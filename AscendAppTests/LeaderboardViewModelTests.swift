@@ -115,14 +115,31 @@ struct LeaderboardViewModelTests {
         )
 
         let listEntry = viewModel.leaderboardEntries.first { $0.userId == "zzz" }
-        #expect(listEntry?.displayName == "You")
-        #expect(listEntry?.photoURL == URL(string: "https://example.com/avatar.jpg"))
+        let moderatedListEntry = listEntry.map {
+            CrossUserIdentityAdapter.leaderboardEntry(
+                $0,
+                blockedUserIds: [],
+                isBlockListHydrated: true
+            )
+        }
+        let moderatedUserEntry = viewModel.userEntry.map {
+            CrossUserIdentityAdapter.leaderboardEntry(
+                $0,
+                blockedUserIds: [],
+                isBlockListHydrated: true
+            )
+        }
+        #expect(moderatedListEntry?.identity.displayName == "You")
+        #expect(
+            moderatedListEntry?.identity.photoURL ==
+                URL(string: "https://example.com/avatar.jpg")
+        )
         #expect(listEntry?.rank == 2)
         #expect(listEntry?.isTied == true)
         #expect(listEntry?.isCurrentUser == true)
         #expect(viewModel.userEntry?.rank == listEntry?.rank)
         #expect(viewModel.userEntry?.isTied == listEntry?.isTied)
-        #expect(viewModel.userEntry?.displayName == "You")
+        #expect(moderatedUserEntry?.identity.displayName == "You")
     }
 
     @Test

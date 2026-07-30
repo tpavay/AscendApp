@@ -180,7 +180,7 @@
             </array>
         </dict>
 
-        <!-- User ID - Firebase Auth UID used for app records and linked first-party analytics, diagnostics, and subscription services -->
+        <!-- User ID - Firebase Auth UID used for app records, analytics, community records, personal block lists, and moderation reports -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeUserID</string>
@@ -224,7 +224,7 @@
             </array>
         </dict>
 
-        <!-- Other User Content - workout notes -->
+        <!-- Other User Content - workout notes, feedback submissions, and profile moderation report reasons -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeOtherUserContent</string>

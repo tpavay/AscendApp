@@ -3,8 +3,7 @@ import Foundation
 struct LeaderboardEntry: Identifiable, Equatable, Sendable {
     let id: String
     let userId: String
-    let displayName: String
-    let photoURL: URL?
+    let unresolvedIdentity: UnresolvedUserIdentity
     /// Standard competition rank ("1, 2, 2, 4") — tied entries share a rank.
     let rank: Int
     let value: Double
@@ -25,8 +24,29 @@ struct LeaderboardEntry: Identifiable, Equatable, Sendable {
     ) {
         self.id = userId
         self.userId = userId
-        self.displayName = displayName
-        self.photoURL = photoURL
+        self.unresolvedIdentity = UnresolvedUserIdentity(
+            displayName: displayName,
+            photoURL: photoURL
+        )
+        self.rank = rank
+        self.value = value
+        self.formattedValue = formattedValue
+        self.isCurrentUser = isCurrentUser
+        self.isTied = isTied
+    }
+
+    init(
+        userId: String,
+        unresolvedIdentity: UnresolvedUserIdentity,
+        rank: Int,
+        value: Double,
+        formattedValue: String,
+        isCurrentUser: Bool = false,
+        isTied: Bool = false
+    ) {
+        self.id = userId
+        self.userId = userId
+        self.unresolvedIdentity = unresolvedIdentity
         self.rank = rank
         self.value = value
         self.formattedValue = formattedValue
@@ -50,10 +70,11 @@ struct LeaderboardEntry: Identifiable, Equatable, Sendable {
     }
 }
 
-struct FirestoreLeaderboardStats: Codable, Equatable, Sendable {
+struct FirestoreLeaderboardStats: Equatable, Sendable {
     let userId: String
-    let displayName: String
-    let photoURL: String?
+    let unresolvedIdentity: UnresolvedUserIdentity
+    let identityPolicyVersion: Int
+    let identityChangedAt: Date
     let timeFrame: String
     let schemaVersion: Int
     let periodKey: String
@@ -74,6 +95,8 @@ struct FirestoreLeaderboardStats: Codable, Equatable, Sendable {
         userId: String,
         displayName: String,
         photoURL: String? = nil,
+        identityPolicyVersion: Int = PublicClimberIdentity.policyVersion,
+        identityChangedAt: Date = .distantPast,
         timeFrame: String,
         schemaVersion: Int,
         periodKey: String,
@@ -91,8 +114,12 @@ struct FirestoreLeaderboardStats: Codable, Equatable, Sendable {
         locationRegion: String? = nil
     ) {
         self.userId = userId
-        self.displayName = displayName
-        self.photoURL = photoURL
+        self.unresolvedIdentity = UnresolvedUserIdentity(
+            displayName: displayName,
+            photoURL: photoURL.flatMap(URL.init(string:))
+        )
+        self.identityPolicyVersion = identityPolicyVersion
+        self.identityChangedAt = identityChangedAt
         self.timeFrame = timeFrame
         self.schemaVersion = schemaVersion
         self.periodKey = periodKey
@@ -108,6 +135,58 @@ struct FirestoreLeaderboardStats: Codable, Equatable, Sendable {
         self.locationCity = locationCity
         self.locationCountry = locationCountry
         self.locationRegion = locationRegion
+    }
+
+    init(
+        userId: String,
+        unresolvedIdentity: UnresolvedUserIdentity,
+        identityPolicyVersion: Int = PublicClimberIdentity.policyVersion,
+        identityChangedAt: Date = .distantPast,
+        timeFrame: String,
+        schemaVersion: Int,
+        periodKey: String,
+        periodStartAt: Date,
+        totalSteps: Int,
+        totalFloors: Int,
+        totalWorkouts: Int,
+        totalDuration: Double,
+        stepsPerMinute: Double,
+        lastUpdated: Date,
+        age: Int? = nil,
+        weightKg: Double? = nil,
+        locationCity: String? = nil,
+        locationCountry: String? = nil,
+        locationRegion: String? = nil
+    ) {
+        self.userId = userId
+        self.unresolvedIdentity = unresolvedIdentity
+        self.identityPolicyVersion = identityPolicyVersion
+        self.identityChangedAt = identityChangedAt
+        self.timeFrame = timeFrame
+        self.schemaVersion = schemaVersion
+        self.periodKey = periodKey
+        self.periodStartAt = periodStartAt
+        self.totalSteps = totalSteps
+        self.totalFloors = totalFloors
+        self.totalWorkouts = totalWorkouts
+        self.totalDuration = totalDuration
+        self.stepsPerMinute = stepsPerMinute
+        self.lastUpdated = lastUpdated
+        self.age = age
+        self.weightKg = weightKg
+        self.locationCity = locationCity
+        self.locationCountry = locationCountry
+        self.locationRegion = locationRegion
+    }
+
+    func identityApplyingOverrides(
+        displayName: String?,
+        photoURL: String?
+    ) -> UnresolvedUserIdentity {
+        unresolvedIdentity.applyingOverrides(
+            displayName: displayName,
+            photoURL: photoURL.flatMap(URL.init(string:))
+        )
     }
 
     func value(for metric: LeaderboardMetric) -> Double {

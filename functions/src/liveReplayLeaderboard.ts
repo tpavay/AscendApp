@@ -8,6 +8,15 @@ import {
   HEADPHONE_MOTION_SOURCE,
   isRecoverableLegacyCompletion,
 } from "./legacyClimbCompletion.js";
+import {
+  ANONYMOUS_CLIMBER_NAME,
+  PUBLIC_IDENTITY_STATE_DELETED,
+  PUBLIC_IDENTITY_STATE_PENDING,
+  PUBLIC_IDENTITY_STATE_PUBLISHED,
+  PublicIdentityState,
+  isAnonymousClimberName,
+  publicIdentityFromData,
+} from "./publicIdentity.js";
 
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
 const COMPLETION_SNAPSHOTS_COLLECTION = "completionSnapshots";
@@ -27,7 +36,6 @@ const TARGET_REACHED_STOP_REASON = "target_reached";
 const USER_STOPPED_REASON = "user_stopped";
 const FIRESTORE_NOT_FOUND_CODE = 5;
 const BULK_WRITER_MAX_ATTEMPTS = 3;
-const PUBLIC_REAL_USER_DISPLAY_NAME = "Climber";
 
 /**
  * The field a context ranks its completions on.
@@ -73,13 +81,24 @@ interface LiveReplayIndexPayload {
   firstAscentEligible: boolean;
 }
 
-interface PublicUserSnapshot {
+export interface PublicUserSnapshot {
   displayName: string;
   avatarToken: string;
   photoURL: string | null;
+  identityState: PublicIdentityState;
   age?: number | null;
   gender?: string | null;
   locationCity?: string | null;
+}
+
+export interface IdentityProtectedTransactionPort<Transaction> {
+  runTransaction(
+    operation: (transaction: Transaction) => Promise<void>
+  ): Promise<void>;
+  readCurrentPublicUser(
+    transaction: Transaction,
+    userId: string
+  ): Promise<PublicUserSnapshot>;
 }
 
 interface FirstAscentWriteInput {
@@ -191,10 +210,6 @@ export const onWorkoutReplaySplitsWritten = onDocumentWritten(
     );
 
     try {
-      const publicUser = afterPayloads.length > 0 ?
-        await publicUserSnapshot(userId) :
-        null;
-
       for (const payload of beforePayloads) {
         await deleteReplayEntriesForId(payload, workoutId);
         if (shouldDeleteCompletionRankSnapshot(payload, afterPayloads)) {
@@ -202,15 +217,12 @@ export const onWorkoutReplaySplitsWritten = onDocumentWritten(
         }
       }
 
-      if (publicUser) {
-        for (const payload of afterPayloads) {
-          await publishReplayEntries(
-            payload,
-            workoutId,
-            userId,
-            publicUser
-          );
-        }
+      for (const payload of afterPayloads) {
+        await publishReplayEntries(
+          payload,
+          workoutId,
+          userId
+        );
       }
 
       for (const payload of beforePayloads) {
@@ -1137,13 +1149,11 @@ async function deleteUserBestAttempt(
  * @param {LiveReplayIndexPayload} payload Replay payload.
  * @param {string} entryId Public row document ID.
  * @param {string} userId Owner user ID.
- * @param {PublicUserSnapshot} publicUser Public display snapshot.
  */
 async function publishReplayEntries(
   payload: LiveReplayIndexPayload,
   entryId: string,
-  userId: string,
-  publicUser: PublicUserSnapshot
+  userId: string
 ): Promise<void> {
   const db = admin.firestore();
   const now = admin.firestore.FieldValue.serverTimestamp();
@@ -1155,113 +1165,169 @@ async function publishReplayEntries(
   const publishStatusRef = liveClimbPublishStatusReference(userId, entryId);
   const completionRank = await completionRankForPayload(payload);
 
-  await db.runTransaction(async (transaction) => {
-    const leaderboardSnapshot = await transaction.get(leaderboardRef);
-    const finisherSnapshot = await transaction.get(finisherRef);
-    const completionSnapshot = await transaction.get(completionSnapshotRef);
-    const leaderboardData = leaderboardSnapshot.data();
-    const existingFinisherData = finisherSnapshot.data();
-    const existingOrder = positiveIntegerValue(
-      existingFinisherData?.globalCompletionOrder
-    );
-    const isNewFinisher = existingOrder === null;
-    const previousCompletedCount = nonNegativeIntegerValue(
-      leaderboardData?.completedCount
-    ) ?? 0;
-    const hasFirstAscent = leaderboardHasFirstAscent(leaderboardData);
-    const canClaimFirstAscent = payload.firstAscentEligible &&
+  await runIdentityProtectedTransaction(
+    firestoreIdentityTransactionPort(db),
+    userId,
+    async (transaction, publicUser) => {
+      const leaderboardSnapshot = await transaction.get(leaderboardRef);
+      const finisherSnapshot = await transaction.get(finisherRef);
+      const completionSnapshot = await transaction.get(completionSnapshotRef);
+      const leaderboardData = leaderboardSnapshot.data();
+      const existingFinisherData = finisherSnapshot.data();
+      const existingOrder = positiveIntegerValue(
+        existingFinisherData?.globalCompletionOrder
+      );
+      const isNewFinisher = existingOrder === null;
+      const previousCompletedCount = nonNegativeIntegerValue(
+        leaderboardData?.completedCount
+      ) ?? 0;
+      const hasFirstAscent = leaderboardHasFirstAscent(leaderboardData);
+      const canClaimFirstAscent = payload.firstAscentEligible &&
       !hasFirstAscent &&
       previousCompletedCount === 0;
-    const isBestForUser = seedBestForUser(
-      payload,
-      entryId,
-      existingFinisherData
-    );
-    const globalCompletionOrder = nextGlobalCompletionOrder({
-      existingOrder,
-      previousCompletedCount,
-    });
-    const completedCount = isNewFinisher ?
-      Math.max(previousCompletedCount + 1, globalCompletionOrder) :
-      Math.max(previousCompletedCount, globalCompletionOrder);
-    const summaryWrite = replaySummaryWrite({
-      payload,
-      completedCount,
-    });
-    summaryWrite.updatedAt = now;
+      const isBestForUser = seedBestForUser(
+        payload,
+        entryId,
+        existingFinisherData
+      );
+      const globalCompletionOrder = nextGlobalCompletionOrder({
+        existingOrder,
+        previousCompletedCount,
+      });
+      const completedCount = isNewFinisher ?
+        Math.max(previousCompletedCount + 1, globalCompletionOrder) :
+        Math.max(previousCompletedCount, globalCompletionOrder);
+      const summaryWrite = replaySummaryWrite({
+        payload,
+        completedCount,
+      });
+      summaryWrite.updatedAt = now;
 
-    if (canClaimFirstAscent) {
-      Object.assign(
-        summaryWrite,
-        firstAscentWrite({
+      if (canClaimFirstAscent) {
+        Object.assign(
+          summaryWrite,
+          firstAscentWrite({
+            userId,
+            entryId,
+            publicUser,
+            claimedAt: now,
+          })
+        );
+      }
+
+      transaction.set(leaderboardRef, summaryWrite, {merge: true});
+      transaction.set(
+        finisherRef,
+        finisherStatusWrite({
+          payload,
           userId,
           entryId,
           publicUser,
-          claimedAt: now,
-        })
-      );
-    }
-
-    transaction.set(leaderboardRef, summaryWrite, {merge: true});
-    transaction.set(
-      finisherRef,
-      finisherStatusWrite({
-        payload,
-        userId,
-        entryId,
-        publicUser,
-        globalCompletionOrder,
-        existingData: existingFinisherData,
-        completedAt: now,
-      }),
-      {merge: true}
-    );
-
-    if (!completionSnapshot.exists) {
-      transaction.set(
-        completionSnapshotRef,
-        completionRankSnapshotWrite({
-          payload,
-          userId,
-          entryId,
-          rank: Math.min(completionRank, completedCount),
-          completedCount,
-          rankedAt: now,
-        })
-      );
-    }
-
-    if (payload.contextType === LIVE_CLIMB_CONTEXT_TYPE) {
-      transaction.set(
-        publishStatusRef,
-        liveClimbPublishStatusPublishedWrite({
-          payload,
-          userId,
-          entryId,
-          updatedAt: now,
-          rankAtCompletion: Math.min(completionRank, completedCount),
-          completedCountAtCompletion: completedCount,
-          finisherOrder: globalCompletionOrder,
+          globalCompletionOrder,
+          existingData: existingFinisherData,
+          completedAt: now,
         }),
         {merge: true}
       );
-    }
 
-    for (let index = 0; index < payload.splitSteps.length; index += 1) {
-      transaction.set(
-        entryReference(payload, index, entryId),
-        replayEntryWrite({
-          payload,
-          userId,
-          entryId,
-          publicUser,
-          stepsAtBucket: payload.splitSteps[index],
-          isBestForUser,
-          updatedAt: now,
-        })
-      );
+      if (!completionSnapshot.exists) {
+        transaction.set(
+          completionSnapshotRef,
+          completionRankSnapshotWrite({
+            payload,
+            userId,
+            entryId,
+            rank: Math.min(completionRank, completedCount),
+            completedCount,
+            rankedAt: now,
+          })
+        );
+      }
+
+      if (payload.contextType === LIVE_CLIMB_CONTEXT_TYPE) {
+        transaction.set(
+          publishStatusRef,
+          liveClimbPublishStatusPublishedWrite({
+            payload,
+            userId,
+            entryId,
+            updatedAt: now,
+            rankAtCompletion: Math.min(completionRank, completedCount),
+            completedCountAtCompletion: completedCount,
+            finisherOrder: globalCompletionOrder,
+          }),
+          {merge: true}
+        );
+      }
+
+      for (let index = 0; index < payload.splitSteps.length; index += 1) {
+        transaction.set(
+          entryReference(payload, index, entryId),
+          replayEntryWrite({
+            payload,
+            userId,
+            entryId,
+            publicUser,
+            stepsAtBucket: payload.splitSteps[index],
+            isBestForUser,
+            updatedAt: now,
+          })
+        );
+      }
     }
+  );
+}
+
+/**
+ * Runs projection creation with its canonical identity read in the same
+ * transaction. A concurrent identity edit therefore retries the complete
+ * projection write instead of leaving a late-created v1 target behind.
+ * @param {IdentityProtectedTransactionPort<Transaction>} port Persistence port.
+ * @param {string} userId Projection owner.
+ * @param {(transaction: Transaction, publicUser: PublicUserSnapshot) =>
+ *   Promise<void>} operation Transactional projection writes.
+ */
+export async function runIdentityProtectedTransaction<Transaction>(
+  port: IdentityProtectedTransactionPort<Transaction>,
+  userId: string,
+  operation: (
+    transaction: Transaction,
+    publicUser: PublicUserSnapshot
+  ) => Promise<void>
+): Promise<void> {
+  await port.runTransaction(async (transaction) => {
+    const publicUser = await port.readCurrentPublicUser(transaction, userId);
+    await operation(transaction, publicUser);
   });
+}
+
+/**
+ * Adapts an Admin Firestore transaction to the identity-protected port.
+ * @param {FirebaseFirestore.Firestore} db Firestore database.
+ * @return {IdentityProtectedTransactionPort<FirebaseFirestore.Transaction>}
+ *   Transaction port.
+ */
+function firestoreIdentityTransactionPort(
+  db: FirebaseFirestore.Firestore
+): IdentityProtectedTransactionPort<FirebaseFirestore.Transaction> {
+  return {
+    runTransaction: (operation) => db.runTransaction(operation),
+    readCurrentPublicUser: async (transaction, userId) => {
+      const userRef = db.collection("users").doc(userId);
+      const publicProfileRef = userRef
+        .collection("public_profile")
+        .doc("current");
+      const [publicProfile, user] = await transaction.getAll(
+        publicProfileRef,
+        userRef
+      );
+      return currentPublicUserSnapshotFromData(
+        publicProfile.data(),
+        user.exists ? user.data() : undefined,
+        userId
+      );
+    },
+  };
 }
 
 /**
@@ -1540,6 +1606,7 @@ function replayEntryWrite(
     contextType: input.payload.contextType,
     displayName: input.publicUser.displayName,
     finalSteps: input.payload.finalSteps,
+    identityState: input.publicUser.identityState,
     isSynthetic: false,
     photoURL: input.publicUser.photoURL ?? "",
     schemaVersion: 1,
@@ -1598,6 +1665,7 @@ function firstAscentWrite(
     firstAscentAvatarToken: input.publicUser.avatarToken,
     firstAscentCompletedAt: input.claimedAt,
     firstAscentDisplayName: input.publicUser.displayName,
+    firstAscentIdentityState: input.publicUser.identityState,
     firstAscentIsSynthetic: false,
     firstAscentPhotoURL: input.publicUser.photoURL ?? "",
     firstAscentUserId: input.userId,
@@ -1620,6 +1688,7 @@ function finisherStatusWrite(
     avatarToken: input.publicUser.avatarToken,
     displayName: input.publicUser.displayName,
     globalCompletionOrder: input.globalCompletionOrder,
+    identityState: input.publicUser.identityState,
     isSynthetic: false,
     photoURL: input.publicUser.photoURL ?? "",
     schemaVersion: 1,
@@ -1873,34 +1942,65 @@ function finisherReference(
 }
 
 /**
- * Reads the minimal public profile data copied into leaderboard entries.
- * @param {string} userId Owner user ID.
- * @return {Promise<PublicUserSnapshot>} Public display snapshot.
+ * Builds replay identity from the public-safe profile mirror.
+ * @param {Record<string, unknown> | undefined} data Public profile fields.
+ * @return {PublicUserSnapshot} Validated public snapshot.
  */
-async function publicUserSnapshot(userId: string): Promise<PublicUserSnapshot> {
-  const snapshot = await admin.firestore()
-    .collection("users")
-    .doc(userId)
-    .get();
-  return publicUserSnapshotFromData(snapshot.data());
+function publicUserSnapshotFromData(
+  data: Record<string, unknown>,
+  userId: string
+): PublicUserSnapshot {
+  const identity = publicIdentityFromData(userId, data);
+  return {
+    age: ageValue(data?.age),
+    avatarToken: identity.avatarToken,
+    displayName: identity.displayName,
+    gender: genderValue(data?.gender),
+    identityState: PUBLIC_IDENTITY_STATE_PUBLISHED,
+    locationCity: locationTextValue(data?.location_city),
+    photoURL: identity.photoURL,
+  };
 }
 
 /**
- * Builds the public replay identity without copying owner-authored identity.
- * @param {Record<string, unknown> | undefined} data Private account fields.
- * @return {PublicUserSnapshot} Sanitized public snapshot.
+ * Resolves the canonical public identity inside a target-write transaction.
+ *
+ * The public mirror is the only publishable source. A temporarily missing
+ * mirror fails closed with a recoverable pending state. A missing account root
+ * or deletion sentinel is permanent and can never be republished.
+ * @param {Record<string, unknown> | undefined} publicProfileData Mirror data.
+ * @param {Record<string, unknown> | undefined} userData Owner-root data.
+ * @param {string} userId Owner user ID.
+ * @return {PublicUserSnapshot} Current safe public snapshot.
  */
-function publicUserSnapshotFromData(
-  data: Record<string, unknown> | undefined
+function currentPublicUserSnapshotFromData(
+  publicProfileData: Record<string, unknown> | undefined,
+  userData: Record<string, unknown> | undefined,
+  userId: string
 ): PublicUserSnapshot {
-  return {
-    age: ageValue(data?.age),
-    avatarToken: "",
-    displayName: PUBLIC_REAL_USER_DISPLAY_NAME,
-    gender: genderValue(data?.gender),
-    locationCity: locationTextValue(data?.location_city),
-    photoURL: null,
-  };
+  if (
+    userData === undefined ||
+    isAnonymousClimberName(publicProfileData?.displayName) ||
+    isAnonymousClimberName(userData.displayName)
+  ) {
+    return {
+      avatarToken: "",
+      displayName: ANONYMOUS_CLIMBER_NAME,
+      identityState: PUBLIC_IDENTITY_STATE_DELETED,
+      photoURL: null,
+    };
+  }
+
+  if (publicProfileData === undefined) {
+    return {
+      avatarToken: "",
+      displayName: ANONYMOUS_CLIMBER_NAME,
+      identityState: PUBLIC_IDENTITY_STATE_PENDING,
+      photoURL: null,
+    };
+  }
+
+  return publicUserSnapshotFromData(publicProfileData, userId);
 }
 
 /**
@@ -2125,6 +2225,7 @@ export const liveReplayLeaderboardTestHooks = {
   parseJustClimbReplayPayload,
   parseLiveClimbReplayPayload,
   parseRoutineReplayPayload,
+  currentPublicUserSnapshotFromData,
   publicUserSnapshotFromData,
   rankingMetric,
   replayEntryWrite,

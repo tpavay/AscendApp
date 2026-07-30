@@ -369,10 +369,20 @@ final class HomeDashboardViewModel {
         }
 
         func firestoreStats(existing: FirestoreLeaderboardStats?) -> FirestoreLeaderboardStats {
-            FirestoreLeaderboardStats(
+            let resolvedDisplayName = displayName.isEmpty ? nil : displayName
+            let unresolvedIdentity = existing?.identityApplyingOverrides(
+                displayName: resolvedDisplayName,
+                photoURL: photoURLString
+            ) ?? UnresolvedUserIdentity(
+                displayName: resolvedDisplayName ?? "You",
+                photoURL: photoURLString.flatMap(URL.init(string:))
+            )
+            return FirestoreLeaderboardStats(
                 userId: userId,
-                displayName: displayName.isEmpty ? (existing?.displayName ?? "You") : displayName,
-                photoURL: photoURLString ?? existing?.photoURL,
+                unresolvedIdentity: unresolvedIdentity,
+                identityPolicyVersion: existing?.identityPolicyVersion ??
+                    PublicClimberIdentity.policyVersion,
+                identityChangedAt: existing?.identityChangedAt ?? .distantPast,
                 timeFrame: timeFrame,
                 schemaVersion: schemaVersion,
                 periodKey: periodKey,

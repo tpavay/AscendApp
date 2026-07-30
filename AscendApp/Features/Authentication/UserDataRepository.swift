@@ -140,6 +140,7 @@ final class UserDataRepository: Sendable {
         onboardingFirstClimbId: String? = nil,
         joinedAt: Date? = nil
     ) async throws {
+        let validatedDisplayName = try displayName.map(DisplayNamePolicy.validated)
         let userRef = db.collection("users").document(userId)
         
         // Check if user already exists
@@ -161,8 +162,8 @@ final class UserDataRepository: Sendable {
                 newData["lastName"] = lastName
             }
 
-            if let displayName {
-                newData["displayName"] = displayName
+            if let validatedDisplayName {
+                newData["displayName"] = validatedDisplayName
             }
 
             if let profilePictureURL {
@@ -244,7 +245,7 @@ final class UserDataRepository: Sendable {
                 "email": email ?? "",
                 "firstName": firstName ?? "",
                 "lastName": lastName ?? "",
-                "displayName": displayName ?? ""
+                "displayName": validatedDisplayName ?? ""
             ]
 
             if let profilePictureURL {
@@ -297,6 +298,13 @@ final class UserDataRepository: Sendable {
             "profilePictureURL": profilePictureURL,
             "lastUpdated": FieldValue.serverTimestamp()
         ], merge: true)
+
+        let existing = try await getUserFromFirestore(userId: userId)
+        try await ProfileRepository.shared.updatePublicIdentityFields(
+            userId: userId,
+            displayName: existing.displayName,
+            photoURL: URL(string: profilePictureURL)
+        )
         
         cacheProfilePictureURL(profilePictureURL)
     }
@@ -317,6 +325,7 @@ final class UserDataRepository: Sendable {
     }
     
     func updateDisplayName(userId: String, email: String? = nil, displayName: String) async throws {
+        let displayName = try DisplayNamePolicy.validated(displayName)
         let userRef = db.collection("users").document(userId)
 
         let document = try await userRef.getDocument()
@@ -335,6 +344,23 @@ final class UserDataRepository: Sendable {
             )
         }
 
+        let existing = try await getUserFromFirestore(userId: userId)
+        try await ProfileRepository.shared.upsertPublicIdentity(
+            ProfileUserIdentity(
+                userId: userId,
+                displayName: displayName,
+                photoURL: existing.profilePictureURL.flatMap(URL.init(string:)),
+                age: existing.age,
+                gender: existing.gender.flatMap(ProfileGender.init(rawValue:)),
+                weightKg: existing.weightKg,
+                heightCm: existing.heightCm,
+                locationCity: existing.locationCity,
+                locationCountryCode: existing.locationCountry,
+                locationRegionCode: existing.locationRegion,
+                joinedAt: existing.joinedAt
+            )
+        )
+
         cacheDisplayName(displayName)
     }
 
@@ -345,6 +371,7 @@ final class UserDataRepository: Sendable {
         age: Int,
         gender: ProfileGender
     ) async throws {
+        let displayName = try DisplayNamePolicy.validated(displayName)
         let userRef = db.collection("users").document(userId)
 
         let document = try await userRef.getDocument()
@@ -367,20 +394,20 @@ final class UserDataRepository: Sendable {
             )
         }
 
-        let existing = try? await getUserFromFirestore(userId: userId)
-        try? await ProfileRepository.shared.upsertPublicIdentity(
+        let existing = try await getUserFromFirestore(userId: userId)
+        try await ProfileRepository.shared.upsertPublicIdentity(
             ProfileUserIdentity(
                 userId: userId,
-                displayName: PublicClimberIdentity.storedDisplayName,
-                photoURL: nil,
+                displayName: displayName,
+                photoURL: existing.profilePictureURL.flatMap(URL.init(string:)),
                 age: age,
                 gender: gender,
-                weightKg: existing?.weightKg,
-                heightCm: existing?.heightCm,
-                locationCity: existing?.locationCity,
-                locationCountryCode: existing?.locationCountry,
-                locationRegionCode: existing?.locationRegion,
-                joinedAt: existing?.joinedAt
+                weightKg: existing.weightKg,
+                heightCm: existing.heightCm,
+                locationCity: existing.locationCity,
+                locationCountryCode: existing.locationCountry,
+                locationRegionCode: existing.locationRegion,
+                joinedAt: existing.joinedAt
             )
         )
         cacheDisplayName(displayName)
@@ -398,6 +425,7 @@ final class UserDataRepository: Sendable {
         locationCountry: String? = nil,
         locationRegion: String? = nil
     ) async throws {
+        let displayName = try displayName.map(DisplayNamePolicy.validated)
         let userRef = db.collection("users").document(userId)
         let document = try await userRef.getDocument()
 
@@ -449,22 +477,25 @@ final class UserDataRepository: Sendable {
             )
         }
 
-        let existing = try? await getUserFromFirestore(userId: userId)
-        try? await ProfileRepository.shared.upsertPublicIdentity(
-            ProfileUserIdentity(
-                userId: userId,
-                displayName: PublicClimberIdentity.storedDisplayName,
-                photoURL: nil,
-                age: age ?? existing?.age,
-                gender: gender ?? existing?.gender.flatMap(ProfileGender.init(rawValue:)),
-                weightKg: weightKg ?? existing?.weightKg,
-                heightCm: heightCm ?? existing?.heightCm,
-                locationCity: locationCity ?? existing?.locationCity,
-                locationCountryCode: locationCountry?.uppercased() ?? existing?.locationCountry,
-                locationRegionCode: locationRegion ?? existing?.locationRegion,
-                joinedAt: existing?.joinedAt
+        let existing = try await getUserFromFirestore(userId: userId)
+        let publicDisplayName = displayName ?? existing.displayName ?? ""
+        if !publicDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            try await ProfileRepository.shared.upsertPublicIdentity(
+                ProfileUserIdentity(
+                    userId: userId,
+                    displayName: publicDisplayName,
+                    photoURL: existing.profilePictureURL.flatMap(URL.init(string:)),
+                    age: age ?? existing.age,
+                    gender: gender ?? existing.gender.flatMap(ProfileGender.init(rawValue:)),
+                    weightKg: weightKg ?? existing.weightKg,
+                    heightCm: heightCm ?? existing.heightCm,
+                    locationCity: locationCity ?? existing.locationCity,
+                    locationCountryCode: locationCountry?.uppercased() ?? existing.locationCountry,
+                    locationRegionCode: locationRegion ?? existing.locationRegion,
+                    joinedAt: existing.joinedAt
+                )
             )
-        )
+        }
 
         if let displayName {
             cacheDisplayName(displayName)

@@ -102,6 +102,7 @@ struct AscendApp: App {
                 .environment(NetworkConnectivityService.shared)
                 .environment(MonetizationManager.shared)
                 .environment(MediaUploadManager.shared)
+                .environment(ModerationStore.shared)
                 .modelContainer(modelContainer)
         } else {
             AppLaunchFailureView(failure: .startupUnavailable)

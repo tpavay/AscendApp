@@ -280,8 +280,8 @@ final class LeaderboardViewModel {
         isLoading = false
     }
 
-    func loadMoreEntriesIfNeeded(currentEntry entry: LeaderboardEntry) {
-        guard let lastVisible = displayedEntries.last, lastVisible.id == entry.id else { return }
+    func loadMoreEntriesIfNeeded(currentEntryID: String) {
+        guard let lastVisible = displayedEntries.last, lastVisible.id == currentEntryID else { return }
         guard visibleEntryLimit < leaderboardEntries.count else { return }
         visibleEntryLimit = min(visibleEntryLimit + pageSize, leaderboardEntries.count)
     }
@@ -361,22 +361,14 @@ final class LeaderboardViewModel {
         let tieFlags = CompetitionRanking.tieFlags(for: ranks)
         let entries = filteredStats.enumerated().map { index, stat in
             let value = stat.value(for: metric)
-            let identity = PublicClimberIdentity.resolve(
-                userId: stat.userId,
-                storedDisplayName: stat.displayName,
-                storedPhotoURL: stat.photoURL.flatMap(URL.init(string:)),
-                isCurrentUser: stat.userId == userId,
-                currentUserPhotoURL: currentUserPhotoURL
-            )
-            return LeaderboardEntry(
-                userId: stat.userId,
-                displayName: identity.displayName,
-                photoURL: identity.photoURL,
+            return CrossUserIdentityAdapter.leaderboardEntry(
+                from: stat,
                 rank: ranks[index],
                 value: value,
                 formattedValue: formatValue(value, for: metric),
-                isCurrentUser: stat.userId == userId,
-                isTied: tieFlags[index]
+                isTied: tieFlags[index],
+                currentUserId: userId,
+                currentUserPhotoURL: currentUserPhotoURL
             )
         }
 
@@ -457,8 +449,9 @@ final class LeaderboardViewModel {
 
             return FirestoreLeaderboardStats(
                 userId: stat.userId,
-                displayName: stat.displayName,
-                photoURL: stat.photoURL,
+                unresolvedIdentity: stat.unresolvedIdentity,
+                identityPolicyVersion: stat.identityPolicyVersion,
+                identityChangedAt: stat.identityChangedAt,
                 timeFrame: stat.timeFrame,
                 schemaVersion: stat.schemaVersion,
                 periodKey: stat.periodKey,

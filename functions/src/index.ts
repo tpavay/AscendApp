@@ -19,6 +19,10 @@ export {recordLifecycleEvent} from "./lifecycle";
 export {finalizeLeaderboardAchievements} from "./leaderboardAchievements";
 export {onWorkoutReplaySplitsWritten} from "./liveReplayLeaderboard";
 export {
+  onPublicIdentityPropagationJobWritten,
+  onPublicProfileIdentityWritten,
+} from "./publicIdentityPropagation";
+export {
   registerPushDevice,
   sendClimbDropNotification,
   unregisterPushDevice,

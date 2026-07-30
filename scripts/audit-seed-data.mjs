@@ -31,6 +31,8 @@ import {
   leaderboardDocId,
   legacyLeaderboardDocIds,
   PROFILE_SEED_PERSONAS,
+  publicIdentityMismatchFields,
+  publishedPublicIdentity,
   statsFromWorkoutDocuments,
   validateDocumentKeys,
 } from "./seed/fixtures/profile-fixtures.mjs";
@@ -212,11 +214,17 @@ async function auditProfiles(db, failures) {
 }
 
 async function auditLeaderboard(db, catalog, failures) {
+  const publicIdentities = await readPublishedPublicIdentities(db, failures);
+  if (publicIdentities.size !== PROFILE_SEED_PERSONAS.length) {
+    return "leaderboard: 0 rows checked; public identity prerequisites failed";
+  }
+
   const expectedWrites = buildLeaderboardSeedWrites({
     db,
     catalog,
     Timestamp,
     FieldValue,
+    publicIdentities,
   });
   const expectedIds = new Set(expectedWrites.map((item) => item.ref.id));
   let checked = 0;
@@ -249,15 +257,12 @@ async function auditLeaderboard(db, catalog, failures) {
       }
     }
     if (data.userId) {
-      const publicSnapshot = await db
-        .collection("users")
-        .doc(data.userId)
-        .collection("public_profile")
-        .doc("current")
-        .get();
-      if (!publicSnapshot.exists) {
-        failures.push(`${path} userId ${data.userId} has no public profile`);
-      }
+      auditLeaderboardIdentity(
+        data,
+        publicIdentities.get(data.userId),
+        path,
+        failures
+      );
     }
   }
 
@@ -287,6 +292,56 @@ async function auditLeaderboard(db, catalog, failures) {
   }
 
   return `leaderboard: ${checked} current persona rows checked`;
+}
+
+async function readPublishedPublicIdentities(db, failures) {
+  const identities = new Map();
+  const snapshots = await Promise.all(
+    PROFILE_SEED_PERSONAS.map((persona) =>
+      db
+        .collection("users")
+        .doc(persona.id)
+        .collection("public_profile")
+        .doc("current")
+        .get()
+    )
+  );
+
+  for (let index = 0; index < snapshots.length; index += 1) {
+    const snapshot = snapshots[index];
+    const userId = PROFILE_SEED_PERSONAS[index].id;
+    if (!snapshot.exists) {
+      failures.push(
+        `users/${userId}/public_profile/current is required for leaderboard audit`
+      );
+      continue;
+    }
+
+    try {
+      identities.set(
+        userId,
+        publishedPublicIdentity(userId, snapshot.data())
+      );
+    } catch (error) {
+      failures.push(error.message);
+    }
+  }
+
+  return identities;
+}
+
+function auditLeaderboardIdentity(data, identity, path, failures) {
+  if (!identity) {
+    failures.push(`${path} has no current public identity to compare`);
+    return;
+  }
+
+  for (const field of publicIdentityMismatchFields(data, identity)) {
+    failures.push(
+      `${path} ${field} differs from ` +
+      `users/${data.userId}/public_profile/current`
+    );
+  }
 }
 
 async function auditLiveReplay(db, projectId, failures) {

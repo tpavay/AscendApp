@@ -4,7 +4,7 @@ import Testing
 
 struct LiveReplayLeaderboardServiceTests {
     @Test
-    func replayRowsExposeAuthoredIdentityOnlyForTrustedSyntheticFixtures() {
+    func replayAdapterExposesAuthoredIdentityForRealAndSyntheticClimbers() {
         let privatePhoto = URL(string: "https://example.com/private.jpg")
         let realRow = LiveReplayLeaderboardRow(
             id: "real",
@@ -36,12 +36,23 @@ struct LiveReplayLeaderboardServiceTests {
             isSynthetic: true
         )
 
-        #expect(realRow.publicIdentity().displayName == "Climber 7TPMNX")
-        #expect(realRow.publicIdentity().photoURL == nil)
-        #expect(realRow.publicIdentity().usesGenericAvatar)
-        #expect(syntheticRow.publicIdentity().displayName == "Maya C.")
-        #expect(syntheticRow.publicIdentity().photoURL == privatePhoto)
-        #expect(syntheticRow.publicIdentity().usesGenericAvatar == false)
+        let realIdentity = CrossUserIdentityAdapter.replayRow(
+            realRow,
+            blockedUserIds: [],
+            isBlockListHydrated: true
+        ).identity
+        let syntheticIdentity = CrossUserIdentityAdapter.replayRow(
+            syntheticRow,
+            blockedUserIds: [],
+            isBlockListHydrated: true
+        ).identity
+
+        #expect(realIdentity.displayName == "Private Name")
+        #expect(realIdentity.photoURL == privatePhoto)
+        #expect(realIdentity.avatarToken == "PN")
+        #expect(syntheticIdentity.displayName == "Maya C.")
+        #expect(syntheticIdentity.photoURL == privatePhoto)
+        #expect(syntheticIdentity.avatarToken == "MC")
     }
 
     @Test

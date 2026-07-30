@@ -23,8 +23,9 @@ The two missing Live Replay indexes are both collection-scoped `entries` indexes
 The current query filters per-climb and per-routine live races with `isBestForUser == true`, then reads the window ahead in ascending `stepsAtBucket` order and the window behind in descending order.
 Both matching definitions already exist exactly once in `firestore.indexes.json` after rebasing onto current `develop`, so this preparation does not add duplicates.
 
-Current `develop` declares 13 indexes because later work also added the `workouts(source, climbId)` projection index and the routine completion `entries(finalSteps DESCENDING, __name__ ASCENDING)` index.
-The production workflow waits until every index currently declared in `firestore.indexes.json` reports `READY`, not only the two the older audit identified.
+Current `develop` declares 13 composite indexes because later work also added the `workouts(source, climbId)` projection index and the routine completion `entries(finalSteps DESCENDING, __name__ ASCENDING)` index.
+It also declares three collection-group field overrides for `blocked.blockedUid`, `entries.userId`, and `finishers.userId`.
+The production workflow waits until every composite index reports `READY`, verifies that every field override is deployed, and requires each relevant field-index backfill operation to finish before Functions deploy.
 
 The `cleanupDeletedUserData` function is implemented in `functions/src/accountCleanup.ts` and exported from `functions/src/index.ts`.
 It is retry-enabled, discovers all `users/{uid}` subcollections, continues independent cleanup steps after a partial failure, and throws when any cleanup step fails so Cloud Functions retries it.
@@ -51,6 +52,8 @@ Complete every item before starting the production workflow.
    They ship as configured production publishable client keys, so the workflow's monetization preflight now verifies them before the archive instead of blocking the run.
    `Staging` carries its own staging publishable keys and clears the same preflight, and `Debug` is intentionally unset.
    The per-environment key split is owned by `docs/superwall-paywall-setup.md`.
+9. Complete public identity restoration operation version 5 and require a green production audit before approving the workflow environment.
+   This gate adds `identityPolicyVersion`, `identityChangedAt`, and global leaderboard `identityState` before the production binary can upload.
 
 Use these read-only GitHub checks:
 
@@ -68,6 +71,19 @@ node scripts/backfill-live-replay-best-per-user.mjs --project prod --dry-run
 
 Do not use `--confirm-production` for this preflight.
 If the dry-run reports writes, stop and prepare a separate migration review before deploying the binary.
+
+The captain-only public identity gate is:
+
+```sh
+node scripts/restore-public-identities.mjs --env prod --confirm-production ascend-prod-9c8f2 --dry-run
+node scripts/restore-public-identities.mjs --env prod --confirm-production ascend-prod-9c8f2 --apply
+node scripts/restore-public-identities.mjs --env prod --confirm-production ascend-prod-9c8f2 --audit
+```
+
+Run these commands only after the moderation rules, identity policy rules, required indexes, `onPublicProfileIdentityWritten`, and `onPublicIdentityPropagationJobWritten` are deployed.
+Do not approve the protected `production` environment while the audit reports a stale projection, an orphan global row with noncurrent deleted identity, a missing public profile, or an incomplete version 5 marker.
+For the first rollout of this policy, deploy that backend preparation as a separately reviewed captain operation before approving the release workflow.
+The release workflow may redeploy the same backend SHA after approval because those deployments are idempotent.
 
 ## One-command launch
 
@@ -89,9 +105,9 @@ The workflow performs the following order automatically:
 2. Build and retain the signed production IPA.
 3. Build the Functions and Hosting artifacts.
 4. Deploy Firestore indexes.
-5. Poll until all 13 indexes declared by the release SHA report `READY`.
+5. Poll until all 13 composite indexes report `READY`, all three collection-group field overrides are present, and their relevant Firestore admin operations are complete.
 6. Deploy Functions.
-7. Verify `cleanupDeletedUserData`, `onWorkoutWritten`, `onWorkoutReplaySplitsWritten`, and `unsubscribeFromEmails` report `ACTIVE`.
+7. Verify `cleanupDeletedUserData`, `onPublicIdentityPropagationJobWritten`, `onPublicProfileIdentityWritten`, `onWorkoutWritten`, `onWorkoutReplaySplitsWritten`, and `unsubscribeFromEmails` report `ACTIVE`.
 8. Deploy Firestore rules.
 9. Deploy Storage rules.
 10. Deploy Hosting.
@@ -115,15 +131,25 @@ npx -y firebase-tools@15.22.1 deploy --project production \
 ```
 
 Verify the deployment does not request deletion of an unexpected index.
-Then wait for every declared index, including both `isBestForUser + stepsAtBucket` directions, to report `READY`:
+Then wait for every declared index, including both `isBestForUser + stepsAtBucket` directions and all collection-group field overrides, to become usable:
 
 ```sh
+deployed_spec_file="$(mktemp)"
+operations_file="$(mktemp)"
+npx -y firebase-tools@15.22.1 firestore:indexes \
+  --project production --json > "$deployed_spec_file"
+npx -y firebase-tools@15.22.1 firestore:operations:list \
+  --project production --limit 1000 --json > "$operations_file"
 npx -y firebase-tools@15.22.1 firestore:indexes \
   --project production --pretty \
-  | node scripts/ci/assert-firestore-indexes-ready.mjs firestore.indexes.json
+  | node scripts/ci/assert-firestore-indexes-ready.mjs \
+      firestore.indexes.json "$operations_file" "$deployed_spec_file"
 ```
 
 Do not proceed while this command exits nonzero.
+The pretty field-override listing omits query scope and serving state.
+The gate therefore validates exact `COLLECTION_GROUP` scope from JSON and separately requires the latest relevant `FieldOperationMetadata` backfill for every declared field override to finish in `SUCCESSFUL` state.
+A pending, failed, cancelled, or error-bearing terminal operation blocks Functions deployment.
 
 Rollback: do not delete a newly created additive index during an incident.
 An unused composite index does not change query results, and deleting it adds risk while providing no immediate recovery benefit.
@@ -138,13 +164,15 @@ npx -y firebase-tools@15.22.1 deploy --project production \
 
 `--force` is intentionally scoped to Functions so the deployed set matches `functions/src/index.ts` without making rules, indexes, Storage, or Hosting destructive.
 
-Verify the four gate-critical functions are active:
+Verify the six gate-critical functions are active:
 
 ```sh
 npx -y firebase-tools@15.22.1 --json functions:list \
   --project production \
   | node scripts/ci/assert-firebase-functions-active.mjs \
       cleanupDeletedUserData \
+      onPublicIdentityPropagationJobWritten \
+      onPublicProfileIdentityWritten \
       onWorkoutWritten \
       onWorkoutReplaySplitsWritten \
       unsubscribeFromEmails
@@ -247,7 +275,7 @@ The workflow must reach green before selecting or distributing the TestFlight bu
 Then complete these captain-only checks against production.
 
 1. Confirm all declared Firestore indexes still report `READY` with the index assertion command above.
-2. Confirm the four critical Functions still report `ACTIVE` with the function assertion command above.
+2. Confirm the five critical Functions still report `ACTIVE` with the function assertion command above.
 3. Inspect recent cleanup logs with `npx -y firebase-tools@15.22.1 functions:log --project production --only cleanupDeletedUserData --lines 50`.
 4. Create one Google smoke account and one Apple smoke account in a production-signed physical-device build.
 5. For each account, create a workout, replay presence, profile data, a push token, feedback, and user-scoped Storage data that exercise the cleanup paths.
@@ -258,6 +286,8 @@ Then complete these captain-only checks against production.
 10. Confirm the Apple credential is revoked and both providers can create a fresh account again.
 11. Confirm a new production workout creates or updates `users/{uid}/landmarkResults` through `onWorkoutWritten`.
 12. Confirm a modified client cannot publish an ineligible replay entry because `onWorkoutReplaySplitsWritten` derives eligibility from server-visible workout evidence.
+13. Confirm a public profile and leaderboard document contain `identityPolicyVersion: 1` plus a timestamp `identityChangedAt`.
+14. Confirm an old build cannot change `displayName` or `photoURL` without advancing the protected identity timestamp.
 
 If any check fails, do not select the TestFlight build for App Review.
 Capture the failing release SHA, Function execution ID, affected uid, and exact verification step before deciding whether to repair forward or use the scoped rollback.

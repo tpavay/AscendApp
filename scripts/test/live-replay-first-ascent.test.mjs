@@ -86,6 +86,7 @@ test("seeded First Ascent fields match the server's published shape", () => {
     firstAscentAvatarToken: "SK",
     firstAscentCompletedAt: claimedAt,
     firstAscentDisplayName: "Sarah K.",
+    firstAscentIdentityState: "published",
     firstAscentIsSynthetic: true,
     firstAscentPhotoURL: "https://example.test/sarah.jpg",
     firstAscentUserId: "seeded:pack:mount-everest:0",
@@ -141,6 +142,25 @@ test("seed script publishes the same First Ascent fields as the Cloud Function",
     .sort();
 
   assert.deepEqual(serverFields, [...FIRST_ASCENT_FIELD_NAMES].sort());
+});
+
+test("every seeded projection identity declares its lifecycle state", () => {
+  const expectedPublishedWrites = new Map([
+    ["scripts/seed-demo-user.mjs", 3],
+    ["scripts/seed-live-replay-leaderboards.mjs", 2],
+  ]);
+
+  for (const [script, expectedCount] of expectedPublishedWrites) {
+    const source = readScript(script);
+    const writes = source.match(
+      /identityState:\s*PUBLIC_IDENTITY_STATE_PUBLISHED/g
+    ) ?? [];
+    assert.equal(
+      writes.length,
+      expectedCount,
+      `${script} must state whether every projection identity is publishable`
+    );
+  }
 });
 
 test("every climb the demo user completes is seeded a First Ascent holder", () => {

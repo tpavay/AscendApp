@@ -1,0 +1,525 @@
+import Foundation
+import Testing
+@testable import AscendApp
+
+@MainActor
+struct ModerationStoreTests {
+    actor RepositorySpy: ModerationRepositoryProtocol {
+        struct BlockCall: Equatable {
+            let blockerUserId: String
+            let blockedUserId: String
+        }
+
+        struct ReportCall: Equatable {
+            let reporterUserId: String
+            let reportedUserId: String
+            let reason: ModerationReportReason
+            let source: ModerationSource
+        }
+
+        var fetchedBlocks: [BlockedClimber] = []
+        var fetchedUserIds: [String] = []
+        var blockCalls: [BlockCall] = []
+        var unblockCalls: [BlockCall] = []
+        var reportCalls: [ReportCall] = []
+        var blockFails = false
+        var unblockFails = false
+        var reportFails = false
+        var fetchFails = false
+        var blockSuspends = false
+        var blockStarted = false
+        var blockStartedContinuation: CheckedContinuation<Void, Never>?
+        var blockReleaseContinuation: CheckedContinuation<Void, Never>?
+        var unblockSuspends = false
+        var unblockStarted = false
+        var unblockStartedContinuation: CheckedContinuation<Void, Never>?
+        var unblockReleaseContinuation: CheckedContinuation<Void, Never>?
+        var fetchSuspends = false
+        var fetchCallCount = 0
+        var fetchContinuations: [
+            Int: CheckedContinuation<[BlockedClimber], any Error>
+        ] = [:]
+
+        func fetchBlockedClimbers(blockerUserId: String) async throws -> [BlockedClimber] {
+            fetchCallCount += 1
+            fetchedUserIds.append(blockerUserId)
+            let call = fetchCallCount
+            if fetchSuspends {
+                return try await withCheckedThrowingContinuation { continuation in
+                    fetchContinuations[call] = continuation
+                }
+            }
+            if fetchFails {
+                throw TestFailure.expected
+            }
+            return fetchedBlocks
+        }
+
+        func block(blockerUserId: String, blockedUserId: String) async throws {
+            blockStarted = true
+            blockStartedContinuation?.resume()
+            blockStartedContinuation = nil
+            if blockSuspends {
+                await withCheckedContinuation { continuation in
+                    blockReleaseContinuation = continuation
+                }
+            }
+            if blockFails {
+                throw TestFailure.expected
+            }
+            blockCalls.append(
+                BlockCall(
+                    blockerUserId: blockerUserId,
+                    blockedUserId: blockedUserId
+                )
+            )
+        }
+
+        func unblock(blockerUserId: String, blockedUserId: String) async throws {
+            unblockStarted = true
+            unblockStartedContinuation?.resume()
+            unblockStartedContinuation = nil
+            if unblockSuspends {
+                await withCheckedContinuation { continuation in
+                    unblockReleaseContinuation = continuation
+                }
+            }
+            if unblockFails {
+                throw TestFailure.expected
+            }
+            unblockCalls.append(
+                BlockCall(
+                    blockerUserId: blockerUserId,
+                    blockedUserId: blockedUserId
+                )
+            )
+        }
+
+        func submitReport(
+            reporterUserId: String,
+            reportedUserId: String,
+            reason: ModerationReportReason,
+            source: ModerationSource
+        ) async throws {
+            if reportFails {
+                throw TestFailure.expected
+            }
+            reportCalls.append(
+                ReportCall(
+                    reporterUserId: reporterUserId,
+                    reportedUserId: reportedUserId,
+                    reason: reason,
+                    source: source
+                )
+            )
+        }
+
+        func setFetchedBlocks(_ blocks: [BlockedClimber]) {
+            fetchedBlocks = blocks
+        }
+
+        func setBlockFails(_ shouldFail: Bool) {
+            blockFails = shouldFail
+        }
+
+        func setUnblockFails(_ shouldFail: Bool) {
+            unblockFails = shouldFail
+        }
+
+        func setReportFails(_ shouldFail: Bool) {
+            reportFails = shouldFail
+        }
+
+        func setFetchFails(_ shouldFail: Bool) {
+            fetchFails = shouldFail
+        }
+
+        func suspendBlock() {
+            blockSuspends = true
+        }
+
+        func suspendUnblock() {
+            unblockSuspends = true
+        }
+
+        func suspendFetches() {
+            fetchSuspends = true
+        }
+
+        func releaseFetch(
+            _ call: Int,
+            returning blocks: [BlockedClimber]
+        ) {
+            fetchContinuations.removeValue(forKey: call)?.resume(returning: blocks)
+        }
+
+        func hasStartedFetch(_ call: Int) -> Bool {
+            fetchCallCount >= call
+        }
+
+        func waitUntilBlockStarts() async {
+            guard !blockStarted else { return }
+            await withCheckedContinuation { continuation in
+                blockStartedContinuation = continuation
+            }
+        }
+
+        func waitUntilUnblockStarts() async {
+            guard !unblockStarted else { return }
+            await withCheckedContinuation { continuation in
+                unblockStartedContinuation = continuation
+            }
+        }
+
+        func releaseBlock() {
+            blockSuspends = false
+            blockReleaseContinuation?.resume()
+            blockReleaseContinuation = nil
+        }
+
+        func releaseUnblock() {
+            unblockSuspends = false
+            unblockReleaseContinuation?.resume()
+            unblockReleaseContinuation = nil
+        }
+    }
+
+    enum TestFailure: Error {
+        case expected
+    }
+
+    @Test
+    func hydrationRestoresServerBlocksForANewDevice() async {
+        let repository = RepositorySpy()
+        await repository.setFetchedBlocks([
+            BlockedClimber(userId: "blocked-user", createdAt: .now)
+        ])
+        let store = ModerationStore(repository: repository)
+
+        await store.hydrate(for: "viewer")
+
+        #expect(store.isBlockListHydrated)
+        #expect(store.blockedUserIds == ["blocked-user"])
+    }
+
+    @Test
+    func blockingImmediatelyUpdatesRenderCacheAndDoesNotReport() async throws {
+        let repository = RepositorySpy()
+        await repository.suspendBlock()
+        let store = ModerationStore(repository: repository)
+        await store.hydrate(for: "viewer")
+
+        let blockTask = Task {
+            try await store.block(
+                blockerUserId: "viewer",
+                blockedUserId: "blocked-user"
+            )
+        }
+        await repository.waitUntilBlockStarts()
+
+        #expect(store.blockedUserIds == ["blocked-user"])
+        #expect(await repository.blockCalls.isEmpty)
+        #expect(await repository.reportCalls.isEmpty)
+
+        await repository.releaseBlock()
+        try await blockTask.value
+        #expect(
+            await repository.blockCalls == [
+                .init(blockerUserId: "viewer", blockedUserId: "blocked-user")
+            ]
+        )
+    }
+
+    @Test
+    func failedServerBlockNeverBecomesAuthoritativeLocally() async {
+        let repository = RepositorySpy()
+        await repository.setBlockFails(true)
+        let store = ModerationStore(repository: repository)
+        await store.hydrate(for: "viewer")
+
+        await #expect(throws: TestFailure.self) {
+            try await store.block(blockerUserId: "viewer", blockedUserId: "blocked-user")
+        }
+
+        #expect(store.blockedUserIds.isEmpty)
+    }
+
+    @Test
+    func reportingDoesNotCreateABlock() async throws {
+        let repository = RepositorySpy()
+        let store = ModerationStore(repository: repository)
+        await store.hydrate(for: "viewer")
+
+        try await store.report(
+            reporterUserId: "viewer",
+            reportedUserId: "reported-user",
+            reason: .inappropriateName,
+            source: .profile
+        )
+
+        #expect(store.blockedUserIds.isEmpty)
+        #expect(await repository.blockCalls.isEmpty)
+        #expect(
+            await repository.reportCalls == [
+                .init(
+                    reporterUserId: "viewer",
+                    reportedUserId: "reported-user",
+                    reason: .inappropriateName,
+                    source: .profile
+                )
+            ]
+        )
+    }
+
+    @Test
+    func unblockingPersistsBeforeRemovingRenderCacheEntry() async throws {
+        let repository = RepositorySpy()
+        await repository.setFetchedBlocks([
+            BlockedClimber(userId: "blocked-user", createdAt: .now)
+        ])
+        let store = ModerationStore(repository: repository)
+        await store.hydrate(for: "viewer")
+
+        try await store.unblock(blockerUserId: "viewer", blockedUserId: "blocked-user")
+
+        #expect(store.blockedUserIds.isEmpty)
+        #expect(
+            await repository.unblockCalls == [
+                .init(blockerUserId: "viewer", blockedUserId: "blocked-user")
+            ]
+        )
+    }
+
+    @Test
+    func staleSameUserHydrationCannotOverwriteANewerSession() async {
+        let repository = RepositorySpy()
+        await repository.suspendFetches()
+        let store = ModerationStore(repository: repository)
+
+        let oldHydration = Task {
+            await store.hydrate(for: "viewer")
+        }
+        while !(await repository.hasStartedFetch(1)) {
+            await Task.yield()
+        }
+
+        store.clear()
+        let newHydration = Task {
+            await store.hydrate(for: "viewer")
+        }
+        while !(await repository.hasStartedFetch(2)) {
+            await Task.yield()
+        }
+
+        await repository.releaseFetch(
+            2,
+            returning: [
+                BlockedClimber(userId: "new-session-block", createdAt: .now)
+            ]
+        )
+        await newHydration.value
+
+        #expect(store.isBlockListHydrated)
+        #expect(store.isHydrating == false)
+        #expect(store.blockedUserIds == ["new-session-block"])
+
+        await repository.releaseFetch(
+            1,
+            returning: [
+                BlockedClimber(userId: "stale-session-block", createdAt: .now)
+            ]
+        )
+        await oldHydration.value
+
+        #expect(store.isBlockListHydrated)
+        #expect(store.isHydrating == false)
+        #expect(store.blockedUserIds == ["new-session-block"])
+    }
+
+    @Test
+    func successfulBlockThatBecomesStaleForcesAuthoritativeRehydration() async throws {
+        let repository = RepositorySpy()
+        let store = ModerationStore(repository: repository)
+        await store.hydrate(for: "viewer")
+        await repository.suspendBlock()
+        await repository.suspendFetches()
+
+        let blockTask = Task {
+            try await store.block(
+                blockerUserId: "viewer",
+                blockedUserId: "blocked-user"
+            )
+        }
+        await repository.waitUntilBlockStarts()
+
+        let foregroundHydration = Task {
+            await store.hydrate(for: "viewer")
+        }
+        while !(await repository.hasStartedFetch(2)) {
+            await Task.yield()
+        }
+
+        await repository.releaseBlock()
+        while !(await repository.hasStartedFetch(3)) {
+            await Task.yield()
+        }
+        await repository.releaseFetch(2, returning: [])
+        await repository.releaseFetch(
+            3,
+            returning: [
+                BlockedClimber(userId: "blocked-user", createdAt: .now)
+            ]
+        )
+
+        await foregroundHydration.value
+        try await blockTask.value
+        #expect(store.isBlockListHydrated)
+        #expect(store.blockedUserIds == ["blocked-user"])
+    }
+
+    @Test
+    func successfulUnblockThatBecomesStaleForcesAuthoritativeRehydration() async throws {
+        let repository = RepositorySpy()
+        await repository.setFetchedBlocks([
+            BlockedClimber(userId: "blocked-user", createdAt: .now)
+        ])
+        let store = ModerationStore(repository: repository)
+        await store.hydrate(for: "viewer")
+        await repository.suspendUnblock()
+        await repository.suspendFetches()
+
+        let unblockTask = Task {
+            try await store.unblock(
+                blockerUserId: "viewer",
+                blockedUserId: "blocked-user"
+            )
+        }
+        await repository.waitUntilUnblockStarts()
+
+        let foregroundHydration = Task {
+            await store.hydrate(for: "viewer")
+        }
+        while !(await repository.hasStartedFetch(2)) {
+            await Task.yield()
+        }
+
+        await repository.releaseUnblock()
+        while !(await repository.hasStartedFetch(3)) {
+            await Task.yield()
+        }
+        await repository.releaseFetch(
+            2,
+            returning: [
+                BlockedClimber(userId: "blocked-user", createdAt: .now)
+            ]
+        )
+        await repository.releaseFetch(3, returning: [])
+
+        await foregroundHydration.value
+        try await unblockTask.value
+        #expect(store.isBlockListHydrated)
+        #expect(store.blockedUserIds.isEmpty)
+    }
+
+    @Test
+    func staleUserAWriteNeverRehydratesOverUserB() async throws {
+        let repository = RepositorySpy()
+        let store = ModerationStore(repository: repository)
+        await store.hydrate(for: "user-a")
+        await repository.suspendBlock()
+
+        let blockTask = Task {
+            try await store.block(
+                blockerUserId: "user-a",
+                blockedUserId: "blocked-user"
+            )
+        }
+        await repository.waitUntilBlockStarts()
+        await repository.setFetchedBlocks([
+            BlockedClimber(userId: "user-b-block", createdAt: .now)
+        ])
+        await store.hydrate(for: "user-b")
+        await repository.releaseBlock()
+        try await blockTask.value
+
+        #expect(store.isBlockListHydrated)
+        #expect(store.blockedUserIds == ["user-b-block"])
+        #expect(await repository.fetchedUserIds == ["user-a", "user-b"])
+    }
+
+    @Test
+    func successfulStaleWriteAfterSignOutDoesNotRestartHydration() async throws {
+        let repository = RepositorySpy()
+        let store = ModerationStore(repository: repository)
+        await store.hydrate(for: "viewer")
+        await repository.suspendBlock()
+
+        let blockTask = Task {
+            try await store.block(
+                blockerUserId: "viewer",
+                blockedUserId: "blocked-user"
+            )
+        }
+        await repository.waitUntilBlockStarts()
+        store.clear()
+        await repository.releaseBlock()
+        try await blockTask.value
+
+        #expect(store.isBlockListHydrated == false)
+        #expect(store.blockedUserIds.isEmpty)
+        #expect(await repository.fetchedUserIds == ["viewer"])
+    }
+
+    @Test
+    func failedUnblockAndReportPreserveModerationState() async {
+        let repository = RepositorySpy()
+        await repository.setFetchedBlocks([
+            BlockedClimber(userId: "blocked-user", createdAt: .now)
+        ])
+        await repository.setUnblockFails(true)
+        await repository.setReportFails(true)
+        let store = ModerationStore(repository: repository)
+        await store.hydrate(for: "viewer")
+
+        await #expect(throws: TestFailure.self) {
+            try await store.unblock(
+                blockerUserId: "viewer",
+                blockedUserId: "blocked-user"
+            )
+        }
+        await #expect(throws: TestFailure.self) {
+            try await store.report(
+                reporterUserId: "viewer",
+                reportedUserId: "reported-user",
+                reason: .spam,
+                source: .profile
+            )
+        }
+
+        #expect(store.blockedUserIds == ["blocked-user"])
+        #expect(store.isBlockListHydrated)
+    }
+
+    @Test
+    func failedHydrationStaysFailClosed() async {
+        let repository = RepositorySpy()
+        await repository.setFetchFails(true)
+        let store = ModerationStore(repository: repository)
+
+        await store.hydrate(for: "viewer")
+
+        #expect(store.isBlockListHydrated == false)
+        #expect(store.blockedUserIds.isEmpty)
+        let identity = store.moderate(
+            ProfileUserIdentity(
+                userId: "other-user",
+                displayName: "Raw Name",
+                photoURL: URL(string: "https://example.com/raw.jpg")
+            ),
+            isCurrentUser: false
+        )
+        #expect(identity.isHidden)
+        #expect(identity.displayName != "Raw Name")
+        #expect(identity.photoURL == nil)
+    }
+}

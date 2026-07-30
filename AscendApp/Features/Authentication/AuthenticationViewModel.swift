@@ -322,11 +322,16 @@ extension AuthenticationViewModel {
     func setDisplayName(firstName: String, lastName: String) async {
         do {
             let fullDisplayName = "\(firstName) \(lastName)"
-            try await authenticationService.updateUserDisplayName(displayName: fullDisplayName)
-            displayName = fullDisplayName
+            let validatedDisplayName = try DisplayNamePolicy.validated(
+                fullDisplayName
+            )
+            try await authenticationService.updateUserDisplayName(
+                displayName: validatedDisplayName
+            )
+            displayName = validatedDisplayName
             
             // Cache display name for immediate UI updates
-            UserDataRepository.shared.cacheDisplayName(fullDisplayName)
+            UserDataRepository.shared.cacheDisplayName(validatedDisplayName)
             
             // Save updated user info to Firestore with individual names
             if let user = user {
@@ -335,7 +340,7 @@ extension AuthenticationViewModel {
                     email: user.email,
                     firstName: firstName,
                     lastName: lastName,
-                    displayName: fullDisplayName
+                    displayName: validatedDisplayName
                 )
                 hasRemoteDisplayName = true
             }
@@ -406,7 +411,7 @@ extension AuthenticationViewModel {
             
             // Update the local state
             customProfilePictureURL = uploadedURL
-            
+
         } catch {
             errorMessage = "Failed to update profile picture: \(error.localizedDescription)"
         }
@@ -434,7 +439,7 @@ extension AuthenticationViewModel {
             
             // Update the local state
             customProfilePictureURL = uploadedURL
-            
+
         } catch {
             errorMessage = "Failed to update profile picture: \(error.localizedDescription)"
         }
@@ -454,26 +459,25 @@ extension AuthenticationViewModel {
             return false
         }
         
-        let trimmedName = newDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        guard !trimmedName.isEmpty else {
-            errorMessage = "Display name cannot be empty"
-            return false
-        }
-        
         let previousDisplayName = displayName
 
         do {
-            // Update local state immediately for responsive UI
-            displayName = trimmedName
+            let validatedDisplayName = try DisplayNamePolicy.validated(
+                newDisplayName
+            )
 
-            try await authenticationService.updateUserDisplayName(displayName: trimmedName)
+            // Update local state immediately for responsive UI
+            displayName = validatedDisplayName
+
+            try await authenticationService.updateUserDisplayName(
+                displayName: validatedDisplayName
+            )
             
             // Save to Firestore user document
             try await UserDataRepository.shared.updateDisplayName(
                 userId: user.uid,
                 email: user.email,
-                displayName: trimmedName
+                displayName: validatedDisplayName
             )
             hasRemoteDisplayName = true
 
@@ -495,13 +499,6 @@ extension AuthenticationViewModel {
             return false
         }
 
-        let trimmedName = newDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !trimmedName.isEmpty else {
-            errorMessage = "Display name cannot be empty"
-            return false
-        }
-
         guard (13...120).contains(age) else {
             errorMessage = "Enter an age from 13 to 120"
             return false
@@ -510,14 +507,19 @@ extension AuthenticationViewModel {
         let previousDisplayName = displayName
 
         do {
-            displayName = trimmedName
+            let validatedDisplayName = try DisplayNamePolicy.validated(
+                newDisplayName
+            )
+            displayName = validatedDisplayName
 
-            try await authenticationService.updateUserDisplayName(displayName: trimmedName)
+            try await authenticationService.updateUserDisplayName(
+                displayName: validatedDisplayName
+            )
 
             try await UserDataRepository.shared.updateOnboardingProfile(
                 userId: user.uid,
                 email: user.email,
-                displayName: trimmedName,
+                displayName: validatedDisplayName,
                 age: age,
                 gender: gender
             )

@@ -1,0 +1,1 @@
+typealias CrossUserIdentityResolver = ResolvedUserIdentity.Resolver

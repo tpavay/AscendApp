@@ -28,7 +28,10 @@ import {
   seededReplayCompletedCount,
   staleWorkoutDocumentIds,
 } from "./lib/workout-document-id.mjs";
-import {firstAscentSeedFields} from "./seed/lib/live-replay-first-ascent.mjs";
+import {
+  PUBLIC_IDENTITY_STATE_PUBLISHED,
+  firstAscentSeedFields,
+} from "./seed/lib/live-replay-first-ascent.mjs";
 
 const DEV_PROJECT_ID = "ascend-f2e4f";
 const STAGING_PROJECT_ID = "ascend-staging-fa7d5";
@@ -485,8 +488,10 @@ function privateProfileData(user, args, joinedAt, hasExistingCreatedAt) {
 function publicProfileData(user, args, joinedAt) {
   const data = {
     userId: user.uid,
-    displayName: "Climber",
-    photoURL: "",
+    displayName: user.displayName,
+    photoURL: user.photoURL,
+    identityPolicyVersion: 1,
+    identityChangedAt: FieldValue.serverTimestamp(),
     age: args.age,
     gender: args.gender,
     weight_kg: roundTo(args.weightKg, 1),
@@ -744,10 +749,10 @@ async function addReplayWrites(db, writes, deletes, user, liveContexts, args) {
     if (forceFirstAscent) {
       Object.assign(summaryData, firstAscentSeedFields(
         {
-          avatarToken: "",
-          displayName: "Climber",
+          avatarToken: user.avatarToken,
+          displayName: user.displayName,
           id: context.workoutId,
-          photoURL: "",
+          photoURL: user.photoURL,
           userId: user.uid,
         },
         Timestamp.fromDate(context.completedAt),
@@ -759,15 +764,16 @@ async function addReplayWrites(db, writes, deletes, user, liveContexts, args) {
     writes.push([
       finisherRef,
       {
-        avatarToken: "",
+        avatarToken: user.avatarToken,
         bestCompletionDurationSeconds: context.durationSeconds,
         bestWorkoutId: context.workoutId,
-        displayName: "Climber",
+        displayName: user.displayName,
         firstCompletedAt: Timestamp.fromDate(context.completedAt),
         firstWorkoutId: context.workoutId,
         globalCompletionOrder: finisherOrder,
+        identityState: PUBLIC_IDENTITY_STATE_PUBLISHED,
         isSynthetic: false,
-        photoURL: "",
+        photoURL: user.photoURL,
         schemaVersion: REPLAY_SCHEMA_VERSION,
         updatedAt: FieldValue.serverTimestamp(),
         userId: user.uid,
@@ -792,14 +798,15 @@ async function addReplayWrites(db, writes, deletes, user, liveContexts, args) {
       writes.push([
         entriesRef.doc(context.workoutId),
         {
-          avatarToken: "",
+          avatarToken: user.avatarToken,
           completionDurationSeconds: context.durationSeconds,
-          displayName: "Climber",
+          displayName: user.displayName,
           finalSteps: context.finalSteps,
           ...bestForUserField(context),
+          identityState: PUBLIC_IDENTITY_STATE_PUBLISHED,
           isPersonalBest: true,
           isSynthetic: false,
-          photoURL: "",
+          photoURL: user.photoURL,
           schemaVersion: REPLAY_SCHEMA_VERSION,
           splitBucketCount: context.splitSteps.length,
           splitIntervalSeconds: SPLIT_INTERVAL_SECONDS,
@@ -1039,8 +1046,11 @@ function leaderboardTotals(workouts, timeFrame) {
 function leaderboardStatsData(user, timeFrame, period, totals) {
   return {
     userId: user.uid,
-    displayName: "Climber",
-    photoURL: "",
+    displayName: user.displayName,
+    photoURL: user.photoURL,
+    identityPolicyVersion: 1,
+    identityChangedAt: FieldValue.serverTimestamp(),
+    identityState: PUBLIC_IDENTITY_STATE_PUBLISHED,
     timeFrame,
     schemaVersion: LEADERBOARD_SCHEMA_VERSION,
     periodKey: period.key,

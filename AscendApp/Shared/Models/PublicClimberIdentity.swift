@@ -2,6 +2,8 @@ import CryptoKit
 import Foundation
 
 enum PublicClimberIdentity {
+    static let policyVersion = 1
+
     enum Mode: Sendable {
         case systemGenerated
         case accountAuthored
@@ -14,8 +16,9 @@ enum PublicClimberIdentity {
         let usesGenericAvatar: Bool
     }
 
-    /// One reversible seam for a future moderated-public-profile launch.
-    static let mode: Mode = .systemGenerated
+    /// Account-authored identity is safe to publish only while the moderation
+    /// boundary remains mandatory on every cross-user rendering surface.
+    static let mode: Mode = .accountAuthored
 
     static let storedDisplayName = "Climber"
     static let storedPhotoURL = ""

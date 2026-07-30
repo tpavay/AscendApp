@@ -32,10 +32,7 @@ struct LiveReplayLeaderboardSummary: Equatable, Sendable {
 
 struct LiveReplayFirstAscent: Equatable, Sendable {
     let userId: String?
-    let displayName: String
-    let avatarToken: String
-    let photoURL: URL?
-    let isSynthetic: Bool
+    let unresolvedIdentity: UnresolvedUserIdentity
     let completedAt: Date
 
     init(
@@ -47,21 +44,13 @@ struct LiveReplayFirstAscent: Equatable, Sendable {
         completedAt: Date
     ) {
         self.userId = userId
-        self.displayName = displayName
-        self.avatarToken = avatarToken
-        self.photoURL = photoURL
-        self.isSynthetic = isSynthetic
-        self.completedAt = completedAt
-    }
-
-    var publicIdentity: PublicClimberIdentity.Presentation {
-        PublicClimberIdentity.resolve(
-            userId: userId,
-            storedDisplayName: displayName,
-            storedPhotoURL: photoURL,
-            storedAvatarToken: avatarToken,
+        self.unresolvedIdentity = UnresolvedUserIdentity(
+            displayName: displayName,
+            photoURL: photoURL,
+            avatarToken: avatarToken,
             isSynthetic: isSynthetic
         )
+        self.completedAt = completedAt
     }
 }
 
@@ -310,9 +299,7 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
     let id: String
     /// Standard competition rank ("1, 2, 2, 4") — tied rows share a rank.
     let rank: Int?
-    let displayName: String
-    let avatarToken: String
-    let photoURL: URL?
+    let unresolvedIdentity: UnresolvedUserIdentity
     let stepsAtBucket: Int
     let finalSteps: Int
     let deltaFromUser: Int
@@ -320,7 +307,6 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
     let isPersonalBest: Bool
     let completionDurationSeconds: TimeInterval?
     let userId: String?
-    let isSynthetic: Bool
     let gender: String?
     let age: Int?
     let locationCity: String?
@@ -348,9 +334,12 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
     ) {
         self.id = id
         self.rank = rank
-        self.displayName = displayName
-        self.avatarToken = avatarToken
-        self.photoURL = photoURL
+        self.unresolvedIdentity = UnresolvedUserIdentity(
+            displayName: displayName,
+            photoURL: photoURL,
+            avatarToken: avatarToken,
+            isSynthetic: isSynthetic
+        )
         self.stepsAtBucket = stepsAtBucket
         self.finalSteps = finalSteps
         self.deltaFromUser = deltaFromUser
@@ -358,7 +347,6 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
         self.isPersonalBest = isPersonalBest
         self.completionDurationSeconds = completionDurationSeconds
         self.userId = userId
-        self.isSynthetic = isSynthetic
         self.gender = Self.cleanedString(gender)
         self.age = Self.validAge(age)
         self.locationCity = Self.cleanedString(locationCity)
@@ -468,9 +456,7 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
         LiveReplayLeaderboardRow(
             id: id,
             rank: rank ?? self.rank,
-            displayName: displayName,
-            avatarToken: avatarToken,
-            photoURL: photoURL,
+            unresolvedIdentity: unresolvedIdentity,
             stepsAtBucket: stepsAtBucket ?? self.stepsAtBucket,
             finalSteps: finalSteps,
             deltaFromUser: deltaFromUser ?? self.deltaFromUser,
@@ -478,12 +464,43 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
             isPersonalBest: isPersonalBest,
             completionDurationSeconds: completionDurationSeconds,
             userId: userId,
-            isSynthetic: isSynthetic,
             gender: gender,
             age: age,
             locationCity: locationCity,
             isTied: isTied ?? self.isTied
         )
+    }
+
+    private init(
+        id: String,
+        rank: Int?,
+        unresolvedIdentity: UnresolvedUserIdentity,
+        stepsAtBucket: Int,
+        finalSteps: Int,
+        deltaFromUser: Int,
+        isCurrentUser: Bool,
+        isPersonalBest: Bool,
+        completionDurationSeconds: TimeInterval?,
+        userId: String?,
+        gender: String?,
+        age: Int?,
+        locationCity: String?,
+        isTied: Bool
+    ) {
+        self.id = id
+        self.rank = rank
+        self.unresolvedIdentity = unresolvedIdentity
+        self.stepsAtBucket = stepsAtBucket
+        self.finalSteps = finalSteps
+        self.deltaFromUser = deltaFromUser
+        self.isCurrentUser = isCurrentUser
+        self.isPersonalBest = isPersonalBest
+        self.completionDurationSeconds = completionDurationSeconds
+        self.userId = userId
+        self.gender = Self.cleanedString(gender)
+        self.age = Self.validAge(age)
+        self.locationCity = Self.cleanedString(locationCity)
+        self.isTied = isTied
     }
 
     private func fallbackReplayDurationSeconds(bucketElapsedSeconds: Int) -> Double {
@@ -516,19 +533,6 @@ struct LiveReplayLeaderboardRow: Identifiable, Equatable, Sendable {
         return value
     }
 
-    func publicIdentity(
-        currentUserPhotoURL: URL? = nil
-    ) -> PublicClimberIdentity.Presentation {
-        PublicClimberIdentity.resolve(
-            userId: userId,
-            storedDisplayName: displayName,
-            storedPhotoURL: isCurrentUser ? nil : photoURL,
-            storedAvatarToken: avatarToken,
-            isSynthetic: isSynthetic,
-            isCurrentUser: isCurrentUser,
-            currentUserPhotoURL: currentUserPhotoURL
-        )
-    }
 }
 
 struct LiveReplayLeaderboardWindow: Equatable, Sendable {

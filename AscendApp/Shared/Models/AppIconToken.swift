@@ -35,6 +35,7 @@ enum AppIconToken: Hashable, Sendable {
     case settingsDeleteAccount
     case settingsNotifications
     case settingsRestorePurchases
+    case settingsBlockedClimbers
 
     case disclosureChevronRight
     case bestEffortTrophy
@@ -101,6 +102,8 @@ enum AppIconToken: Hashable, Sendable {
             return .asset("ph-settings-notifications")
         case .settingsRestorePurchases:
             return .systemSymbol("arrow.clockwise")
+        case .settingsBlockedClimbers:
+            return .systemSymbol("person.crop.circle.badge.xmark")
 
         case .disclosureChevronRight:
             return .asset("ph-disclosure-chevron-right")

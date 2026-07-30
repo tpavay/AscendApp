@@ -32,18 +32,32 @@ struct PublicClimberIdentityTests {
     }
 
     @Test
-    func realOtherUserIgnoresAccountAuthoredNameAndPhoto() {
-        let privatePhoto = URL(string: "https://example.com/private-profile.jpg")
+    func realOtherUserUsesAccountAuthoredNameAndPhoto() {
+        let publicPhoto = URL(string: "https://example.com/public-profile.jpg")
         let identity = PublicClimberIdentity.resolve(
             userId: "user-123",
-            storedDisplayName: "Private Name",
-            storedPhotoURL: privatePhoto,
+            storedDisplayName: "Maya Chen",
+            storedPhotoURL: publicPhoto,
             storedAvatarToken: "PN"
+        )
+
+        #expect(identity.displayName == "Maya Chen")
+        #expect(identity.photoURL == publicPhoto)
+        #expect(identity.avatarToken == "MC")
+        #expect(identity.usesGenericAvatar == false)
+    }
+
+    @Test
+    func missingAccountAuthoredNameFallsBackToStableHandle() {
+        let identity = PublicClimberIdentity.resolve(
+            userId: "user-123",
+            storedDisplayName: "  ",
+            storedPhotoURL: nil
         )
 
         #expect(identity.displayName == "Climber 7TPMNX")
         #expect(identity.photoURL == nil)
-        #expect(identity.avatarToken.isEmpty)
+        #expect(identity.avatarToken == "C7")
         #expect(identity.usesGenericAvatar)
     }
 

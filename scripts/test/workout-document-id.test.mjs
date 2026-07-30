@@ -9,7 +9,12 @@ import {
   seededReplayCompletedCount,
   staleWorkoutDocumentIds,
 } from "../lib/workout-document-id.mjs";
-import {buildProfileSeedWrites} from "../seed/fixtures/profile-fixtures.mjs";
+import {
+  PROFILE_SEED_PERSONAS,
+  buildLeaderboardSeedWrites,
+  buildProfileSeedWrites,
+  publicIdentityMismatchFields,
+} from "../seed/fixtures/profile-fixtures.mjs";
 import {
   BATCH_WRITE_LIMIT,
   REPLAY_SUMMARY_REPAIR_KIND,
@@ -943,7 +948,7 @@ test("profile fixtures mint canonical profile_workouts document ids", () => {
   }
 });
 
-test("profile fixtures keep authored identity private", () => {
+test("profile fixtures publish account-authored identity", () => {
   const writes = buildProfileSeedWrites({
     db: fakeSeedFirestore(),
     catalog: new Map(),
@@ -952,17 +957,96 @@ test("profile fixtures keep authored identity private", () => {
     now: new Date("2026-07-01T00:00:00.000Z"),
   });
 
-  const privateUsers = writes.filter((entry) => entry.shape === "user");
+  const privateUsers = new Map(
+    writes
+      .filter((entry) => entry.shape === "user")
+      .map((entry) => [entry.ref.path.split("/").at(-1), entry.data])
+  );
   const publicIdentities = writes.filter((entry) =>
     entry.shape === "publicProfile" || entry.shape === "leaderboardStats"
   );
+  const publicProfiles = new Map(
+    writes
+      .filter((entry) => entry.shape === "publicProfile")
+      .map((entry) => [entry.data.userId, entry.data])
+  );
 
-  assert.ok(privateUsers.some((entry) => entry.data.displayName !== "Climber"));
   assert.ok(publicIdentities.length > 0);
   for (const entry of publicIdentities) {
-    assert.equal(entry.data.displayName, "Climber");
-    assert.equal(entry.data.photoURL, "");
+    const userId = entry.data.userId;
+    assert.equal(entry.data.displayName, privateUsers.get(userId).displayName);
+    assert.equal(
+      entry.data.photoURL,
+      privateUsers.get(userId).profilePictureURL ?? ""
+    );
+    if (entry.shape === "leaderboardStats") {
+      const mirror = publicProfiles.get(userId);
+      assert.equal(entry.data.displayName, mirror.displayName);
+      assert.equal(entry.data.photoURL, mirror.photoURL);
+      assert.equal(
+        entry.data.identityPolicyVersion,
+        mirror.identityPolicyVersion
+      );
+      assert.equal(entry.data.identityChangedAt, mirror.identityChangedAt);
+    }
   }
+});
+
+test("standalone leaderboard fixtures require and copy exact public identity", () => {
+  const identityChangedAt = {seconds: 100, nanoseconds: 5};
+  const publicIdentities = new Map(
+    PROFILE_SEED_PERSONAS.map((persona) => [
+      persona.id,
+      {
+        displayName: `Published ${persona.name}`,
+        identityChangedAt,
+        identityPolicyVersion: 1,
+        photoURL: `https://example.com/${persona.id}.jpg`,
+        userId: persona.id,
+      },
+    ])
+  );
+  const options = {
+    db: fakeSeedFirestore(),
+    catalog: new Map(),
+    Timestamp: {fromDate: (date) => ({toMillis: () => date.getTime()})},
+    FieldValue: {serverTimestamp: () => "server-timestamp"},
+    now: new Date("2026-07-01T00:00:00.000Z"),
+  };
+
+  assert.throws(
+    () => buildLeaderboardSeedWrites(options),
+    /requires current public profile identities/
+  );
+
+  const writes = buildLeaderboardSeedWrites({
+    ...options,
+    publicIdentities,
+  });
+  assert.ok(writes.length > 0);
+  for (const entry of writes) {
+    const mirror = publicIdentities.get(entry.data.userId);
+    assert.equal(entry.data.displayName, mirror.displayName);
+    assert.equal(entry.data.photoURL, mirror.photoURL);
+    assert.equal(entry.data.identityChangedAt, identityChangedAt);
+    assert.equal(
+      entry.data.identityPolicyVersion,
+      mirror.identityPolicyVersion
+    );
+  }
+
+  const staleProjection = {
+    ...writes[0].data,
+    identityChangedAt: {seconds: 99, nanoseconds: 0},
+    photoURL: "https://example.com/stale.jpg",
+  };
+  assert.deepEqual(
+    publicIdentityMismatchFields(
+      staleProjection,
+      publicIdentities.get(staleProjection.userId)
+    ),
+    ["photoURL", "identityChangedAt"]
+  );
 });
 
 function fakeSeedFirestore() {
