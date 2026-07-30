@@ -14,6 +14,30 @@ test("matches the Swift stable public handle vectors", () => {
 const STORAGE_PHOTO_URL =
   "https://firebasestorage.googleapis.com/v0/b/ascend-dev.appspot.com/o/" +
   "users%2Fuser-123%2Fprofile_pictures%2Fphoto.jpg?alt=media&token=abc";
+// The exact shape StorageReference.downloadURL() emits: it sets
+// URLComponents.port from Storage.port, which defaults to 443, and Foundation
+// keeps that default port.
+const SDK_EMITTED_PHOTO_URL =
+  "https://firebasestorage.googleapis.com:443/v0/b/" +
+  "ascend-staging-fa7d5.firebasestorage.app/o/" +
+  "users%2FabC123%2Fprofile_pictures%2FDEAD-BEEF.jpg" +
+  "?alt=media&token=11111111-2222-3333-4444-555555555555";
+
+test("keeps the download URL the Firebase iOS SDK actually emits", () => {
+  assert.equal(
+    publicIdentityFromData("user-123", {
+      displayName: "Maya Chen",
+      photoURL: SDK_EMITTED_PHOTO_URL,
+    }).photoURL,
+    SDK_EMITTED_PHOTO_URL
+  );
+});
+
+test("rejects the anonymous sentinel spelled with an okina", () => {
+  assert.equal(isAllowedDisplayName("Anonymous\u02bb Climber"), false);
+  assert.equal(isAllowedDisplayName("Anonymous\u02bcClimber"), false);
+  assert.equal(isAllowedDisplayName("Anonymous Climber"), false);
+});
 
 test("uses validated account-authored identity", () => {
   assert.deepEqual(
@@ -38,6 +62,7 @@ test("drops a photo URL outside Firebase Storage", () => {
     "https://firebasestorage.googleapis.com.evil.test/v0/b/bucket/o/x",
     "https://firebasestorage.googleapis.com/evil.jpg",
     "https://firebasestorage.googleapis.com/v0/b/bucket/o/users/plain/path",
+    "https://firebasestorage.googleapis.com:8080/v0/b/bucket/o/photo.jpg",
     "javascript:alert(1)",
   ]) {
     assert.equal(

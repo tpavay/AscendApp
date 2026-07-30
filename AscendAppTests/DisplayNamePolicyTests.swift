@@ -82,6 +82,18 @@ struct DisplayNamePolicyTests {
         #expect(DisplayNamePolicy.isAllowed("O\u{02BC}ahu Climber"))
     }
 
+    /// The okina allowlist must not open a hole in the account-deletion
+    /// sentinel: the Cloud Functions validator strips U+02BB as a diacritic and
+    /// the rules pattern absorbs it, so the client has to reject it too or the
+    /// server denies a write the client just accepted.
+    @Test
+    func anonymousClimberSentinelSurvivesTheOkinaAllowlist() {
+        #expect(!DisplayNamePolicy.isAllowed("Anonymous\u{02BB} Climber"))
+        #expect(!DisplayNamePolicy.isAllowed("Anonymous\u{02BC}Climber"))
+        #expect(!DisplayNamePolicy.isAllowed("Anonymous Climber"))
+        #expect(DisplayNamePolicy.isAllowed("Ka\u{02BB}iulani"))
+    }
+
     @Test
     func stillRejectsRepeatedLettersAndModifierLetterObfuscation() {
         #expect(!DisplayNamePolicy.isAllowed("fuuuck"))

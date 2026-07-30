@@ -28,6 +28,12 @@ export const PROFILE_SEED_PERSONAS = [
   {id: "profile_empty_achievements", name: "Linnea S.", age: 24, gender: "non_binary", weightLb: 160, country: "SE", region: "AB", climbs: 2, firstAscents: 0, top1: 0, top3: 0, top10: 0, top100: 0, streak: 1, climbIds: ["space-needle", "statue-of-liberty"]},
 ];
 
+// Mirrors isValidPublicPhotoURL in firestore.rules and validPhotoURL in
+// functions/src/publicIdentity.ts, including the default port the Firebase iOS
+// SDK leaves in every download URL it emits.
+export const PUBLIC_PHOTO_URL_PATTERN =
+  /^https:\/\/firebasestorage\.googleapis\.com(:443)?\/v0\/b\/[A-Za-z0-9][A-Za-z0-9._-]*\/o\/[^/]+$/u;
+
 export const PROFILE_FIELD_SETS = {
   user: new Set([
     "email",
@@ -702,12 +708,21 @@ function daysFromNow(days, base = new Date()) {
   return new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
 }
 
-function avatarURL(name) {
-  return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&size=200&background=2F3136&color=fff&bold=true&format=png`;
-}
-
+// A seeded photo has to satisfy the same contract as a real one: rules reject
+// any other host, and the identity propagation trigger would blank it on the way
+// to the leaderboard. A persona with no uploaded avatar publishes no photo, and
+// anything off-host fails the seed rather than reaching Firestore.
 function profilePhotoURL(persona, avatarURLs) {
-  return avatarURLs.get(persona.id) ?? avatarURL(persona.name);
+  const photoURL = avatarURLs.get(persona.id);
+  if (photoURL === undefined) {
+    return "";
+  }
+  if (!PUBLIC_PHOTO_URL_PATTERN.test(photoURL)) {
+    throw new Error(
+      `${persona.id} avatar is not a Firebase Storage download URL: ${photoURL}`
+    );
+  }
+  return photoURL;
 }
 
 // These ids key `users/{uid}/profile_workouts` documents, which obey the one-spelling rule

@@ -121,6 +121,11 @@ enum PublicClimberIdentity {
     /// in `functions/src/publicIdentity.ts`. A URL outside Firebase Storage is
     /// dropped rather than published, so the server never has to reject the
     /// whole profile write over a photo the client could have discarded.
+    ///
+    /// `StorageReference.downloadURL()` builds its URL from `URLComponents`
+    /// with `port` set to `Storage.port`, which defaults to 443, and Foundation
+    /// keeps that default port in the string - so the shape the SDK actually
+    /// emits carries an explicit `:443`.
     static func publishablePhotoURL(_ photoURL: URL?) -> URL? {
         guard let photoURL else {
             return nil
@@ -129,7 +134,7 @@ enum PublicClimberIdentity {
         let value = photoURL.absoluteString
         guard value.count <= 2048,
               value.range(
-                of: #"^https://firebasestorage\.googleapis\.com/v0/b/[a-zA-Z0-9][a-zA-Z0-9._-]*/o/[^/]+$"#,
+                of: #"^https://firebasestorage\.googleapis\.com(:443)?/v0/b/[a-zA-Z0-9][a-zA-Z0-9._-]*/o/[^/]+$"#,
                 options: .regularExpression
               ) != nil else {
             return nil

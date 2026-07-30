@@ -14,6 +14,7 @@ import {
   buildLeaderboardSeedWrites,
   buildProfileSeedWrites,
   publicIdentityMismatchFields,
+  PUBLIC_PHOTO_URL_PATTERN,
 } from "../seed/fixtures/profile-fixtures.mjs";
 import {
   BATCH_WRITE_LIMIT,
@@ -926,6 +927,51 @@ test("a repair kind this version cannot interpret is reported, never filtered aw
     malformedProjection,
     null,
   ]);
+});
+
+test("profile fixtures publish only Firebase Storage avatars", () => {
+  const seedArgs = {
+    db: fakeSeedFirestore(),
+    catalog: new Map(),
+    Timestamp: {fromDate: (date) => ({toMillis: () => date.getTime()})},
+    FieldValue: {serverTimestamp: () => "server-timestamp"},
+    now: new Date("2026-07-01T00:00:00.000Z"),
+  };
+  const uploaded =
+    "https://firebasestorage.googleapis.com:443/v0/b/ascend-dev.firebasestorage.app/o/" +
+    "users%2Fprofile_newcomer%2Fprofile_pictures%2Fpack.jpg?alt=media&token=abc";
+
+  const withAvatars = buildProfileSeedWrites({
+    ...seedArgs,
+    avatarURLs: new Map([["profile_newcomer", uploaded]]),
+  });
+  const publicProfiles = withAvatars.filter(
+    (entry) => entry.shape === "publicProfile"
+  );
+  const seeded = publicProfiles.find(
+    (entry) => entry.data.userId === "profile_newcomer"
+  );
+
+  assert.equal(seeded.data.photoURL, uploaded);
+  // A persona without an uploaded avatar publishes no photo rather than an
+  // off-host placeholder the rules and the propagation trigger would reject.
+  for (const entry of publicProfiles) {
+    assert.ok(
+      entry.data.photoURL === "" ||
+        PUBLIC_PHOTO_URL_PATTERN.test(entry.data.photoURL),
+      `${entry.data.userId}: ${entry.data.photoURL}`
+    );
+  }
+
+  assert.throws(
+    () => buildProfileSeedWrites({
+      ...seedArgs,
+      avatarURLs: new Map([
+        ["profile_newcomer", "https://ui-avatars.com/api/?name=Noah"],
+      ]),
+    }),
+    /not a Firebase Storage download URL/u
+  );
 });
 
 test("profile fixtures mint canonical profile_workouts document ids", () => {

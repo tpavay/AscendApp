@@ -446,24 +446,30 @@ test('public photo URLs must be Firebase Storage download URLs', async () => {
     'https://firebasestorage.googleapis.com.attacker.test/v0/b/bucket/o/x.jpg',
     'https://firebasestorage.googleapis.com/evil.jpg',
     'https://firebasestorage.googleapis.com/v0/b/bucket/o/users/plain/path.jpg',
+    'https://firebasestorage.googleapis.com:8080/v0/b/bucket/o/photo.jpg',
   ]) {
     await assertFails(setDoc(profileRef, makePublicProfileDocument({photoURL})));
     await assertFails(setDoc(leaderboardRef, makeLeaderboardDocument({photoURL})));
   }
 
-  await assertSucceeds(setDoc(
-    profileRef,
-    makePublicProfileDocument({
-      identityChangedAt: serverTimestamp(),
-      photoURL: STORAGE_PHOTO_URL,
-    })
-  ));
-  const publishedIdentity = (await getDoc(profileRef)).data();
-  await assertSucceeds(setDoc(leaderboardRef, makeLeaderboardDocument({
-    displayName: publishedIdentity.displayName,
-    identityChangedAt: publishedIdentity.identityChangedAt,
-    photoURL: publishedIdentity.photoURL,
-  })));
+  for (const photoURL of [STORAGE_PHOTO_URL, SDK_EMITTED_PHOTO_URL, '']) {
+    await assertSucceeds(setDoc(
+      profileRef,
+      makePublicProfileDocument({
+        identityChangedAt: serverTimestamp(),
+        photoURL,
+      })
+    ));
+    const publishedIdentity = (await getDoc(profileRef)).data();
+    await assertSucceeds(setDoc(leaderboardRef, makeLeaderboardDocument({
+      displayName: publishedIdentity.displayName,
+      identityChangedAt: publishedIdentity.identityChangedAt,
+      photoURL: publishedIdentity.photoURL,
+    })));
+    // A leaderboard row's identity is server-owned once it exists, so the next
+    // shape is proven on a fresh row rather than by rewriting this one.
+    await assertSucceeds(deleteDoc(leaderboardRef));
+  }
 });
 
 test('identity policy blocks stale clients and permits modern refreshes', async () => {
@@ -711,6 +717,13 @@ function makeUserDocument(overrides = {}) {
     ...overrides,
   };
 }
+
+// The exact shape StorageReference.downloadURL() emits, default port included.
+const SDK_EMITTED_PHOTO_URL =
+  'https://firebasestorage.googleapis.com:443/v0/b/' +
+  'ascend-staging-fa7d5.firebasestorage.app/o/' +
+  `users%2F${userId}%2Fprofile_pictures%2FDEAD-BEEF.jpg` +
+  '?alt=media&token=11111111-2222-3333-4444-555555555555';
 
 const STORAGE_PHOTO_URL =
   'https://firebasestorage.googleapis.com/v0/b/ascend-test.appspot.com/o/' +

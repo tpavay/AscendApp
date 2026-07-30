@@ -93,13 +93,14 @@ service cloud.firestore {
     // Every viewer's device fetches this URL. Constrain it to a Firebase
     // Storage download URL so a modified client cannot point the whole
     // leaderboard at a host it controls. Mirrors validPhotoURL in
-    // functions/src/publicIdentity.ts.
+    // functions/src/publicIdentity.ts. The optional :443 is the default port
+    // the Firebase iOS SDK leaves in every download URL it emits.
     function isValidPublicPhotoURL(value) {
       return value is string &&
         value.size() <= 2048 &&
         (value == "" ||
           value.matches(
-            "^https://firebasestorage\\.googleapis\\.com/v0/b/" +
+            "^https://firebasestorage\\.googleapis\\.com(:443)?/v0/b/" +
             "[a-zA-Z0-9][a-zA-Z0-9._-]*/o/[^/]+$"
           ));
     }

@@ -31,8 +31,14 @@ paths:
   `users/{uid}/public_profile/current` needs `identityPolicyVersion` and `identityChangedAt`; `leaderboard_stats` rows additionally need `identityState`.
   Strict `hasOnly`/`hasAll` means a seeder that omits them is denied outright, so keep `scripts/seed/fixtures/profile-fixtures.mjs` as the reference shape.
 - Fixture display names must satisfy the same screening as production names - `DisplayNamePolicy` in Swift, `isAllowedDisplayName` in `functions/src/publicIdentity.ts`, and `isAllowedDisplayName` in `firestore.rules` all agree, and a name any one of them rejects is rejected for a fixture too.
-- Fixture `photoURL` values must be Firebase Storage download URLs (`https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<object>`).
+- Fixture `photoURL` values must be Firebase Storage download URLs (`https://firebasestorage.googleapis.com[:443]/v0/b/<bucket>/o/<object>`).
   Rules reject any other host, and the identity propagation trigger drops one rather than copying it onto a projection, so a fixture pointing at an external avatar service loses its photo on the way to the leaderboard.
+  The `:443` is not optional cosmetics: the Firebase iOS SDK builds download URLs through `URLComponents` with `port` set to `Storage.port`, which defaults to 443, so every real upload carries it. Validate any new photo-URL rule against a captured SDK string, never a hand-written one.
+- Profile persona avatars are twelve curated 512x512 JPEGs committed at `scripts/seed/assets/profile-avatars/<personaId>.jpg`, one distinct image per persona.
+  They live in the repo rather than behind an `--avatar-dir` flag so the seed reproduces for anyone without a local image folder.
+  `scripts/seed-test-users.mjs` uploads them to `users/{uid}/profile_pictures/<seedPackId>.jpg` - the owner-scoped prefix `storage.rules` already governs, never a shared root path - mints a download token per object, and injects the resulting URLs into `buildProfileSeedWrites`.
+  The object name is deterministic, so re-seeding overwrites in place instead of orphaning objects.
+  A persona with no uploaded avatar publishes no photo; an off-host URL fails the seed rather than reaching Firestore.
 - Dev and staging seed data written before the account-authored identity change is stale: its mirrors predate the identity contract and its leaderboard rows predate `identityState`.
   Re-seed those environments with `scripts/dev-db.mjs` before trusting them.
 - To create one dev/staging QA Auth account, use `scripts/dev-db.mjs create-auth-user`. It must stay dev/staging-only, can generate a password, and can optionally run `--hydrate-profile` or `--seed-demo-data` after the Auth account exists.

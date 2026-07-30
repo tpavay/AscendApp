@@ -67,7 +67,7 @@ enum DisplayNamePolicy {
         }
 
         let normalized = digitSubstituted(folded)
-        let lettersOnly = normalized.filter { $0.isLetter }
+        let lettersOnly = normalized.filter { $0.isASCII && $0.isLetter }
         guard lettersOnly != "anonymousclimber" else {
             throw DisplayNamePolicyError.objectionable
         }

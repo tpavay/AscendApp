@@ -225,8 +225,18 @@ struct PublicClimberIdentityTests {
     /// A photo URL outside Firebase Storage is dropped rather than published, so
     /// the server never rejects the whole profile write over a value the client
     /// could have discarded.
+    /// `Self.sdkEmittedPhotoURL` is the exact string
+    /// `StorageReference.downloadURL()` produces: it sets `URLComponents.port`
+    /// from `Storage.port`, which defaults to 443, and Foundation keeps that
+    /// default port. A pattern written against a hand-made port-less URL passes
+    /// its own tests and rejects every real upload.
     @Test
     func onlyFirebaseStoragePhotoURLsArePublishable() {
+        #expect(
+            PublicClimberIdentity.publishablePhotoURL(
+                URL(string: Self.sdkEmittedPhotoURL)
+            )?.absoluteString == Self.sdkEmittedPhotoURL
+        )
         #expect(
             PublicClimberIdentity.publishablePhotoURL(
                 URL(string: Self.storagePhotoURL)
@@ -238,7 +248,8 @@ struct PublicClimberIdentityTests {
             "http://firebasestorage.googleapis.com/v0/b/bucket/o/photo.jpg",
             "https://firebasestorage.googleapis.com.attacker.test/v0/b/b/o/x.jpg",
             "https://firebasestorage.googleapis.com/evil.jpg",
-            "https://firebasestorage.googleapis.com/v0/b/bucket/o/users/plain.jpg"
+            "https://firebasestorage.googleapis.com/v0/b/bucket/o/users/plain.jpg",
+            "https://firebasestorage.googleapis.com:8080/v0/b/bucket/o/photo.jpg"
         ] {
             #expect(
                 PublicClimberIdentity.publishablePhotoURL(
@@ -252,4 +263,12 @@ struct PublicClimberIdentityTests {
     private static let storagePhotoURL =
         "https://firebasestorage.googleapis.com/v0/b/ascend-test.appspot.com/o/" +
         "users%2Fuser-123%2Fprofile_pictures%2Fphoto.jpg?alt=media&token=abc"
+
+    /// Captured from the same `URLComponents` construction
+    /// `StorageGetDownloadURLTask.downloadURLFromMetadataDictionary` performs.
+    private static let sdkEmittedPhotoURL =
+        "https://firebasestorage.googleapis.com:443/v0/b/" +
+        "ascend-staging-fa7d5.firebasestorage.app/o/" +
+        "users%2FabC123%2Fprofile_pictures%2FDEAD-BEEF.jpg" +
+        "?alt=media&token=11111111-2222-3333-4444-555555555555"
 }

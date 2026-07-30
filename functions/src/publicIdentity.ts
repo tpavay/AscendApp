@@ -17,9 +17,10 @@ export type PublicIdentityState =
 const TOKEN_ALPHABET = "2346789AEFJMNQRT";
 const MAXIMUM_DISPLAY_NAME_LENGTH = 80;
 const MAXIMUM_PHOTO_URL_LENGTH = 2048;
-// Mirrors isValidPublicPhotoURL in firestore.rules.
+// Mirrors isValidPublicPhotoURL in firestore.rules. The optional :443 is the
+// default port the Firebase iOS SDK leaves in every download URL it emits.
 const PROFILE_PHOTO_URL_PATTERN =
-  /^https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/[A-Za-z0-9][A-Za-z0-9._-]*\/o\/[^/]+$/u;
+  /^https:\/\/firebasestorage\.googleapis\.com(:443)?\/v0\/b\/[A-Za-z0-9][A-Za-z0-9._-]*\/o\/[^/]+$/u;
 const BLOCKED_TERMS = [
   "asshole",
   "bastard",
