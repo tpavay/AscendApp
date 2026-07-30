@@ -1,7 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {execFileSync} from "node:child_process";
 import {readFileSync} from "node:fs";
 import {fileURLToPath} from "node:url";
+
+import {
+  isExplicitPhotoClear,
+  resolveHydratePhotoURL,
+} from "../dev-db.mjs";
 
 import {
   PUBLIC_PHOTO_URL_PATTERN,
@@ -94,4 +100,102 @@ test("hydrate-user accepts a legitimate identity pair", () => {
     "hydrate-user"
   ));
   assert.doesNotThrow(() => assertPublishablePublicIdentity({}, "hydrate-user"));
+  // An omitted flag arrives as null from trimmed(); it is not an identity the
+  // caller is setting, so it must not be screened as one.
+  assert.doesNotThrow(() => assertPublishablePublicIdentity(
+    {displayName: null, photoURL: null},
+    "hydrate-user"
+  ));
+});
+
+test("hydrate-user allows omitting --display-name entirely", () => {
+  const result = runDevDb([
+    "hydrate-user", "--project", "dev", "--user", "seed-user",
+    "--age", "30", "--gender", "man",
+    "--height-cm", "180", "--weight-kg", "80", "--country", "usa",
+  ]);
+
+  assert.equal(result.failed, true);
+  assert.match(result.output, /--country as an ISO-2 code/u);
+  assert.doesNotMatch(result.output, /display name/u);
+});
+
+const DEV_DB = fileURLToPath(new URL("../dev-db.mjs", import.meta.url));
+
+function runDevDb(args) {
+  try {
+    execFileSync(process.execPath, [DEV_DB, ...args], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return {failed: false, output: ""};
+  } catch (error) {
+    return {failed: true, output: `${error.stdout ?? ""}${error.stderr ?? ""}`};
+  }
+}
+
+// The escape hatch has to survive argument parsing, which is where it used to
+// die: requireValue rejected an empty string before the command ever ran. These
+// invoke the CLI exactly as the skill and the error message instruct.
+test("hydrate-user accepts the documented empty --photo-url through argv", () => {
+  const baseArgs = [
+    "hydrate-user", "--project", "dev", "--user", "seed-user",
+    "--age", "30", "--gender", "man",
+    "--height-cm", "180", "--weight-kg", "80",
+  ];
+
+  // Parsing and identity validation both pass, so the run gets as far as the
+  // country check rather than dying on the photo argument.
+  const cleared = runDevDb([...baseArgs, "--photo-url", "", "--country", "usa"]);
+  assert.equal(cleared.failed, true);
+  assert.match(cleared.output, /--country as an ISO-2 code/u);
+  assert.doesNotMatch(cleared.output, /--photo-url requires a value/u);
+  assert.doesNotMatch(cleared.output, /not a Firebase Storage download URL/u);
+
+  const clearFlag = runDevDb([...baseArgs, "--clear-photo", "--country", "usa"]);
+  assert.equal(clearFlag.failed, true);
+  assert.match(clearFlag.output, /--country as an ISO-2 code/u);
+  assert.doesNotMatch(clearFlag.output, /not a Firebase Storage download URL/u);
+});
+
+test("hydrate-user still refuses an off-contract --photo-url through argv", () => {
+  const result = runDevDb([
+    "hydrate-user", "--project", "dev", "--user", "seed-user",
+    "--photo-url", "https://ui-avatars.com/api/?name=Noah",
+    "--age", "30", "--gender", "man",
+    "--height-cm", "180", "--weight-kg", "80", "--country", "US",
+  ]);
+
+  assert.equal(result.failed, true);
+  assert.match(result.output, /not a Firebase Storage download URL/u);
+  // The message has to name an invocation that actually works.
+  assert.match(result.output, /--photo-url "" \(or --clear-photo\)/u);
+});
+
+test("hydrate-user reports a missing --photo-url value distinctly", () => {
+  const result = runDevDb([
+    "hydrate-user", "--project", "dev", "--user", "seed-user", "--photo-url",
+  ]);
+
+  assert.equal(result.failed, true);
+  assert.match(result.output, /--photo-url requires a value/u);
+});
+
+// An explicit clear must beat the stored value; that fallback was the second
+// blocker behind the documented escape.
+test("an explicit photo clear wins over the stored profile picture", () => {
+  const stored = "https://ui-avatars.com/api/?name=Noah";
+
+  assert.equal(resolveHydratePhotoURL("", stored), "");
+  assert.equal(resolveHydratePhotoURL("   ", stored), "");
+  assert.equal(resolveHydratePhotoURL(undefined, stored), stored);
+  assert.equal(resolveHydratePhotoURL(null, undefined), "");
+  assert.equal(
+    resolveHydratePhotoURL(SDK_EMITTED_PHOTO_URL, stored),
+    SDK_EMITTED_PHOTO_URL
+  );
+
+  assert.equal(isExplicitPhotoClear(""), true);
+  assert.equal(isExplicitPhotoClear(undefined), false);
+  assert.equal(isExplicitPhotoClear(stored), false);
 });

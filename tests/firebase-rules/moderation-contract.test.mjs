@@ -21,6 +21,10 @@ import {
 
 const projectId = 'demo-ascendapp-rules-moderation';
 const firestoreRules = readFileSync(new URL('../../firestore.rules', import.meta.url), 'utf8');
+const screeningVector = JSON.parse(readFileSync(
+  new URL('../../SharedTestVectors/display-name-screening-vector.json', import.meta.url),
+  'utf8'
+));
 const firestoreIndexes = JSON.parse(readFileSync(
   new URL('../../firestore.indexes.json', import.meta.url),
   'utf8'
@@ -427,6 +431,35 @@ test('public identity requires bounded nonempty names and bounded photo urls', a
     doc(db, `leaderboard_stats/weekly_2026-W31_${userId}`),
     makeLeaderboardDocument({photoURL: `${STORAGE_PHOTO_URL}${'a'.repeat(2030)}`})
   ));
+});
+
+// firestore.rules is the fourth copy of the display-name screening. It asserts
+// the same vector as DisplayNamePolicy, functions/src/publicIdentity.ts, and
+// scripts/seed/lib/public-identity-contract.mjs, so no layer can drift alone.
+test('display-name screening matches the shared parity vector', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const db = context.firestore();
+  const profileRef = doc(db, `users/${userId}/public_profile/current`);
+
+  assert.ok(screeningVector.allowed.length > 0);
+  assert.ok(screeningVector.rejected.length > 0);
+
+  for (const displayName of screeningVector.rejected) {
+    await assertFails(setDoc(
+      profileRef,
+      makePublicProfileDocument({displayName})
+    ));
+  }
+
+  for (const displayName of screeningVector.allowed) {
+    await assertSucceeds(setDoc(
+      profileRef,
+      makePublicProfileDocument({
+        displayName,
+        identityChangedAt: serverTimestamp(),
+      })
+    ));
+  }
 });
 
 test('public photo URLs must be Firebase Storage download URLs', async () => {

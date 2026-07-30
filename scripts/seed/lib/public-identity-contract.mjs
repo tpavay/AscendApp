@@ -171,16 +171,18 @@ export function isAllowedPublicPhotoURL(value) {
 /**
  * Throws an operator-facing error when an identity would be published in a
  * shape the rules reject and the propagation trigger strips.
+ * A null or absent field is one the caller is not setting, so it is skipped;
+ * the resolved values are checked again before the write.
  * @param {object} identity Candidate identity.
- * @param {string} identity.displayName Candidate display name.
- * @param {string} identity.photoURL Candidate photo URL, empty for no photo.
+ * @param {string} [identity.displayName] Candidate display name.
+ * @param {string} [identity.photoURL] Candidate photo URL, empty for no photo.
  * @param {string} [context] Command name used in the error message.
  */
 export function assertPublishablePublicIdentity(
   {displayName, photoURL},
   context = "seed"
 ) {
-  if (displayName !== undefined && !isAllowedDisplayName(displayName)) {
+  if (displayName != null && !isAllowedDisplayName(displayName)) {
     throw new Error(
       `${context}: display name ${JSON.stringify(displayName)} fails the ` +
       "shared display-name screening, so firestore.rules would reject it and " +
@@ -188,14 +190,14 @@ export function assertPublishablePublicIdentity(
     );
   }
 
-  if (photoURL !== undefined && !isAllowedPublicPhotoURL(photoURL)) {
+  if (photoURL != null && !isAllowedPublicPhotoURL(photoURL)) {
     throw new Error(
       `${context}: photo URL ${JSON.stringify(photoURL)} is not a Firebase ` +
       "Storage download URL " +
       "(https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<object>), so " +
       "firestore.rules would reject it and the identity propagation trigger " +
       "would blank it. Upload the image to Storage and use its download URL, " +
-      "or pass an empty value to publish no photo."
+      "or pass --photo-url \"\" (or --clear-photo) to publish no photo."
     );
   }
 }

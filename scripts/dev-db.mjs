@@ -209,7 +209,10 @@ function parseArgs(argv) {
         args.email = requireValue(argv, ++index, value);
         break;
       case "--photo-url":
-        args.photoURL = requireValue(argv, ++index, value);
+        args.photoURL = allowEmptyValue(argv, ++index, value);
+        break;
+      case "--clear-photo":
+        args.photoURL = "";
         break;
       case "--age":
         args.age = numberValue(requireValue(argv, ++index, value), value);
@@ -263,6 +266,16 @@ function requireValue(argv, index, flag) {
   const value = argv[index];
   if (!value || value.startsWith("--")) {
     throw new Error(`${flag} requires a value`);
+  }
+  return value;
+}
+
+// An empty string is a meaningful value for --photo-url: it is how an operator
+// publishes no photo, so it has to survive argument parsing.
+function allowEmptyValue(argv, index, flag) {
+  const value = argv[index];
+  if (value === undefined || value.startsWith("--")) {
+    throw new Error(`${flag} requires a value, or "" to publish no photo`);
   }
   return value;
 }
@@ -330,7 +343,8 @@ Options:
   --no-first-ascent                  Demo user seed will not claim a First Ascent.
 
 create-auth-user fields:
-  --email <email> [--display-name <name>] [--uid <uid>] [--photo-url <url>]
+  --email <email> [--display-name <name>] [--uid <uid>]
+  [--photo-url <url> | --photo-url "" | --clear-photo]
   [--password <password> | --password-env <ENV_NAME> | --generate-password]
   [--use-existing] [--unverified] [--hydrate-profile | --seed-demo-data]
   If no password flag is provided, a random password is generated and printed once.
@@ -340,7 +354,8 @@ hydrate-user fields:
   --height-cm <cm> or --height-in <in>
   --weight-kg <kg> or --weight-lb <lb>
   --country <ISO-2> [--region <state/province>] [--joined-at <ISO date>]
-  [--email <email>] [--first-name <name>] [--last-name <name>] [--photo-url <url>]
+  [--email <email>] [--first-name <name>] [--last-name <name>]
+  [--photo-url <url> | --photo-url "" | --clear-photo]
 `);
 }
 
@@ -514,7 +529,9 @@ function runDemoUserScript(projectId, args) {
   if (args.displayName) {
     scriptArgs.push("--display-name", args.displayName);
   }
-  if (args.photoURL) {
+  if (isExplicitPhotoClear(args.photoURL)) {
+    scriptArgs.push("--clear-photo");
+  } else if (args.photoURL) {
     scriptArgs.push("--photo-url", args.photoURL);
   }
   if (args.age != null) {
@@ -663,7 +680,9 @@ async function createAuthUser(projectId, args) {
     userId: userRecord.uid,
     email: userRecord.email ?? args.email,
     displayName: args.displayName ?? userRecord.displayName ?? null,
-    photoURL: args.photoURL ?? userRecord.photoURL ?? null,
+    photoURL: isExplicitPhotoClear(args.photoURL)
+      ? ""
+      : args.photoURL ?? userRecord.photoURL ?? null,
   };
 
   if (args.hydrateProfile) {
@@ -678,7 +697,9 @@ async function createAuthUser(projectId, args) {
 function validateCreateAuthUserArgs(args) {
   args.email = trimmed(args.email);
   args.displayName = trimmed(args.displayName);
-  args.photoURL = trimmed(args.photoURL);
+  args.photoURL = isExplicitPhotoClear(args.photoURL)
+    ? ""
+    : trimmed(args.photoURL);
   args.password = trimmed(args.password);
   args.passwordEnv = trimmed(args.passwordEnv);
 
@@ -823,7 +844,7 @@ async function hydrateUser(projectId, args) {
   const existingSnapshot = await userRef.get();
   const existing = existingSnapshot.data() ?? {};
   const displayName = trimmed(args.displayName) ?? trimmed(existing.displayName) ?? "Climber";
-  const photoURL = trimmed(args.photoURL) ?? trimmed(existing.profilePictureURL) ?? "";
+  const photoURL = resolveHydratePhotoURL(args.photoURL, existing.profilePictureURL);
   assertPublishablePublicIdentity({displayName, photoURL}, "hydrate-user");
   const joinedAt = args.joinedAt ?? timestampDate(existing.joined_at) ?? new Date();
   const firstName = trimmed(args.firstName) ?? firstNameFromDisplayName(displayName);
@@ -908,7 +929,9 @@ function validateHydrateUserArgs(args) {
   assertPublishablePublicIdentity(
     {
       displayName: trimmed(args.displayName),
-      photoURL: trimmed(args.photoURL),
+      photoURL: isExplicitPhotoClear(args.photoURL)
+        ? ""
+        : trimmed(args.photoURL),
     },
     "hydrate-user"
   );
@@ -955,6 +978,19 @@ function timestampDate(value) {
   return null;
 }
 
+export function isExplicitPhotoClear(value) {
+  return typeof value === "string" && value.trim().length === 0;
+}
+
+// An explicit --photo-url "" (or --clear-photo) publishes no photo. Anything
+// else falls back to the stored value, then to no photo.
+export function resolveHydratePhotoURL(argumentValue, storedValue) {
+  if (isExplicitPhotoClear(argumentValue)) {
+    return "";
+  }
+  return trimmed(argumentValue) ?? trimmed(storedValue) ?? "";
+}
+
 function trimmed(value) {
   if (typeof value !== "string") {
     return null;
@@ -979,7 +1015,9 @@ function inchesToCm(value) {
   return Math.round(value * 2.54 * 10) / 10;
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}

@@ -35,7 +35,8 @@ paths:
   Every seeding entry point validates through it, because the Admin SDK bypasses `firestore.rules` and is therefore the one writer that could publish an identity the server would strip on projection.
   `SharedTestVectors/display-name-screening-vector.json` pins it against the Cloud Functions implementation; add a case there rather than editing one screening copy in isolation.
 - `scripts/dev-db.mjs hydrate-user` fails before writing when `--display-name` fails screening or `--photo-url` is not a Firebase Storage download URL, including when the offending value is inherited from the existing user document rather than passed on the command line.
-  Pass an empty photo URL to publish no photo.
+  To publish no photo, pass `--photo-url ""` or `--clear-photo`; either one wins over a stored `profilePictureURL` instead of falling back to it.
+  That is the escape for stale seed data whose `profilePictureURL` predates the identity contract, and for `create-auth-user --use-existing-auth-user --hydrate-profile` when the Auth record carries a provider photo the contract does not accept.
 - Fixture `photoURL` values must be Firebase Storage download URLs (`https://firebasestorage.googleapis.com[:443]/v0/b/<bucket>/o/<object>`).
   Rules reject any other host, and the identity propagation trigger drops one rather than copying it onto a projection, so a fixture pointing at an external avatar service loses its photo on the way to the leaderboard.
   The `:443` is not optional cosmetics: the Firebase iOS SDK builds download URLs through `URLComponents` with `port` set to `Storage.port`, which defaults to 443, so every real upload carries it. Validate any new photo-URL rule against a captured SDK string, never a hand-written one.
