@@ -144,7 +144,7 @@ struct LeaderboardViewModelTests {
 
     @Test
     func profileSyncLeavesTheSessionCachePopulated() async {
-        // Cached remote stats carry only sanitized identity; "You" and the private
+        // Cached remote stats carry published public identity; "You" and the private
         // photo are resolved at build time, so a profile sync must not force a refetch.
         let cache = LeaderboardSessionCache()
 

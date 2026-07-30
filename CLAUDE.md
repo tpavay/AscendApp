@@ -51,8 +51,8 @@ Organized by **features**, not file types. One type per file.
 AscendApp/
 ├── App/                # Entry point, Firebase init, env plists, deep links
 ├── Features/           # Account · Authentication · Celebration · Climbs · Debug · Home
-│                       # Integrations · Leaderboards · Monetization · Onboarding · Profile
-│                       # Progress · Routines · ShareComposer · Workouts
+│                       # Integrations · Leaderboards · Moderation · Monetization · Onboarding
+│                       # Profile · Progress · Routines · ShareComposer · Workouts
 └── Shared/             # Components · Extensions · Managers · Models · Repositories · Services · Views
 AscendAppTests/         # Swift Testing suite
 AscendLiveActivityWidgets/  # Live Activity / Dynamic Island extension
@@ -149,7 +149,7 @@ Rules that fire from contexts that don't look like their own domain. Each names 
 - **Adding/renaming/removing a Firestore field requires a matching `firestore.rules` update, rules first** - strict `hasOnly`/`hasAll` means the server rejects unlisted fields. Fires while editing Swift. -> `ascend-firebase-data`
 - **Collecting a new data type, calling a required-reason API, or adding an SDK requires updating `AscendApp/PrivacyInfo.xcprivacy` in the same PR** - and the privacy policy, App Store questionnaire, and `Info.plist` strings must agree. Fires while adding a Firestore field or a HealthKit read. -> `ascend-privacy-manifest`
 - **User media goes only under `users/{uid}/...` Storage prefixes**, never shared root paths. Fires while writing an upload path. -> `ascend-firebase-data`
-- **Never publish account-authored identity (displayName/photo) to any public or server-mirrored document.** Fires while writing any public projection - leaderboards, mirrors, functions, seeds. -> `ascend-profile`
+- **Account-authored identity (displayName/photo) is public, so it may only be published through the validated write path and only rendered through the shared moderation resolver.** Views take `Moderated*` render models, never raw identity; public writes screen the name and bound the photo URL. Fires while writing any public projection - leaderboards, mirrors, functions, seeds - or any new surface showing another climber. -> `ascend-profile`
 - **Connectivity has one app-wide source of truth.** Never add feature-local offline detection or a second network-retry pattern. Fires when you're about to write the duplicate. -> `ascend-firebase-data`
 - **Live Climb and routine completions come only from their live sensor flows.** Manual entries and imports can never complete or progress one. Fires when wiring any new workout origin. -> `ascend-workout-model`
 - **A chest strap always outranks an Apple Watch as the live heart-rate source.** Every live session type samples through the one shared recorder; never grow a second capture path. Fires while wiring any heart-rate source or new live session. -> `LiveHeartRateSourceKind.selectionPriority`, `LiveHeartRateRecorder`
@@ -175,7 +175,7 @@ Ascend domains - load before touching the area:
 | Imports, Apple Health, enrichment | `ascend-workout-import` |
 | Best Efforts, Progress, trends | `ascend-best-efforts` |
 | Routines, intervals | `ascend-routines` |
-| Profile, demographics, public mirrors | `ascend-profile` |
+| Profile, demographics, public mirrors, block/report moderation | `ascend-profile` |
 | Onboarding, auth routing, paywall priming | `ascend-onboarding` |
 | Analytics, telemetry, events | `ascend-analytics` |
 | Sharing, stickers, export | `ascend-share-composer` |
