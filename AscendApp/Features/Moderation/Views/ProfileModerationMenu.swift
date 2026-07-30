@@ -10,6 +10,7 @@ struct ProfileModerationMenu: View {
     @State private var showsPostBlockSheet = false
     @State private var errorMessage: String?
     @State private var successMessage: String?
+    @State private var hasPendingReportConfirmation = false
 
     let reportedUserId: String
     let source: ModerationSource
@@ -19,6 +20,19 @@ struct ProfileModerationMenu: View {
     }
 
     var body: some View {
+        if isModeratableUser {
+            menu
+        }
+    }
+
+    /// A profile reached without a uid cannot be blocked or reported, and
+    /// `ModerationRepository` would raise on the empty document path rather than
+    /// throw, so the affordance is withheld instead.
+    private var isModeratableUser: Bool {
+        !reportedUserId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var menu: some View {
         Menu {
             Button(role: .destructive, action: block) {
                 Label(
@@ -44,7 +58,7 @@ struct ProfileModerationMenu: View {
                 onSubmit: submitReport
             )
             .appSheetStyle(.large, isInteractiveDismissDisabled: isSubmittingReport)
-            .onDisappear(perform: restoreFocus)
+            .onDisappear(perform: sheetDidDisappear)
         }
         .sheet(isPresented: $showsPostBlockSheet) {
             PostBlockReportSheet(
@@ -53,7 +67,7 @@ struct ProfileModerationMenu: View {
                 onSubmit: submitPostBlockReport
             )
             .appSheetStyle(.large, isInteractiveDismissDisabled: isSubmittingReport)
-            .onDisappear(perform: restoreFocus)
+            .onDisappear(perform: sheetDidDisappear)
         }
         .alert("Couldn't complete that action", isPresented: errorAlertBinding) {
             Button("OK", role: .cancel) {}
@@ -153,14 +167,24 @@ struct ProfileModerationMenu: View {
                     source: source
                 )
                 HapticsManager.shared.trigger(.success)
+                // SwiftUI drops an alert raised while a sheet is still
+                // dismissing, so the confirmation waits for onDisappear.
+                hasPendingReportConfirmation = true
                 dismiss()
-                successMessage = "Ascend received your report for review."
             } catch is CancellationError {
                 return
             } catch {
                 errorMessage = "The report wasn't sent. Wait a minute, then try again."
             }
         }
+    }
+
+    private func sheetDidDisappear() {
+        if hasPendingReportConfirmation {
+            hasPendingReportConfirmation = false
+            successMessage = "Ascend received your report for review."
+        }
+        restoreFocus()
     }
 
     private func restoreFocus() {

@@ -17,6 +17,13 @@ final class ModerationStore {
     private var blocksAddedDuringHydration: [String: BlockedClimber] = [:]
     private var userIdsUnblockedDuringHydration: Set<String> = []
 
+    @ObservationIgnored
+    private var leaderboardEntryMemo =
+        ModeratedCollectionMemo<LeaderboardEntry, ModeratedLeaderboardEntry>()
+    @ObservationIgnored
+    private var replayRowMemo =
+        ModeratedCollectionMemo<LiveReplayLeaderboardRow, ModeratedReplayLeaderboardRow>()
+
     init(repository: any ModerationRepositoryProtocol = ModerationRepository.shared) {
         self.repository = repository
     }
@@ -25,14 +32,26 @@ final class ModerationStore {
         Set(blockedClimbers.map(\.userId))
     }
 
+    /// Loads the block list from the server, refreshing an already-hydrated
+    /// session in place.
+    ///
+    /// Only a user change (or `clear()`) re-arms `isBlockListHydrated`. Dropping
+    /// back to un-hydrated on an ordinary refresh - which runs on every
+    /// foreground - would re-mask every climber app-wide until the round trip
+    /// finished, and would leave the app fully masked for the rest of the
+    /// session whenever the refresh failed offline. A failed refresh keeps the
+    /// last known good list instead of falling back to empty.
     func hydrate(for userId: String) async {
         sessionGeneration &+= 1
         let generation = sessionGeneration
+        let isUserChange = activeUserId != userId
         activeUserId = userId
-        blockedClimbers = []
         blocksAddedDuringHydration = [:]
         userIdsUnblockedDuringHydration = []
-        isBlockListHydrated = false
+        if isUserChange {
+            blockedClimbers = []
+            isBlockListHydrated = false
+        }
         isHydrating = true
         hydrationErrorMessage = nil
         defer {
@@ -74,7 +93,10 @@ final class ModerationStore {
     }
 
     func block(blockerUserId: String, blockedUserId: String) async throws {
-        guard activeUserId == blockerUserId, blockerUserId != blockedUserId else {
+        guard activeUserId == blockerUserId,
+              blockerUserId != blockedUserId,
+              Self.isUsableUserId(blockerUserId),
+              Self.isUsableUserId(blockedUserId) else {
             throw ModerationStoreError.invalidAccount
         }
         let generation = sessionGeneration
@@ -123,7 +145,9 @@ final class ModerationStore {
     }
 
     func unblock(blockerUserId: String, blockedUserId: String) async throws {
-        guard activeUserId == blockerUserId else {
+        guard activeUserId == blockerUserId,
+              Self.isUsableUserId(blockerUserId),
+              Self.isUsableUserId(blockedUserId) else {
             throw ModerationStoreError.invalidAccount
         }
         let generation = sessionGeneration
@@ -152,7 +176,10 @@ final class ModerationStore {
         reason: ModerationReportReason,
         source: ModerationSource
     ) async throws {
-        guard activeUserId == reporterUserId, reporterUserId != reportedUserId else {
+        guard activeUserId == reporterUserId,
+              reporterUserId != reportedUserId,
+              Self.isUsableUserId(reporterUserId),
+              Self.isUsableUserId(reportedUserId) else {
             throw ModerationStoreError.invalidAccount
         }
 
@@ -184,6 +211,29 @@ final class ModerationStore {
         )
     }
 
+    /// Moderates a whole collection, reusing the previous result while neither
+    /// the rows nor the block list have changed.
+    ///
+    /// Views read these from `body`, and every `moderate` call trims strings,
+    /// resolves a presentation, and hashes a uid, so deriving per render made an
+    /// unrelated state change re-moderate the entire board.
+    func moderate(_ entries: [LeaderboardEntry]) -> [ModeratedLeaderboardEntry] {
+        leaderboardEntryMemo.resolve(
+            entries,
+            blocks: blockedClimbers,
+            isHydrated: isBlockListHydrated
+        ) { [self] sources in
+            let blockedUserIds = blockedUserIds
+            return sources.map {
+                CrossUserIdentityAdapter.leaderboardEntry(
+                    $0,
+                    blockedUserIds: blockedUserIds,
+                    isBlockListHydrated: isBlockListHydrated
+                )
+            }
+        }
+    }
+
     func moderate(
         _ row: LiveReplayLeaderboardRow
     ) -> ModeratedReplayLeaderboardRow {
@@ -192,6 +242,25 @@ final class ModerationStore {
             blockedUserIds: blockedUserIds,
             isBlockListHydrated: isBlockListHydrated
         )
+    }
+
+    func moderate(
+        _ rows: [LiveReplayLeaderboardRow]
+    ) -> [ModeratedReplayLeaderboardRow] {
+        replayRowMemo.resolve(
+            rows,
+            blocks: blockedClimbers,
+            isHydrated: isBlockListHydrated
+        ) { [self] sources in
+            let blockedUserIds = blockedUserIds
+            return sources.map {
+                CrossUserIdentityAdapter.replayRow(
+                    $0,
+                    blockedUserIds: blockedUserIds,
+                    isBlockListHydrated: isBlockListHydrated
+                )
+            }
+        }
     }
 
     func moderate(
@@ -225,5 +294,51 @@ final class ModerationStore {
 
     private func isCurrentSession(userId: String, generation: UInt64) -> Bool {
         activeUserId == userId && sessionGeneration == generation
+    }
+
+    private static func isUsableUserId(_ userId: String) -> Bool {
+        !userId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+/// Caches moderated collections so repeated renders of unchanged rows are free.
+///
+/// Several screens moderate more than one collection of the same element type,
+/// so entries are matched on their source rows rather than a caller-supplied
+/// key. Any block-list change drops every entry.
+private struct ModeratedCollectionMemo<Source: Equatable, Output> {
+    private struct Entry {
+        let source: [Source]
+        let output: [Output]
+    }
+
+    private static var capacity: Int { 4 }
+
+    private var blocks: [BlockedClimber]?
+    private var isHydrated = false
+    private var entries: [Entry] = []
+
+    mutating func resolve(
+        _ source: [Source],
+        blocks currentBlocks: [BlockedClimber],
+        isHydrated currentIsHydrated: Bool,
+        transform: ([Source]) -> [Output]
+    ) -> [Output] {
+        if blocks != currentBlocks || isHydrated != currentIsHydrated {
+            blocks = currentBlocks
+            isHydrated = currentIsHydrated
+            entries = []
+        }
+
+        if let match = entries.first(where: { $0.source == source }) {
+            return match.output
+        }
+
+        let output = transform(source)
+        entries.insert(Entry(source: source, output: output), at: 0)
+        if entries.count > Self.capacity {
+            entries.removeLast()
+        }
+        return output
     }
 }

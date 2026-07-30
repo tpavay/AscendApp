@@ -7,41 +7,78 @@ import {
 } from "../src/publicIdentity.js";
 
 test("matches the Swift stable public handle vectors", () => {
-  assert.equal(publicSystemHandle("user-123"), "Climber 7TPMNX");
-  assert.equal(publicSystemHandle("user-456"), "Climber ZA5MJ6");
+  assert.equal(publicSystemHandle("user-123"), "Climber QRN9QT");
+  assert.equal(publicSystemHandle("user-456"), "Climber 6JN7TM");
 });
+
+const STORAGE_PHOTO_URL =
+  "https://firebasestorage.googleapis.com/v0/b/ascend-dev.appspot.com/o/" +
+  "users%2Fuser-123%2Fprofile_pictures%2Fphoto.jpg?alt=media&token=abc";
 
 test("uses validated account-authored identity", () => {
   assert.deepEqual(
     publicIdentityFromData("user-123", {
       displayName: "Maya Chen",
-      photoURL: "https://example.com/maya.jpg",
+      photoURL: STORAGE_PHOTO_URL,
     }),
     {
       avatarToken: "MC",
       displayName: "Maya Chen",
-      photoURL: "https://example.com/maya.jpg",
+      photoURL: STORAGE_PHOTO_URL,
     }
   );
+});
+
+test("drops a photo URL outside Firebase Storage", () => {
+  // Every viewer's device fetches this URL, so an arbitrary host would leak
+  // viewer IPs and render content outside the reactive moderation path.
+  for (const photoURL of [
+    "https://example.com/maya.jpg",
+    "http://firebasestorage.googleapis.com/v0/b/ascend-dev.appspot.com/o/x",
+    "https://firebasestorage.googleapis.com.evil.test/v0/b/bucket/o/x",
+    "https://firebasestorage.googleapis.com/evil.jpg",
+    "https://firebasestorage.googleapis.com/v0/b/bucket/o/users/plain/path",
+    "javascript:alert(1)",
+  ]) {
+    assert.equal(
+      publicIdentityFromData("user-123", {
+        displayName: "Maya Chen",
+        photoURL,
+      }).photoURL,
+      null,
+      photoURL
+    );
+  }
+});
+
+test("keeps ordinary names containing digits and an okina", () => {
+  assert.equal(isAllowedDisplayName("Climber2000"), true);
+  assert.equal(isAllowedDisplayName("Runner000"), true);
+  assert.equal(isAllowedDisplayName("Team111"), true);
+  assert.equal(isAllowedDisplayName("Level333"), true);
+  assert.equal(isAllowedDisplayName("Route555"), true);
+  assert.equal(isAllowedDisplayName("Step777"), true);
+  assert.equal(isAllowedDisplayName("Ka\u02bbiulani"), true);
+  assert.equal(isAllowedDisplayName("O\u02bcahu Climber"), true);
 });
 
 test("falls back for absent or invalid account-authored identity", () => {
   assert.equal(
     publicIdentityFromData("user-123", undefined).displayName,
-    "Climber 7TPMNX"
+    "Climber QRN9QT"
   );
   assert.equal(
     publicIdentityFromData("user-123", {
       displayName: "fuuuck",
       photoURL: "javascript:alert(1)",
     }).displayName,
-    "Climber 7TPMNX"
+    "Climber QRN9QT"
   );
   assert.equal(
     publicIdentityFromData("user-123", {
       displayName: "Anonymous Climber",
     }).displayName,
-    "Climber 7TPMNX"
+    "Climber QRN9QT"
   );
 });
 

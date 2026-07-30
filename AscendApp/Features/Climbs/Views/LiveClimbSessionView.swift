@@ -273,7 +273,7 @@ struct LiveClimbSessionView: View {
 
     private var leaderboardPanel: some View {
         LiveReplayLeaderboardPanel(
-            rows: viewModel.leaderboardRows.map(moderationStore.moderate),
+            rows: moderationStore.moderate(viewModel.leaderboardRows),
             progressScaleSteps: viewModel.leaderboardProgressScale,
             targetStepGoal: viewModel.mode.targetStepCount,
             progress: viewModel.leaderboardCurrentProgressFraction,
@@ -876,5 +876,6 @@ struct LiveClimbSessionView: View {
     NavigationStack {
         LiveClimbSessionView(climb: .preview)
     }
+    .environment(ModerationStore.shared)
     .preferredColorScheme(.dark)
 }

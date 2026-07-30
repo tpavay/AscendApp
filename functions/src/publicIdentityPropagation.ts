@@ -355,8 +355,12 @@ export function identityFieldsForProjection(
   }
 
   const desired = desiredIdentityFields(kind, identity);
+  // identityChangedAt is a Timestamp, and two Timestamp instances are never
+  // strictly equal, so a raw === guard rewrote every row on every pass.
   const isUnchanged = Object.entries(desired).every(
-    ([field, value]) => data[field] === value
+    ([field, value]) =>
+      comparableIdentitySourceValue(data[field]) ===
+      comparableIdentitySourceValue(value)
   );
   return isUnchanged ? null : desired;
 }

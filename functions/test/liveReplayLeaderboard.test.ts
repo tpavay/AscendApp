@@ -586,7 +586,7 @@ test("copies account-authored identity from the public profile mirror", () => {
       displayName: "Maya Chen",
       gender: "woman",
       location_city: "Austin",
-      photoURL: "https://example.com/public-profile.jpg",
+      photoURL: "https://firebasestorage.googleapis.com/v0/b/ascend-test.appspot.com/o/users%2Fuser-1%2Fprofile_pictures%2Fphoto.jpg?alt=media&token=abc",
     },
     "user-a"
   );
@@ -598,7 +598,7 @@ test("copies account-authored identity from the public profile mirror", () => {
     gender: "woman",
     identityState: "published",
     locationCity: "Austin",
-    photoURL: "https://example.com/public-profile.jpg",
+    photoURL: "https://firebasestorage.googleapis.com/v0/b/ascend-test.appspot.com/o/users%2Fuser-1%2Fprofile_pictures%2Fphoto.jpg?alt=media&token=abc",
   });
 });
 
@@ -608,8 +608,8 @@ test("uses the stable uid handle when a mirror has no authored name", () => {
     "user-123"
   );
 
-  assert.equal(snapshot.displayName, "Climber 7TPMNX");
-  assert.equal(snapshot.avatarToken, "C7");
+  assert.equal(snapshot.displayName, "Climber QRN9QT");
+  assert.equal(snapshot.avatarToken, "CQ");
   assert.equal(snapshot.photoURL, null);
 });
 

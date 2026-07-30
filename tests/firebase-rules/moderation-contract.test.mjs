@@ -346,7 +346,7 @@ test('display-name screening is enforced on every client-writable publication', 
     makePublicProfileDocument({
       displayName: 'Scunthorpe',
       identityChangedAt: serverTimestamp(),
-      photoURL: 'https://example.com/account-photo.jpg',
+      photoURL: STORAGE_PHOTO_URL,
     })
   ));
   const publishedIdentity = (
@@ -425,8 +425,45 @@ test('public identity requires bounded nonempty names and bounded photo urls', a
   ));
   await assertFails(setDoc(
     doc(db, `leaderboard_stats/weekly_2026-W31_${userId}`),
-    makeLeaderboardDocument({photoURL: `https://example.com/${'a'.repeat(2030)}`})
+    makeLeaderboardDocument({photoURL: `${STORAGE_PHOTO_URL}${'a'.repeat(2030)}`})
   ));
+});
+
+test('public photo URLs must be Firebase Storage download URLs', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const db = context.firestore();
+  const profileRef = doc(db, `users/${userId}/public_profile/current`);
+  const leaderboardRef = doc(
+    db,
+    `leaderboard_stats/weekly_2026-W31_${userId}`
+  );
+
+  // Every viewer's device fetches this URL, so an off-host value would point
+  // the whole leaderboard at a server the publisher controls.
+  for (const photoURL of [
+    'https://example.com/account-photo.jpg',
+    'http://firebasestorage.googleapis.com/v0/b/bucket/o/photo.jpg',
+    'https://firebasestorage.googleapis.com.attacker.test/v0/b/bucket/o/x.jpg',
+    'https://firebasestorage.googleapis.com/evil.jpg',
+    'https://firebasestorage.googleapis.com/v0/b/bucket/o/users/plain/path.jpg',
+  ]) {
+    await assertFails(setDoc(profileRef, makePublicProfileDocument({photoURL})));
+    await assertFails(setDoc(leaderboardRef, makeLeaderboardDocument({photoURL})));
+  }
+
+  await assertSucceeds(setDoc(
+    profileRef,
+    makePublicProfileDocument({
+      identityChangedAt: serverTimestamp(),
+      photoURL: STORAGE_PHOTO_URL,
+    })
+  ));
+  const publishedIdentity = (await getDoc(profileRef)).data();
+  await assertSucceeds(setDoc(leaderboardRef, makeLeaderboardDocument({
+    displayName: publishedIdentity.displayName,
+    identityChangedAt: publishedIdentity.identityChangedAt,
+    photoURL: publishedIdentity.photoURL,
+  })));
 });
 
 test('identity policy blocks stale clients and permits modern refreshes', async () => {
@@ -674,6 +711,10 @@ function makeUserDocument(overrides = {}) {
     ...overrides,
   };
 }
+
+const STORAGE_PHOTO_URL =
+  'https://firebasestorage.googleapis.com/v0/b/ascend-test.appspot.com/o/' +
+  `users%2F${userId}%2Fprofile_pictures%2Fphoto.jpg?alt=media&token=abc123`;
 
 function makePublicProfileDocument(overrides = {}) {
   return {

@@ -393,8 +393,10 @@ extension AuthenticationViewModel {
             errorMessage = "User not authenticated"
             return
         }
-        
+
         do {
+            try ProfilePublicationError.requireConnection()
+
             guard let imageData = try await photoPickerItem.loadTransferable(type: Data.self) else {
                 errorMessage = "Failed to upload photo"
                 return
@@ -413,7 +415,10 @@ extension AuthenticationViewModel {
             customProfilePictureURL = uploadedURL
 
         } catch {
-            errorMessage = "Failed to update profile picture: \(error.localizedDescription)"
+            errorMessage = profileUpdateFailureMessage(
+                error,
+                fallback: "Failed to update profile picture"
+            )
         }
     }
     
@@ -426,6 +431,8 @@ extension AuthenticationViewModel {
         }
         
         do {
+            try ProfilePublicationError.requireConnection()
+
             // Upload the photo data directly
             let filename = "users/\(user.uid)/profile_pictures/\(UUID().uuidString).jpg"
             let photoRepo = FirebasePhotoRepository()
@@ -441,10 +448,23 @@ extension AuthenticationViewModel {
             customProfilePictureURL = uploadedURL
 
         } catch {
-            errorMessage = "Failed to update profile picture: \(error.localizedDescription)"
+            errorMessage = profileUpdateFailureMessage(
+                error,
+                fallback: "Failed to update profile picture"
+            )
         }
     }
     
+    private func profileUpdateFailureMessage(
+        _ error: Error,
+        fallback: String
+    ) -> String {
+        if let publicationError = error as? ProfilePublicationError {
+            return publicationError.errorDescription ?? fallback
+        }
+        return "\(fallback): \(error.localizedDescription)"
+    }
+
     var displayPhotoURL: URL? {
         // Prioritize custom profile picture, then fall back to OAuth provider photo
         return customProfilePictureURL ?? photoURL
@@ -485,7 +505,10 @@ extension AuthenticationViewModel {
             
         } catch {
             displayName = previousDisplayName
-            errorMessage = "Failed to update display name: \(error.localizedDescription)"
+            errorMessage = profileUpdateFailureMessage(
+                error,
+                fallback: "Failed to update display name"
+            )
             return false
         }
     }
@@ -528,7 +551,10 @@ extension AuthenticationViewModel {
             return true
         } catch {
             displayName = previousDisplayName
-            errorMessage = "Failed to update profile: \(error.localizedDescription)"
+            errorMessage = profileUpdateFailureMessage(
+                error,
+                fallback: "Failed to update profile"
+            )
             return false
         }
     }

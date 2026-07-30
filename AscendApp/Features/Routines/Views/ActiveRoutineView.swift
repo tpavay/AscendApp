@@ -246,7 +246,7 @@ struct ActiveRoutineView: View {
 
     private var liveLeaderboardSection: some View {
         LiveReplayLeaderboardPanel(
-            rows: viewModel.leaderboardRows.map(moderationStore.moderate),
+            rows: moderationStore.moderate(viewModel.leaderboardRows),
             progressScaleSteps: viewModel.leaderboardProgressScale,
             targetStepGoal: viewModel.targetStepGoal,
             progress: viewModel.leaderboardCurrentProgressFraction,
@@ -575,4 +575,5 @@ private enum Layout {
 
 #Preview {
     ActiveRoutineView(routine: BuiltInRoutines.previewTemplates.last!)
+        .environment(ModerationStore.shared)
 }

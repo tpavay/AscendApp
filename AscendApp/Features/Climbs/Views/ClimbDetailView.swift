@@ -1040,7 +1040,7 @@ struct ClimbDetailView: View {
     }
 
     private var moderatedCompletionLeaderboardRows: [ModeratedReplayLeaderboardRow] {
-        viewModel.completionLeaderboardRows.map(moderationStore.moderate)
+        moderationStore.moderate(viewModel.completionLeaderboardRows)
     }
 
     private var leaderboardLoadingState: some View {
@@ -1442,7 +1442,9 @@ struct ClimbDetailView: View {
     @ViewBuilder
     private var communityAvatarStack: some View {
         if !visibleCommunityAvatars.isEmpty {
-            HStack(spacing: 4) {
+            // The overlap is the treatment. Each avatar is already 44x44, so it
+            // is its own tap target without flattening the pile.
+            HStack(spacing: -10) {
                 ForEach(visibleCommunityAvatars) { avatar in
                     communityAvatarLink(avatar)
                 }
@@ -1475,13 +1477,6 @@ struct ClimbDetailView: View {
                 .minimumScaleFactor(0.78)
             }
         }
-    }
-
-    private var communityAccessibilityLabel: String {
-        if viewModel.communityCompletedCount == 0 {
-            return "First Ascent open. The first finisher claims it forever."
-        }
-        return "\(viewModel.communityCompletedCount) completed"
     }
 
     private func publicResultSyncStatusRow(
@@ -1620,7 +1615,7 @@ struct ClimbDetailView: View {
         let rawRows = viewModel.completionLeaderboardRows.isEmpty
             ? viewModel.leaderboardPreviewRows
             : viewModel.completionLeaderboardRows
-        let rows = rawRows.map(moderationStore.moderate)
+        let rows = moderationStore.moderate(rawRows)
         var seenKeys: Set<String> = []
         var uniqueRows: [ModeratedReplayLeaderboardRow] = []
 
@@ -1717,8 +1712,7 @@ struct ClimbDetailView: View {
                 )
             }
             .buttonStyle(.plain)
-            .frame(width: 44, height: 44)
-            .contentShape(Rectangle())
+            .contentShape(Circle())
             .accessibilityLabel("View \(avatar.identity.displayName) profile")
         } else {
             ClimbCommunityAvatarView(

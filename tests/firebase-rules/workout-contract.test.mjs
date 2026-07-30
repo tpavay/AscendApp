@@ -100,7 +100,7 @@ test('owner can publish validated account-authored public identity', async () =>
 
   await assertSucceeds(setDoc(profileRef, makePublicProfileDocument({
     displayName: 'Tyler Pavay',
-    photoURL: 'https://example.com/account-profile.jpg',
+    photoURL: STORAGE_PHOTO_URL,
   })));
 });
 
@@ -115,7 +115,7 @@ test('public profile identity rejects empty, overlong, profane, photo, and uid s
     ));
   }
   await assertFails(setDoc(profileRef, makePublicProfileDocument({
-    photoURL: `https://example.com/${'p'.repeat(2030)}`,
+    photoURL: `${STORAGE_PHOTO_URL}${'p'.repeat(2030)}`,
   })));
   await assertFails(setDoc(profileRef, makePublicProfileDocument({
     userId: otherUserId,
@@ -148,7 +148,7 @@ test('leaderboard stats accept validated account-authored public identity', asyn
   const context = testEnv.authenticatedContext(userId);
   const statsRef = doc(context.firestore(), `leaderboard_stats/weekly_2026-W15_${userId}`);
   const displayName = 'Tyler Pavay';
-  const photoURL = 'https://example.com/account-profile.jpg';
+  const photoURL = STORAGE_PHOTO_URL;
 
   await testEnv.withSecurityRulesDisabled(async (adminContext) => {
     await setDoc(
@@ -181,7 +181,7 @@ test('leaderboard identity rejects empty, overlong, profane, photo, and uid spoo
     ));
   }
   await assertFails(setDoc(statsRef, makeLeaderboardDocument({
-    photoURL: `https://example.com/${'p'.repeat(2030)}`,
+    photoURL: `${STORAGE_PHOTO_URL}${'p'.repeat(2030)}`,
   })));
   await assertFails(setDoc(statsRef, makeLeaderboardDocument({
     userId: otherUserId,
@@ -659,6 +659,10 @@ function makeLeaderboardDocument(overrides = {}) {
     ...overrides,
   };
 }
+
+const STORAGE_PHOTO_URL =
+  'https://firebasestorage.googleapis.com/v0/b/ascend-test.appspot.com/o/' +
+  `users%2F${userId}%2Fprofile_pictures%2Fphoto.jpg?alt=media&token=abc123`;
 
 function makePublicProfileDocument(overrides = {}) {
   return {

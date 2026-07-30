@@ -522,4 +522,154 @@ struct ModerationStoreTests {
         #expect(identity.displayName != "Raw Name")
         #expect(identity.photoURL == nil)
     }
+
+    /// `hydrate` runs on every foreground, not just at launch. Re-arming the
+    /// fail-closed flag there re-masked every climber app-wide until the round
+    /// trip finished.
+    @Test
+    func refreshingAnAlreadyHydratedSessionNeverReMasks() async {
+        let repository = RepositorySpy()
+        let store = ModerationStore(repository: repository)
+        await store.hydrate(for: "viewer")
+        #expect(store.isBlockListHydrated)
+
+        await repository.suspendFetches()
+        let refresh = Task { await store.hydrate(for: "viewer") }
+        while !(await repository.hasStartedFetch(2)) {
+            await Task.yield()
+        }
+
+        #expect(store.isBlockListHydrated)
+        #expect(store.moderate(otherClimber(), isCurrentUser: false).isHidden == false)
+
+        await repository.releaseFetch(2, returning: [])
+        await refresh.value
+        #expect(store.isBlockListHydrated)
+    }
+
+    /// An offline refresh keeps the last known good list rather than dropping to
+    /// empty or to fail-closed for the rest of the session.
+    @Test
+    func failedRefreshKeepsTheLastKnownGoodBlockList() async {
+        let repository = RepositorySpy()
+        await repository.setFetchedBlocks([
+            BlockedClimber(userId: "blocked-user", createdAt: .now)
+        ])
+        let store = ModerationStore(repository: repository)
+        await store.hydrate(for: "viewer")
+        #expect(store.blockedUserIds == ["blocked-user"])
+
+        await repository.setFetchFails(true)
+        await store.hydrate(for: "viewer")
+
+        #expect(store.isBlockListHydrated)
+        #expect(store.blockedUserIds == ["blocked-user"])
+        #expect(store.hydrationErrorMessage != nil)
+        #expect(store.moderate(otherClimber(), isCurrentUser: false).isHidden == false)
+    }
+
+    /// A brand-new session still renders masked until its first hydration lands.
+    @Test
+    func brandNewSessionRendersMaskedUntilFirstHydrationCompletes() async {
+        let repository = RepositorySpy()
+        await repository.suspendFetches()
+        let store = ModerationStore(repository: repository)
+
+        let hydration = Task { await store.hydrate(for: "viewer") }
+        while !(await repository.hasStartedFetch(1)) {
+            await Task.yield()
+        }
+
+        #expect(store.isBlockListHydrated == false)
+        #expect(store.moderate(otherClimber(), isCurrentUser: false).isHidden)
+
+        await repository.releaseFetch(1, returning: [])
+        await hydration.value
+        #expect(store.moderate(otherClimber(), isCurrentUser: false).isHidden == false)
+    }
+
+    /// Signing in as somebody else must fail closed again - the previous
+    /// account's block list says nothing about this one.
+    @Test
+    func switchingUsersReArmsFailClosedRendering() async {
+        let repository = RepositorySpy()
+        let store = ModerationStore(repository: repository)
+        await store.hydrate(for: "viewer")
+
+        await repository.suspendFetches()
+        let hydration = Task { await store.hydrate(for: "other-viewer") }
+        while !(await repository.hasStartedFetch(2)) {
+            await Task.yield()
+        }
+
+        #expect(store.isBlockListHydrated == false)
+        #expect(store.moderate(otherClimber(), isCurrentUser: false).isHidden)
+
+        await repository.releaseFetch(2, returning: [])
+        await hydration.value
+    }
+
+    @Test
+    func moderationRejectsAnEmptyUserIdInsteadOfReachingTheRepository() async {
+        let repository = RepositorySpy()
+        let store = ModerationStore(repository: repository)
+        await store.hydrate(for: "viewer")
+
+        await #expect(throws: ModerationStoreError.self) {
+            try await store.block(blockerUserId: "viewer", blockedUserId: "")
+        }
+        await #expect(throws: ModerationStoreError.self) {
+            try await store.unblock(blockerUserId: "viewer", blockedUserId: " ")
+        }
+        await #expect(throws: ModerationStoreError.self) {
+            try await store.report(
+                reporterUserId: "viewer",
+                reportedUserId: "",
+                reason: .harassment,
+                source: .profile
+            )
+        }
+
+        #expect(await repository.blockCalls.isEmpty)
+        #expect(await repository.unblockCalls.isEmpty)
+        #expect(await repository.reportCalls.isEmpty)
+    }
+
+    /// Repeated renders of unchanged rows must not re-derive the whole board.
+    @Test
+    func moderatedCollectionsAreCachedUntilTheBlockListChanges() async throws {
+        let repository = RepositorySpy()
+        let store = ModerationStore(repository: repository)
+        await store.hydrate(for: "viewer")
+
+        let entries = (0..<3).map { index in
+            LeaderboardEntry(
+                userId: "climber-\(index)",
+                displayName: "Climber \(index)",
+                rank: index + 1,
+                value: Double(index),
+                formattedValue: "\(index)"
+            )
+        }
+
+        #expect(store.moderate(entries) == store.moderate(entries))
+
+        let visible = try #require(store.moderate(entries).first)
+        #expect(visible.identity.isHidden == false)
+
+        try await store.block(
+            blockerUserId: "viewer",
+            blockedUserId: "climber-0"
+        )
+        let masked = try #require(store.moderate(entries).first)
+        #expect(masked.identity.isHidden)
+    }
+
+    private func otherClimber() -> ProfileUserIdentity {
+        ProfileUserIdentity(
+            userId: "other-user",
+            displayName: "Raw Name",
+            photoURL: URL(string: "https://example.com/raw.jpg")
+        )
+    }
 }

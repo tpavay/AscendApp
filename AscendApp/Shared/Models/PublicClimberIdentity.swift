@@ -25,7 +25,13 @@ enum PublicClimberIdentity {
     static let anonymousDisplayName = "Anonymous Climber"
     static let genericAvatarSystemName = "person.fill"
 
-    private static let tokenAlphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567")
+    /// Every letter here is absent from every screened term, so no six-character
+    /// token can spell one. The generator also never repeats a character back to
+    /// back, so the repeated-character check can never fire either. Together that
+    /// guarantees `DisplayNamePolicy` and `isAllowedDisplayName` accept every
+    /// handle this can produce - otherwise a uid whose hash landed on a rejected
+    /// token could never publish a profile or a leaderboard row.
+    static let tokenAlphabet = Array("2346789AEFJMNQRT")
 
     static func systemHandle(for userId: String?) -> String {
         guard let userId = normalizedUserId(userId) else {
@@ -36,11 +42,23 @@ enum PublicClimberIdentity {
         let prefix = digest.prefix(4).reduce(UInt32.zero) { partial, byte in
             (partial << 8) | UInt32(byte)
         }
-        let token = stride(from: 27, through: 2, by: -5).map { shift in
-            tokenAlphabet[Int((prefix >> UInt32(shift)) & 0x1F)]
+        let token = stride(from: 20, through: 0, by: -4).reduce(
+            into: [Character]()
+        ) { token, shift in
+            let character = tokenAlphabet[Int((prefix >> UInt32(shift)) & 0x0F)]
+            token.append(
+                token.last == character ? nextTokenCharacter(after: character) : character
+            )
         }
 
         return "Climber \(String(token))"
+    }
+
+    private static func nextTokenCharacter(after character: Character) -> Character {
+        guard let index = tokenAlphabet.firstIndex(of: character) else {
+            return character
+        }
+        return tokenAlphabet[(index + 1) % tokenAlphabet.count]
     }
 
     static func resolve(
@@ -97,6 +115,27 @@ enum PublicClimberIdentity {
                 usesGenericAvatar: storedPhotoURL == nil
             )
         }
+    }
+
+    /// Mirrors `isValidPublicPhotoURL` in `firestore.rules` and `validPhotoURL`
+    /// in `functions/src/publicIdentity.ts`. A URL outside Firebase Storage is
+    /// dropped rather than published, so the server never has to reject the
+    /// whole profile write over a photo the client could have discarded.
+    static func publishablePhotoURL(_ photoURL: URL?) -> URL? {
+        guard let photoURL else {
+            return nil
+        }
+
+        let value = photoURL.absoluteString
+        guard value.count <= 2048,
+              value.range(
+                of: #"^https://firebasestorage\.googleapis\.com/v0/b/[a-zA-Z0-9][a-zA-Z0-9._-]*/o/[^/]+$"#,
+                options: .regularExpression
+              ) != nil else {
+            return nil
+        }
+
+        return photoURL
     }
 
     private static func fallbackDisplayName(for userId: String?) -> String {

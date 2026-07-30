@@ -9,10 +9,10 @@ struct PublicClimberIdentityTests {
         let first = PublicClimberIdentity.systemHandle(for: "user-123")
         let second = PublicClimberIdentity.systemHandle(for: "user-123")
 
-        #expect(first == "Climber 7TPMNX")
+        #expect(first == "Climber QRN9QT")
         #expect(second == first)
-        #expect(first.wholeMatch(of: /Climber [A-Z2-7]{6}/) != nil)
-        #expect(PublicClimberIdentity.systemHandle(for: "user-456") == "Climber ZA5MJ6")
+        #expect(first.wholeMatch(of: /Climber [2346789AEFJMNQRT]{6}/) != nil)
+        #expect(PublicClimberIdentity.systemHandle(for: "user-456") == "Climber 6JN7TM")
     }
 
     @Test
@@ -21,6 +21,43 @@ struct PublicClimberIdentityTests {
         #expect(PublicClimberIdentity.systemHandle(for: "  ") == "Anonymous Climber")
         #expect(PublicClimberIdentity.systemHandle(for: "user\n123") == "Anonymous Climber")
         #expect(PublicClimberIdentity.systemHandle(for: String(repeating: "a", count: 129)) == "Anonymous Climber")
+    }
+
+    /// The fallback handle gates publication: `DisplayNamePolicy` runs on it in
+    /// the profile transaction and `isAllowedDisplayName` runs on it again in
+    /// `firestore.rules`. A token either policy rejects would leave that uid
+    /// permanently unable to publish a profile or write a leaderboard row.
+    @Test
+    func everySampledFallbackHandlePassesDisplayNameScreening() {
+        for index in 0..<1_000 {
+            let handle = PublicClimberIdentity.systemHandle(
+                for: "screening-user-\(index)"
+            )
+            let token = Array(handle.dropFirst("Climber ".count))
+
+            #expect(DisplayNamePolicy.isAllowed(handle), "rejected \(handle)")
+            #expect(token.count == 6)
+            #expect(
+                zip(token, token.dropFirst()).allSatisfy { $0 != $1 },
+                "repeated character in \(handle)"
+            )
+        }
+    }
+
+    /// Exhaustive over the alphabet: no pair of token characters, however the
+    /// generator interleaves them, can spell a screened term or a letter run.
+    @Test
+    func everyTokenAlphabetPairProducesAnAllowedHandle() {
+        for first in PublicClimberIdentity.tokenAlphabet {
+            for second in PublicClimberIdentity.tokenAlphabet where first != second {
+                let token = String([first, second, first, second, first, second])
+
+                #expect(
+                    DisplayNamePolicy.isAllowed("Climber \(token)"),
+                    "rejected Climber \(token)"
+                )
+            }
+        }
     }
 
     @Test
@@ -56,9 +93,9 @@ struct PublicClimberIdentityTests {
             storedPhotoURL: nil
         )
 
-        #expect(identity.displayName == "Climber 7TPMNX")
+        #expect(identity.displayName == "Climber QRN9QT")
         #expect(identity.photoURL == nil)
-        #expect(identity.avatarToken == "C7")
+        #expect(identity.avatarToken == "CQ")
         #expect(identity.usesGenericAvatar)
     }
 
@@ -160,12 +197,12 @@ struct PublicClimberIdentityTests {
         let identity = ProfileUserIdentity(
             userId: "user-123",
             displayName: "Maya Chen",
-            photoURL: URL(string: "https://example.com/maya.jpg"),
+            photoURL: URL(string: Self.storagePhotoURL),
             age: 32
         )
         let existingData: [String: Any] = [
             "displayName": "Maya Chen",
-            "photoURL": "https://example.com/maya.jpg",
+            "photoURL": Self.storagePhotoURL,
             "identityPolicyVersion": PublicClimberIdentity.policyVersion,
             "identityChangedAt": changedAt,
             "age": 31
@@ -184,4 +221,35 @@ struct PublicClimberIdentityTests {
         #expect(payload["identityChangedAt"] == nil)
         #expect(payload["age"] as? Int == 32)
     }
+
+    /// A photo URL outside Firebase Storage is dropped rather than published, so
+    /// the server never rejects the whole profile write over a value the client
+    /// could have discarded.
+    @Test
+    func onlyFirebaseStoragePhotoURLsArePublishable() {
+        #expect(
+            PublicClimberIdentity.publishablePhotoURL(
+                URL(string: Self.storagePhotoURL)
+            )?.absoluteString == Self.storagePhotoURL
+        )
+
+        for candidate in [
+            "https://example.com/maya.jpg",
+            "http://firebasestorage.googleapis.com/v0/b/bucket/o/photo.jpg",
+            "https://firebasestorage.googleapis.com.attacker.test/v0/b/b/o/x.jpg",
+            "https://firebasestorage.googleapis.com/evil.jpg",
+            "https://firebasestorage.googleapis.com/v0/b/bucket/o/users/plain.jpg"
+        ] {
+            #expect(
+                PublicClimberIdentity.publishablePhotoURL(
+                    URL(string: candidate)
+                ) == nil,
+                "published \(candidate)"
+            )
+        }
+    }
+
+    private static let storagePhotoURL =
+        "https://firebasestorage.googleapis.com/v0/b/ascend-test.appspot.com/o/" +
+        "users%2Fuser-123%2Fprofile_pictures%2Fphoto.jpg?alt=media&token=abc"
 }

@@ -258,7 +258,7 @@ struct RoutineDetailView: View {
 
     private var leaderboardPage: some View {
         ReplayCompletionLeaderboardView(
-            rows: leaderboardViewModel.rows.map(moderationStore.moderate),
+            rows: moderationStore.moderate(leaderboardViewModel.rows),
             completedCount: leaderboardViewModel.completedCount,
             isLoading: leaderboardViewModel.isLoading,
             isLoadingMore: leaderboardViewModel.isLoadingMore,
@@ -672,6 +672,7 @@ private struct RoutineDetailPageHeightPreferenceKey: PreferenceKey {
         onEdit: {},
         onCopy: {}
     )
+    .environment(ModerationStore.shared)
 }
 
 #Preview("Dark Mode") {
@@ -681,6 +682,7 @@ private struct RoutineDetailPageHeightPreferenceKey: PreferenceKey {
         onEdit: {},
         onCopy: {}
     )
+    .environment(ModerationStore.shared)
     .preferredColorScheme(.dark)
 }
 

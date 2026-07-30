@@ -61,10 +61,12 @@ enum DisplayNamePolicy {
             throw DisplayNamePolicyError.objectionable
         }
 
-        let normalized = normalizedForScreening(trimmed)
-        guard containsLongASCIILetterRun(normalized) == false else {
+        let folded = foldedForScreening(trimmed)
+        guard containsLongASCIILetterRun(folded) == false else {
             throw DisplayNamePolicyError.objectionable
         }
+
+        let normalized = digitSubstituted(folded)
         let lettersOnly = normalized.filter { $0.isLetter }
         guard lettersOnly != "anonymousclimber" else {
             throw DisplayNamePolicyError.objectionable
@@ -88,22 +90,17 @@ enum DisplayNamePolicy {
         (try? validated(candidate)) != nil
     }
 
-    private static func normalizedForScreening(_ value: String) -> String {
+    /// Case, diacritic, and confusable-letter folding only.
+    ///
+    /// Digits stay digits here so the repeated-character check cannot invent a
+    /// letter run out of an ordinary numeric name like `Climber2000`.
+    private static func foldedForScreening(_ value: String) -> String {
         let folded = value
             .precomposedStringWithCompatibilityMapping
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
             .lowercased()
 
         let substitutions: [Character: Character] = [
-            "0": "o",
-            "1": "i",
-            "3": "e",
-            "4": "a",
-            "5": "s",
-            "7": "t",
-            "@": "a",
-            "$": "s",
-            "!": "i",
             "а": "a",
             "ɑ": "a",
             "α": "a",
@@ -131,11 +128,33 @@ enum DisplayNamePolicy {
         return String(folded.map { substitutions[$0] ?? $0 })
     }
 
+    /// Leetspeak folding, applied only to the blocked-term checks.
+    private static func digitSubstituted(_ folded: String) -> String {
+        let substitutions: [Character: Character] = [
+            "0": "o",
+            "1": "i",
+            "3": "e",
+            "4": "a",
+            "5": "s",
+            "7": "t",
+            "@": "a",
+            "$": "s",
+            "!": "i"
+        ]
+
+        return String(folded.map { substitutions[$0] ?? $0 })
+    }
+
     private static func containsUnsupportedCompatibilityGlyph(
         _ value: String
     ) -> Bool {
         value.unicodeScalars.contains { scalar in
             let codePoint = scalar.value
+            // U+02BB okina and U+02BC modifier apostrophe carry meaning in
+            // Hawaiian and many other orthographies, so they stay spellable.
+            if codePoint == 0x02BB || codePoint == 0x02BC {
+                return false
+            }
             return (0x02B0...0x02FF).contains(codePoint) ||
                 (0x1D00...0x1D7F).contains(codePoint) ||
                 (0x2070...0x209F).contains(codePoint) ||

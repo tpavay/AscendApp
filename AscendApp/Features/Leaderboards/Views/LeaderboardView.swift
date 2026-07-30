@@ -393,7 +393,7 @@ struct LeaderboardView: View {
 
     @ViewBuilder
     private var contentSection: some View {
-        let entries = viewModel.displayedEntries.map(moderationStore.moderate)
+        let entries = moderationStore.moderate(viewModel.displayedEntries)
         let userEntry = viewModel.userEntry.map(moderationStore.moderate)
 
         if entries.isEmpty {
@@ -470,8 +470,8 @@ struct LeaderboardView: View {
         for entries: [ModeratedLeaderboardEntry],
         userEntry: ModeratedLeaderboardEntry?
     ) -> LeaderboardPresentationState {
-        let podiumEntries = Array(entries.prefix(LeaderboardPodiumLayout.slotCount))
-        let listEntries = Array(entries.dropFirst(LeaderboardPodiumLayout.slotCount))
+        let podiumEntries = ModeratedLeaderboardPodiumLayout.podiumEntries(from: entries)
+        let listEntries = ModeratedLeaderboardPodiumLayout.listEntries(from: entries)
 
         guard let userEntry else {
             return LeaderboardPresentationState(
@@ -725,6 +725,7 @@ struct LeaderboardView: View {
     NavigationStack {
         LeaderboardView()
             .environment(AuthenticationViewModel())
+            .environment(ModerationStore.shared)
             .environment(NetworkConnectivityService.shared)
             .environment(TabRouter())
     }

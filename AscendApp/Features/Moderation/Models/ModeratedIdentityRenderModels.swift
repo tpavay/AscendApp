@@ -77,7 +77,7 @@ struct UnresolvedUserIdentity:
     ) {
         (
             try DisplayNamePolicy.validated(displayName),
-            photoURL
+            PublicClimberIdentity.publishablePhotoURL(photoURL)
         )
     }
 
@@ -144,30 +144,6 @@ struct ModeratedLeaderboardEntry: Identifiable, Equatable, Sendable {
             blockedUserIds: [],
             isBlockListHydrated: true
         )
-    }
-}
-
-struct ModeratedLeaderboardPodiumLayout: Equatable {
-    struct Slot: Identifiable, Equatable {
-        let position: Int
-        let entry: ModeratedLeaderboardEntry?
-
-        var id: Int { position }
-        var displayedRank: Int { entry?.rank ?? position }
-        var isTied: Bool { entry?.isTied ?? false }
-    }
-
-    let slots: [Slot]
-
-    init(entries: [ModeratedLeaderboardEntry]) {
-        let ordered = Array(entries.prefix(LeaderboardPodiumLayout.slotCount))
-        slots = [2, 1, 3].map { position in
-            Slot(
-                position: position,
-                entry: ordered.indices.contains(position - 1) ?
-                    ordered[position - 1] : nil
-            )
-        }
     }
 }
 

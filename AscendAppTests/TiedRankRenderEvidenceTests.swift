@@ -98,8 +98,15 @@ struct TiedRankRenderEvidenceTests {
             ranks: [1, 1, 3, 4],
             steps: [21_482, 21_482, 19_812, 17_926]
         )
-        let layout = LeaderboardPodiumLayout(entries: entries)
         let moderationStore = await hydratedModerationStore()
+        let moderatedEntries = entries.map {
+            CrossUserIdentityAdapter.leaderboardEntry(
+                $0,
+                blockedUserIds: [],
+                isBlockListHydrated: true
+            )
+        }
+        let layout = ModeratedLeaderboardPodiumLayout(entries: moderatedEntries)
 
         // Keying pedestals by rank dropped one of the two golds outright.
         #expect(layout.slots.compactMap { $0.entry?.userId }.count == 3)
@@ -108,13 +115,9 @@ struct TiedRankRenderEvidenceTests {
 
         try render(
             LeaderboardPodiumView(
-                entries: LeaderboardPodiumLayout.podiumEntries(from: entries).map {
-                    CrossUserIdentityAdapter.leaderboardEntry(
-                        $0,
-                        blockedUserIds: [],
-                        isBlockListHydrated: true
-                    )
-                },
+                entries: ModeratedLeaderboardPodiumLayout.podiumEntries(
+                    from: moderatedEntries
+                ),
                 metric: .climb
             )
             .environment(moderationStore)

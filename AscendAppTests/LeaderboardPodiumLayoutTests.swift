@@ -5,14 +5,14 @@ import Testing
 struct LeaderboardPodiumLayoutTests {
     @Test
     func pedestalsAreOrderedLeftCentreRight() {
-        let layout = LeaderboardPodiumLayout(entries: makeEntries(ranks: [1, 2, 3]))
+        let layout = ModeratedLeaderboardPodiumLayout(entries: makeEntries(ranks: [1, 2, 3]))
 
         #expect(layout.slots.map(\.position) == [2, 1, 3])
     }
 
     @Test
     func topClimberStandsCentre() {
-        let layout = LeaderboardPodiumLayout(entries: makeEntries(ranks: [1, 2, 3]))
+        let layout = ModeratedLeaderboardPodiumLayout(entries: makeEntries(ranks: [1, 2, 3]))
         let centre = layout.slots.first { $0.position == 1 }
 
         #expect(centre?.entry?.rank == 1)
@@ -20,7 +20,7 @@ struct LeaderboardPodiumLayoutTests {
 
     @Test
     func pedestalsFillInLeaderboardOrder() {
-        let layout = LeaderboardPodiumLayout(entries: makeEntries(ranks: [1, 2, 3]))
+        let layout = ModeratedLeaderboardPodiumLayout(entries: makeEntries(ranks: [1, 2, 3]))
 
         // Left pedestal takes the runner-up, right takes third.
         #expect(layout.slots.first { $0.position == 2 }?.entry?.rank == 2)
@@ -32,7 +32,7 @@ struct LeaderboardPodiumLayoutTests {
         // Keying pedestals by rank collapsed these two onto one slot and dropped a
         // climber outright.
         let entries = makeEntries(ranks: [1, 1, 3])
-        let layout = LeaderboardPodiumLayout(entries: entries)
+        let layout = ModeratedLeaderboardPodiumLayout(entries: entries)
 
         let seatedIDs = layout.slots.compactMap { $0.entry?.userId }
         #expect(seatedIDs.count == 3)
@@ -41,7 +41,7 @@ struct LeaderboardPodiumLayoutTests {
 
     @Test
     func tiedClimbersKeepTheirOwnRankOnWhicheverPedestalTheyStand() {
-        let layout = LeaderboardPodiumLayout(entries: makeEntries(ranks: [1, 1, 3]))
+        let layout = ModeratedLeaderboardPodiumLayout(entries: makeEntries(ranks: [1, 1, 3]))
 
         let centre = layout.slots.first { $0.position == 1 }
         let left = layout.slots.first { $0.position == 2 }
@@ -59,7 +59,7 @@ struct LeaderboardPodiumLayoutTests {
     @Test
     func threeWayTieForGoldSeatsEveryone() {
         let entries = makeEntries(ranks: [1, 1, 1])
-        let layout = LeaderboardPodiumLayout(entries: entries)
+        let layout = ModeratedLeaderboardPodiumLayout(entries: entries)
 
         #expect(layout.slots.compactMap { $0.entry?.userId }.count == 3)
         #expect(layout.slots.allSatisfy { $0.displayedRank == 1 })
@@ -68,7 +68,7 @@ struct LeaderboardPodiumLayoutTests {
 
     @Test
     func emptyPedestalShowsTheNextRankUpForGrabs() {
-        let layout = LeaderboardPodiumLayout(entries: makeEntries(ranks: [1]))
+        let layout = ModeratedLeaderboardPodiumLayout(entries: makeEntries(ranks: [1]))
 
         let left = layout.slots.first { $0.position == 2 }
         let right = layout.slots.first { $0.position == 3 }
@@ -82,7 +82,7 @@ struct LeaderboardPodiumLayoutTests {
     @Test
     func twoClimbersTiedForGoldLeaveRankThreeOpen() {
         // Competition ranking skips 2, so the open pedestal is honestly labelled 3.
-        let layout = LeaderboardPodiumLayout(entries: makeEntries(ranks: [1, 1]))
+        let layout = ModeratedLeaderboardPodiumLayout(entries: makeEntries(ranks: [1, 1]))
 
         let right = layout.slots.first { $0.position == 3 }
         #expect(right?.entry == nil)
@@ -91,7 +91,7 @@ struct LeaderboardPodiumLayoutTests {
 
     @Test
     func emptyBoardRendersThreeOpenPedestals() {
-        let layout = LeaderboardPodiumLayout(entries: [])
+        let layout = ModeratedLeaderboardPodiumLayout(entries: [])
 
         #expect(layout.slots.count == 3)
         #expect(layout.slots.allSatisfy { $0.entry == nil })
@@ -106,8 +106,8 @@ struct LeaderboardPodiumLayoutTests {
         // split put the fourth in neither bucket and it vanished from the screen.
         let entries = makeEntries(ranks: [1, 2, 2, 2, 2])
 
-        let podium = LeaderboardPodiumLayout.podiumEntries(from: entries)
-        let list = LeaderboardPodiumLayout.listEntries(from: entries)
+        let podium = ModeratedLeaderboardPodiumLayout.podiumEntries(from: entries)
+        let list = ModeratedLeaderboardPodiumLayout.listEntries(from: entries)
 
         #expect(podium.count == 3)
         #expect(list.count == 2)
@@ -118,27 +118,33 @@ struct LeaderboardPodiumLayoutTests {
     func splitHandlesBoardsSmallerThanThePodium() {
         let entries = makeEntries(ranks: [1, 2])
 
-        #expect(LeaderboardPodiumLayout.podiumEntries(from: entries).count == 2)
-        #expect(LeaderboardPodiumLayout.listEntries(from: entries).isEmpty)
+        #expect(ModeratedLeaderboardPodiumLayout.podiumEntries(from: entries).count == 2)
+        #expect(ModeratedLeaderboardPodiumLayout.listEntries(from: entries).isEmpty)
     }
 
     @Test
     func splitHandlesAnEmptyBoard() {
-        #expect(LeaderboardPodiumLayout.podiumEntries(from: []).isEmpty)
-        #expect(LeaderboardPodiumLayout.listEntries(from: []).isEmpty)
+        #expect(ModeratedLeaderboardPodiumLayout.podiumEntries(from: []).isEmpty)
+        #expect(ModeratedLeaderboardPodiumLayout.listEntries(from: []).isEmpty)
     }
 
-    private func makeEntries(ranks: [Int]) -> [LeaderboardEntry] {
+    /// Exercises the layout the app actually renders, so tie and empty-slot
+    /// behaviour is pinned on the shipped type rather than a parallel one.
+    private func makeEntries(ranks: [Int]) -> [ModeratedLeaderboardEntry] {
         let tiedRanks = Set(ranks.filter { rank in ranks.count(where: { $0 == rank }) > 1 })
 
         return ranks.enumerated().map { index, rank in
-            LeaderboardEntry(
-                userId: "user-\(index)",
-                displayName: "Climber \(index)",
-                rank: rank,
-                value: Double(1_000 - rank),
-                formattedValue: "\(1_000 - rank)",
-                isTied: tiedRanks.contains(rank)
+            CrossUserIdentityAdapter.leaderboardEntry(
+                LeaderboardEntry(
+                    userId: "user-\(index)",
+                    displayName: "Climber \(index)",
+                    rank: rank,
+                    value: Double(1_000 - rank),
+                    formattedValue: "\(1_000 - rank)",
+                    isTied: tiedRanks.contains(rank)
+                ),
+                blockedUserIds: [],
+                isBlockListHydrated: true
             )
         }
     }

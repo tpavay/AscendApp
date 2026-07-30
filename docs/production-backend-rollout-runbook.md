@@ -265,7 +265,7 @@ The workflow must reach green before selecting or distributing the TestFlight bu
 Then complete these captain-only checks against production.
 
 1. Confirm all declared Firestore indexes still report `READY` with the index assertion command above.
-2. Confirm the five critical Functions still report `ACTIVE` with the function assertion command above.
+2. Confirm the six critical Functions still report `ACTIVE` with the function assertion command above.
 3. Inspect recent cleanup logs with `npx -y firebase-tools@15.22.1 functions:log --project production --only cleanupDeletedUserData --lines 50`.
 4. Create one Google smoke account and one Apple smoke account in a production-signed physical-device build.
 5. For each account, create a workout, replay presence, profile data, a push token, feedback, and user-scoped Storage data that exercise the cleanup paths.

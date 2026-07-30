@@ -25,13 +25,13 @@ const identity = {
   identityChangedAt: changedAt,
   identityPolicyVersion: 1,
   identityState: "published" as const,
-  photoURL: "https://example.com/maya.jpg",
+  photoURL: "https://firebasestorage.googleapis.com/v0/b/ascend-test.appspot.com/o/users%2Fuser-1%2Fprofile_pictures%2Fphoto.jpg?alt=media&token=abc",
 };
 
 test("demographic-only profile writes do not schedule identity fanout", () => {
   const before = {
     displayName: "Maya Chen",
-    photoURL: "https://example.com/maya.jpg",
+    photoURL: "https://firebasestorage.googleapis.com/v0/b/ascend-test.appspot.com/o/users%2Fuser-1%2Fprofile_pictures%2Fphoto.jpg?alt=media&token=abc",
     identityPolicyVersion: 1,
     identityChangedAt: {seconds: 100, nanoseconds: 5},
     age: 31,
@@ -76,7 +76,7 @@ test("writes identity only and copies policy metadata to leaderboard", () => {
     identityChangedAt: changedAt,
     identityPolicyVersion: 1,
     identityState: "published",
-    photoURL: "https://example.com/maya.jpg",
+    photoURL: "https://firebasestorage.googleapis.com/v0/b/ascend-test.appspot.com/o/users%2Fuser-1%2Fprofile_pictures%2Fphoto.jpg?alt=media&token=abc",
   });
   assert.deepEqual(Object.keys(fields ?? {}).sort(), [
     "displayName",
@@ -85,6 +85,35 @@ test("writes identity only and copies policy metadata to leaderboard", () => {
     "identityState",
     "photoURL",
   ]);
+});
+
+test("treats an already-current leaderboard row as a no-op", () => {
+  // identityChangedAt is a Timestamp, and two Timestamp instances are never
+  // strictly equal, so a raw === guard rewrote every row on every pass.
+  const current = {
+    displayName: identity.displayName,
+    identityChangedAt: {seconds: 100, nanoseconds: 0},
+    identityPolicyVersion: 1,
+    identityState: "published",
+    photoURL: identity.photoURL,
+    totalSteps: 3_000,
+    userId: "user-1",
+  };
+
+  assert.equal(
+    identityFieldsForProjection("leaderboard", current, {
+      ...identity,
+      identityChangedAt: {seconds: 100, nanoseconds: 0},
+    }),
+    null
+  );
+  assert.notEqual(
+    identityFieldsForProjection("leaderboard", current, {
+      ...identity,
+      identityChangedAt: {seconds: 200, nanoseconds: 0},
+    }),
+    null
+  );
 });
 
 test("preserves synthetic, deleted, and legacy anonymous projections", () => {
@@ -617,7 +646,7 @@ test(
       identityChangedAt: changedAt,
       identityPolicyVersion: 1,
       identityState: "published",
-      photoURL: "https://example.com/profile.jpg",
+      photoURL: "https://firebasestorage.googleapis.com/v0/b/ascend-test.appspot.com/o/users%2Fuser-1%2Fprofile_pictures%2Fphoto.jpg?alt=media&token=abc",
       totalSteps: 48_000,
       userId: "user-1",
     });
@@ -627,7 +656,7 @@ test(
       identityState: "published",
       isSynthetic: false,
       performanceField: 2_096,
-      photoURL: "https://example.com/profile.jpg",
+      photoURL: "https://firebasestorage.googleapis.com/v0/b/ascend-test.appspot.com/o/users%2Fuser-1%2Fprofile_pictures%2Fphoto.jpg?alt=media&token=abc",
       userId: "user-1",
     });
     assert.deepEqual(port.dataFor(targets[2].reference.path), {
@@ -636,7 +665,7 @@ test(
       identityState: "published",
       isSynthetic: false,
       permanentOrder: 4,
-      photoURL: "https://example.com/profile.jpg",
+      photoURL: "https://firebasestorage.googleapis.com/v0/b/ascend-test.appspot.com/o/users%2Fuser-1%2Fprofile_pictures%2Fphoto.jpg?alt=media&token=abc",
       userId: "user-1",
     });
     assert.deepEqual(port.dataFor(targets[3].reference.path), {
@@ -644,7 +673,7 @@ test(
       firstAscentDisplayName: "Maya Chen",
       firstAscentIdentityState: "published",
       firstAscentIsSynthetic: false,
-      firstAscentPhotoURL: "https://example.com/profile.jpg",
+      firstAscentPhotoURL: "https://firebasestorage.googleapis.com/v0/b/ascend-test.appspot.com/o/users%2Fuser-1%2Fprofile_pictures%2Fphoto.jpg?alt=media&token=abc",
       firstAscentUserId: "user-1",
       permanentClaim: true,
     });
@@ -872,7 +901,7 @@ function source(
     displayName,
     identityChangedAt: changedAt,
     identityPolicyVersion: 1,
-    photoURL: "https://example.com/profile.jpg",
+    photoURL: "https://firebasestorage.googleapis.com/v0/b/ascend-test.appspot.com/o/users%2Fuser-1%2Fprofile_pictures%2Fphoto.jpg?alt=media&token=abc",
     ...overrides,
   };
 }

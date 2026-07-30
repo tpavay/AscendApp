@@ -11,9 +11,15 @@ export type PublicIdentityState =
   typeof PUBLIC_IDENTITY_STATE_PENDING |
   typeof PUBLIC_IDENTITY_STATE_DELETED;
 
-const TOKEN_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+// Mirrors PublicClimberIdentity.tokenAlphabet. Every letter is absent from
+// every screened term and the generator never repeats a character back to back,
+// so isAllowedDisplayName accepts every handle this can produce.
+const TOKEN_ALPHABET = "2346789AEFJMNQRT";
 const MAXIMUM_DISPLAY_NAME_LENGTH = 80;
 const MAXIMUM_PHOTO_URL_LENGTH = 2048;
+// Mirrors isValidPublicPhotoURL in firestore.rules.
+const PROFILE_PHOTO_URL_PATTERN =
+  /^https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/[A-Za-z0-9][A-Za-z0-9._-]*\/o\/[^/]+$/u;
 const BLOCKED_TERMS = [
   "asshole",
   "bastard",
@@ -90,11 +96,28 @@ export function publicSystemHandle(userId: string): string {
     .update(normalizedUserId, "utf8")
     .digest();
   const prefix = digest.readUInt32BE(0);
-  const token = [27, 22, 17, 12, 7, 2]
-    .map((shift) => TOKEN_ALPHABET[(prefix >>> shift) & 0x1F])
-    .join("");
+  const token = [20, 16, 12, 8, 4, 0].reduce<string[]>((token, shift) => {
+    const character = TOKEN_ALPHABET[(prefix >>> shift) & 0x0F];
+    const previous = token[token.length - 1];
+    token.push(
+      previous === character ? nextTokenCharacter(character) : character
+    );
+    return token;
+  }, []).join("");
 
   return `Climber ${token}`;
+}
+
+/**
+ * Advances one position in the token alphabet to break a repeated character.
+ * @param {string} character Token character to advance past.
+ * @return {string} The next alphabet character.
+ */
+function nextTokenCharacter(character: string): string {
+  const index = TOKEN_ALPHABET.indexOf(character);
+  return index < 0 ?
+    character :
+    TOKEN_ALPHABET[(index + 1) % TOKEN_ALPHABET.length];
 }
 
 /**
@@ -128,7 +151,7 @@ export function publicIdentityFromData(
  */
 export function isAnonymousClimberName(value: unknown): boolean {
   return typeof value === "string" &&
-    normalizedForScreening(value)
+    digitSubstituted(foldedForScreening(value))
       .replace(/[^a-z]/gu, "") === "anonymousclimber";
 }
 
@@ -147,10 +170,12 @@ export function isAllowedDisplayName(value: string): boolean {
     return false;
   }
 
-  const normalized = normalizedForScreening(trimmed);
-  if (/([a-z])\1{2,}/u.test(normalized)) {
+  const folded = foldedForScreening(trimmed);
+  if (/([a-z])\1{2,}/u.test(folded)) {
     return false;
   }
+
+  const normalized = digitSubstituted(folded);
   const lettersOnly = normalized.replace(/[^a-z]/gu, "");
   if (lettersOnly === "anonymousclimber") {
     return false;
@@ -171,7 +196,10 @@ export function isAllowedDisplayName(value: string): boolean {
 }
 
 /**
- * Returns a bounded HTTP(S) photo URL or null.
+ * Returns a bounded Firebase Storage download URL or null.
+ *
+ * Every viewer's device fetches this URL, so an arbitrary host would let a
+ * modified client point the whole leaderboard at a server it controls.
  * @param {unknown} value Candidate profile photo field.
  * @return {string | null} Validated URL string.
  */
@@ -179,37 +207,25 @@ function validPhotoURL(value: unknown): string | null {
   const candidate = stringValue(value);
   if (
     candidate === null ||
-    candidate.length > MAXIMUM_PHOTO_URL_LENGTH
+    candidate.length > MAXIMUM_PHOTO_URL_LENGTH ||
+    !PROFILE_PHOTO_URL_PATTERN.test(candidate)
   ) {
     return null;
   }
 
-  try {
-    const url = new URL(candidate);
-    return url.protocol === "https:" || url.protocol === "http:" ?
-      candidate :
-      null;
-  } catch {
-    return null;
-  }
+  return candidate;
 }
 
 /**
- * Normalizes common separator, digit, and confusable obfuscations.
+ * Normalizes case, diacritics, and confusable letters.
+ *
+ * Digits stay digits so the repeated-character check cannot invent a letter run
+ * out of an ordinary numeric name.
  * @param {string} value Candidate display name.
- * @return {string} Screening form.
+ * @return {string} Folded screening form.
  */
-function normalizedForScreening(value: string): string {
+function foldedForScreening(value: string): string {
   const substitutions: Record<string, string> = {
-    "0": "o",
-    "1": "i",
-    "3": "e",
-    "4": "a",
-    "5": "s",
-    "7": "t",
-    "@": "a",
-    "$": "s",
-    "!": "i",
     "а": "a",
     "ɑ": "a",
     "α": "a",
@@ -244,9 +260,37 @@ function normalizedForScreening(value: string): string {
   return substituted;
 }
 
+/**
+ * Applies leetspeak folding, used only by the blocked-term checks.
+ * @param {string} folded Case- and confusable-folded name.
+ * @return {string} Blocked-term screening form.
+ */
+function digitSubstituted(folded: string): string {
+  const substitutions: Record<string, string> = {
+    "0": "o",
+    "1": "i",
+    "3": "e",
+    "4": "a",
+    "5": "s",
+    "7": "t",
+    "@": "a",
+    "$": "s",
+    "!": "i",
+  };
+
+  return Array.from(folded)
+    .map((character) => substitutions[character] ?? character)
+    .join("");
+}
+
 function containsUnsupportedCompatibilityGlyph(value: string): boolean {
   return Array.from(value).some((character) => {
     const codePoint = character.codePointAt(0) ?? 0;
+    // U+02BB okina and U+02BC modifier apostrophe carry meaning in Hawaiian and
+    // many other orthographies, so they stay spellable.
+    if (codePoint === 0x02BB || codePoint === 0x02BC) {
+      return false;
+    }
     return (
       (codePoint >= 0x02B0 && codePoint <= 0x02FF) ||
       (codePoint >= 0x1D00 && codePoint <= 0x1D7F) ||

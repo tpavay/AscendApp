@@ -433,66 +433,77 @@ final class UserDataRepository: Sendable {
         userFields: [String: Any],
         alwaysPublish: Bool
     ) async throws {
+        // The private record and the public mirror have to move together, and a
+        // transaction cannot queue offline the way a cached write does, so the
+        // caller gets an honest answer instead of a half-applied profile.
+        try await ProfilePublicationError.requireConnection()
+
         let userRef = db.collection("users").document(userId)
         let publicProfileRef = userRef.collection("public_profile").document("current")
 
-        _ = try await db.runTransaction { transaction, errorPointer -> Any? in
-            do {
-                let userSnapshot = try transaction.getDocument(userRef)
-                let publicProfileSnapshot = try transaction.getDocument(publicProfileRef)
-                var mergedUserData = userSnapshot.data() ?? [:]
-                var userWrite = userFields
+        do {
+            _ = try await db.runTransaction { transaction, errorPointer -> Any? in
+                do {
+                    let userSnapshot = try transaction.getDocument(userRef)
+                    let publicProfileSnapshot = try transaction.getDocument(publicProfileRef)
+                    var mergedUserData = userSnapshot.data() ?? [:]
+                    var userWrite = userFields
 
-                if !userSnapshot.exists {
-                    let initialUserData: [String: Any] = [
-                        "email": email ?? "",
-                        "firstName": "",
-                        "lastName": "",
-                        "displayName": ""
-                    ]
-                    mergedUserData.merge(initialUserData) { current, _ in current }
-                    userWrite.merge(initialUserData) { current, _ in current }
-                    userWrite["createdAt"] = FieldValue.serverTimestamp()
-                }
+                    if !userSnapshot.exists {
+                        let initialUserData: [String: Any] = [
+                            "email": email ?? "",
+                            "firstName": "",
+                            "lastName": "",
+                            "displayName": ""
+                        ]
+                        mergedUserData.merge(initialUserData) { current, _ in current }
+                        userWrite.merge(initialUserData) { current, _ in current }
+                        userWrite["createdAt"] = FieldValue.serverTimestamp()
+                    }
 
-                mergedUserData.merge(userFields) { _, new in new }
-                userWrite["lastUpdated"] = FieldValue.serverTimestamp()
+                    mergedUserData.merge(userFields) { _, new in new }
+                    userWrite["lastUpdated"] = FieldValue.serverTimestamp()
 
-                let storedDisplayName = mergedUserData["displayName"] as? String
-                let hasAuthoredDisplayName = storedDisplayName?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .isEmpty == false
-                let publicPayload: [String: Any]?
-                if alwaysPublish || hasAuthoredDisplayName {
-                    let identity = try Self.publicIdentity(
-                        userId: userId,
-                        userData: mergedUserData
-                    )
-                    publicPayload = try ProfileRepository.publicIdentityPayload(
-                        identity,
-                        advancesIdentityVersion: try ProfileRepository
-                            .publicIdentityNeedsVersionAdvance(
-                                identity,
-                                existingData: publicProfileSnapshot.data()
-                            )
+                    let storedDisplayName = mergedUserData["displayName"] as? String
+                    let hasAuthoredDisplayName = storedDisplayName?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .isEmpty == false
+                    let publicPayload: [String: Any]?
+                    if alwaysPublish || hasAuthoredDisplayName {
+                        let identity = try Self.publicIdentity(
+                            userId: userId,
+                            userData: mergedUserData
                         )
-                } else {
-                    publicPayload = nil
-                }
+                        publicPayload = try ProfileRepository.publicIdentityPayload(
+                            identity,
+                            advancesIdentityVersion: try ProfileRepository
+                                .publicIdentityNeedsVersionAdvance(
+                                    identity,
+                                    existingData: publicProfileSnapshot.data()
+                                )
+                            )
+                    } else {
+                        publicPayload = nil
+                    }
 
-                transaction.setData(userWrite, forDocument: userRef, merge: true)
-                if let publicPayload {
-                    transaction.setData(
-                        publicPayload,
-                        forDocument: publicProfileRef,
-                        merge: true
-                    )
+                    transaction.setData(userWrite, forDocument: userRef, merge: true)
+                    if let publicPayload {
+                        transaction.setData(
+                            publicPayload,
+                            forDocument: publicProfileRef,
+                            merge: true
+                        )
+                    }
+                    return nil
+                } catch let error as NSError {
+                    errorPointer?.pointee = error
+                    return nil
                 }
-                return nil
-            } catch let error as NSError {
-                errorPointer?.pointee = error
-                return nil
             }
+        } catch {
+            // A connection that drops mid-transaction reads the same to the user
+            // as never having had one.
+            throw ProfilePublicationError.mappingLostConnection(error)
         }
     }
 

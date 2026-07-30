@@ -19,7 +19,10 @@ service cloud.firestore {
         value.size() <= 120;
     }
 
-    function normalizedDisplayName(value) {
+    // Case, diacritic, and confusable-letter folding only. Digits stay digits
+    // so the repeated-character check cannot invent a letter run out of an
+    // ordinary numeric name like "Climber2000".
+    function foldedDisplayName(value) {
       return value
         .replace("[ªÀÁÂÃÄÅàáâãäåĀāĂăĄąǍǎǞǟǠǡǺǻȀȁȂȃȦȧᴬᵃḀḁẚẠạẢảẤấẦầẨẩẪẫẬậẮắẰằẲẳẴẵẶặₐÅＡａ𝐀𝐚𝐴𝑎𝑨𝒂𝒜𝒶𝓐𝓪𝔄𝔞𝔸𝕒𝕬𝖆𝖠𝖺𝗔𝗮𝘈𝘢𝘼𝙖𝙰𝚊]", "a")
         .replace("[ᴮᵇḂḃḄḅḆḇℬＢｂ𝐁𝐛𝐵𝑏𝑩𝒃𝒷𝓑𝓫𝔅𝔟𝔹𝕓𝕭𝖇𝖡𝖻𝗕𝗯𝘉𝘣𝘽𝙗𝙱𝚋]", "b")
@@ -58,15 +61,6 @@ service cloud.firestore {
         .replace("ﬄ", "ffl")
         .replace("[ﬅﬆ]", "st")
         .lower()
-        .replace("0", "o")
-        .replace("1", "i")
-        .replace("3", "e")
-        .replace("4", "a")
-        .replace("5", "s")
-        .replace("7", "t")
-        .replace("@", "a")
-        .replace("\\$", "s")
-        .replace("!", "i")
         .replace("[аɑα]", "a")
         .replace("β", "b")
         .replace("[еёε]", "e")
@@ -82,8 +76,32 @@ service cloud.firestore {
         .replace("ս", "u");
     }
 
-    function collapsedDisplayName(value) {
-      return normalizedDisplayName(value);
+    // Leetspeak folding, applied only to the blocked-term checks.
+    function digitSubstitutedDisplayName(folded) {
+      return folded
+        .replace("0", "o")
+        .replace("1", "i")
+        .replace("3", "e")
+        .replace("4", "a")
+        .replace("5", "s")
+        .replace("7", "t")
+        .replace("@", "a")
+        .replace("\\$", "s")
+        .replace("!", "i");
+    }
+
+    // Every viewer's device fetches this URL. Constrain it to a Firebase
+    // Storage download URL so a modified client cannot point the whole
+    // leaderboard at a host it controls. Mirrors validPhotoURL in
+    // functions/src/publicIdentity.ts.
+    function isValidPublicPhotoURL(value) {
+      return value is string &&
+        value.size() <= 2048 &&
+        (value == "" ||
+          value.matches(
+            "^https://firebasestorage\\.googleapis\\.com/v0/b/" +
+            "[a-zA-Z0-9][a-zA-Z0-9._-]*/o/[^/]+$"
+          ));
     }
 
     function hasVisibleDisplayName(value) {
@@ -94,12 +112,13 @@ service cloud.firestore {
 
     function hasUnsupportedCompatibilityDisplayNameGlyph(value) {
       return value.matches(
-        ".*[ʰ-˿ᴀ-ᵿ⁰-₟℀-↏①-⓿㈀-㏿ﬀ-ﬆ︐-﹫＀-￯𝐀-𝟿🄀-🋿].*"
+        ".*[ʰ-ʺʽ-˿ᴀ-ᵿ⁰-₟℀-↏①-⓿㈀-㏿ﬀ-ﬆ︐-﹫＀-￯𝐀-𝟿🄀-🋿].*"
       );
     }
 
     function isAllowedDisplayName(value) {
-      let normalized = collapsedDisplayName(value);
+      let folded = foldedDisplayName(value);
+      let normalized = digitSubstitutedDisplayName(folded);
       return value is string &&
         value.size() <= 80 &&
         (value.size() == 0 || hasVisibleDisplayName(value)) &&
@@ -108,7 +127,7 @@ service cloud.firestore {
           "^[^a-z]*a[^a-z]*n[^a-z]*o[^a-z]*n[^a-z]*y[^a-z]*m[^a-z]*o[^a-z]*u[^a-z]*s" +
           "[^a-z]*c[^a-z]*l[^a-z]*i[^a-z]*m[^a-z]*b[^a-z]*e[^a-z]*r[^a-z]*$"
         ) &&
-        !normalized.matches(
+        !folded.matches(
           ".*(" +
           "a{3,}|b{3,}|c{3,}|d{3,}|e{3,}|f{3,}|g{3,}|" +
           "h{3,}|i{3,}|j{3,}|k{3,}|l{3,}|m{3,}|n{3,}|" +
@@ -300,8 +319,7 @@ service cloud.firestore {
         request.resource.data.userId == userId &&
         hasVisibleDisplayName(request.resource.data.displayName) &&
         isAllowedDisplayName(request.resource.data.displayName) &&
-        request.resource.data.photoURL is string &&
-        request.resource.data.photoURL.size() <= 2048 &&
+        isValidPublicPhotoURL(request.resource.data.photoURL) &&
         isValidIdentityPolicyMetadata() &&
         (!request.resource.data.keys().hasAny(["age"]) ||
           (request.resource.data.age is int &&
@@ -605,8 +623,7 @@ service cloud.firestore {
         request.resource.data.displayName is string &&
         hasVisibleDisplayName(request.resource.data.displayName) &&
         isAllowedDisplayName(request.resource.data.displayName) &&
-        request.resource.data.photoURL is string &&
-        request.resource.data.photoURL.size() <= 2048 &&
+        isValidPublicPhotoURL(request.resource.data.photoURL) &&
         isValidIdentityPolicyMetadata();
       let isServerMasked =
         state in ["pending_public_profile", "deleted"] &&

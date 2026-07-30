@@ -56,6 +56,39 @@ struct DisplayNamePolicyTests {
         #expect(try DisplayNamePolicy.validated(displayName) == displayName)
     }
 
+    /// A wrongly rejected legitimate name costs more than a marginal one
+    /// slipping through, and leetspeak folding ran before the repeated-character
+    /// check, so `Climber2000` normalized to `climber2ooo` and tripped it.
+    @Test
+    func keepsOrdinaryNamesContainingDigits() throws {
+        for name in [
+            "Climber2000",
+            "Runner000",
+            "Team111",
+            "Level333",
+            "Route555",
+            "Step777"
+        ] {
+            #expect(DisplayNamePolicy.isAllowed(name), "rejected \(name)")
+            #expect(try DisplayNamePolicy.validated(name) == name)
+        }
+    }
+
+    /// U+02BB okina and U+02BC modifier apostrophe are ordinary letters in
+    /// Hawaiian and many other orthographies.
+    @Test
+    func keepsNamesUsingTheOkina() throws {
+        #expect(try DisplayNamePolicy.validated("Ka\u{02BB}iulani") == "Ka\u{02BB}iulani")
+        #expect(DisplayNamePolicy.isAllowed("O\u{02BC}ahu Climber"))
+    }
+
+    @Test
+    func stillRejectsRepeatedLettersAndModifierLetterObfuscation() {
+        #expect(!DisplayNamePolicy.isAllowed("fuuuck"))
+        #expect(!DisplayNamePolicy.isAllowed("Cliiimber"))
+        #expect(!DisplayNamePolicy.isAllowed("Climber\u{02B0}"))
+    }
+
     @Test
     func rejectsEmptyAndOverlongDisplayNames() {
         #expect(throws: DisplayNamePolicyError.self) {
