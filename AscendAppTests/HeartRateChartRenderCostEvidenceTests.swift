@@ -15,8 +15,12 @@ import UIKit
 /// the thinned series the view now plots - and compares both the wall-clock render
 /// cost and the resulting pixels.
 ///
-/// Images land in the test host's temporary directory; the paths are printed so a run
-/// can lift them out for review.
+/// Images land in `ASCEND_EVIDENCE_DIR` when it is set, and in the test host's temporary
+/// directory otherwise; the paths are printed so a run can lift them out for review.
+///
+/// The render timings are printed for the record and never asserted - a wall-clock
+/// threshold would flake on a loaded runner. Only the mark counts, the preserved
+/// min/max envelope, and the pixel-difference bound are assertions.
 @MainActor
 struct HeartRateChartRenderCostEvidenceTests {
     private static let start = Date(timeIntervalSince1970: 1_750_300_000)
@@ -319,9 +323,13 @@ struct HeartRateChartRenderCostEvidenceTests {
 
     // MARK: - Files
 
+    /// The harness-provided override when present, otherwise the always-writable temp
+    /// dir. Never a hardcoded machine path - that exists only on one Mac and fails on
+    /// CI runners.
     private static func evidenceDirectory() throws -> URL {
-        let directory = URL(filePath: NSTemporaryDirectory())
-            .appending(path: "heart-rate-chart-evidence")
+        let base = ProcessInfo.processInfo.environment["ASCEND_EVIDENCE_DIR"]
+            ?? NSTemporaryDirectory()
+        let directory = URL(filePath: base).appending(path: "heart-rate-chart-evidence")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
     }
