@@ -24,8 +24,10 @@ The current query filters per-climb and per-routine live races with `isBestForUs
 Both matching definitions already exist exactly once in `firestore.indexes.json` after rebasing onto current `develop`, so this preparation does not add duplicates.
 
 Current `develop` declares 13 composite indexes because later work also added the `workouts(source, climbId)` projection index and the routine completion `entries(finalSteps DESCENDING, __name__ ASCENDING)` index.
-It also declares three collection-group field overrides for `blocked.blockedUid`, `entries.userId`, and `finishers.userId`.
-The production workflow waits until every composite index reports `READY`, verifies that every field override is deployed, and requires each relevant field-index backfill operation to finish before Functions deploy.
+It also declares three field overrides, for `blocked.blockedUid`, `entries.userId`, and `finishers.userId`.
+All three carry a `COLLECTION_GROUP` scope, and `entries.userId` additionally restates its ascending and descending `COLLECTION`-scoped single-field indexes.
+That restatement is required because a field override replaces the field's entire index configuration, and the server's best-entry reconciliation still queries `entries` by `userId` inside a single leaderboard.
+The production workflow waits until every composite index reports `READY`, verifies that every field override is deployed with every declared scope, and requires each relevant field-index backfill operation to finish before Functions deploy.
 
 The `cleanupDeletedUserData` function is implemented in `functions/src/accountCleanup.ts` and exported from `functions/src/index.ts`.
 It is retry-enabled, discovers all `users/{uid}` subcollections, continues independent cleanup steps after a partial failure, and throws when any cleanup step fails so Cloud Functions retries it.
@@ -95,7 +97,7 @@ The workflow performs the following order automatically:
 2. Build and retain the signed production IPA.
 3. Build the Functions and Hosting artifacts.
 4. Deploy Firestore indexes.
-5. Poll until all 13 composite indexes report `READY`, all three collection-group field overrides are present, and their relevant Firestore admin operations are complete.
+5. Poll until all 13 composite indexes report `READY`, all three field overrides are deployed with every declared query scope, and their relevant Firestore admin operations are complete.
 6. Deploy Functions.
 7. Verify `cleanupDeletedUserData`, `onPublicIdentityPropagationJobWritten`, `onPublicProfileIdentityWritten`, `onWorkoutWritten`, `onWorkoutReplaySplitsWritten`, and `unsubscribeFromEmails` report `ACTIVE`.
 8. Deploy Firestore rules.
@@ -121,7 +123,7 @@ npx -y firebase-tools@15.22.1 deploy --project production \
 ```
 
 Verify the deployment does not request deletion of an unexpected index.
-Then wait for every declared index, including both `isBestForUser + stepsAtBucket` directions and all collection-group field overrides, to become usable:
+Then wait for every declared index, including both `isBestForUser + stepsAtBucket` directions and all three field overrides, to become usable:
 
 ```sh
 deployed_spec_file="$(mktemp)"
@@ -138,7 +140,8 @@ npx -y firebase-tools@15.22.1 firestore:indexes \
 
 Do not proceed while this command exits nonzero.
 The pretty field-override listing omits query scope and serving state.
-The gate therefore validates exact `COLLECTION_GROUP` scope from JSON and separately requires the latest relevant `FieldOperationMetadata` backfill for every declared field override to finish in `SUCCESSFUL` state.
+The gate therefore matches every declared field override against the deployed JSON spec scope by scope, `COLLECTION` and `COLLECTION_GROUP` alike, and accepts it only when the deployed index set matches the declaration exactly.
+It separately requires the latest relevant `FieldOperationMetadata` backfill for every declared field override to finish in `SUCCESSFUL` state.
 A pending, failed, cancelled, or error-bearing terminal operation blocks Functions deployment.
 
 Rollback: do not delete a newly created additive index during an incident.
