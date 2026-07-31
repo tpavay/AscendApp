@@ -9,12 +9,38 @@ final class RevenueCatEntitlementService: EntitlementServicing {
     static let shared = RevenueCatEntitlementService()
     private static let logger = Logger(subsystem: "com.ascendapp.app", category: "Monetization")
 
-    private(set) var entitlementState: MonetizationEntitlementState = .unknown
-    private(set) var isConfigured = false
+    var entitlementState: MonetizationEntitlementState {
+        identityTransitionState.entitlementState
+    }
+    var hasFailedIdentityResolution: Bool {
+        identityTransitionState.hasFailedIdentityResolution
+    }
+    private(set) var isConfigured: Bool
+    var scheduledIdentityMutationCount: Int {
+        identityMutationTasks.count
+    }
 
+    private let provider: any RevenueCatEntitlementProviding
     private var configuration = MonetizationConfiguration.live
     private var customerInfoTask: Task<Void, Never>?
     private var didCompleteLaunchOfferingAudit = false
+    private var identityMutationTail: Task<Void, Never>?
+    private var identityMutationTasks: [
+        MonetizationIdentityTransition: Task<Void, Never>
+    ] = [:]
+    private var identityTransitionState = MonetizationIdentityTransitionState()
+    private var pendingIdentityMutation: (
+        transition: MonetizationIdentityTransition,
+        mutation: RevenueCatIdentityMutation
+    )?
+
+    init(
+        provider: any RevenueCatEntitlementProviding = RevenueCatPurchasesProvider(),
+        startsConfigured: Bool = false
+    ) {
+        self.provider = provider
+        isConfigured = startsConfigured
+    }
 
     func configure(configuration: MonetizationConfiguration = .live) {
         guard !isConfigured else { return }
@@ -22,7 +48,6 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         self.configuration = configuration
 
         guard let apiKey = configuration.revenueCatAPIKey else {
-            entitlementState = .inactive
             TelemetryManager.shared.set(.hasAppAccess, value: false)
             return
         }
@@ -38,22 +63,51 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         }
 
         isConfigured = true
-        observeCustomerInfo()
-
         Task {
-            await refreshCustomerInfo()
+            await auditLaunchOfferingIfNeeded()
+        }
+
+        if identityTransitionState.refreshToken() != nil {
+            observeCustomerInfoUpdates()
+            Task {
+                await refreshCustomerInfo()
+            }
         }
     }
 
     func refreshCustomerInfo() async {
-        guard isConfigured else { return }
+        guard isConfigured else {
+            return
+        }
+
+        if let pendingIdentityMutation {
+            let transition = pendingIdentityMutation.transition
+            guard identityMutationTasks[transition] == nil else {
+                return
+            }
+
+            let mutationTask = scheduleIdentityMutation(
+                transition: transition,
+                mutation: pendingIdentityMutation.mutation
+            )
+            await mutationTask.value
+            return
+        }
+
+        guard let refreshToken = identityTransitionState.refreshToken() else {
+            return
+        }
 
         do {
-            let customerInfo = try await Purchases.shared.customerInfo()
-            apply(customerInfo: customerInfo)
+            let state = try await provider.customerInfoState()
+            applyRefreshState(state, for: refreshToken)
             await auditLaunchOfferingIfNeeded()
         } catch {
-            entitlementState = .unknown
+            // A refresh that could not reach RevenueCat is not evidence that the entitlement
+            // lapsed, so the already-resolved answer stands until something can ask again.
+            Self.logger.error(
+                "Could not refresh RevenueCat customer info: \(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 
@@ -103,61 +157,178 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         )
     }
 
-    func identify(userId: String) async {
-        guard isConfigured else { return }
-
-        do {
-            let logInResult = try await Purchases.shared.logIn(userId)
-            apply(customerInfo: logInResult.customerInfo)
-        } catch {
-            entitlementState = .unknown
-        }
+    func prepareIdentity(userId: String) -> MonetizationIdentityTransition {
+        prepareIdentityMutation(
+            userID: userId,
+            mutation: .identify(userID: userId)
+        )
     }
 
-    func resetIdentity() async {
-        guard isConfigured else {
-            entitlementState = .inactive
-            TelemetryManager.shared.set(.hasAppAccess, value: false)
+    func identify(
+        userId: String,
+        transition: MonetizationIdentityTransition
+    ) async {
+        guard transition.userID == userId else { return }
+        await identityMutationTasks[transition]?.value
+    }
+
+    func prepareIdentityReset() -> MonetizationIdentityTransition {
+        prepareIdentityMutation(userID: nil, mutation: .reset)
+    }
+
+    func resetIdentity(transition: MonetizationIdentityTransition) async {
+        guard transition.userID == nil else { return }
+        await identityMutationTasks[transition]?.value
+    }
+
+    /// Runs the still-unanswered identity mutation again. Caller-driven only - nothing schedules
+    /// this - so a provider outage surfaces as a recoverable screen rather than a stuck spinner.
+    func retryIdentityResolution() async {
+        guard identityTransitionState.hasFailedIdentityResolution,
+              let pendingIdentityMutation else {
             return
         }
 
-        do {
-            let customerInfo = try await Purchases.shared.logOut()
-            apply(customerInfo: customerInfo)
-        } catch {
-            entitlementState = .inactive
-            TelemetryManager.shared.set(.hasAppAccess, value: false)
-        }
+        let transition = pendingIdentityMutation.transition
+        guard identityMutationTasks[transition] == nil else { return }
+
+        let mutationTask = scheduleIdentityMutation(
+            transition: transition,
+            mutation: pendingIdentityMutation.mutation
+        )
+        await mutationTask.value
     }
 
     func restorePurchases() async throws {
         guard isConfigured else { return }
+        let refreshToken = identityTransitionState.refreshToken()
+        let state = try await provider.restorePurchasesState()
 
-        let customerInfo = try await Purchases.shared.restorePurchases()
-        apply(customerInfo: customerInfo)
+        if let refreshToken {
+            applyRefreshState(state, for: refreshToken)
+        }
     }
 
-    private func observeCustomerInfo() {
+    private func prepareIdentityMutation(
+        userID: String?,
+        mutation: RevenueCatIdentityMutation
+    ) -> MonetizationIdentityTransition {
         customerInfoTask?.cancel()
-        customerInfoTask = Task { [weak self] in
-            for await customerInfo in Purchases.shared.customerInfoStream {
-                self?.apply(customerInfo: customerInfo)
+        customerInfoTask = nil
+
+        let transition = identityTransitionState.prepare(userID: userID)
+        pendingIdentityMutation = (transition, mutation)
+        _ = scheduleIdentityMutation(transition: transition, mutation: mutation)
+        return transition
+    }
+
+    private func scheduleIdentityMutation(
+        transition: MonetizationIdentityTransition,
+        mutation: RevenueCatIdentityMutation
+    ) -> Task<Void, Never> {
+        let priorMutation = identityMutationTail
+        let mutationTask = Task { @MainActor [weak self] in
+            await priorMutation?.value
+
+            guard let self else {
+                return
+            }
+            defer {
+                self.identityMutationTasks[transition] = nil
+            }
+
+            guard self.identityTransitionState.isPending(transition) else {
+                return
+            }
+
+            let state = await self.performIdentityMutation(mutation)
+            self.finishIdentityMutation(state, for: transition)
+        }
+
+        identityMutationTasks[transition] = mutationTask
+        identityMutationTail = Task { @MainActor in
+            await mutationTask.value
+        }
+        return mutationTask
+    }
+
+    private func performIdentityMutation(
+        _ mutation: RevenueCatIdentityMutation
+    ) async -> MonetizationEntitlementState {
+        guard isConfigured else {
+            return .inactive
+        }
+
+        do {
+            switch mutation {
+            case .identify(let userID):
+                return try await provider.logInState(userID: userID)
+            case .reset:
+                return try await provider.logOutState()
+            }
+        } catch {
+            return .unknown
+        }
+    }
+
+    private func finishIdentityMutation(
+        _ state: MonetizationEntitlementState,
+        for transition: MonetizationIdentityTransition
+    ) {
+        guard identityTransitionState.resolve(state, for: transition) else {
+            return
+        }
+
+        guard state != .unknown else {
+            return
+        }
+
+        if pendingIdentityMutation?.transition == transition {
+            pendingIdentityMutation = nil
+        }
+        updateTelemetry(for: state)
+        observeCustomerInfoUpdates()
+    }
+
+    private func observeCustomerInfoUpdates() {
+        guard isConfigured else {
+            return
+        }
+
+        customerInfoTask?.cancel()
+        customerInfoTask = Task { @MainActor [weak self, provider] in
+            for await state in provider.customerInfoUpdates {
+                guard !Task.isCancelled, let self else { return }
+                self.applyStreamedState(state)
             }
         }
     }
 
-    private func apply(customerInfo: CustomerInfo) {
-        let activeEntitlementIDs = Set(customerInfo.entitlements.activeInCurrentEnvironment.keys)
-
-        if activeEntitlementIDs.isEmpty {
-            entitlementState = .inactive
-        } else {
-            entitlementState = .active(activeEntitlementIDs)
+    /// The stream already carries the answer, so applying it directly keeps the entitlement current
+    /// without a second round trip that could itself fail.
+    private func applyStreamedState(_ state: MonetizationEntitlementState) {
+        guard let refreshToken = identityTransitionState.refreshToken() else {
+            return
         }
 
+        applyRefreshState(state, for: refreshToken)
+    }
+
+    private func applyRefreshState(
+        _ state: MonetizationEntitlementState,
+        for refreshToken: MonetizationIdentityTransition
+    ) {
+        guard identityTransitionState.applyRefresh(state, for: refreshToken) else {
+            return
+        }
+
+        updateTelemetry(for: state)
+    }
+
+    private func updateTelemetry(for state: MonetizationEntitlementState) {
         TelemetryManager.shared.set(
             .hasAppAccess,
-            value: activeEntitlementIDs.contains(configuration.revenueCatEntitlementID)
+            value: state.hasActiveEntitlement(configuration.revenueCatEntitlementID)
         )
     }
 }

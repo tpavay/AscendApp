@@ -1,7 +1,10 @@
 import SwiftUI
 
 struct LandingScreen: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     @State private var isShowingValueCarousel = false
+    @State private var isShowingSignIn = false
 
     var body: some View {
         ZStack {
@@ -21,40 +24,99 @@ struct LandingScreen: View {
                         iconSize: 52 * typeScale,
                         iconTrailingSpacing: 14 * typeScale
                     )
+                    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                     .position(x: centerX, y: 200 * scaleY)
 
                     welcomeHeadline(typeScale: typeScale)
+                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                         .multilineTextAlignment(.center)
                         .lineLimit(1)
                         .minimumScaleFactor(0.82)
                         .frame(width: 334 * scaleX, height: 36 * scaleY, alignment: .top)
                         .position(x: centerX, y: 270 * scaleY)
 
-                    Button(action: startOnboarding) {
-                        Text("GET STARTED")
-                    }
-                    .buttonStyle(
-                        OnboardingPrimaryCTAButtonStyle(
-                            height: 56 * scaleY,
-                            cornerRadius: 12 * typeScale,
-                            fontSize: 16 * typeScale,
-                            tint: brandAccentColor,
-                            shadowOpacity: 0
-                        )
-                    )
-                    .frame(width: 334 * scaleX)
-                    .position(x: centerX, y: 752 * scaleY)
-
                 }
             }
             .ignoresSafeArea()
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            bottomActions
+                .padding(.horizontal, 28)
+                .padding(.bottom, LandingScreenActionLayoutPolicy.bottomPadding)
         }
         .background(Color.black)
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(isPresented: $isShowingValueCarousel) {
             PreAuthOnboardingValueCarouselScreen()
         }
+        .navigationDestination(isPresented: $isShowingSignIn) {
+            SignUpView()
+        }
         .trackOnboardingScreenView(OnboardingAnalyticsEvent.welcomeContext)
+    }
+
+    private var bottomActions: some View {
+        VStack(spacing: LandingScreenActionLayoutPolicy.actionSpacing) {
+            Button(action: startOnboarding) {
+                Text("GET STARTED")
+            }
+            .buttonStyle(
+                OnboardingPrimaryCTAButtonStyle(
+                    height: LandingScreenActionLayoutPolicy.primaryActionHeight,
+                    cornerRadius: 12,
+                    fontSize: 16,
+                    tint: brandAccentColor,
+                    shadowOpacity: 0
+                )
+            )
+
+            Button(action: openSignIn) {
+                ViewThatFits(in: .horizontal) {
+                    if LandingScreenActionLayoutPolicy.usesCompactSignInLabel(
+                        for: dynamicTypeSize
+                    ) {
+                        Text(LandingScreenActionLayoutPolicy.signInTitle)
+                            .foregroundStyle(.white)
+                    } else {
+                        HStack(spacing: 4) {
+                            Text(LandingScreenActionLayoutPolicy.signInPrompt)
+                                .foregroundStyle(.white.opacity(0.78))
+
+                            Text(LandingScreenActionLayoutPolicy.signInTitle)
+                                .foregroundStyle(.white)
+                        }
+                    }
+
+                    Text(LandingScreenActionLayoutPolicy.signInTitle)
+                        .foregroundStyle(.white)
+                }
+                .font(.montserratSemiBold(size: 14))
+                .multilineTextAlignment(.center)
+                .lineLimit(1)
+                .frame(
+                    maxWidth: .infinity,
+                    minHeight: LandingScreenActionLayoutPolicy.secondaryActionHeight,
+                    maxHeight: LandingScreenActionLayoutPolicy.secondaryActionHeight
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(LandingScreenActionLayoutPolicy.signInAccessibilityLabel)
+            .accessibilityHint("Opens the sign-in screen.")
+        }
+        .frame(maxWidth: 334)
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+    }
+
+    private func openSignIn() {
+        TelemetryManager.shared.track(
+            OnboardingAnalyticsEvent.screenCompleted(
+                context: OnboardingAnalyticsEvent.welcomeContext,
+                inputType: "button",
+                properties: ["action_id": .string("sign_in")]
+            )
+        )
+        isShowingSignIn = true
     }
 
     private func startOnboarding() {

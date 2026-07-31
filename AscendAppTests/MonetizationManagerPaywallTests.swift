@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import AscendApp
 
@@ -107,11 +108,14 @@ struct MonetizationManagerPaywallTests {
             telemetry: makeTestTelemetry(sink: sink)
         )
 
-        await manager.identify(userId: "user-a")
+        let firstIdentity = manager.prepareIdentity(userId: "user-a")
+        await manager.identify(userId: "user-a", transition: firstIdentity)
         manager.presentPaywall(.onboardingPaywall)
         manager.presentPaywall(.onboardingPaywall)
-        await manager.resetIdentity()
-        await manager.identify(userId: "user-b")
+        let reset = manager.prepareIdentityReset()
+        await manager.resetIdentity(transition: reset)
+        let secondIdentity = manager.prepareIdentity(userId: "user-b")
+        await manager.identify(userId: "user-b", transition: secondIdentity)
         manager.presentPaywall(.onboardingPaywall)
 
         let onboardingViews = sink.records.filter { $0.name == "onboarding_screen_viewed" }
@@ -129,9 +133,11 @@ struct MonetizationManagerPaywallTests {
             telemetry: makeTestTelemetry(sink: sink)
         )
 
-        await manager.identify(userId: "user-a")
+        let firstIdentity = manager.prepareIdentity(userId: "user-a")
+        await manager.identify(userId: "user-a", transition: firstIdentity)
         manager.presentPaywall(.onboardingPaywall)
-        await manager.identify(userId: "user-a")
+        let repeatedIdentity = manager.prepareIdentity(userId: "user-a")
+        await manager.identify(userId: "user-a", transition: repeatedIdentity)
         manager.presentPaywall(.onboardingPaywall)
 
         #expect(sink.records.filter { $0.name == "onboarding_screen_viewed" }.count == 1)
@@ -152,6 +158,69 @@ struct MonetizationManagerPaywallTests {
         paywallPresenter.send(.skipped(reason: "holdout"))
 
         #expect(receivedOutcome == .skipped(reason: "holdout"))
+    }
+
+
+    @Test
+    func returningActiveSubscriberNeverRegistersAppAccessPaywall() async {
+        let entitlementService = EntitlementServiceStub(
+            initialState: .active(["app_access"])
+        )
+        let paywallPresenter = PaywallPresenterSpy()
+        let manager = MonetizationManager(
+            entitlementService: entitlementService,
+            paywallPresenter: paywallPresenter
+        )
+
+        let reset = manager.prepareIdentityReset()
+        await manager.resetIdentity(transition: reset)
+
+        entitlementService.identityResolution = .active(["app_access"])
+        let signIn = manager.prepareIdentity(userId: "returning-subscriber")
+
+        let resolvingRoute = AppRootRouteResolver.resolve(
+            authenticationState: .authenticated,
+            userId: "returning-subscriber",
+            postAuthOnboardingPhase: .complete,
+            entitlementState: manager.entitlementStateForRouting,
+            requiredEntitlementID: "app_access"
+        )
+        registerPaywallIfNeeded(
+            for: resolvingRoute,
+            with: manager
+        )
+
+        #expect(manager.entitlementStateForRouting == .unknown)
+        #expect(resolvingRoute == .resolving)
+        #expect(paywallPresenter.registeredPlacement == nil)
+
+        await manager.identify(
+            userId: "returning-subscriber",
+            transition: signIn
+        )
+
+        let entitledRoute = AppRootRouteResolver.resolve(
+            authenticationState: .authenticated,
+            userId: "returning-subscriber",
+            postAuthOnboardingPhase: .complete,
+            entitlementState: manager.entitlementStateForRouting,
+            requiredEntitlementID: "app_access"
+        )
+        registerPaywallIfNeeded(
+            for: entitledRoute,
+            with: manager
+        )
+
+        #expect(entitledRoute == .mainApp)
+        #expect(paywallPresenter.registeredPlacement == nil)
+    }
+
+    private func registerPaywallIfNeeded(
+        for route: AppRootRoute,
+        with manager: MonetizationManager
+    ) {
+        guard route == .paywall else { return }
+        manager.presentPaywall(.appAccessGate)
     }
 
     @Test
@@ -239,6 +308,7 @@ final class PaywallPresenterSpy: PaywallPresenting {
     var isConfigured: Bool
     private(set) var registeredPlacement: SuperwallPlacement?
     private(set) var registeredSource: String?
+    private(set) var registrations: [SuperwallPlacement] = []
     private var outcomeHandler: (@MainActor (PaywallPresentationOutcome) -> Void)?
 
     init(isConfigured: Bool = true) {
@@ -261,6 +331,7 @@ final class PaywallPresenterSpy: PaywallPresenting {
     ) {
         registeredPlacement = placement
         registeredSource = params?["source"] as? String
+        registrations.append(placement)
         outcomeHandler = onOutcome
     }
 
@@ -271,8 +342,16 @@ final class PaywallPresenterSpy: PaywallPresenting {
 
 @MainActor
 final class EntitlementServiceStub: EntitlementServicing {
-    var entitlementState: MonetizationEntitlementState
+    private(set) var entitlementState: MonetizationEntitlementState
+    private(set) var hasFailedIdentityResolution = false
     var isConfigured = true
+    var identityResolution = MonetizationEntitlementState.inactive
+    private var revision: UInt = 0
+    private var currentTransition: MonetizationIdentityTransition?
+
+    init(initialState: MonetizationEntitlementState) {
+        entitlementState = initialState
+    }
 
     init(entitlementState: MonetizationEntitlementState = .inactive) {
         self.entitlementState = entitlementState
@@ -285,9 +364,53 @@ final class EntitlementServiceStub: EntitlementServicing {
 
     func refreshCustomerInfo() async {}
 
-    func identify(userId: String) async {}
+    func prepareIdentity(userId: String) -> MonetizationIdentityTransition {
+        prepare(userID: userId)
+    }
 
-    func resetIdentity() async {}
+    func identify(
+        userId: String,
+        transition: MonetizationIdentityTransition
+    ) async {
+        resolve(identityResolution, for: transition)
+    }
+
+    func prepareIdentityReset() -> MonetizationIdentityTransition {
+        prepare(userID: nil)
+    }
+
+    func resetIdentity(transition: MonetizationIdentityTransition) async {
+        resolve(.inactive, for: transition)
+    }
+
+    func retryIdentityResolution() async {}
 
     func restorePurchases() async throws {}
+
+    private func prepare(userID: String?) -> MonetizationIdentityTransition {
+        revision &+= 1
+        entitlementState = .unknown
+        hasFailedIdentityResolution = false
+        let transition = MonetizationIdentityTransition(
+            revision: revision,
+            userID: userID
+        )
+        currentTransition = transition
+        return transition
+    }
+
+    private func resolve(
+        _ state: MonetizationEntitlementState,
+        for transition: MonetizationIdentityTransition
+    ) {
+        guard currentTransition == transition else { return }
+        entitlementState = state
+
+        guard state != .unknown else {
+            hasFailedIdentityResolution = true
+            return
+        }
+
+        currentTransition = nil
+    }
 }
