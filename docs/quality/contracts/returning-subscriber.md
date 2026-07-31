@@ -1,7 +1,7 @@
 # Feature Contract: Restore Returning Subscriber Access
 
 - Issue: Not required: the 2026-07-29 Firstmate launch brief explicitly directs this isolated implementation without assigning an issue.
-- Base branch: `main`
+- Base branch: `develop` (per the branching workflow in `CLAUDE.md`)
 - Change type: fix
 - Owner: orchestrator
 
@@ -26,6 +26,7 @@ An active subscriber then enters the app without seeing the paywall.
 - [ ] AC-6: The app-access paywall handoff uses a neutral dark loading surface with no disabled call to action or "Access Required" dead-end message.
 - [ ] AC-7: The hosted paywall document paints a dark canvas before its external stylesheet loads, preventing the white loading flash.
 - [ ] AC-8: No sleep, delay, retry loop, or time-based routing workaround is introduced.
+- [ ] AC-9: An identity resolution that never produces an answer surfaces a user-actionable recovery surface instead of an indefinite spinner, and the retry is caller-driven rather than scheduled.
 
 ## State matrix
 
@@ -34,7 +35,7 @@ An active subscriber then enters the app without seeing the paywall.
 | Happy path | Returning active subscriber signs in and reaches the main app without a paywall. | Sign-out/sign-in state-machine test and final simulator evidence. |
 | Loading | Unknown or identifying entitlement shows a neutral dark setup/loading surface. | Route resolver test and app-access loading snapshot. |
 | Empty | Confirmed inactive entitlement routes to the paywall handoff. | Route resolver test. |
-| Error/offline | Unknown entitlement remains unresolved and never becomes a false inactive decision. | Route resolver test and entitlement service failure test. |
+| Error/offline | Unknown entitlement remains unresolved and never becomes a false inactive decision, and the wait screen offers retry plus sign out. | Route resolver test, entitlement service failure test, and retry recovery test. |
 | Superseded identity | A stale completion cannot publish access for the current account. | Controlled async identity test. |
 
 ## Test mapping
@@ -49,6 +50,7 @@ An active subscriber then enters the app without seeing the paywall.
 | AC-6 | Updated app-access loading snapshot and simulator screenshot. | Shows the cold-start handoff has no lock wall or disabled button. |
 | AC-7 | Static hosted-paywall markup test and rendered browser evidence. | Verifies the initial document contains inline dark canvas styling. |
 | AC-8 | Diff review and test-adversary inspection. | Detects time-based race masking. |
+| AC-9 | `RevenueCatEntitlementServiceTests.retryAfterIdentifyFailureAdmitsTheActiveSubscriber` and `retryIsIgnoredWhileIdentityResolutionIsStillOutstanding`. | Proves a failed resolution is recoverable on demand and that retry cannot pile onto an in-flight attempt. |
 
 ## UX evidence
 

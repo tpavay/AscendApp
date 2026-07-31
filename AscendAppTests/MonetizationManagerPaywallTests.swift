@@ -228,6 +228,7 @@ final class PaywallPresenterSpy: PaywallPresenting {
 @MainActor
 final class EntitlementServiceStub: EntitlementServicing {
     private(set) var entitlementState: MonetizationEntitlementState
+    private(set) var hasFailedIdentityResolution = false
     var isConfigured = true
     var identityResolution = MonetizationEntitlementState.inactive
     private var revision: UInt = 0
@@ -260,11 +261,14 @@ final class EntitlementServiceStub: EntitlementServicing {
         resolve(.inactive, for: transition)
     }
 
+    func retryIdentityResolution() async {}
+
     func restorePurchases() async throws {}
 
     private func prepare(userID: String?) -> MonetizationIdentityTransition {
         revision &+= 1
         entitlementState = .unknown
+        hasFailedIdentityResolution = false
         let transition = MonetizationIdentityTransition(
             revision: revision,
             userID: userID
@@ -279,6 +283,12 @@ final class EntitlementServiceStub: EntitlementServicing {
     ) {
         guard currentTransition == transition else { return }
         entitlementState = state
+
+        guard state != .unknown else {
+            hasFailedIdentityResolution = true
+            return
+        }
+
         currentTransition = nil
     }
 }

@@ -29,6 +29,10 @@ final class MonetizationManager: MonetizationIdentityManaging {
         entitlementService.entitlementState
     }
 
+    var hasFailedIdentityResolution: Bool {
+        entitlementService.hasFailedIdentityResolution
+    }
+
     var hasAppAccess: Bool {
         allowsUnentitledAppAccessForRouting
             || entitlementStateForRouting.hasActiveEntitlement(configuration.revenueCatEntitlementID)
@@ -134,6 +138,10 @@ final class MonetizationManager: MonetizationIdentityManaging {
 
     func refreshEntitlements() async {
         await entitlementService.refreshCustomerInfo()
+    }
+
+    func retryIdentityResolution() async {
+        await entitlementService.retryIdentityResolution()
     }
 
     func restorePurchases() async throws {

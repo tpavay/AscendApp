@@ -10,6 +10,9 @@ final class RevenueCatEntitlementService: EntitlementServicing {
     var entitlementState: MonetizationEntitlementState {
         identityTransitionState.entitlementState
     }
+    var hasFailedIdentityResolution: Bool {
+        identityTransitionState.hasFailedIdentityResolution
+    }
     private(set) var isConfigured: Bool
     var scheduledIdentityMutationCount: Int {
         identityMutationTasks.count
@@ -23,6 +26,7 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         MonetizationIdentityTransition: Task<Void, Never>
     ] = [:]
     private var identityTransitionState = MonetizationIdentityTransitionState()
+    private var pendingIdentityMutation: RevenueCatIdentityMutation?
 
     init(
         provider: any RevenueCatEntitlementProviding = RevenueCatPurchasesProvider(),
@@ -100,6 +104,23 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         await identityMutationTasks[transition]?.value
     }
 
+    /// Runs the still-unanswered identity mutation again. Caller-driven only - nothing schedules
+    /// this - so a provider outage surfaces as a recoverable screen rather than a stuck spinner.
+    func retryIdentityResolution() async {
+        guard identityTransitionState.hasFailedIdentityResolution,
+              let mutation = pendingIdentityMutation else {
+            return
+        }
+
+        let userID: String? = switch mutation {
+        case .identify(let userID): userID
+        case .reset: nil
+        }
+
+        let transition = prepareIdentityMutation(userID: userID, mutation: mutation)
+        await identityMutationTasks[transition]?.value
+    }
+
     func restorePurchases() async throws {
         guard isConfigured else { return }
         let refreshToken = identityTransitionState.refreshToken()
@@ -118,6 +139,7 @@ final class RevenueCatEntitlementService: EntitlementServicing {
         customerInfoTask = nil
 
         let transition = identityTransitionState.prepare(userID: userID)
+        pendingIdentityMutation = mutation
         let priorMutation = identityMutationTail
         let mutationTask = Task { @MainActor [weak self] in
             await priorMutation?.value
@@ -175,6 +197,7 @@ final class RevenueCatEntitlementService: EntitlementServicing {
             return
         }
 
+        pendingIdentityMutation = nil
         updateTelemetry(for: state)
         observeCustomerInfoUpdates()
     }

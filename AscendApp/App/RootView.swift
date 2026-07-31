@@ -152,8 +152,7 @@ struct RootView: View {
                 ProgressView("Restoring Session...")
                     .themedBackground()
             case .resolving:
-                ProgressView("Setting Up...")
-                    .themedBackground()
+                AppAccessResolvingView(onSignOut: authVM.signOut)
 
             case .onboarding(let stage):
                 PostAuthOnboardingFlowView(

@@ -63,4 +63,47 @@ struct MonetizationIdentityTransitionStateTests {
         #expect(state.refreshToken() == nil)
         #expect(state.entitlementState == .unknown)
     }
+
+    @Test
+    func anUnansweredIdentityIsFlaggedForRecoveryWhileAnInactiveOneIsNot() {
+        var state = MonetizationIdentityTransitionState()
+
+        let failing = state.prepare(userID: "subscriber")
+        state.resolve(.unknown, for: failing)
+
+        #expect(state.entitlementState == .unknown)
+        #expect(state.hasFailedIdentityResolution)
+
+        let retried = state.prepare(userID: "subscriber")
+
+        #expect(state.hasFailedIdentityResolution == false)
+
+        state.resolve(.inactive, for: retried)
+
+        #expect(state.entitlementState == .inactive)
+        #expect(state.hasFailedIdentityResolution == false)
+    }
+
+    /// Routing may never read "not yet known" as a denial. Only a confirmed `.inactive` may reach
+    /// the paywall, so a future change that collapses the two states fails here.
+    @Test(arguments: [
+        (MonetizationEntitlementState.unknown, AppRootRoute.resolving),
+        (.inactive, .paywall),
+        (.active(["app_access"]), .mainApp)
+    ])
+    func routingSeparatesUnknownAccessFromDeniedAccess(
+        entitlementState: MonetizationEntitlementState,
+        expectedRoute: AppRootRoute
+    ) {
+        let route = AppRootRouteResolver.resolve(
+            authenticationState: .authenticated,
+            userId: "subscriber",
+            postAuthOnboardingPhase: .complete,
+            entitlementState: entitlementState,
+            requiredEntitlementID: "app_access"
+        )
+
+        #expect(route == expectedRoute)
+        #expect(entitlementState != .unknown || route != .paywall)
+    }
 }

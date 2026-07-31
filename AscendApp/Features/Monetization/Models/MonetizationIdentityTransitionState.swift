@@ -3,6 +3,10 @@ import Foundation
 struct MonetizationIdentityTransitionState: Equatable, Sendable {
     private(set) var entitlementState: MonetizationEntitlementState = .unknown
     private(set) var pendingTransition: MonetizationIdentityTransition?
+    /// An identity mutation finished without producing an answer, so `entitlementState` stays
+    /// `.unknown` forever unless someone asks for another attempt. Routing still refuses to decide
+    /// access, but the surface it shows can offer recovery instead of an endless spinner.
+    private(set) var hasFailedIdentityResolution = false
     private var resolvedTransition: MonetizationIdentityTransition?
     private var revision: UInt = 0
     private var userID: String?
@@ -12,6 +16,7 @@ struct MonetizationIdentityTransitionState: Equatable, Sendable {
         self.userID = userID
         entitlementState = .unknown
         resolvedTransition = nil
+        hasFailedIdentityResolution = false
 
         let transition = MonetizationIdentityTransition(
             revision: revision,
@@ -32,9 +37,11 @@ struct MonetizationIdentityTransitionState: Equatable, Sendable {
 
         entitlementState = state
         guard state != .unknown else {
+            hasFailedIdentityResolution = true
             return true
         }
 
+        hasFailedIdentityResolution = false
         pendingTransition = nil
         resolvedTransition = transition
         return true

@@ -97,6 +97,70 @@ struct RevenueCatEntitlementServiceTests {
 
         #expect(service.entitlementState == .unknown)
         #expect(route == .resolving)
+        #expect(service.hasFailedIdentityResolution)
+    }
+
+    @Test
+    func retryAfterIdentifyFailureAdmitsTheActiveSubscriber() async throws {
+        let provider = ControlledRevenueCatEntitlementProvider()
+        var invocations = provider.invocations.makeAsyncIterator()
+        let service = RevenueCatEntitlementService(
+            provider: provider,
+            startsConfigured: true
+        )
+
+        let identity = service.prepareIdentity(userId: "subscriber")
+        let identifyTask = Task {
+            await service.identify(userId: "subscriber", transition: identity)
+        }
+        #expect(await invocations.next() == .logIn(userID: "subscriber"))
+        provider.failLogIn()
+        await identifyTask.value
+        #expect(service.hasFailedIdentityResolution)
+
+        let retryTask = Task {
+            await service.retryIdentityResolution()
+        }
+        #expect(await invocations.next() == .logIn(userID: "subscriber"))
+        provider.completeLogIn(with: .active(["app_access"]))
+        await retryTask.value
+
+        let route = AppRootRouteResolver.resolve(
+            authenticationState: .authenticated,
+            userId: "subscriber",
+            postAuthOnboardingPhase: .complete,
+            entitlementState: service.entitlementState,
+            requiredEntitlementID: "app_access"
+        )
+
+        #expect(service.entitlementState == .active(["app_access"]))
+        #expect(!service.hasFailedIdentityResolution)
+        #expect(route == .mainApp)
+    }
+
+    @Test
+    func retryIsIgnoredWhileIdentityResolutionIsStillOutstanding() async throws {
+        let provider = ControlledRevenueCatEntitlementProvider()
+        var invocations = provider.invocations.makeAsyncIterator()
+        let service = RevenueCatEntitlementService(
+            provider: provider,
+            startsConfigured: true
+        )
+
+        let identity = service.prepareIdentity(userId: "subscriber")
+        let identifyTask = Task {
+            await service.identify(userId: "subscriber", transition: identity)
+        }
+        #expect(await invocations.next() == .logIn(userID: "subscriber"))
+
+        await service.retryIdentityResolution()
+        #expect(service.scheduledIdentityMutationCount == 1)
+
+        provider.completeLogIn(with: .active(["app_access"]))
+        await identifyTask.value
+
+        #expect(service.entitlementState == .active(["app_access"]))
+        #expect(provider.completedIdentityMutations == [.logIn(userID: "subscriber")])
     }
 
     @Test
