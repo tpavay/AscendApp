@@ -347,6 +347,7 @@ struct ActiveRoutineView: View {
             workout: workout,
             leaderboardRank: viewModel.completionLeaderboardRank,
             leaderboardTotal: viewModel.completionLeaderboardTotal,
+            leaderboardRankBasis: .liveSession,
             allowsRatingPrompt: false,
             leaderboardContext: viewModel.completionLeaderboardContext,
             moment: .freshCompletion,

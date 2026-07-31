@@ -213,7 +213,7 @@ struct LiveClimbSummaryRankHeroTests {
     @Test
     func climbPrefersTheFrozenSourcesInOrder() {
         let sources = Hero.Sources(
-            session: Hero.Reading(rank: 7, total: 7),
+            callerSupplied: Hero.Standing(rank: 7, total: 7, basis: .liveSession),
             syncedSnapshot: Hero.Reading(rank: 1, total: 1),
             publishStatus: Hero.Reading(rank: 2, total: 2),
             fetchedSnapshot: Hero.Reading(rank: 3, total: 3),
@@ -229,10 +229,12 @@ struct LiveClimbSummaryRankHeroTests {
     }
 
     @Test
-    func climbIgnoresTheInSessionReadingEntirely() {
+    func climbIgnoresTheCallerSuppliedStandingEntirely() {
         let standings = Hero.standings(
             isClimbContext: true,
-            sources: Hero.Sources(session: Hero.Reading(rank: 7, total: 7))
+            sources: Hero.Sources(
+                callerSupplied: Hero.Standing(rank: 7, total: 7, basis: .liveSession)
+            )
         )
 
         #expect(standings.compactMap { $0 }.isEmpty)
@@ -253,12 +255,12 @@ struct LiveClimbSummaryRankHeroTests {
         #expect(standings.compactMap { $0 }.first?.rank == 2)
     }
 
-    /// Non-climb surfaces keep the order they shipped with: the session's own
+    /// Non-climb surfaces keep the order they shipped with: the caller's own
     /// figure first, so a routine is never left with no number at all.
     @Test
-    func nonClimbSurfacesLeadWithTheirSessionStanding() {
+    func nonClimbSurfacesLeadWithTheCallerSuppliedStanding() {
         let sources = Hero.Sources(
-            session: Hero.Reading(rank: 4, total: 12),
+            callerSupplied: Hero.Standing(rank: 4, total: 12, basis: .liveSession),
             syncedSnapshot: Hero.Reading(rank: 1, total: 1),
             publishStatus: Hero.Reading(rank: 2, total: 2),
             fetchedSnapshot: Hero.Reading(rank: 6, total: 30),
@@ -272,12 +274,39 @@ struct LiveClimbSummaryRankHeroTests {
         #expect(standings.map(\.basis) == [.liveSession, .atCompletion, .current])
     }
 
+    /// The caller-supplied slot carries whatever basis the presenting surface
+    /// declared. `LiveClimbSessionView` and `ActiveRoutineView` hand in a
+    /// race-window standing; `WorkoutDetailView` hands in a rank it just
+    /// recomputed. The same slot must render each one's own copy.
+    @Test
+    func theCallerSuppliedSlotKeepsWhicheverBasisItWasGiven() {
+        func detail(for basis: Hero.Basis) -> String {
+            let standings = Hero.standings(
+                isClimbContext: false,
+                sources: Hero.Sources(
+                    callerSupplied: Hero.Standing(rank: 4, total: 12, basis: basis)
+                )
+            )
+
+            return Hero.make(
+                isClimbContext: false,
+                standings: standings,
+                sync: publishedSync(),
+                copy: Hero.Copy(completedDetailOverride: "ROUTINE COMPLETE")
+            )
+            .detail
+        }
+
+        #expect(detail(for: .liveSession) == "ROUTINE COMPLETE")
+        #expect(detail(for: .current) == "CURRENT LEADERBOARD RANK")
+    }
+
     @Test
     func aReadingWithoutARankProducesNoCandidate() {
         let standings = Hero.standings(
             isClimbContext: false,
             sources: Hero.Sources(
-                session: Hero.Reading(rank: nil, total: 12),
+                callerSupplied: Hero.Standing(rank: nil, total: 12, basis: .liveSession),
                 computed: Hero.Reading(rank: 8, total: 40)
             )
         )

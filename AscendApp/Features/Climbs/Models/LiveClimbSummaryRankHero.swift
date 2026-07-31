@@ -71,8 +71,11 @@ struct LiveClimbSummaryRankHero: Equatable {
 
     /// Every source a completion summary can draw a standing from.
     struct Sources: Equatable {
-        /// Computed by the caller's live session against its own race window.
-        let session: Reading
+        /// Handed in by the presenting surface, already carrying its basis. Only
+        /// that surface knows which population it measured: a live session
+        /// reports its own race window, a saved-workout screen reports a rank it
+        /// just recomputed. This type must never guess between them.
+        let callerSupplied: Standing?
         /// The frozen snapshot mirrored onto the publish sync status.
         let syncedSnapshot: Reading
         /// The frozen position the publish status recorded.
@@ -83,13 +86,13 @@ struct LiveClimbSummaryRankHero: Equatable {
         let computed: Reading
 
         init(
-            session: Reading = .none,
+            callerSupplied: Standing? = nil,
             syncedSnapshot: Reading = .none,
             publishStatus: Reading = .none,
             fetchedSnapshot: Reading = .none,
             computed: Reading = .none
         ) {
-            self.session = session
+            self.callerSupplied = callerSupplied
             self.syncedSnapshot = syncedSnapshot
             self.publishStatus = publishStatus
             self.fetchedSnapshot = fetchedSnapshot
@@ -167,7 +170,7 @@ struct LiveClimbSummaryRankHero: Equatable {
     static func standings(isClimbContext: Bool, sources: Sources) -> [Standing?] {
         guard isClimbContext else {
             return [
-                Standing(reading: sources.session, basis: .liveSession),
+                sources.callerSupplied,
                 Standing(reading: sources.fetchedSnapshot, basis: .atCompletion),
                 Standing(reading: sources.computed, basis: .current)
             ]
@@ -239,7 +242,7 @@ struct LiveClimbSummaryRankHero: Equatable {
             if sync.showsPendingRankCopy {
                 return pendingRankValue
             }
-            return copy.unrankedValue ?? defaultUnrankedValue(sync: sync)
+            return copy.unrankedValue ?? "Complete"
         }
     }
 
@@ -283,10 +286,6 @@ struct LiveClimbSummaryRankHero: Equatable {
                 copy: copy
             )
         }
-    }
-
-    private static func defaultUnrankedValue(sync: SyncState) -> String {
-        sync.tracksRanking ? pendingRankValue : "Complete"
     }
 
     private static func defaultUnrankedDetail(

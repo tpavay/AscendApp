@@ -6,6 +6,7 @@ struct LiveClimbCompletionSummaryView: View {
     let workout: Workout
     let leaderboardRank: Int?
     let leaderboardTotal: Int?
+    let leaderboardRankBasis: LiveClimbSummaryRankHero.Basis
     let allowsRatingPrompt: Bool
     let leaderboardContext: LiveReplayLeaderboardContext?
     let moment: LiveClimbSummaryRankHero.Moment
@@ -34,6 +35,7 @@ struct LiveClimbCompletionSummaryView: View {
         workout: Workout,
         leaderboardRank: Int?,
         leaderboardTotal: Int?,
+        leaderboardRankBasis: LiveClimbSummaryRankHero.Basis,
         allowsRatingPrompt: Bool,
         leaderboardContext: LiveReplayLeaderboardContext? = nil,
         moment: LiveClimbSummaryRankHero.Moment = .retrospective,
@@ -50,6 +52,7 @@ struct LiveClimbCompletionSummaryView: View {
         self.workout = workout
         self.leaderboardRank = leaderboardRank
         self.leaderboardTotal = leaderboardTotal
+        self.leaderboardRankBasis = leaderboardRankBasis
         self.allowsRatingPrompt = allowsRatingPrompt
         self.leaderboardContext = leaderboardContext
         self.moment = moment
@@ -504,7 +507,11 @@ struct LiveClimbCompletionSummaryView: View {
         let status = publicResultStatus
 
         return LiveClimbSummaryRankHero.Sources(
-            session: Reading(rank: leaderboardRank, total: leaderboardTotal),
+            callerSupplied: LiveClimbSummaryRankHero.Standing(
+                rank: leaderboardRank,
+                total: leaderboardTotal,
+                basis: leaderboardRankBasis
+            ),
             syncedSnapshot: Reading(
                 rank: status?.rankSnapshot?.rank,
                 total: status?.rankSnapshot?.completedCount
@@ -831,6 +838,7 @@ private func clockTime(_ seconds: Int) -> String {
         ),
         leaderboardRank: 12,
         leaderboardTotal: 2_460,
+        leaderboardRankBasis: .liveSession,
         allowsRatingPrompt: true,
         onDone: {}
     )

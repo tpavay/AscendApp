@@ -106,6 +106,7 @@ struct WorkoutDetailView: View {
                     workout: workout,
                     leaderboardRank: liveClimbCompletionRank?.rank,
                     leaderboardTotal: liveClimbCompletionRank?.completedCount,
+                    leaderboardRankBasis: .current,
                     allowsRatingPrompt: false,
                     leaderboardContext: liveClimbSummaryLeaderboardContext,
                     rankingLabelOverride: liveClimbSummaryRankingLabelOverride,
