@@ -624,8 +624,8 @@ struct WorkoutDetailView: View {
         )
     }
 
-    /// Decodes the stored series exactly once per render pass and hands it to every predicate that
-    /// needs it - the decode is a full JSON pass over the sample array.
+    /// Reads the series the pass already decoded and hands it to every predicate that needs it -
+    /// the decode is a full JSON pass over the sample array. See `WorkoutDetailDerivedContent`.
     @ViewBuilder
     private func heartRateSectionIfNeeded(_ derived: WorkoutDetailDerivedContent) -> some View {
         if shouldShowHeartRateSection(derived) {

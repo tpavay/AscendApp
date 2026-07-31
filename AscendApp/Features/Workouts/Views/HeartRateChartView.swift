@@ -314,7 +314,6 @@ struct HeartRateChartView: View {
         )
     }
 
-
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
