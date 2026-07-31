@@ -1,6 +1,13 @@
 import Foundation
+import RevenueCat
 import Testing
 @testable import AscendApp
+
+/// The exact error `Purchases.logOut()` raises when the app user is already anonymous.
+private let anonymousLogOutRefusal = NSError(
+    domain: ErrorCode.errorDomain,
+    code: ErrorCode.logOutAnonymousUserError.rawValue
+)
 
 @MainActor
 struct RevenueCatEntitlementServiceTests {
@@ -261,10 +268,11 @@ struct RevenueCatEntitlementServiceTests {
     }
 
     /// A signed-out cold start resets identity for an app user RevenueCat already treats as
-    /// anonymous. The provider answers that as `.inactive`, which must clear the pending mutation so
-    /// later refreshes read customer info instead of re-running the same logout forever.
+    /// anonymous. The state fed to the service here is the one the real provider derives from that
+    /// refusal, so if the translation ever stops recognising it this test fails rather than letting a
+    /// doomed logout re-run on every refresh.
     @Test
-    func resolvedResetStopsRerunningTheLogOutOnEveryRefresh() async throws {
+    func theAnonymousLogOutRefusalResolvesTheResetAndStopsRerunningIt() async throws {
         let provider = ControlledRevenueCatEntitlementProvider()
         var invocations = provider.invocations.makeAsyncIterator()
         let service = RevenueCatEntitlementService(
@@ -272,12 +280,19 @@ struct RevenueCatEntitlementServiceTests {
             startsConfigured: true
         )
 
+        let refusalState = try #require(
+            RevenueCatPurchasesProvider.resolvedState(
+                forLogOutError: anonymousLogOutRefusal
+            ),
+            "RevenueCat's already-anonymous logout refusal must resolve to a known state"
+        )
+
         let reset = service.prepareIdentityReset()
         let resetTask = Task {
             await service.resetIdentity(transition: reset)
         }
         #expect(await invocations.next() == .logOut)
-        provider.completeLogOut(with: .inactive)
+        provider.completeLogOut(with: refusalState)
         await resetTask.value
 
         #expect(service.entitlementState == .inactive)

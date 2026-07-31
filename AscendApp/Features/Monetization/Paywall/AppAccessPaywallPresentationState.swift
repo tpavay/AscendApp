@@ -1,6 +1,6 @@
 import Foundation
 
-enum AppAccessPaywallPresentationState: Equatable, Sendable {
+enum AppAccessPaywallPresentationState: CaseIterable, Hashable, Sendable {
     case ready
     case presenting
     case presented

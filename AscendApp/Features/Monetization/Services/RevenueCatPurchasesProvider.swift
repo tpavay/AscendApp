@@ -28,15 +28,12 @@ final class RevenueCatPurchasesProvider: RevenueCatEntitlementProviding {
         return Self.entitlementState(from: result.customerInfo)
     }
 
-    /// RevenueCat refuses to log out an app user that is already anonymous, which is the state of
-    /// every fresh install and every signed-out cold start. That refusal is a confirmed "nobody is
-    /// signed in" answer, so it resolves as `.inactive` instead of surfacing as an unanswered state.
     func logOutState() async throws -> MonetizationEntitlementState {
         do {
             return Self.entitlementState(from: try await Purchases.shared.logOut())
         } catch {
-            guard Self.isAlreadyAnonymousRefusal(error) else { throw error }
-            return .inactive
+            guard let state = Self.resolvedState(forLogOutError: error) else { throw error }
+            return state
         }
     }
 
@@ -44,14 +41,24 @@ final class RevenueCatPurchasesProvider: RevenueCatEntitlementProviding {
         Self.entitlementState(from: try await Purchases.shared.restorePurchases())
     }
 
-    private nonisolated static func isAlreadyAnonymousRefusal(_ error: any Error) -> Bool {
+    /// RevenueCat refuses to log out an app user that is already anonymous, which is the state of
+    /// every fresh install and every signed-out cold start. That refusal is a confirmed "nobody is
+    /// signed in" answer, so it resolves as `.inactive`; every other failure returns nil and
+    /// propagates, because it leaves the question genuinely unanswered.
+    nonisolated static func resolvedState(
+        forLogOutError error: any Error
+    ) -> MonetizationEntitlementState? {
         if let errorCode = error as? ErrorCode {
-            return errorCode == .logOutAnonymousUserError
+            return errorCode == .logOutAnonymousUserError ? .inactive : nil
         }
 
         let nsError = error as NSError
-        return nsError.domain == ErrorCode.errorDomain
-            && nsError.code == ErrorCode.logOutAnonymousUserError.rawValue
+        guard nsError.domain == ErrorCode.errorDomain,
+              nsError.code == ErrorCode.logOutAnonymousUserError.rawValue else {
+            return nil
+        }
+
+        return .inactive
     }
 
     private nonisolated static func entitlementState(

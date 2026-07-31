@@ -13,8 +13,9 @@ import UIKit
 /// so the PNG cannot drift from the shipped surface.
 ///
 /// `ImageRenderer` does run the view's `onAppear`, so the only row that reaches the automatic
-/// hand-off is the seeded `.presenting` one, and its registration lands on `PaywallPresenterSpy`,
-/// which never presents anything. Every other row renders the state it was seeded with.
+/// hand-off is the seeded `.presenting` one. Its registration lands on `PaywallPresenterSpy`, which
+/// never presents anything, and its telemetry lands on an in-memory sink rather than the production
+/// singleton. Every other row renders the state it was seeded with.
 ///
 /// Each row is the user-visible surface for one real Superwall outcome:
 ///   presenting   -> cold-start hand-off, paywall opening
@@ -29,9 +30,11 @@ import UIKit
 struct AppAccessPaywallPlaceholderSnapshotTests {
     @Test
     func rendersEveryGateStateFromTheRealView() throws {
+        let sink = InMemoryTelemetrySink(destination: .analytics)
         let manager = MonetizationManager(
             entitlementService: EntitlementServiceStub(),
-            paywallPresenter: PaywallPresenterSpy()
+            paywallPresenter: PaywallPresenterSpy(),
+            telemetry: makeTestTelemetry(sink: sink)
         )
         let renderer = ImageRenderer(content: AppAccessGateStatesProof(monetizationManager: manager))
         renderer.scale = 2
@@ -47,15 +50,24 @@ struct AppAccessPaywallPlaceholderSnapshotTests {
         #expect(image.size.width > 0)
         #expect(image.size.height > 0)
         #expect(png.count > 5_000)
+        #expect(sink.records.contains { $0.name == "paywall_reached" })
     }
 
     @Test
     func theHandOffStatesDrawNoControls() {
         #expect(AppAccessPaywallPresentationState.presenting.showsRecoveryActions == false)
         #expect(AppAccessPaywallPresentationState.presented.showsRecoveryActions == false)
+    }
+
+    @Test
+    func theProofCoversEveryStateTheGateCanBeIn() {
+        let rendered = gateScenarios.map(\.state)
+
+        #expect(Set(rendered) == Set(AppAccessPaywallPresentationState.allCases))
+        #expect(rendered.count == AppAccessPaywallPresentationState.allCases.count)
         #expect(
-            gateScenarios.map(\.state)
-                == [.presenting, .presented, .ready, .readyToRetry, .failed]
+            Array(rendered.prefix(2)) == [.presenting, .presented],
+            "The hand-off surfaces lead the evidence AC-6 cites"
         )
     }
 }
