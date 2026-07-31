@@ -270,7 +270,7 @@ struct WorkoutDetailView: View {
     private func traditionalLayout(_ derived: WorkoutDetailDerivedContent) -> some View {
         ScrollView {
             VStack(spacing: 24) {
-                // Title row — scrolls naturally behind the opaque nav bar
+                // Title row - scrolls naturally behind the opaque nav bar
                 WorkoutTitleRow(
                     workoutName: workout.name,
                     dateText: formatWorkoutDateTime(),

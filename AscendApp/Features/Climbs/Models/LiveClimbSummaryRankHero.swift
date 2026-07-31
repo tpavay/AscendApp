@@ -10,7 +10,7 @@ import Foundation
 /// climb is "1st of 1" forever while that climb keeps collecting finishers, so a
 /// climb detail reading "50 completed" is not a contradiction of it.
 ///
-/// Three rules keep that legible:
+/// Four rules keep that legible:
 ///
 /// 1. Rank and total are resolved together from a single source. A frozen
 ///    position over a live denominator is a number that was never true. This is

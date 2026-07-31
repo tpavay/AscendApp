@@ -781,4 +781,3 @@ private struct ProfileHeadToHeadClimbRow: View {
         }
     }
 }
-

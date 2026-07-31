@@ -754,7 +754,7 @@ State and data:
 - Summary metrics come from the local workout immediately.
 - Rank-at-completion comes from the server snapshot and should not be faked locally.
 - The per-climb leaderboard is dynamic and can change as new attempts publish.
-- The user's finisher order is permanent, and the denominator frozen alongside it is permanent too - the number that keeps growing is Climb Detail's live completed count, a different measurement (see `ascend-live-climbs`).
+- The user's finisher order is permanent, and so is the completion summary's rank and its denominator once the server has ranked the workout; the climb's live finisher count is the number that keeps growing. See `ascend-live-climbs` for the rules that keep those two apart on screen.
 - Sync status is shared by workout id so retrying from one surface updates the others.
 
 Success condition:
