@@ -13,7 +13,10 @@ import Foundation
 /// Two rules keep that legible:
 ///
 /// 1. Rank and total are resolved together from a single source. A frozen
-///    position over a live denominator is a number that was never true.
+///    position over a live denominator is a number that was never true. This is
+///    enforced for every source the hero resolves itself - the frozen snapshot
+///    slots, the publish status, the computed rank. For the caller-supplied slot
+///    it is a trusted precondition instead: see `Sources.callerSupplied`.
 /// 2. The detail line names the basis whenever the hero knows it, so the figure
 ///    is never left to be read as a current standing when it is not one.
 struct LiveClimbSummaryRankHero: Equatable {
@@ -75,6 +78,15 @@ struct LiveClimbSummaryRankHero: Equatable {
         /// that surface knows which population it measured: a live session
         /// reports its own race window, a saved-workout screen reports a rank it
         /// just recomputed. This type must never guess between them.
+        ///
+        /// The hero trusts this pair; it cannot verify that the rank and the
+        /// total were drawn from one population, so keeping them coherent is the
+        /// caller's responsibility. One caller does not today:
+        /// `LiveClimbSessionViewModel.completionLeaderboardRank` is a
+        /// bucket-windowed race position while its `completionLeaderboardTotal`
+        /// can fall back to `leaderboardSummary.completedCount`, so a Just Climb
+        /// session can hand over a mismatched pair. Settling the right
+        /// population for those surfaces is a separate, filed piece of work.
         let callerSupplied: Standing?
         /// The frozen snapshot mirrored onto the publish sync status.
         let syncedSnapshot: Reading
