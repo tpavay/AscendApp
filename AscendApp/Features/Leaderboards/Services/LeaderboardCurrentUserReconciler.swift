@@ -50,8 +50,9 @@ enum LeaderboardCurrentUserReconciler {
             let existing = resolved[currentIndex]
             resolved[currentIndex] = FirestoreLeaderboardStats(
                 userId: existing.userId,
-                displayName: "You",
-                photoURL: nil,
+                unresolvedIdentity: existing.unresolvedIdentity,
+                identityPolicyVersion: existing.identityPolicyVersion,
+                identityChangedAt: existing.identityChangedAt,
                 timeFrame: existing.timeFrame,
                 schemaVersion: existing.schemaVersion,
                 periodKey: existing.periodKey,

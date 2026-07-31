@@ -270,8 +270,8 @@ private struct AppSheetButtonModifier: ViewModifier {
         content
             .font(.montserratSemiBold)
             .foregroundStyle(foregroundColor)
-            .frame(maxWidth: .infinity)
-            .frame(height: 44)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, minHeight: 44)
             .background(
                 RoundedRectangle(cornerRadius: 12)
                     .fill(fillColor)

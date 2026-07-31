@@ -31,10 +31,11 @@ struct LeaderboardCurrentUserReconcilerTests {
         )
 
         let climbStats = try! #require(reconciled[.climb])
+        let identity = resolvedIdentity(for: climbStats[0], currentUserId: "me")
         #expect(climbStats.count == 2)
         #expect(climbStats[0].userId == "me")
-        #expect(climbStats[0].displayName == "You")
-        #expect(climbStats[0].photoURL == nil)
+        #expect(identity.displayName == "You")
+        #expect(identity.photoURL == nil)
         #expect(climbStats[0].totalSteps == 200)
     }
 
@@ -95,10 +96,31 @@ struct LeaderboardCurrentUserReconcilerTests {
         )
 
         let climbStats = try! #require(reconciled[.climb])
+        let identity = resolvedIdentity(for: climbStats[0], currentUserId: "me")
         #expect(climbStats.count == 2)
         #expect(climbStats[0].userId == "me")
-        #expect(climbStats[0].displayName == "You")
+        #expect(identity.displayName == "You")
         #expect(climbStats[0].totalSteps == 80)
+    }
+
+    private func resolvedIdentity(
+        for stats: FirestoreLeaderboardStats,
+        currentUserId: String
+    ) -> ResolvedUserIdentity {
+        let entry = CrossUserIdentityAdapter.leaderboardEntry(
+            from: stats,
+            rank: 1,
+            value: stats.value(for: .climb),
+            formattedValue: "",
+            isTied: false,
+            currentUserId: currentUserId,
+            currentUserPhotoURL: nil
+        )
+        return CrossUserIdentityAdapter.leaderboardEntry(
+            entry,
+            blockedUserIds: [],
+            isBlockListHydrated: true
+        ).identity
     }
 
     private func makeRemoteStat(

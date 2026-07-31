@@ -13,6 +13,7 @@ struct RootView: View {
     @Environment(MonetizationManager.self) private var monetizationManager
     @Environment(\.modelContext) private var modelContext
     @Environment(MediaUploadManager.self) private var uploadManager
+    @Environment(ModerationStore.self) private var moderationStore
     @State private var importCoordinator = WorkoutImportCoordinator.shared
     @State private var postAuthOnboardingCoordinator = PostAuthOnboardingCoordinator()
     @State private var tabRouter = TabRouter()
@@ -85,6 +86,7 @@ struct RootView: View {
             )
         }
         .onChange(of: authVM.user?.uid) { _, _ in
+            moderationStore.clear()
             AppDiagnosticsRecorder.shared.record(
                 "auth_user_changed",
                 details: [
@@ -175,11 +177,14 @@ struct RootView: View {
     private func bootstrapAuthenticatedLocalState() async {
         guard let user = authVM.user else {
             accountDataConflict = nil
+            moderationStore.clear()
             return
         }
         let currentUserId = user.uid
 
         do {
+            await moderationStore.hydrate(for: currentUserId)
+
             switch try AccountDataOwnershipService.evaluateAccess(
                 modelContext: modelContext,
                 signedInUserId: currentUserId

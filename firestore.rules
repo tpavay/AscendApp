@@ -19,6 +19,176 @@ service cloud.firestore {
         value.size() <= 120;
     }
 
+    // Case, diacritic, and confusable-letter folding only. Digits stay digits
+    // so the repeated-character check cannot invent a letter run out of an
+    // ordinary numeric name like "Climber2000".
+    function foldedDisplayName(value) {
+      return value
+        .replace("[ªÀÁÂÃÄÅàáâãäåĀāĂăĄąǍǎǞǟǠǡǺǻȀȁȂȃȦȧᴬᵃḀḁẚẠạẢảẤấẦầẨẩẪẫẬậẮắẰằẲẳẴẵẶặₐÅＡａ𝐀𝐚𝐴𝑎𝑨𝒂𝒜𝒶𝓐𝓪𝔄𝔞𝔸𝕒𝕬𝖆𝖠𝖺𝗔𝗮𝘈𝘢𝘼𝙖𝙰𝚊]", "a")
+        .replace("[ᴮᵇḂḃḄḅḆḇℬＢｂ𝐁𝐛𝐵𝑏𝑩𝒃𝒷𝓑𝓫𝔅𝔟𝔹𝕓𝕭𝖇𝖡𝖻𝗕𝗯𝘉𝘣𝘽𝙗𝙱𝚋]", "b")
+        .replace("[ÇçĆćĈĉĊċČčᶜḈḉℂℭꟲＣｃ𝐂𝐜𝐶𝑐𝑪𝒄𝒞𝒸𝓒𝓬𝔠𝕔𝕮𝖈𝖢𝖼𝗖𝗰𝘊𝘤𝘾𝙘𝙲𝚌]", "c")
+        .replace("[ĎďᴰᵈḊḋḌḍḎḏḐḑḒḓⅅⅆＤｄ𝐃𝐝𝐷𝑑𝑫𝒅𝒟𝒹𝓓𝓭𝔇𝔡𝔻𝕕𝕯𝖉𝖣𝖽𝗗𝗱𝘋𝘥𝘿𝙙𝙳𝚍]", "d")
+        .replace("[ÈÉÊËèéêëĒēĔĕĖėĘęĚěȄȅȆȇȨȩᴱᵉḔḕḖḗḘḙḚḛḜḝẸẹẺẻẼẽẾếỀềỂểỄễỆệₑℯℰⅇＥｅ𝐄𝐞𝐸𝑒𝑬𝒆𝓔𝓮𝔈𝔢𝔼𝕖𝕰𝖊𝖤𝖾𝗘𝗲𝘌𝘦𝙀𝙚𝙴𝚎]", "e")
+        .replace("[ᶠḞḟℱꟳＦｆ𝐅𝐟𝐹𝑓𝑭𝒇𝒻𝓕𝓯𝔉𝔣𝔽𝕗𝕱𝖋𝖥𝖿𝗙𝗳𝘍𝘧𝙁𝙛𝙵𝚏]", "f")
+        .replace("[ĜĝĞğĠġĢģǦǧǴǵᴳᵍḠḡℊＧｇ𝐆𝐠𝐺𝑔𝑮𝒈𝒢𝓖𝓰𝔊𝔤𝔾𝕘𝕲𝖌𝖦𝗀𝗚𝗴𝘎𝘨𝙂𝙜𝙶𝚐]", "g")
+        .replace("[ĤĥȞȟʰᴴḢḣḤḥḦḧḨḩḪḫẖₕℋℌℍℎＨｈ𝐇𝐡𝐻𝑯𝒉𝒽𝓗𝓱𝔥𝕙𝕳𝖍𝖧𝗁𝗛𝗵𝘏𝘩𝙃𝙝𝙷𝚑]", "h")
+        .replace("[ÌÍÎÏìíîïĨĩĪīĬĭĮįİǏǐȈȉȊȋᴵᵢḬḭḮḯỈỉỊịⁱℐℑℹⅈＩｉ𝐈𝐢𝐼𝑖𝑰𝒊𝒾𝓘𝓲𝔦𝕀𝕚𝕴𝖎𝖨𝗂𝗜𝗶𝘐𝘪𝙄𝙞𝙸𝚒]", "i")
+        .replace("[ĴĵǰʲᴶⅉⱼＪｊ𝐉𝐣𝐽𝑗𝑱𝒋𝒥𝒿𝓙𝓳𝔍𝔧𝕁𝕛𝕵𝖏𝖩𝗃𝗝𝗷𝘑𝘫𝙅𝙟𝙹𝚓]", "j")
+        .replace("[ĶķǨǩᴷᵏḰḱḲḳḴḵₖＫｋ𝐊𝐤𝐾𝑘𝑲𝒌𝒦𝓀𝓚𝓴𝔎𝔨𝕂𝕜𝕶𝖐𝖪𝗄𝗞𝗸𝘒𝘬𝙆𝙠𝙺𝚔]", "k")
+        .replace("[ĹĺĻļĽľĿŀˡᴸḶḷḸḹḺḻḼḽₗℒℓＬｌ𝐋𝐥𝐿𝑙𝑳𝒍𝓁𝓛𝓵𝔏𝔩𝕃𝕝𝕷𝖑𝖫𝗅𝗟𝗹𝘓𝘭𝙇𝙡𝙻𝚕]", "l")
+        .replace("[ᴹᵐḾḿṀṁṂṃₘℳＭｍ𝐌𝐦𝑀𝑚𝑴𝒎𝓂𝓜𝓶𝔐𝔪𝕄𝕞𝕸𝖒𝖬𝗆𝗠𝗺𝘔𝘮𝙈𝙢𝙼𝚖]", "m")
+        .replace("[ÑñŃńŅņŇňŉǸǹᴺṄṅṆṇṈṉṊṋⁿₙℕＮｎ𝐍𝐧𝑁𝑛𝑵𝒏𝒩𝓃𝓝𝓷𝔑𝔫𝕟𝕹𝖓𝖭𝗇𝗡𝗻𝘕𝘯𝙉𝙣𝙽𝚗]", "n")
+        .replace("[ºÒÓÔÕÖòóôõöŌōŎŏŐőƠơǑǒǪǫǬǭȌȍȎȏȪȫȬȭȮȯȰȱᴼᵒṌṍṎṏṐṑṒṓỌọỎỏỐốỒồỔổỖỗỘộỚớỜờỞởỠỡỢợₒℴＯｏ𝐎𝐨𝑂𝑜𝑶𝒐𝒪𝓞𝓸𝔒𝔬𝕆𝕠𝕺𝖔𝖮𝗈𝗢𝗼𝘖𝘰𝙊𝙤𝙾𝚘]", "o")
+        .replace("[ᴾᵖṔṕṖṗₚℙＰｐ𝐏𝐩𝑃𝑝𝑷𝒑𝒫𝓅𝓟𝓹𝔓𝔭𝕡𝕻𝖕𝖯𝗉𝗣𝗽𝘗𝘱𝙋𝙥𝙿𝚙]", "p")
+        .replace("[ℚꟴＱｑ𐞥𝐐𝐪𝑄𝑞𝑸𝒒𝒬𝓆𝓠𝓺𝔔𝔮𝕢𝕼𝖖𝖰𝗊𝗤𝗾𝘘𝘲𝙌𝙦𝚀𝚚]", "q")
+        .replace("[ŔŕŖŗŘřȐȑȒȓʳᴿᵣṘṙṚṛṜṝṞṟℛℜℝＲｒ𝐑𝐫𝑅𝑟𝑹𝒓𝓇𝓡𝓻𝔯𝕣𝕽𝖗𝖱𝗋𝗥𝗿𝘙𝘳𝙍𝙧𝚁𝚛]", "r")
+        .replace("[ŚśŜŝŞşŠšſȘșˢṠṡṢṣṤṥṦṧṨṩẛₛ꟱Ｓｓ𝐒𝐬𝑆𝑠𝑺𝒔𝒮𝓈𝓢𝓼𝔖𝔰𝕊𝕤𝕾𝖘𝖲𝗌𝗦𝘀𝘚𝘴𝙎𝙨𝚂𝚜]", "s")
+        .replace("[ŢţŤťȚțᵀᵗṪṫṬṭṮṯṰṱẗₜＴｔ𝐓𝐭𝑇𝑡𝑻𝒕𝒯𝓉𝓣𝓽𝔗𝔱𝕋𝕥𝕿𝖙𝖳𝗍𝗧𝘁𝘛𝘵𝙏𝙩𝚃𝚝]", "t")
+        .replace("[ÙÚÛÜùúûüŨũŪūŬŭŮůŰűŲųƯưǓǔǕǖǗǘǙǚǛǜȔȕȖȗᵁᵘᵤṲṳṴṵṶṷṸṹṺṻỤụỦủỨứỪừỬửỮữỰựＵｕ𝐔𝐮𝑈𝑢𝑼𝒖𝒰𝓊𝓤𝓾𝔘𝔲𝕌𝕦𝖀𝖚𝖴𝗎𝗨𝘂𝘜𝘶𝙐𝙪𝚄𝚞]", "u")
+        .replace("[ᵛᵥṼṽṾṿⱽＶｖ𝐕𝐯𝑉𝑣𝑽𝒗𝒱𝓋𝓥𝓿𝔙𝔳𝕍𝕧𝖁𝖛𝖵𝗏𝗩𝘃𝘝𝘷𝙑𝙫𝚅𝚟]", "v")
+        .replace("[ŴŵʷᵂẀẁẂẃẄẅẆẇẈẉẘＷｗ𝐖𝐰𝑊𝑤𝑾𝒘𝒲𝓌𝓦𝔀𝔚𝔴𝕎𝕨𝖂𝖜𝖶𝗐𝗪𝘄𝘞𝘸𝙒𝙬𝚆𝚠]", "w")
+        .replace("[ˣẊẋẌẍₓＸｘ𝐗𝐱𝑋𝑥𝑿𝒙𝒳𝓍𝓧𝔁𝔛𝔵𝕏𝕩𝖃𝖝𝖷𝗑𝗫𝘅𝘟𝘹𝙓𝙭𝚇𝚡]", "x")
+        .replace("[ÝýÿŶŷŸȲȳʸẎẏẙỲỳỴỵỶỷỸỹＹｙ𝐘𝐲𝑌𝑦𝒀𝒚𝒴𝓎𝓨𝔂𝔜𝔶𝕐𝕪𝖄𝖞𝖸𝗒𝗬𝘆𝘠𝘺𝙔𝙮𝚈𝚢]", "y")
+        .replace("[ŹźŻżŽžᶻẐẑẒẓẔẕℤℨＺｚ𝐙𝐳𝑍𝑧𝒁𝒛𝒵𝓏𝓩𝔃𝔷𝕫𝖅𝖟𝖹𝗓𝗭𝘇𝘡𝘻𝙕𝙯𝚉𝚣]", "z")
+        .replace("[Ĳĳ]", "ij")
+        .replace("[ǄǅǆǱǲǳ]", "dz")
+        .replace("[Ǉǈǉ]", "lj")
+        .replace("[Ǌǋǌ]", "nj")
+        .replace("ﬀ", "ff")
+        .replace("ﬁ", "fi")
+        .replace("ﬂ", "fl")
+        .replace("ﬃ", "ffi")
+        .replace("ﬄ", "ffl")
+        .replace("[ﬅﬆ]", "st")
+        .lower()
+        .replace("[аɑα]", "a")
+        .replace("β", "b")
+        .replace("[еёε]", "e")
+        .replace("[іӏι]", "i")
+        .replace("κ", "k")
+        .replace("[оο]", "o")
+        .replace("[рρ]", "p")
+        .replace("с", "c")
+        .replace("τ", "t")
+        .replace("υ", "u")
+        .replace("[хχ]", "x")
+        .replace("у", "y")
+        .replace("ս", "u");
+    }
+
+    // Leetspeak folding, applied only to the blocked-term checks.
+    function digitSubstitutedDisplayName(folded) {
+      return folded
+        .replace("0", "o")
+        .replace("1", "i")
+        .replace("3", "e")
+        .replace("4", "a")
+        .replace("5", "s")
+        .replace("7", "t")
+        .replace("@", "a")
+        .replace("\\$", "s")
+        .replace("!", "i");
+    }
+
+    // Every viewer's device fetches this URL. Constrain it to a Firebase
+    // Storage download URL so a modified client cannot point the whole
+    // leaderboard at a host it controls. Mirrors validPhotoURL in
+    // functions/src/publicIdentity.ts. The optional :443 is the default port
+    // the Firebase iOS SDK leaves in every download URL it emits.
+    function isValidPublicPhotoURL(value) {
+      return value is string &&
+        value.size() <= 2048 &&
+        (value == "" ||
+          value.matches(
+            "^https://firebasestorage\\.googleapis\\.com(:443)?/v0/b/" +
+            "[a-zA-Z0-9][a-zA-Z0-9._-]*/o/[^/]+$"
+          ));
+    }
+
+    function hasVisibleDisplayName(value) {
+      return value is string &&
+        value.trim().size() > 0 &&
+        !value.matches("^[\\s]*$");
+    }
+
+    function hasUnsupportedCompatibilityDisplayNameGlyph(value) {
+      return value.matches(
+        ".*[ʰ-ʺʽ-˿ᴀ-ᵿ⁰-₟℀-↏①-⓿㈀-㏿ﬀ-ﬆ︐-﹫＀-￯𝐀-𝟿🄀-🋿].*"
+      );
+    }
+
+    function isAllowedDisplayName(value) {
+      let folded = foldedDisplayName(value);
+      let normalized = digitSubstitutedDisplayName(folded);
+      return value is string &&
+        value.size() <= 80 &&
+        (value.size() == 0 || hasVisibleDisplayName(value)) &&
+        !hasUnsupportedCompatibilityDisplayNameGlyph(value) &&
+        !normalized.matches(
+          "^[^a-z]*a[^a-z]*n[^a-z]*o[^a-z]*n[^a-z]*y[^a-z]*m[^a-z]*o[^a-z]*u[^a-z]*s" +
+          "[^a-z]*c[^a-z]*l[^a-z]*i[^a-z]*m[^a-z]*b[^a-z]*e[^a-z]*r[^a-z]*$"
+        ) &&
+        !folded.matches(
+          ".*(" +
+          "a{3,}|b{3,}|c{3,}|d{3,}|e{3,}|f{3,}|g{3,}|" +
+          "h{3,}|i{3,}|j{3,}|k{3,}|l{3,}|m{3,}|n{3,}|" +
+          "o{3,}|p{3,}|q{3,}|r{3,}|s{3,}|t{3,}|u{3,}|" +
+          "v{3,}|w{3,}|x{3,}|y{3,}|z{3,}" +
+          ").*"
+        ) &&
+        !normalized.matches(
+          "(^|.*[^a-z])(" +
+          "a[^a-z]*s[^a-z]*s[^a-z]*h[^a-z]*o[^a-z]*l[^a-z]*e|" +
+          "b[^a-z]*a[^a-z]*s[^a-z]*t[^a-z]*a[^a-z]*r[^a-z]*d|" +
+          "b[^a-z]*i[^a-z]*t[^a-z]*c[^a-z]*h|" +
+          "b[^a-z]*l[^a-z]*o[^a-z]*w[^a-z]*j[^a-z]*o[^a-z]*b|" +
+          "c[^a-z]*h[^a-z]*i[^a-z]*n[^a-z]*k|" +
+          "c[^a-z]*o[^a-z]*c[^a-z]*k|" +
+          "c[^a-z]*u[^a-z]*n[^a-z]*t|" +
+          "d[^a-z]*i[^a-z]*c[^a-z]*k|" +
+          "d[^a-z]*o[^a-z]*u[^a-z]*c[^a-z]*h[^a-z]*e[^a-z]*b[^a-z]*a[^a-z]*g|" +
+          "d[^a-z]*y[^a-z]*k[^a-z]*e|" +
+          "f[^a-z]*a[^a-z]*g|" +
+          "f[^a-z]*a[^a-z]*g[^a-z]*g[^a-z]*o[^a-z]*t|" +
+          "f[^a-z]*u[^a-z]*c[^a-z]*k|" +
+          "f[^a-z]*u[^a-z]*c[^a-z]*k[^a-z]*e[^a-z]*r|" +
+          "f[^a-z]*u[^a-z]*c[^a-z]*k[^a-z]*i[^a-z]*n[^a-z]*g|" +
+          "h[^a-z]*e[^a-z]*i[^a-z]*l[^a-z]*h[^a-z]*i[^a-z]*t[^a-z]*l[^a-z]*e[^a-z]*r|" +
+          "h[^a-z]*i[^a-z]*t[^a-z]*l[^a-z]*e[^a-z]*r|" +
+          "j[^a-z]*a[^a-z]*c[^a-z]*k[^a-z]*a[^a-z]*s[^a-z]*s|" +
+          "k[^a-z]*i[^a-z]*k[^a-z]*e|" +
+          "k[^a-z]*i[^a-z]*l[^a-z]*l[^a-z]*y[^a-z]*o[^a-z]*u[^a-z]*r[^a-z]*s[^a-z]*e[^a-z]*l[^a-z]*f|" +
+          "m[^a-z]*o[^a-z]*t[^a-z]*h[^a-z]*e[^a-z]*r[^a-z]*f[^a-z]*u[^a-z]*c[^a-z]*k[^a-z]*e[^a-z]*r|" +
+          "n[^a-z]*a[^a-z]*z[^a-z]*i|" +
+          "n[^a-z]*i[^a-z]*g[^a-z]*g[^a-z]*a|" +
+          "n[^a-z]*i[^a-z]*g[^a-z]*g[^a-z]*e[^a-z]*r|" +
+          "p[^a-z]*e[^a-z]*d[^a-z]*o|" +
+          "p[^a-z]*e[^a-z]*d[^a-z]*o[^a-z]*p[^a-z]*h[^a-z]*i[^a-z]*l[^a-z]*e|" +
+          "p[^a-z]*i[^a-z]*s[^a-z]*s|" +
+          "p[^a-z]*u[^a-z]*s[^a-z]*s[^a-z]*y|" +
+          "r[^a-z]*a[^a-z]*p[^a-z]*e|" +
+          "r[^a-z]*a[^a-z]*p[^a-z]*i[^a-z]*s[^a-z]*t|" +
+          "r[^a-z]*e[^a-z]*t[^a-z]*a[^a-z]*r[^a-z]*d|" +
+          "r[^a-z]*e[^a-z]*t[^a-z]*a[^a-z]*r[^a-z]*d[^a-z]*e[^a-z]*d|" +
+          "s[^a-z]*h[^a-z]*i[^a-z]*t|" +
+          "s[^a-z]*l[^a-z]*u[^a-z]*t|" +
+          "s[^a-z]*p[^a-z]*i[^a-z]*c|" +
+          "w[^a-z]*e[^a-z]*t[^a-z]*b[^a-z]*a[^a-z]*c[^a-z]*k|" +
+          "w[^a-z]*h[^a-z]*o[^a-z]*r[^a-z]*e|" +
+          "w[^a-z]*h[^a-z]*i[^a-z]*t[^a-z]*e[^a-z]*p[^a-z]*o[^a-z]*w[^a-z]*e[^a-z]*r" +
+          ")([^a-z].*|$)"
+        ) &&
+        !normalized.matches(
+          ".*(" +
+          "f[^a-z]*a[^a-z]*g[^a-z]*g[^a-z]*o[^a-z]*t|" +
+          "f[^a-z]*u[^a-z]*c[^a-z]*k|" +
+          "f[^a-z]*u[^a-z]*c[^a-z]*k[^a-z]*e[^a-z]*r|" +
+          "n[^a-z]*i[^a-z]*g[^a-z]*g[^a-z]*e[^a-z]*r|" +
+          "p[^a-z]*e[^a-z]*d[^a-z]*o[^a-z]*p[^a-z]*h[^a-z]*i[^a-z]*l[^a-z]*e" +
+          ").*"
+        );
+    }
+
     function isValidTimeFrame(timeFrame) {
       return timeFrame in ["daily", "weekly", "monthly", "yearly", "all_time"];
     }
@@ -69,8 +239,7 @@ service cloud.firestore {
         request.resource.data.firstName.size() <= 80 &&
         request.resource.data.lastName is string &&
         request.resource.data.lastName.size() <= 80 &&
-        request.resource.data.displayName is string &&
-        request.resource.data.displayName.size() <= 80 &&
+        isAllowedDisplayName(request.resource.data.displayName) &&
         (!request.resource.data.keys().hasAny(["profilePictureURL"]) ||
           (request.resource.data.profilePictureURL is string &&
             request.resource.data.profilePictureURL.size() <= 2048)) &&
@@ -128,6 +297,8 @@ service cloud.firestore {
           "userId",
           "displayName",
           "photoURL",
+          "identityPolicyVersion",
+          "identityChangedAt",
           "age",
           "gender",
           "weight_kg",
@@ -142,11 +313,15 @@ service cloud.firestore {
           "userId",
           "displayName",
           "photoURL",
+          "identityPolicyVersion",
+          "identityChangedAt",
           "lastUpdated"
         ]) &&
         request.resource.data.userId == userId &&
-        request.resource.data.displayName == "Climber" &&
-        request.resource.data.photoURL == "" &&
+        hasVisibleDisplayName(request.resource.data.displayName) &&
+        isAllowedDisplayName(request.resource.data.displayName) &&
+        isValidPublicPhotoURL(request.resource.data.photoURL) &&
+        isValidIdentityPolicyMetadata() &&
         (!request.resource.data.keys().hasAny(["age"]) ||
           (request.resource.data.age is int &&
             request.resource.data.age >= 13 &&
@@ -176,6 +351,69 @@ service cloud.firestore {
         (!request.resource.data.keys().hasAny(["joined_at"]) ||
           request.resource.data.joined_at is timestamp) &&
         request.resource.data.lastUpdated is timestamp;
+    }
+
+    function currentIdentityPolicyVersion() {
+      return 1;
+    }
+
+    function isValidIdentityPolicyMetadata() {
+      return request.resource.data.identityPolicyVersion is int &&
+        request.resource.data.identityPolicyVersion ==
+          currentIdentityPolicyVersion() &&
+        request.resource.data.identityChangedAt is timestamp;
+    }
+
+    function isValidIdentityPolicyCreate() {
+      return isValidIdentityPolicyMetadata() &&
+        request.resource.data.identityChangedAt == request.time;
+    }
+
+    function isValidIdentityPolicyUpdate() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let identityChanged = changed.hasAny(["displayName", "photoURL"]);
+      let metadataChanged = changed.hasAny([
+        "identityPolicyVersion",
+        "identityChangedAt"
+      ]);
+      return isValidIdentityPolicyMetadata() &&
+        (
+          (
+            identityChanged &&
+            request.resource.data.identityChangedAt == request.time &&
+            (
+              !resource.data.keys().hasAll([
+                "identityPolicyVersion",
+                "identityChangedAt"
+              ]) ||
+              (
+                resource.data.identityChangedAt is timestamp &&
+                request.resource.data.identityChangedAt >
+                  resource.data.identityChangedAt
+              )
+            )
+          ) ||
+          (
+            !identityChanged &&
+            (
+              !metadataChanged ||
+              (
+                request.resource.data.identityChangedAt == request.time &&
+                (
+                  !resource.data.keys().hasAll([
+                    "identityPolicyVersion",
+                    "identityChangedAt"
+                  ]) ||
+                  (
+                    resource.data.identityChangedAt is timestamp &&
+                    request.resource.data.identityChangedAt >
+                      resource.data.identityChangedAt
+                  )
+                )
+              )
+            )
+          )
+        );
     }
 
     function isValidProfileStatsDocument() {
@@ -301,6 +539,9 @@ service cloud.firestore {
           "userId",
           "displayName",
           "photoURL",
+          "identityPolicyVersion",
+          "identityChangedAt",
+          "identityState",
           "timeFrame",
           "schemaVersion",
           "periodKey",
@@ -321,6 +562,9 @@ service cloud.firestore {
           "userId",
           "displayName",
           "photoURL",
+          "identityPolicyVersion",
+          "identityChangedAt",
+          "identityState",
           "timeFrame",
           "schemaVersion",
           "periodKey",
@@ -333,8 +577,7 @@ service cloud.firestore {
           "lastUpdated"
         ]) &&
         request.resource.data.userId == request.auth.uid &&
-        request.resource.data.displayName == "Climber" &&
-        request.resource.data.photoURL == "" &&
+        isValidLeaderboardIdentity() &&
         request.resource.data.timeFrame is string &&
         isValidTimeFrame(request.resource.data.timeFrame) &&
         request.resource.data.schemaVersion is int &&
@@ -372,6 +615,51 @@ service cloud.firestore {
         (!request.resource.data.keys().hasAny(["location_region"]) ||
           isValidLocationProfileText(request.resource.data.location_region)) &&
         request.resource.data.lastUpdated is timestamp;
+    }
+
+    function isValidLeaderboardIdentity() {
+      let state = request.resource.data.identityState;
+      let isPublished =
+        state == "published" &&
+        request.resource.data.displayName is string &&
+        hasVisibleDisplayName(request.resource.data.displayName) &&
+        isAllowedDisplayName(request.resource.data.displayName) &&
+        isValidPublicPhotoURL(request.resource.data.photoURL) &&
+        isValidIdentityPolicyMetadata();
+      let isServerMasked =
+        state in ["pending_public_profile", "deleted"] &&
+        request.resource.data.displayName == "Anonymous Climber" &&
+        request.resource.data.photoURL == "" &&
+        request.resource.data.identityPolicyVersion ==
+          currentIdentityPolicyVersion() &&
+        request.resource.data.identityChangedAt == null;
+      return isPublished || isServerMasked;
+    }
+
+    function isPublishedLeaderboardIdentityFromCurrentProfile() {
+      let profilePath =
+        /databases/$(database)/documents/users/$(request.auth.uid)/public_profile/current;
+      return request.resource.data.identityState == "published" &&
+        exists(profilePath) &&
+        request.resource.data.displayName ==
+          get(profilePath).data.displayName &&
+        request.resource.data.photoURL ==
+          get(profilePath).data.photoURL &&
+        request.resource.data.identityPolicyVersion ==
+          get(profilePath).data.identityPolicyVersion &&
+        request.resource.data.identityChangedAt ==
+          get(profilePath).data.identityChangedAt;
+    }
+
+    function preservesServerOwnedLeaderboardIdentity() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        "userId",
+        "displayName",
+        "photoURL",
+        "identityPolicyVersion",
+        "identityChangedAt",
+        "identityState"
+      ]);
     }
 
     function isValidFeedbackType(type) {
@@ -833,6 +1121,7 @@ service cloud.firestore {
 
     function feedbackCooldownPassed() {
       return !exists(userRateLimitDocPath()) ||
+        !get(userRateLimitDocPath()).data.keys().hasAny(["lastFeedback"]) ||
         (
           get(userRateLimitDocPath()).data.lastFeedback is timestamp &&
           request.time >
@@ -886,9 +1175,146 @@ service cloud.firestore {
         request.resource.data.status == "new";
     }
 
-    function isValidUserRateLimitDocument() {
-      return request.resource.data.keys().hasOnly(["lastFeedback"]) &&
-        request.resource.data.lastFeedback is timestamp;
+    function moderationReportCooldownPassed() {
+      return !exists(userRateLimitDocPath()) ||
+        !get(userRateLimitDocPath()).data.keys()
+          .hasAny(["lastModerationReport"]) ||
+        (
+          get(userRateLimitDocPath()).data.lastModerationReport is timestamp &&
+          request.time >
+            get(userRateLimitDocPath()).data.lastModerationReport +
+              duration.value(60, "s")
+        );
+    }
+
+    function moderationRateLimitAdvanced(reportId) {
+      return getAfter(userRateLimitDocPath())
+          .data.lastModerationReport == request.time &&
+        getAfter(userRateLimitDocPath())
+          .data.lastModerationReportId == reportId;
+    }
+
+    function hasValidRateLimitSchema() {
+      return request.resource.data.keys().hasOnly([
+          "lastFeedback",
+          "lastModerationReport",
+          "lastModerationReportId"
+        ]) &&
+        request.resource.data.keys().hasAny([
+          "lastFeedback",
+          "lastModerationReport"
+        ]) &&
+        (!request.resource.data.keys().hasAny(["lastFeedback"]) ||
+          request.resource.data.lastFeedback is timestamp) &&
+        (!request.resource.data.keys().hasAny(["lastModerationReport"]) ||
+          request.resource.data.lastModerationReport is timestamp) &&
+        (
+          request.resource.data.keys().hasAny(["lastModerationReport"]) ==
+            request.resource.data.keys().hasAny(["lastModerationReportId"])
+        ) &&
+        (!request.resource.data.keys().hasAny(["lastModerationReportId"]) ||
+          (request.resource.data.lastModerationReportId is string &&
+            request.resource.data.lastModerationReportId.size() > 0 &&
+            request.resource.data.lastModerationReportId.size() <= 128));
+    }
+
+    function isValidUserRateLimitCreate() {
+      return hasValidRateLimitSchema() &&
+        (!request.resource.data.keys().hasAny(["lastFeedback"]) ||
+          request.resource.data.lastFeedback == request.time) &&
+        (!request.resource.data.keys().hasAny(["lastModerationReport"]) ||
+          request.resource.data.lastModerationReport == request.time);
+    }
+
+    function isValidUserRateLimitUpdate() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return hasValidRateLimitSchema() &&
+        changed.hasAny([
+          "lastFeedback",
+          "lastModerationReport",
+          "lastModerationReportId"
+        ]) &&
+        changed.hasOnly([
+          "lastFeedback",
+          "lastModerationReport",
+          "lastModerationReportId"
+        ]) &&
+        (!changed.hasAny(["lastFeedback"]) ||
+          request.resource.data.lastFeedback == request.time) &&
+        (
+          !changed.hasAny([
+            "lastModerationReport",
+            "lastModerationReportId"
+          ]) ||
+          (
+            changed.hasAll([
+              "lastModerationReport",
+              "lastModerationReportId"
+            ]) &&
+            request.resource.data.lastModerationReport == request.time
+          )
+        );
+    }
+
+    function isValidBlockedClimberDocument(blockedUserId) {
+      return request.resource.data.keys().hasOnly([
+          "blockedUid",
+          "createdAt"
+        ]) &&
+        request.resource.data.keys().hasAll([
+          "blockedUid",
+          "createdAt"
+        ]) &&
+        request.resource.data.blockedUid is string &&
+        request.resource.data.blockedUid == blockedUserId &&
+        request.resource.data.blockedUid != request.auth.uid &&
+        request.resource.data.blockedUid.size() > 0 &&
+        request.resource.data.blockedUid.size() <= 128 &&
+        request.resource.data.createdAt is timestamp &&
+        request.resource.data.createdAt == request.time;
+    }
+
+    function isValidModerationReportDocument() {
+      return request.resource.data.keys().hasOnly([
+          "reportedUserId",
+          "reporterUserId",
+          "reason",
+          "source",
+          "createdAt"
+        ]) &&
+        request.resource.data.keys().hasAll([
+          "reportedUserId",
+          "reporterUserId",
+          "reason",
+          "source",
+          "createdAt"
+        ]) &&
+        request.resource.data.reporterUserId == request.auth.uid &&
+        request.resource.data.reportedUserId is string &&
+        request.resource.data.reportedUserId != request.auth.uid &&
+        request.resource.data.reportedUserId.size() > 0 &&
+        request.resource.data.reportedUserId.size() <= 128 &&
+        request.resource.data.reason is string &&
+        request.resource.data.reason in [
+          "harassment",
+          "hate_speech",
+          "inappropriate_name",
+          "inappropriate_photo",
+          "impersonation",
+          "spam",
+          "other"
+        ] &&
+        request.resource.data.source is string &&
+        request.resource.data.source in [
+          "global_leaderboard",
+          "live_replay",
+          "completion_leaderboard",
+          "community_avatars",
+          "first_ascent",
+          "profile"
+        ] &&
+        request.resource.data.createdAt is timestamp &&
+        request.resource.data.createdAt == request.time;
     }
 
     match /users/{userId} {
@@ -956,9 +1382,14 @@ service cloud.firestore {
 
       match /public_profile/{docId} {
         allow read: if isSignedIn() && docId == "current";
-        allow create, update: if isOwner(userId) &&
+        allow create: if isOwner(userId) &&
           docId == "current" &&
-          isValidPublicProfileDocument(userId);
+          isValidPublicProfileDocument(userId) &&
+          isValidIdentityPolicyCreate();
+        allow update: if isOwner(userId) &&
+          docId == "current" &&
+          isValidPublicProfileDocument(userId) &&
+          isValidIdentityPolicyUpdate();
         allow delete: if isOwner(userId) && docId == "current";
       }
 
@@ -982,13 +1413,26 @@ service cloud.firestore {
         allow read: if isSignedIn();
         allow write: if false;
       }
+
+      // A block is private to its owner. It never changes leaderboard data or
+      // exposes one user's safety choices to another user.
+      match /blocked/{blockedUserId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+          isValidBlockedClimberDocument(blockedUserId);
+        allow update: if false;
+        allow delete: if isOwner(userId);
+      }
     }
 
     match /leaderboard_stats/{docId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && isValidLeaderboardDocument(docId);
+      allow create: if isSignedIn() &&
+        isValidLeaderboardDocument(docId) &&
+        isPublishedLeaderboardIdentityFromCurrentProfile();
       allow update: if isSignedIn() &&
         isValidLeaderboardDocument(docId) &&
+        preservesServerOwnedLeaderboardIdentity() &&
         request.resource.data.userId == resource.data.userId &&
         request.resource.data.timeFrame == resource.data.timeFrame;
       allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
@@ -1051,10 +1495,24 @@ service cloud.firestore {
       allow read, update, delete: if false;
     }
 
+    // Reports are a write-only moderation queue for clients. Review and
+    // resolution happen through trusted Admin SDK or console access.
+    match /moderation_reports/{reportId} {
+      allow create: if isSignedIn() &&
+        isValidModerationReportDocument() &&
+        exists(
+          /databases/$(database)/documents/users/$(request.resource.data.reportedUserId)
+        ) &&
+        moderationReportCooldownPassed() &&
+        moderationRateLimitAdvanced(reportId);
+      allow read, update, delete: if false;
+    }
+
     match /userRateLimits/{userId} {
       allow read: if isOwner(userId);
-      allow create, update: if isOwner(userId) && isValidUserRateLimitDocument();
-      allow delete: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUserRateLimitCreate();
+      allow update: if isOwner(userId) && isValidUserRateLimitUpdate();
+      allow delete: if false;
     }
 
     // Remote share-card template manifest is read-only for authenticated users.
@@ -1070,6 +1528,14 @@ service cloud.firestore {
 
     match /email_rate_limits/{docId} {
       allow read, write: if false;
+    }
+
+    match /_public_identity_propagation_jobs/{userId} {
+      allow read, write: if false;
+
+      match /kinds/{kind} {
+        allow read, write: if false;
+      }
     }
 
     match /waitlist/{docId} {

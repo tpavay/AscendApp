@@ -35,6 +35,7 @@ import {getStorage} from "firebase-admin/storage";
 import {hashString, mulberry32} from "./seed/lib/deterministic.mjs";
 import {
   FIRST_ASCENT_OPEN_ACTIVITY_TIER,
+  PUBLIC_IDENTITY_STATE_PUBLISHED,
   assertFirstAscentInvariant,
   clearOpenFirstAscentEntries,
   clearedFirstAscentFields,
@@ -891,6 +892,7 @@ async function writeSeedPlan(db, seedPlan, args) {
           displayName: attempt.displayName,
           finalSteps: attempt.finalSteps,
           // Every synthetic attempt is its own climber, so each is its own best.
+          identityState: PUBLIC_IDENTITY_STATE_PUBLISHED,
           isBestForUser: true,
           isSynthetic: true,
           photoURL: attempt.photoURL ?? "",
@@ -944,6 +946,7 @@ async function writeSeedPlan(db, seedPlan, args) {
         // No isBestForUser: the open Just Climb race has no step target, so it
         // races every completed attempt as its own opponent rather than
         // collapsing a climber's repeats onto a "fastest" one.
+        identityState: PUBLIC_IDENTITY_STATE_PUBLISHED,
         isSynthetic: true,
         photoURL: attempt.photoURL ?? "",
         schemaVersion: 1,

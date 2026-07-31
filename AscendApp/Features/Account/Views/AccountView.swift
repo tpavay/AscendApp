@@ -132,6 +132,11 @@ struct AccountView: View {
                 icon: .settingsNotifications,
                 title: "Notifications",
                 destination: NotificationSettingsView()
+            ),
+            SettingsOption(
+                icon: .settingsBlockedClimbers,
+                title: "Blocked climbers",
+                destination: BlockedClimbersView()
             )
         ]
     }

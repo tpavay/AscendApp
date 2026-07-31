@@ -8,9 +8,9 @@ import SwiftUI
 struct LeaderboardRowListView: View {
     @Environment(\.colorScheme) private var colorScheme
 
-    let entries: [LeaderboardEntry]
+    let entries: [ModeratedLeaderboardEntry]
     let metric: LeaderboardMetric
-    let onEntryAppear: (LeaderboardEntry) -> Void
+    let onEntryAppear: (ModeratedLeaderboardEntry) -> Void
 
     private var primaryTextColor: Color {
         colorScheme == .dark ? .white : .black
@@ -34,7 +34,10 @@ struct LeaderboardRowListView: View {
                             )
                         } else {
                             NavigationLink {
-                                OtherUserProfileView(userId: entry.userId)
+                                OtherUserProfileView(
+                                    identity: entry.identity,
+                                    moderationSource: .globalLeaderboard
+                                )
                             } label: {
                                 LeaderboardRow(
                                     entry: entry,
@@ -77,8 +80,20 @@ struct LeaderboardRowListView: View {
 #Preview {
     LeaderboardRowListView(
         entries: [
-            LeaderboardEntry(userId: "1", displayName: "Alex P.", rank: 5, value: 13_178_802, formattedValue: "13,178,802"),
-            LeaderboardEntry(userId: "2", displayName: "Mia K.", rank: 6, value: 11_246_663, formattedValue: "11,246,663")
+            .preview(
+                userId: "1",
+                displayName: "Alex P.",
+                rank: 5,
+                value: 13_178_802,
+                formattedValue: "13,178,802"
+            ),
+            .preview(
+                userId: "2",
+                displayName: "Mia K.",
+                rank: 6,
+                value: 11_246_663,
+                formattedValue: "11,246,663"
+            )
         ],
         metric: .climb,
         onEntryAppear: { _ in }

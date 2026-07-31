@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {liveReplayLeaderboardTestHooks} from "../src/liveReplayLeaderboard.js";
+import {
+  IdentityProtectedTransactionPort,
+  PublicUserSnapshot,
+  liveReplayLeaderboardTestHooks,
+  runIdentityProtectedTransaction,
+} from "../src/liveReplayLeaderboard.js";
 
 test("parses full target-reached live climb completions", () => {
   const payload = liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload(
@@ -175,6 +180,7 @@ test("builds First Ascent replay summary fields", () => {
       avatarToken: "MC",
       displayName: "Maya C.",
       gender: "woman",
+      identityState: "published",
       locationCity: "Austin",
       photoURL: null,
     },
@@ -185,6 +191,7 @@ test("builds First Ascent replay summary fields", () => {
     firstAscentAvatarToken: "MC",
     firstAscentCompletedAt: claimedAt,
     firstAscentDisplayName: "Maya C.",
+    firstAscentIdentityState: "published",
     firstAscentIsSynthetic: false,
     firstAscentPhotoURL: "",
     firstAscentUserId: "user-a",
@@ -252,6 +259,7 @@ test("builds replay entry fields with context identity", () => {
       avatarToken: "MC",
       displayName: "Maya C.",
       gender: "woman",
+      identityState: "published",
       locationCity: "Austin",
       photoURL: null,
     },
@@ -269,6 +277,7 @@ test("builds replay entry fields with context identity", () => {
     displayName: "Maya C.",
     finalSteps: 2096,
     gender: "woman",
+    identityState: "published",
     isBestForUser: true,
     isSynthetic: false,
     locationCity: "Austin",
@@ -431,6 +440,7 @@ test("builds first finisher status with permanent completion order", () => {
       avatarToken: "MC",
       displayName: "Maya C.",
       gender: "woman",
+      identityState: "published",
       locationCity: "Austin",
       photoURL: null,
     },
@@ -449,6 +459,7 @@ test("builds first finisher status with permanent completion order", () => {
     firstWorkoutId: "workout-a",
     gender: "woman",
     globalCompletionOrder: 47,
+    identityState: "published",
     isSynthetic: false,
     locationCity: "Austin",
     photoURL: "",
@@ -473,6 +484,7 @@ test("preserves finisher order on later attempts", () => {
     publicUser: {
       avatarToken: "MC",
       displayName: "Maya C.",
+      identityState: "published",
       photoURL: "https://example.com/maya.jpg",
     },
     globalCompletionOrder: 47,
@@ -488,6 +500,7 @@ test("preserves finisher order on later attempts", () => {
     avatarToken: "MC",
     displayName: "Maya C.",
     globalCompletionOrder: 47,
+    identityState: "published",
     isSynthetic: false,
     photoURL: "https://example.com/maya.jpg",
     schemaVersion: 1,
@@ -549,6 +562,7 @@ test("leaves the flag field off entries that race every attempt", () => {
     publicUser: {
       avatarToken: "MC",
       displayName: "Maya C.",
+      identityState: "published",
       photoURL: null,
     },
     stepsAtBucket: 420,
@@ -565,24 +579,180 @@ test("leaves the flag field off entries that race every attempt", () => {
   assert.equal("isBestForUser" in write, false);
 });
 
-test("never copies account-authored identity into public replay data", () => {
-  const snapshot = liveReplayLeaderboardTestHooks.publicUserSnapshotFromData({
-    age: 31,
-    displayName: "Private Name",
-    gender: "woman",
-    location_city: "Austin",
-    profilePictureURL: "https://example.com/private-profile.jpg",
-  });
+test("copies account-authored identity from the public profile mirror", () => {
+  const snapshot = liveReplayLeaderboardTestHooks.publicUserSnapshotFromData(
+    {
+      age: 31,
+      displayName: "Maya Chen",
+      gender: "woman",
+      location_city: "Austin",
+      photoURL: "https://firebasestorage.googleapis.com/v0/b/ascend-test.appspot.com/o/users%2Fuser-1%2Fprofile_pictures%2Fphoto.jpg?alt=media&token=abc",
+    },
+    "user-a"
+  );
 
   assert.deepEqual(snapshot, {
     age: 31,
-    avatarToken: "",
-    displayName: "Climber",
+    avatarToken: "MC",
+    displayName: "Maya Chen",
     gender: "woman",
+    identityState: "published",
     locationCity: "Austin",
+    photoURL: "https://firebasestorage.googleapis.com/v0/b/ascend-test.appspot.com/o/users%2Fuser-1%2Fprofile_pictures%2Fphoto.jpg?alt=media&token=abc",
+  });
+});
+
+test("uses the stable uid handle when a mirror has no authored name", () => {
+  const snapshot = liveReplayLeaderboardTestHooks.publicUserSnapshotFromData(
+    {},
+    "user-123"
+  );
+
+  assert.equal(snapshot.displayName, "Climber QRN9QT");
+  assert.equal(snapshot.avatarToken, "CQ");
+  assert.equal(snapshot.photoURL, null);
+});
+
+test(
+  "late replay projections retry with identity edited after enumeration",
+  async () => {
+    const v1 = identitySnapshot(
+      "Maya V1",
+      "https://example.com/v1.jpg"
+    );
+    const v2 = identitySnapshot("Maya V2", null);
+    const port = new RacingReplayIdentityPort(v1);
+
+    port.beforeFirstCommit = () => {
+      // The profile propagation trigger has already enumerated and found no
+      // target. The publisher must still conflict on its source read and retry.
+      port.propagationEnumeratedTargetCount = port.target === null ? 0 : 3;
+      port.replaceSource(v2);
+    };
+
+    await runIdentityProtectedTransaction(
+      port,
+      "user-a",
+      async (transaction, publicUser) => {
+        transaction.writeAllIdentityTargets(publicUser);
+      }
+    );
+
+    assert.equal(port.propagationEnumeratedTargetCount, 0);
+    assert.equal(port.transactionAttempts, 2);
+    assert.deepEqual(port.target, {
+      entry: v2,
+      finisher: v2,
+      firstAscent: v2,
+    });
+    assert.equal(port.target?.entry.photoURL, null);
+  }
+);
+
+test("late replay identity is anonymous after account deletion", () => {
+  const fromSentinel =
+    liveReplayLeaderboardTestHooks.currentPublicUserSnapshotFromData(
+      {
+        displayName: "Anonymous Climber",
+        photoURL: "https://example.com/must-not-survive.jpg",
+      },
+      {displayName: "Maya Chen"},
+      "user-a"
+    );
+  const fromDeletedRoot =
+    liveReplayLeaderboardTestHooks.currentPublicUserSnapshotFromData(
+      {
+        displayName: "Maya Chen",
+        photoURL: "https://example.com/must-not-survive.jpg",
+      },
+      undefined,
+      "user-a"
+    );
+
+  for (const snapshot of [fromSentinel, fromDeletedRoot]) {
+    assert.deepEqual(snapshot, {
+      avatarToken: "",
+      displayName: "Anonymous Climber",
+      identityState: "deleted",
+      photoURL: null,
+    });
+  }
+});
+
+test("missing public mirror never publishes surviving private identity", () => {
+  const snapshot =
+    liveReplayLeaderboardTestHooks.currentPublicUserSnapshotFromData(
+      undefined,
+      {
+        age: 31,
+        displayName: "Private Maya",
+        gender: "woman",
+        location_city: "Austin",
+        profilePictureURL: "https://example.com/reported-private-photo.jpg",
+      },
+      "user-a"
+    );
+
+  assert.deepEqual(snapshot, {
+    avatarToken: "",
+    displayName: "Anonymous Climber",
+    identityState: "pending_public_profile",
     photoURL: null,
   });
 });
+
+test(
+  "mirror deletion racing late creation writes every target as pending",
+  async () => {
+    const validMirror = identitySnapshot(
+      "Maya Public",
+      "https://example.com/public.jpg"
+    );
+    const privateRoot = {
+      age: 31,
+      displayName: "Private Maya",
+      gender: "woman",
+      location_city: "Austin",
+      profilePictureURL: "https://example.com/reported-private-photo.jpg",
+    };
+    const missingMirror =
+      liveReplayLeaderboardTestHooks.currentPublicUserSnapshotFromData(
+        undefined,
+        privateRoot,
+        "user-a"
+      );
+    const port = new RacingReplayIdentityPort(validMirror);
+
+    port.beforeFirstCommit = () => {
+      port.replaceSource(missingMirror);
+    };
+
+    await runIdentityProtectedTransaction(
+      port,
+      "user-a",
+      async (transaction, publicUser) => {
+        transaction.writeAllIdentityTargets(publicUser);
+      }
+    );
+
+    assert.equal(port.transactionAttempts, 2);
+    assert.deepEqual(port.target, {
+      entry: missingMirror,
+      finisher: missingMirror,
+      firstAscent: missingMirror,
+    });
+    assert.equal(
+      JSON.stringify(port.target).includes("reported-private-photo"),
+      false
+    );
+    assert.equal(JSON.stringify(port.target).includes("Private Maya"), false);
+    assert.equal(JSON.stringify(port.target).includes("Austin"), false);
+    assert.equal(
+      port.target?.entry.identityState,
+      "pending_public_profile"
+    );
+  }
+);
 
 test("seeds the flag on a per-climb attempt without demoting the best", () => {
   const payload = liveReplayLeaderboardTestHooks.parseLiveClimbReplayPayload(
@@ -1236,6 +1406,86 @@ test("keeps a climb finisher's best on the fastest completion", () => {
   );
 });
 
+interface RacingReplayTransaction {
+  writeAllIdentityTargets(publicUser: PublicUserSnapshot): void;
+}
+
+class RacingReplayIdentityPort implements
+  IdentityProtectedTransactionPort<RacingReplayTransaction> {
+  source: PublicUserSnapshot;
+  target: {
+    entry: PublicUserSnapshot;
+    finisher: PublicUserSnapshot;
+    firstAscent: PublicUserSnapshot;
+  } | null = null;
+  transactionAttempts = 0;
+  propagationEnumeratedTargetCount: number | null = null;
+  beforeFirstCommit: (() => void) | undefined;
+
+  private sourceRevision = 0;
+  private didRace = false;
+
+  constructor(source: PublicUserSnapshot) {
+    this.source = source;
+  }
+
+  replaceSource(source: PublicUserSnapshot): void {
+    this.source = source;
+    this.sourceRevision += 1;
+  }
+
+  async readCurrentPublicUser(): Promise<PublicUserSnapshot> {
+    return {...this.source};
+  }
+
+  async runTransaction(
+    operation: (transaction: RacingReplayTransaction) => Promise<void>
+  ): Promise<void> {
+    while (true) {
+      this.transactionAttempts += 1;
+      const sourceRevision = this.sourceRevision;
+      let pending: typeof this.target = null;
+
+      await operation({
+        writeAllIdentityTargets: (publicUser) => {
+          pending = {
+            entry: {...publicUser},
+            finisher: {...publicUser},
+            firstAscent: {...publicUser},
+          };
+        },
+      });
+
+      if (!this.didRace && this.beforeFirstCommit !== undefined) {
+        this.didRace = true;
+        this.beforeFirstCommit();
+      }
+
+      if (sourceRevision !== this.sourceRevision) {
+        continue;
+      }
+
+      this.target = pending;
+      return;
+    }
+  }
+}
+
+function identitySnapshot(
+  displayName: string,
+  photoURL: string | null
+): PublicUserSnapshot {
+  return {
+    avatarToken: displayName
+      .split(" ")
+      .map((component) => component[0])
+      .join(""),
+    displayName,
+    identityState: "published",
+    photoURL,
+  };
+}
+
 /**
  * Builds a completed routine workout backup document.
  * @param {Record<string, unknown>} overrides Document overrides.
@@ -1281,12 +1531,13 @@ function makeRoutineSourceMetadata(
 
 /**
  * Builds a public user snapshot for entry and finisher writes.
- * @return {Record<string, unknown>} Public user snapshot.
+ * @return {PublicUserSnapshot} Public user snapshot.
  */
-function makePublicUser() {
+function makePublicUser(): PublicUserSnapshot {
   return {
     avatarToken: "TP",
     displayName: "Tyler P",
+    identityState: "published",
     photoURL: null,
   };
 }

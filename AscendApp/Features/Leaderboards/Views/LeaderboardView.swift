@@ -14,6 +14,7 @@ struct LeaderboardView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.modelContext) private var modelContext
     @Environment(NetworkConnectivityService.self) private var connectivityService
+    @Environment(ModerationStore.self) private var moderationStore
 
     @State private var viewModel: LeaderboardViewModel
     @State private var scrollResetTrigger = 0
@@ -392,7 +393,8 @@ struct LeaderboardView: View {
 
     @ViewBuilder
     private var contentSection: some View {
-        let entries = viewModel.displayedEntries
+        let entries = moderationStore.moderate(viewModel.displayedEntries)
+        let userEntry = viewModel.userEntry.map(moderationStore.moderate)
 
         if entries.isEmpty {
             if !viewModel.isLoading {
@@ -407,20 +409,23 @@ struct LeaderboardView: View {
                 }
             }
         } else {
-            leaderboardContent(entries: entries)
+            leaderboardContent(entries: entries, userEntry: userEntry)
         }
     }
 
     // MARK: - Leaderboard Content
 
     private struct LeaderboardPresentationState {
-        let podiumEntries: [LeaderboardEntry]
-        let pinnedUserEntry: LeaderboardEntry?
-        let listEntries: [LeaderboardEntry]
+        let podiumEntries: [ModeratedLeaderboardEntry]
+        let pinnedUserEntry: ModeratedLeaderboardEntry?
+        let listEntries: [ModeratedLeaderboardEntry]
     }
 
-    private func leaderboardContent(entries: [LeaderboardEntry]) -> some View {
-        let state = presentationState(for: entries)
+    private func leaderboardContent(
+        entries: [ModeratedLeaderboardEntry],
+        userEntry: ModeratedLeaderboardEntry?
+    ) -> some View {
+        let state = presentationState(for: entries, userEntry: userEntry)
 
         return VStack(spacing: 16) {
             if !state.podiumEntries.isEmpty {
@@ -446,7 +451,7 @@ struct LeaderboardView: View {
                     entries: state.listEntries,
                     metric: viewModel.selectedMetric,
                     onEntryAppear: { entry in
-                        viewModel.loadMoreEntriesIfNeeded(currentEntry: entry)
+                        viewModel.loadMoreEntriesIfNeeded(currentEntryID: entry.id)
                     }
                 )
                 .padding(.top, 2)
@@ -461,11 +466,14 @@ struct LeaderboardView: View {
         }
     }
 
-    private func presentationState(for entries: [LeaderboardEntry]) -> LeaderboardPresentationState {
-        let podiumEntries = LeaderboardPodiumLayout.podiumEntries(from: entries)
-        let listEntries = LeaderboardPodiumLayout.listEntries(from: entries)
+    private func presentationState(
+        for entries: [ModeratedLeaderboardEntry],
+        userEntry: ModeratedLeaderboardEntry?
+    ) -> LeaderboardPresentationState {
+        let podiumEntries = ModeratedLeaderboardPodiumLayout.podiumEntries(from: entries)
+        let listEntries = ModeratedLeaderboardPodiumLayout.listEntries(from: entries)
 
-        guard let userEntry = viewModel.userEntry else {
+        guard let userEntry else {
             return LeaderboardPresentationState(
                 podiumEntries: podiumEntries,
                 pinnedUserEntry: nil,
@@ -490,13 +498,16 @@ struct LeaderboardView: View {
     }
 
     private func shouldPinUserRow(
-        _ entry: LeaderboardEntry,
-        podiumEntries: [LeaderboardEntry]
+        _ entry: ModeratedLeaderboardEntry,
+        podiumEntries: [ModeratedLeaderboardEntry]
     ) -> Bool {
         !podiumEntries.contains { $0.userId == entry.userId }
     }
 
-    private func crownGapText(for userEntry: LeaderboardEntry, podiumEntries: [LeaderboardEntry]) -> String? {
+    private func crownGapText(
+        for userEntry: ModeratedLeaderboardEntry,
+        podiumEntries: [ModeratedLeaderboardEntry]
+    ) -> String? {
         guard let leader = podiumEntries.first(where: { $0.rank == 1 }),
               leader.userId != userEntry.userId
         else {
@@ -714,6 +725,7 @@ struct LeaderboardView: View {
     NavigationStack {
         LeaderboardView()
             .environment(AuthenticationViewModel())
+            .environment(ModerationStore.shared)
             .environment(NetworkConnectivityService.shared)
             .environment(TabRouter())
     }

@@ -70,7 +70,8 @@ A completed climb is **1:1 with a `Workout`** (the sole canonical record; verdic
 - The replay index is server-published - clients write zero leaderboard data during a live session. A Cloud Function publishes from saved attempts after the session ends and normalizes degenerate curves (e.g. all-zero-until-final-bucket) into conservative monotonic curves so replay rows don't appear stationary.
 - That normalization exists twice - `LiveClimbWorkoutSummaryData.normalizedSplitSteps` (Swift) and `functions/src/liveReplaySplitNormalization.ts` - and both are pinned by `SharedTestVectors/live-replay-split-normalization-vector.json`. The end-anchored bucket contract they share is stated on `LiveReplaySplitCurve`; don't restate it elsewhere or author a third normalizer.
 - Replay rows denormalize public display fields (display name, avatar token, optional photo URL) so live-session client code does not read private user documents during a race.
-  For real users those stored fields are the sanitized system identity (`Climber`, empty photo/avatar token), never account-authored values; only rows with the server-owned `isSynthetic` marker keep authored fixture identity, and clients resolve what actually renders through `PublicClimberIdentity` (launch policy: see `ascend-profile`).
+  For real users those stored fields carry validated account-authored identity or the stable UID-derived fallback.
+  Rows with the server-owned `isSynthetic` marker keep authored fixture identity, account deletion keeps the `Anonymous Climber` sentinel, and clients apply the shared moderation resolver before rendering (see `ascend-profile`).
 - Per-climb rank and total-climber counts stay hidden until real backend data exists. No placeholder public stats.
 - Future demographic / peer-group insights must use declared profile fields and stay opt-in / privacy-safe.
 

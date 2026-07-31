@@ -6,7 +6,7 @@ import {
   assertSucceeds,
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { getBytes, ref, uploadBytes } from 'firebase/storage';
 
 const projectId = 'demo-ascendapp-rules';
@@ -21,6 +21,7 @@ const mediaId = '11111111-1111-1111-1111-111111111111';
 const secondMediaId = '22222222-2222-2222-2222-222222222222';
 const weightEntryId = '33333333-3333-3333-3333-333333333333';
 const participationId = '44444444-4444-4444-4444-444444444444';
+const identityChangedAt = new Date('2026-04-09T12:00:00.000Z');
 
 let testEnv;
 
@@ -43,6 +44,15 @@ before(async () => {
 beforeEach(async () => {
   await testEnv.clearFirestore();
   await testEnv.clearStorage();
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await setDoc(
+      doc(
+        adminContext.firestore(),
+        `users/${userId}/public_profile/current`
+      ),
+      makePublicProfileDocument({identityChangedAt})
+    );
+  });
 });
 
 after(async () => {
@@ -84,16 +94,31 @@ test('users cannot write demographics into another users profile', async () => {
   })));
 });
 
-test('owner can publish only the system public identity', async () => {
+test('owner can publish validated account-authored public identity', async () => {
   const context = testEnv.authenticatedContext(userId);
   const profileRef = doc(context.firestore(), `users/${userId}/public_profile/current`);
 
-  await assertSucceeds(setDoc(profileRef, makePublicProfileDocument()));
+  await assertSucceeds(setDoc(profileRef, makePublicProfileDocument({
+    displayName: 'Tyler Pavay',
+    photoURL: STORAGE_PHOTO_URL,
+  })));
+});
+
+test('public profile identity rejects empty, overlong, profane, photo, and uid spoofing', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const profileRef = doc(context.firestore(), `users/${userId}/public_profile/current`);
+
+  for (const displayName of ['', 'a'.repeat(81), 'fuuuck']) {
+    await assertFails(setDoc(
+      profileRef,
+      makePublicProfileDocument({displayName})
+    ));
+  }
   await assertFails(setDoc(profileRef, makePublicProfileDocument({
-    displayName: 'Tyler',
+    photoURL: `${STORAGE_PHOTO_URL}${'p'.repeat(2030)}`,
   })));
   await assertFails(setDoc(profileRef, makePublicProfileDocument({
-    photoURL: 'https://example.com/private-profile.jpg',
+    userId: otherUserId,
   })));
 });
 
@@ -119,15 +144,47 @@ test('daily leaderboard stats require a daily period key', async () => {
   })));
 });
 
-test('leaderboard stats reject account-authored public identity', async () => {
+test('leaderboard stats accept validated account-authored public identity', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const statsRef = doc(context.firestore(), `leaderboard_stats/weekly_2026-W15_${userId}`);
+  const displayName = 'Tyler Pavay';
+  const photoURL = STORAGE_PHOTO_URL;
+
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await setDoc(
+      doc(
+        adminContext.firestore(),
+        `users/${userId}/public_profile/current`
+      ),
+      makePublicProfileDocument({
+        displayName,
+        identityChangedAt,
+        photoURL,
+      })
+    );
+  });
+
+  await assertSucceeds(setDoc(statsRef, makeLeaderboardDocument({
+    displayName,
+    photoURL,
+  })));
+});
+
+test('leaderboard identity rejects empty, overlong, profane, photo, and uid spoofing', async () => {
   const context = testEnv.authenticatedContext(userId);
   const statsRef = doc(context.firestore(), `leaderboard_stats/weekly_2026-W15_${userId}`);
 
+  for (const displayName of ['', 'a'.repeat(81), 'fuсk']) {
+    await assertFails(setDoc(
+      statsRef,
+      makeLeaderboardDocument({displayName})
+    ));
+  }
   await assertFails(setDoc(statsRef, makeLeaderboardDocument({
-    displayName: 'Tyler',
+    photoURL: `${STORAGE_PHOTO_URL}${'p'.repeat(2030)}`,
   })));
   await assertFails(setDoc(statsRef, makeLeaderboardDocument({
-    photoURL: 'https://example.com/private-profile.jpg',
+    userId: otherUserId,
   })));
 });
 
@@ -586,6 +643,9 @@ function makeLeaderboardDocument(overrides = {}) {
     userId,
     displayName: 'Climber',
     photoURL: '',
+    identityPolicyVersion: 1,
+    identityChangedAt,
+    identityState: 'published',
     timeFrame: 'weekly',
     schemaVersion: 2,
     periodKey: '2026-W15',
@@ -600,11 +660,17 @@ function makeLeaderboardDocument(overrides = {}) {
   };
 }
 
+const STORAGE_PHOTO_URL =
+  'https://firebasestorage.googleapis.com/v0/b/ascend-test.appspot.com/o/' +
+  `users%2F${userId}%2Fprofile_pictures%2Fphoto.jpg?alt=media&token=abc123`;
+
 function makePublicProfileDocument(overrides = {}) {
   return {
     userId,
     displayName: 'Climber',
     photoURL: '',
+    identityPolicyVersion: 1,
+    identityChangedAt: serverTimestamp(),
     lastUpdated: new Date('2026-05-18T12:00:00.000Z'),
     ...overrides,
   };

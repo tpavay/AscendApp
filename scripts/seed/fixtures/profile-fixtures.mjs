@@ -1,8 +1,12 @@
 import {canonicalWorkoutDocumentId} from "../../lib/workout-document-id.mjs";
+import {PUBLIC_PHOTO_URL_PATTERN} from "../lib/public-identity-contract.mjs";
+
+export {PUBLIC_PHOTO_URL_PATTERN};
 
 export const PROFILE_SEED_PACK_ID = "v1-profile-test";
 export const PROFILE_SEED_SOURCE = "seed-test-users";
 export const PROFILE_SCHEMA_VERSION = 2;
+const PUBLIC_IDENTITY_STATE_PUBLISHED = "published";
 
 export const LEADERBOARD_TIME_FRAMES = [
   "daily",
@@ -48,6 +52,8 @@ export const PROFILE_FIELD_SETS = {
     "userId",
     "displayName",
     "photoURL",
+    "identityPolicyVersion",
+    "identityChangedAt",
     "age",
     "gender",
     "weight_kg",
@@ -92,6 +98,9 @@ export const PROFILE_FIELD_SETS = {
     "userId",
     "displayName",
     "photoURL",
+    "identityPolicyVersion",
+    "identityChangedAt",
+    "identityState",
     "timeFrame",
     "schemaVersion",
     "periodKey",
@@ -129,9 +138,20 @@ export function buildProfileSeedWrites({
     const stats = statsFor(persona, workouts);
 
     const photoURL = profilePhotoURL(persona, avatarURLs);
+    const publicIdentity = {
+      displayName: persona.name,
+      identityChangedAt: FieldValue.serverTimestamp(),
+      identityPolicyVersion: 1,
+      photoURL,
+      userId: persona.id,
+    };
 
     writes.push(write(userRef, privateUserData(persona, joinedAt, photoURL, Timestamp, FieldValue), "user"));
-    writes.push(write(publicRef, publicProfileData(persona, joinedAt, Timestamp, FieldValue), "publicProfile"));
+    writes.push(write(
+      publicRef,
+      publicProfileData(persona, joinedAt, publicIdentity, Timestamp, FieldValue),
+      "publicProfile"
+    ));
     writes.push(write(statsRef, profileStatsData(stats, FieldValue), "profileStats"));
 
     for (const workout of workouts) {
@@ -147,7 +167,15 @@ export function buildProfileSeedWrites({
     }
 
     if (includeLeaderboardRows) {
-      writes.push(...leaderboardWritesForPersona(db, persona, stats, now, Timestamp, FieldValue));
+      writes.push(...leaderboardWritesForPersona(
+        db,
+        persona,
+        stats,
+        publicIdentity,
+        now,
+        Timestamp,
+        FieldValue
+      ));
     }
   }
 
@@ -159,13 +187,91 @@ export function buildLeaderboardSeedWrites({
   catalog,
   Timestamp,
   FieldValue,
+  publicIdentities,
   now = new Date(),
 }) {
+  if (!(publicIdentities instanceof Map)) {
+    throw new Error(
+      "buildLeaderboardSeedWrites requires current public profile identities"
+    );
+  }
+
   return PROFILE_SEED_PERSONAS.flatMap((persona) => {
     const workouts = buildWorkouts(persona, catalog, now, Timestamp, FieldValue);
     const stats = statsFor(persona, workouts);
-    return leaderboardWritesForPersona(db, persona, stats, now, Timestamp, FieldValue);
+    const publicIdentity = publicIdentities.get(persona.id);
+    if (!publicIdentity) {
+      throw new Error(
+        `Missing current public profile identity for ${persona.id}`
+      );
+    }
+    return leaderboardWritesForPersona(
+      db,
+      persona,
+      stats,
+      publicIdentity,
+      now,
+      Timestamp,
+      FieldValue
+    );
   });
+}
+
+export function publishedPublicIdentity(userId, data) {
+  if (
+    data?.userId !== userId ||
+    typeof data?.displayName !== "string" ||
+    data.displayName.trim().length === 0 ||
+    typeof data?.photoURL !== "string" ||
+    data?.identityPolicyVersion !== 1 ||
+    data?.identityChangedAt == null
+  ) {
+    throw new Error(
+      `users/${userId}/public_profile/current has no publishable identity`
+    );
+  }
+
+  return {
+    displayName: data.displayName,
+    identityChangedAt: data.identityChangedAt,
+    identityPolicyVersion: data.identityPolicyVersion,
+    photoURL: data.photoURL,
+    userId,
+  };
+}
+
+export function publicIdentityMismatchFields(projection, identity) {
+  const mismatches = [
+    "displayName",
+    "photoURL",
+    "identityPolicyVersion",
+  ].filter((field) => projection?.[field] !== identity?.[field]);
+
+  if (!seedValuesEqual(
+    projection?.identityChangedAt,
+    identity?.identityChangedAt
+  )) {
+    mismatches.push("identityChangedAt");
+  }
+  if (projection?.identityState !== PUBLIC_IDENTITY_STATE_PUBLISHED) {
+    mismatches.push("identityState");
+  }
+  return mismatches;
+}
+
+function seedValuesEqual(left, right) {
+  if (left && typeof left.isEqual === "function") {
+    return left.isEqual(right);
+  }
+  if (
+    left &&
+    right &&
+    typeof left.toMillis === "function" &&
+    typeof right.toMillis === "function"
+  ) {
+    return left.toMillis() === right.toMillis();
+  }
+  return left === right;
 }
 
 export function expectedProfileUserIds() {
@@ -308,11 +414,15 @@ function privateUserData(persona, joinedAt, photoURL, Timestamp, FieldValue) {
   };
 }
 
-function publicProfileData(persona, joinedAt, Timestamp, FieldValue) {
+function publicProfileData(
+  persona,
+  joinedAt,
+  publicIdentity,
+  Timestamp,
+  FieldValue
+) {
   return {
-    userId: persona.id,
-    displayName: "Climber",
-    photoURL: "",
+    ...publicIdentity,
     age: persona.age,
     gender: persona.gender,
     weight_kg: poundsToKg(persona.weightLb),
@@ -396,9 +506,25 @@ function statsFor(persona, workouts) {
   };
 }
 
-function leaderboardWritesForPersona(db, persona, stats, now, Timestamp, FieldValue) {
+function leaderboardWritesForPersona(
+  db,
+  persona,
+  stats,
+  publicIdentity,
+  now,
+  Timestamp,
+  FieldValue
+) {
   return LEADERBOARD_TIME_FRAMES
-    .map((timeFrame) => leaderboardDataForPersona(persona, stats, timeFrame, now, Timestamp, FieldValue))
+    .map((timeFrame) => leaderboardDataForPersona(
+      persona,
+      stats,
+      publicIdentity,
+      timeFrame,
+      now,
+      Timestamp,
+      FieldValue
+    ))
     .filter((data) => data.totalSteps > 0)
     .map((data) => {
       const docId = leaderboardDocId(persona.id, data.timeFrame, data.periodKey);
@@ -406,7 +532,15 @@ function leaderboardWritesForPersona(db, persona, stats, now, Timestamp, FieldVa
     });
 }
 
-function leaderboardDataForPersona(persona, stats, timeFrame, now, Timestamp, FieldValue) {
+function leaderboardDataForPersona(
+  persona,
+  stats,
+  publicIdentity,
+  timeFrame,
+  now,
+  Timestamp,
+  FieldValue
+) {
   const period = currentPeriod(timeFrame, now);
   const totalSteps = leaderboardSteps(persona, stats, timeFrame);
   const totalWorkouts = totalSteps > 0
@@ -418,8 +552,11 @@ function leaderboardDataForPersona(persona, stats, timeFrame, now, Timestamp, Fi
 
   return {
     userId: persona.id,
-    displayName: "Climber",
-    photoURL: "",
+    displayName: publicIdentity.displayName,
+    photoURL: publicIdentity.photoURL,
+    identityPolicyVersion: publicIdentity.identityPolicyVersion,
+    identityChangedAt: publicIdentity.identityChangedAt,
+    identityState: PUBLIC_IDENTITY_STATE_PUBLISHED,
     timeFrame,
     schemaVersion: PROFILE_SCHEMA_VERSION,
     periodKey: period.key,
@@ -568,12 +705,21 @@ function daysFromNow(days, base = new Date()) {
   return new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
 }
 
-function avatarURL(name) {
-  return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&size=200&background=2F3136&color=fff&bold=true&format=png`;
-}
-
+// A seeded photo has to satisfy the same contract as a real one: rules reject
+// any other host, and the identity propagation trigger would blank it on the way
+// to the leaderboard. A persona with no uploaded avatar publishes no photo, and
+// anything off-host fails the seed rather than reaching Firestore.
 function profilePhotoURL(persona, avatarURLs) {
-  return avatarURLs.get(persona.id) ?? avatarURL(persona.name);
+  const photoURL = avatarURLs.get(persona.id);
+  if (photoURL === undefined) {
+    return "";
+  }
+  if (!PUBLIC_PHOTO_URL_PATTERN.test(photoURL)) {
+    throw new Error(
+      `${persona.id} avatar is not a Firebase Storage download URL: ${photoURL}`
+    );
+  }
+  return photoURL;
 }
 
 // These ids key `users/{uid}/profile_workouts` documents, which obey the one-spelling rule

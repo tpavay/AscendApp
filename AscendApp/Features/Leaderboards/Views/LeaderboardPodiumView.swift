@@ -8,12 +8,12 @@ import SwiftUI
 struct LeaderboardPodiumView: View {
     @Environment(\.colorScheme) private var colorScheme
 
-    let entries: [LeaderboardEntry]
+    let entries: [ModeratedLeaderboardEntry]
     let metric: LeaderboardMetric
     var usesContainerBackground: Bool = false
 
-    private var layout: LeaderboardPodiumLayout {
-        LeaderboardPodiumLayout(entries: entries)
+    private var layout: ModeratedLeaderboardPodiumLayout {
+        ModeratedLeaderboardPodiumLayout(entries: entries)
     }
 
     var body: some View {
@@ -39,10 +39,15 @@ struct LeaderboardPodiumView: View {
     }
 
     @ViewBuilder
-    private func podiumSlot(_ slot: LeaderboardPodiumLayout.Slot) -> some View {
+    private func podiumSlot(
+        _ slot: ModeratedLeaderboardPodiumLayout.Slot
+    ) -> some View {
         if let entry = slot.entry, !entry.isCurrentUser {
             NavigationLink {
-                OtherUserProfileView(userId: entry.userId)
+                OtherUserProfileView(
+                    identity: entry.identity,
+                    moderationSource: .globalLeaderboard
+                )
             } label: {
                 LeaderboardPodiumSlotView(slot: slot, metric: metric)
             }
@@ -58,7 +63,7 @@ struct LeaderboardPodiumView: View {
 private struct LeaderboardPodiumSlotView: View {
     @Environment(\.colorScheme) private var colorScheme
 
-    let slot: LeaderboardPodiumLayout.Slot
+    let slot: ModeratedLeaderboardPodiumLayout.Slot
     let metric: LeaderboardMetric
 
     /// Which pedestal this is (1 centre, 2 left, 3 right). Drives geometry only.
@@ -66,7 +71,7 @@ private struct LeaderboardPodiumSlotView: View {
         slot.position
     }
 
-    private var entry: LeaderboardEntry? {
+    private var entry: ModeratedLeaderboardEntry? {
         slot.entry
     }
 
@@ -150,18 +155,7 @@ private struct LeaderboardPodiumSlotView: View {
     }
 
     private var displayName: String {
-        entryIdentity?.displayName ?? "Open"
-    }
-
-    private var entryIdentity: PublicClimberIdentity.Presentation? {
-        guard let entry else { return nil }
-        return PublicClimberIdentity.resolve(
-            userId: entry.userId,
-            storedDisplayName: entry.displayName,
-            storedPhotoURL: entry.photoURL,
-            isCurrentUser: entry.isCurrentUser,
-            currentUserPhotoURL: entry.photoURL
-        )
+        entry?.identity.displayName ?? "Open"
     }
 
     private var valueColor: Color {
@@ -235,7 +229,7 @@ private struct LeaderboardPodiumSlotView: View {
 
     @ViewBuilder
     private var avatar: some View {
-        if let photoURL = entryIdentity?.photoURL {
+        if let photoURL = entry?.identity.photoURL {
             AsyncImage(url: photoURL) { phase in
                 switch phase {
                 case .success(let image):
@@ -316,9 +310,9 @@ private extension View {
 #Preview {
     LeaderboardPodiumView(
         entries: [
-            LeaderboardEntry(userId: "1", displayName: "Jake M.", rank: 1, value: 21_482_991, formattedValue: "21,482,991"),
-            LeaderboardEntry(userId: "2", displayName: "Sophia L.", rank: 2, value: 19_812_770, formattedValue: "19,812,770"),
-            LeaderboardEntry(userId: "3", displayName: "Ethan D.", rank: 3, value: 17_926_441, formattedValue: "17,926,441")
+            .preview(userId: "1", displayName: "Jake M.", rank: 1, value: 21_482_991, formattedValue: "21,482,991"),
+            .preview(userId: "2", displayName: "Sophia L.", rank: 2, value: 19_812_770, formattedValue: "19,812,770"),
+            .preview(userId: "3", displayName: "Ethan D.", rank: 3, value: 17_926_441, formattedValue: "17,926,441")
         ],
         metric: .climb
     )

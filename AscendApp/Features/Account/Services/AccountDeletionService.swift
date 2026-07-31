@@ -137,15 +137,15 @@ final class AccountDeletionService {
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 5: Delete Firestore rate-limit metadata
-        updateProgress("Deleting feedback metadata...")
-        try await deleteFeedbackRateLimitDocument(userId: userId)
+        // Step 5: Delete Firestore workout backup documents
+        updateProgress("Deleting workout backups...")
+        try await deleteWorkoutBackups(userId: userId)
         completedSteps += 1
         try Task.checkCancellation()
 
-        // Step 6: Delete Firestore workout backup documents
-        updateProgress("Deleting workout backups...")
-        try await deleteWorkoutBackups(userId: userId)
+        // Step 6: Delete the user's personal block list.
+        updateProgress("Deleting blocked climbers...")
+        try await deleteBlockedClimbers(userId: userId)
         completedSteps += 1
         try Task.checkCancellation()
 
@@ -314,15 +314,15 @@ final class AccountDeletionService {
         }
     }
 
-    private func deleteFeedbackRateLimitDocument(userId: String) async throws {
-        try await runFirestoreDeletion {
-            try await gateway.deleteFeedbackRateLimitDocument(userId: userId)
-        }
-    }
-
     private func deleteWorkoutBackups(userId: String) async throws {
         try await runFirestoreDeletion {
             try await gateway.deleteWorkoutBackups(userId: userId)
+        }
+    }
+
+    private func deleteBlockedClimbers(userId: String) async throws {
+        try await runFirestoreDeletion {
+            try await gateway.deleteBlockedClimbers(userId: userId)
         }
     }
 

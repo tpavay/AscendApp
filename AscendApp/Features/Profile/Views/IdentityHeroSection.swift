@@ -2,14 +2,16 @@ import SwiftUI
 
 struct IdentityHeroSection: View {
     let snapshot: ProfileSnapshot
-    let mode: ProfileViewMode
+    let identity: ResolvedUserIdentity
 
     private var locationLine: String? {
-        ProfileIdentityFormatter.locationLine(for: snapshot.identity)
+        ProfileIdentityFormatter.locationLine(for: snapshot.demographics)
     }
 
     private var joinedText: String? {
-        ProfileIdentityFormatter.joinedDateText(for: snapshot.identity.joinedAt)
+        ProfileIdentityFormatter.joinedDateText(
+            for: snapshot.demographics.joinedAt
+        )
     }
 
     var body: some View {
@@ -25,7 +27,7 @@ struct IdentityHeroSection: View {
                         .minimumScaleFactor(0.8)
                 }
 
-                Text(snapshot.identity.displayName)
+                Text(identity.displayName)
                     .font(.montserratBold(size: 28))
                     .foregroundStyle(.white)
                     .lineLimit(1)
@@ -56,57 +58,41 @@ struct IdentityHeroSection: View {
 
     @ViewBuilder
     private var profileActionButton: some View {
-        if mode == .own {
-            NavigationLink {
-                AccountView()
-            } label: {
-                Label("Settings", systemImage: "gearshape")
-                    .labelStyle(.iconOnly)
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.86))
-                    .frame(width: 38, height: 38)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-        } else {
-            Menu("Profile actions", systemImage: "ellipsis") {
-                Button("Report", systemImage: "flag") {}
-                    .disabled(true)
-            }
-            .font(.system(size: 20, weight: .semibold))
-            .foregroundStyle(.white.opacity(0.86))
-            .frame(width: 38, height: 38)
+        NavigationLink {
+            AccountView()
+        } label: {
+            Label("Settings", systemImage: "gearshape")
+                .labelStyle(.iconOnly)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.86))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
     private var avatar: some View {
-        if mode == .own {
-            NavigationLink {
-                EditProfileView()
-            } label: {
-                avatarImage
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Edit profile")
-        } else {
+        NavigationLink {
+            EditProfileView()
+        } label: {
             avatarImage
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Edit profile")
     }
 
     private var avatarImage: some View {
-        ProfileAvatarImageView(photoURL: snapshot.identity.photoURL, size: 88)
+        ProfileAvatarImageView(photoURL: identity.photoURL, size: 88)
             .overlay(alignment: .bottomTrailing) {
-                if mode == .own {
-                    Circle()
-                        .fill(Color.black.opacity(0.82))
-                        .frame(width: 30, height: 30)
-                        .overlay {
-                            Image(systemName: "pencil")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(.white)
-                        }
-                }
+                Circle()
+                    .fill(Color.black.opacity(0.82))
+                    .frame(width: 30, height: 30)
+                    .overlay {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
             }
     }
 }

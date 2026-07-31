@@ -316,10 +316,23 @@ extension AuthenticationService {
             throw AuthenticationError.signInFailed("No authenticated user found")
         }
 
-        let changeRequest = user.createProfileChangeRequest()
-        changeRequest.displayName = displayName
+        try await Self.commitValidatedDisplayName(displayName) {
+            validatedDisplayName in
+            let changeRequest = user.createProfileChangeRequest()
+            changeRequest.displayName = validatedDisplayName
 
-        try await changeRequest.commitChanges()
+            try await changeRequest.commitChanges()
+        }
+    }
+
+    @discardableResult
+    static func commitValidatedDisplayName(
+        _ displayName: String,
+        mutation: (String) async throws -> Void
+    ) async throws -> String {
+        let validatedDisplayName = try DisplayNamePolicy.validated(displayName)
+        try await mutation(validatedDisplayName)
+        return validatedDisplayName
     }
 
     // MARK: - Reauthentication

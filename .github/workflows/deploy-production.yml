@@ -239,6 +239,8 @@ jobs:
         run: |
           set -euo pipefail
 
+          deployed_spec_file="$RUNNER_TEMP/firestore-index-spec.json"
+          operations_file="$RUNNER_TEMP/firestore-operations.json"
           for attempt in $(seq 1 180); do
             if ! deployed_indexes="$(npx -y firebase-tools@15.22.1 firestore:indexes --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --pretty --token "$FIREBASE_TOKEN")"; then
               echo "::warning::firestore:indexes poll attempt ${attempt} of 180 failed; retrying."
@@ -247,10 +249,24 @@ jobs:
               fi
               continue
             fi
+            if ! npx -y firebase-tools@15.22.1 firestore:indexes --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --json --token "$FIREBASE_TOKEN" > "$deployed_spec_file"; then
+              echo "::warning::firestore:indexes JSON poll attempt ${attempt} of 180 failed; retrying."
+              if [ "$attempt" -lt 180 ]; then
+                sleep 20
+              fi
+              continue
+            fi
+            if ! npx -y firebase-tools@15.22.1 firestore:operations:list --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --limit 1000 --json --token "$FIREBASE_TOKEN" > "$operations_file"; then
+              echo "::warning::firestore:operations:list poll attempt ${attempt} of 180 failed; retrying."
+              if [ "$attempt" -lt 180 ]; then
+                sleep 20
+              fi
+              continue
+            fi
             printf "%s\n" "$deployed_indexes"
 
             readiness_status=0
-            printf "%s\n" "$deployed_indexes" | node scripts/ci/assert-firestore-indexes-ready.mjs firestore.indexes.json || readiness_status=$?
+            printf "%s\n" "$deployed_indexes" | node scripts/ci/assert-firestore-indexes-ready.mjs firestore.indexes.json "$operations_file" "$deployed_spec_file" || readiness_status=$?
 
             if [ "$readiness_status" -eq 0 ]; then
               exit 0
@@ -284,6 +300,8 @@ jobs:
           npx -y firebase-tools@15.22.1 --json functions:list --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}" --token "$FIREBASE_TOKEN" \
             | node scripts/ci/assert-firebase-functions-active.mjs \
                 cleanupDeletedUserData \
+                onPublicIdentityPropagationJobWritten \
+                onPublicProfileIdentityWritten \
                 onWorkoutWritten \
                 onWorkoutReplaySplitsWritten \
                 unsubscribeFromEmails

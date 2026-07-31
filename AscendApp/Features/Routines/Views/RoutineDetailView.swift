@@ -12,6 +12,7 @@ struct RoutineDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
+    @Environment(ModerationStore.self) private var moderationStore
     @State private var themeManager = ThemeManager.shared
     @State private var showDeleteConfirmation = false
     @State private var isSavedToMyRoutines = false
@@ -257,7 +258,7 @@ struct RoutineDetailView: View {
 
     private var leaderboardPage: some View {
         ReplayCompletionLeaderboardView(
-            rows: leaderboardViewModel.rows,
+            rows: moderationStore.moderate(leaderboardViewModel.rows),
             completedCount: leaderboardViewModel.completedCount,
             isLoading: leaderboardViewModel.isLoading,
             isLoadingMore: leaderboardViewModel.isLoadingMore,
@@ -268,7 +269,7 @@ struct RoutineDetailView: View {
             emptyMessage: "Be the first to put steps on this routine.",
             emphasis: leaderboardViewModel.rowEmphasis,
             onRowAppear: { row in
-                leaderboardViewModel.loadMoreIfNeeded(currentRow: row)
+                leaderboardViewModel.loadMoreIfNeeded(currentRowID: row.id)
             }
         )
         .padding(.horizontal, 4)
@@ -671,6 +672,7 @@ private struct RoutineDetailPageHeightPreferenceKey: PreferenceKey {
         onEdit: {},
         onCopy: {}
     )
+    .environment(ModerationStore.shared)
 }
 
 #Preview("Dark Mode") {
@@ -680,6 +682,7 @@ private struct RoutineDetailPageHeightPreferenceKey: PreferenceKey {
         onEdit: {},
         onCopy: {}
     )
+    .environment(ModerationStore.shared)
     .preferredColorScheme(.dark)
 }
 

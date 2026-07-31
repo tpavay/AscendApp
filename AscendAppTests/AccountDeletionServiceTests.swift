@@ -35,8 +35,8 @@ struct AccountDeletionServiceTests {
         let ownerGatedSteps: [RecordingAccountDeletionGateway.Step] = [
             .deleteAllUserStorage,
             .deleteLeaderboardStats,
-            .deleteFeedbackRateLimitDocument,
             .deleteWorkoutBackups,
+            .deleteBlockedClimbers,
             .deletePublicProfileMirrors,
             .deleteUserDocument,
         ]
@@ -260,8 +260,8 @@ private final class RecordingAccountDeletionGateway: AccountDeletionGateway {
         case deleteAllUserStorage
         case deleteLegacyMedia
         case deleteLeaderboardStats
-        case deleteFeedbackRateLimitDocument
         case deleteWorkoutBackups
+        case deleteBlockedClimbers
         case deletePublicProfileMirrors
         case unregisterPushDevice
         case deleteUserDocument
@@ -295,12 +295,12 @@ private final class RecordingAccountDeletionGateway: AccountDeletionGateway {
         steps.append(.deleteLeaderboardStats)
     }
 
-    func deleteFeedbackRateLimitDocument(userId: String) async throws {
-        steps.append(.deleteFeedbackRateLimitDocument)
-    }
-
     func deleteWorkoutBackups(userId: String) async throws {
         steps.append(.deleteWorkoutBackups)
+    }
+
+    func deleteBlockedClimbers(userId: String) async throws {
+        steps.append(.deleteBlockedClimbers)
     }
 
     func deletePublicProfileMirrors(userId: String) async throws {

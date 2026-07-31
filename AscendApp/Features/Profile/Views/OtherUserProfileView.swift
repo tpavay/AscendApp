@@ -5,6 +5,7 @@ struct OtherUserProfileView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(ModerationStore.self) private var moderationStore
     @Query(sort: \Workout.date, order: .reverse) private var viewerWorkouts: [Workout]
     @Query(sort: \ClimbAttempt.startedAt, order: .reverse) private var viewerClimbAttempts: [ClimbAttempt]
     @Query(sort: \BestEffortCacheEntry.sortKey) private var viewerBestEffortCacheEntries: [BestEffortCacheEntry]
@@ -14,51 +15,41 @@ struct OtherUserProfileView: View {
     @State private var catalogRevision = 0
     @State private var selectedTab: ProfileComparisonTab = .bio
 
-    let userId: String
+    let initialIdentity: ResolvedUserIdentity
+    let moderationSource: ModerationSource
+
+    init(
+        identity: ResolvedUserIdentity,
+        moderationSource: ModerationSource = .profile
+    ) {
+        self.initialIdentity = identity
+        self.moderationSource = moderationSource
+    }
+
+    private var userId: String {
+        initialIdentity.userId ?? ""
+    }
 
     private var climbs: [Climb] {
         _ = catalogRevision
         return (try? ClimbService.shared.loadVisibleClimbs()) ?? []
     }
 
-    private var seedIdentity: ProfileUserIdentity {
-        let identity = PublicClimberIdentity.resolve(
-            userId: userId,
-            storedDisplayName: nil,
-            storedPhotoURL: nil
+    private var viewerDisplayName: String {
+        let trimmed = authVM.displayName.trimmingCharacters(
+            in: .whitespacesAndNewlines
         )
-        return ProfileUserIdentity(
-            userId: userId,
-            displayName: identity.displayName,
-            photoURL: identity.photoURL
-        )
-    }
-
-    private var viewerIdentity: ProfileUserIdentity {
-        if var ownIdentity = viewModel.ownIdentity {
-            if ownIdentity.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                ownIdentity.displayName = authVM.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "You" : authVM.displayName
-            }
-            if ownIdentity.photoURL == nil {
-                ownIdentity.photoURL = authVM.displayPhotoURL
-            }
-            if ownIdentity.joinedAt == nil {
-                ownIdentity.joinedAt = authVM.user?.metadata.creationDate
-            }
-            return ownIdentity
-        }
-
-        return ProfileUserIdentity(
-            userId: authVM.user?.uid ?? "viewer",
-            displayName: authVM.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "You" : authVM.displayName,
-            photoURL: authVM.displayPhotoURL,
-            joinedAt: authVM.user?.metadata.creationDate
-        )
+        return trimmed.isEmpty ? "You" : trimmed
     }
 
     private var viewerSnapshot: ProfileSnapshot {
         ProfileSnapshotBuilder.makeOwnSnapshot(
-            identity: viewerIdentity,
+            demographics: viewModel.ownDemographics(
+                userId: authVM.user?.uid ?? "viewer",
+                displayName: viewerDisplayName,
+                photoURL: authVM.displayPhotoURL,
+                joinedAt: authVM.user?.metadata.creationDate
+            ),
             workouts: viewerWorkouts,
             climbAttempts: viewerClimbAttempts,
             bestEffortCacheEntries: viewerBestEffortCacheEntries,
@@ -72,7 +63,7 @@ struct OtherUserProfileView: View {
 
     private var loadingSnapshot: ProfileSnapshot {
         ProfileSnapshotBuilder.makeRemoteSnapshot(
-            identity: seedIdentity,
+            demographics: viewModel.otherUserDemographics(userId: userId),
             stats: .empty,
             achievements: .zero,
             achievementRecords: [],
@@ -90,11 +81,16 @@ struct OtherUserProfileView: View {
         return "\(userId)-\(viewerWorkouts.count)-\(viewerClimbAttempts.count)-\(latestWorkout)-\(latestAttempt)-\(catalogRevision)"
     }
 
+    private var otherSnapshot: ProfileSnapshot {
+        viewModel.otherUserSnapshot ?? loadingSnapshot
+    }
+
     var body: some View {
         let viewer = viewerSnapshot
-        let other = viewModel.otherUserSnapshot ?? loadingSnapshot
+        let other = otherSnapshot
         let isInitialRemoteLoad = viewModel.otherUserSnapshot == nil
-        let isInitialViewerIdentityLoad = authVM.user != nil && viewModel.ownIdentity == nil
+        let isInitialViewerIdentityLoad =
+            authVM.user != nil && !viewModel.hasLoadedOwnIdentity
         let comparison = viewModel.comparison ?? ProfileSnapshotBuilder.comparison(viewer: viewer, otherUser: other)
         let headToHeadResults = ProfileSnapshotBuilder.headToHeadResults(
             viewer: viewer,
@@ -105,8 +101,17 @@ struct OtherUserProfileView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ProfileComparisonHeader(
-                    viewerIdentity: viewer.identity,
-                    otherIdentity: other.identity,
+                    viewerIdentity: viewModel.resolvedOwnIdentity(
+                        using: moderationStore,
+                        userId: authVM.user?.uid ?? "viewer",
+                        displayName: viewerDisplayName,
+                        photoURL: authVM.displayPhotoURL,
+                        joinedAt: authVM.user?.metadata.creationDate
+                    ),
+                    otherIdentity: viewModel.resolvedOtherIdentity(
+                        using: moderationStore,
+                        fallback: initialIdentity
+                    ),
                     isViewerLoading: isInitialViewerIdentityLoad,
                     isOtherLoading: isInitialRemoteLoad
                 )
@@ -139,7 +144,10 @@ struct OtherUserProfileView: View {
         }
         .scrollIndicators(.hidden)
         .safeAreaInset(edge: .top, spacing: 0) {
-            ProfileComparisonTopBar {
+            ProfileComparisonTopBar(
+                reportedUserId: userId,
+                moderationSource: moderationSource
+            ) {
                 HapticsManager.shared.trigger(.lightImpact)
                 dismiss()
             }
@@ -161,6 +169,7 @@ struct OtherUserProfileView: View {
 
             await viewModel.loadOtherUser(
                 userId: userId,
+                initialIdentity: initialIdentity,
                 viewerSnapshot: viewerSnapshot,
                 climbs: climbs,
                 taskKey: taskKey
@@ -170,6 +179,7 @@ struct OtherUserProfileView: View {
             catalogRevision += 1
         }
     }
+
 }
 
 private enum ProfileComparisonTab: String, CaseIterable, Identifiable {
@@ -180,6 +190,8 @@ private enum ProfileComparisonTab: String, CaseIterable, Identifiable {
 }
 
 private struct ProfileComparisonTopBar: View {
+    let reportedUserId: String
+    let moderationSource: ModerationSource
     let onBack: () -> Void
 
     var body: some View {
@@ -194,6 +206,7 @@ private struct ProfileComparisonTopBar: View {
                     .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 1))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Back")
 
             Spacer()
 
@@ -206,11 +219,13 @@ private struct ProfileComparisonTopBar: View {
 
             Spacer()
 
-            Image(systemName: "square.and.arrow.up")
+            ProfileModerationMenu(
+                reportedUserId: reportedUserId,
+                source: moderationSource
+            )
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(ProfileVisualStyle.secondaryText)
                 .frame(width: 44, height: 44)
-                .opacity(0.72)
         }
         .padding(.horizontal, 20)
         .padding(.top, 2)
@@ -220,8 +235,8 @@ private struct ProfileComparisonTopBar: View {
 }
 
 private struct ProfileComparisonHeader: View {
-    let viewerIdentity: ProfileUserIdentity
-    let otherIdentity: ProfileUserIdentity
+    let viewerIdentity: ResolvedUserIdentity
+    let otherIdentity: ResolvedUserIdentity
     let isViewerLoading: Bool
     let isOtherLoading: Bool
 
@@ -251,7 +266,7 @@ private struct ProfileComparisonHeader: View {
     }
 
     private func competitor(
-        identity: ProfileUserIdentity,
+        identity: ResolvedUserIdentity,
         tint: Color,
         fallbackName: String,
         isLoading: Bool
@@ -332,22 +347,22 @@ private struct ProfileComparisonBioTab: View {
                 VStack(spacing: 0) {
                     comparisonInfoRow(
                         label: "Age",
-                        viewerValue: valueOrDash(viewer.identity.age.map { "\($0)" }),
-                        otherValue: valueOrDash(otherUser.identity.age.map { "\($0)" }),
+                        viewerValue: valueOrDash(viewer.demographics.age.map { "\($0)" }),
+                        otherValue: valueOrDash(otherUser.demographics.age.map { "\($0)" }),
                         isViewerLoading: isViewerLoading,
                         isOtherLoading: isOtherLoading
                     )
                     comparisonInfoRow(
                         label: "Height",
-                        viewerValue: formatHeight(viewer.identity.heightCm),
-                        otherValue: formatHeight(otherUser.identity.heightCm),
+                        viewerValue: formatHeight(viewer.demographics.heightCm),
+                        otherValue: formatHeight(otherUser.demographics.heightCm),
                         isViewerLoading: isViewerLoading,
                         isOtherLoading: isOtherLoading
                     )
                     comparisonInfoRow(
                         label: "Weight",
-                        viewerValue: formatWeight(viewer.identity.weightKg),
-                        otherValue: formatWeight(otherUser.identity.weightKg),
+                        viewerValue: formatWeight(viewer.demographics.weightKg),
+                        otherValue: formatWeight(otherUser.demographics.weightKg),
                         isViewerLoading: isViewerLoading,
                         isOtherLoading: isOtherLoading
                     )

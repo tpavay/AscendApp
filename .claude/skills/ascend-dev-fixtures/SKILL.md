@@ -25,7 +25,28 @@ paths:
 - Use `scripts/dev-db.mjs` as the central dev/staging database tool for repeatable fixture workflows. It can seed, clear, or reset `profiles`, `leaderboard`, `live-replay`, or `all`, and it must keep refusing production (`ascend-prod-9c8f2`) and unknown Firebase projects.
 - Dev database cleanup should be target-scoped and metadata-driven. Do not hide an unrestricted project wipe behind a friendly `clear all` command; full destructive wipes need an explicit, separately guarded command and a reviewed collection list.
 - Profile fixture data must include the full public profile contract: display name, age, gender, `weight_kg`, `location_country`, optional `location_region`, `joined_at`, public profile mirror, profile stats, achievements, and public workout summaries.
-  Seeded public profile mirrors and leaderboard rows must store the sanitized public identity (`displayName: "Climber"`, empty `photoURL`) - `firestore.rules` pins those values - while persona names and photos stay only on the private `users/{uid}` document (see `ascend-profile` for the launch identity policy).
+  Seeded public profile mirrors and leaderboard rows may retain authored fixture identity when they carry the trusted synthetic marker expected by their schema.
+  Real-user fixture projections follow the same validated account identity and shared moderation boundary as production data (see `ascend-profile`).
+- Every seeded public profile mirror and leaderboard row must carry the identity contract fields its schema requires.
+  `users/{uid}/public_profile/current` needs `identityPolicyVersion` and `identityChangedAt`; `leaderboard_stats` rows additionally need `identityState`.
+  Strict `hasOnly`/`hasAll` means a seeder that omits them is denied outright, so keep `scripts/seed/fixtures/profile-fixtures.mjs` as the reference shape.
+- Fixture display names must satisfy the same screening as production names - `DisplayNamePolicy` in Swift, `isAllowedDisplayName` in `functions/src/publicIdentity.ts`, and `isAllowedDisplayName` in `firestore.rules` all agree, and a name any one of them rejects is rejected for a fixture too.
+- `scripts/seed/lib/public-identity-contract.mjs` is the JavaScript home of that contract - the display-name screening, the photo-URL pattern, and `assertPublishablePublicIdentity`.
+  Every seeding entry point validates through it, because the Admin SDK bypasses `firestore.rules` and is therefore the one writer that could publish an identity the server would strip on projection.
+  `SharedTestVectors/display-name-screening-vector.json` pins it against the Cloud Functions implementation; add a case there rather than editing one screening copy in isolation.
+- `scripts/dev-db.mjs hydrate-user` fails before writing when `--display-name` fails screening or `--photo-url` is not a Firebase Storage download URL, including when the offending value is inherited from the existing user document rather than passed on the command line.
+  To publish no photo, pass `--photo-url ""` or `--clear-photo`; either one wins over a stored `profilePictureURL` instead of falling back to it.
+  That is the escape for stale seed data whose `profilePictureURL` predates the identity contract, and for `create-auth-user --use-existing-auth-user --hydrate-profile` when the Auth record carries a provider photo the contract does not accept.
+- Fixture `photoURL` values must be Firebase Storage download URLs (`https://firebasestorage.googleapis.com[:443]/v0/b/<bucket>/o/<object>`).
+  Rules reject any other host, and the identity propagation trigger drops one rather than copying it onto a projection, so a fixture pointing at an external avatar service loses its photo on the way to the leaderboard.
+  The `:443` is not optional cosmetics: the Firebase iOS SDK builds download URLs through `URLComponents` with `port` set to `Storage.port`, which defaults to 443, so every real upload carries it. Validate any new photo-URL rule against a captured SDK string, never a hand-written one.
+- Profile persona avatars are twelve curated 512x512 JPEGs committed at `scripts/seed/assets/profile-avatars/<personaId>.jpg`, one distinct image per persona.
+  They live in the repo rather than behind an `--avatar-dir` flag so the seed reproduces for anyone without a local image folder.
+  `scripts/seed-test-users.mjs` uploads them to `users/{uid}/profile_pictures/<seedPackId>.jpg` - the owner-scoped prefix `storage.rules` already governs, never a shared root path - mints a download token per object, and injects the resulting URLs into `buildProfileSeedWrites`.
+  The object name is deterministic, so re-seeding overwrites in place instead of orphaning objects.
+  A persona with no uploaded avatar publishes no photo; an off-host URL fails the seed rather than reaching Firestore.
+- Dev and staging seed data written before the account-authored identity change is stale: its mirrors predate the identity contract and its leaderboard rows predate `identityState`.
+  Re-seed those environments with `scripts/dev-db.mjs` before trusting them.
 - To create one dev/staging QA Auth account, use `scripts/dev-db.mjs create-auth-user`. It must stay dev/staging-only, can generate a password, and can optionally run `--hydrate-profile` or `--seed-demo-data` after the Auth account exists.
 - To patch one dev/staging account, use `scripts/dev-db.mjs hydrate-user` so private `users/{uid}` and public `users/{uid}/public_profile/current` stay in sync.
 

@@ -13,7 +13,7 @@
  *   node scripts/seed-test-users.mjs seed --project dev --dry-run
  */
 
-import {readFileSync} from "node:fs";
+import {existsSync, readFileSync} from "node:fs";
 import {randomUUID} from "node:crypto";
 import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -35,22 +35,11 @@ import {
 const BATCH_LIMIT = 450;
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
-const ASSET_ROOT = resolve(REPO_ROOT, "AscendApp/Resources/Assets.xcassets");
-
-const PROFILE_AVATAR_ASSETS = [
-  ["profile_veteran_champion", "OnboardingLeaderboardAvatarYou.imageset/OnboardingLeaderboardAvatarYou.png"],
-  ["profile_newcomer", "OnboardingLeaderboardAvatarNoah.imageset/OnboardingLeaderboardAvatarNoah.png"],
-  ["profile_active_recent", "OnboardingLeaderboardAvatarMaya.imageset/OnboardingLeaderboardAvatarMaya.png"],
-  ["profile_fa_collector", "OnboardingLeaderboardAvatarFinn.imageset/OnboardingLeaderboardAvatarFinn.png"],
-  ["profile_medal_heavy", "OnboardingLeaderboardAvatarRuby.imageset/OnboardingLeaderboardAvatarRuby.png"],
-  ["profile_peer_veteran", "OnboardingLeaderboardAvatarJack.imageset/OnboardingLeaderboardAvatarJack.png"],
-  ["profile_no_overlap_peer", "OnboardingLeaderboardAvatarDustin.imageset/OnboardingLeaderboardAvatarDustin.png"],
-  ["profile_tied_gold", "OnboardingLeaderboardAvatarMiles.imageset/OnboardingLeaderboardAvatarMiles.png"],
-  ["profile_streak_heavy", "OnboardingLeaderboardAvatarAva.imageset/OnboardingLeaderboardAvatarAva.png"],
-  ["profile_privacy_edge", "OnboardingLeaderboardAvatarEthan.imageset/OnboardingLeaderboardAvatarEthan.png"],
-  ["profile_older_athlete", "OnboardingLeaderboardAvatarJack.imageset/OnboardingLeaderboardAvatarJack.png"],
-  ["profile_empty_achievements", "OnboardingLeaderboardAvatarFinn.imageset/OnboardingLeaderboardAvatarFinn.png"],
-];
+// Curated 512x512 JPEGs live in the repo rather than behind a --avatar-dir flag
+// so anyone can reproduce the seed without a local image folder. One distinct
+// image per persona.
+const ASSET_ROOT = resolve(REPO_ROOT, "scripts/seed/assets/profile-avatars");
+const AVATAR_CONTENT_TYPE = "image/jpeg";
 
 function parseArgs(argv) {
   const args = {command: argv[2] ?? "help", project: "dev", dryRun: false};
@@ -115,10 +104,7 @@ async function main() {
   }
 
   const avatarURLs = args.dryRun
-    ? new Map(PROFILE_AVATAR_ASSETS.map(([userId, assetPath]) => [
-        userId,
-        `<uploaded:${assetPath}>`,
-      ]))
+    ? plannedAvatarURLs(projectId)
     : await uploadProfileAvatars(projectId);
 
   const writes = buildProfileSeedWrites({
@@ -143,26 +129,37 @@ function loadCatalog() {
   return new Map(climbs.map((climb) => [climb.id, climb]));
 }
 
+// User media lives only under users/{uid}/... prefixes, never a shared root
+// path, so seeded avatars land where storage.rules already scopes them to their
+// owner. The object name is deterministic, so re-seeding overwrites in place
+// instead of accumulating orphans.
+function avatarObjectPath(userId) {
+  return `users/${userId}/profile_pictures/${PROFILE_SEED_PACK_ID}.jpg`;
+}
+
+function avatarSourcePath(userId) {
+  return resolve(ASSET_ROOT, `${userId}.jpg`);
+}
+
 async function uploadProfileAvatars(projectId) {
   const {getStorage} = await import("firebase-admin/storage");
   const bucket = getStorage().bucket();
   const avatarURLs = new Map();
 
-  for (const [userId, relativeAssetPath] of PROFILE_AVATAR_ASSETS) {
-    const sourcePath = resolve(ASSET_ROOT, relativeAssetPath);
+  for (const userId of expectedProfileUserIds()) {
+    const sourcePath = avatarSourcePath(userId);
+    if (!existsSync(sourcePath)) {
+      throw new Error(`Missing seed avatar for ${userId} at ${sourcePath}`);
+    }
+
     const token = randomUUID();
-    const destination = [
-      "seed-profile-avatars",
-      PROFILE_SEED_PACK_ID,
-      projectId,
-      `${userId}.png`,
-    ].join("/");
+    const destination = avatarObjectPath(userId);
 
     await bucket.upload(sourcePath, {
       destination,
       metadata: {
         cacheControl: "public,max-age=31536000,immutable",
-        contentType: "image/png",
+        contentType: AVATAR_CONTENT_TYPE,
         metadata: {
           firebaseStorageDownloadTokens: token,
           seedPackId: PROFILE_SEED_PACK_ID,
@@ -175,6 +172,14 @@ async function uploadProfileAvatars(projectId) {
   }
 
   return avatarURLs;
+}
+
+function plannedAvatarURLs(projectId) {
+  const bucketName = `${projectId}.firebasestorage.app`;
+  return new Map(expectedProfileUserIds().map((userId) => [
+    userId,
+    downloadURL(bucketName, avatarObjectPath(userId), "dry-run"),
+  ]));
 }
 
 function downloadURL(bucketName, objectPath, token) {

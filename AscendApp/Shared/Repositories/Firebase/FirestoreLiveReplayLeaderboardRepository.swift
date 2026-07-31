@@ -692,23 +692,8 @@ final class FirestoreLiveReplayLeaderboardRepository: LiveReplayLeaderboardRepos
         _ row: LiveReplayLeaderboardRow,
         rank: Int
     ) -> LiveReplayLeaderboardRow {
-        LiveReplayLeaderboardRow(
-            id: row.id,
-            rank: row.rank ?? max(rank, 1),
-            displayName: row.displayName,
-            avatarToken: row.avatarToken,
-            photoURL: row.photoURL,
-            stepsAtBucket: row.stepsAtBucket,
-            finalSteps: row.finalSteps,
-            deltaFromUser: row.deltaFromUser,
-            isCurrentUser: row.isCurrentUser,
-            isPersonalBest: row.isPersonalBest,
-            completionDurationSeconds: row.completionDurationSeconds,
-            userId: row.userId,
-            isSynthetic: row.isSynthetic,
-            gender: row.gender,
-            age: row.age,
-            locationCity: row.locationCity
+        row.updating(
+            rank: row.rank ?? max(rank, 1)
         )
     }
 

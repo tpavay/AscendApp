@@ -59,9 +59,49 @@ test("declares both filtered Live Replay window indexes", () => {
   );
 });
 
+test("declares every cleanup and propagation collection-group field index", () => {
+  const config = JSON.parse(
+    readFileSync(join(repositoryRoot, "firestore.indexes.json"), "utf8")
+  );
+  const signatures = config.fieldOverrides.map((fieldOverride) => [
+    fieldOverride.collectionGroup,
+    fieldOverride.fieldPath,
+    fieldOverride.indexes,
+  ]);
+
+  // A field override replaces the field's whole index configuration, so
+  // entries.userId has to restate the COLLECTION-scoped single-field indexes
+  // that the per-climb best-completion reads and the Cloud Function
+  // reconciliation query run against. finishers and blocked are addressed by
+  // document ID, so they need the collection-group index only.
+  assert.deepEqual(signatures, [
+    [
+      "blocked",
+      "blockedUid",
+      [{order: "ASCENDING", queryScope: "COLLECTION_GROUP"}],
+    ],
+    [
+      "entries",
+      "userId",
+      [
+        {order: "ASCENDING", queryScope: "COLLECTION"},
+        {order: "DESCENDING", queryScope: "COLLECTION"},
+        {order: "ASCENDING", queryScope: "COLLECTION_GROUP"},
+      ],
+    ],
+    [
+      "finishers",
+      "userId",
+      [{order: "ASCENDING", queryScope: "COLLECTION_GROUP"}],
+    ],
+  ]);
+});
+
 test("index readiness requires every declared index to report READY", () => {
   const directory = mkdtempSync(join(tmpdir(), "ascend-index-readiness-"));
   const configPath = join(directory, "firestore.indexes.json");
+  const deployedSpecPath = join(directory, "deployed-index-spec.json");
+  const operationsPath = join(directory, "firestore-operations.json");
   writeFileSync(
     configPath,
     JSON.stringify({
@@ -83,41 +123,309 @@ test("index readiness requires every declared index to report READY", () => {
           ],
         },
       ],
-      fieldOverrides: [],
+      fieldOverrides: [
+        {
+          collectionGroup: "entries",
+          fieldPath: "userId",
+          indexes: [
+            {order: "ASCENDING", queryScope: "COLLECTION_GROUP"},
+          ],
+        },
+      ],
+    })
+  );
+  writeFileSync(
+    operationsPath,
+    JSON.stringify({status: "success", result: []})
+  );
+  writeFileSync(
+    deployedSpecPath,
+    JSON.stringify({
+      status: "success",
+      result: {
+        fieldOverrides: [{
+          collectionGroup: "entries",
+          fieldPath: "userId",
+          indexes: [
+            {order: "ASCENDING", queryScope: "COLLECTION_GROUP"},
+          ],
+        }],
+        indexes: [],
+      },
     })
   );
 
   const building = runNode(
     indexReadinessScript,
-    [configPath],
+    [configPath, operationsPath, deployedSpecPath],
     "[READY] (entries) -- (isBestForUser,ASCENDING) " +
       "(stepsAtBucket,ASCENDING) (ignored,ASCENDING)\n" +
-      "[CREATING] (entries) -- (finalSteps,DESCENDING)\n"
+      "[CREATING] (entries) -- (finalSteps,DESCENDING)\n" +
+      "[entries.userId] -- (ASCENDING)\n"
   );
   assert.equal(building.status, 1);
   assert.match(building.stderr, /finalSteps/);
 
   const leadingSuperset = runNode(
     indexReadinessScript,
-    [configPath],
+    [configPath, operationsPath, deployedSpecPath],
     "[READY] (entries) -- (other,ASCENDING) (isBestForUser,ASCENDING) " +
       "(stepsAtBucket,ASCENDING)\n" +
       "[CREATING] (entries) -- (isBestForUser,ASCENDING) " +
       "(stepsAtBucket,ASCENDING)\n" +
-      "[READY] (entries) -- (finalSteps,DESCENDING)\n"
+      "[READY] (entries) -- (finalSteps,DESCENDING)\n" +
+      "[entries.userId] -- (ASCENDING)\n"
   );
   assert.equal(leadingSuperset.status, 1);
   assert.match(leadingSuperset.stderr, /isBestForUser/);
 
   const ready = runNode(
     indexReadinessScript,
-    [configPath],
+    [configPath, operationsPath, deployedSpecPath],
     "[READY] (entries) -- (isBestForUser,ASCENDING) " +
       "(stepsAtBucket,ASCENDING)\n" +
-      "[READY] (entries) -- (finalSteps,DESCENDING)\n"
+      "[READY] (entries) -- (finalSteps,DESCENDING)\n" +
+      "[entries.userId] -- (ASCENDING)\n"
   );
   assert.equal(ready.status, 0, ready.stderr);
-  assert.match(ready.stdout, /All 2 declared Firestore indexes are READY/);
+  assert.match(ready.stdout, /All 3 declared Firestore indexes are READY/);
+
+  writeFileSync(
+    deployedSpecPath,
+    JSON.stringify({
+      status: "success",
+      result: {
+        fieldOverrides: [{
+          collectionGroup: "entries",
+          fieldPath: "userId",
+          indexes: [
+            {order: "ASCENDING", queryScope: "COLLECTION"},
+          ],
+        }],
+      },
+    })
+  );
+  const wrongScopeFieldOverride = runNode(
+    indexReadinessScript,
+    [configPath, operationsPath, deployedSpecPath],
+    "[READY] (entries) -- (isBestForUser,ASCENDING) " +
+      "(stepsAtBucket,ASCENDING)\n" +
+      "[READY] (entries) -- (finalSteps,DESCENDING)\n" +
+      "[entries.userId] -- (ASCENDING)\n"
+  );
+  assert.equal(wrongScopeFieldOverride.status, 1);
+  assert.match(wrongScopeFieldOverride.stderr, /entries\.userId/);
+
+  writeFileSync(
+    deployedSpecPath,
+    JSON.stringify({
+      status: "success",
+      result: {
+        fieldOverrides: [{
+          collectionGroup: "entries",
+          fieldPath: "userId",
+          indexes: [
+            {order: "ASCENDING", queryScope: "COLLECTION_GROUP"},
+          ],
+        }],
+      },
+    })
+  );
+
+  writeFileSync(
+    operationsPath,
+    JSON.stringify({
+      status: "success",
+      result: [{
+        done: false,
+        metadata: {
+          "@type": "type.googleapis.com/" +
+            "google.firestore.admin.v1.FieldOperationMetadata",
+          field: "projects/ascend/databases/(default)/" +
+            "collectionGroups/entries/fields/userId",
+          state: "PROCESSING",
+        },
+        name: "projects/ascend/databases/(default)/operations/field-userId",
+      }],
+    })
+  );
+  const backfillingFieldOverride = runNode(
+    indexReadinessScript,
+    [configPath, operationsPath, deployedSpecPath],
+    "[READY] (entries) -- (isBestForUser,ASCENDING) " +
+      "(stepsAtBucket,ASCENDING)\n" +
+      "[READY] (entries) -- (finalSteps,DESCENDING)\n" +
+      "[entries.userId] -- (ASCENDING)\n"
+  );
+  assert.equal(backfillingFieldOverride.status, 1);
+  assert.match(backfillingFieldOverride.stderr, /pending field-index operation/);
+
+  writeFileSync(
+    operationsPath,
+    JSON.stringify({
+      status: "success",
+      result: [{
+        done: true,
+        error: {code: 9, message: "index entry limit exceeded"},
+        metadata: {
+          "@type": "type.googleapis.com/" +
+            "google.firestore.admin.v1.FieldOperationMetadata",
+          field: "projects/ascend/databases/(default)/" +
+            "collectionGroups/entries/fields/userId",
+          state: "FAILED",
+        },
+      }],
+    })
+  );
+  const failedFieldOverride = runNode(
+    indexReadinessScript,
+    [configPath, operationsPath, deployedSpecPath],
+    "[READY] (entries) -- (isBestForUser,ASCENDING) " +
+      "(stepsAtBucket,ASCENDING)\n" +
+      "[READY] (entries) -- (finalSteps,DESCENDING)\n" +
+      "[entries.userId] -- (ASCENDING)\n"
+  );
+  assert.equal(failedFieldOverride.status, 1);
+  assert.match(
+    failedFieldOverride.stderr,
+    /failed \(index entry limit exceeded\) field-index operation/
+  );
+
+  writeFileSync(
+    operationsPath,
+    JSON.stringify({
+      status: "success",
+      result: [{
+        done: true,
+        metadata: {
+          "@type": "type.googleapis.com/" +
+            "google.firestore.admin.v1.FieldOperationMetadata",
+          field: "projects/ascend/databases/(default)/" +
+            "collectionGroups/entries/fields/userId",
+          state: "CANCELLED",
+        },
+      }],
+    })
+  );
+  const cancelledFieldOverride = runNode(
+    indexReadinessScript,
+    [configPath, operationsPath, deployedSpecPath],
+    "[READY] (entries) -- (isBestForUser,ASCENDING) " +
+      "(stepsAtBucket,ASCENDING)\n" +
+      "[READY] (entries) -- (finalSteps,DESCENDING)\n" +
+      "[entries.userId] -- (ASCENDING)\n"
+  );
+  assert.equal(cancelledFieldOverride.status, 1);
+  assert.match(
+    cancelledFieldOverride.stderr,
+    /terminal-CANCELLED field-index operation/
+  );
+
+  writeFileSync(
+    operationsPath,
+    JSON.stringify({
+      status: "success",
+      result: [
+        {
+          done: true,
+          error: {code: 9, message: "older failed attempt"},
+          metadata: {
+            "@type": "type.googleapis.com/" +
+              "google.firestore.admin.v1.FieldOperationMetadata",
+            field: "projects/ascend/databases/(default)/" +
+              "collectionGroups/entries/fields/userId",
+            startTime: "2026-07-29T10:00:00Z",
+            state: "FAILED",
+          },
+        },
+        {
+          done: true,
+          metadata: {
+            "@type": "type.googleapis.com/" +
+              "google.firestore.admin.v1.FieldOperationMetadata",
+            field: "projects/ascend/databases/(default)/" +
+              "collectionGroups/entries/fields/userId",
+            startTime: "2026-07-29T11:00:00Z",
+            state: "SUCCESSFUL",
+          },
+        },
+      ],
+    })
+  );
+  const completedFieldOverride = runNode(
+    indexReadinessScript,
+    [configPath, operationsPath, deployedSpecPath],
+    "[READY] (entries) -- (isBestForUser,ASCENDING) " +
+      "(stepsAtBucket,ASCENDING)\n" +
+      "[READY] (entries) -- (finalSteps,DESCENDING)\n" +
+      "[entries.userId] -- (ASCENDING)\n"
+  );
+  assert.equal(completedFieldOverride.status, 0, completedFieldOverride.stderr);
+
+  // A field override replaces the field's whole index configuration, so a
+  // deployed override that lost the collection-scoped single-field indexes is
+  // not ready even though the collection-group one is present.
+  const mixedScopePath = join(directory, "mixed-scope.indexes.json");
+  const mixedScopeIndexes = [
+    {order: "ASCENDING", queryScope: "COLLECTION"},
+    {order: "DESCENDING", queryScope: "COLLECTION"},
+    {order: "ASCENDING", queryScope: "COLLECTION_GROUP"},
+  ];
+  writeFileSync(
+    mixedScopePath,
+    JSON.stringify({
+      indexes: [],
+      fieldOverrides: [
+        {
+          collectionGroup: "entries",
+          fieldPath: "userId",
+          indexes: mixedScopeIndexes,
+        },
+      ],
+    })
+  );
+  const droppedScopePath = join(directory, "dropped-collection-scope.json");
+  writeFileSync(
+    droppedScopePath,
+    JSON.stringify({
+      status: "success",
+      result: {
+        fieldOverrides: [{
+          collectionGroup: "entries",
+          fieldPath: "userId",
+          indexes: [{order: "ASCENDING", queryScope: "COLLECTION_GROUP"}],
+        }],
+      },
+    })
+  );
+  const droppedCollectionScope = runNode(
+    indexReadinessScript,
+    [mixedScopePath, operationsPath, droppedScopePath],
+    ""
+  );
+  assert.equal(droppedCollectionScope.status, 1);
+  assert.match(droppedCollectionScope.stderr, /ASCENDING,COLLECTION\)/);
+
+  const mixedScopeDeployedPath = join(directory, "mixed-scope-deployed.json");
+  writeFileSync(
+    mixedScopeDeployedPath,
+    JSON.stringify({
+      status: "success",
+      result: {
+        fieldOverrides: [{
+          collectionGroup: "entries",
+          fieldPath: "userId",
+          indexes: mixedScopeIndexes,
+        }],
+      },
+    })
+  );
+  const mixedScopeReady = runNode(
+    indexReadinessScript,
+    [mixedScopePath, operationsPath, mixedScopeDeployedPath],
+    ""
+  );
+  assert.equal(mixedScopeReady.status, 0, mixedScopeReady.stderr);
 
   const unsupportedScopePath = join(directory, "collection-group.indexes.json");
   writeFileSync(
@@ -145,6 +453,8 @@ test("index readiness requires every declared index to report READY", () => {
 test("function readiness rejects missing and inactive critical functions", () => {
   const expected = [
     "cleanupDeletedUserData",
+    "onPublicIdentityPropagationJobWritten",
+    "onPublicProfileIdentityWritten",
     "onWorkoutWritten",
     "onWorkoutReplaySplitsWritten",
     "unsubscribeFromEmails",
@@ -162,7 +472,7 @@ test("function readiness rejects missing and inactive critical functions", () =>
   assert.notEqual(incomplete.status, 0);
   assert.match(
     incomplete.stderr,
-    /onWorkoutReplaySplitsWritten, unsubscribeFromEmails/
+    /onPublicIdentityPropagationJobWritten, onPublicProfileIdentityWritten, onWorkoutReplaySplitsWritten, unsubscribeFromEmails/
   );
 
   const completePayload = JSON.stringify({
@@ -205,6 +515,26 @@ test("production deploy waits for indexes and rolls the backend out in dependenc
     workflow,
     /--only functions,firestore:rules,firestore:indexes,storage,hosting/
   );
+  assert.match(workflow, /onPublicIdentityPropagationJobWritten/);
+  assert.match(workflow, /firestore:operations:list/);
+  assert.match(
+    workflow,
+    /assert-firestore-indexes-ready\.mjs firestore\.indexes\.json "\$operations_file" "\$deployed_spec_file"/
+  );
+});
+
+test("production release documentation orders identity backend ahead of the binary", () => {
+  const runbook = readFileSync(
+    join(repositoryRoot, "docs/production-backend-rollout-runbook.md"),
+    "utf8"
+  );
+
+  assert.match(runbook, /There is no public identity backfill to run/);
+  assert.match(
+    runbook,
+    /onPublicProfileIdentityWritten[\s\S]*?onPublicIdentityPropagationJobWritten[\s\S]*?before the binary that publishes identity/
+  );
+  assert.doesNotMatch(runbook, /restore-public-identities/);
 });
 
 function runNode(script, argumentsList, input) {

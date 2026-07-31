@@ -31,11 +31,13 @@ export const FIRST_ASCENT_FIELD_NAMES = Object.freeze([
   "firstAscentAvatarToken",
   "firstAscentCompletedAt",
   "firstAscentDisplayName",
+  "firstAscentIdentityState",
   "firstAscentIsSynthetic",
   "firstAscentPhotoURL",
   "firstAscentUserId",
   "firstAscentWorkoutId",
 ]);
+export const PUBLIC_IDENTITY_STATE_PUBLISHED = "published";
 
 /**
  * `activityTier` marking a summary seeded with an open First Ascent slot.
@@ -113,6 +115,7 @@ export function firstAscentSeedFields(holder, claimedAt, {isSynthetic = true} = 
     firstAscentAvatarToken: holder.avatarToken,
     firstAscentCompletedAt: claimedAt,
     firstAscentDisplayName: holder.displayName,
+    firstAscentIdentityState: PUBLIC_IDENTITY_STATE_PUBLISHED,
     firstAscentIsSynthetic: isSynthetic,
     firstAscentPhotoURL: holder.photoURL ?? "",
     firstAscentUserId: holder.userId,

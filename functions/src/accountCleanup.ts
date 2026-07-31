@@ -3,6 +3,7 @@ import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
 import {buildRatingPromptEmailDedupeKey} from "./email/automation";
 import {buildEmailJobId} from "./email/queue";
+import {PUBLIC_IDENTITY_STATE_DELETED} from "./publicIdentity";
 
 const LIVE_REPLAY_COLLECTION = "live_replay_leaderboards";
 
@@ -23,9 +24,13 @@ export interface DeletedUserCleanupPort {
   deleteSubcollection(userId: string, collectionId: string): Promise<void>;
   deleteNotificationDevices(userId: string): Promise<number>;
   deleteLeaderboardStats(userId: string): Promise<number>;
+  deleteIdentityPropagationJobs(userId: string): Promise<number>;
+  anonymizeReplayEntries(userId: string): Promise<number>;
   deleteReplayFinisherStatuses(userId: string): Promise<number>;
   anonymizeFirstAscents(userId: string): Promise<number>;
   deleteFeedbackDocuments(userId: string): Promise<number>;
+  deleteModerationReports(userId: string): Promise<number>;
+  deleteIncomingBlockDocuments(userId: string): Promise<number>;
   deleteLifecycleEmailJobs(userId: string): Promise<number>;
   deleteRateLimitDocument(userId: string): Promise<void>;
 }
@@ -34,9 +39,13 @@ export interface CleanupSummary {
   deletedSubcollections: string[];
   deletedNotificationDevices: number;
   deletedLeaderboardEntries: number;
+  deletedIdentityPropagationJobs: number;
+  anonymizedReplayEntries: number;
   deletedReplayFinisherStatuses: number;
   anonymizedFirstAscents: number;
   deletedFeedbackDocuments: number;
+  deletedModerationReports: number;
+  deletedIncomingBlockDocuments: number;
   deletedLifecycleEmailJobs: number;
   failures: string[];
 }
@@ -56,11 +65,12 @@ export interface CleanupSummary {
  * later are swept without anyone remembering to update this list. User-keyed
  * PII that lives *outside* the users/{uid} subtree cannot be discovered that
  * way, so each such record needs its own step here: notification_devices,
- * leaderboard_stats, userRateLimits, the replay finisher statuses, feedback,
- * and the uid-keyed email_jobs. Feedback is hard-deleted rather than anonymized
- * because its `message` is free text the user typed, so it can hold anything
- * they chose to disclose; the admin notification email already carries the
- * report itself.
+ * leaderboard_stats, identity propagation checkpoints, replay entries,
+ * userRateLimits, the replay finisher statuses, feedback, moderation_reports,
+ * incoming block documents, and the uid-keyed email_jobs.
+ * Feedback and moderation reports are
+ * hard-deleted rather than anonymized because their free-text or safety context
+ * can identify the user after their account is gone.
  *
  * A First Ascent is de-identified rather than deleted. The claim outlives the
  * account by product design - the slot can never be reclaimed - so the holder's
@@ -116,6 +126,21 @@ export async function cleanupDeletedUser(
     failures.push(`leaderboard_stats: ${errorMessage(error)}`);
   }
 
+  let deletedIdentityPropagationJobs = 0;
+  try {
+    deletedIdentityPropagationJobs =
+      await port.deleteIdentityPropagationJobs(userId);
+  } catch (error) {
+    failures.push(`identity_propagation_jobs: ${errorMessage(error)}`);
+  }
+
+  let anonymizedReplayEntries = 0;
+  try {
+    anonymizedReplayEntries = await port.anonymizeReplayEntries(userId);
+  } catch (error) {
+    failures.push(`live_replay_entries: ${errorMessage(error)}`);
+  }
+
   let deletedReplayFinisherStatuses = 0;
   try {
     deletedReplayFinisherStatuses = await port.deleteReplayFinisherStatuses(
@@ -139,6 +164,21 @@ export async function cleanupDeletedUser(
     failures.push(`feedback: ${errorMessage(error)}`);
   }
 
+  let deletedModerationReports = 0;
+  try {
+    deletedModerationReports = await port.deleteModerationReports(userId);
+  } catch (error) {
+    failures.push(`moderation_reports: ${errorMessage(error)}`);
+  }
+
+  let deletedIncomingBlockDocuments = 0;
+  try {
+    deletedIncomingBlockDocuments =
+      await port.deleteIncomingBlockDocuments(userId);
+  } catch (error) {
+    failures.push(`incoming_blocks: ${errorMessage(error)}`);
+  }
+
   let deletedLifecycleEmailJobs = 0;
   try {
     deletedLifecycleEmailJobs = await port.deleteLifecycleEmailJobs(userId);
@@ -154,7 +194,11 @@ export async function cleanupDeletedUser(
 
   return {
     anonymizedFirstAscents,
+    anonymizedReplayEntries,
     deletedFeedbackDocuments,
+    deletedModerationReports,
+    deletedIncomingBlockDocuments,
+    deletedIdentityPropagationJobs,
     deletedLeaderboardEntries,
     deletedLifecycleEmailJobs,
     deletedNotificationDevices,
@@ -235,6 +279,59 @@ export function makeAdminPort(
       return snapshot.size;
     },
 
+    async deleteIdentityPropagationJobs(userId) {
+      const snapshot = await firestore
+        .collection("_public_identity_propagation_jobs")
+        .doc(userId)
+        .collection("kinds")
+        .get();
+
+      for (const document of snapshot.docs) {
+        await document.ref.delete();
+      }
+
+      return snapshot.size;
+    },
+
+    async anonymizeReplayEntries(userId) {
+      const snapshot = await firestore
+        .collectionGroup("entries")
+        .where("userId", "==", userId)
+        .get();
+
+      if (snapshot.empty) {
+        return 0;
+      }
+
+      const fields = {
+        avatarToken: "",
+        displayName: ANONYMIZED_FIRST_ASCENT_NAME,
+        identityState: PUBLIC_IDENTITY_STATE_DELETED,
+        isSynthetic: false,
+        photoURL: "",
+      };
+      const writer = firestore.bulkWriter();
+      const updates = snapshot.docs.map((document) =>
+        writer.update(document.ref, fields).then(
+          () => null,
+          (error: unknown) => errorMessage(error)
+        )
+      );
+      await writer.close();
+
+      const failures = (await Promise.all(updates)).filter(
+        (failure): failure is string => failure !== null
+      );
+      if (failures.length > 0) {
+        throw new Error(
+          `${failures.length} of ${snapshot.size} updates failed: ` +
+            failures.join("; ")
+        );
+      }
+
+      return snapshot.size;
+    },
+
     async deleteReplayFinisherStatuses(userId) {
       // The finisher document id is the uid, so every replay context is probed
       // directly. A collection group query would need its own index, and the
@@ -276,6 +373,7 @@ export function makeAdminPort(
         await document.ref.update({
           firstAscentAvatarToken: "",
           firstAscentDisplayName: ANONYMIZED_FIRST_ASCENT_NAME,
+          firstAscentIdentityState: PUBLIC_IDENTITY_STATE_DELETED,
           firstAscentIsSynthetic: false,
           firstAscentPhotoURL: "",
         });
@@ -288,6 +386,45 @@ export function makeAdminPort(
       const snapshot = await firestore
         .collection("feedback")
         .where("userId", "==", userId)
+        .get();
+
+      for (const document of snapshot.docs) {
+        await document.ref.delete();
+      }
+
+      return snapshot.size;
+    },
+
+    async deleteModerationReports(userId) {
+      const [submittedReports, reportsAboutUser] = await Promise.all([
+        firestore
+          .collection("moderation_reports")
+          .where("reporterUserId", "==", userId)
+          .get(),
+        firestore
+          .collection("moderation_reports")
+          .where("reportedUserId", "==", userId)
+          .get(),
+      ]);
+
+      const reportsByPath = new Map(
+        [...submittedReports.docs, ...reportsAboutUser.docs].map((document) => [
+          document.ref.path,
+          document.ref,
+        ])
+      );
+
+      for (const report of reportsByPath.values()) {
+        await report.delete();
+      }
+
+      return reportsByPath.size;
+    },
+
+    async deleteIncomingBlockDocuments(userId) {
+      const snapshot = await firestore
+        .collectionGroup("blocked")
+        .where("blockedUid", "==", userId)
         .get();
 
       for (const document of snapshot.docs) {
@@ -350,7 +487,13 @@ export const cleanupDeletedUserData = onDocumentDeleted(
 
     logger.info("Swept deleted user data", {
       anonymizedFirstAscents: summary.anonymizedFirstAscents,
+      anonymizedReplayEntries: summary.anonymizedReplayEntries,
       deletedFeedbackDocuments: summary.deletedFeedbackDocuments,
+      deletedModerationReports: summary.deletedModerationReports,
+      deletedIncomingBlockDocuments:
+        summary.deletedIncomingBlockDocuments,
+      deletedIdentityPropagationJobs:
+        summary.deletedIdentityPropagationJobs,
       deletedLeaderboardEntries: summary.deletedLeaderboardEntries,
       deletedLifecycleEmailJobs: summary.deletedLifecycleEmailJobs,
       deletedNotificationDevices: summary.deletedNotificationDevices,

@@ -28,8 +28,8 @@ protocol AccountDeletionGateway {
     func deleteLegacyMedia(at urls: [URL]) async
 
     func deleteLeaderboardStats(userId: String) async throws
-    func deleteFeedbackRateLimitDocument(userId: String) async throws
     func deleteWorkoutBackups(userId: String) async throws
+    func deleteBlockedClimbers(userId: String) async throws
 
     /// Deletes the publicly readable mirrors of the user's profile.
     func deletePublicProfileMirrors(userId: String) async throws
@@ -212,12 +212,12 @@ struct FirebaseAccountDeletionGateway: AccountDeletionGateway {
         }
     }
 
-    func deleteFeedbackRateLimitDocument(userId: String) async throws {
-        try await db.collection("userRateLimits").document(userId).delete()
-    }
-
     func deleteWorkoutBackups(userId: String) async throws {
         try await deleteAllDocuments(in: userDocument(userId).collection("workouts"))
+    }
+
+    func deleteBlockedClimbers(userId: String) async throws {
+        try await deleteAllDocuments(in: userDocument(userId).collection("blocked"))
     }
 
     /// Deletes the publicly readable mirrors of the user's profile.

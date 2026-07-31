@@ -13,6 +13,26 @@ import Testing
 /// an unrelated colour or font changes.
 @MainActor
 struct TiedRankRenderEvidenceTests {
+    private actor EmptyModerationRepository: ModerationRepositoryProtocol {
+        func fetchBlockedClimbers(
+            blockerUserId: String,
+            source: BlockListReadSource
+        ) async throws -> [BlockedClimber] {
+            []
+        }
+
+        func block(blockerUserId: String, blockedUserId: String) async throws {}
+
+        func unblock(blockerUserId: String, blockedUserId: String) async throws {}
+
+        func submitReport(
+            reporterUserId: String,
+            reportedUserId: String,
+            reason: ModerationReportReason,
+            source: ModerationSource
+        ) async throws {}
+    }
+
     /// A per-climb field where two climbers finished on the same second: 10:00, 11:40,
     /// 11:40, 13:20. Competition ranking makes that 1, 2, 2, 4.
     private static let tiedDurations: [TimeInterval] = [600, 700, 700, 800]
@@ -20,15 +40,17 @@ struct TiedRankRenderEvidenceTests {
     // MARK: - Per-climb completion leaderboard
 
     @Test
-    func perClimbBoardShowsOneSharedRankForTheTiedClimbers() throws {
+    func perClimbBoardShowsOneSharedRankForTheTiedClimbers() async throws {
         let board = makeCompletionBoard(ranks: competitionRanks())
+        let moderationStore = await hydratedModerationStore()
 
         // The ranks the repository now assigns, and the tie flags the board derives.
         #expect(board.rows.map(\.rank) == [1, 2, 2, 4])
         #expect(board.rows.map(\.isTied) == [false, true, true, false])
 
         try render(
-            completionBoard(board),
+            completionBoard(board)
+                .environment(moderationStore),
             named: "per-climb-leaderboard-after",
             height: 420
         )
@@ -38,14 +60,16 @@ struct TiedRankRenderEvidenceTests {
     /// `rankLabel(3, isTied: false, untiedPrefix: "#")` is "#3" — byte-identical to the
     /// `Text("#\(rank)")` this replaced — so the image reproduces the reported screen.
     @Test
-    func perClimbBoardBeforeNumberedTiedClimbersByPosition() throws {
+    func perClimbBoardBeforeNumberedTiedClimbersByPosition() async throws {
         let board = makeCompletionBoard(ranks: positionalRanks())
+        let moderationStore = await hydratedModerationStore()
 
         #expect(board.rows.map(\.rank) == [1, 2, 3, 4])
         #expect(board.rows.allSatisfy { $0.isTied == false })
 
         try render(
-            completionBoard(board),
+            completionBoard(board)
+                .environment(moderationStore),
             named: "per-climb-leaderboard-before",
             height: 420
         )
@@ -69,13 +93,21 @@ struct TiedRankRenderEvidenceTests {
     // MARK: - Global leaderboard tab
 
     @Test
-    func podiumSeatsBothClimbersTiedForGoldAndLabelsThemT1() throws {
+    func podiumSeatsBothClimbersTiedForGoldAndLabelsThemT1() async throws {
         // Dana and Priya finished the week on the same step total.
         let entries = makeGlobalEntries(
             ranks: [1, 1, 3, 4],
             steps: [21_482, 21_482, 19_812, 17_926]
         )
-        let layout = LeaderboardPodiumLayout(entries: entries)
+        let moderationStore = await hydratedModerationStore()
+        let moderatedEntries = entries.map {
+            CrossUserIdentityAdapter.leaderboardEntry(
+                $0,
+                blockedUserIds: [],
+                isBlockListHydrated: true
+            )
+        }
+        let layout = ModeratedLeaderboardPodiumLayout(entries: moderatedEntries)
 
         // Keying pedestals by rank dropped one of the two golds outright.
         #expect(layout.slots.compactMap { $0.entry?.userId }.count == 3)
@@ -84,9 +116,12 @@ struct TiedRankRenderEvidenceTests {
 
         try render(
             LeaderboardPodiumView(
-                entries: LeaderboardPodiumLayout.podiumEntries(from: entries),
+                entries: ModeratedLeaderboardPodiumLayout.podiumEntries(
+                    from: moderatedEntries
+                ),
                 metric: .climb
             )
+            .environment(moderationStore)
             .padding(16),
             named: "global-podium-tied-for-gold-after",
             height: 260
@@ -94,12 +129,13 @@ struct TiedRankRenderEvidenceTests {
     }
 
     @Test
-    func globalListAndPinnedRowShowTheSameTiedRank() throws {
+    func globalListAndPinnedRowShowTheSameTiedRank() async throws {
         let entries = makeGlobalEntries(
             ranks: [1, 2, 2, 4],
             steps: [21_482, 19_812, 19_812, 17_926]
         )
         let you = try #require(entries.last { $0.isCurrentUser })
+        let moderationStore = await hydratedModerationStore()
 
         #expect(you.rank == 2)
         #expect(you.isTied)
@@ -107,13 +143,29 @@ struct TiedRankRenderEvidenceTests {
         try render(
             VStack(alignment: .leading, spacing: 12) {
                 ForEach(entries) { entry in
-                    LeaderboardRow(entry: entry, metric: .climb)
+                    LeaderboardRow(
+                        entry: CrossUserIdentityAdapter.leaderboardEntry(
+                            entry,
+                            blockedUserIds: [],
+                            isBlockListHydrated: true
+                        ),
+                        metric: .climb
+                    )
                 }
 
                 Divider().overlay(Color.white.opacity(0.2))
 
-                LeaderboardUserRowView(entry: you, metric: .climb, crownGapText: nil)
+                LeaderboardUserRowView(
+                    entry: CrossUserIdentityAdapter.leaderboardEntry(
+                        you,
+                        blockedUserIds: [],
+                        isBlockListHydrated: true
+                    ),
+                    metric: .climb,
+                    crownGapText: nil
+                )
             }
+            .environment(moderationStore)
             .padding(16),
             named: "global-list-and-pinned-row-after",
             height: 320
@@ -124,7 +176,7 @@ struct TiedRankRenderEvidenceTests {
     /// totals read 2 and 3 — while the Cloud Function had already awarded both of them
     /// rank 2 when it decided achievements.
     @Test
-    func globalBoardBeforeSplitEqualStepTotalsAcrossTwoRanks() throws {
+    func globalBoardBeforeSplitEqualStepTotalsAcrossTwoRanks() async throws {
         // The same week as `globalListAndPinnedRowShowTheSameTiedRank`, ranked the old way.
         let entries = makeGlobalEntries(
             ranks: [1, 2, 3, 4],
@@ -132,6 +184,7 @@ struct TiedRankRenderEvidenceTests {
             marksTies: false
         )
         let you = try #require(entries.last { $0.isCurrentUser })
+        let moderationStore = await hydratedModerationStore()
 
         #expect(you.rank == 3)
         #expect(CompetitionRanking.ranks(for: entries, key: \.value)[2] == 2)
@@ -139,13 +192,29 @@ struct TiedRankRenderEvidenceTests {
         try render(
             VStack(alignment: .leading, spacing: 12) {
                 ForEach(entries) { entry in
-                    LeaderboardRow(entry: entry, metric: .climb)
+                    LeaderboardRow(
+                        entry: CrossUserIdentityAdapter.leaderboardEntry(
+                            entry,
+                            blockedUserIds: [],
+                            isBlockListHydrated: true
+                        ),
+                        metric: .climb
+                    )
                 }
 
                 Divider().overlay(Color.white.opacity(0.2))
 
-                LeaderboardUserRowView(entry: you, metric: .climb, crownGapText: nil)
+                LeaderboardUserRowView(
+                    entry: CrossUserIdentityAdapter.leaderboardEntry(
+                        you,
+                        blockedUserIds: [],
+                        isBlockListHydrated: true
+                    ),
+                    metric: .climb,
+                    crownGapText: nil
+                )
             }
+            .environment(moderationStore)
             .padding(16),
             named: "global-list-and-pinned-row-before",
             height: 320
@@ -193,7 +262,13 @@ struct TiedRankRenderEvidenceTests {
 
     private func completionBoard(_ board: LiveReplayCompletionLeaderboard) -> some View {
         ReplayCompletionLeaderboardView(
-            rows: board.rows,
+            rows: board.rows.map {
+                CrossUserIdentityAdapter.replayRow(
+                    $0,
+                    blockedUserIds: [],
+                    isBlockListHydrated: true
+                )
+            },
             completedCount: board.completedCount,
             isLoading: false,
             fetchFailed: false,
@@ -204,6 +279,12 @@ struct TiedRankRenderEvidenceTests {
             emphasis: .duration
         )
         .padding(16)
+    }
+
+    private func hydratedModerationStore() async -> ModerationStore {
+        let store = ModerationStore(repository: EmptyModerationRepository())
+        await store.hydrate(for: "render-evidence-user")
+        return store
     }
 
     /// A climber is tied when another climber shares their *step total* — the ranking

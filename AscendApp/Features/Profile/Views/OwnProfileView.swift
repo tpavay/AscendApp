@@ -3,6 +3,7 @@ import SwiftUI
 
 struct OwnProfileView: View {
     @Environment(AuthenticationViewModel.self) private var authVM
+    @Environment(ModerationStore.self) private var moderationStore
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Workout.date, order: .reverse) private var workouts: [Workout]
     @Query(sort: \ClimbAttempt.startedAt, order: .reverse) private var climbAttempts: [ClimbAttempt]
@@ -23,28 +24,6 @@ struct OwnProfileView: View {
         authVM.user?.uid ?? "signed-out"
     }
 
-    private var identity: ProfileUserIdentity {
-        if var ownIdentity = viewModel.ownIdentity {
-            if ownIdentity.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                ownIdentity.displayName = displayName
-            }
-            if ownIdentity.photoURL == nil {
-                ownIdentity.photoURL = authVM.displayPhotoURL
-            }
-            if ownIdentity.joinedAt == nil {
-                ownIdentity.joinedAt = authVM.user?.metadata.creationDate
-            }
-            return ownIdentity
-        }
-
-        return ProfileUserIdentity(
-            userId: userId,
-            displayName: displayName,
-            photoURL: authVM.displayPhotoURL,
-            joinedAt: authVM.user?.metadata.creationDate
-        )
-    }
-
     private var displayName: String {
         let trimmed = authVM.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "Climber" : trimmed
@@ -57,7 +36,12 @@ struct OwnProfileView: View {
 
     private var snapshot: ProfileSnapshot {
         var snapshot = ProfileSnapshotBuilder.makeOwnSnapshot(
-            identity: identity,
+            demographics: viewModel.ownDemographics(
+                userId: userId,
+                displayName: displayName,
+                photoURL: authVM.displayPhotoURL,
+                joinedAt: authVM.user?.metadata.creationDate
+            ),
             workouts: workouts,
             climbAttempts: climbAttempts,
             completedClimbSet: ClimbCompletionRepository.shared.read(modelContext: modelContext),
@@ -88,7 +72,13 @@ struct OwnProfileView: View {
         VStack(spacing: 0) {
             IdentityHeroSection(
                 snapshot: snapshot,
-                mode: .own
+                identity: viewModel.resolvedOwnIdentity(
+                    using: moderationStore,
+                    userId: userId,
+                    displayName: displayName,
+                    photoURL: authVM.displayPhotoURL,
+                    joinedAt: authVM.user?.metadata.creationDate
+                )
             )
 
             ProfileSegmentToggle(selection: $selectedSegment)

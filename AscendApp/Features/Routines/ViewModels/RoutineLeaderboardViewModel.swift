@@ -86,8 +86,8 @@ final class RoutineLeaderboardViewModel {
         isLoading = false
     }
 
-    func loadMoreIfNeeded(currentRow: LiveReplayLeaderboardRow) {
-        guard shouldLoadMore(afterAppearing: currentRow),
+    func loadMoreIfNeeded(currentRowID: String) {
+        guard shouldLoadMore(afterAppearingRowID: currentRowID),
               let cursor = completionLeaderboard.nextCursor else {
             return
         }
@@ -129,11 +129,11 @@ final class RoutineLeaderboardViewModel {
         isLoadingMore = false
     }
 
-    private func shouldLoadMore(afterAppearing row: LiveReplayLeaderboardRow) -> Bool {
+    private func shouldLoadMore(afterAppearingRowID rowID: String) -> Bool {
         guard !isLoading,
               !isLoadingMore,
               hasMoreRows,
-              let rowIndex = rows.firstIndex(where: { $0.id == row.id }) else {
+              let rowIndex = rows.firstIndex(where: { $0.id == rowID }) else {
             return false
         }
 

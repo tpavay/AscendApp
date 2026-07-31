@@ -7,12 +7,11 @@
 
 import Foundation
 @preconcurrency import FirebaseAuth
-@preconcurrency import FirebaseFirestore
 
 #if DEBUG
 @MainActor
 final class LeaderboardTestDataSeeder {
-    private let db = Firestore.firestore()
+    private let repository = LeaderboardRepository.shared
 
     func seedTestData() async throws {
         guard let user = Auth.auth().currentUser else {
@@ -20,35 +19,37 @@ final class LeaderboardTestDataSeeder {
         }
 
         let userId = user.uid
-        let privateDisplayName = user.displayName ?? "Test User"
+        let displayName = try DisplayNamePolicy.validated(
+            user.displayName ?? "Test User"
+        )
 
-        debugLog("Seeding leaderboard data for \(privateDisplayName) (\(userId))...")
+        debugLog("Seeding leaderboard data for \(displayName) (\(userId))...")
 
         for timeFrame in LeaderboardTimeFrame.allCases {
             let period = timeFrame.currentPeriod()
             let stats = generateRandomStats(for: timeFrame)
-            let docId = "\(userId)_\(timeFrame.rawValue)"
 
-            let docRef = db.collection("leaderboard_stats").document(docId)
-
-            try await docRef.setData([
-                "userId": userId,
-                "displayName": PublicClimberIdentity.storedDisplayName,
-                "photoURL": PublicClimberIdentity.storedPhotoURL,
-                "timeFrame": timeFrame.rawValue,
-                "schemaVersion": LeaderboardStats.currentSchemaVersion,
-                "periodKey": period.key,
-                "periodStartAt": Timestamp(date: period.startAt),
-                "totalSteps": stats.totalSteps,
-                "totalFloors": stats.totalFloors,
-                "totalWorkouts": stats.totalWorkouts,
-                "totalDuration": stats.totalDuration,
-                "stepsPerMinute": stats.stepsPerMinute,
-                "lastUpdated": FieldValue.serverTimestamp()
-            ], merge: true)
+            try await repository.upsertStats(
+                LeaderboardSyncPayload(
+                    localStatID: UUID(),
+                    snapshotLastUpdated: Date(),
+                    userId: userId,
+                    timeFrame: timeFrame,
+                    schemaVersion: LeaderboardStats.currentSchemaVersion,
+                    periodKey: period.key,
+                    periodStartAt: period.startAt,
+                    totalSteps: stats.totalSteps,
+                    totalFloors: stats.totalFloors,
+                    totalWorkouts: stats.totalWorkouts,
+                    totalDuration: stats.totalDuration,
+                    stepsPerMinute: stats.stepsPerMinute,
+                    profile: nil,
+                    operation: .upsert
+                )
+            )
         }
 
-        debugLog("Seeded \(LeaderboardTimeFrame.allCases.count) entries for \(privateDisplayName)")
+        debugLog("Seeded \(LeaderboardTimeFrame.allCases.count) entries for \(displayName)")
     }
 
     func clearTestData() async throws {
@@ -60,10 +61,11 @@ final class LeaderboardTestDataSeeder {
         debugLog("Clearing seeded leaderboard data for \(userId)...")
 
         for timeFrame in LeaderboardTimeFrame.allCases {
-            let docId = "\(userId)_\(timeFrame.rawValue)"
-            let docRef = db.collection("leaderboard_stats").document(docId)
-
-            try await docRef.delete()
+            try await repository.deleteStats(
+                userId: userId,
+                timeFrame: timeFrame,
+                periodKey: timeFrame.currentPeriod().key
+            )
         }
 
         debugLog("Cleared seeded data for \(userId)")

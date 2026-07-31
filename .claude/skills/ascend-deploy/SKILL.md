@@ -25,8 +25,9 @@ Read the workflow file before changing it - the job graph below is the contract,
 Every verify job is gated on the changed paths, so a functions-only PR skips the iOS jobs and an iOS-only PR skips the functions job:
 - `changes` - a `dorny/paths-filter` job that resolves the `ios`, `functions`, `scripts`, `web`, `root_npm`, `firebase`, and `ruby` outputs. Every other job declares `needs: changes` and an `if:` on one of those outputs, so a new verify job is skipped by default until you add it to the filter.
 - `functions-verify` - installs `functions/`, then lints, tests, and audits (`npm --prefix functions ci`, `run lint`, `test`, `audit --audit-level=low`).
-- `scripts-verify` - audits the `scripts/` lockfile (`--package-lock-only`) and runs the `scripts/test/*.test.mjs` suite with `node --test`.
-  No dependency install from `scripts/package.json` - the migration-discipline libraries and the shared vector-pinned predicate/derivation are pure Node; the one install is a globally pinned `@sentry/cli`, because the dSYM-upload suite asserts the release script's flags against that exact CLI's help.
+- `scripts-verify` - installs `scripts/` (`npm --prefix scripts ci`), runs the `scripts/test/*.test.mjs` suite with `node --test`, then audits the `scripts/` lockfile (`--package-lock-only`).
+  The install is required: the public-identity contract suite imports and spawns `dev-db.mjs`, which imports `firebase-admin`, so a suite that exercises a real script rather than a pure library needs the same dependencies an operator has.
+  It also installs a globally pinned `@sentry/cli`, because the dSYM-upload suite asserts the release script's flags against that exact CLI's help.
   Keep that pin identical to the one in both deploy workflows.
   The job is gated on changes to `scripts/**` or `SharedTestVectors/**`, plus the iOS paths the monetization build-configuration suite reads directly, the Firebase configuration files the structural-validation suite reads directly, and the web, legal, and guidance paths the subscription launch-offer suite reads directly.
   A suite here that asserts against tracked non-`scripts/` files must add its inputs to this filter, or the assertion silently stops running on the PRs that break it.
