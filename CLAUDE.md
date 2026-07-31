@@ -152,6 +152,7 @@ Rules that fire from contexts that don't look like their own domain. Each names 
 - **No third-party frameworks without asking first.** Avoid UIKit unless requested. Fires at `import` time.
 - **SwiftData + CloudKit**: never use `@Attribute(.unique)`; properties need defaults or must be optional; all relationships must be optional. Fires while writing an `@Model`.
 - **Never commit API keys, secrets, or QA credentials**, and never bundle them into production builds.
+- **Debug and Staging builds do not exercise the app-access paywall gate.** `allowsUnentitledAppAccess` defaults to true under `#if DEBUG || STAGING`, so routing short-circuits to the main app and never reads entitlement state; the `debugForcesAppAccessPaywall` override is `#if DEBUG` only, so Staging cannot force it either. Only Release actually gates on entitlement. Fires when you try to QA subscription gating on a simulator and conclude it works. -> `MonetizationConfiguration`, `AppRootRouteResolver`
 
 ## Ascend-Specific Overrides
 
