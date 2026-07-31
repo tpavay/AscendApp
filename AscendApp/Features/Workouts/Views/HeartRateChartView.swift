@@ -18,6 +18,12 @@ struct HeartRateChartDataSet: Equatable {
     /// Floor so a couple of skipped 1 Hz notifications never shatter the line.
     static let minimumDropoutGap: TimeInterval = 10
 
+    /// Upper bound on plotted marks. A 43-minute session records one sample per
+    /// second, and handing Swift Charts 2,600 `LineMark`s costs ~114 ms to render
+    /// - seven 60 Hz frames for detail no chart this size can show. Capping the
+    /// mark count keeps the same curve at roughly an eighth of the cost.
+    static let maximumPlottedPointCount = 400
+
     let points: [HeartRateChartPoint]
     let segments: [HeartRateChartSegment]
     let duration: TimeInterval
@@ -45,20 +51,88 @@ struct HeartRateChartDataSet: Equatable {
             }
             .sorted { $0.timestamp < $1.timestamp }
 
-        points = sortedSamples.enumerated().map { index, sample in
-            let elapsed = sample.timestamp.timeIntervalSince(workoutStartTime)
-            return HeartRateChartPoint(
+        let rawPoints = sortedSamples.enumerated().map { index, sample in
+            HeartRateChartPoint(
                 id: index,
-                elapsed: min(max(elapsed, 0), visibleDuration),
+                elapsed: min(max(sample.timestamp.timeIntervalSince(workoutStartTime), 0), visibleDuration),
                 heartRate: sample.heartRate
             )
         }
-        segments = Self.segments(for: points)
+
+        // Dropout detection runs on the raw series and thinning happens inside each
+        // resulting segment. Doing it the other way round would let thinning rewrite
+        // the sample spacing the gap threshold is derived from, inventing dropouts in
+        // a continuous trace or papering over real ones.
+        segments = Self.thinnedSegments(Self.segments(for: rawPoints), rawPointCount: rawPoints.count)
+        points = segments.flatMap(\.points)
         duration = visibleDuration
 
-        let rates = points.map(\.heartRate)
-        heartRateRange = Self.range(for: rates)
+        // Ranged off the full series, not the plotted subset, so the axis still
+        // spans the real minimum and maximum even when marks are thinned.
+        heartRateRange = Self.range(for: sortedSamples.map(\.heartRate))
         heartRateTickValues = Self.tickValues(for: heartRateRange)
+    }
+
+    /// Thins each segment to a share of the mark budget proportional to its length.
+    ///
+    /// A 43-minute session records one sample per second, and handing Swift Charts
+    /// 2,600 `LineMark`s costs ~114 ms to render - seven 60 Hz frames for detail no
+    /// chart this size can show.
+    private static func thinnedSegments(
+        _ segments: [HeartRateChartSegment],
+        rawPointCount: Int
+    ) -> [HeartRateChartSegment] {
+        guard rawPointCount > maximumPlottedPointCount, rawPointCount > 0 else {
+            return segments
+        }
+
+        return segments.map { segment in
+            let share = Double(segment.points.count) / Double(rawPointCount)
+            let budget = max(Int(Double(maximumPlottedPointCount) * share), 2)
+            return HeartRateChartSegment(id: segment.id, points: thinned(segment.points, budget: budget))
+        }
+    }
+
+    /// Keeps each bucket's lowest and highest reading in time order, plus the run's
+    /// own endpoints. Dropping every Nth sample instead would clip the peaks and
+    /// troughs - the part of a heart-rate trace a climber actually reads.
+    private static func thinned(_ points: [HeartRateChartPoint], budget: Int) -> [HeartRateChartPoint] {
+        guard points.count > budget else { return points }
+
+        // Two marks come out of each bucket, and the two endpoints are added back
+        // afterwards, so the bucket budget has to leave room for both.
+        let bucketCount = max((budget - 2) / 2, 1)
+        var kept: [HeartRateChartPoint] = []
+        kept.reserveCapacity(budget)
+
+        for bucket in 0..<bucketCount {
+            let lowerBound = points.count * bucket / bucketCount
+            let upperBound = points.count * (bucket + 1) / bucketCount
+            guard lowerBound < upperBound else { continue }
+
+            let slice = points[lowerBound..<upperBound]
+            guard let lowest = slice.min(by: { $0.heartRate < $1.heartRate }),
+                  let highest = slice.max(by: { $0.heartRate < $1.heartRate }) else {
+                continue
+            }
+
+            if lowest.id == highest.id {
+                kept.append(lowest)
+            } else if lowest.id < highest.id {
+                kept.append(contentsOf: [lowest, highest])
+            } else {
+                kept.append(contentsOf: [highest, lowest])
+            }
+        }
+
+        if let first = points.first, kept.first?.id != first.id {
+            kept.insert(first, at: 0)
+        }
+        if let last = points.last, kept.last?.id != last.id {
+            kept.append(last)
+        }
+
+        return kept
     }
 
     /// Splits the trace wherever coverage actually stopped, so a dropout reads
@@ -142,20 +216,38 @@ struct HeartRateChartView: View {
     let workoutDuration: TimeInterval
     let averageHeartRateBpm: Int?
     let maxHeartRateBpm: Int?
-    
+
+    /// Built once per view value rather than on demand. The body reads it eight
+    /// times (marks, both scales, both axes, selection), and scrubbing the chart
+    /// re-evaluates the body on every touch move - as a computed property that
+    /// meant re-filtering and re-sorting the whole series each time.
+    private let dataSet: HeartRateChartDataSet
+
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
     @State private var rawSelectedTime: TimeInterval?
     @State private var stickySelectedTime: TimeInterval?
 
-    private var dataSet: HeartRateChartDataSet {
-        HeartRateChartDataSet(
+    init(
+        heartRateData: [HeartRateDataPoint],
+        workoutStartTime: Date,
+        workoutDuration: TimeInterval,
+        averageHeartRateBpm: Int?,
+        maxHeartRateBpm: Int?
+    ) {
+        self.heartRateData = heartRateData
+        self.workoutStartTime = workoutStartTime
+        self.workoutDuration = workoutDuration
+        self.averageHeartRateBpm = averageHeartRateBpm
+        self.maxHeartRateBpm = maxHeartRateBpm
+        self.dataSet = HeartRateChartDataSet(
             samples: heartRateData,
             workoutStartTime: workoutStartTime,
             workoutDuration: workoutDuration
         )
     }
-    
+
+
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
