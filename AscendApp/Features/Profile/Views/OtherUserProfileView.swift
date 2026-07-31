@@ -273,14 +273,14 @@ private struct ProfileComparisonHeader: View {
     ) -> some View {
         VStack(spacing: 12) {
             if isLoading {
-                ProfileComparisonSkeletonCircle(size: 76, tint: tint)
+                AscendSkeletonCircle(size: 76, tint: tint)
             } else {
                 ProfileAvatarImageView(photoURL: identity.photoURL, size: 76)
                     .overlay(Circle().stroke(tint, lineWidth: 2))
             }
 
             if isLoading {
-                ProfileComparisonSkeletonText(width: 78, height: 18)
+                AscendSkeletonText(width: 78, height: 18)
             } else {
                 Text(resolvedName(identity.displayName, fallback: fallbackName))
                     .font(.montserratBold(size: 18))
@@ -429,7 +429,7 @@ private struct ProfileComparisonBioTab: View {
             HStack(alignment: .firstTextBaseline) {
                 Group {
                     if isViewerLoading {
-                        ProfileComparisonSkeletonText(width: 64, height: 17)
+                        AscendSkeletonText(width: 64, height: 17)
                     } else {
                         Text(viewerValue)
                             .font(.montserratBold(size: 16))
@@ -449,7 +449,7 @@ private struct ProfileComparisonBioTab: View {
 
                 Group {
                     if isOtherLoading {
-                        ProfileComparisonSkeletonText(width: 64, height: 17)
+                        AscendSkeletonText(width: 64, height: 17)
                     } else {
                         Text(otherValue)
                             .font(.montserratBold(size: 16))
@@ -544,7 +544,7 @@ private struct ProfileComparisonStatRow: View {
 
                 Group {
                     if isOtherLoading {
-                        ProfileComparisonSkeletonText(width: 78, height: 18)
+                        AscendSkeletonText(width: 78, height: 18)
                     } else {
                         Text(otherValueText)
                             .font(.montserratBold(size: 17))
@@ -597,7 +597,7 @@ private struct ProfileComparisonStatBar: View {
                 if isLoadingOtherValue {
                     Rectangle()
                         .fill(ProfileVisualStyle.skeletonFill)
-                        .profileComparisonSkeletonShimmer()
+                        .ascendSkeletonShimmer()
                 } else {
                     Rectangle()
                         .fill(ProfileVisualStyle.opponentBlue)
@@ -621,7 +621,7 @@ private struct ProfileComparisonHeadToHeadTab: View {
                 VStack(spacing: 16) {
                     HStack(alignment: .firstTextBaseline, spacing: 14) {
                         if isLoading {
-                            ProfileComparisonSkeletonText(width: 44, height: 42)
+                            AscendSkeletonText(width: 44, height: 42)
                         } else {
                             Text("\(comparison.viewerWins)")
                                 .font(.montserratBold(size: 40))
@@ -633,7 +633,7 @@ private struct ProfileComparisonHeadToHeadTab: View {
                             .foregroundStyle(ProfileVisualStyle.tertiaryText)
 
                         if isLoading {
-                            ProfileComparisonSkeletonText(width: 44, height: 42)
+                            AscendSkeletonText(width: 44, height: 42)
                         } else {
                             Text("\(comparison.otherUserWins)")
                                 .font(.montserratBold(size: 40))
@@ -649,7 +649,7 @@ private struct ProfileComparisonHeadToHeadTab: View {
                     )
 
                     if isLoading {
-                        ProfileComparisonSkeletonText(width: 58, height: 12)
+                        AscendSkeletonText(width: 58, height: 12)
                             .frame(maxWidth: .infinity, alignment: .center)
                     } else if comparison.ties > 0 {
                         Text("\(comparison.ties) tied")
@@ -719,16 +719,16 @@ private struct ProfileHeadToHeadLoadingRow: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
-                ProfileComparisonSkeletonText(width: 58, height: 16)
+                AscendSkeletonText(width: 58, height: 16)
                     .frame(width: 72, alignment: .leading)
 
                 VStack(spacing: 6) {
-                    ProfileComparisonSkeletonText(width: 144, height: 15)
-                    ProfileComparisonSkeletonText(width: 72, height: 11)
+                    AscendSkeletonText(width: 144, height: 15)
+                    AscendSkeletonText(width: 72, height: 11)
                 }
                 .frame(maxWidth: .infinity)
 
-                ProfileComparisonSkeletonText(width: 58, height: 16)
+                AscendSkeletonText(width: 58, height: 16)
                     .frame(width: 72, alignment: .trailing)
             }
             .padding(.vertical, 16)
@@ -779,81 +779,5 @@ private struct ProfileHeadToHeadClimbRow: View {
                 .fill(ProfileVisualStyle.cardStroke)
                 .frame(height: 1)
         }
-    }
-}
-
-private struct ProfileComparisonSkeletonText: View {
-    let width: CGFloat
-    let height: CGFloat
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: min(height / 2, 6), style: .continuous)
-            .fill(ProfileVisualStyle.skeletonFill)
-            .frame(width: width, height: height)
-            .profileComparisonSkeletonShimmer()
-            .accessibilityHidden(true)
-    }
-}
-
-private struct ProfileComparisonSkeletonCircle: View {
-    let size: CGFloat
-    let tint: Color
-
-    var body: some View {
-        Circle()
-            .fill(ProfileVisualStyle.skeletonFill)
-            .frame(width: size, height: size)
-            .profileComparisonSkeletonShimmer()
-            .overlay(Circle().stroke(tint.opacity(0.45), lineWidth: 2))
-            .accessibilityHidden(true)
-    }
-}
-
-private struct ProfileComparisonSkeletonShimmer: ViewModifier {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isActive = false
-
-    func body(content: Content) -> some View {
-        content
-            .overlay {
-                if !reduceMotion {
-                    GeometryReader { proxy in
-                        let width = max(proxy.size.width, 1)
-                        let height = max(proxy.size.height, 1)
-
-                        LinearGradient(
-                            colors: [
-                                .clear,
-                                .white.opacity(0.22),
-                                .clear
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .frame(width: width * 0.72, height: height * 2.2)
-                        .rotationEffect(.degrees(18))
-                        .offset(
-                            x: isActive ? width * 1.35 : -width * 0.95,
-                            y: -height * 0.58
-                        )
-                    }
-                    .blendMode(.plusLighter)
-                    .mask(content)
-                    .allowsHitTesting(false)
-                }
-            }
-            .onAppear {
-                guard !reduceMotion else { return }
-                isActive = false
-                withAnimation(.linear(duration: 1.15).repeatForever(autoreverses: false)) {
-                    isActive = true
-                }
-            }
-    }
-}
-
-private extension View {
-    func profileComparisonSkeletonShimmer() -> some View {
-        modifier(ProfileComparisonSkeletonShimmer())
     }
 }

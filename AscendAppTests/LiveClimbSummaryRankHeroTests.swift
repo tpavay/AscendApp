@@ -7,6 +7,9 @@ import Testing
 /// and legitimately disagree - a first finisher stays "1st of 1" while the climb
 /// detail counts every finisher since - so the hero has to name which one it is
 /// and must never pair one source's rank with another source's denominator.
+///
+/// It also never puts a status word where a rank goes. The slot holds a rank, a
+/// loading treatment, or nothing at all.
 struct LiveClimbSummaryRankHeroTests {
     typealias Hero = LiveClimbSummaryRankHero
 
@@ -15,8 +18,8 @@ struct LiveClimbSummaryRankHeroTests {
     /// completions. The hero read "1st of 1 / LIVE CLIMB COMPLETE", which invites
     /// the reader to compare it with 50.
     @Test
-    func frozenStandingNamesItselfInsteadOfClaimingTheSessionCompleted() {
-        let hero = Hero.make(
+    func frozenStandingNamesItselfInsteadOfClaimingTheSessionCompleted() throws {
+        let hero = try #require(Hero.make(
             isClimbContext: true,
             standings: [
                 Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
@@ -24,9 +27,9 @@ struct LiveClimbSummaryRankHeroTests {
             ],
             sync: publishedSync(),
             copy: Hero.Copy()
-        )
+        ))
 
-        #expect(hero.value == "1st")
+        #expect(hero.value == .rank(1))
         #expect(hero.total == 1)
         #expect(hero.detail == "RANK WHEN YOU FINISHED")
         #expect(hero.detail != "LIVE CLIMB COMPLETE")
@@ -34,8 +37,8 @@ struct LiveClimbSummaryRankHeroTests {
     }
 
     @Test
-    func frozenStandingKeepsItsOwnDenominator() {
-        let hero = Hero.make(
+    func frozenStandingKeepsItsOwnDenominator() throws {
+        let hero = try #require(Hero.make(
             isClimbContext: true,
             standings: [
                 Hero.Standing(rank: 1, total: 1, basis: .atCompletion),
@@ -43,15 +46,34 @@ struct LiveClimbSummaryRankHeroTests {
             ],
             sync: publishedSync(),
             copy: Hero.Copy()
-        )
+        ))
 
         #expect(hero.standing?.basis == .atCompletion)
         #expect(hero.total == 1)
     }
 
+    /// The captain's rule: 21st of 64 stays 21st of 64. However many climbers
+    /// finish afterwards, a recomputed standing never displaces the frozen one.
     @Test
-    func recomputedStandingIsLabelledAsCurrent() {
-        let hero = Hero.make(
+    func todaysStandingNeverDisplacesTheFrozenOne() throws {
+        let hero = try #require(Hero.make(
+            isClimbContext: true,
+            standings: [
+                Hero.Standing(rank: 21, total: 64, basis: .atCompletion),
+                Hero.Standing(rank: 34, total: 91, basis: .current)
+            ],
+            sync: publishedSync(),
+            copy: Hero.Copy()
+        ))
+
+        #expect(hero.value == .rank(21))
+        #expect(hero.total == 64)
+        #expect(hero.detail == "RANK WHEN YOU FINISHED")
+    }
+
+    @Test
+    func recomputedStandingIsLabelledAsCurrent() throws {
+        let hero = try #require(Hero.make(
             isClimbContext: true,
             standings: [
                 nil,
@@ -59,64 +81,61 @@ struct LiveClimbSummaryRankHeroTests {
             ],
             sync: publishedSync(),
             copy: Hero.Copy()
-        )
+        ))
 
-        #expect(hero.value == "21st")
+        #expect(hero.value == .rank(21))
         #expect(hero.total == 64)
         #expect(hero.detail == "CURRENT LEADERBOARD RANK")
     }
 
     @Test
-    func labelOverrideSurvivesButDetailStillNamesTheBasis() {
-        let hero = Hero.make(
+    func labelOverrideSurvivesButDetailStillNamesTheBasis() throws {
+        let hero = try #require(Hero.make(
             isClimbContext: false,
             standings: [Hero.Standing(rank: 4, total: 12, basis: .atCompletion)],
             sync: publishedSync(),
-            copy: Hero.Copy(
-                labelOverride: "ROUTINE RANK",
-                completedDetailOverride: "ROUTINE COMPLETE"
-            )
-        )
+            copy: Hero.Copy(labelOverride: "ROUTINE RANK")
+        ))
 
         #expect(hero.label == "ROUTINE RANK")
         #expect(hero.detail == "RANK WHEN YOU FINISHED")
     }
 
     @Test
-    func defaultLabelFollowsTheContext() {
-        let climbHero = Hero.make(
+    func defaultLabelFollowsTheContext() throws {
+        let climbHero = try #require(Hero.make(
             isClimbContext: true,
             standings: [],
             sync: publishedSync(),
             copy: Hero.Copy()
-        )
-        let globalHero = Hero.make(
+        ))
+        let globalHero = try #require(Hero.make(
             isClimbContext: false,
             standings: [],
             sync: publishedSync(),
             copy: Hero.Copy()
-        )
+        ))
 
         #expect(climbHero.label == "CLIMB RANK")
         #expect(globalHero.label == "GLOBAL RANK")
     }
 
     @Test
-    func absentOrZeroDenominatorRendersNothing() {
-        let missing = Hero.make(
+    func absentOrZeroDenominatorRendersNothing() throws {
+        let missing = try #require(Hero.make(
             isClimbContext: true,
             standings: [Hero.Standing(rank: 3, total: nil, basis: .atCompletion)],
             sync: publishedSync(),
             copy: Hero.Copy()
-        )
-        let zero = Hero.make(
+        ))
+        let zero = try #require(Hero.make(
             isClimbContext: true,
             standings: [Hero.Standing(rank: 3, total: 0, basis: .current)],
             sync: publishedSync(),
             copy: Hero.Copy()
-        )
+        ))
 
-        #expect(missing.value == "3rd")
+        #expect(missing.value == .rank(3))
         #expect(missing.total == nil)
         #expect(zero.total == nil)
     }
@@ -126,50 +145,52 @@ struct LiveClimbSummaryRankHeroTests {
         #expect(Hero.Standing(rank: nil, total: 50, basis: .current) == nil)
     }
 
+    // MARK: - Moment
+
     /// The frozen basis still names itself when the summary *is* the moment - it
     /// just says so in the present tense.
     @Test
-    func freshCompletionUsesThePresentTenseFrozenCopy() {
-        let hero = Hero.make(
+    func freshCompletionUsesThePresentTenseFrozenCopy() throws {
+        let hero = try #require(Hero.make(
             isClimbContext: true,
             moment: .freshCompletion,
             standings: [Hero.Standing(rank: 1, total: 1, basis: .atCompletion)],
             sync: publishedSync(),
             copy: Hero.Copy()
-        )
+        ))
 
         #expect(hero.detail == "RANK YOU JUST EARNED")
     }
 
     @Test
-    func theMomentOnlyChangesTheFrozenBasis() {
-        let current = Hero.make(
+    func theMomentOnlyChangesTheFrozenBasis() throws {
+        let current = try #require(Hero.make(
             isClimbContext: true,
             moment: .freshCompletion,
             standings: [Hero.Standing(rank: 9, total: 40, basis: .current)],
             sync: publishedSync(),
             copy: Hero.Copy()
-        )
-        let session = Hero.make(
+        ))
+        let session = try #require(Hero.make(
             isClimbContext: false,
             moment: .freshCompletion,
             standings: [Hero.Standing(rank: 9, total: 40, basis: .liveSession)],
             sync: publishedSync(),
             copy: Hero.Copy(completedDetailOverride: "ROUTINE COMPLETE")
-        )
+        ))
 
         #expect(current.detail == "CURRENT LEADERBOARD RANK")
         #expect(session.detail == "ROUTINE COMPLETE")
     }
 
     @Test
-    func summariesAreRetrospectiveUnlessTheCallerSaysOtherwise() {
-        let hero = Hero.make(
+    func summariesAreRetrospectiveUnlessTheCallerSaysOtherwise() throws {
+        let hero = try #require(Hero.make(
             isClimbContext: true,
             standings: [Hero.Standing(rank: 1, total: 1, basis: .atCompletion)],
             sync: publishedSync(),
             copy: Hero.Copy()
-        )
+        ))
 
         #expect(hero.detail == "RANK WHEN YOU FINISHED")
     }
@@ -181,8 +202,8 @@ struct LiveClimbSummaryRankHeroTests {
     /// characterise that population, so it must not claim a leaderboard basis for
     /// it - it states the session finished, exactly as it did before.
     @Test
-    func inSessionStandingKeepsTheNeutralCompletedCopy() {
-        let routine = Hero.make(
+    func inSessionStandingKeepsTheNeutralCompletedCopy() throws {
+        let routine = try #require(Hero.make(
             isClimbContext: false,
             standings: [Hero.Standing(rank: 3, total: 18, basis: .liveSession)],
             sync: publishedSync(),
@@ -190,15 +211,15 @@ struct LiveClimbSummaryRankHeroTests {
                 labelOverride: "ROUTINE RANK",
                 completedDetailOverride: "ROUTINE COMPLETE"
             )
-        )
-        let justClimb = Hero.make(
+        ))
+        let justClimb = try #require(Hero.make(
             isClimbContext: false,
             standings: [Hero.Standing(rank: 3, total: 18, basis: .liveSession)],
             sync: publishedSync(),
             copy: Hero.Copy()
-        )
+        ))
 
-        #expect(routine.value == "3rd")
+        #expect(routine.value == .rank(3))
         #expect(routine.total == 18)
         #expect(routine.detail == "ROUTINE COMPLETE")
         #expect(justClimb.detail == "WORKOUT COMPLETE")
@@ -279,8 +300,8 @@ struct LiveClimbSummaryRankHeroTests {
     /// race-window standing; `WorkoutDetailView` hands in a rank it just
     /// recomputed. The same slot must render each one's own copy.
     @Test
-    func theCallerSuppliedSlotKeepsWhicheverBasisItWasGiven() {
-        func detail(for basis: Hero.Basis) -> String {
+    func theCallerSuppliedSlotKeepsWhicheverBasisItWasGiven() throws {
+        func detail(for basis: Hero.Basis) throws -> String {
             let standings = Hero.standings(
                 isClimbContext: false,
                 sources: Hero.Sources(
@@ -288,17 +309,17 @@ struct LiveClimbSummaryRankHeroTests {
                 )
             )
 
-            return Hero.make(
+            return try #require(Hero.make(
                 isClimbContext: false,
                 standings: standings,
                 sync: publishedSync(),
                 copy: Hero.Copy(completedDetailOverride: "ROUTINE COMPLETE")
-            )
+            ))
             .detail
         }
 
-        #expect(detail(for: .liveSession) == "ROUTINE COMPLETE")
-        #expect(detail(for: .current) == "CURRENT LEADERBOARD RANK")
+        #expect(try detail(for: .liveSession) == "ROUTINE COMPLETE")
+        #expect(try detail(for: .current) == "CURRENT LEADERBOARD RANK")
     }
 
     @Test
@@ -316,214 +337,197 @@ struct LiveClimbSummaryRankHeroTests {
 
     // MARK: - Unranked states
 
+    /// The Burj Khalifa defect: the value slot read "Complete" while the real rank
+    /// was still on its way, so the wait looked like a stalled load. A rank in
+    /// flight now loads, and the label stays put beside it.
     @Test
-    func pendingRankLoadShowsCheckingWhileAContextExists() {
-        let hero = Hero.make(
+    func aRankInFlightLoadsItsValueAndKeepsItsLabel() throws {
+        let hero = try #require(Hero.make(
             isClimbContext: true,
             standings: [],
             sync: Hero.SyncState(
                 phase: .pending,
-                showsPendingRanking: true,
                 hasRankContext: true,
-                didFinishRankLoad: false
+                rankResolution: .resolving
             ),
             copy: Hero.Copy()
-        )
+        ))
 
-        #expect(hero.value == "Checking")
+        #expect(hero.value == .loading)
+        #expect(hero.label == "CLIMB RANK")
         #expect(hero.detail == "LOOKING FOR YOUR RANK")
     }
 
     @Test
-    func finishedLoadWithoutARankFallsBackToUnavailable() {
-        let hero = Hero.make(
+    func aSettledResultWithNoRankShowsNoValueAndExplainsItselfInTheDetailLine() throws {
+        let hero = try #require(Hero.make(
             isClimbContext: true,
             standings: [],
             sync: Hero.SyncState(
                 phase: .published,
-                showsPendingRanking: true,
                 hasRankContext: true,
-                didFinishRankLoad: true
+                rankResolution: .settled
             ),
             copy: Hero.Copy()
-        )
+        ))
 
-        #expect(hero.value == "Unavailable")
+        #expect(hero.value == .unranked)
         #expect(hero.detail == "CHECK LEADERBOARD LATER")
+    }
+
+    /// The state a summary is in for the frame before its lookup starts. Reading
+    /// "no answer yet" as "no rank" flashed a terminal card that then jumped to a
+    /// skeleton or a rank - the same stalled-load impression, one frame earlier.
+    @Test
+    func aLookupThatHasNotRunYetLoadsInsteadOfReadingAsSettled() throws {
+        for phase: LiveClimbPublicResultPhase? in [nil, .pending, .published] {
+            let hero = try #require(Hero.make(
+                isClimbContext: true,
+                standings: [],
+                sync: Hero.SyncState(
+                    phase: phase,
+                    hasRankContext: true,
+                    rankResolution: .notStarted
+                ),
+                copy: Hero.Copy()
+            ))
+
+            #expect(hero.value == .loading)
+            #expect(hero.detail == "LOOKING FOR YOUR RANK")
+            #expect(hero.detail != "CHECK LEADERBOARD LATER")
+        }
     }
 
     struct SyncPhaseCopyCase: Sendable {
         let phase: LiveClimbPublicResultPhase
-        let value: String
+        let value: Hero.Value
         let detail: String
+        let showsRetrySync: Bool
     }
 
     @Test(arguments: [
         SyncPhaseCopyCase(
             phase: .savedOnDevice,
-            value: "Saved",
-            detail: "RESULT SAVED ON DEVICE"
+            value: .unranked,
+            detail: "RESULT SAVED ON DEVICE",
+            showsRetrySync: false
         ),
         SyncPhaseCopyCase(
             phase: .syncFailedRetry,
-            value: "Sync failed",
-            detail: "SYNC YOUR RESULT TO RANK"
+            value: .unranked,
+            detail: "SYNC YOUR RESULT TO RANK",
+            showsRetrySync: true
         ),
+        // Still publishing is a wait, not a terminal state, so it loads.
         SyncPhaseCopyCase(
             phase: .syncingRanking,
-            value: "Syncing",
-            detail: "SYNCING RANKING"
+            value: .loading,
+            detail: "SYNCING RANKING",
+            showsRetrySync: false
         )
     ])
-    func syncPhasesKeepTheirOwnCopy(testCase: SyncPhaseCopyCase) {
-        let hero = Hero.make(
+    func syncPhasesKeepTheirOwnCopyWithoutNamingThemselvesInTheRankSlot(
+        testCase: SyncPhaseCopyCase
+    ) throws {
+        let hero = try #require(Hero.make(
             isClimbContext: true,
             standings: [],
             sync: Hero.SyncState(
                 phase: testCase.phase,
-                showsPendingRanking: true,
                 hasRankContext: true,
-                didFinishRankLoad: false
+                rankResolution: .settled
             ),
             copy: Hero.Copy()
-        )
+        ))
 
         #expect(hero.value == testCase.value)
         #expect(hero.detail == testCase.detail)
+        #expect(hero.showsRetrySync == testCase.showsRetrySync)
     }
 
-    /// Pre-existing precedence, pinned here so a later change to it is deliberate:
-    /// once the rank load has finished with nothing to show, "Unavailable" wins
-    /// over the sync-phase copy even when the result is only saved on device.
+    /// The invariant behind the whole card: no combination of states may put text
+    /// in the slot where a rank goes.
     @Test
-    func finishedLoadOutranksSyncPhaseCopy() {
-        let hero = Hero.make(
-            isClimbContext: true,
-            standings: [],
-            sync: Hero.SyncState(
-                phase: .savedOnDevice,
-                showsPendingRanking: true,
-                hasRankContext: true,
-                didFinishRankLoad: true
-            ),
-            copy: Hero.Copy()
-        )
+    func noUnrankedStateEverPutsAStatusWordWhereARankGoes() {
+        let phases: [LiveClimbPublicResultPhase?] = [
+            nil, .pending, .published, .savedOnDevice, .syncFailedRetry, .syncingRanking
+        ]
 
-        #expect(hero.value == "Unavailable")
-        #expect(hero.detail == "CHECK LEADERBOARD LATER")
+        for phase in phases {
+            for resolution in [Hero.RankResolution.notStarted, .resolving, .settled] {
+                for isClimbContext in [true, false] {
+                    guard let hero = Hero.make(
+                        isClimbContext: isClimbContext,
+                        standings: [],
+                        sync: Hero.SyncState(
+                            phase: phase,
+                            hasRankContext: true,
+                            rankResolution: resolution
+                        ),
+                        copy: Hero.Copy()
+                    ) else {
+                        continue
+                    }
+
+                    if case .rank = hero.value {
+                        Issue.record("An unranked state produced a rank for phase \(String(describing: phase))")
+                    }
+                }
+            }
+        }
     }
 
     /// Without a leaderboard context there is no population to rank against, so
-    /// the hero states the session finished rather than implying a standing.
+    /// there is no hero at all. The achievement row below already states that the
+    /// session finished; a card that only says "Complete" adds nothing and reads
+    /// as a rank that failed to load.
     @Test
-    func noRankContextStatesCompletionInstead() {
-        let climbHero = Hero.make(
-            isClimbContext: true,
-            standings: [],
-            sync: Hero.SyncState(
-                phase: nil,
-                showsPendingRanking: false,
-                hasRankContext: false,
-                didFinishRankLoad: true
-            ),
-            copy: Hero.Copy()
-        )
-        let workoutHero = Hero.make(
-            isClimbContext: false,
-            standings: [],
-            sync: Hero.SyncState(
-                phase: nil,
-                showsPendingRanking: false,
-                hasRankContext: false,
-                didFinishRankLoad: true
-            ),
-            copy: Hero.Copy()
-        )
-
-        #expect(climbHero.value == "Complete")
-        #expect(climbHero.detail == "LIVE CLIMB COMPLETE")
-        #expect(workoutHero.value == "Complete")
-        #expect(workoutHero.detail == "WORKOUT COMPLETE")
-    }
-
-    @Test
-    func completedDetailOverrideStillWinsWhenThereIsNoRank() {
-        let hero = Hero.make(
-            isClimbContext: false,
-            standings: [],
-            sync: Hero.SyncState(
-                phase: nil,
-                showsPendingRanking: false,
-                hasRankContext: false,
-                didFinishRankLoad: true
-            ),
-            copy: Hero.Copy(completedDetailOverride: "ROUTINE COMPLETE")
-        )
-
-        #expect(hero.detail == "ROUTINE COMPLETE")
-    }
-
-    /// The unranked overrides are `nil` when the caller has no opinion, so no
-    /// caller has to hand a sentinel string back in to keep the default
-    /// behaviour. A surface that still tracks a ranking gets the pending copy.
-    @Test
-    func absentOverridesFollowWhetherTheSurfaceTracksARanking() {
-        let tracking = Hero.make(
-            isClimbContext: true,
-            standings: [],
-            sync: Hero.SyncState(
-                phase: nil,
-                showsPendingRanking: true,
-                hasRankContext: true,
-                didFinishRankLoad: false
-            ),
-            copy: Hero.Copy()
-        )
-        let untracked = Hero.make(
-            isClimbContext: true,
-            standings: [],
-            sync: Hero.SyncState(
-                phase: nil,
-                showsPendingRanking: false,
-                hasRankContext: true,
-                didFinishRankLoad: true
-            ),
-            copy: Hero.Copy()
-        )
-
-        #expect(tracking.value == "Checking")
-        #expect(tracking.detail == "LOOKING FOR YOUR RANK")
-        #expect(untracked.value == "Complete")
-        #expect(untracked.detail == "LIVE CLIMB COMPLETE")
-    }
-
-    @Test
-    func callerSuppliedUnrankedCopyIsHonoured() {
-        let hero = Hero.make(
-            isClimbContext: false,
-            standings: [],
-            sync: Hero.SyncState(
-                phase: nil,
-                showsPendingRanking: false,
-                hasRankContext: false,
-                didFinishRankLoad: true
-            ),
-            copy: Hero.Copy(
-                unrankedValue: "Forfeited",
-                unrankedDetail: "INTERVALS SKIPPED"
+    func noRankContextRendersNoHeroAtAll() {
+        for isClimbContext in [true, false] {
+            #expect(
+                Hero.make(
+                    isClimbContext: isClimbContext,
+                    standings: [Hero.Standing(rank: 3, total: 9, basis: .current)],
+                    sync: Hero.SyncState(
+                        phase: nil,
+                        hasRankContext: false,
+                        rankResolution: .settled
+                    ),
+                    copy: Hero.Copy()
+                ) == nil
             )
+        }
+    }
+
+    /// A routine session that forfeited credit ranks nowhere, so it renders no
+    /// hero rather than putting "Incomplete" where a rank goes.
+    @Test
+    func aForfeitedRoutineSessionRendersNoHero() {
+        let forfeited = RoutineCompletionSummaryPresentation(
+            stopReason: .skipped,
+            hasRoutineLeaderboard: true
         )
 
-        #expect(hero.value == "Forfeited")
-        #expect(hero.detail == "INTERVALS SKIPPED")
+        #expect(forfeited.ranksOnLeaderboard == false)
+        #expect(
+            Hero.make(
+                isClimbContext: false,
+                standings: [],
+                sync: Hero.SyncState(
+                    phase: nil,
+                    hasRankContext: forfeited.ranksOnLeaderboard,
+                    rankResolution: .settled
+                ),
+                copy: Hero.Copy(labelOverride: "ROUTINE RANK")
+            ) == nil
+        )
     }
 
     private func publishedSync() -> Hero.SyncState {
         Hero.SyncState(
             phase: .published,
-            showsPendingRanking: true,
             hasRankContext: true,
-            didFinishRankLoad: true
+            rankResolution: .settled
         )
     }
 }

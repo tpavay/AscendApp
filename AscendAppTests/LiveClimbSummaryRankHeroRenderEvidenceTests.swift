@@ -31,6 +31,7 @@ import Vision
 /// PNGs land in `ASCEND_EVIDENCE_DIR` when set, the test host's temp dir
 /// otherwise; the path is logged either way.
 @MainActor
+@Suite(.hostsAWindow)
 struct LiveClimbSummaryRankHeroRenderEvidenceTests {
     /// The captain's row, verified against staging: the frozen snapshot holds
     /// rank 1 / completedCount 1 from 2026-06-11.
@@ -77,7 +78,7 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
         // The "of N" renders at 13pt beside a 44pt ordinal and OCR reads it
         // unreliably ("of 1" comes back as "ofi"), so the denominator the view
         // renders is pinned on the hero itself.
-        #expect(renderedHero(basis: .atCompletion, rank: Self.frozenRank, total: Self.frozenTotal).total == 1)
+        #expect(renderedHero(basis: .atCompletion, rank: Self.frozenRank, total: Self.frozenTotal)?.total == 1)
 
         try writeEvidence(image: reported, named: "live-climb-summary-rank-hero-reported.png")
         try writeEvidence(image: fixed, named: "live-climb-summary-rank-hero-fixed.png")
@@ -117,7 +118,7 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
         #expect(currentText.contains("29th"))
         #expect(currentText.contains("current leaderboard rank"))
         #expect(!currentText.contains("live climb complete"))
-        #expect(renderedHero(basis: .current, rank: Self.currentRank, total: Self.currentTotal).total == 50)
+        #expect(renderedHero(basis: .current, rank: Self.currentRank, total: Self.currentTotal)?.total == 50)
 
         try writeEvidence(image: current, named: "live-climb-summary-rank-hero-current.png")
     }
@@ -173,6 +174,9 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
             leaderboardTotal: total,
             leaderboardRankBasis: basis,
             allowsRatingPrompt: false,
+            // The hero only renders where there is a population to rank against, so the
+            // screen needs a context even though the standing is handed in directly.
+            leaderboardContext: .justClimbGlobal(targetSteps: 2_579),
             moment: moment,
             rankingLabelOverride: "CLIMB RANK",
             completedDetailOverride: "LIVE CLIMB COMPLETE",
@@ -212,9 +216,21 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
             ?? UIWindow(frame: CGRect(origin: .zero, size: Self.screenSize))
         window.frame = CGRect(origin: .zero, size: Self.screenSize)
         window.overrideUserInterfaceStyle = .dark
+
+        // The summary carries a `@Query`, so a host left mounted keeps observing SwiftData after
+        // its container has gone. It then traps on the next save any other suite performs, which
+        // takes the whole test process down.
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+        }
+
         window.rootViewController = controller
+        // Visible but never key: this capture is synchronous and shares the scene with the other
+        // window-hosting evidence suites, and taking key out from under one mid-flight leaves its
+        // appearance transition open forever.
         window.isHidden = false
-        window.makeKeyAndVisible()
 
         controller.view.setNeedsLayout()
         controller.view.layoutIfNeeded()
@@ -230,8 +246,6 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
                 window.layer.render(in: context.cgContext)
             }
         }
-
-        window.isHidden = true
 
         return image
     }
@@ -261,7 +275,7 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
         basis: LiveClimbSummaryRankHero.Basis,
         rank: Int,
         total: Int
-    ) -> LiveClimbSummaryRankHero {
+    ) -> LiveClimbSummaryRankHero? {
         let sources = LiveClimbSummaryRankHero.Sources(
             callerSupplied: LiveClimbSummaryRankHero.Standing(rank: rank, total: total, basis: basis)
         )
@@ -271,9 +285,8 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
             standings: LiveClimbSummaryRankHero.standings(isClimbContext: false, sources: sources),
             sync: LiveClimbSummaryRankHero.SyncState(
                 phase: nil,
-                showsPendingRanking: true,
-                hasRankContext: false,
-                didFinishRankLoad: true
+                hasRankContext: true,
+                rankResolution: .settled
             ),
             copy: LiveClimbSummaryRankHero.Copy(labelOverride: "CLIMB RANK")
         )
@@ -293,16 +306,21 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
         )
     }
 
+    /// Held for the process, not per render. The summary carries a `@Query`, and SwiftUI keeps
+    /// observing SwiftData for a beat after the host is torn down - against a container that has
+    /// already gone, that observer traps on the next save any other suite performs.
+    private static let container: ModelContainer? = try? ModelContainer(
+        for: Workout.self,
+        WorkoutSourceLink.self,
+        WorkoutParticipation.self,
+        ClimbAttempt.self,
+        BestEffortCacheEntry.self,
+        BestEffortCacheMetadata.self,
+        configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+    )
+
     private func makeContainer() throws -> ModelContainer {
-        try ModelContainer(
-            for: Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
-            ClimbAttempt.self,
-            BestEffortCacheEntry.self,
-            BestEffortCacheMetadata.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
+        try #require(Self.container, "The evidence suite needs an in-memory model container")
     }
 
     // MARK: - Reading the rendered pixels back

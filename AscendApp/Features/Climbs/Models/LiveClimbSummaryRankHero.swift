@@ -10,7 +10,7 @@ import Foundation
 /// climb is "1st of 1" forever while that climb keeps collecting finishers, so a
 /// climb detail reading "50 completed" is not a contradiction of it.
 ///
-/// Two rules keep that legible:
+/// Four rules keep that legible:
 ///
 /// 1. Rank and total are resolved together from a single source. A frozen
 ///    position over a live denominator is a number that was never true. This is
@@ -19,6 +19,16 @@ import Foundation
 ///    it is a trusted precondition instead: see `Sources.callerSupplied`.
 /// 2. The detail line names the basis whenever the hero knows it, so the figure
 ///    is never left to be read as a current standing when it is not one.
+/// 3. The value slot holds a rank, a loading treatment, or nothing at all - never
+///    a status word. "Complete" where "21st" goes reads as a load that never
+///    finished, so `Value` makes that state unrepresentable rather than relying
+///    on every caller to pass wording that avoids it.
+/// 4. "No answer yet" is a pending state, never the settled one. `RankResolution`
+///    spells out the difference so a card that has not looked yet cannot render
+///    the terminal "no rank" wording for the frame before the lookup starts.
+///
+/// A frozen standing is also permanent: `FrozenCompletionRankStore` keeps the
+/// server's answer on device so a reopened summary renders it without a request.
 struct LiveClimbSummaryRankHero: Equatable {
     /// Which population the displayed standing was measured against.
     enum Basis: Equatable {
@@ -112,59 +122,79 @@ struct LiveClimbSummaryRankHero: Equatable {
         }
     }
 
+    /// What occupies the big slot.
+    enum Value: Equatable {
+        case rank(Int)
+        /// The rank is genuinely in flight. The label stays; only the value loads.
+        case loading
+        /// No rank, and none is arriving. The detail line carries the reason.
+        case unranked
+    }
+
+    /// How far the surface has got in resolving a rank for this session.
+    ///
+    /// The lookup runs after the first frame, so the state it starts in is
+    /// `notStarted` - a wait, not an answer. Both pending cases render the loading
+    /// treatment; only `settled` may say the session ranks nowhere.
+    enum RankResolution: Equatable {
+        /// No lookup has run yet.
+        case notStarted
+        /// A rank read is running right now.
+        case resolving
+        /// The lookup finished. Whatever the hero shows now is the final answer.
+        case settled
+
+        var isPending: Bool { self != .settled }
+    }
+
     /// The publish/sync state that drives the unranked copy.
     struct SyncState: Equatable {
         let phase: LiveClimbPublicResultPhase?
-        /// Whether this surface is allowed to show "still looking" copy at all.
-        let showsPendingRanking: Bool
-        /// Whether a leaderboard context exists to rank against.
+        /// Whether a leaderboard context exists to rank against. Without one there
+        /// is no hero at all.
         let hasRankContext: Bool
-        let didFinishRankLoad: Bool
+        let rankResolution: RankResolution
 
         init(
             phase: LiveClimbPublicResultPhase?,
-            showsPendingRanking: Bool,
             hasRankContext: Bool,
-            didFinishRankLoad: Bool
+            rankResolution: RankResolution
         ) {
             self.phase = phase
-            self.showsPendingRanking = showsPendingRanking
             self.hasRankContext = hasRankContext
-            self.didFinishRankLoad = didFinishRankLoad
+            self.rankResolution = rankResolution
         }
     }
 
-    /// Caller-supplied wording. Every field is optional; `nil` means "use the
-    /// wording this context calls for".
+    /// Caller-supplied wording for the surfaces that are not a landmark climb.
+    ///
+    /// The label is caller-owned. The detail line is not: wherever the hero can
+    /// name the population the rank was measured against, it does. The one
+    /// exception is a `.liveSession` standing, whose race window only the caller
+    /// can describe.
     struct Copy: Equatable {
         let labelOverride: String?
+        /// Stands in for the detail line only under a `.liveSession` standing.
         let completedDetailOverride: String?
-        let unrankedValue: String?
-        let unrankedDetail: String?
 
         init(
             labelOverride: String? = nil,
-            completedDetailOverride: String? = nil,
-            unrankedValue: String? = nil,
-            unrankedDetail: String? = nil
+            completedDetailOverride: String? = nil
         ) {
             self.labelOverride = labelOverride
             self.completedDetailOverride = completedDetailOverride
-            self.unrankedValue = unrankedValue
-            self.unrankedDetail = unrankedDetail
         }
     }
 
     static let atCompletionDetail = "RANK WHEN YOU FINISHED"
     static let freshAtCompletionDetail = "RANK YOU JUST EARNED"
     static let currentDetail = "CURRENT LEADERBOARD RANK"
-    static let pendingRankValue = "Checking"
-    static let pendingRankDetail = "LOOKING FOR YOUR RANK"
 
     let label: String
-    let value: String
+    let value: Value
     let detail: String
     let standing: Standing?
+    let showsRetrySync: Bool
 
     /// The denominator to render beside the value, or `nil` when there is none to
     /// show. Only ever the total belonging to the standing that produced `value`.
@@ -198,6 +228,9 @@ struct LiveClimbSummaryRankHero: Equatable {
 
     /// Builds the hero from the candidate standings in precedence order.
     ///
+    /// Returns `nil` when this session ranks nowhere: the hero does not render,
+    /// and the achievement row below already states the outcome.
+    ///
     /// - Parameters:
     ///   - isClimbContext: Whether this summary belongs to a catalog climb.
     ///   - moment: Whether this summary is the post-session moment itself.
@@ -209,12 +242,14 @@ struct LiveClimbSummaryRankHero: Equatable {
         standings: [Standing?],
         sync: SyncState,
         copy: Copy
-    ) -> Self {
+    ) -> Self? {
+        guard sync.hasRankContext else { return nil }
+
         let standing = standings.compactMap { $0 }.first
 
         return Self(
             label: label(isClimbContext: isClimbContext, copy: copy),
-            value: value(standing: standing, sync: sync, copy: copy),
+            value: value(standing: standing, sync: sync),
             detail: detail(
                 standing: standing,
                 isClimbContext: isClimbContext,
@@ -222,7 +257,8 @@ struct LiveClimbSummaryRankHero: Equatable {
                 sync: sync,
                 copy: copy
             ),
-            standing: standing
+            standing: standing,
+            showsRetrySync: standing == nil && sync.phase == .syncFailedRetry
         )
     }
 
@@ -230,32 +266,16 @@ struct LiveClimbSummaryRankHero: Equatable {
         copy.labelOverride ?? (isClimbContext ? "CLIMB RANK" : "GLOBAL RANK")
     }
 
-    private static func value(
-        standing: Standing?,
-        sync: SyncState,
-        copy: Copy
-    ) -> String {
+    private static func value(standing: Standing?, sync: SyncState) -> Value {
         if let standing {
-            return standing.rank.rankOrdinalText
+            return .rank(standing.rank)
         }
 
-        if sync.showsRankUnavailableState {
-            return "Unavailable"
+        if sync.rankResolution.isPending || sync.phase == .syncingRanking {
+            return .loading
         }
 
-        switch sync.phase {
-        case .savedOnDevice:
-            return "Saved"
-        case .syncFailedRetry:
-            return "Sync failed"
-        case .syncingRanking:
-            return "Syncing"
-        case .pending, .published, nil:
-            if sync.showsPendingRankCopy {
-                return pendingRankValue
-            }
-            return copy.unrankedValue ?? "Complete"
-        }
+        return .unranked
     }
 
     private static func detail(
@@ -280,10 +300,6 @@ struct LiveClimbSummaryRankHero: Equatable {
             }
         }
 
-        if sync.showsRankUnavailableState {
-            return "CHECK LEADERBOARD LATER"
-        }
-
         switch sync.phase {
         case .savedOnDevice:
             return "RESULT SAVED ON DEVICE"
@@ -292,24 +308,8 @@ struct LiveClimbSummaryRankHero: Equatable {
         case .syncingRanking:
             return "SYNCING RANKING"
         case .pending, .published, nil:
-            return copy.unrankedDetail ?? defaultUnrankedDetail(
-                isClimbContext: isClimbContext,
-                sync: sync,
-                copy: copy
-            )
+            return sync.rankResolution.isPending ? "LOOKING FOR YOUR RANK" : "CHECK LEADERBOARD LATER"
         }
-    }
-
-    private static func defaultUnrankedDetail(
-        isClimbContext: Bool,
-        sync: SyncState,
-        copy: Copy
-    ) -> String {
-        guard sync.tracksRanking else {
-            return completedDetail(isClimbContext: isClimbContext, copy: copy)
-        }
-
-        return pendingRankDetail
     }
 
     private static func completedDetail(isClimbContext: Bool, copy: Copy) -> String {
@@ -318,23 +318,7 @@ struct LiveClimbSummaryRankHero: Equatable {
     }
 }
 
-extension LiveClimbSummaryRankHero.SyncState {
-    /// Whether this surface both has a population to rank against and reports its
-    /// progress toward that ranking.
-    var tracksRanking: Bool {
-        showsPendingRanking && hasRankContext
-    }
-
-    var showsPendingRankCopy: Bool {
-        tracksRanking && !didFinishRankLoad
-    }
-
-    var showsRankUnavailableState: Bool {
-        tracksRanking && didFinishRankLoad
-    }
-}
-
-private extension Int {
+extension Int {
     var rankOrdinalText: String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .ordinal

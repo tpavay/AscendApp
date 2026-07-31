@@ -4,7 +4,7 @@ enum ProfileVisualStyle {
     static let background = Color.black
     static let cardFill = Color.white.opacity(0.055)
     static let cardStroke = Color.white.opacity(0.12)
-    static let skeletonFill = Color.white.opacity(0.16)
+    static let skeletonFill = AscendSkeletonStyle.fill
     static let secondaryText = Color.white.opacity(0.68)
     static let tertiaryText = Color.white.opacity(0.42)
     static let opponentBlue = Color(red: 0.26, green: 0.48, blue: 1.0)

@@ -38,15 +38,18 @@ final class LiveClimbPublicResultSyncStore {
 
     private let leaderboardService: LiveReplayLeaderboardServicing
     private let connectivityService: NetworkConnectivityService
+    private let completedRankService: CompletedClimbRankService
     private var retryTasksByWorkoutId: [UUID: Task<Void, Never>] = [:]
     private(set) var statusesByWorkoutId: [UUID: LiveClimbPublicResultSyncStatus] = [:]
 
     init(
         leaderboardService: LiveReplayLeaderboardServicing = LiveReplayLeaderboardService.shared,
-        connectivityService: NetworkConnectivityService = .shared
+        connectivityService: NetworkConnectivityService = .shared,
+        completedRankService: CompletedClimbRankService = .shared
     ) {
         self.leaderboardService = leaderboardService
         self.connectivityService = connectivityService
+        self.completedRankService = completedRankService
     }
 
     func status(for workoutId: UUID) -> LiveClimbPublicResultSyncStatus? {
@@ -61,6 +64,9 @@ final class LiveClimbPublicResultSyncStore {
         statusesByWorkoutId[workout.id] = status
     }
 
+    /// Polls only while the result is still settling. A workout whose rank is already frozen is
+    /// finished competitive history - there is nothing left to wait for, so a reopened summary
+    /// costs zero requests.
     func refreshUntilRankPublished(
         workout: Workout,
         climb: Climb,
@@ -68,6 +74,18 @@ final class LiveClimbPublicResultSyncStore {
         delaySeconds: UInt64 = 1_500_000_000
     ) async {
         let attempts = max(maxAttempts, 1)
+
+        if let frozen = completedRankService.frozenRank(
+            context: leaderboardContext(for: climb),
+            workoutId: workout.id.uuidString
+        ) {
+            statusesByWorkoutId[workout.id] = LiveClimbPublicResultSyncStatus(
+                phase: .published,
+                rankSnapshot: frozen,
+                publishStatus: statusesByWorkoutId[workout.id]?.publishStatus
+            )
+            return
+        }
 
         for attempt in 0..<attempts {
             await refresh(workout: workout, climb: climb)
@@ -142,17 +160,21 @@ final class LiveClimbPublicResultSyncStore {
         await task.value
     }
 
+    private func leaderboardContext(for climb: Climb) -> LiveReplayLeaderboardContext {
+        .liveClimb(
+            climbId: climb.id,
+            targetSteps: climb.referenceStepCount
+        )
+    }
+
     private func resolvedStatus(
         workout: Workout,
         climb: Climb
     ) async -> LiveClimbPublicResultSyncStatus {
-        let context = LiveReplayLeaderboardContext.liveClimb(
-            climbId: climb.id,
-            targetSteps: climb.referenceStepCount
-        )
+        let context = leaderboardContext(for: climb)
         let workoutId = workout.id.uuidString
 
-        async let fetchedSnapshot = leaderboardService.fetchCompletionRankSnapshot(
+        async let fetchedSnapshot = completedRankService.resolveFrozenRank(
             context: context,
             workoutId: workoutId
         )
@@ -160,7 +182,7 @@ final class LiveClimbPublicResultSyncStore {
             workoutId: workoutId
         )
 
-        let rankSnapshot = try? await fetchedSnapshot
+        let rankSnapshot = await fetchedSnapshot
         let publishStatus = try? await fetchedPublishStatus
 
         if let rankSnapshot {
