@@ -143,22 +143,70 @@ export function hasCurrentIdentityPolicy(profileData) {
 }
 
 /**
- * Returns whether a leaderboard row carries everything the client requires.
+ * Returns every clause of the client's parse contract a leaderboard row fails.
  *
  * This is the JavaScript twin of the guard in LeaderboardRepository.parseStat.
- * A row that fails this is fetched, dropped, and never rendered.
+ * A row that fails any clause is fetched, dropped, and never rendered, so the
+ * twin has to reproduce all of them - a looser guard reports a green
+ * leaderboard the client still empties out.
+ * @param {object | undefined} data Leaderboard row fields.
+ * @return {string[]} The unmet clauses, empty when the row would parse.
+ */
+export function rowGuardFailures(data) {
+  const failures = [];
+
+  if (typeof data?.userId !== "string") {
+    failures.push("userId");
+  }
+  if (
+    numberValue(data?.identityPolicyVersion) !== PUBLIC_IDENTITY_POLICY_VERSION
+  ) {
+    failures.push("identityPolicyVersion");
+  }
+
+  const state = data?.identityState;
+  const stateIsKnown = typeof state === "string" &&
+    ["published", "pending_public_profile", "deleted"].includes(state);
+  if (!stateIsKnown) {
+    failures.push("identityState");
+  }
+
+  if (typeof data?.timeFrame !== "string") {
+    failures.push("timeFrame");
+  }
+  if (typeof data?.periodKey !== "string") {
+    failures.push("periodKey");
+  }
+  if (!isTimestampValue(data?.periodStartAt)) {
+    failures.push("periodStartAt");
+  }
+  if (!isTimestampValue(data?.lastUpdated)) {
+    failures.push("lastUpdated");
+  }
+  if (state === "published" && !isTimestampValue(data?.identityChangedAt)) {
+    failures.push("identityChangedAt");
+  }
+
+  const hasEffort = [
+    data?.totalWorkouts,
+    data?.totalSteps,
+    data?.totalFloors,
+    data?.totalDuration,
+  ].some((value) => (numberValue(value) ?? 0) > 0);
+  if (!hasEffort) {
+    failures.push("totals are all zero");
+  }
+
+  return failures;
+}
+
+/**
+ * Returns whether a leaderboard row carries everything the client requires.
  * @param {object | undefined} data Leaderboard row fields.
  * @return {boolean} Whether the row would survive parseStat.
  */
 export function rowPassesIdentityGuard(data) {
-  const state = data?.identityState;
-  return numberValue(data?.identityPolicyVersion) ===
-      PUBLIC_IDENTITY_POLICY_VERSION &&
-    typeof state === "string" &&
-    ["published", "pending_public_profile", "deleted"].includes(state) &&
-    (state !== "published" ||
-      (data?.identityChangedAt !== undefined &&
-        data?.identityChangedAt !== null));
+  return rowGuardFailures(data).length === 0;
 }
 
 /**
@@ -211,4 +259,17 @@ function skip(userId, reason) {
 // it really is the current version.
 function numberValue(value) {
   return typeof value === "number" ? value : null;
+}
+
+// The client reads these through timestampValue, which accepts only a Firestore
+// Timestamp or a Date. A string or a number is not a timestamp there either.
+function isTimestampValue(value) {
+  if (value instanceof Date) {
+    return true;
+  }
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+  return typeof value.toDate === "function" ||
+    (typeof value.seconds === "number" && typeof value.nanoseconds === "number");
 }

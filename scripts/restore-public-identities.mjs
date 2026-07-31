@@ -27,7 +27,7 @@ import {
   PUBLIC_IDENTITY_POLICY_VERSION,
   hasCurrentIdentityPolicy,
   planPublicIdentityBackfill,
-  rowPassesIdentityGuard,
+  rowGuardFailures,
   summarizeBackfillPlan,
 } from "./lib/public-identity-backfill.mjs";
 import {
@@ -86,12 +86,13 @@ try {
   await run.recordPending(pending);
 
   const applied = await applyPlans(db, plans);
-  const unresolved = await verifySources(db, plans);
+  const unresolved = await verifySources(db, plans, applied);
 
   await run.recordPending([]);
   await run.finish(
     {
       contended: applied.contended.length,
+      missing: applied.missing.length,
       stamped: applied.stamped.length,
       skipped: summarizeBackfillPlan(plans).skip,
     },
@@ -158,14 +159,19 @@ async function planEveryUser(firestore) {
  *
  * The write is guarded by the update time the plan was read at, so a profile the
  * account republished in the meantime is reported rather than clobbered.
+ * A mirror deleted between planning and applying is the same "the account
+ * changed under us" class of event as a republish, so it is recorded and the
+ * run carries on rather than stranding every remaining stampable mirror.
  * @param {FirebaseFirestore.Firestore} firestore Firestore instance.
  * @param {object[]} plans Planned actions.
- * @return {Promise<{stamped: string[], contended: string[]}>} Applied uids.
+ * @return {Promise<{stamped: string[], contended: string[], missing: string[]}>}
+ *   Applied uids, split by outcome.
  */
 async function applyPlans(firestore, plans) {
   const {FieldValue} = await import("firebase-admin/firestore");
   const stamped = [];
   const contended = [];
+  const missing = [];
 
   for (const plan of plans) {
     if (plan.action !== BACKFILL_ACTIONS.stamp) {
@@ -186,26 +192,35 @@ async function applyPlans(firestore, plans) {
         );
       stamped.push(plan.userId);
     } catch (error) {
-      if (!isPreconditionFailure(error)) {
+      if (isMissingDocumentFailure(error)) {
+        missing.push(plan.userId);
+      } else if (isPreconditionFailure(error)) {
+        contended.push(plan.userId);
+      } else {
         throw error;
       }
-      contended.push(plan.userId);
     }
   }
 
-  return {contended, stamped};
+  return {contended, missing, stamped};
 }
 
 /**
  * Rereads every stamped mirror and returns the uids that still lack the policy.
+ *
+ * Mirrors that were deleted under the run are excluded: there is no longer a
+ * document to repair, so counting them unrepaired would fail an honest run.
  * @param {FirebaseFirestore.Firestore} firestore Firestore instance.
  * @param {object[]} plans Planned actions.
+ * @param {{missing: string[]}} applied Outcomes from applyPlans.
  * @return {Promise<string[]>} Uids whose source document is still unrepaired.
  */
-async function verifySources(firestore, plans) {
+async function verifySources(firestore, plans, applied) {
+  const deleted = new Set(applied.missing);
   const targets = plans
     .filter((plan) => plan.action === BACKFILL_ACTIONS.stamp)
-    .map((plan) => plan.userId);
+    .map((plan) => plan.userId)
+    .filter((userId) => !deleted.has(userId));
   if (targets.length === 0) {
     return [];
   }
@@ -233,12 +248,14 @@ async function verifyProjections(firestore) {
 
   for (const row of rows.docs) {
     const data = row.data();
+    const failures = rowGuardFailures(data);
     const verdict = {
       displayName: data.displayName ?? null,
+      failures,
       id: row.id,
       userId: data.userId ?? null,
     };
-    if (rowPassesIdentityGuard(data)) {
+    if (failures.length === 0) {
       passing.push(verdict);
     } else {
       failing.push(verdict);
@@ -278,6 +295,12 @@ function reportApply(applied, unresolved) {
       `them up): ${applied.contended.join(", ")}`
     );
   }
+  if (applied.missing.length > 0) {
+    console.log(
+      "Left alone because the mirror was deleted mid-run (nothing to " +
+      `repair): ${applied.missing.join(", ")}`
+    );
+  }
   if (unresolved.length > 0) {
     console.log(
       `Still missing the identity policy after the write: ${unresolved.join(", ")}`
@@ -303,12 +326,12 @@ function reportVerification(verification, environmentValue) {
   for (const row of verification.failing) {
     console.log(
       `  [dropped] ${row.id} (${row.displayName ?? "no display name"}, ` +
-      `userId ${row.userId ?? "none"})`
+      `userId ${row.userId ?? "none"}) fails: ${row.failures.join(", ")}`
     );
   }
 
   if (verification.failing.length === 0) {
-    console.log("\nEvery leaderboard row carries the full identity contract.");
+    console.log("\nEvery leaderboard row satisfies the full client contract.");
   }
 }
 
@@ -319,6 +342,11 @@ function publicProfileReference(userReference) {
 // Firestore surfaces a lastUpdateTime precondition miss as FAILED_PRECONDITION.
 function isPreconditionFailure(error) {
   return error?.code === 9 || /FAILED_PRECONDITION/u.test(String(error));
+}
+
+// An update against a document deleted since planning comes back as NOT_FOUND.
+function isMissingDocumentFailure(error) {
+  return error?.code === 5 || /NOT_FOUND/u.test(String(error));
 }
 
 function printUsage() {

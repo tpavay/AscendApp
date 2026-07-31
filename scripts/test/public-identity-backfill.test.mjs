@@ -8,6 +8,7 @@ import {
   BACKFILL_ACTIONS,
   hasCurrentIdentityPolicy,
   planPublicIdentityBackfill,
+  rowGuardFailures,
   rowPassesIdentityGuard,
   summarizeBackfillPlan,
 } from "../lib/public-identity-backfill.mjs";
@@ -201,36 +202,112 @@ test("the plan summary counts every action", () => {
   assert.deepEqual(summary, {current: 1, skip: 2, stamp: 1, warnings: 0});
 });
 
-// This mirrors the guard in LeaderboardRepository.parseStat. If these two ever
-// disagree, --verify reports a green leaderboard the client still empties out.
-test("the row guard matches the client's parseStat contract", () => {
-  const published = {
+// A leaderboard row the client parses in full: every clause of parseStat is
+// satisfied. Overriding or deleting one field at a time proves each is
+// individually load-bearing.
+function parsableRow(overrides = {}) {
+  return {
     identityChangedAt: {seconds: 1_754_075_755, nanoseconds: 0},
     identityPolicyVersion: 1,
     identityState: "published",
+    lastUpdated: {seconds: 1_752_861_137, nanoseconds: 0},
+    periodKey: "2026-W31",
+    periodStartAt: {seconds: 1_752_800_000, nanoseconds: 0},
+    timeFrame: "weekly",
+    totalDuration: 3_600,
+    totalFloors: 120,
+    totalSteps: 4_800,
+    totalWorkouts: 3,
     userId: "profile_veteran_champion",
+    ...overrides,
   };
+}
 
-  assert.equal(rowPassesIdentityGuard(published), true);
+// This mirrors the guard in LeaderboardRepository.parseStat. If these two ever
+// disagree, --verify reports a green leaderboard the client still empties out.
+test("the row guard matches the client's parseStat contract", () => {
+  assert.equal(rowPassesIdentityGuard(parsableRow()), true);
 
   for (const field of [
     "identityChangedAt",
     "identityPolicyVersion",
     "identityState",
+    "lastUpdated",
+    "periodKey",
+    "periodStartAt",
+    "timeFrame",
+    "userId",
   ]) {
-    const row = {...published};
+    const row = parsableRow();
     delete row[field];
     assert.equal(rowPassesIdentityGuard(row), false, `dropped without ${field}`);
+    assert.deepEqual(rowGuardFailures(row), [field], `only ${field} is unmet`);
   }
 
-  assert.equal(rowPassesIdentityGuard({...published, identityPolicyVersion: 2}), false);
-  assert.equal(rowPassesIdentityGuard({...published, identityState: "wat"}), false);
+  assert.equal(rowPassesIdentityGuard(parsableRow({identityPolicyVersion: 2})), false);
+  assert.equal(rowPassesIdentityGuard(parsableRow({identityState: "wat"})), false);
   // A pending or deleted row needs no timestamp; only "published" does.
-  assert.equal(rowPassesIdentityGuard({
-    identityPolicyVersion: 1,
+  assert.equal(rowPassesIdentityGuard(parsableRow({
+    identityChangedAt: undefined,
     identityState: "pending_public_profile",
-  }), true);
+  })), true);
   assert.equal(rowPassesIdentityGuard(undefined), false);
+});
+
+// Rows predating schemaVersion 2 carry neither period field. They never matched
+// the client's query either, so --verify must report them dropped rather than
+// counting them as rendering.
+test("a pre-schemaVersion-2 row is reported dropped, not rendering", () => {
+  const legacy = parsableRow();
+  delete legacy.periodStartAt;
+  delete legacy.lastUpdated;
+
+  assert.equal(rowPassesIdentityGuard(legacy), false);
+  assert.deepEqual(rowGuardFailures(legacy), ["periodStartAt", "lastUpdated"]);
+});
+
+// The client reads these through timestampValue, which takes a Timestamp or a
+// Date and nothing else - a serialized string is not a timestamp there.
+test("timestamp clauses require a real timestamp, not a string", () => {
+  for (const field of ["identityChangedAt", "lastUpdated", "periodStartAt"]) {
+    assert.equal(
+      rowPassesIdentityGuard(parsableRow({[field]: "2026-07-31T00:00:00Z"})),
+      false,
+      `${field} as a string`
+    );
+    assert.equal(
+      rowPassesIdentityGuard(parsableRow({[field]: new Date(1_752_800_000_000)})),
+      true,
+      `${field} as a Date`
+    );
+  }
+});
+
+// parseStat drops a row whose four totals are all zero, so a stamped-but-empty
+// row must not be counted as one the leaderboard will show.
+test("a row with no effort at all is dropped", () => {
+  const empty = parsableRow({
+    totalDuration: 0,
+    totalFloors: 0,
+    totalSteps: 0,
+    totalWorkouts: 0,
+  });
+
+  assert.equal(rowPassesIdentityGuard(empty), false);
+  assert.deepEqual(rowGuardFailures(empty), ["totals are all zero"]);
+
+  for (const field of [
+    "totalDuration",
+    "totalFloors",
+    "totalSteps",
+    "totalWorkouts",
+  ]) {
+    assert.equal(
+      rowPassesIdentityGuard({...empty, [field]: 1}),
+      true,
+      `${field} alone carries the row`
+    );
+  }
 });
 
 test("production is refused rather than merely not targeted", () => {
