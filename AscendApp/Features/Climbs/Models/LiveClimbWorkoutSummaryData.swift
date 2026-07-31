@@ -42,6 +42,12 @@ enum LiveClimbWorkoutSummaryData {
         return try? ClimbService.shared.climb(for: climbId)
     }
 
+    /// The step scale a finished session's summary is drawn against: the recorder's
+    /// own target, never below what the session actually logged.
+    static func summaryTargetSteps(metadata: HeadphoneMotionWorkoutMetadata, workout: Workout) -> Int {
+        max(metadata.targetStepCount ?? workout.steps, workout.steps, 1)
+    }
+
     static func progressPoints(for workout: Workout, targetSteps: Int) -> [LiveClimbProgressPoint] {
         normalizedProgressPoints(for: workout, targetSteps: targetSteps)
     }

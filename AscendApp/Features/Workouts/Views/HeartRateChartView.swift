@@ -22,9 +22,19 @@ struct HeartRateChartDataSet: Equatable {
     /// second, and handing Swift Charts 2,600 `LineMark`s costs ~114 ms to render
     /// - seven 60 Hz frames for detail no chart this size can show. Capping the
     /// mark count keeps the same curve at roughly an eighth of the cost.
+    ///
+    /// It is a real bound up to `maximumPlottedPointCount / 2` dropout segments.
+    /// Past that, every segment still keeps its own two endpoints - a run that
+    /// plotted nothing would read as a longer dropout than actually happened - so
+    /// the worst case is `2 x segment count`, reachable only with a strap that
+    /// dropped out more than 200 times in one session.
     static let maximumPlottedPointCount = 400
 
     let points: [HeartRateChartPoint]
+    /// The full unthinned series, kept for the scrub readout only. Thinning is a
+    /// rendering concession; the "### BPM at m:ss" a climber reads off the chart
+    /// has to be the actual sample under their finger, not a nearby bucket extreme.
+    let scrubPoints: [HeartRateChartPoint]
     let segments: [HeartRateChartSegment]
     let duration: TimeInterval
     let heartRateRange: ClosedRange<Int>
@@ -33,6 +43,12 @@ struct HeartRateChartDataSet: Equatable {
     var canPlotLine: Bool {
         let distinctElapsedValues = Set(points.map { Int($0.elapsed.rounded()) })
         return points.count >= Self.minimumLineSampleCount && distinctElapsedValues.count >= 2
+    }
+
+    /// The reading under a scrub touch, resolved against the full series rather than
+    /// the plotted subset so the BPM and the "at m:ss" label are the real sample.
+    func nearestScrubPoint(to elapsed: TimeInterval) -> HeartRateChartPoint? {
+        scrubPoints.min { abs($0.elapsed - elapsed) < abs($1.elapsed - elapsed) }
     }
 
     init(
@@ -65,6 +81,7 @@ struct HeartRateChartDataSet: Equatable {
         // a continuous trace or papering over real ones.
         segments = Self.thinnedSegments(Self.segments(for: rawPoints), rawPointCount: rawPoints.count)
         points = segments.flatMap(\.points)
+        scrubPoints = rawPoints
         duration = visibleDuration
 
         // Ranged off the full series, not the plotted subset, so the axis still
@@ -78,17 +95,25 @@ struct HeartRateChartDataSet: Equatable {
     /// A 43-minute session records one sample per second, and handing Swift Charts
     /// 2,600 `LineMark`s costs ~114 ms to render - seven 60 Hz frames for detail no
     /// chart this size can show.
+    ///
+    /// Every segment first reserves its own endpoints so a short run is never thinned
+    /// out of existence; what is left of the cap is then shared out in proportion to
+    /// segment length, which keeps the total inside `maximumPlottedPointCount` for any
+    /// trace with at most half that many segments.
     private static func thinnedSegments(
         _ segments: [HeartRateChartSegment],
         rawPointCount: Int
     ) -> [HeartRateChartSegment] {
-        guard rawPointCount > maximumPlottedPointCount, rawPointCount > 0 else {
+        guard rawPointCount > maximumPlottedPointCount else {
             return segments
         }
 
+        let reserved = segments.reduce(0) { $0 + min($1.points.count, 2) }
+        let discretionary = max(maximumPlottedPointCount - reserved, 0)
+
         return segments.map { segment in
             let share = Double(segment.points.count) / Double(rawPointCount)
-            let budget = max(Int(Double(maximumPlottedPointCount) * share), 2)
+            let budget = min(segment.points.count, 2) + Int(Double(discretionary) * share)
             return HeartRateChartSegment(id: segment.id, points: thinned(segment.points, budget: budget))
         }
     }
@@ -96,12 +121,17 @@ struct HeartRateChartDataSet: Equatable {
     /// Keeps each bucket's lowest and highest reading in time order, plus the run's
     /// own endpoints. Dropping every Nth sample instead would clip the peaks and
     /// troughs - the part of a heart-rate trace a climber actually reads.
+    ///
+    /// Never returns more than `budget` marks, so the caller's allocation is the
+    /// real bound rather than an approximation of one.
     private static func thinned(_ points: [HeartRateChartPoint], budget: Int) -> [HeartRateChartPoint] {
         guard points.count > budget else { return points }
 
         // Two marks come out of each bucket, and the two endpoints are added back
         // afterwards, so the bucket budget has to leave room for both.
-        let bucketCount = max((budget - 2) / 2, 1)
+        let bucketCount = (budget - 2) / 2
+        guard bucketCount >= 1 else { return endpoints(of: points) }
+
         var kept: [HeartRateChartPoint] = []
         kept.reserveCapacity(budget)
 
@@ -133,6 +163,11 @@ struct HeartRateChartDataSet: Equatable {
         }
 
         return kept
+    }
+
+    private static func endpoints(of points: [HeartRateChartPoint]) -> [HeartRateChartPoint] {
+        guard let first = points.first, let last = points.last else { return points }
+        return first.id == last.id ? [first] : [first, last]
     }
 
     /// Splits the trace wherever coverage actually stopped, so a dropout reads
@@ -255,11 +290,7 @@ struct HeartRateChartView: View {
     private var computedSelectedPoint: HeartRateChartPoint? {
         guard let activeTime = rawSelectedTime ?? stickySelectedTime else { return nil }
 
-        return dataSet.points.min { point1, point2 in
-            let distance1 = abs(point1.elapsed - activeTime)
-            let distance2 = abs(point2.elapsed - activeTime)
-            return distance1 < distance2
-        }
+        return dataSet.nearestScrubPoint(to: activeTime)
     }
 
     private var averageHeartRate: Int? {

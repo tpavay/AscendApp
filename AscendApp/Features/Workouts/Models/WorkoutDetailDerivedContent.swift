@@ -20,18 +20,21 @@ struct WorkoutDetailDerivedContent {
         liveClimbMetadata = metadata
         heartRateSeries = workout.heartRateTimeSeries
 
-        guard let metadata else {
+        // The cheap predicates gate the expensive rebuild, not the other way round:
+        // a session that renders no splits section must not pay for a checkpoint
+        // curve nobody reads.
+        guard let metadata,
+              workout.isInAppSensorWorkout,
+              Self.hasRecordedPaceSplitData(metadata: metadata, finalSteps: workout.steps) else {
             paceSplits = []
             showsPaceSplits = false
             return
         }
 
-        let targetSteps = max(metadata.targetStepCount ?? workout.steps, workout.steps, 1)
+        let targetSteps = LiveClimbWorkoutSummaryData.summaryTargetSteps(metadata: metadata, workout: workout)
         let splits = LiveClimbWorkoutSummaryData.paceSplits(for: workout, targetSteps: targetSteps)
         paceSplits = splits
-        showsPaceSplits = workout.isInAppSensorWorkout &&
-            splits.count > 1 &&
-            Self.hasRecordedPaceSplitData(metadata: metadata, finalSteps: workout.steps)
+        showsPaceSplits = splits.count > 1
     }
 
     var canOpenLiveClimbSummary: Bool {

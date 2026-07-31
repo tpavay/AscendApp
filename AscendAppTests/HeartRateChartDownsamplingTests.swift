@@ -35,6 +35,26 @@ struct HeartRateChartDownsamplingTests {
         }
     }
 
+    /// A strap that keeps cutting out: 13 seconds of 1 Hz capture, then a minute of
+    /// silence, repeated. Every gap clears the dropout threshold, so each run becomes
+    /// its own segment.
+    private static func fragmentedSession(segmentCount: Int) -> [HeartRateDataPoint] {
+        var samples: [HeartRateDataPoint] = []
+        for segment in 0..<segmentCount {
+            for second in 0..<13 {
+                let elapsed = TimeInterval(segment * 72 + second)
+                let heartRate: Int = 140 + (segment + second) % 23
+                samples.append(
+                    HeartRateDataPoint(
+                        timestamp: start.addingTimeInterval(elapsed),
+                        heartRate: heartRate
+                    )
+                )
+            }
+        }
+        return samples
+    }
+
     @Test
     func longSessionIsCappedToAPlottableNumberOfMarks() {
         let samples = Self.longSession()
@@ -136,6 +156,76 @@ struct HeartRateChartDownsamplingTests {
         )
 
         #expect(dataSet.segments.count == 1)
+    }
+
+    /// A fragmented trace still has to respect the cap. The budget is handed out
+    /// after every segment has reserved its own endpoints, so 200 dropouts land
+    /// exactly on the cap rather than blowing past it two marks at a time.
+    @Test
+    func aHeavilyFragmentedTraceStaysInsideTheCap() {
+        let dataSet = HeartRateChartDataSet(
+            samples: Self.fragmentedSession(segmentCount: 200),
+            workoutStartTime: Self.start,
+            workoutDuration: 14_400
+        )
+
+        #expect(dataSet.segments.count == 200)
+        #expect(dataSet.points.count <= HeartRateChartDataSet.maximumPlottedPointCount)
+        // No run is thinned out of existence - a segment that plotted nothing would
+        // read as a longer dropout than actually happened.
+        #expect(dataSet.segments.allSatisfy { $0.points.count == 2 })
+    }
+
+    /// Past `maximumPlottedPointCount / 2` segments the endpoints alone exceed the
+    /// cap. This pins the documented worst case: two marks per segment, no more.
+    @Test
+    func aTraceWithMoreSegmentsThanBudgetKeepsOnlyEndpoints() {
+        let dataSet = HeartRateChartDataSet(
+            samples: Self.fragmentedSession(segmentCount: 250),
+            workoutStartTime: Self.start,
+            workoutDuration: 18_000
+        )
+
+        #expect(dataSet.segments.count == 250)
+        #expect(dataSet.points.count == 500)
+        #expect(dataSet.segments.allSatisfy { $0.points.count == 2 })
+    }
+
+    /// Thinning is a rendering concession, not a licence to misreport. The scrub
+    /// readout resolves against the full series, so a sample the chart never plots
+    /// is still the value shown when the climber's finger is over it.
+    @Test
+    func scrubbingResolvesASampleThatThinningRemovedFromTheChart() throws {
+        let samples = Self.longSession()
+        let dataSet = HeartRateChartDataSet(
+            samples: samples,
+            workoutStartTime: Self.start,
+            workoutDuration: 2_603
+        )
+
+        #expect(dataSet.scrubPoints.count == samples.count)
+        #expect(dataSet.points.count < dataSet.scrubPoints.count)
+
+        let plottedIds = Set(dataSet.points.map(\.id))
+        let thinnedAway = try #require(dataSet.scrubPoints.first { plottedIds.contains($0.id) == false })
+        let resolved = try #require(dataSet.nearestScrubPoint(to: thinnedAway.elapsed))
+
+        #expect(resolved == thinnedAway)
+        #expect(resolved.heartRate == samples[thinnedAway.id].heartRate)
+    }
+
+    /// The "at m:ss" label has to name the touched moment, not the nearest surviving
+    /// mark several seconds away.
+    @Test
+    func scrubbingResolvesTheSampleClosestToTheTouchedTime() throws {
+        let dataSet = HeartRateChartDataSet(
+            samples: Self.longSession(),
+            workoutStartTime: Self.start,
+            workoutDuration: 2_603
+        )
+
+        let resolved = try #require(dataSet.nearestScrubPoint(to: 1_234.4))
+        #expect(resolved.elapsed == 1_234)
     }
 
     @Test

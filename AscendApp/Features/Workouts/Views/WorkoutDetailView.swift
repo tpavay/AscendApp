@@ -612,7 +612,7 @@ struct WorkoutDetailView: View {
     }
 
     private func summaryTargetSteps(metadata: HeadphoneMotionWorkoutMetadata) -> Int {
-        max(metadata.targetStepCount ?? workout.steps, workout.steps, 1)
+        LiveClimbWorkoutSummaryData.summaryTargetSteps(metadata: metadata, workout: workout)
     }
 
     private func justClimbSummaryTargetSteps(metadata: HeadphoneMotionWorkoutMetadata) -> Int {

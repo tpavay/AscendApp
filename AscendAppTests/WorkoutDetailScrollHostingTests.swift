@@ -58,6 +58,10 @@ struct WorkoutDetailScrollHostingTests {
         window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
         window.rootViewController = host
         window.makeKeyAndVisible()
+        defer {
+            window.rootViewController = nil
+            window.isHidden = true
+        }
         Self.flush(window)
 
         let scrollView = try #require(
