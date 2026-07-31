@@ -354,21 +354,43 @@ struct CompletedClimbRankSummaryEvidenceTests {
     // MARK: - Capture
 
     /// Hosts the view in a real window so `.task` runs, then captures what is on screen.
+    ///
+    /// The window is dismantled and detached from the scene before this returns. Hiding it is not
+    /// enough: a window still attached to the shared scene keeps its SwiftUI content - and the
+    /// SwiftData observers behind the summary's `@Query` - alive for the rest of the test run, and
+    /// the next capture's key-window switch then drives appearance transitions back through those
+    /// stale hosting controllers while unrelated suites are mutating their own model containers.
     private func hostAndCapture(_ view: some View, settleSeconds: Double) async throws -> UIImage {
         let bounds = CGRect(x: 0, y: 0, width: 402, height: 874)
         let scene = try #require(
             UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first,
             "The test host app must have a window scene to render into"
         )
+        let previousKeyWindow = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)
         window.frame = bounds
 
-        let host = UIHostingController(rootView: AnyView(view.environment(\.colorScheme, .dark)))
+        defer {
+            window.isHidden = true
+            previousKeyWindow?.makeKey()
+            window.rootViewController = nil
+            window.windowScene = nil
+        }
+
+        let host = AppearanceTrackingHostingController(
+            rootView: AnyView(view.environment(\.colorScheme, .dark))
+        )
         host.view.frame = bounds
         window.rootViewController = host
         window.makeKeyAndVisible()
         host.view.setNeedsLayout()
         host.view.layoutIfNeeded()
+
+        // UIKit ends the appearance transition it began when the window became visible on a later
+        // run-loop turn, so a zero settle would otherwise capture and dismantle the host while that
+        // transition is still open. Waiting on the callback rather than on a guessed interval keeps
+        // this deterministic on a loaded runner.
+        try await waitUntilAppeared(host)
 
         // Awaiting is what lets the view's `.task` start, so a zero settle captures the literal
         // first frame - what a climber sees the instant the summary opens.
@@ -378,12 +400,18 @@ struct CompletedClimbRankSummaryEvidenceTests {
 
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 3
-        let image = UIGraphicsImageRenderer(bounds: bounds, format: format).image { _ in
+        return UIGraphicsImageRenderer(bounds: bounds, format: format).image { _ in
             window.drawHierarchy(in: bounds, afterScreenUpdates: true)
         }
+    }
 
-        window.isHidden = true
-        return image
+    private func waitUntilAppeared(_ host: AppearanceTrackingHostingController) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while host.hasAppeared == false, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+
+        #expect(host.hasAppeared, "The hosted summary never finished its appearance transition")
     }
 
     // MARK: - Reading the rendered pixels back
@@ -412,5 +440,17 @@ struct CompletedClimbRankSummaryEvidenceTests {
         // Logged so the image is findable inside the simulator container when no
         // ASCEND_EVIDENCE_DIR was provided.
         print("Rendered completed-climb rank evidence: \(url.path())")
+    }
+}
+
+/// Reports when UIKit has finished bringing the hosted summary on screen, so a capture never runs -
+/// and the host is never torn down - in the middle of the window's appearance transition.
+@MainActor
+private final class AppearanceTrackingHostingController: UIHostingController<AnyView> {
+    private(set) var hasAppeared = false
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        hasAppeared = true
     }
 }
