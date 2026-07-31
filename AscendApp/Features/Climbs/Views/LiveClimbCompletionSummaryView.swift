@@ -8,10 +8,11 @@ struct LiveClimbCompletionSummaryView: View {
     let leaderboardTotal: Int?
     let allowsRatingPrompt: Bool
     let leaderboardContext: LiveReplayLeaderboardContext?
+    let moment: LiveClimbSummaryRankHero.Moment
     let rankingLabelOverride: String?
     let completedDetailOverride: String?
-    let unrankedValueText: String
-    let unrankedDetailText: String
+    let unrankedValueText: String?
+    let unrankedDetailText: String?
     let showsPendingRankingState: Bool
     let achievementTitleOverride: String?
     let achievementIconNameOverride: String?
@@ -35,10 +36,11 @@ struct LiveClimbCompletionSummaryView: View {
         leaderboardTotal: Int?,
         allowsRatingPrompt: Bool,
         leaderboardContext: LiveReplayLeaderboardContext? = nil,
+        moment: LiveClimbSummaryRankHero.Moment = .retrospective,
         rankingLabelOverride: String? = nil,
         completedDetailOverride: String? = nil,
-        unrankedValueText: String = "Checking",
-        unrankedDetailText: String = "LOOKING FOR YOUR RANK",
+        unrankedValueText: String? = nil,
+        unrankedDetailText: String? = nil,
         showsPendingRankingState: Bool = true,
         achievementTitleOverride: String? = nil,
         achievementIconNameOverride: String? = nil,
@@ -50,6 +52,7 @@ struct LiveClimbCompletionSummaryView: View {
         self.leaderboardTotal = leaderboardTotal
         self.allowsRatingPrompt = allowsRatingPrompt
         self.leaderboardContext = leaderboardContext
+        self.moment = moment
         self.rankingLabelOverride = rankingLabelOverride
         self.completedDetailOverride = completedDetailOverride
         self.unrankedValueText = unrankedValueText
@@ -76,12 +79,14 @@ struct LiveClimbCompletionSummaryView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        let hero = rankHero
+
+        return VStack(spacing: 0) {
             header
 
             ScrollView {
                 VStack(spacing: 18) {
-                    rankingSection
+                    rankingSection(hero: hero)
                     primaryStatsGrid
                     achievementCard
                     paceSplitsCard
@@ -94,7 +99,7 @@ struct LiveClimbCompletionSummaryView: View {
             .scrollIndicators(.hidden)
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 8) {
-                    shareButton
+                    shareButton(hero: hero)
                     doneButton
                 }
                 .padding(.horizontal, 22)
@@ -109,8 +114,8 @@ struct LiveClimbCompletionSummaryView: View {
             ShareComposerView(
                 workout: workout,
                 climb: climb,
-                liveClimbRank: displayedRank,
-                liveClimbRankTotal: displayedTotal
+                liveClimbRank: hero.standing?.rank,
+                liveClimbRankTotal: hero.total
             )
         }
         .alert("Enjoying Ascend?", isPresented: $showingRatingEnjoymentPrompt) {
@@ -152,10 +157,8 @@ struct LiveClimbCompletionSummaryView: View {
         .padding(.top, 12)
     }
 
-    private var rankingSection: some View {
-        let hero = rankHero
-
-        return HStack(alignment: .center, spacing: 14) {
+    private func rankingSection(hero: LiveClimbSummaryRankHero) -> some View {
+        HStack(alignment: .center, spacing: 14) {
             VStack(alignment: .leading, spacing: 7) {
                 Text(hero.label)
                     .font(.montserratBold(size: 10))
@@ -313,14 +316,14 @@ struct LiveClimbCompletionSummaryView: View {
         }
     }
 
-    private var shareButton: some View {
+    private func shareButton(hero: LiveClimbSummaryRankHero) -> some View {
         Button {
             if let climb {
                 TelemetryManager.shared.track(
                     LiveClimbAnalyticsEvent.summaryShareTapped(
                         climb: climb,
-                        rank: displayedRank,
-                        rankTotal: displayedTotal
+                        rank: hero.standing?.rank,
+                        rankTotal: hero.total
                     )
                 )
             }
@@ -472,7 +475,11 @@ struct LiveClimbCompletionSummaryView: View {
     private var rankHero: LiveClimbSummaryRankHero {
         LiveClimbSummaryRankHero.make(
             isClimbContext: climb != nil,
-            standings: rankStandingCandidates,
+            moment: moment,
+            standings: LiveClimbSummaryRankHero.standings(
+                isClimbContext: climb != nil,
+                sources: rankSources
+            ),
             sync: LiveClimbSummaryRankHero.SyncState(
                 phase: publicResultStatus?.phase,
                 showsPendingRanking: showsPendingRankingState,
@@ -488,59 +495,33 @@ struct LiveClimbCompletionSummaryView: View {
         )
     }
 
-    /// Candidate standings, most authoritative first.
-    ///
-    /// A landmark climb prefers the server's immutable completion snapshot: that
-    /// is the standing the climber earned, and it is what the share card and the
-    /// public result assert. Everything else falls back to a rank recomputed
-    /// against today's rows, which is a different measurement and says so.
-    private var rankStandingCandidates: [LiveClimbSummaryRankHero.Standing?] {
-        typealias Standing = LiveClimbSummaryRankHero.Standing
+    /// Every rank the surface holds, each still paired with the total its own
+    /// source reported. `LiveClimbSummaryRankHero.standings` decides which one
+    /// wins and what population it may claim.
+    private var rankSources: LiveClimbSummaryRankHero.Sources {
+        typealias Reading = LiveClimbSummaryRankHero.Reading
 
-        let snapshot = publicResultStatus?.rankSnapshot ?? completionRankSnapshot
-        let publishStatus = publicResultStatus?.publishStatus
+        let status = publicResultStatus
 
-        if climb == nil {
-            return [
-                Standing(rank: leaderboardRank, total: leaderboardTotal, basis: .current),
-                Standing(
-                    rank: completionRankSnapshot?.rank,
-                    total: completionRankSnapshot?.completedCount,
-                    basis: .atCompletion
-                ),
-                Standing(
-                    rank: computedCompletionRank?.rank,
-                    total: computedCompletionRank?.completedCount,
-                    basis: .current
-                )
-            ]
-        }
-
-        return [
-            Standing(
-                rank: snapshot?.rank,
-                total: snapshot?.completedCount,
-                basis: .atCompletion
+        return LiveClimbSummaryRankHero.Sources(
+            session: Reading(rank: leaderboardRank, total: leaderboardTotal),
+            syncedSnapshot: Reading(
+                rank: status?.rankSnapshot?.rank,
+                total: status?.rankSnapshot?.completedCount
             ),
-            Standing(
-                rank: publishStatus?.rankAtCompletion,
-                total: publishStatus?.completedCountAtCompletion,
-                basis: .atCompletion
+            publishStatus: Reading(
+                rank: status?.publishStatus?.rankAtCompletion,
+                total: status?.publishStatus?.completedCountAtCompletion
             ),
-            Standing(
+            fetchedSnapshot: Reading(
+                rank: completionRankSnapshot?.rank,
+                total: completionRankSnapshot?.completedCount
+            ),
+            computed: Reading(
                 rank: computedCompletionRank?.rank,
-                total: computedCompletionRank?.completedCount,
-                basis: .current
+                total: computedCompletionRank?.completedCount
             )
-        ]
-    }
-
-    private var displayedRank: Int? {
-        rankHero.standing?.rank
-    }
-
-    private var displayedTotal: Int? {
-        rankHero.total
+        )
     }
 
     private var effectiveLeaderboardContext: LiveReplayLeaderboardContext? {
@@ -630,11 +611,12 @@ struct LiveClimbCompletionSummaryView: View {
         guard !didTrackSummaryViewed else { return }
         didTrackSummaryViewed = true
         if let climb {
+            let hero = rankHero
             TelemetryManager.shared.track(
                 LiveClimbAnalyticsEvent.summaryViewed(
                     climb: climb,
-                    rank: displayedRank,
-                    rankTotal: displayedTotal
+                    rank: hero.standing?.rank,
+                    rankTotal: hero.total
                 )
             )
         }
@@ -701,7 +683,7 @@ struct LiveClimbCompletionSummaryView: View {
             }
         }
 
-        if displayedRank == nil {
+        if rankHero.standing == nil {
             do {
                 computedCompletionRank = try await LiveReplayLeaderboardService.shared.fetchCompletionRank(
                     context: context,

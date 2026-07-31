@@ -126,6 +126,165 @@ struct LiveClimbSummaryRankHeroTests {
         #expect(Hero.Standing(rank: nil, total: 50, basis: .current) == nil)
     }
 
+    /// The frozen basis still names itself when the summary *is* the moment - it
+    /// just says so in the present tense.
+    @Test
+    func freshCompletionUsesThePresentTenseFrozenCopy() {
+        let hero = Hero.make(
+            isClimbContext: true,
+            moment: .freshCompletion,
+            standings: [Hero.Standing(rank: 1, total: 1, basis: .atCompletion)],
+            sync: publishedSync(),
+            copy: Hero.Copy()
+        )
+
+        #expect(hero.detail == "RANK YOU JUST EARNED")
+    }
+
+    @Test
+    func theMomentOnlyChangesTheFrozenBasis() {
+        let current = Hero.make(
+            isClimbContext: true,
+            moment: .freshCompletion,
+            standings: [Hero.Standing(rank: 9, total: 40, basis: .current)],
+            sync: publishedSync(),
+            copy: Hero.Copy()
+        )
+        let session = Hero.make(
+            isClimbContext: false,
+            moment: .freshCompletion,
+            standings: [Hero.Standing(rank: 9, total: 40, basis: .liveSession)],
+            sync: publishedSync(),
+            copy: Hero.Copy(completedDetailOverride: "ROUTINE COMPLETE")
+        )
+
+        #expect(current.detail == "CURRENT LEADERBOARD RANK")
+        #expect(session.detail == "ROUTINE COMPLETE")
+    }
+
+    @Test
+    func summariesAreRetrospectiveUnlessTheCallerSaysOtherwise() {
+        let hero = Hero.make(
+            isClimbContext: true,
+            standings: [Hero.Standing(rank: 1, total: 1, basis: .atCompletion)],
+            sync: publishedSync(),
+            copy: Hero.Copy()
+        )
+
+        #expect(hero.detail == "RANK WHEN YOU FINISHED")
+    }
+
+    // MARK: - In-session standings
+
+    /// `ActiveRoutineViewModel` and `LiveClimbSessionViewModel` report a rank
+    /// measured against their own bucket-windowed race population. The hero can't
+    /// characterise that population, so it must not claim a leaderboard basis for
+    /// it - it states the session finished, exactly as it did before.
+    @Test
+    func inSessionStandingKeepsTheNeutralCompletedCopy() {
+        let routine = Hero.make(
+            isClimbContext: false,
+            standings: [Hero.Standing(rank: 3, total: 18, basis: .liveSession)],
+            sync: publishedSync(),
+            copy: Hero.Copy(
+                labelOverride: "ROUTINE RANK",
+                completedDetailOverride: "ROUTINE COMPLETE"
+            )
+        )
+        let justClimb = Hero.make(
+            isClimbContext: false,
+            standings: [Hero.Standing(rank: 3, total: 18, basis: .liveSession)],
+            sync: publishedSync(),
+            copy: Hero.Copy()
+        )
+
+        #expect(routine.value == "3rd")
+        #expect(routine.total == 18)
+        #expect(routine.detail == "ROUTINE COMPLETE")
+        #expect(justClimb.detail == "WORKOUT COMPLETE")
+        #expect(justClimb.detail != "CURRENT LEADERBOARD RANK")
+    }
+
+    // MARK: - Source precedence
+
+    /// A landmark climb trusts the frozen server sources ahead of any recomputed
+    /// one, and the sync store's own mirror ahead of the publish status it
+    /// mirrors. Whichever slot wins supplies the denominator too.
+    @Test
+    func climbPrefersTheFrozenSourcesInOrder() {
+        let sources = Hero.Sources(
+            session: Hero.Reading(rank: 7, total: 7),
+            syncedSnapshot: Hero.Reading(rank: 1, total: 1),
+            publishStatus: Hero.Reading(rank: 2, total: 2),
+            fetchedSnapshot: Hero.Reading(rank: 3, total: 3),
+            computed: Hero.Reading(rank: 29, total: 50)
+        )
+
+        let standings = Hero.standings(isClimbContext: true, sources: sources)
+            .compactMap { $0 }
+
+        #expect(standings.map(\.rank) == [1, 2, 3, 29])
+        #expect(standings.map(\.total) == [1, 2, 3, 50])
+        #expect(standings.map(\.basis) == [.atCompletion, .atCompletion, .atCompletion, .current])
+    }
+
+    @Test
+    func climbIgnoresTheInSessionReadingEntirely() {
+        let standings = Hero.standings(
+            isClimbContext: true,
+            sources: Hero.Sources(session: Hero.Reading(rank: 7, total: 7))
+        )
+
+        #expect(standings.compactMap { $0 }.isEmpty)
+    }
+
+    /// The publish status is a mirror of the same server doc as the snapshot, so
+    /// it only speaks when the snapshot is absent - never the other way round.
+    @Test
+    func publishStatusOutranksTheFetchedSnapshot() {
+        let standings = Hero.standings(
+            isClimbContext: true,
+            sources: Hero.Sources(
+                publishStatus: Hero.Reading(rank: 2, total: 2),
+                fetchedSnapshot: Hero.Reading(rank: 3, total: 3)
+            )
+        )
+
+        #expect(standings.compactMap { $0 }.first?.rank == 2)
+    }
+
+    /// Non-climb surfaces keep the order they shipped with: the session's own
+    /// figure first, so a routine is never left with no number at all.
+    @Test
+    func nonClimbSurfacesLeadWithTheirSessionStanding() {
+        let sources = Hero.Sources(
+            session: Hero.Reading(rank: 4, total: 12),
+            syncedSnapshot: Hero.Reading(rank: 1, total: 1),
+            publishStatus: Hero.Reading(rank: 2, total: 2),
+            fetchedSnapshot: Hero.Reading(rank: 6, total: 30),
+            computed: Hero.Reading(rank: 8, total: 40)
+        )
+
+        let standings = Hero.standings(isClimbContext: false, sources: sources)
+            .compactMap { $0 }
+
+        #expect(standings.map(\.rank) == [4, 6, 8])
+        #expect(standings.map(\.basis) == [.liveSession, .atCompletion, .current])
+    }
+
+    @Test
+    func aReadingWithoutARankProducesNoCandidate() {
+        let standings = Hero.standings(
+            isClimbContext: false,
+            sources: Hero.Sources(
+                session: Hero.Reading(rank: nil, total: 12),
+                computed: Hero.Reading(rank: 8, total: 40)
+            )
+        )
+
+        #expect(standings.compactMap { $0 }.map(\.rank) == [8])
+    }
+
     // MARK: - Unranked states
 
     @Test
@@ -273,6 +432,40 @@ struct LiveClimbSummaryRankHeroTests {
         )
 
         #expect(hero.detail == "ROUTINE COMPLETE")
+    }
+
+    /// The unranked overrides are `nil` when the caller has no opinion, so no
+    /// caller has to hand a sentinel string back in to keep the default
+    /// behaviour. A surface that still tracks a ranking gets the pending copy.
+    @Test
+    func absentOverridesFollowWhetherTheSurfaceTracksARanking() {
+        let tracking = Hero.make(
+            isClimbContext: true,
+            standings: [],
+            sync: Hero.SyncState(
+                phase: nil,
+                showsPendingRanking: true,
+                hasRankContext: true,
+                didFinishRankLoad: false
+            ),
+            copy: Hero.Copy()
+        )
+        let untracked = Hero.make(
+            isClimbContext: true,
+            standings: [],
+            sync: Hero.SyncState(
+                phase: nil,
+                showsPendingRanking: false,
+                hasRankContext: true,
+                didFinishRankLoad: true
+            ),
+            copy: Hero.Copy()
+        )
+
+        #expect(tracking.value == "Checking")
+        #expect(tracking.detail == "LOOKING FOR YOUR RANK")
+        #expect(untracked.value == "Complete")
+        #expect(untracked.detail == "LIVE CLIMB COMPLETE")
     }
 
     @Test

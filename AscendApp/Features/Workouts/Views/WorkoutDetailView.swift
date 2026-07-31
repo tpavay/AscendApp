@@ -110,10 +110,6 @@ struct WorkoutDetailView: View {
                     leaderboardContext: liveClimbSummaryLeaderboardContext,
                     rankingLabelOverride: liveClimbSummaryRankingLabelOverride,
                     completedDetailOverride: liveClimbSummaryCompletedDetailText,
-                    unrankedValueText: liveClimbSummaryLeaderboardContext == nil ? "Complete" : "Checking",
-                    unrankedDetailText: liveClimbSummaryLeaderboardContext == nil ?
-                        liveClimbSummaryCompletedDetailText :
-                        "LOOKING FOR YOUR RANK",
                     showsPendingRankingState: liveClimbSummaryLeaderboardContext != nil,
                     onDone: {
                         showingLiveClimbSummaryPreview = false

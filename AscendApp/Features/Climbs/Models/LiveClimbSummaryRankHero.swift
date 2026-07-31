@@ -14,8 +14,8 @@ import Foundation
 ///
 /// 1. Rank and total are resolved together from a single source. A frozen
 ///    position over a live denominator is a number that was never true.
-/// 2. The detail line names the basis whenever a rank is shown, so the figure is
-///    never left to be read as a current standing when it is not one.
+/// 2. The detail line names the basis whenever the hero knows it, so the figure
+///    is never left to be read as a current standing when it is not one.
 struct LiveClimbSummaryRankHero: Equatable {
     /// Which population the displayed standing was measured against.
     enum Basis: Equatable {
@@ -23,6 +23,17 @@ struct LiveClimbSummaryRankHero: Equatable {
         case atCompletion
         /// Recomputed against the completions published right now.
         case current
+        /// Reported by the caller's own session. Its population is the session's
+        /// race window, which this type cannot characterise, so the copy states
+        /// the session finished rather than claiming a leaderboard basis.
+        case liveSession
+    }
+
+    /// Whether this summary *is* the post-session moment or a look back at a
+    /// saved one. Only changes the tense of the frozen-basis copy.
+    enum Moment: Equatable {
+        case freshCompletion
+        case retrospective
     }
 
     /// One candidate standing, carrying the population it was measured against.
@@ -36,6 +47,53 @@ struct LiveClimbSummaryRankHero: Equatable {
             self.rank = rank
             self.total = total
             self.basis = basis
+        }
+
+        init?(reading: Reading, basis: Basis) {
+            self.init(rank: reading.rank, total: reading.total, basis: basis)
+        }
+    }
+
+    /// One rank and its denominator exactly as a single source reported them.
+    /// They travel together so a frozen position can never end up over a live
+    /// field size.
+    struct Reading: Equatable {
+        let rank: Int?
+        let total: Int?
+
+        static let none = Reading(rank: nil, total: nil)
+
+        init(rank: Int?, total: Int?) {
+            self.rank = rank
+            self.total = total
+        }
+    }
+
+    /// Every source a completion summary can draw a standing from.
+    struct Sources: Equatable {
+        /// Computed by the caller's live session against its own race window.
+        let session: Reading
+        /// The frozen snapshot mirrored onto the publish sync status.
+        let syncedSnapshot: Reading
+        /// The frozen position the publish status recorded.
+        let publishStatus: Reading
+        /// The frozen snapshot fetched straight from the leaderboard service.
+        let fetchedSnapshot: Reading
+        /// A position recomputed against the rows that exist right now.
+        let computed: Reading
+
+        init(
+            session: Reading = .none,
+            syncedSnapshot: Reading = .none,
+            publishStatus: Reading = .none,
+            fetchedSnapshot: Reading = .none,
+            computed: Reading = .none
+        ) {
+            self.session = session
+            self.syncedSnapshot = syncedSnapshot
+            self.publishStatus = publishStatus
+            self.fetchedSnapshot = fetchedSnapshot
+            self.computed = computed
         }
     }
 
@@ -61,18 +119,19 @@ struct LiveClimbSummaryRankHero: Equatable {
         }
     }
 
-    /// Caller-supplied wording for the surfaces that are not a landmark climb.
+    /// Caller-supplied wording. Every field is optional; `nil` means "use the
+    /// wording this context calls for".
     struct Copy: Equatable {
         let labelOverride: String?
         let completedDetailOverride: String?
-        let unrankedValue: String
-        let unrankedDetail: String
+        let unrankedValue: String?
+        let unrankedDetail: String?
 
         init(
             labelOverride: String? = nil,
             completedDetailOverride: String? = nil,
-            unrankedValue: String = "Checking",
-            unrankedDetail: String = "LOOKING FOR YOUR RANK"
+            unrankedValue: String? = nil,
+            unrankedDetail: String? = nil
         ) {
             self.labelOverride = labelOverride
             self.completedDetailOverride = completedDetailOverride
@@ -82,7 +141,10 @@ struct LiveClimbSummaryRankHero: Equatable {
     }
 
     static let atCompletionDetail = "RANK WHEN YOU FINISHED"
+    static let freshAtCompletionDetail = "RANK YOU JUST EARNED"
     static let currentDetail = "CURRENT LEADERBOARD RANK"
+    static let pendingRankValue = "Checking"
+    static let pendingRankDetail = "LOOKING FOR YOUR RANK"
 
     let label: String
     let value: String
@@ -96,14 +158,39 @@ struct LiveClimbSummaryRankHero: Equatable {
         return total
     }
 
+    /// The candidate standings a surface offers, most authoritative first.
+    ///
+    /// A landmark climb prefers the server's immutable frozen sources: that is the
+    /// standing the climber earned, and it is what the share card and the public
+    /// result assert. Everything else falls back to a rank recomputed against
+    /// today's rows, which is a different measurement and says so.
+    static func standings(isClimbContext: Bool, sources: Sources) -> [Standing?] {
+        guard isClimbContext else {
+            return [
+                Standing(reading: sources.session, basis: .liveSession),
+                Standing(reading: sources.fetchedSnapshot, basis: .atCompletion),
+                Standing(reading: sources.computed, basis: .current)
+            ]
+        }
+
+        return [
+            Standing(reading: sources.syncedSnapshot, basis: .atCompletion),
+            Standing(reading: sources.publishStatus, basis: .atCompletion),
+            Standing(reading: sources.fetchedSnapshot, basis: .atCompletion),
+            Standing(reading: sources.computed, basis: .current)
+        ]
+    }
+
     /// Builds the hero from the candidate standings in precedence order.
     ///
     /// - Parameters:
     ///   - isClimbContext: Whether this summary belongs to a catalog climb.
+    ///   - moment: Whether this summary is the post-session moment itself.
     ///   - standings: Candidates most-authoritative first; the first non-`nil`
     ///     entry supplies both the rank and its total.
     static func make(
         isClimbContext: Bool,
+        moment: Moment = .retrospective,
         standings: [Standing?],
         sync: SyncState,
         copy: Copy
@@ -116,6 +203,7 @@ struct LiveClimbSummaryRankHero: Equatable {
             detail: detail(
                 standing: standing,
                 isClimbContext: isClimbContext,
+                moment: moment,
                 sync: sync,
                 copy: copy
             ),
@@ -149,27 +237,31 @@ struct LiveClimbSummaryRankHero: Equatable {
             return "Syncing"
         case .pending, .published, nil:
             if sync.showsPendingRankCopy {
-                return "Checking"
+                return pendingRankValue
             }
-            return fallbackUnrankedValue(sync: sync, copy: copy)
+            return copy.unrankedValue ?? defaultUnrankedValue(sync: sync)
         }
     }
 
     private static func detail(
         standing: Standing?,
         isClimbContext: Bool,
+        moment: Moment,
         sync: SyncState,
         copy: Copy
     ) -> String {
-        // A shown rank always names its own basis. The caller's completed copy
-        // ("LIVE CLIMB COMPLETE", "ROUTINE COMPLETE") describes the session, not
-        // the population, so it cannot stand in for that here.
+        // A standing whose population this type knows always names it. The
+        // caller's completed copy ("LIVE CLIMB COMPLETE", "ROUTINE COMPLETE")
+        // describes the session, not the population, so it only stands where the
+        // population is the caller's own race window.
         if let standing {
             switch standing.basis {
             case .atCompletion:
-                return atCompletionDetail
+                return moment == .freshCompletion ? freshAtCompletionDetail : atCompletionDetail
             case .current:
                 return currentDetail
+            case .liveSession:
+                return completedDetail(isClimbContext: isClimbContext, copy: copy)
             }
         }
 
@@ -185,7 +277,7 @@ struct LiveClimbSummaryRankHero: Equatable {
         case .syncingRanking:
             return "SYNCING RANKING"
         case .pending, .published, nil:
-            return fallbackUnrankedDetail(
+            return copy.unrankedDetail ?? defaultUnrankedDetail(
                 isClimbContext: isClimbContext,
                 sync: sync,
                 copy: copy
@@ -193,24 +285,20 @@ struct LiveClimbSummaryRankHero: Equatable {
         }
     }
 
-    private static func fallbackUnrankedValue(sync: SyncState, copy: Copy) -> String {
-        if !sync.hasRankContext, copy.unrankedValue == "Checking" {
-            return "Complete"
-        }
-
-        return copy.unrankedValue
+    private static func defaultUnrankedValue(sync: SyncState) -> String {
+        sync.tracksRanking ? pendingRankValue : "Complete"
     }
 
-    private static func fallbackUnrankedDetail(
+    private static func defaultUnrankedDetail(
         isClimbContext: Bool,
         sync: SyncState,
         copy: Copy
     ) -> String {
-        if !sync.hasRankContext, copy.unrankedDetail == "LOOKING FOR YOUR RANK" {
+        guard sync.tracksRanking else {
             return completedDetail(isClimbContext: isClimbContext, copy: copy)
         }
 
-        return copy.unrankedDetail
+        return pendingRankDetail
     }
 
     private static func completedDetail(isClimbContext: Bool, copy: Copy) -> String {
@@ -220,12 +308,18 @@ struct LiveClimbSummaryRankHero: Equatable {
 }
 
 extension LiveClimbSummaryRankHero.SyncState {
+    /// Whether this surface both has a population to rank against and reports its
+    /// progress toward that ranking.
+    var tracksRanking: Bool {
+        showsPendingRanking && hasRankContext
+    }
+
     var showsPendingRankCopy: Bool {
-        showsPendingRanking && hasRankContext && !didFinishRankLoad
+        tracksRanking && !didFinishRankLoad
     }
 
     var showsRankUnavailableState: Bool {
-        showsPendingRanking && hasRankContext && didFinishRankLoad
+        tracksRanking && didFinishRankLoad
     }
 }
 

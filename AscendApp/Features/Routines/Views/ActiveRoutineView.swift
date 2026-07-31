@@ -349,6 +349,7 @@ struct ActiveRoutineView: View {
             leaderboardTotal: viewModel.completionLeaderboardTotal,
             allowsRatingPrompt: false,
             leaderboardContext: viewModel.completionLeaderboardContext,
+            moment: .freshCompletion,
             rankingLabelOverride: presentation.rankingLabel,
             completedDetailOverride: presentation.completedDetail,
             unrankedValueText: presentation.unrankedValueText,
