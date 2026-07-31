@@ -38,12 +38,20 @@ struct HeartRateChartDownsamplingTests {
     /// A strap that keeps cutting out: 13 seconds of 1 Hz capture, then a minute of
     /// silence, repeated. Every gap clears the dropout threshold, so each run becomes
     /// its own segment.
+    ///
+    /// Each run's trough and peak sit in its interior, never at its endpoints, so a
+    /// thinning pass that kept only endpoints would visibly lose them.
     private static func fragmentedSession(segmentCount: Int) -> [HeartRateDataPoint] {
         var samples: [HeartRateDataPoint] = []
         for segment in 0..<segmentCount {
-            for second in 0..<13 {
+            for second in 0..<Self.fragmentedSegmentLength {
                 let elapsed = TimeInterval(segment * 72 + second)
-                let heartRate: Int = 140 + (segment + second) % 23
+                let heartRate: Int
+                switch second {
+                case 3: heartRate = 108 - segment % 7
+                case 8: heartRate = 188 + segment % 7
+                default: heartRate = 150
+                }
                 samples.append(
                     HeartRateDataPoint(
                         timestamp: start.addingTimeInterval(elapsed),
@@ -54,6 +62,8 @@ struct HeartRateChartDownsamplingTests {
         }
         return samples
     }
+
+    private static let fragmentedSegmentLength = 13
 
     @Test
     func longSessionIsCappedToAPlottableNumberOfMarks() {
@@ -158,37 +168,51 @@ struct HeartRateChartDownsamplingTests {
         #expect(dataSet.segments.count == 1)
     }
 
-    /// A fragmented trace still has to respect the cap. The budget is handed out
-    /// after every segment has reserved its own endpoints, so 200 dropouts land
-    /// exactly on the cap rather than blowing past it two marks at a time.
+    /// The one a shrinking budget must never cost: a run that holds the session's
+    /// peak keeps it however small its share of the marks, so the plotted extremes
+    /// still match the raw ones and the axis headroom and the header's Max figure
+    /// have something on the curve to point at.
     @Test
-    func aHeavilyFragmentedTraceStaysInsideTheCap() {
+    func everyDropoutSegmentKeepsItsOwnPeakAndTrough() {
+        let samples = Self.fragmentedSession(segmentCount: 200)
         let dataSet = HeartRateChartDataSet(
-            samples: Self.fragmentedSession(segmentCount: 200),
+            samples: samples,
             workoutStartTime: Self.start,
             workoutDuration: 14_400
         )
 
         #expect(dataSet.segments.count == 200)
-        #expect(dataSet.points.count <= HeartRateChartDataSet.maximumPlottedPointCount)
-        // No run is thinned out of existence - a segment that plotted nothing would
-        // read as a longer dropout than actually happened.
-        #expect(dataSet.segments.allSatisfy { $0.points.count == 2 })
+
+        let rawSegments = stride(from: 0, to: samples.count, by: Self.fragmentedSegmentLength).map { lowerBound in
+            samples[lowerBound..<(lowerBound + Self.fragmentedSegmentLength)].map(\.heartRate)
+        }
+        let everySegmentKeepsItsExtremes = zip(rawSegments, dataSet.segments).allSatisfy { rawRates, segment in
+            let plottedRates = segment.points.map(\.heartRate)
+            guard let lowest = rawRates.min(), let highest = rawRates.max() else { return false }
+            return plottedRates.contains(lowest) && plottedRates.contains(highest)
+        }
+        #expect(everySegmentKeepsItsExtremes)
+
+        #expect(dataSet.points.map(\.heartRate).min() == samples.map(\.heartRate).min())
+        #expect(dataSet.points.map(\.heartRate).max() == samples.map(\.heartRate).max())
     }
 
-    /// Past `maximumPlottedPointCount / 2` segments the endpoints alone exceed the
-    /// cap. This pins the documented worst case: two marks per segment, no more.
+    /// The honest worst case of preferring extremes over the target: four marks per
+    /// segment - endpoints plus the one bucket's low and high - so a pathological
+    /// 200-dropout trace overshoots `maximumPlottedPointCount` while still plotting a
+    /// small fraction of the raw series.
     @Test
-    func aTraceWithMoreSegmentsThanBudgetKeepsOnlyEndpoints() {
+    func aPathologicallyFragmentedTraceOvershootsTheTargetButStaysBounded() {
+        let samples = Self.fragmentedSession(segmentCount: 200)
         let dataSet = HeartRateChartDataSet(
-            samples: Self.fragmentedSession(segmentCount: 250),
+            samples: samples,
             workoutStartTime: Self.start,
-            workoutDuration: 18_000
+            workoutDuration: 14_400
         )
 
-        #expect(dataSet.segments.count == 250)
-        #expect(dataSet.points.count == 500)
-        #expect(dataSet.segments.allSatisfy { $0.points.count == 2 })
+        #expect(dataSet.points.count > HeartRateChartDataSet.maximumPlottedPointCount)
+        #expect(dataSet.points.count <= dataSet.segments.count * 4)
+        #expect(dataSet.points.count < samples.count / 3)
     }
 
     /// Thinning is a rendering concession, not a licence to misreport. The scrub
@@ -226,6 +250,58 @@ struct HeartRateChartDownsamplingTests {
 
         let resolved = try #require(dataSet.nearestScrubPoint(to: 1_234.4))
         #expect(resolved.elapsed == 1_234)
+    }
+
+    /// The lookup is a binary search over the raw series; it has to agree with a
+    /// scan of every sample, tie-breaking included, or the readout depends on how
+    /// the search happened to land.
+    @Test
+    func theScrubLookupMatchesAScanOfTheWholeSeries() {
+        let dataSet = HeartRateChartDataSet(
+            samples: Self.longSession(),
+            workoutStartTime: Self.start,
+            workoutDuration: 2_603
+        )
+        let probes: [TimeInterval] = [
+            -400, -0.4, 0, 0.4, 0.5, 0.6,
+            1_234, 1_234.4, 1_234.5, 1_234.6,
+            2_601.5, 2_602, 2_700
+        ]
+
+        let agrees = probes.allSatisfy { probe in
+            dataSet.nearestScrubPoint(to: probe) == Self.nearestByScan(in: dataSet.scrubPoints, to: probe)
+        }
+        #expect(agrees)
+    }
+
+    /// Samples recorded just before the workout start clamp to the same elapsed
+    /// value, so the lookup has to settle on the same one of them a scan would.
+    @Test
+    func theScrubLookupMatchesAScanWhenSamplesShareAnInstant() {
+        let samples = [-30, -20, -10, 0, 5, 6, 7].map { offset in
+            HeartRateDataPoint(
+                timestamp: Self.start.addingTimeInterval(TimeInterval(offset)),
+                heartRate: 140 + offset
+            )
+        }
+        let dataSet = HeartRateChartDataSet(
+            samples: samples,
+            workoutStartTime: Self.start,
+            workoutDuration: 60
+        )
+        let probes: [TimeInterval] = [-10, 0, 1, 2, 2.5, 5, 6.5, 40, 120]
+
+        let agrees = probes.allSatisfy { probe in
+            dataSet.nearestScrubPoint(to: probe) == Self.nearestByScan(in: dataSet.scrubPoints, to: probe)
+        }
+        #expect(agrees)
+    }
+
+    private static func nearestByScan(
+        in points: [HeartRateChartPoint],
+        to elapsed: TimeInterval
+    ) -> HeartRateChartPoint? {
+        points.min { abs($0.elapsed - elapsed) < abs($1.elapsed - elapsed) }
     }
 
     @Test

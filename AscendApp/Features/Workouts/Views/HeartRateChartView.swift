@@ -18,16 +18,18 @@ struct HeartRateChartDataSet: Equatable {
     /// Floor so a couple of skipped 1 Hz notifications never shatter the line.
     static let minimumDropoutGap: TimeInterval = 10
 
-    /// Upper bound on plotted marks. A 43-minute session records one sample per
+    /// Target for the plotted mark count. A 43-minute session records one sample per
     /// second, and handing Swift Charts 2,600 `LineMark`s costs ~114 ms to render
     /// - seven 60 Hz frames for detail no chart this size can show. Capping the
     /// mark count keeps the same curve at roughly an eighth of the cost.
     ///
-    /// It is a real bound up to `maximumPlottedPointCount / 2` dropout segments.
-    /// Past that, every segment still keeps its own two endpoints - a run that
-    /// plotted nothing would read as a longer dropout than actually happened - so
-    /// the worst case is `2 x segment count`, reachable only with a strap that
-    /// dropped out more than 200 times in one session.
+    /// It holds exactly for a continuous trace and for the handful of dropouts a real
+    /// session sees. It is a target rather than a hard bound because every segment,
+    /// however small its share, still contributes its own minimum and maximum on top
+    /// of its endpoints - up to four marks - so that a run containing the session's
+    /// peak can never lose it to fragmentation. A pathological trace of ~200 dropouts
+    /// therefore plots roughly `4 x segment count` marks, over this target. Accuracy
+    /// wins that trade: a chart missing the peak is a worse bug than a slow one.
     static let maximumPlottedPointCount = 400
 
     let points: [HeartRateChartPoint]
@@ -47,8 +49,42 @@ struct HeartRateChartDataSet: Equatable {
 
     /// The reading under a scrub touch, resolved against the full series rather than
     /// the plotted subset so the BPM and the "at m:ss" label are the real sample.
+    ///
+    /// `scrubPoints` is non-decreasing in `elapsed` by construction, so the touch
+    /// lands between two neighbours rather than needing a scan of all 2,600 samples
+    /// - a scrub drag re-evaluates the body on every touch move.
     func nearestScrubPoint(to elapsed: TimeInterval) -> HeartRateChartPoint? {
-        scrubPoints.min { abs($0.elapsed - elapsed) < abs($1.elapsed - elapsed) }
+        guard !scrubPoints.isEmpty else { return nil }
+
+        let insertionIndex = firstIndex(atOrAfter: elapsed)
+        guard insertionIndex > 0 else { return scrubPoints[0] }
+        guard insertionIndex < scrubPoints.count else { return scrubPoints[lastTiedIndex(before: insertionIndex)] }
+
+        let earlier = scrubPoints[lastTiedIndex(before: insertionIndex)]
+        let later = scrubPoints[insertionIndex]
+        return abs(later.elapsed - elapsed) < abs(earlier.elapsed - elapsed) ? later : earlier
+    }
+
+    /// Index of the first point at or after `elapsed`, or `count` when every point
+    /// precedes it.
+    private func firstIndex(atOrAfter elapsed: TimeInterval) -> Int {
+        var low = 0
+        var high = scrubPoints.count
+        while low < high {
+            let middle = low + (high - low) / 2
+            if scrubPoints[middle].elapsed < elapsed {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        return low
+    }
+
+    /// Samples clamped to the same instant are interchangeable by distance, and the
+    /// earliest of them is the one a scan of the series would settle on.
+    private func lastTiedIndex(before insertionIndex: Int) -> Int {
+        firstIndex(atOrAfter: scrubPoints[insertionIndex - 1].elapsed)
     }
 
     init(
@@ -97,9 +133,10 @@ struct HeartRateChartDataSet: Equatable {
     /// chart this size can show.
     ///
     /// Every segment first reserves its own endpoints so a short run is never thinned
-    /// out of existence; what is left of the cap is then shared out in proportion to
-    /// segment length, which keeps the total inside `maximumPlottedPointCount` for any
-    /// trace with at most half that many segments.
+    /// out of existence; what is left of the target is then shared out in proportion
+    /// to segment length. A segment never drops below one bucket, so a heavily
+    /// fragmented trace can plot up to four marks per segment and overshoot
+    /// `maximumPlottedPointCount` - see that constant for why accuracy wins there.
     private static func thinnedSegments(
         _ segments: [HeartRateChartSegment],
         rawPointCount: Int
@@ -122,15 +159,15 @@ struct HeartRateChartDataSet: Equatable {
     /// own endpoints. Dropping every Nth sample instead would clip the peaks and
     /// troughs - the part of a heart-rate trace a climber actually reads.
     ///
-    /// Never returns more than `budget` marks, so the caller's allocation is the
-    /// real bound rather than an approximation of one.
+    /// The bucket count never falls below one, so even a segment allotted the bare
+    /// minimum still contributes its own extremes rather than a straight chord
+    /// between its endpoints.
     private static func thinned(_ points: [HeartRateChartPoint], budget: Int) -> [HeartRateChartPoint] {
         guard points.count > budget else { return points }
 
         // Two marks come out of each bucket, and the two endpoints are added back
         // afterwards, so the bucket budget has to leave room for both.
-        let bucketCount = (budget - 2) / 2
-        guard bucketCount >= 1 else { return endpoints(of: points) }
+        let bucketCount = max((budget - 2) / 2, 1)
 
         var kept: [HeartRateChartPoint] = []
         kept.reserveCapacity(budget)
@@ -163,11 +200,6 @@ struct HeartRateChartDataSet: Equatable {
         }
 
         return kept
-    }
-
-    private static func endpoints(of points: [HeartRateChartPoint]) -> [HeartRateChartPoint] {
-        guard let first = points.first, let last = points.last else { return points }
-        return first.id == last.id ? [first] : [first, last]
     }
 
     /// Splits the trace wherever coverage actually stopped, so a dropout reads
