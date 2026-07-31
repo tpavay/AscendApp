@@ -18,7 +18,25 @@ struct HeartRateChartDataSet: Equatable {
     /// Floor so a couple of skipped 1 Hz notifications never shatter the line.
     static let minimumDropoutGap: TimeInterval = 10
 
+    /// Target for the plotted mark count. A 43-minute session records one sample per
+    /// second, and handing Swift Charts 2,600 `LineMark`s costs ~114 ms to render
+    /// - seven 60 Hz frames for detail no chart this size can show. Capping the
+    /// mark count keeps the same curve at roughly an eighth of the cost.
+    ///
+    /// It holds exactly for a continuous trace and for the handful of dropouts a real
+    /// session sees. It is a target rather than a hard bound because every segment,
+    /// however small its share, still contributes its own minimum and maximum on top
+    /// of its endpoints - up to four marks - so that a run containing the session's
+    /// peak can never lose it to fragmentation. A pathological trace of ~200 dropouts
+    /// therefore plots roughly `4 x segment count` marks, over this target. Accuracy
+    /// wins that trade: a chart missing the peak is a worse bug than a slow one.
+    static let maximumPlottedPointCount = 400
+
     let points: [HeartRateChartPoint]
+    /// The full unthinned series, kept for the scrub readout only. Thinning is a
+    /// rendering concession; the "### BPM at m:ss" a climber reads off the chart
+    /// has to be the actual sample under their finger, not a nearby bucket extreme.
+    let scrubPoints: [HeartRateChartPoint]
     let segments: [HeartRateChartSegment]
     let duration: TimeInterval
     let heartRateRange: ClosedRange<Int>
@@ -27,6 +45,46 @@ struct HeartRateChartDataSet: Equatable {
     var canPlotLine: Bool {
         let distinctElapsedValues = Set(points.map { Int($0.elapsed.rounded()) })
         return points.count >= Self.minimumLineSampleCount && distinctElapsedValues.count >= 2
+    }
+
+    /// The reading under a scrub touch, resolved against the full series rather than
+    /// the plotted subset so the BPM and the "at m:ss" label are the real sample.
+    ///
+    /// `scrubPoints` is non-decreasing in `elapsed` by construction, so the touch
+    /// lands between two neighbours rather than needing a scan of all 2,600 samples
+    /// - a scrub drag re-evaluates the body on every touch move.
+    func nearestScrubPoint(to elapsed: TimeInterval) -> HeartRateChartPoint? {
+        guard !scrubPoints.isEmpty else { return nil }
+
+        let insertionIndex = firstIndex(atOrAfter: elapsed)
+        guard insertionIndex > 0 else { return scrubPoints[0] }
+        guard insertionIndex < scrubPoints.count else { return scrubPoints[lastTiedIndex(before: insertionIndex)] }
+
+        let earlier = scrubPoints[lastTiedIndex(before: insertionIndex)]
+        let later = scrubPoints[insertionIndex]
+        return abs(later.elapsed - elapsed) < abs(earlier.elapsed - elapsed) ? later : earlier
+    }
+
+    /// Index of the first point at or after `elapsed`, or `count` when every point
+    /// precedes it.
+    private func firstIndex(atOrAfter elapsed: TimeInterval) -> Int {
+        var low = 0
+        var high = scrubPoints.count
+        while low < high {
+            let middle = low + (high - low) / 2
+            if scrubPoints[middle].elapsed < elapsed {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        return low
+    }
+
+    /// Samples clamped to the same instant are interchangeable by distance, and the
+    /// earliest of them is the one a scan of the series would settle on.
+    private func lastTiedIndex(before insertionIndex: Int) -> Int {
+        firstIndex(atOrAfter: scrubPoints[insertionIndex - 1].elapsed)
     }
 
     init(
@@ -45,20 +103,103 @@ struct HeartRateChartDataSet: Equatable {
             }
             .sorted { $0.timestamp < $1.timestamp }
 
-        points = sortedSamples.enumerated().map { index, sample in
-            let elapsed = sample.timestamp.timeIntervalSince(workoutStartTime)
-            return HeartRateChartPoint(
+        let rawPoints = sortedSamples.enumerated().map { index, sample in
+            HeartRateChartPoint(
                 id: index,
-                elapsed: min(max(elapsed, 0), visibleDuration),
+                elapsed: min(max(sample.timestamp.timeIntervalSince(workoutStartTime), 0), visibleDuration),
                 heartRate: sample.heartRate
             )
         }
-        segments = Self.segments(for: points)
+
+        // Dropout detection runs on the raw series and thinning happens inside each
+        // resulting segment. Doing it the other way round would let thinning rewrite
+        // the sample spacing the gap threshold is derived from, inventing dropouts in
+        // a continuous trace or papering over real ones.
+        segments = Self.thinnedSegments(Self.segments(for: rawPoints), rawPointCount: rawPoints.count)
+        points = segments.flatMap(\.points)
+        scrubPoints = rawPoints
         duration = visibleDuration
 
-        let rates = points.map(\.heartRate)
-        heartRateRange = Self.range(for: rates)
+        // Ranged off the full series, not the plotted subset, so the axis still
+        // spans the real minimum and maximum even when marks are thinned.
+        heartRateRange = Self.range(for: sortedSamples.map(\.heartRate))
         heartRateTickValues = Self.tickValues(for: heartRateRange)
+    }
+
+    /// Thins each segment to a share of the mark budget proportional to its length.
+    ///
+    /// A 43-minute session records one sample per second, and handing Swift Charts
+    /// 2,600 `LineMark`s costs ~114 ms to render - seven 60 Hz frames for detail no
+    /// chart this size can show.
+    ///
+    /// Every segment first reserves its own endpoints so a short run is never thinned
+    /// out of existence; what is left of the target is then shared out in proportion
+    /// to segment length. A segment never drops below one bucket, so a heavily
+    /// fragmented trace can plot up to four marks per segment and overshoot
+    /// `maximumPlottedPointCount` - see that constant for why accuracy wins there.
+    private static func thinnedSegments(
+        _ segments: [HeartRateChartSegment],
+        rawPointCount: Int
+    ) -> [HeartRateChartSegment] {
+        guard rawPointCount > maximumPlottedPointCount else {
+            return segments
+        }
+
+        let reserved = segments.reduce(0) { $0 + min($1.points.count, 2) }
+        let discretionary = max(maximumPlottedPointCount - reserved, 0)
+
+        return segments.map { segment in
+            let share = Double(segment.points.count) / Double(rawPointCount)
+            let budget = min(segment.points.count, 2) + Int(Double(discretionary) * share)
+            return HeartRateChartSegment(id: segment.id, points: thinned(segment.points, budget: budget))
+        }
+    }
+
+    /// Keeps each bucket's lowest and highest reading in time order, plus the run's
+    /// own endpoints. Dropping every Nth sample instead would clip the peaks and
+    /// troughs - the part of a heart-rate trace a climber actually reads.
+    ///
+    /// The bucket count never falls below one, so even a segment allotted the bare
+    /// minimum still contributes its own extremes rather than a straight chord
+    /// between its endpoints.
+    private static func thinned(_ points: [HeartRateChartPoint], budget: Int) -> [HeartRateChartPoint] {
+        guard points.count > budget else { return points }
+
+        // Two marks come out of each bucket, and the two endpoints are added back
+        // afterwards, so the bucket budget has to leave room for both.
+        let bucketCount = max((budget - 2) / 2, 1)
+
+        var kept: [HeartRateChartPoint] = []
+        kept.reserveCapacity(budget)
+
+        for bucket in 0..<bucketCount {
+            let lowerBound = points.count * bucket / bucketCount
+            let upperBound = points.count * (bucket + 1) / bucketCount
+            guard lowerBound < upperBound else { continue }
+
+            let slice = points[lowerBound..<upperBound]
+            guard let lowest = slice.min(by: { $0.heartRate < $1.heartRate }),
+                  let highest = slice.max(by: { $0.heartRate < $1.heartRate }) else {
+                continue
+            }
+
+            if lowest.id == highest.id {
+                kept.append(lowest)
+            } else if lowest.id < highest.id {
+                kept.append(contentsOf: [lowest, highest])
+            } else {
+                kept.append(contentsOf: [highest, lowest])
+            }
+        }
+
+        if let first = points.first, kept.first?.id != first.id {
+            kept.insert(first, at: 0)
+        }
+        if let last = points.last, kept.last?.id != last.id {
+            kept.append(last)
+        }
+
+        return kept
     }
 
     /// Splits the trace wherever coverage actually stopped, so a dropout reads
@@ -142,20 +283,37 @@ struct HeartRateChartView: View {
     let workoutDuration: TimeInterval
     let averageHeartRateBpm: Int?
     let maxHeartRateBpm: Int?
-    
+
+    /// Built once per view value rather than on demand. The body reads it eight
+    /// times (marks, both scales, both axes, selection), and scrubbing the chart
+    /// re-evaluates the body on every touch move - as a computed property that
+    /// meant re-filtering and re-sorting the whole series each time.
+    private let dataSet: HeartRateChartDataSet
+
     @Environment(\.colorScheme) private var colorScheme
     @State private var themeManager = ThemeManager.shared
     @State private var rawSelectedTime: TimeInterval?
     @State private var stickySelectedTime: TimeInterval?
 
-    private var dataSet: HeartRateChartDataSet {
-        HeartRateChartDataSet(
+    init(
+        heartRateData: [HeartRateDataPoint],
+        workoutStartTime: Date,
+        workoutDuration: TimeInterval,
+        averageHeartRateBpm: Int?,
+        maxHeartRateBpm: Int?
+    ) {
+        self.heartRateData = heartRateData
+        self.workoutStartTime = workoutStartTime
+        self.workoutDuration = workoutDuration
+        self.averageHeartRateBpm = averageHeartRateBpm
+        self.maxHeartRateBpm = maxHeartRateBpm
+        self.dataSet = HeartRateChartDataSet(
             samples: heartRateData,
             workoutStartTime: workoutStartTime,
             workoutDuration: workoutDuration
         )
     }
-    
+
     private var effectiveColorScheme: ColorScheme {
         themeManager.effectiveColorScheme(for: colorScheme)
     }
@@ -163,11 +321,7 @@ struct HeartRateChartView: View {
     private var computedSelectedPoint: HeartRateChartPoint? {
         guard let activeTime = rawSelectedTime ?? stickySelectedTime else { return nil }
 
-        return dataSet.points.min { point1, point2 in
-            let distance1 = abs(point1.elapsed - activeTime)
-            let distance2 = abs(point2.elapsed - activeTime)
-            return distance1 < distance2
-        }
+        return dataSet.nearestScrubPoint(to: activeTime)
     }
 
     private var averageHeartRate: Int? {

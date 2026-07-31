@@ -7,43 +7,32 @@
 
 import SwiftUI
 
-/// Preference key to track scroll offset
-private struct ScrollOffsetPreferenceKey: PreferenceKey {
-    nonisolated(unsafe) static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
 /// A ScrollView wrapper that coordinates with the sheet position.
 /// When scrolled to top and user pulls down, it triggers sheet collapse.
 struct ScrollableDetailContent<Content: View>: View {
     @Binding var sheetPosition: SheetPosition
     let content: () -> Content
 
-    @State private var scrollOffset: CGFloat = 0
     @State private var isAtTop: Bool = true
 
     private let scrollToCollapseThreshold: CGFloat = 50
 
+    /// Tolerance for bounce, so a rubber-banded top still counts as the top.
+    private let atTopTolerance: CGFloat = 5
+
     var body: some View {
         ScrollView {
             content()
-                .background(
-                    GeometryReader { geo in
-                        Color.clear
-                            .preference(
-                                key: ScrollOffsetPreferenceKey.self,
-                                value: geo.frame(in: .named("scroll")).origin.y
-                            )
-                    }
-                )
         }
         .scrollDisabled(sheetPosition != .expanded)  // Only scroll when fully expanded
-        .coordinateSpace(name: "scroll")
-        .onPreferenceChange(ScrollOffsetPreferenceKey.self) { offset in
-            scrollOffset = offset
-            isAtTop = offset >= -5  // Small tolerance for bounce
+        // Only the at-top verdict matters here, so deriving it inside the closure
+        // means the action fires when the answer flips rather than on every tick.
+        // The preference-key plumbing this replaces republished the raw offset every
+        // frame and stored it in state nothing read.
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.y + geometry.contentInsets.top <= atTopTolerance
+        } action: { _, atTop in
+            isAtTop = atTop
         }
         .simultaneousGesture(
             pullToCollapseGesture,

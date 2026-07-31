@@ -64,14 +64,17 @@ struct LiveClimbCompletionSummaryView: View {
         self.achievementTitleOverride = achievementTitleOverride
         self.achievementIconNameOverride = achievementIconNameOverride
         self.onDone = onDone
-    }
-
-    private var paceSplits: [LiveClimbPaceSplit] {
-        LiveClimbWorkoutSummaryData.paceSplits(
+        self.paceSplits = LiveClimbWorkoutSummaryData.paceSplits(
             for: workout,
             targetSteps: climb?.referenceStepCount ?? max(workout.steps, 1)
         )
     }
+
+    /// Built once per view value. The body reads it eleven times - segment count,
+    /// average, each row, the trend chart, the fastest/slowest bounds - and as a
+    /// computed property that meant eleven metadata decodes and eleven curve
+    /// rebuilds per render pass.
+    private let paceSplits: [LiveClimbPaceSplit]
 
     private var primaryBestEffort: RankedBestEffort? {
         BestEffortCacheSnapshot(
