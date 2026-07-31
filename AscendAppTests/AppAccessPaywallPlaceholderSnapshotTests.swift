@@ -88,12 +88,12 @@ private struct FallbackStatesProof: View {
         VStack(spacing: 12) {
             Text(state.primaryButtonTitle)
                 .font(.montserratBold(size: 16))
-                .foregroundStyle(.black.opacity(state.isPrimaryButtonEnabled ? 0.9 : 0.48))
+                .foregroundStyle(.black.opacity(0.9))
                 .frame(maxWidth: .infinity)
                 .frame(height: 54)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.ascendAccent.opacity(state.isPrimaryButtonEnabled ? 1 : 0.52))
+                        .fill(Color.ascendAccent)
                 )
 
             if let statusMessage = state.statusMessage {

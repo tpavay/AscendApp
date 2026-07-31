@@ -10,14 +10,14 @@ enum AppAccessPaywallPresentationState: Equatable, Sendable {
         switch self {
         case .ready:
             return "View Plans"
-        case .presenting:
-            return "Opening Paywall..."
-        case .readyToRetry, .failed:
+        case .presenting, .readyToRetry, .failed:
             return "Try Again"
         }
     }
 
-    var isPrimaryButtonEnabled: Bool {
+    /// While the paywall is being presented the gate shows a loading surface instead of controls,
+    /// so there is never a visible-but-unpressable call to action.
+    var showsRecoveryActions: Bool {
         self != .presenting
     }
 
@@ -26,7 +26,7 @@ enum AppAccessPaywallPresentationState: Equatable, Sendable {
         case .ready:
             return nil
         case .presenting:
-            return "Loading subscription options..."
+            return nil
         case .readyToRetry:
             return "Access is still locked. Open the paywall to keep climbing."
         case .failed:
