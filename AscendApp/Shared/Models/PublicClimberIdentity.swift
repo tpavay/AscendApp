@@ -20,8 +20,6 @@ enum PublicClimberIdentity {
     /// boundary remains mandatory on every cross-user rendering surface.
     static let mode: Mode = .accountAuthored
 
-    static let storedDisplayName = "Climber"
-    static let storedPhotoURL = ""
     static let anonymousDisplayName = "Anonymous Climber"
     static let genericAvatarSystemName = "person.fill"
 
