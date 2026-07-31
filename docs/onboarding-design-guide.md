@@ -754,11 +754,11 @@ State and data:
 - Summary metrics come from the local workout immediately.
 - Rank-at-completion comes from the server snapshot and should not be faked locally.
 - The per-climb leaderboard is dynamic and can change as new attempts publish.
-- The user's finisher order is permanent; its denominator grows as more users complete the climb.
+- The user's finisher order is permanent, and the denominator frozen alongside it is permanent too - the number that keeps growing is Climb Detail's live completed count, a different measurement (see `ascend-live-climbs`).
 - Sync status is shared by workout id so retrying from one surface updates the others.
 
 Success condition:
-- The user never sees contradictory rank/count numbers between summary, climb card, and leaderboard.
+- The user never sees a rank paired with a denominator from a different population, and wherever the app can name what a figure counted it labels it, so summary, climb card, and leaderboard never read as contradicting each other.
 
 Design principle:
 - Treat publication failure as recoverable state. Show the saved workout, make rank status clear, and offer a small underlined `Retry sync` action only where it matters.
