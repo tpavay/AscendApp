@@ -24,8 +24,6 @@ struct LiveClimbCompletionSummaryView: View {
     @State private var resultSyncStore = LiveClimbPublicResultSyncStore.shared
     @State private var completionRankSnapshot: LiveReplayCompletionRankSnapshot?
     @State private var computedCompletionRank: LiveReplayCompletionRank?
-    @State private var completionFinisherStatus: LiveReplayFinisherStatus?
-    @State private var completionSummary: LiveReplayLeaderboardSummary?
     @State private var isLoadingCompletionRank = false
     @State private var didFinishCompletionRankLoad = false
     @State private var didTrackSummaryViewed = false
@@ -155,15 +153,17 @@ struct LiveClimbCompletionSummaryView: View {
     }
 
     private var rankingSection: some View {
-        HStack(alignment: .center, spacing: 14) {
+        let hero = rankHero
+
+        return HStack(alignment: .center, spacing: 14) {
             VStack(alignment: .leading, spacing: 7) {
-                Text(rankingLabelText)
+                Text(hero.label)
                     .font(.montserratBold(size: 10))
                     .foregroundStyle(.accent)
 
                 HStack(alignment: .firstTextBaseline, spacing: 7) {
-                    Text(rankingValueText)
-                        .font(.montserratBold(size: rankingValueText.count > 6 ? 28 : 44))
+                    Text(hero.value)
+                        .font(.montserratBold(size: hero.value.count > 6 ? 28 : 44))
                         .foregroundStyle(
                             LinearGradient(
                                 colors: [.white, .accent.opacity(0.72)],
@@ -174,8 +174,8 @@ struct LiveClimbCompletionSummaryView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
 
-                    if let displayedTotal, displayedTotal > 0, displayedRank != nil {
-                        Text("of \(displayedTotal.formatted())")
+                    if let total = hero.total {
+                        Text("of \(total.formatted())")
                             .font(.montserratBold(size: 13))
                             .foregroundStyle(.white.opacity(0.5))
                             .lineLimit(1)
@@ -183,7 +183,7 @@ struct LiveClimbCompletionSummaryView: View {
                     }
                 }
 
-                Text(rankingDetailText)
+                Text(hero.detail)
                     .font(.montserratBold(size: 10))
                     .foregroundStyle(.white.opacity(0.46))
                     .lineLimit(1)
@@ -412,89 +412,6 @@ struct LiveClimbCompletionSummaryView: View {
             )
     }
 
-    private var rankingValueText: String {
-        if let displayedRank {
-            return displayedRank.ordinalText
-        }
-
-        if shouldShowRankUnavailableState {
-            return "Unavailable"
-        }
-
-        switch publicResultStatus?.phase {
-        case .savedOnDevice:
-            return "Saved"
-        case .syncFailedRetry:
-            return "Sync failed"
-        case .syncingRanking:
-            return "Syncing"
-        case .pending, .published, nil:
-            return shouldShowPendingRankCopy ? "Checking" : fallbackUnrankedValueText
-        }
-    }
-
-    private var rankingDetailText: String {
-        if isUsingComputedRankFallback {
-            return "CURRENT LEADERBOARD RANK"
-        }
-
-        if displayedRank != nil {
-            return completedDetailOverride ?? (climb == nil ? "WORKOUT COMPLETE" : "LIVE CLIMB COMPLETE")
-        }
-
-        if shouldShowRankUnavailableState {
-            return "CHECK LEADERBOARD LATER"
-        }
-
-        switch publicResultStatus?.phase {
-        case .savedOnDevice:
-            return "RESULT SAVED ON DEVICE"
-        case .syncFailedRetry:
-            return "SYNC YOUR RESULT TO RANK"
-        case .syncingRanking:
-            return "SYNCING RANKING"
-        case .pending, .published, nil:
-            return fallbackUnrankedDetailText
-        }
-    }
-
-    private var rankingLabelText: String {
-        rankingLabelOverride ?? (climb == nil ? "GLOBAL RANK" : "CLIMB RANK")
-    }
-
-    private var hasCompletionRankContext: Bool {
-        effectiveLeaderboardContext != nil
-    }
-
-    private var shouldShowPendingRankCopy: Bool {
-        showsPendingRankingState &&
-            hasCompletionRankContext &&
-            !didFinishCompletionRankLoad
-    }
-
-    private var shouldShowRankUnavailableState: Bool {
-        showsPendingRankingState &&
-            hasCompletionRankContext &&
-            didFinishCompletionRankLoad &&
-            displayedRank == nil
-    }
-
-    private var fallbackUnrankedValueText: String {
-        if !hasCompletionRankContext && unrankedValueText == "Checking" {
-            return "Complete"
-        }
-
-        return unrankedValueText
-    }
-
-    private var fallbackUnrankedDetailText: String {
-        if !hasCompletionRankContext && unrankedDetailText == "LOOKING FOR YOUR RANK" {
-            return completedDetailOverride ?? (climb == nil ? "WORKOUT COMPLETE" : "LIVE CLIMB COMPLETE")
-        }
-
-        return unrankedDetailText
-    }
-
     private var averageSPMText: String {
         guard averageSPMValue > 0 else { return "0" }
         return Int(averageSPMValue.rounded()).formatted()
@@ -549,52 +466,81 @@ struct LiveClimbCompletionSummaryView: View {
         resultSyncStore.status(for: workout.id)
     }
 
-    private var displayedRank: Int? {
+    /// Every word and number in the rank hero, resolved as one unit so the
+    /// displayed position and its denominator always come from the same
+    /// measurement. See `LiveClimbSummaryRankHero`.
+    private var rankHero: LiveClimbSummaryRankHero {
+        LiveClimbSummaryRankHero.make(
+            isClimbContext: climb != nil,
+            standings: rankStandingCandidates,
+            sync: LiveClimbSummaryRankHero.SyncState(
+                phase: publicResultStatus?.phase,
+                showsPendingRanking: showsPendingRankingState,
+                hasRankContext: effectiveLeaderboardContext != nil,
+                didFinishRankLoad: didFinishCompletionRankLoad
+            ),
+            copy: LiveClimbSummaryRankHero.Copy(
+                labelOverride: rankingLabelOverride,
+                completedDetailOverride: completedDetailOverride,
+                unrankedValue: unrankedValueText,
+                unrankedDetail: unrankedDetailText
+            )
+        )
+    }
+
+    /// Candidate standings, most authoritative first.
+    ///
+    /// A landmark climb prefers the server's immutable completion snapshot: that
+    /// is the standing the climber earned, and it is what the share card and the
+    /// public result assert. Everything else falls back to a rank recomputed
+    /// against today's rows, which is a different measurement and says so.
+    private var rankStandingCandidates: [LiveClimbSummaryRankHero.Standing?] {
+        typealias Standing = LiveClimbSummaryRankHero.Standing
+
+        let snapshot = publicResultStatus?.rankSnapshot ?? completionRankSnapshot
+        let publishStatus = publicResultStatus?.publishStatus
+
         if climb == nil {
-            return leaderboardRank ??
-                completionRankSnapshot?.rank ??
-                computedCompletionRank?.rank
+            return [
+                Standing(rank: leaderboardRank, total: leaderboardTotal, basis: .current),
+                Standing(
+                    rank: completionRankSnapshot?.rank,
+                    total: completionRankSnapshot?.completedCount,
+                    basis: .atCompletion
+                ),
+                Standing(
+                    rank: computedCompletionRank?.rank,
+                    total: computedCompletionRank?.completedCount,
+                    basis: .current
+                )
+            ]
         }
 
-        return publicResultStatus?.rankSnapshot?.rank ??
-            publicResultStatus?.publishStatus?.rankAtCompletion ??
-            completionRankSnapshot?.rank ??
-            computedCompletionRank?.rank
+        return [
+            Standing(
+                rank: snapshot?.rank,
+                total: snapshot?.completedCount,
+                basis: .atCompletion
+            ),
+            Standing(
+                rank: publishStatus?.rankAtCompletion,
+                total: publishStatus?.completedCountAtCompletion,
+                basis: .atCompletion
+            ),
+            Standing(
+                rank: computedCompletionRank?.rank,
+                total: computedCompletionRank?.completedCount,
+                basis: .current
+            )
+        ]
+    }
+
+    private var displayedRank: Int? {
+        rankHero.standing?.rank
     }
 
     private var displayedTotal: Int? {
-        if climb == nil {
-            return leaderboardTotal ??
-                completionRankSnapshot?.completedCount ??
-                computedCompletionRank?.completedCount
-        }
-
-        if let snapshotTotal = completionRankSnapshot?.completedCount {
-            return snapshotTotal
-        }
-
-        if let statusTotal = publicResultStatus?.rankSnapshot?.completedCount ??
-            publicResultStatus?.publishStatus?.completedCountAtCompletion {
-            return statusTotal
-        }
-
-        if let computedTotal = computedCompletionRank?.completedCount {
-            return computedTotal
-        }
-
-        let total = max(
-            completionSummary?.completedCount ?? 0,
-            publicResultStatus?.phase == .published ? (leaderboardTotal ?? 0) : 0
-        )
-
-        return total > 0 ? total : nil
-    }
-
-    private var isUsingComputedRankFallback: Bool {
-        computedCompletionRank != nil &&
-            publicResultStatus?.rankSnapshot == nil &&
-            publicResultStatus?.publishStatus?.rankAtCompletion == nil &&
-            completionRankSnapshot == nil
+        rankHero.total
     }
 
     private var effectiveLeaderboardContext: LiveReplayLeaderboardContext? {
@@ -715,20 +661,11 @@ struct LiveClimbCompletionSummaryView: View {
 
         let workoutId = workout.id.uuidString
 
-        async let fetchedSummary = LiveReplayLeaderboardService.shared.fetchSummary(context: context)
         async let fetchedCompletionRankSnapshot = LiveReplayLeaderboardService.shared.fetchCompletionRankSnapshot(
             context: context,
             workoutId: workoutId
         )
         async let fetchedFinisherStatus = LiveReplayLeaderboardService.shared.fetchCurrentUserFinisherStatus(context: context)
-
-        do {
-            completionSummary = try await fetchedSummary
-        } catch {
-#if DEBUG
-            debugLog("Live Climb summary count fetch failed: \(error.localizedDescription)")
-#endif
-        }
 
         do {
             completionRankSnapshot = try await fetchedCompletionRankSnapshot
@@ -739,15 +676,12 @@ struct LiveClimbCompletionSummaryView: View {
         }
 
         do {
-            if let finisherStatus = try await fetchedFinisherStatus {
-                completionFinisherStatus = finisherStatus
-                if let climb {
-                    try? ClimbService.shared.mirrorFinisherStatus(
-                        finisherStatus,
-                        for: climb,
-                        modelContext: modelContext
-                    )
-                }
+            if let finisherStatus = try await fetchedFinisherStatus, let climb {
+                try? ClimbService.shared.mirrorFinisherStatus(
+                    finisherStatus,
+                    for: climb,
+                    modelContext: modelContext
+                )
             }
         } catch {
 #if DEBUG
@@ -900,14 +834,6 @@ private func clockTime(_ seconds: Int) -> String {
     }
 
     return "\(minutes):\(seconds < 10 ? "0" : "")\(seconds)"
-}
-
-private extension Int {
-    var ordinalText: String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .ordinal
-        return formatter.string(from: NSNumber(value: self)) ?? "\(self)"
-    }
 }
 
 #Preview {
