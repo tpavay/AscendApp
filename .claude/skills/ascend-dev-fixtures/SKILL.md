@@ -46,9 +46,10 @@ paths:
   The object name is deterministic, so re-seeding overwrites in place instead of orphaning objects.
   A persona with no uploaded avatar publishes no photo; an off-host URL fails the seed rather than reaching Firestore.
 - Dev and staging seed data written before the account-authored identity change is stale: its mirrors predate the identity contract and its leaderboard rows predate `identityState`.
-  Repair them with `scripts/restore-public-identities.mjs --env <dev|staging>`, which stamps the missing
+  Repair them with `scripts/restore-public-identities.mjs --env <dev|staging> --apply`, which stamps the missing
   `identityPolicyVersion` and `identityChangedAt` onto `users/{uid}/public_profile/current` and lets the deployed
   `onPublicProfileIdentityWritten` trigger fan the identity out to every projection.
+  Dry run is the default: without `--apply` it prints the per-user plan and writes nothing.
   Prefer it over re-seeding: it preserves the numbers already being tested against, and it screens every derived name
   through the same shared contract the live write path uses, skipping any account whose identity it cannot derive
   rather than inventing one.
