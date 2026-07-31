@@ -23,6 +23,9 @@ import Foundation
 ///    a status word. "Complete" where "21st" goes reads as a load that never
 ///    finished, so `Value` makes that state unrepresentable rather than relying
 ///    on every caller to pass wording that avoids it.
+/// 4. "No answer yet" is a pending state, never the settled one. `RankResolution`
+///    spells out the difference so a card that has not looked yet cannot render
+///    the terminal "no rank" wording for the frame before the lookup starts.
 ///
 /// A frozen standing is also permanent: `FrozenCompletionRankStore` keeps the
 /// server's answer on device so a reopened summary renders it without a request.
@@ -128,32 +131,50 @@ struct LiveClimbSummaryRankHero: Equatable {
         case unranked
     }
 
+    /// How far the surface has got in resolving a rank for this session.
+    ///
+    /// The lookup runs after the first frame, so the state it starts in is
+    /// `notStarted` - a wait, not an answer. Both pending cases render the loading
+    /// treatment; only `settled` may say the session ranks nowhere.
+    enum RankResolution: Equatable {
+        /// No lookup has run yet.
+        case notStarted
+        /// A rank read is running right now.
+        case resolving
+        /// The lookup finished. Whatever the hero shows now is the final answer.
+        case settled
+
+        var isPending: Bool { self != .settled }
+    }
+
     /// The publish/sync state that drives the unranked copy.
     struct SyncState: Equatable {
         let phase: LiveClimbPublicResultPhase?
         /// Whether a leaderboard context exists to rank against. Without one there
         /// is no hero at all.
         let hasRankContext: Bool
-        /// Whether a rank read is running right now.
-        let isResolvingRank: Bool
+        let rankResolution: RankResolution
 
         init(
             phase: LiveClimbPublicResultPhase?,
             hasRankContext: Bool,
-            isResolvingRank: Bool
+            rankResolution: RankResolution
         ) {
             self.phase = phase
             self.hasRankContext = hasRankContext
-            self.isResolvingRank = isResolvingRank
+            self.rankResolution = rankResolution
         }
     }
 
     /// Caller-supplied wording for the surfaces that are not a landmark climb.
+    ///
+    /// The label is caller-owned. The detail line is not: wherever the hero can
+    /// name the population the rank was measured against, it does. The one
+    /// exception is a `.liveSession` standing, whose race window only the caller
+    /// can describe.
     struct Copy: Equatable {
         let labelOverride: String?
-        /// Stands in for the detail line only where the hero cannot name the
-        /// population itself - a `.liveSession` standing, measured against the
-        /// caller's own race window.
+        /// Stands in for the detail line only under a `.liveSession` standing.
         let completedDetailOverride: String?
 
         init(
@@ -250,7 +271,7 @@ struct LiveClimbSummaryRankHero: Equatable {
             return .rank(standing.rank)
         }
 
-        if sync.isResolvingRank || sync.phase == .syncingRanking {
+        if sync.rankResolution.isPending || sync.phase == .syncingRanking {
             return .loading
         }
 
@@ -287,7 +308,7 @@ struct LiveClimbSummaryRankHero: Equatable {
         case .syncingRanking:
             return "SYNCING RANKING"
         case .pending, .published, nil:
-            return sync.isResolvingRank ? "LOOKING FOR YOUR RANK" : "CHECK LEADERBOARD LATER"
+            return sync.rankResolution.isPending ? "LOOKING FOR YOUR RANK" : "CHECK LEADERBOARD LATER"
         }
     }
 

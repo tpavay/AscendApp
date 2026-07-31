@@ -275,7 +275,7 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
             sync: LiveClimbSummaryRankHero.SyncState(
                 phase: nil,
                 hasRankContext: true,
-                isResolvingRank: false
+                rankResolution: .settled
             ),
             copy: LiveClimbSummaryRankHero.Copy(labelOverride: "CLIMB RANK")
         )

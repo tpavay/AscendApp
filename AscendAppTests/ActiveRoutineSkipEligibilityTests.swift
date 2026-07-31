@@ -189,7 +189,6 @@ struct ActiveRoutineSkipEligibilityTests {
         )
 
         #expect(presentation.rankingLabel == "ROUTINE RANK")
-        #expect(presentation.completedDetail == "ROUTINE COMPLETE")
         #expect(presentation.ranksOnLeaderboard)
 
         // No override: the achievement card keeps the summary's own completion copy and seal.
@@ -213,7 +212,7 @@ struct ActiveRoutineSkipEligibilityTests {
             hasRoutineLeaderboard: true
         )
 
-        #expect(presentation.completedDetail == "SESSION ENDED")
+        #expect(presentation.rankingLabel == "ROUTINE")
         #expect(presentation.rankingLabel != "ROUTINE RANK")
         #expect(presentation.ranksOnLeaderboard == false)
 
@@ -243,7 +242,7 @@ struct ActiveRoutineSkipEligibilityTests {
         // A nil override leaves the achievement card on its "CLIMB COMPLETE" default, which is the
         // claim; supplying one replaces it.
         let achievementCardClaimsCompletion = presentation.achievementTitleOverride == nil
-        let rankingCardClaimsCompletion = presentation.completedDetail == "ROUTINE COMPLETE"
+        let rankingCardClaimsCompletion = presentation.ranksOnLeaderboard
 
         #expect(achievementCardClaimsCompletion == rankingCardClaimsCompletion)
         #expect(rankingCardClaimsCompletion == stopReason.earnsCompetitiveCredit)
@@ -319,7 +318,7 @@ struct ActiveRoutineSkipEligibilityTests {
 
         #expect(viewModel.resolvedStopReason == .skipped)
         #expect(viewModel.countsAsCompletion == false)
-        #expect(viewModel.completionSummaryPresentation.completedDetail == "SESSION ENDED")
+        #expect(viewModel.completionSummaryPresentation.rankingLabel == "ROUTINE")
         #expect(viewModel.completionLeaderboardContext == nil)
         #expect(viewModel.completionLeaderboardRank == nil)
         #expect(viewModel.completionLeaderboardTotal == nil)

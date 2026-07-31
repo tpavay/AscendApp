@@ -9,7 +9,7 @@ import Foundation
 ///
 /// This deliberately stores only server-authored snapshots. A rank recomputed against today's rows
 /// is a *current* standing, not the workout's frozen result, and must never be written here - see
-/// `LiveClimbRankPresentation`, which keeps the two apart on screen.
+/// `LiveClimbSummaryRankHero`, which keeps the two apart on screen.
 ///
 /// Backed by `UserDefaults`, which account deletion already wipes wholesale
 /// (`AppAccountDeletionLocalCleanup.clearUserDefaults`). `@unchecked Sendable` because
@@ -120,10 +120,12 @@ struct FrozenCompletionRankStore: @unchecked Sendable {
     private func trimmed(_ records: [String: Record]) -> [String: Record] {
         guard records.count > Self.maxRecordCount else { return records }
 
-        let retainedKeys = records
-            .sorted { $0.value.frozenAt > $1.value.frozenAt }
-            .prefix(Self.maxRecordCount)
-            .map(\.key)
+        let retainedKeys = Set(
+            records
+                .sorted { $0.value.frozenAt > $1.value.frozenAt }
+                .prefix(Self.maxRecordCount)
+                .map(\.key)
+        )
 
         return records.filter { retainedKeys.contains($0.key) }
     }

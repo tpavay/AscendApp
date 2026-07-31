@@ -26,7 +26,7 @@ final class CompletedClimbRankService {
     }
 
     /// The frozen rank if this device already has it. Synchronous and network-free, so a reopened
-    /// summary can render the final number in its first frame with no loading state at all.
+    /// summary settles on the final number without a request and without waiting on one.
     func frozenRank(
         context: LiveReplayLeaderboardContext,
         workoutId: String

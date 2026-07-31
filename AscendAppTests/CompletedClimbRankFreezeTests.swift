@@ -11,12 +11,14 @@ struct CompletedClimbRankFreezeTests {
         targetSteps: 4_554
     )
 
+    /// Returns the suite name too: every test removes its own persistent domain on the way out, so
+    /// a run leaves no defaults plists behind.
     private static func store(
         _ name: String = #function
-    ) -> (FrozenCompletionRankStore, UserDefaults) {
+    ) -> (FrozenCompletionRankStore, UserDefaults, String) {
         let suiteName = "FrozenCompletionRankStoreTests.\(name).\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
-        return (FrozenCompletionRankStore(defaults: defaults), defaults)
+        return (FrozenCompletionRankStore(defaults: defaults), defaults, suiteName)
     }
 
     private static func snapshot(
@@ -37,8 +39,8 @@ struct CompletedClimbRankFreezeTests {
 
     @Test
     func frozenRankSurvivesAcrossStoreInstances() {
-        let (store, defaults) = Self.store()
-        defer { defaults.removePersistentDomain(forName: defaults.description) }
+        let (store, defaults, suiteName) = Self.store()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
 
         store.freeze(Self.snapshot(), contextKey: Self.context.contextKey)
 
@@ -54,7 +56,8 @@ struct CompletedClimbRankFreezeTests {
 
     @Test
     func aLaterServerReadNeverMovesAnAlreadyFrozenRank() {
-        let (store, _) = Self.store()
+        let (store, defaults, suiteName) = Self.store()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
 
         store.freeze(Self.snapshot(rank: 21, completedCount: 64), contextKey: Self.context.contextKey)
         let returned = store.freeze(
@@ -71,7 +74,8 @@ struct CompletedClimbRankFreezeTests {
 
     @Test
     func theSameWorkoutFreezesIndependentlyPerLeaderboard() {
-        let (store, _) = Self.store()
+        let (store, defaults, suiteName) = Self.store()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         let routineContext = LiveReplayLeaderboardContext.routineTemplate(
             templateId: "pyramid",
             targetSteps: 2_000
@@ -89,7 +93,8 @@ struct CompletedClimbRankFreezeTests {
         let repository = CountingCompletionSnapshotRepository(
             snapshot: Self.snapshot(rank: 21, completedCount: 64)
         )
-        let (persistence, _) = Self.store()
+        let (persistence, defaults, suiteName) = Self.store()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         let service = await CompletedClimbRankService(
             leaderboardService: LiveReplayLeaderboardService(repository: repository),
             store: persistence
@@ -113,7 +118,8 @@ struct CompletedClimbRankFreezeTests {
         let repository = CountingCompletionSnapshotRepository(
             snapshot: Self.snapshot(rank: 21, completedCount: 64)
         )
-        let (persistence, _) = Self.store()
+        let (persistence, defaults, suiteName) = Self.store()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         let service = LiveReplayLeaderboardService(repository: repository, minFetchInterval: 0)
         let rankService = await CompletedClimbRankService(
             leaderboardService: service,
@@ -138,7 +144,8 @@ struct CompletedClimbRankFreezeTests {
     @Test
     func aWorkoutTheServerHasNotRankedIsNotFrozenAtAll() async {
         let repository = CountingCompletionSnapshotRepository(snapshot: nil)
-        let (persistence, _) = Self.store()
+        let (persistence, defaults, suiteName) = Self.store()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         let service = await CompletedClimbRankService(
             leaderboardService: LiveReplayLeaderboardService(repository: repository),
             store: persistence

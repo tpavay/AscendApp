@@ -94,10 +94,7 @@ struct LiveClimbSummaryRankHeroTests {
             isClimbContext: false,
             standings: [Hero.Standing(rank: 4, total: 12, basis: .atCompletion)],
             sync: publishedSync(),
-            copy: Hero.Copy(
-                labelOverride: "ROUTINE RANK",
-                completedDetailOverride: "ROUTINE COMPLETE"
-            )
+            copy: Hero.Copy(labelOverride: "ROUTINE RANK")
         ))
 
         #expect(hero.label == "ROUTINE RANK")
@@ -351,7 +348,7 @@ struct LiveClimbSummaryRankHeroTests {
             sync: Hero.SyncState(
                 phase: .pending,
                 hasRankContext: true,
-                isResolvingRank: true
+                rankResolution: .resolving
             ),
             copy: Hero.Copy()
         ))
@@ -369,13 +366,36 @@ struct LiveClimbSummaryRankHeroTests {
             sync: Hero.SyncState(
                 phase: .published,
                 hasRankContext: true,
-                isResolvingRank: false
+                rankResolution: .settled
             ),
             copy: Hero.Copy()
         ))
 
         #expect(hero.value == .unranked)
         #expect(hero.detail == "CHECK LEADERBOARD LATER")
+    }
+
+    /// The state a summary is in for the frame before its lookup starts. Reading
+    /// "no answer yet" as "no rank" flashed a terminal card that then jumped to a
+    /// skeleton or a rank - the same stalled-load impression, one frame earlier.
+    @Test
+    func aLookupThatHasNotRunYetLoadsInsteadOfReadingAsSettled() throws {
+        for phase: LiveClimbPublicResultPhase? in [nil, .pending, .published] {
+            let hero = try #require(Hero.make(
+                isClimbContext: true,
+                standings: [],
+                sync: Hero.SyncState(
+                    phase: phase,
+                    hasRankContext: true,
+                    rankResolution: .notStarted
+                ),
+                copy: Hero.Copy()
+            ))
+
+            #expect(hero.value == .loading)
+            #expect(hero.detail == "LOOKING FOR YOUR RANK")
+            #expect(hero.detail != "CHECK LEADERBOARD LATER")
+        }
     }
 
     struct SyncPhaseCopyCase: Sendable {
@@ -415,7 +435,7 @@ struct LiveClimbSummaryRankHeroTests {
             sync: Hero.SyncState(
                 phase: testCase.phase,
                 hasRankContext: true,
-                isResolvingRank: false
+                rankResolution: .settled
             ),
             copy: Hero.Copy()
         ))
@@ -434,7 +454,7 @@ struct LiveClimbSummaryRankHeroTests {
         ]
 
         for phase in phases {
-            for isResolving in [true, false] {
+            for resolution in [Hero.RankResolution.notStarted, .resolving, .settled] {
                 for isClimbContext in [true, false] {
                     guard let hero = Hero.make(
                         isClimbContext: isClimbContext,
@@ -442,9 +462,9 @@ struct LiveClimbSummaryRankHeroTests {
                         sync: Hero.SyncState(
                             phase: phase,
                             hasRankContext: true,
-                            isResolvingRank: isResolving
+                            rankResolution: resolution
                         ),
-                        copy: Hero.Copy(completedDetailOverride: "ROUTINE COMPLETE")
+                        copy: Hero.Copy()
                     ) else {
                         continue
                     }
@@ -471,7 +491,7 @@ struct LiveClimbSummaryRankHeroTests {
                     sync: Hero.SyncState(
                         phase: nil,
                         hasRankContext: false,
-                        isResolvingRank: false
+                        rankResolution: .settled
                     ),
                     copy: Hero.Copy()
                 ) == nil
@@ -496,12 +516,9 @@ struct LiveClimbSummaryRankHeroTests {
                 sync: Hero.SyncState(
                     phase: nil,
                     hasRankContext: forfeited.ranksOnLeaderboard,
-                    isResolvingRank: false
+                    rankResolution: .settled
                 ),
-                copy: Hero.Copy(
-                    labelOverride: forfeited.rankingLabel,
-                    completedDetailOverride: forfeited.completedDetail
-                )
+                copy: Hero.Copy(labelOverride: forfeited.rankingLabel)
             ) == nil
         )
     }
@@ -510,7 +527,7 @@ struct LiveClimbSummaryRankHeroTests {
         Hero.SyncState(
             phase: .published,
             hasRankContext: true,
-            isResolvingRank: false
+            rankResolution: .settled
         )
     }
 }

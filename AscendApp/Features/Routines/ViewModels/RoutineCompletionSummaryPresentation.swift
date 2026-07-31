@@ -4,6 +4,8 @@ import Foundation
 /// must not claim a completion or show a standing it will never hold.
 struct RoutineCompletionSummaryPresentation: Equatable {
     let rankingLabel: String
+    /// The detail line under a routine's own in-session standing. The hero cannot name that
+    /// bucket-windowed race population itself, so this states the session finished instead.
     let completedDetail: String
     /// Whether this session ranks anywhere. When it does not there is no ranking card at all - the
     /// achievement row already states the outcome, and a status word in the slot where a rank goes

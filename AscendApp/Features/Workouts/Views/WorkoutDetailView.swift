@@ -130,7 +130,6 @@ struct WorkoutDetailView: View {
                     allowsRatingPrompt: false,
                     leaderboardContext: liveClimbSummaryLeaderboardContext,
                     rankingLabelOverride: liveClimbSummaryRankingLabelOverride,
-                    completedDetailOverride: liveClimbSummaryCompletedDetailText,
                     ranksOnLeaderboard: liveClimbSummaryLeaderboardContext != nil,
                     onDone: {
                         showingLiveClimbSummaryPreview = false
@@ -573,17 +572,6 @@ struct WorkoutDetailView: View {
     private var liveClimbSummaryRankingLabelOverride: String? {
         guard liveClimbSummaryMetadata?.trackingMode == .routine else { return nil }
         return liveClimbSummaryLeaderboardContext == nil ? "ROUTINE" : "ROUTINE RANK"
-    }
-
-    private var liveClimbSummaryCompletedDetailText: String {
-        switch liveClimbSummaryMetadata?.trackingMode {
-        case .routine:
-            return "ROUTINE COMPLETE"
-        case .liveClimb:
-            return "LIVE CLIMB COMPLETE"
-        case .justClimb, nil:
-            return "WORKOUT COMPLETE"
-        }
     }
 
     /// Decodes the stored series exactly once per render pass and hands it to every predicate that
