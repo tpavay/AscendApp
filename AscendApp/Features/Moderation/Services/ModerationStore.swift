@@ -12,6 +12,7 @@ final class ModerationStore {
     private(set) var hydrationErrorMessage: String?
 
     private let repository: any ModerationRepositoryProtocol
+    private let serverSyncMarker: any BlockListServerSyncMarking
     private var activeUserId: String?
     private var sessionGeneration: UInt64 = 0
     private var blocksAddedDuringHydration: [String: BlockedClimber] = [:]
@@ -24,8 +25,13 @@ final class ModerationStore {
     private var replayRowMemo =
         ModeratedCollectionMemo<LiveReplayLeaderboardRow, ModeratedReplayLeaderboardRow>()
 
-    init(repository: any ModerationRepositoryProtocol = ModerationRepository.shared) {
+    init(
+        repository: any ModerationRepositoryProtocol = ModerationRepository.shared,
+        serverSyncMarker: any BlockListServerSyncMarking =
+            UserDefaultsBlockListServerSyncMarker()
+    ) {
         self.repository = repository
+        self.serverSyncMarker = serverSyncMarker
     }
 
     var blockedUserIds: Set<String> {
@@ -46,8 +52,12 @@ final class ModerationStore {
     /// local persistence, because a cold launch offline would otherwise mask
     /// every climber on a device that already knows this user's blocks. A
     /// refresh never falls back: the list already in memory is at least as
-    /// fresh. When neither source produces a list the session stays
-    /// un-hydrated, so a genuinely never-synced device still fails closed.
+    /// fresh.
+    ///
+    /// An empty cache read is only trusted once `serverSyncMarker` says this
+    /// account has synced here before, since an unsynced collection query
+    /// returns an empty snapshot rather than an error. Without that proof the
+    /// session stays un-hydrated and every cross-user identity stays masked.
     func hydrate(for userId: String) async {
         sessionGeneration &+= 1
         let generation = sessionGeneration
@@ -72,6 +82,7 @@ final class ModerationStore {
                 blockerUserId: userId,
                 source: .server
             )
+            serverSyncMarker.recordServerSync(userId: userId)
             guard isCurrentSession(userId: userId, generation: generation) else {
                 return
             }
@@ -97,6 +108,11 @@ final class ModerationStore {
                 source: .cache
             )
             guard isCurrentSession(userId: userId, generation: generation) else {
+                return
+            }
+            guard !cachedBlocks.isEmpty ||
+                serverSyncMarker.hasSyncedFromServer(userId: userId) else {
+                hydrationErrorMessage = Self.hydrationFailureMessage
                 return
             }
             applyHydrationResult(cachedBlocks)

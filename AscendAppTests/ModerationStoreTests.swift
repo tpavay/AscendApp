@@ -18,8 +18,10 @@ struct ModerationStoreTests {
         }
 
         var fetchedBlocks: [BlockedClimber] = []
+        /// Firestore answers an unsynced collection query with an empty
+        /// snapshot, not an error, so an empty cache read succeeds here too.
         var cachedBlocks: [BlockedClimber] = []
-        var cacheFails = true
+        var cacheFails = false
         var fetchedSources: [BlockListReadSource] = []
         var fetchedUserIds: [String] = []
         var blockCalls: [BlockCall] = []
@@ -153,6 +155,10 @@ struct ModerationStoreTests {
             cacheFails = false
         }
 
+        func setCacheFails(_ shouldFail: Bool) {
+            cacheFails = shouldFail
+        }
+
         func suspendBlock() {
             blockSuspends = true
         }
@@ -203,6 +209,23 @@ struct ModerationStoreTests {
         }
     }
 
+    @MainActor
+    final class ServerSyncMarkerSpy: BlockListServerSyncMarking {
+        private(set) var syncedUserIds: Set<String>
+
+        init(syncedUserIds: Set<String> = []) {
+            self.syncedUserIds = syncedUserIds
+        }
+
+        func hasSyncedFromServer(userId: String) -> Bool {
+            syncedUserIds.contains(userId)
+        }
+
+        func recordServerSync(userId: String) {
+            syncedUserIds.insert(userId)
+        }
+    }
+
     enum TestFailure: Error {
         case expected
     }
@@ -213,7 +236,7 @@ struct ModerationStoreTests {
         await repository.setFetchedBlocks([
             BlockedClimber(userId: "blocked-user", createdAt: .now)
         ])
-        let store = ModerationStore(repository: repository)
+        let store = makeStore(repository: repository)
 
         await store.hydrate(for: "viewer")
 
@@ -223,7 +246,8 @@ struct ModerationStoreTests {
     }
 
     /// A cold launch offline defers to whatever Firestore already cached on this
-    /// device instead of masking every climber on a board.
+    /// device instead of masking every climber on a board. A non-empty cache
+    /// proves the list reached this device, so no marker is needed.
     @Test
     func firstHydrationFallsBackToTheDeviceCacheWhenTheServerFails() async {
         let repository = RepositorySpy()
@@ -231,7 +255,8 @@ struct ModerationStoreTests {
         await repository.setCachedBlocks([
             BlockedClimber(userId: "cached-block", createdAt: .now)
         ])
-        let store = ModerationStore(repository: repository)
+        let marker = ServerSyncMarkerSpy()
+        let store = makeStore(repository: repository, serverSyncMarker: marker)
 
         await store.hydrate(for: "viewer")
 
@@ -240,6 +265,87 @@ struct ModerationStoreTests {
         #expect(store.hydrationErrorMessage == nil)
         #expect(await repository.fetchedSources == [.server, .cache])
         #expect(store.moderate(otherClimber(), isCurrentUser: false).isHidden == false)
+        #expect(marker.syncedUserIds.isEmpty)
+    }
+
+    /// Firestore answers a never-synced collection query with an empty snapshot
+    /// rather than an error, so an empty cache proves nothing on its own. Without
+    /// a recorded server sync the session must stay masked.
+    @Test
+    func neverSyncedDeviceStaysMaskedWhenTheCacheReadsEmpty() async {
+        let repository = RepositorySpy()
+        await repository.setFetchFails(true)
+        await repository.setCachedBlocks([])
+        let marker = ServerSyncMarkerSpy()
+        let store = makeStore(repository: repository, serverSyncMarker: marker)
+
+        await store.hydrate(for: "viewer")
+
+        #expect(store.isBlockListHydrated == false)
+        #expect(store.blockedUserIds.isEmpty)
+        #expect(store.hydrationErrorMessage != nil)
+        #expect(await repository.fetchedSources == [.server, .cache])
+        #expect(store.moderate(otherClimber(), isCurrentUser: false).isHidden)
+        #expect(marker.syncedUserIds.isEmpty)
+    }
+
+    /// Once this account has synced here, an empty cache means what it says, so a
+    /// user who has blocked nobody is not masked forever.
+    @Test
+    func emptyCacheHydratesOnceAServerSyncHasBeenRecorded() async {
+        let repository = RepositorySpy()
+        await repository.setFetchFails(true)
+        await repository.setCachedBlocks([])
+        let store = makeStore(
+            repository: repository,
+            serverSyncMarker: ServerSyncMarkerSpy(syncedUserIds: ["viewer"])
+        )
+
+        await store.hydrate(for: "viewer")
+
+        #expect(store.isBlockListHydrated)
+        #expect(store.blockedUserIds.isEmpty)
+        #expect(store.hydrationErrorMessage == nil)
+        #expect(store.moderate(otherClimber(), isCurrentUser: false).isHidden == false)
+    }
+
+    /// The marker is proof of a server round trip. A cache-only hydration must not
+    /// be able to certify itself for the next launch.
+    @Test
+    func onlyASuccessfulServerReadRecordsTheSyncMarker() async {
+        let repository = RepositorySpy()
+        await repository.setFetchFails(true)
+        await repository.setCachedBlocks([
+            BlockedClimber(userId: "cached-block", createdAt: .now)
+        ])
+        let marker = ServerSyncMarkerSpy()
+        let store = makeStore(repository: repository, serverSyncMarker: marker)
+        await store.hydrate(for: "viewer")
+
+        #expect(marker.syncedUserIds.isEmpty)
+
+        await repository.setFetchFails(false)
+        await store.hydrate(for: "viewer")
+
+        #expect(marker.syncedUserIds == ["viewer"])
+        #expect(marker.hasSyncedFromServer(userId: "other-viewer") == false)
+    }
+
+    /// Another account signing in on this device must not inherit the marker.
+    @Test
+    func aSyncMarkerNeverAppliesToADifferentAccount() async {
+        let repository = RepositorySpy()
+        await repository.setFetchFails(true)
+        await repository.setCachedBlocks([])
+        let store = makeStore(
+            repository: repository,
+            serverSyncMarker: ServerSyncMarkerSpy(syncedUserIds: ["viewer"])
+        )
+
+        await store.hydrate(for: "other-viewer")
+
+        #expect(store.isBlockListHydrated == false)
+        #expect(store.moderate(otherClimber(), isCurrentUser: false).isHidden)
     }
 
     /// A refresh already has a list at least as fresh as the cache, so it never
@@ -250,7 +356,7 @@ struct ModerationStoreTests {
         await repository.setFetchedBlocks([
             BlockedClimber(userId: "blocked-user", createdAt: .now)
         ])
-        let store = ModerationStore(repository: repository)
+        let store = makeStore(repository: repository)
         await store.hydrate(for: "viewer")
 
         await repository.setFetchFails(true)
@@ -265,7 +371,7 @@ struct ModerationStoreTests {
     func blockingImmediatelyUpdatesRenderCacheAndDoesNotReport() async throws {
         let repository = RepositorySpy()
         await repository.suspendBlock()
-        let store = ModerationStore(repository: repository)
+        let store = makeStore(repository: repository)
         await store.hydrate(for: "viewer")
 
         let blockTask = Task {
@@ -293,7 +399,7 @@ struct ModerationStoreTests {
     func failedServerBlockNeverBecomesAuthoritativeLocally() async {
         let repository = RepositorySpy()
         await repository.setBlockFails(true)
-        let store = ModerationStore(repository: repository)
+        let store = makeStore(repository: repository)
         await store.hydrate(for: "viewer")
 
         await #expect(throws: TestFailure.self) {
@@ -306,7 +412,7 @@ struct ModerationStoreTests {
     @Test
     func reportingDoesNotCreateABlock() async throws {
         let repository = RepositorySpy()
-        let store = ModerationStore(repository: repository)
+        let store = makeStore(repository: repository)
         await store.hydrate(for: "viewer")
 
         try await store.report(
@@ -336,7 +442,7 @@ struct ModerationStoreTests {
         await repository.setFetchedBlocks([
             BlockedClimber(userId: "blocked-user", createdAt: .now)
         ])
-        let store = ModerationStore(repository: repository)
+        let store = makeStore(repository: repository)
         await store.hydrate(for: "viewer")
 
         try await store.unblock(blockerUserId: "viewer", blockedUserId: "blocked-user")
@@ -353,7 +459,7 @@ struct ModerationStoreTests {
     func staleSameUserHydrationCannotOverwriteANewerSession() async {
         let repository = RepositorySpy()
         await repository.suspendFetches()
-        let store = ModerationStore(repository: repository)
+        let store = makeStore(repository: repository)
 
         let oldHydration = Task {
             await store.hydrate(for: "viewer")
@@ -398,7 +504,7 @@ struct ModerationStoreTests {
     @Test
     func successfulBlockThatBecomesStaleForcesAuthoritativeRehydration() async throws {
         let repository = RepositorySpy()
-        let store = ModerationStore(repository: repository)
+        let store = makeStore(repository: repository)
         await store.hydrate(for: "viewer")
         await repository.suspendBlock()
         await repository.suspendFetches()
@@ -442,7 +548,7 @@ struct ModerationStoreTests {
         await repository.setFetchedBlocks([
             BlockedClimber(userId: "blocked-user", createdAt: .now)
         ])
-        let store = ModerationStore(repository: repository)
+        let store = makeStore(repository: repository)
         await store.hydrate(for: "viewer")
         await repository.suspendUnblock()
         await repository.suspendFetches()
@@ -483,7 +589,7 @@ struct ModerationStoreTests {
     @Test
     func staleUserAWriteNeverRehydratesOverUserB() async throws {
         let repository = RepositorySpy()
-        let store = ModerationStore(repository: repository)
+        let store = makeStore(repository: repository)
         await store.hydrate(for: "user-a")
         await repository.suspendBlock()
 
@@ -509,7 +615,7 @@ struct ModerationStoreTests {
     @Test
     func successfulStaleWriteAfterSignOutDoesNotRestartHydration() async throws {
         let repository = RepositorySpy()
-        let store = ModerationStore(repository: repository)
+        let store = makeStore(repository: repository)
         await store.hydrate(for: "viewer")
         await repository.suspendBlock()
 
@@ -537,7 +643,7 @@ struct ModerationStoreTests {
         ])
         await repository.setUnblockFails(true)
         await repository.setReportFails(true)
-        let store = ModerationStore(repository: repository)
+        let store = makeStore(repository: repository)
         await store.hydrate(for: "viewer")
 
         await #expect(throws: TestFailure.self) {
@@ -559,13 +665,14 @@ struct ModerationStoreTests {
         #expect(store.isBlockListHydrated)
     }
 
-    /// A genuinely never-synced device has no list from either source, so it
-    /// still masks every climber rather than guessing.
+    /// Neither source can produce a list - the server is unreachable and local
+    /// persistence itself is unavailable - so every climber stays masked.
     @Test
     func failedHydrationStaysFailClosed() async {
         let repository = RepositorySpy()
         await repository.setFetchFails(true)
-        let store = ModerationStore(repository: repository)
+        await repository.setCacheFails(true)
+        let store = makeStore(repository: repository)
 
         await store.hydrate(for: "viewer")
 
@@ -592,7 +699,7 @@ struct ModerationStoreTests {
     @Test
     func refreshingAnAlreadyHydratedSessionNeverReMasks() async {
         let repository = RepositorySpy()
-        let store = ModerationStore(repository: repository)
+        let store = makeStore(repository: repository)
         await store.hydrate(for: "viewer")
         #expect(store.isBlockListHydrated)
 
@@ -618,7 +725,7 @@ struct ModerationStoreTests {
         await repository.setFetchedBlocks([
             BlockedClimber(userId: "blocked-user", createdAt: .now)
         ])
-        let store = ModerationStore(repository: repository)
+        let store = makeStore(repository: repository)
         await store.hydrate(for: "viewer")
         #expect(store.blockedUserIds == ["blocked-user"])
 
@@ -636,7 +743,7 @@ struct ModerationStoreTests {
     func brandNewSessionRendersMaskedUntilFirstHydrationCompletes() async {
         let repository = RepositorySpy()
         await repository.suspendFetches()
-        let store = ModerationStore(repository: repository)
+        let store = makeStore(repository: repository)
 
         let hydration = Task { await store.hydrate(for: "viewer") }
         while !(await repository.hasStartedFetch(1)) {
@@ -656,7 +763,7 @@ struct ModerationStoreTests {
     @Test
     func switchingUsersReArmsFailClosedRendering() async {
         let repository = RepositorySpy()
-        let store = ModerationStore(repository: repository)
+        let store = makeStore(repository: repository)
         await store.hydrate(for: "viewer")
 
         await repository.suspendFetches()
@@ -675,7 +782,7 @@ struct ModerationStoreTests {
     @Test
     func moderationRejectsAnEmptyUserIdInsteadOfReachingTheRepository() async {
         let repository = RepositorySpy()
-        let store = ModerationStore(repository: repository)
+        let store = makeStore(repository: repository)
         await store.hydrate(for: "viewer")
 
         await #expect(throws: ModerationStoreError.self) {
@@ -702,7 +809,7 @@ struct ModerationStoreTests {
     @Test
     func moderatedCollectionsAreCachedUntilTheBlockListChanges() async throws {
         let repository = RepositorySpy()
-        let store = ModerationStore(repository: repository)
+        let store = makeStore(repository: repository)
         await store.hydrate(for: "viewer")
 
         let entries = (0..<3).map { index in
@@ -726,6 +833,16 @@ struct ModerationStoreTests {
         )
         let masked = try #require(store.moderate(entries).first)
         #expect(masked.identity.isHidden)
+    }
+
+    private func makeStore(
+        repository: RepositorySpy,
+        serverSyncMarker: ServerSyncMarkerSpy = ServerSyncMarkerSpy()
+    ) -> ModerationStore {
+        ModerationStore(
+            repository: repository,
+            serverSyncMarker: serverSyncMarker
+        )
     }
 
     private func otherClimber() -> ProfileUserIdentity {
