@@ -46,7 +46,19 @@ paths:
   The object name is deterministic, so re-seeding overwrites in place instead of orphaning objects.
   A persona with no uploaded avatar publishes no photo; an off-host URL fails the seed rather than reaching Firestore.
 - Dev and staging seed data written before the account-authored identity change is stale: its mirrors predate the identity contract and its leaderboard rows predate `identityState`.
-  Re-seed those environments with `scripts/dev-db.mjs` before trusting them.
+  Repair them with `scripts/restore-public-identities.mjs --env <dev|staging>`, which stamps the missing
+  `identityPolicyVersion` and `identityChangedAt` onto `users/{uid}/public_profile/current` and lets the deployed
+  `onPublicProfileIdentityWritten` trigger fan the identity out to every projection.
+  Prefer it over re-seeding: it preserves the numbers already being tested against, and it screens every derived name
+  through the same shared contract the live write path uses, skipping any account whose identity it cannot derive
+  rather than inventing one.
+  It writes only the public profile mirror - never `leaderboard_stats` - and hard-refuses production, which holds
+  nothing to repair.
+  `--verify` reads the leaderboard rows back and reports which ones the client would still drop.
+  A row whose owner has no `public_profile/current` is unrepairable by any tool: only the account itself can publish
+  one.
+  The fan-out depends on the propagation functions being deployed to the target project; dev's functions deploy
+  currently lacks them, so a dev backfill repairs the source mirrors and waits.
 - To create one dev/staging QA Auth account, use `scripts/dev-db.mjs create-auth-user`. It must stay dev/staging-only, can generate a password, and can optionally run `--hydrate-profile` or `--seed-demo-data` after the Auth account exists.
 - To patch one dev/staging account, use `scripts/dev-db.mjs hydrate-user` so private `users/{uid}` and public `users/{uid}/public_profile/current` stay in sync.
 
