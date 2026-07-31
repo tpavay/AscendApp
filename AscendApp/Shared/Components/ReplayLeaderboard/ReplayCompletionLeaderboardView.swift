@@ -413,7 +413,8 @@ private struct ReplayCompletionLeaderboardRowView: View {
     private func avatarToken(size: CGFloat, borderColor: Color?) -> some View {
         Group {
             if row.identity.avatarToken.isEmpty {
-                Image(systemName: "person.fill")
+                Image(systemName: PublicClimberIdentity.genericAvatarSystemName)
+                    .font(.system(size: 16, weight: .semibold))
                     .accessibilityHidden(true)
             } else {
                 Text(row.isCurrentUser ? "YOU" : row.identity.avatarToken)

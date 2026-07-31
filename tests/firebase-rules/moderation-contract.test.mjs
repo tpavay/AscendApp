@@ -669,7 +669,20 @@ test('incoming block cleanup has a collection-group single-field index', () => {
 });
 
 test('identity propagation has collection-group user indexes', () => {
-  for (const collectionGroup of ['entries', 'finishers']) {
+  // A field override replaces the field's whole index configuration, so
+  // entries.userId also has to restate the COLLECTION-scoped single-field
+  // indexes that the per-climb best-completion reads and the Cloud Function
+  // reconciliation query depend on.
+  const expectedIndexes = {
+    entries: [
+      {order: 'ASCENDING', queryScope: 'COLLECTION'},
+      {order: 'DESCENDING', queryScope: 'COLLECTION'},
+      {order: 'ASCENDING', queryScope: 'COLLECTION_GROUP'},
+    ],
+    finishers: [{order: 'ASCENDING', queryScope: 'COLLECTION_GROUP'}],
+  };
+
+  for (const [collectionGroup, indexes] of Object.entries(expectedIndexes)) {
     const override = firestoreIndexes.fieldOverrides.find(
       (candidate) =>
         candidate.collectionGroup === collectionGroup &&
@@ -677,10 +690,7 @@ test('identity propagation has collection-group user indexes', () => {
     );
 
     assert.ok(override);
-    assert.deepEqual(override.indexes, [{
-      order: 'ASCENDING',
-      queryScope: 'COLLECTION_GROUP',
-    }]);
+    assert.deepEqual(override.indexes, indexes);
   }
 });
 

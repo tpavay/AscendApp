@@ -40,7 +40,7 @@ struct BlockedClimbersView: View {
         List {
             ForEach(moderationStore.blockedClimbers) { blockedClimber in
                 HStack(spacing: 14) {
-                    Image(systemName: "person.fill")
+                    Image(systemName: PublicClimberIdentity.genericAvatarSystemName)
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.72))
                         .frame(width: 44, height: 44)

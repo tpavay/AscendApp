@@ -1349,14 +1349,15 @@ struct ClimbDetailView: View {
             row.identity.avatarToken
         return Group {
             if avatarToken.isEmpty {
-                Image(systemName: "person.fill")
+                Image(systemName: PublicClimberIdentity.genericAvatarSystemName)
+                    .font(.system(size: 16, weight: .semibold))
                     .accessibilityHidden(true)
             } else {
                 Text(avatarToken)
                     .font(.montserratBold(size: 13))
             }
         }
-            .foregroundStyle(.white)
+            .foregroundStyle(row.isCurrentUser ? .black : .white)
             .lineLimit(1)
             .minimumScaleFactor(0.72)
             .frame(width: size, height: size)

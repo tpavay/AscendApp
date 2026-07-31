@@ -474,11 +474,14 @@ final class UserDataRepository: Sendable {
                             userId: userId,
                             userData: mergedUserData
                         )
-                        publicPayload = try ProfileRepository.publicIdentityPayload(
+                        let publication = try ProfileIdentityPersistenceAdapter
+                            .validatedFields(for: identity)
+                        publicPayload = ProfileRepository.publicIdentityPayload(
                             identity,
-                            advancesIdentityVersion: try ProfileRepository
+                            publication: publication,
+                            advancesIdentityVersion: ProfileRepository
                                 .publicIdentityNeedsVersionAdvance(
-                                    identity,
+                                    publication: publication,
                                     existingData: publicProfileSnapshot.data()
                                 )
                             )

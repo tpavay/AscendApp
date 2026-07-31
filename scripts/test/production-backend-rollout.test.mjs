@@ -66,14 +66,34 @@ test("declares every cleanup and propagation collection-group field index", () =
   const signatures = config.fieldOverrides.map((fieldOverride) => [
     fieldOverride.collectionGroup,
     fieldOverride.fieldPath,
-    fieldOverride.indexes[0]?.order,
-    fieldOverride.indexes[0]?.queryScope,
+    fieldOverride.indexes,
   ]);
 
+  // A field override replaces the field's whole index configuration, so
+  // entries.userId has to restate the COLLECTION-scoped single-field indexes
+  // that the per-climb best-completion reads and the Cloud Function
+  // reconciliation query run against. finishers and blocked are addressed by
+  // document ID, so they need the collection-group index only.
   assert.deepEqual(signatures, [
-    ["blocked", "blockedUid", "ASCENDING", "COLLECTION_GROUP"],
-    ["entries", "userId", "ASCENDING", "COLLECTION_GROUP"],
-    ["finishers", "userId", "ASCENDING", "COLLECTION_GROUP"],
+    [
+      "blocked",
+      "blockedUid",
+      [{order: "ASCENDING", queryScope: "COLLECTION_GROUP"}],
+    ],
+    [
+      "entries",
+      "userId",
+      [
+        {order: "ASCENDING", queryScope: "COLLECTION"},
+        {order: "DESCENDING", queryScope: "COLLECTION"},
+        {order: "ASCENDING", queryScope: "COLLECTION_GROUP"},
+      ],
+    ],
+    [
+      "finishers",
+      "userId",
+      [{order: "ASCENDING", queryScope: "COLLECTION_GROUP"}],
+    ],
   ]);
 });
 
@@ -341,6 +361,71 @@ test("index readiness requires every declared index to report READY", () => {
       "[entries.userId] -- (ASCENDING)\n"
   );
   assert.equal(completedFieldOverride.status, 0, completedFieldOverride.stderr);
+
+  // A field override replaces the field's whole index configuration, so a
+  // deployed override that lost the collection-scoped single-field indexes is
+  // not ready even though the collection-group one is present.
+  const mixedScopePath = join(directory, "mixed-scope.indexes.json");
+  const mixedScopeIndexes = [
+    {order: "ASCENDING", queryScope: "COLLECTION"},
+    {order: "DESCENDING", queryScope: "COLLECTION"},
+    {order: "ASCENDING", queryScope: "COLLECTION_GROUP"},
+  ];
+  writeFileSync(
+    mixedScopePath,
+    JSON.stringify({
+      indexes: [],
+      fieldOverrides: [
+        {
+          collectionGroup: "entries",
+          fieldPath: "userId",
+          indexes: mixedScopeIndexes,
+        },
+      ],
+    })
+  );
+  const droppedScopePath = join(directory, "dropped-collection-scope.json");
+  writeFileSync(
+    droppedScopePath,
+    JSON.stringify({
+      status: "success",
+      result: {
+        fieldOverrides: [{
+          collectionGroup: "entries",
+          fieldPath: "userId",
+          indexes: [{order: "ASCENDING", queryScope: "COLLECTION_GROUP"}],
+        }],
+      },
+    })
+  );
+  const droppedCollectionScope = runNode(
+    indexReadinessScript,
+    [mixedScopePath, operationsPath, droppedScopePath],
+    ""
+  );
+  assert.equal(droppedCollectionScope.status, 1);
+  assert.match(droppedCollectionScope.stderr, /ASCENDING,COLLECTION\)/);
+
+  const mixedScopeDeployedPath = join(directory, "mixed-scope-deployed.json");
+  writeFileSync(
+    mixedScopeDeployedPath,
+    JSON.stringify({
+      status: "success",
+      result: {
+        fieldOverrides: [{
+          collectionGroup: "entries",
+          fieldPath: "userId",
+          indexes: mixedScopeIndexes,
+        }],
+      },
+    })
+  );
+  const mixedScopeReady = runNode(
+    indexReadinessScript,
+    [mixedScopePath, operationsPath, mixedScopeDeployedPath],
+    ""
+  );
+  assert.equal(mixedScopeReady.status, 0, mixedScopeReady.stderr);
 
   const unsupportedScopePath = join(directory, "collection-group.indexes.json");
   writeFileSync(

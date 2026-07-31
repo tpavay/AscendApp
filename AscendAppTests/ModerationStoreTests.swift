@@ -18,6 +18,9 @@ struct ModerationStoreTests {
         }
 
         var fetchedBlocks: [BlockedClimber] = []
+        var cachedBlocks: [BlockedClimber] = []
+        var cacheFails = true
+        var fetchedSources: [BlockListReadSource] = []
         var fetchedUserIds: [String] = []
         var blockCalls: [BlockCall] = []
         var unblockCalls: [BlockCall] = []
@@ -40,7 +43,18 @@ struct ModerationStoreTests {
             Int: CheckedContinuation<[BlockedClimber], any Error>
         ] = [:]
 
-        func fetchBlockedClimbers(blockerUserId: String) async throws -> [BlockedClimber] {
+        func fetchBlockedClimbers(
+            blockerUserId: String,
+            source: BlockListReadSource
+        ) async throws -> [BlockedClimber] {
+            fetchedSources.append(source)
+            if source == .cache {
+                if cacheFails {
+                    throw TestFailure.expected
+                }
+                return cachedBlocks
+            }
+
             fetchCallCount += 1
             fetchedUserIds.append(blockerUserId)
             let call = fetchCallCount
@@ -134,6 +148,11 @@ struct ModerationStoreTests {
             fetchFails = shouldFail
         }
 
+        func setCachedBlocks(_ blocks: [BlockedClimber]) {
+            cachedBlocks = blocks
+            cacheFails = false
+        }
+
         func suspendBlock() {
             blockSuspends = true
         }
@@ -200,6 +219,46 @@ struct ModerationStoreTests {
 
         #expect(store.isBlockListHydrated)
         #expect(store.blockedUserIds == ["blocked-user"])
+        #expect(await repository.fetchedSources == [.server])
+    }
+
+    /// A cold launch offline defers to whatever Firestore already cached on this
+    /// device instead of masking every climber on a board.
+    @Test
+    func firstHydrationFallsBackToTheDeviceCacheWhenTheServerFails() async {
+        let repository = RepositorySpy()
+        await repository.setFetchFails(true)
+        await repository.setCachedBlocks([
+            BlockedClimber(userId: "cached-block", createdAt: .now)
+        ])
+        let store = ModerationStore(repository: repository)
+
+        await store.hydrate(for: "viewer")
+
+        #expect(store.isBlockListHydrated)
+        #expect(store.blockedUserIds == ["cached-block"])
+        #expect(store.hydrationErrorMessage == nil)
+        #expect(await repository.fetchedSources == [.server, .cache])
+        #expect(store.moderate(otherClimber(), isCurrentUser: false).isHidden == false)
+    }
+
+    /// A refresh already has a list at least as fresh as the cache, so it never
+    /// falls back - a thinner cache read must not drop a known block.
+    @Test
+    func refreshFailureNeverReplacesTheKnownListWithTheCache() async {
+        let repository = RepositorySpy()
+        await repository.setFetchedBlocks([
+            BlockedClimber(userId: "blocked-user", createdAt: .now)
+        ])
+        let store = ModerationStore(repository: repository)
+        await store.hydrate(for: "viewer")
+
+        await repository.setFetchFails(true)
+        await repository.setCachedBlocks([])
+        await store.hydrate(for: "viewer")
+
+        #expect(store.blockedUserIds == ["blocked-user"])
+        #expect(await repository.fetchedSources == [.server, .server])
     }
 
     @Test
@@ -500,6 +559,8 @@ struct ModerationStoreTests {
         #expect(store.isBlockListHydrated)
     }
 
+    /// A genuinely never-synced device has no list from either source, so it
+    /// still masks every climber rather than guessing.
     @Test
     func failedHydrationStaysFailClosed() async {
         let repository = RepositorySpy()
@@ -510,6 +571,8 @@ struct ModerationStoreTests {
 
         #expect(store.isBlockListHydrated == false)
         #expect(store.blockedUserIds.isEmpty)
+        #expect(store.hydrationErrorMessage != nil)
+        #expect(await repository.fetchedSources == [.server, .cache])
         let identity = store.moderate(
             ProfileUserIdentity(
                 userId: "other-user",

@@ -41,6 +41,13 @@ final class ModerationStore {
     /// finished, and would leave the app fully masked for the rest of the
     /// session whenever the refresh failed offline. A failed refresh keeps the
     /// last known good list instead of falling back to empty.
+    ///
+    /// A first hydration that cannot reach the server falls back to Firestore's
+    /// local persistence, because a cold launch offline would otherwise mask
+    /// every climber on a device that already knows this user's blocks. A
+    /// refresh never falls back: the list already in memory is at least as
+    /// fresh. When neither source produces a list the session stays
+    /// un-hydrated, so a genuinely never-synced device still fails closed.
     func hydrate(for userId: String) async {
         sessionGeneration &+= 1
         let generation = sessionGeneration
@@ -62,23 +69,52 @@ final class ModerationStore {
 
         do {
             let serverBlocks = try await repository.fetchBlockedClimbers(
-                blockerUserId: userId
+                blockerUserId: userId,
+                source: .server
             )
             guard isCurrentSession(userId: userId, generation: generation) else {
                 return
             }
-            blockedClimbers = mergingHydrationResult(serverBlocks)
-            blocksAddedDuringHydration = [:]
-            userIdsUnblockedDuringHydration = []
-            isBlockListHydrated = true
+            applyHydrationResult(serverBlocks)
         } catch is CancellationError {
             return
         } catch {
             guard isCurrentSession(userId: userId, generation: generation) else {
                 return
             }
-            hydrationErrorMessage = "Couldn't load your blocked climbers. Try again."
+            guard !isBlockListHydrated else {
+                hydrationErrorMessage = Self.hydrationFailureMessage
+                return
+            }
+            await hydrateFromCache(for: userId, generation: generation)
         }
+    }
+
+    private func hydrateFromCache(for userId: String, generation: UInt64) async {
+        do {
+            let cachedBlocks = try await repository.fetchBlockedClimbers(
+                blockerUserId: userId,
+                source: .cache
+            )
+            guard isCurrentSession(userId: userId, generation: generation) else {
+                return
+            }
+            applyHydrationResult(cachedBlocks)
+        } catch is CancellationError {
+            return
+        } catch {
+            guard isCurrentSession(userId: userId, generation: generation) else {
+                return
+            }
+            hydrationErrorMessage = Self.hydrationFailureMessage
+        }
+    }
+
+    private func applyHydrationResult(_ blocks: [BlockedClimber]) {
+        blockedClimbers = mergingHydrationResult(blocks)
+        blocksAddedDuringHydration = [:]
+        userIdsUnblockedDuringHydration = []
+        isBlockListHydrated = true
     }
 
     func clear() {
@@ -295,6 +331,9 @@ final class ModerationStore {
     private func isCurrentSession(userId: String, generation: UInt64) -> Bool {
         activeUserId == userId && sessionGeneration == generation
     }
+
+    private static let hydrationFailureMessage =
+        "Couldn't load your blocked climbers. Try again."
 
     private static func isUsableUserId(_ userId: String) -> Bool {
         !userId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

@@ -15,7 +15,8 @@ import Testing
 struct TiedRankRenderEvidenceTests {
     private actor EmptyModerationRepository: ModerationRepositoryProtocol {
         func fetchBlockedClimbers(
-            blockerUserId: String
+            blockerUserId: String,
+            source: BlockListReadSource
         ) async throws -> [BlockedClimber] {
             []
         }

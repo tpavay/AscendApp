@@ -55,14 +55,21 @@ try {
     });
   });
 
+  // A field override replaces the field's entire index configuration, so a
+  // COLLECTION_GROUP declaration also has to restate every COLLECTION-scoped
+  // single-field index the field's queries rely on. Both scopes are verified
+  // against the deployed spec below.
   const unsupportedFieldScopes = config.fieldOverrides.flatMap(
     (fieldOverride) => fieldOverride.indexes
-      .filter((index) => index.queryScope !== "COLLECTION_GROUP")
+      .filter(
+        (index) => index.queryScope !== "COLLECTION_GROUP" &&
+          index.queryScope !== "COLLECTION"
+      )
       .map(() => fieldOverride)
   );
   if (unsupportedFieldScopes.length > 0) {
     throw new Error(
-      "This readiness gate supports only COLLECTION_GROUP field overrides"
+      "Field override query scope must be COLLECTION or COLLECTION_GROUP"
     );
   }
 
@@ -217,7 +224,7 @@ function fieldOverrideMode(index) {
 
 function fieldOverrideSignature(fieldOverride) {
   const modes = fieldOverride.indexes
-    .map((index) => `(${fieldOverrideMode(index)})`)
+    .map((index) => `(${fieldOverrideMode(index)},${index.queryScope})`)
     .join(" ");
   return `[${fieldOverride.collectionGroup}.${fieldOverride.fieldPath}] -- ${modes}`;
 }

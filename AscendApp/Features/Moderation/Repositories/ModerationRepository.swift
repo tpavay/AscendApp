@@ -10,10 +10,13 @@ final class ModerationRepository: ModerationRepositoryProtocol, Sendable {
         self.db = db
     }
 
-    func fetchBlockedClimbers(blockerUserId: String) async throws -> [BlockedClimber] {
+    func fetchBlockedClimbers(
+        blockerUserId: String,
+        source: BlockListReadSource
+    ) async throws -> [BlockedClimber] {
         let snapshot = try await blockedCollection(blockerUserId: blockerUserId)
             .order(by: "createdAt", descending: true)
-            .getDocuments(source: .server)
+            .getDocuments(source: Self.firestoreSource(for: source))
 
         return snapshot.documents.compactMap { document in
             let data = document.data()
@@ -30,10 +33,26 @@ final class ModerationRepository: ModerationRepositoryProtocol, Sendable {
         }
     }
 
+    /// Blocking is idempotent.
+    ///
+    /// The rules allow `create` only, so re-blocking a climber this device did
+    /// not know about - blocked on another device, or hydrated from nothing - is
+    /// denied even though the block already exists. Telling the user the block
+    /// didn't save would be a lie, so an existing block counts as success.
     func block(blockerUserId: String, blockedUserId: String) async throws {
-        try await blockedCollection(blockerUserId: blockerUserId)
+        let document = blockedCollection(blockerUserId: blockerUserId)
             .document(blockedUserId)
-            .setData(Self.blockPayload(blockedUserId: blockedUserId))
+
+        do {
+            try await document.setData(
+                Self.blockPayload(blockedUserId: blockedUserId)
+            )
+        } catch {
+            guard Self.isPermissionDenied(error),
+                  await Self.documentExistsOnServer(document) else {
+                throw error
+            }
+        }
     }
 
     func unblock(blockerUserId: String, blockedUserId: String) async throws {
@@ -96,6 +115,31 @@ final class ModerationRepository: ModerationRepositoryProtocol, Sendable {
             "lastModerationReport": FieldValue.serverTimestamp(),
             "lastModerationReportId": reportId
         ]
+    }
+
+    private static func firestoreSource(
+        for source: BlockListReadSource
+    ) -> FirestoreSource {
+        switch source {
+        case .server: .server
+        case .cache: .cache
+        }
+    }
+
+    private static func isPermissionDenied(_ error: any Error) -> Bool {
+        let error = error as NSError
+        return error.domain == FirestoreErrorDomain &&
+            error.code == FirestoreErrorCode.permissionDenied.rawValue
+    }
+
+    private static func documentExistsOnServer(
+        _ document: DocumentReference
+    ) async -> Bool {
+        do {
+            return try await document.getDocument(source: .server).exists
+        } catch {
+            return false
+        }
     }
 
     private func blockedCollection(blockerUserId: String) -> CollectionReference {

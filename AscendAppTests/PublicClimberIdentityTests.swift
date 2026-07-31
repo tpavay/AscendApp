@@ -208,14 +208,19 @@ struct PublicClimberIdentityTests {
             "age": 31
         ]
 
+        let publication = try ProfileIdentityPersistenceAdapter.validatedFields(
+            for: identity
+        )
+
         #expect(
-            try ProfileRepository.publicIdentityNeedsVersionAdvance(
-                identity,
+            ProfileRepository.publicIdentityNeedsVersionAdvance(
+                publication: publication,
                 existingData: existingData
             ) == false
         )
-        let payload = try ProfileRepository.publicIdentityPayload(
+        let payload = ProfileRepository.publicIdentityPayload(
             identity,
+            publication: publication,
             advancesIdentityVersion: false
         )
         #expect(payload["identityChangedAt"] == nil)

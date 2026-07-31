@@ -324,7 +324,8 @@ private struct LiveReplayLeaderboardRowView: View {
     private var avatarTokenView: some View {
         Group {
             if row.identity.avatarToken.isEmpty {
-                Image(systemName: "person.fill")
+                Image(systemName: PublicClimberIdentity.genericAvatarSystemName)
+                    .font(.system(size: 17, weight: .semibold))
                     .accessibilityHidden(true)
             } else {
                 Text(row.identity.avatarToken)

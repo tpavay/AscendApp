@@ -362,10 +362,24 @@ enum CrossUserIdentityAdapter {
     }
 }
 
+/// The screened, publish-safe identity fields for one profile.
+///
+/// Screening is the expensive part of publishing an identity, so callers
+/// validate once and pass the result to every helper that needs it rather than
+/// re-screening per payload and per version comparison.
+struct PublicIdentityPublication: Sendable, Equatable {
+    let displayName: String
+    let photoURL: URL?
+}
+
 enum ProfileIdentityPersistenceAdapter {
     static func validatedFields(
         for identity: ProfileUserIdentity
-    ) throws -> (displayName: String, photoURL: URL?) {
-        try identity.unresolvedIdentity.publicationFields()
+    ) throws -> PublicIdentityPublication {
+        let fields = try identity.unresolvedIdentity.publicationFields()
+        return PublicIdentityPublication(
+            displayName: fields.displayName,
+            photoURL: fields.photoURL
+        )
     }
 }

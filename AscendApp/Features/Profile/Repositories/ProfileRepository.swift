@@ -64,11 +64,14 @@ final class ProfileRepository: Sendable {
         let document = publicProfileDocument(userId: identity.userId)
         _ = try await db.runTransaction { transaction, errorPointer -> Any? in
             do {
+                let publication = try ProfileIdentityPersistenceAdapter
+                    .validatedFields(for: identity)
                 let snapshot = try transaction.getDocument(document)
-                let data = try Self.publicIdentityPayload(
+                let data = Self.publicIdentityPayload(
                     identity,
-                    advancesIdentityVersion: try Self.publicIdentityNeedsVersionAdvance(
-                        identity,
+                    publication: publication,
+                    advancesIdentityVersion: Self.publicIdentityNeedsVersionAdvance(
+                        publication: publication,
                         existingData: snapshot.data()
                     )
                 )
@@ -83,11 +86,9 @@ final class ProfileRepository: Sendable {
 
     static func publicIdentityPayload(
         _ identity: ProfileUserIdentity,
-        advancesIdentityVersion: Bool = true
-    ) throws -> [String: Any] {
-        let publication = try ProfileIdentityPersistenceAdapter.validatedFields(
-            for: identity
-        )
+        publication: PublicIdentityPublication,
+        advancesIdentityVersion: Bool
+    ) -> [String: Any] {
         var data: [String: Any] = [
             "userId": identity.userId,
             "displayName": publication.displayName,
@@ -128,15 +129,12 @@ final class ProfileRepository: Sendable {
     }
 
     static func publicIdentityNeedsVersionAdvance(
-        _ identity: ProfileUserIdentity,
+        publication: PublicIdentityPublication,
         existingData: [String: Any]?
-    ) throws -> Bool {
+    ) -> Bool {
         guard let existingData else {
             return true
         }
-        let publication = try ProfileIdentityPersistenceAdapter.validatedFields(
-            for: identity
-        )
         let policyVersion = (existingData["identityPolicyVersion"] as? Int) ??
             (existingData["identityPolicyVersion"] as? NSNumber)?.intValue
         let hasIdentityTimestamp = existingData["identityChangedAt"] is Timestamp

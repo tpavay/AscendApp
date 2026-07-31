@@ -45,7 +45,8 @@ struct ModerationSurfaceEvidenceTests {
         }
 
         func fetchBlockedClimbers(
-            blockerUserId: String
+            blockerUserId: String,
+            source: BlockListReadSource
         ) async throws -> [BlockedClimber] {
             seeded
         }
