@@ -260,8 +260,11 @@ struct RevenueCatEntitlementServiceTests {
         #expect(route == .mainApp)
     }
 
+    /// A signed-out cold start resets identity for an app user RevenueCat already treats as
+    /// anonymous. The provider answers that as `.inactive`, which must clear the pending mutation so
+    /// later refreshes read customer info instead of re-running the same logout forever.
     @Test
-    func anonymousLogOutResolvesAsInactiveAndStopsRetryingTheReset() async throws {
+    func resolvedResetStopsRerunningTheLogOutOnEveryRefresh() async throws {
         let provider = ControlledRevenueCatEntitlementProvider()
         var invocations = provider.invocations.makeAsyncIterator()
         let service = RevenueCatEntitlementService(
@@ -274,7 +277,7 @@ struct RevenueCatEntitlementServiceTests {
             await service.resetIdentity(transition: reset)
         }
         #expect(await invocations.next() == .logOut)
-        provider.failLogOutAsAlreadyAnonymous()
+        provider.completeLogOut(with: .inactive)
         await resetTask.value
 
         #expect(service.entitlementState == .inactive)
@@ -421,17 +424,6 @@ private final class ControlledRevenueCatEntitlementProvider: RevenueCatEntitleme
 
     func failLogOut() {
         logOutContinuation?.resume(throwing: ControlledProviderError.failed)
-        logOutContinuation = nil
-    }
-
-    /// The exact refusal `Purchases.logOut()` raises when the app user is already anonymous.
-    func failLogOutAsAlreadyAnonymous() {
-        logOutContinuation?.resume(
-            throwing: NSError(
-                domain: RevenueCatAnonymousLogOutError.domain,
-                code: RevenueCatAnonymousLogOutError.code
-            )
-        )
         logOutContinuation = nil
     }
 

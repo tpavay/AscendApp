@@ -4,8 +4,12 @@ struct AppAccessPaywallPlaceholderView: View {
     @Environment(MonetizationManager.self) private var monetizationManager
 
     @State private var hasAttemptedAutomaticPresentation = false
-    @State private var presentationState = AppAccessPaywallPresentationState.presenting
+    @State private var presentationState: AppAccessPaywallPresentationState
     @State private var restoreState = AppAccessRestoreState.idle
+
+    init(initialPresentationState: AppAccessPaywallPresentationState = .presenting) {
+        _presentationState = State(initialValue: initialPresentationState)
+    }
 
     var body: some View {
         Group {
@@ -129,9 +133,13 @@ struct AppAccessPaywallPlaceholderView: View {
         .padding(.horizontal, 28)
     }
 
+    /// Only the cold-start hand-off opens the paywall by itself. A gate that is already sitting on a
+    /// presentation outcome has nothing to hand off, so it waits for the user's Try Again.
     private func presentPaywallAutomaticallyIfNeeded() {
         guard !hasAttemptedAutomaticPresentation else { return }
         hasAttemptedAutomaticPresentation = true
+
+        guard presentationState == .presenting else { return }
         presentPaywall()
     }
 

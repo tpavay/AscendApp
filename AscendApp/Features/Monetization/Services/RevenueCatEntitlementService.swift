@@ -267,12 +267,7 @@ final class RevenueCatEntitlementService: EntitlementServicing {
                 return try await provider.logOutState()
             }
         } catch {
-            guard mutation == .reset,
-                  RevenueCatAnonymousLogOutError.matches(error) else {
-                return .unknown
-            }
-
-            return .inactive
+            return .unknown
         }
     }
 
