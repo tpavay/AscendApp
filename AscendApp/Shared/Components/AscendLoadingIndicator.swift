@@ -3,11 +3,13 @@ import SwiftUI
 struct AscendLoadingIndicator: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    var isPaused = false
+
     var body: some View {
         TimelineView(
             .animation(
                 minimumInterval: 1 / 30,
-                paused: reduceMotion
+                paused: reduceMotion || isPaused
             )
         ) { context in
             let rotation = reduceMotion

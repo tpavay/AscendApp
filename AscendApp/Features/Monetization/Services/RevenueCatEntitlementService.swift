@@ -103,7 +103,11 @@ final class RevenueCatEntitlementService: EntitlementServicing {
             applyRefreshState(state, for: refreshToken)
             await auditLaunchOfferingIfNeeded()
         } catch {
-            applyRefreshState(.unknown, for: refreshToken)
+            // A refresh that could not reach RevenueCat is not evidence that the entitlement
+            // lapsed, so the already-resolved answer stands until something can ask again.
+            Self.logger.error(
+                "Could not refresh RevenueCat customer info: \(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 
@@ -263,7 +267,12 @@ final class RevenueCatEntitlementService: EntitlementServicing {
                 return try await provider.logOutState()
             }
         } catch {
-            return .unknown
+            guard mutation == .reset,
+                  RevenueCatAnonymousLogOutError.matches(error) else {
+                return .unknown
+            }
+
+            return .inactive
         }
     }
 
@@ -293,11 +302,21 @@ final class RevenueCatEntitlementService: EntitlementServicing {
 
         customerInfoTask?.cancel()
         customerInfoTask = Task { @MainActor [weak self, provider] in
-            for await _ in provider.customerInfoUpdates {
-                guard !Task.isCancelled else { return }
-                await self?.refreshCustomerInfo()
+            for await state in provider.customerInfoUpdates {
+                guard !Task.isCancelled, let self else { return }
+                self.applyStreamedState(state)
             }
         }
+    }
+
+    /// The stream already carries the answer, so applying it directly keeps the entitlement current
+    /// without a second round trip that could itself fail.
+    private func applyStreamedState(_ state: MonetizationEntitlementState) {
+        guard let refreshToken = identityTransitionState.refreshToken() else {
+            return
+        }
+
+        applyRefreshState(state, for: refreshToken)
     }
 
     private func applyRefreshState(

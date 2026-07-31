@@ -26,11 +26,4 @@ struct LandingScreenActionLayoutPolicyTests {
                 == "Already have an account? Sign in"
         )
     }
-
-    @Test
-    func bottomActionsHaveBoundedContentHeight() {
-        #expect(
-            LandingScreenActionLayoutPolicy.maximumBottomContentHeight == 116
-        )
-    }
 }

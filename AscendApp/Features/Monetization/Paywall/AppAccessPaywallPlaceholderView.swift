@@ -44,7 +44,7 @@ struct AppAccessPaywallPlaceholderView: View {
                     .multilineTextAlignment(.center)
             }
 
-            AscendLoadingIndicator()
+            AscendLoadingIndicator(isPaused: presentationState.pausesLoadingAnimation)
         }
         .padding(.horizontal, 28)
         .accessibilityElement(children: .combine)

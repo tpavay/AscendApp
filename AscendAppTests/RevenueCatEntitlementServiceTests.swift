@@ -200,7 +200,7 @@ struct RevenueCatEntitlementServiceTests {
     }
 
     @Test
-    func customerInfoUpdateTriggersRefresh() async throws {
+    func customerInfoUpdateAppliesItsOwnPayloadWithoutAnotherFetch() async throws {
         let provider = ControlledRevenueCatEntitlementProvider()
         var invocations = provider.invocations.makeAsyncIterator()
         let service = RevenueCatEntitlementService(
@@ -216,10 +216,109 @@ struct RevenueCatEntitlementServiceTests {
         provider.completeLogIn(with: .active(["app_access"]))
         await identifyTask.value
 
-        provider.sendCustomerInfoUpdate()
+        provider.sendCustomerInfoUpdate(with: .inactive)
+        await settle(until: { service.entitlementState == .inactive })
+
+        #expect(service.entitlementState == .inactive)
+        #expect(provider.customerInfoCallCount == 0)
+    }
+
+    @Test
+    func failedRefreshKeepsTheResolvedEntitlement() async throws {
+        let provider = ControlledRevenueCatEntitlementProvider()
+        var invocations = provider.invocations.makeAsyncIterator()
+        let service = RevenueCatEntitlementService(
+            provider: provider,
+            startsConfigured: true
+        )
+
+        let identity = service.prepareIdentity(userId: "subscriber")
+        let identifyTask = Task {
+            await service.identify(userId: "subscriber", transition: identity)
+        }
+        #expect(await invocations.next() == .logIn(userID: "subscriber"))
+        provider.completeLogIn(with: .active(["app_access"]))
+        await identifyTask.value
+
+        let refreshTask = Task {
+            await service.refreshCustomerInfo()
+        }
         #expect(await invocations.next() == .customerInfo)
+        provider.failCustomerInfo()
+        await refreshTask.value
+
+        let route = AppRootRouteResolver.resolve(
+            authenticationState: .authenticated,
+            userId: "subscriber",
+            postAuthOnboardingPhase: .complete,
+            entitlementState: service.entitlementState,
+            requiredEntitlementID: "app_access"
+        )
+
+        #expect(service.entitlementState == .active(["app_access"]))
+        #expect(!service.hasFailedIdentityResolution)
+        #expect(route == .mainApp)
+    }
+
+    @Test
+    func anonymousLogOutResolvesAsInactiveAndStopsRetryingTheReset() async throws {
+        let provider = ControlledRevenueCatEntitlementProvider()
+        var invocations = provider.invocations.makeAsyncIterator()
+        let service = RevenueCatEntitlementService(
+            provider: provider,
+            startsConfigured: true
+        )
+
+        let reset = service.prepareIdentityReset()
+        let resetTask = Task {
+            await service.resetIdentity(transition: reset)
+        }
+        #expect(await invocations.next() == .logOut)
+        provider.failLogOutAsAlreadyAnonymous()
+        await resetTask.value
+
+        #expect(service.entitlementState == .inactive)
+        #expect(!service.hasFailedIdentityResolution)
+
+        let refreshTask = Task {
+            await service.refreshCustomerInfo()
+        }
+        #expect(await invocations.next() == .customerInfo)
+        provider.completeCustomerInfo(with: .inactive)
+        await refreshTask.value
+
         #expect(provider.customerInfoCallCount == 1)
-        provider.completeCustomerInfo(with: .active(["app_access"]))
+    }
+
+    @Test
+    func genuineLogOutFailureStillLeavesResolutionUnanswered() async throws {
+        let provider = ControlledRevenueCatEntitlementProvider()
+        var invocations = provider.invocations.makeAsyncIterator()
+        let service = RevenueCatEntitlementService(
+            provider: provider,
+            startsConfigured: true
+        )
+
+        let reset = service.prepareIdentityReset()
+        let resetTask = Task {
+            await service.resetIdentity(transition: reset)
+        }
+        #expect(await invocations.next() == .logOut)
+        provider.failLogOut()
+        await resetTask.value
+
+        #expect(service.entitlementState == .unknown)
+        #expect(service.hasFailedIdentityResolution)
+    }
+}
+
+/// Hands the cooperative pool enough turns for the service's stream consumer to run. Bounded, so a
+/// regression fails the expectation instead of hanging the suite.
+@MainActor
+private func settle(until condition: () -> Bool) async {
+    for _ in 0..<100 {
+        if condition() { return }
+        await Task.yield()
     }
 }
 
@@ -239,12 +338,12 @@ private final class ControlledRevenueCatEntitlementProvider: RevenueCatEntitleme
         invocationContinuation = continuation
     }
 
-    lazy var customerInfoUpdates = AsyncStream<Void> { continuation in
+    lazy var customerInfoUpdates = AsyncStream<MonetizationEntitlementState> { continuation in
         customerInfoUpdateContinuation = continuation
     }
 
     private var invocationContinuation: AsyncStream<RevenueCatProviderInvocation>.Continuation?
-    private var customerInfoUpdateContinuation: AsyncStream<Void>.Continuation?
+    private var customerInfoUpdateContinuation: AsyncStream<MonetizationEntitlementState>.Continuation?
     private var customerInfoContinuation: CheckedContinuation<
         MonetizationEntitlementState,
         any Error
@@ -300,6 +399,11 @@ private final class ControlledRevenueCatEntitlementProvider: RevenueCatEntitleme
         customerInfoContinuation = nil
     }
 
+    func failCustomerInfo() {
+        customerInfoContinuation?.resume(throwing: ControlledProviderError.failed)
+        customerInfoContinuation = nil
+    }
+
     func completeLogIn(with state: MonetizationEntitlementState) {
         logInContinuation?.resume(returning: state)
         logInContinuation = nil
@@ -315,8 +419,24 @@ private final class ControlledRevenueCatEntitlementProvider: RevenueCatEntitleme
         logOutContinuation = nil
     }
 
-    func sendCustomerInfoUpdate() {
-        customerInfoUpdateContinuation?.yield()
+    func failLogOut() {
+        logOutContinuation?.resume(throwing: ControlledProviderError.failed)
+        logOutContinuation = nil
+    }
+
+    /// The exact refusal `Purchases.logOut()` raises when the app user is already anonymous.
+    func failLogOutAsAlreadyAnonymous() {
+        logOutContinuation?.resume(
+            throwing: NSError(
+                domain: RevenueCatAnonymousLogOutError.domain,
+                code: RevenueCatAnonymousLogOutError.code
+            )
+        )
+        logOutContinuation = nil
+    }
+
+    func sendCustomerInfoUpdate(with state: MonetizationEntitlementState) {
+        customerInfoUpdateContinuation?.yield(state)
     }
 }
 

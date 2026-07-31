@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 protocol RevenueCatEntitlementProviding: AnyObject {
-    var customerInfoUpdates: AsyncStream<Void> { get }
+    var customerInfoUpdates: AsyncStream<MonetizationEntitlementState> { get }
 
     func customerInfoState() async throws -> MonetizationEntitlementState
     func logInState(userID: String) async throws -> MonetizationEntitlementState

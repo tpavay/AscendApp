@@ -10,13 +10,6 @@ enum LandingScreenActionLayoutPolicy {
     static let signInTitle = "Sign in"
     static let signInAccessibilityLabel = "\(signInPrompt) \(signInTitle)"
 
-    static var maximumBottomContentHeight: CGFloat {
-        primaryActionHeight
-            + actionSpacing
-            + secondaryActionHeight
-            + bottomPadding
-    }
-
     static func usesCompactSignInLabel(for dynamicTypeSize: DynamicTypeSize) -> Bool {
         dynamicTypeSize.isAccessibilitySize
     }

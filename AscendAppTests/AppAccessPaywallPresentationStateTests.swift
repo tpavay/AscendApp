@@ -22,6 +22,27 @@ struct AppAccessPaywallPresentationStateTests {
         #expect(state.statusMessage == nil)
     }
 
+    @Test
+    func coveredGateKeepsTheLoadingSurfaceButStopsAnimatingIt() {
+        var state = AppAccessPaywallPresentationState.presenting
+
+        state.handle(.presented)
+
+        #expect(state == .presented)
+        #expect(state.showsRecoveryActions == false)
+        #expect(state.pausesLoadingAnimation)
+        #expect(state.statusMessage == nil)
+    }
+
+    @Test
+    func openingGateAnimatesTheLoadingSurface() {
+        var state = AppAccessPaywallPresentationState.ready
+
+        state.beginPresentation()
+
+        #expect(state.pausesLoadingAnimation == false)
+    }
+
     @Test(arguments: [
         PaywallPresentationOutcome.dismissedWithoutPurchase,
         PaywallPresentationOutcome.skipped(reason: "no audience match")

@@ -3,6 +3,7 @@ import Foundation
 enum AppAccessPaywallPresentationState: Equatable, Sendable {
     case ready
     case presenting
+    case presented
     case readyToRetry
     case failed
 
@@ -10,7 +11,7 @@ enum AppAccessPaywallPresentationState: Equatable, Sendable {
         switch self {
         case .ready:
             return "View Plans"
-        case .presenting, .readyToRetry, .failed:
+        case .presenting, .presented, .readyToRetry, .failed:
             return "Try Again"
         }
     }
@@ -18,14 +19,25 @@ enum AppAccessPaywallPresentationState: Equatable, Sendable {
     /// While the paywall is being presented the gate shows a loading surface instead of controls,
     /// so there is never a visible-but-unpressable call to action.
     var showsRecoveryActions: Bool {
-        self != .presenting
+        switch self {
+        case .presenting, .presented:
+            return false
+        case .ready, .readyToRetry, .failed:
+            return true
+        }
+    }
+
+    /// Once Superwall's paywall covers the gate, the loading surface underneath is invisible, so its
+    /// animation stops rather than redrawing for the whole time the user spends on the paywall.
+    var pausesLoadingAnimation: Bool {
+        self == .presented
     }
 
     var statusMessage: String? {
         switch self {
         case .ready:
             return nil
-        case .presenting:
+        case .presenting, .presented:
             return nil
         case .readyToRetry:
             return "Access is still locked. Open the paywall to keep climbing."
@@ -41,7 +53,7 @@ enum AppAccessPaywallPresentationState: Equatable, Sendable {
     mutating func handle(_ outcome: PaywallPresentationOutcome) {
         switch outcome {
         case .presented:
-            self = .presenting
+            self = .presented
         case .purchased, .restored:
             self = .ready
         case .dismissedWithoutPurchase, .skipped:
