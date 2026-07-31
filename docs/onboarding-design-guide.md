@@ -224,7 +224,8 @@ Welcome:
 - Wordmark near top.
 - H1 in upper third or lower third depending on image read.
 - CTA at bottom.
-- Login link below CTA.
+- Sign-in link below CTA.
+- Both bottom actions share one bottom safe-area inset so they cannot collide at large Dynamic Type; the sign-in row drops its `Already have an account?` prefix at accessibility sizes.
 
 Value screens:
 - Top 52-58 percent visual.
@@ -294,7 +295,7 @@ Copy:
 - Headline: `Race the world up real landmarks.`
 - Subhead: `From your stair stepper.`
 - CTA: `GET STARTED`
-- Secondary: `Already have an account? Log in`
+- Secondary: `Already have an account? Sign in`, routing to `SignUpView` (it serves both sign-up and sign-in)
 
 Visual:
 - Use `OnboardingWelcomeBackground`.

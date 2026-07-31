@@ -111,7 +111,10 @@ Debug allows unentitled app access for local convenience, while its existing for
 ### Tester-lockout recovery
 
 If the staging campaign, the sandbox purchase, or the RevenueCat catalog leaves testers stuck at the gate, recovery needs no app code change and no in-app escape - the app deliberately ships no bypass, sign-out affordance, or debug control at the Staging gate.
-It is a deliberate two-step configuration diff:
+That rule covers the paywall gate, which is only reached once entitlement state is a confirmed `.inactive`.
+An entitlement state that never resolves is a different route: `AppAccessResolvingView` waits there and, once identity resolution has failed, offers a caller-driven Try Again plus Sign Out so a provider outage cannot strand a subscriber.
+See `docs/quality/contracts/returning-subscriber.md` for that contract.
+Recovery from a real lockout is a deliberate two-step configuration diff:
 
 1. Set `ASCEND_ALLOWS_UNENTITLED_APP_ACCESS` to `YES` in the `Staging` build configuration.
 2. Update the pinned Staging expectation in `scripts/test/monetization-build-configuration.test.mjs` to match, in the same PR.
@@ -160,6 +163,10 @@ The only launch paywall page copied into `web/dist` by the Astro build is:
 
 Hosting runs with `cleanUrls`, so the `.html` form answers every request with a redirect.
 Configure Superwall with the extensionless URL above.
+
+The document must keep its inline `<style>` block ahead of both the Superwall runtime script and the stylesheet link.
+It paints the black canvas and `color-scheme: dark` on the first frame, so the paywall never flashes white on a black app while `ascend-paywall.css` loads.
+`scripts/test/superwall-first-paint.test.mjs` fails if that ordering is lost.
 
 The page defaults to Annual.
 Its visible state must remain:

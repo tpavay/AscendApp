@@ -66,7 +66,7 @@ Those tests are the executable source of truth; this table is the readable one.
 
 | # | screen_id | flow_id | Events beyond the view | Interactive sub-properties |
 | --- | --- | --- | --- | --- |
-| 1 | `welcome` | `pre_auth_welcome` | `onboarding_screen_completed` | `action_id=get_started` |
+| 1 | `welcome` | `pre_auth_welcome` | `onboarding_screen_completed` | `action_id` (`get_started` / `sign_in` for the returning-climber route), `input_type=button` |
 | 2 | `watch_yourself_get_better` | `pre_auth_value_onboarding` | `onboarding_screen_completed`, `onboarding_back_tapped` | `action_id` (`continue` / `swipe_forward`), `input_type` (`button` / `gesture`) |
 | 3 | `reason_to_come_back` | `pre_auth_value_onboarding` | same as above | same as above |
 | 4 | `auth` | `pre_auth_auth` | `onboarding_auth_started`, `onboarding_auth_completed`, `onboarding_auth_failed` | `provider` (`apple` / `google`), `reason` on failure |
