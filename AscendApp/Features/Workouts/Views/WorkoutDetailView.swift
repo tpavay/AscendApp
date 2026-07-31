@@ -33,8 +33,6 @@ struct WorkoutDetailView: View {
     @State private var appleHealthFetchTask: Task<Void, Never>? = nil
     @State private var copyConfirmationTask: Task<Void, Never>? = nil
     @State private var showingLiveClimbSummaryPreview = false
-    @State private var liveClimbCompletionRank: LiveReplayCompletionRank?
-    @State private var isLoadingLiveClimbRank = false
     @State private var copyConfirmationText: String?
     @State private var isFetchingAppleHealthHeartRate = false
     @State private var appleHealthHeartRateMessage: String?
@@ -120,17 +118,20 @@ struct WorkoutDetailView: View {
         }
         .fullScreenCover(isPresented: $showingLiveClimbSummaryPreview) {
             if liveClimbSummaryMetadata?.climbId == nil || liveClimbDetailClimb != nil {
+                // The summary owns rank resolution: it reads the frozen server snapshot once and
+                // reuses it. Fetching a rank here too would be the second, disagreeing source the
+                // leaderboard audit flagged, and would refetch on every open.
                 LiveClimbCompletionSummaryView(
                     climb: liveClimbDetailClimb,
                     workout: workout,
-                    leaderboardRank: liveClimbCompletionRank?.rank,
-                    leaderboardTotal: liveClimbCompletionRank?.completedCount,
+                    leaderboardRank: nil,
+                    leaderboardTotal: nil,
                     leaderboardRankBasis: .current,
                     allowsRatingPrompt: false,
                     leaderboardContext: liveClimbSummaryLeaderboardContext,
                     rankingLabelOverride: liveClimbSummaryRankingLabelOverride,
                     completedDetailOverride: liveClimbSummaryCompletedDetailText,
-                    showsPendingRankingState: liveClimbSummaryLeaderboardContext != nil,
+                    ranksOnLeaderboard: liveClimbSummaryLeaderboardContext != nil,
                     onDone: {
                         showingLiveClimbSummaryPreview = false
                     }
@@ -148,7 +149,6 @@ struct WorkoutDetailView: View {
         }
         .task(id: workout.id) {
             refreshAppleHealthHeartRateStatus()
-            await loadLiveClimbCompletionRankIfNeeded()
             await retryAppleHealthEnrichmentIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
@@ -561,34 +561,12 @@ struct WorkoutDetailView: View {
 
     @MainActor
     private var liveClimbSummaryLeaderboardContext: LiveReplayLeaderboardContext? {
-        guard let metadata = liveClimbSummaryMetadata else { return nil }
-
-        switch metadata.trackingMode {
-        case .liveClimb:
-            guard let climb = liveClimbDetailClimb else { return nil }
-            return .liveClimb(
-                climbId: climb.id,
-                targetSteps: climb.referenceStepCount
-            )
-
-        case .justClimb:
-            return .justClimbGlobal(targetSteps: justClimbSummaryTargetSteps(metadata: metadata))
-
-        case .routine:
-            guard let templateId = metadata.routineTemplateId,
-                  !templateId.isEmpty else {
-                return nil
-            }
-
-            return .routineTemplate(
-                templateId: templateId,
-                targetSteps: summaryTargetSteps(metadata: metadata)
-            )
-
-        case nil:
-            guard metadata.climbId == nil else { return nil }
-            return .justClimbGlobal(targetSteps: justClimbSummaryTargetSteps(metadata: metadata))
-        }
+        LiveClimbWorkoutSummaryData.leaderboardContext(
+            metadata: liveClimbSummaryMetadata,
+            resolvedClimbId: liveClimbDetailClimb?.id,
+            climbTargetSteps: liveClimbDetailClimb?.referenceStepCount,
+            workoutSteps: workout.steps
+        )
     }
 
     @MainActor
@@ -608,21 +586,8 @@ struct WorkoutDetailView: View {
         }
     }
 
-    private func summaryTargetSteps(metadata: HeadphoneMotionWorkoutMetadata) -> Int {
-        LiveClimbWorkoutSummaryData.summaryTargetSteps(metadata: metadata, workout: workout)
-    }
-
-    private func justClimbSummaryTargetSteps(metadata: HeadphoneMotionWorkoutMetadata) -> Int {
-        max(
-            metadata.targetStepCount ?? JustClimbGoal.defaultOpenStepScale,
-            JustClimbGoal.defaultOpenStepScale,
-            workout.steps,
-            1
-        )
-    }
-
-    /// Reads the series the pass already decoded and hands it to every predicate that needs it -
-    /// the decode is a full JSON pass over the sample array. See `WorkoutDetailDerivedContent`.
+    /// Decodes the stored series exactly once per render pass and hands it to every predicate that
+    /// needs it - the decode is a full JSON pass over the sample array.
     @ViewBuilder
     private func heartRateSectionIfNeeded(_ derived: WorkoutDetailDerivedContent) -> some View {
         if shouldShowHeartRateSection(derived) {
@@ -921,32 +886,6 @@ struct WorkoutDetailView: View {
                     copyConfirmationText = nil
                 }
             }
-        }
-    }
-
-    @MainActor
-    private func loadLiveClimbCompletionRankIfNeeded() async {
-        guard liveClimbCompletionRank == nil,
-              !isLoadingLiveClimbRank,
-              let context = liveClimbSummaryLeaderboardContext else {
-            return
-        }
-
-        isLoadingLiveClimbRank = true
-        defer {
-            isLoadingLiveClimbRank = false
-        }
-
-        do {
-            liveClimbCompletionRank = try await LiveReplayLeaderboardService.shared.fetchCompletionRank(
-                context: context,
-                completionDurationSeconds: workout.duration,
-                finalSteps: workout.steps
-            )
-        } catch {
-#if DEBUG
-            debugLog("Workout detail Live Climb rank fetch failed: \(error.localizedDescription)")
-#endif
         }
     }
 

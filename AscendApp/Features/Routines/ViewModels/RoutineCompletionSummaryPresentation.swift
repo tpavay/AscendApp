@@ -5,9 +5,10 @@ import Foundation
 struct RoutineCompletionSummaryPresentation: Equatable {
     let rankingLabel: String
     let completedDetail: String
-    let unrankedValueText: String
-    let unrankedDetailText: String
-    let showsPendingRankingState: Bool
+    /// Whether this session ranks anywhere. When it does not there is no ranking card at all - the
+    /// achievement row already states the outcome, and a status word in the slot where a rank goes
+    /// reads as a load that never finished.
+    let ranksOnLeaderboard: Bool
     /// `nil` leaves the summary's own achievement copy in place. A forfeited session replaces it so
     /// the card cannot announce a completion the ranking card just denied.
     let achievementTitleOverride: String?
@@ -17,19 +18,15 @@ struct RoutineCompletionSummaryPresentation: Equatable {
         guard stopReason.earnsCompetitiveCredit else {
             rankingLabel = "ROUTINE"
             completedDetail = "SESSION ENDED"
-            unrankedValueText = "Incomplete"
-            unrankedDetailText = "SESSION ENDED"
-            showsPendingRankingState = false
+            ranksOnLeaderboard = false
             achievementTitleOverride = "SESSION ENDED"
             achievementIconNameOverride = "clock.arrow.circlepath"
             return
         }
 
-        rankingLabel = hasRoutineLeaderboard ? "ROUTINE RANK" : "ROUTINE"
+        rankingLabel = "ROUTINE RANK"
         completedDetail = "ROUTINE COMPLETE"
-        unrankedValueText = "Complete"
-        unrankedDetailText = "ROUTINE COMPLETE"
-        showsPendingRankingState = hasRoutineLeaderboard
+        ranksOnLeaderboard = hasRoutineLeaderboard
         achievementTitleOverride = nil
         achievementIconNameOverride = nil
     }

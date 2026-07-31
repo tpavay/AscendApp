@@ -48,6 +48,51 @@ enum LiveClimbWorkoutSummaryData {
         max(metadata.targetStepCount ?? workout.steps, workout.steps, 1)
     }
 
+    /// Which leaderboard a finished in-app session ranks on.
+    ///
+    /// `trackingMode` was added after the first Live Climbs shipped, so a workout saved before it
+    /// decodes with a `nil` mode while still carrying its `climbId`. The climb id is the durable
+    /// signal and is read first; the mode only disambiguates a session that has no climb. Reading
+    /// the mode alone stranded those early workouts with no leaderboard context at all, which is
+    /// what left a status word standing in for their rank.
+    static func leaderboardContext(
+        metadata: HeadphoneMotionWorkoutMetadata?,
+        resolvedClimbId: String?,
+        climbTargetSteps: Int?,
+        workoutSteps: Int
+    ) -> LiveReplayLeaderboardContext? {
+        guard let metadata else { return nil }
+
+        if metadata.trackingMode == .routine {
+            guard let templateId = metadata.routineTemplateId,
+                  !templateId.isEmpty else {
+                return nil
+            }
+
+            return .routineTemplate(
+                templateId: templateId,
+                targetSteps: max(metadata.targetStepCount ?? workoutSteps, workoutSteps, 1)
+            )
+        }
+
+        if metadata.climbId != nil || metadata.trackingMode == .liveClimb {
+            guard let resolvedClimbId, let climbTargetSteps else { return nil }
+            return .liveClimb(
+                climbId: resolvedClimbId,
+                targetSteps: climbTargetSteps
+            )
+        }
+
+        return .justClimbGlobal(
+            targetSteps: max(
+                metadata.targetStepCount ?? JustClimbGoal.defaultOpenStepScale,
+                JustClimbGoal.defaultOpenStepScale,
+                workoutSteps,
+                1
+            )
+        )
+    }
+
     static func progressPoints(for workout: Workout, targetSteps: Int) -> [LiveClimbProgressPoint] {
         normalizedProgressPoints(for: workout, targetSteps: targetSteps)
     }

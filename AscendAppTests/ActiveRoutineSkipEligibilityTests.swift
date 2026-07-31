@@ -190,8 +190,7 @@ struct ActiveRoutineSkipEligibilityTests {
 
         #expect(presentation.rankingLabel == "ROUTINE RANK")
         #expect(presentation.completedDetail == "ROUTINE COMPLETE")
-        #expect(presentation.unrankedValueText == "Complete")
-        #expect(presentation.showsPendingRankingState)
+        #expect(presentation.ranksOnLeaderboard)
 
         // No override: the achievement card keeps the summary's own completion copy and seal.
         #expect(presentation.achievementTitleOverride == nil)
@@ -215,10 +214,8 @@ struct ActiveRoutineSkipEligibilityTests {
         )
 
         #expect(presentation.completedDetail == "SESSION ENDED")
-        #expect(presentation.unrankedValueText == "Incomplete")
-        #expect(presentation.unrankedDetailText == "SESSION ENDED")
         #expect(presentation.rankingLabel != "ROUTINE RANK")
-        #expect(presentation.showsPendingRankingState == false)
+        #expect(presentation.ranksOnLeaderboard == false)
 
         // The achievement card sits directly under the ranking card, so it has to forfeit too.
         #expect(presentation.achievementTitleOverride == "SESSION ENDED")
@@ -326,6 +323,7 @@ struct ActiveRoutineSkipEligibilityTests {
         #expect(viewModel.completionLeaderboardContext == nil)
         #expect(viewModel.completionLeaderboardRank == nil)
         #expect(viewModel.completionLeaderboardTotal == nil)
+        #expect(viewModel.completionSummaryPresentation.ranksOnLeaderboard == false)
     }
 
     /// Only `.targetReached` earns credit, and both the record and the UI read that one rule.

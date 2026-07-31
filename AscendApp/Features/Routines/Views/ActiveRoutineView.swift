@@ -361,9 +361,7 @@ struct ActiveRoutineView: View {
             moment: .freshCompletion,
             rankingLabelOverride: presentation.rankingLabel,
             completedDetailOverride: presentation.completedDetail,
-            unrankedValueText: presentation.unrankedValueText,
-            unrankedDetailText: presentation.unrankedDetailText,
-            showsPendingRankingState: presentation.showsPendingRankingState,
+            ranksOnLeaderboard: presentation.ranksOnLeaderboard,
             achievementTitleOverride: presentation.achievementTitleOverride,
             achievementIconNameOverride: presentation.achievementIconNameOverride,
             onDone: {

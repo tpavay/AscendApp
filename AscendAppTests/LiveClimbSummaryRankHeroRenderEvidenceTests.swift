@@ -77,7 +77,7 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
         // The "of N" renders at 13pt beside a 44pt ordinal and OCR reads it
         // unreliably ("of 1" comes back as "ofi"), so the denominator the view
         // renders is pinned on the hero itself.
-        #expect(renderedHero(basis: .atCompletion, rank: Self.frozenRank, total: Self.frozenTotal).total == 1)
+        #expect(renderedHero(basis: .atCompletion, rank: Self.frozenRank, total: Self.frozenTotal)?.total == 1)
 
         try writeEvidence(image: reported, named: "live-climb-summary-rank-hero-reported.png")
         try writeEvidence(image: fixed, named: "live-climb-summary-rank-hero-fixed.png")
@@ -117,7 +117,7 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
         #expect(currentText.contains("29th"))
         #expect(currentText.contains("current leaderboard rank"))
         #expect(!currentText.contains("live climb complete"))
-        #expect(renderedHero(basis: .current, rank: Self.currentRank, total: Self.currentTotal).total == 50)
+        #expect(renderedHero(basis: .current, rank: Self.currentRank, total: Self.currentTotal)?.total == 50)
 
         try writeEvidence(image: current, named: "live-climb-summary-rank-hero-current.png")
     }
@@ -173,6 +173,9 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
             leaderboardTotal: total,
             leaderboardRankBasis: basis,
             allowsRatingPrompt: false,
+            // The hero only renders where there is a population to rank against, so the
+            // screen needs a context even though the standing is handed in directly.
+            leaderboardContext: .justClimbGlobal(targetSteps: 2_579),
             moment: moment,
             rankingLabelOverride: "CLIMB RANK",
             completedDetailOverride: "LIVE CLIMB COMPLETE",
@@ -261,7 +264,7 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
         basis: LiveClimbSummaryRankHero.Basis,
         rank: Int,
         total: Int
-    ) -> LiveClimbSummaryRankHero {
+    ) -> LiveClimbSummaryRankHero? {
         let sources = LiveClimbSummaryRankHero.Sources(
             callerSupplied: LiveClimbSummaryRankHero.Standing(rank: rank, total: total, basis: basis)
         )
@@ -271,9 +274,8 @@ struct LiveClimbSummaryRankHeroRenderEvidenceTests {
             standings: LiveClimbSummaryRankHero.standings(isClimbContext: false, sources: sources),
             sync: LiveClimbSummaryRankHero.SyncState(
                 phase: nil,
-                showsPendingRanking: true,
-                hasRankContext: false,
-                didFinishRankLoad: true
+                hasRankContext: true,
+                isResolvingRank: false
             ),
             copy: LiveClimbSummaryRankHero.Copy(labelOverride: "CLIMB RANK")
         )
