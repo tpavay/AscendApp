@@ -3,7 +3,7 @@ import Observation
 
 @MainActor
 @Observable
-final class MonetizationManager {
+final class MonetizationManager: MonetizationIdentityManaging {
     static let shared = MonetizationManager()
     #if DEBUG
     private static let debugForcesAppAccessPaywallKey = "debug.monetization.forceAppAccessPaywall"
@@ -12,19 +12,24 @@ final class MonetizationManager {
     private let entitlementService: any EntitlementServicing
     private let paywallPresenter: any PaywallPresenting
     private let telemetry: TelemetryManager
+    private let userDefaults: UserDefaults
     @ObservationIgnored
     private var onboardingScreenViewRecorder = OnboardingScreenViewRecorder()
     @ObservationIgnored
     private var identifiedUserID: String?
+    @ObservationIgnored
+    private var preparedIdentityTransition: MonetizationIdentityTransition?
     private(set) var configuration: MonetizationConfiguration
     #if DEBUG
-    private(set) var debugForcesAppAccessPaywall = UserDefaults.standard.bool(
-        forKey: MonetizationManager.debugForcesAppAccessPaywallKey
-    )
+    private(set) var debugForcesAppAccessPaywall: Bool
     #endif
 
     var entitlementState: MonetizationEntitlementState {
         entitlementService.entitlementState
+    }
+
+    var hasFailedIdentityResolution: Bool {
+        entitlementService.hasFailedIdentityResolution
     }
 
     var hasAppAccess: Bool {
@@ -62,12 +67,19 @@ final class MonetizationManager {
         configuration: MonetizationConfiguration = .live,
         entitlementService: any EntitlementServicing = RevenueCatEntitlementService.shared,
         paywallPresenter: any PaywallPresenting = SuperwallPaywallPresenter.shared,
-        telemetry: TelemetryManager = .shared
+        telemetry: TelemetryManager = .shared,
+        userDefaults: UserDefaults = .standard
     ) {
         self.configuration = configuration
         self.entitlementService = entitlementService
         self.paywallPresenter = paywallPresenter
         self.telemetry = telemetry
+        self.userDefaults = userDefaults
+        #if DEBUG
+        debugForcesAppAccessPaywall = userDefaults.bool(
+            forKey: MonetizationManager.debugForcesAppAccessPaywallKey
+        )
+        #endif
     }
 
     func configure(configuration: MonetizationConfiguration = .live) {
@@ -76,28 +88,66 @@ final class MonetizationManager {
         paywallPresenter.configure(configuration: configuration)
     }
 
-    func identify(userId: String) async {
+    @discardableResult
+    func prepareIdentity(userId: String) -> MonetizationIdentityTransition {
         if identifiedUserID != userId {
             identifiedUserID = userId
             onboardingScreenViewRecorder = OnboardingScreenViewRecorder()
         }
 
-        await entitlementService.identify(userId: userId)
+        let transition = entitlementService.prepareIdentity(userId: userId)
+        preparedIdentityTransition = transition
+        return transition
+    }
+
+    func identify(
+        userId: String,
+        transition: MonetizationIdentityTransition
+    ) async {
+        await entitlementService.identify(
+            userId: userId,
+            transition: transition
+        )
+
+        guard identifiedUserID == userId,
+              preparedIdentityTransition == transition else {
+            return
+        }
+
+        preparedIdentityTransition = nil
         paywallPresenter.identify(userId: userId)
     }
 
-    func resetIdentity() async {
+    @discardableResult
+    func prepareIdentityReset() -> MonetizationIdentityTransition {
         // The paywall screen view dedupes per pass through the onboarding funnel, and an identity
         // change starts a new pass, so the recorder cannot outlive the identity it was filled for.
         identifiedUserID = nil
         onboardingScreenViewRecorder = OnboardingScreenViewRecorder()
 
-        await entitlementService.resetIdentity()
+        let transition = entitlementService.prepareIdentityReset()
+        preparedIdentityTransition = transition
+        return transition
+    }
+
+    func resetIdentity(transition: MonetizationIdentityTransition) async {
+        await entitlementService.resetIdentity(transition: transition)
+
+        guard identifiedUserID == nil,
+              preparedIdentityTransition == transition else {
+            return
+        }
+
+        preparedIdentityTransition = nil
         paywallPresenter.resetIdentity()
     }
 
     func refreshEntitlements() async {
         await entitlementService.refreshCustomerInfo()
+    }
+
+    func retryIdentityResolution() async {
+        await entitlementService.retryIdentityResolution()
     }
 
     func restorePurchases() async throws {
@@ -129,7 +179,7 @@ final class MonetizationManager {
     #if DEBUG
     func setDebugForcesAppAccessPaywall(_ shouldForce: Bool) {
         debugForcesAppAccessPaywall = shouldForce
-        UserDefaults.standard.set(shouldForce, forKey: Self.debugForcesAppAccessPaywallKey)
+        userDefaults.set(shouldForce, forKey: Self.debugForcesAppAccessPaywallKey)
     }
     #endif
 
