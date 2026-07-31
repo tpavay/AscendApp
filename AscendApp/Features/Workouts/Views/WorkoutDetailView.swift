@@ -106,14 +106,11 @@ struct WorkoutDetailView: View {
                     workout: workout,
                     leaderboardRank: liveClimbCompletionRank?.rank,
                     leaderboardTotal: liveClimbCompletionRank?.completedCount,
+                    leaderboardRankBasis: .current,
                     allowsRatingPrompt: false,
                     leaderboardContext: liveClimbSummaryLeaderboardContext,
                     rankingLabelOverride: liveClimbSummaryRankingLabelOverride,
                     completedDetailOverride: liveClimbSummaryCompletedDetailText,
-                    unrankedValueText: liveClimbSummaryLeaderboardContext == nil ? "Complete" : "Checking",
-                    unrankedDetailText: liveClimbSummaryLeaderboardContext == nil ?
-                        liveClimbSummaryCompletedDetailText :
-                        "LOOKING FOR YOUR RANK",
                     showsPendingRankingState: liveClimbSummaryLeaderboardContext != nil,
                     onDone: {
                         showingLiveClimbSummaryPreview = false

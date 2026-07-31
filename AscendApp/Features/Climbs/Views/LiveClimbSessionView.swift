@@ -60,8 +60,10 @@ struct LiveClimbSessionView: View {
                     workout: savedWorkout,
                     leaderboardRank: viewModel.completionLeaderboardRank,
                     leaderboardTotal: viewModel.completionLeaderboardTotal,
+                    leaderboardRankBasis: .liveSession,
                     allowsRatingPrompt: true,
                     leaderboardContext: viewModel.replayContext,
+                    moment: .freshCompletion,
                     onDone: { dismiss() }
                 )
             } else {
