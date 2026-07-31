@@ -568,10 +568,8 @@ struct WorkoutDetailView: View {
         )
     }
 
-    @MainActor
     private var liveClimbSummaryRankingLabelOverride: String? {
-        guard liveClimbSummaryMetadata?.trackingMode == .routine else { return nil }
-        return liveClimbSummaryLeaderboardContext == nil ? "ROUTINE" : "ROUTINE RANK"
+        liveClimbSummaryMetadata?.trackingMode == .routine ? "ROUTINE RANK" : nil
     }
 
     /// Decodes the stored series exactly once per render pass and hands it to every predicate that

@@ -518,7 +518,7 @@ struct LiveClimbSummaryRankHeroTests {
                     hasRankContext: forfeited.ranksOnLeaderboard,
                     rankResolution: .settled
                 ),
-                copy: Hero.Copy(labelOverride: forfeited.rankingLabel)
+                copy: Hero.Copy(labelOverride: "ROUTINE RANK")
             ) == nil
         )
     }

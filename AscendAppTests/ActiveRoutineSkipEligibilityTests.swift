@@ -188,8 +188,8 @@ struct ActiveRoutineSkipEligibilityTests {
             hasRoutineLeaderboard: true
         )
 
-        #expect(presentation.rankingLabel == "ROUTINE RANK")
         #expect(presentation.ranksOnLeaderboard)
+        #expect(Self.rankHero(for: presentation) != nil)
 
         // No override: the achievement card keeps the summary's own completion copy and seal.
         #expect(presentation.achievementTitleOverride == nil)
@@ -212,9 +212,8 @@ struct ActiveRoutineSkipEligibilityTests {
             hasRoutineLeaderboard: true
         )
 
-        #expect(presentation.rankingLabel == "ROUTINE")
-        #expect(presentation.rankingLabel != "ROUTINE RANK")
         #expect(presentation.ranksOnLeaderboard == false)
+        #expect(Self.rankHero(for: presentation) == nil)
 
         // The achievement card sits directly under the ranking card, so it has to forfeit too.
         #expect(presentation.achievementTitleOverride == "SESSION ENDED")
@@ -318,11 +317,11 @@ struct ActiveRoutineSkipEligibilityTests {
 
         #expect(viewModel.resolvedStopReason == .skipped)
         #expect(viewModel.countsAsCompletion == false)
-        #expect(viewModel.completionSummaryPresentation.rankingLabel == "ROUTINE")
         #expect(viewModel.completionLeaderboardContext == nil)
         #expect(viewModel.completionLeaderboardRank == nil)
         #expect(viewModel.completionLeaderboardTotal == nil)
         #expect(viewModel.completionSummaryPresentation.ranksOnLeaderboard == false)
+        #expect(Self.rankHero(for: viewModel.completionSummaryPresentation) == nil)
     }
 
     /// Only `.targetReached` earns credit, and both the record and the UI read that one rule.
@@ -333,6 +332,26 @@ struct ActiveRoutineSkipEligibilityTests {
         for stopReason: HeadphoneMotionSessionStopReason in [.skipped, .userStopped, .interrupted, .discarded] {
             #expect(stopReason.earnsCompetitiveCredit == false)
         }
+    }
+
+    /// The ranking card exactly as the routine summary builds it. Asserting through this is what
+    /// keeps these tests pinned to something the climber can see: a presentation that ranks nowhere
+    /// produces no card at all, rather than copy no screen would ever render.
+    private static func rankHero(
+        for presentation: RoutineCompletionSummaryPresentation
+    ) -> LiveClimbSummaryRankHero? {
+        LiveClimbSummaryRankHero.make(
+            isClimbContext: false,
+            standings: [
+                LiveClimbSummaryRankHero.Standing(rank: 3, total: 9, basis: .atCompletion)
+            ],
+            sync: LiveClimbSummaryRankHero.SyncState(
+                phase: .published,
+                hasRankContext: presentation.ranksOnLeaderboard,
+                rankResolution: .settled
+            ),
+            copy: LiveClimbSummaryRankHero.Copy(labelOverride: "ROUTINE RANK")
+        )
     }
 
     private func makeViewModel() -> ActiveRoutineViewModel {
