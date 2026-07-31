@@ -175,10 +175,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "24"
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
 
-      # The migration-discipline libraries and the shared vector-pinned
-      # predicate/derivation are pure Node with no external deps at test time,
-      # so the suite runs without installing firebase-admin.
+      # The public-identity contract suite spawns dev-db.mjs itself to prove the
+      # hydrate-user argument and identity checks run before Firebase is touched,
+      # so the scripts package - firebase-admin included - has to be installed.
+      - name: Install dependencies
+        run: npm --prefix scripts ci
 
       # sentry-cli is required, not optional: the dSYM upload suite asserts the
       # flags the release script passes against this exact pinned CLI's help.
