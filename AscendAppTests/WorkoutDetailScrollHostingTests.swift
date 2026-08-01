@@ -31,14 +31,7 @@ struct WorkoutDetailScrollHostingTests {
 
     @Test
     func theScreenScrollsWithoutPerTickWork() throws {
-        let container = try ModelContainer(
-            for: Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
-            BestEffortCacheEntry.self,
-            BestEffortCacheMetadata.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
+        let container = try Self.hostedContainer()
 
         let workout = Self.thresholdIntervalsWorkout()
         container.mainContext.insert(workout)
@@ -102,6 +95,26 @@ struct WorkoutDetailScrollHostingTests {
     /// The activity from the recording: a 43:23 headphone-motion session with nine
     /// pace splits and a full per-second heart-rate trace.
     ///
+    /// Held for the process, not built per test.
+    ///
+    /// `WorkoutDetailView` carries a `@Query`, and SwiftUI keeps observing SwiftData for a beat
+    /// after the host is torn down. A container that dies with the test is gone before that
+    /// observer is, and the observer then traps on the dangling reference the next time *any*
+    /// suite calls `ModelContext.save()` - taking the whole test process down with it, attributed
+    /// to whatever unrelated code happened to be saving.
+    private static let container: ModelContainer? = try? ModelContainer(
+        for: Workout.self,
+        WorkoutSourceLink.self,
+        WorkoutParticipation.self,
+        BestEffortCacheEntry.self,
+        BestEffortCacheMetadata.self,
+        configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+    )
+
+    private static func hostedContainer() throws -> ModelContainer {
+        try #require(container, "The hosting test needs an in-memory model container")
+    }
+
     /// `.routine` with no template id renders every section the recording shows while
     /// resolving to a nil leaderboard context, so `.task` never reaches for the
     /// network and the drive stays deterministic.

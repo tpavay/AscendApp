@@ -116,14 +116,7 @@ struct HeartRateChartRenderCostEvidenceTests {
     /// the top and mid-scroll, so the fix can be reviewed as the screen a climber sees.
     @Test
     func theActivityDetailScreenRendersTheSessionThatStuttered() throws {
-        let container = try ModelContainer(
-            for: Workout.self,
-            WorkoutSourceLink.self,
-            WorkoutParticipation.self,
-            BestEffortCacheEntry.self,
-            BestEffortCacheMetadata.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
+        let container = try Self.hostedContainer()
 
         let workout = Self.stutteringWorkout()
         container.mainContext.insert(workout)
@@ -194,6 +187,26 @@ struct HeartRateChartRenderCostEvidenceTests {
                 heartRate: Int(rate.rounded())
             )
         }
+    }
+
+    /// Held for the process, not built per test.
+    ///
+    /// `WorkoutDetailView` carries a `@Query`, and SwiftUI keeps observing SwiftData for a beat
+    /// after the host is torn down. A container that dies with the test is gone before that
+    /// observer is, and the observer then traps on the dangling reference the next time *any*
+    /// suite calls `ModelContext.save()` - taking the whole test process down with it, attributed
+    /// to whatever unrelated code happened to be saving.
+    private static let container: ModelContainer? = try? ModelContainer(
+        for: Workout.self,
+        WorkoutSourceLink.self,
+        WorkoutParticipation.self,
+        BestEffortCacheEntry.self,
+        BestEffortCacheMetadata.self,
+        configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+    )
+
+    private static func hostedContainer() throws -> ModelContainer {
+        try #require(container, "The evidence suite needs an in-memory model container")
     }
 
     private static func stutteringWorkout() -> Workout {
