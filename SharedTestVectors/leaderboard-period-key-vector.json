@@ -1,5 +1,5 @@
 {
-  "description": "Canonical leaderboard period keys for a UTC instant at noon on each date. Four independent derivations must agree on every case: LeaderboardTimeFrame.currentPeriod (client), previousPeriod in functions/src/leaderboardAchievements.ts (finalizer), currentPeriod in scripts/lib/leaderboard-period.mjs (seed-demo-user), and currentPeriod in scripts/seed/fixtures/profile-fixtures.mjs (profile seeds). A document written under one spelling is invisible to a reader using another, and the board just looks empty.",
+  "description": "Canonical leaderboard period keys for a UTC instant at noon on each date. Three independent derivations must agree on every case: LeaderboardTimeFrame.currentPeriod (client), previousPeriod in functions/src/leaderboardAchievements.ts (finalizer), and currentPeriod in scripts/lib/leaderboard-period.mjs (the one seeding derivation - seed-demo-user.mjs and seed/fixtures/profile-fixtures.mjs both import it). A document written under one spelling is invisible to a reader using another, and the board just looks empty.",
   "cases": [
     {
       "name": "the Saturday the boards were photographed, five days into the week and hours into the month",

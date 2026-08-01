@@ -65,8 +65,7 @@ paths:
   currently lacks them, so a dev backfill repairs the source mirrors and waits.
 - To create one dev/staging QA Auth account, use `scripts/dev-db.mjs create-auth-user`. It must stay dev/staging-only, can generate a password, and can optionally run `--hydrate-profile` or `--seed-demo-data` after the Auth account exists.
 - To patch one dev/staging account, use `scripts/dev-db.mjs hydrate-user` so private `users/{uid}` and public `users/{uid}/public_profile/current` stay in sync.
-
-- `scripts/seed-demo-user.mjs` floors every demo user's totals at `minimumStepsByTimeFrame` (48,000 weekly / 145,000 monthly / 640,000 yearly / 720,000 all-time) via `Math.max`.
+- `scripts/seed-demo-user.mjs` floors every demo user's totals at `minimumStepsByTimeFrame` (2,096 daily / 48,000 weekly / 145,000 monthly / 640,000 yearly / 720,000 all-time) via `Math.max`.
   Every demo user seeded below the floor lands on the floor exactly, so identical totals across accounts - and the podium ties they produce - are a seeding artifact, not a ranking bug. Check the seeded value before investigating a tie as a defect.
 
 ## Live replay seeding
