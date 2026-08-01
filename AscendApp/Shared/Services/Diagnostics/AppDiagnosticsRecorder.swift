@@ -30,7 +30,21 @@ struct AppDiagnosticEvent: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
-final class AppDiagnosticsRecorder: @unchecked Sendable {
+/// The seam a caller needs to prove *what it asked for*, not just that it called something.
+///
+/// Whether an event reached Crashlytics cannot be observed from inside the process, so the only
+/// checkable part is the request - which is exactly the half that keeps getting silently dropped.
+protocol AppDiagnosticsRecording: Sendable {
+    @discardableResult
+    func record(
+        _ name: String,
+        level: AppDiagnosticEvent.Level,
+        details: [String: String],
+        mirrorToCrashlytics: Bool
+    ) -> AppDiagnosticEvent
+}
+
+final class AppDiagnosticsRecorder: AppDiagnosticsRecording, @unchecked Sendable {
     static let shared = AppDiagnosticsRecorder()
 
     private let userDefaults: UserDefaults

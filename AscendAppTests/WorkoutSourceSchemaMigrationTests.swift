@@ -416,6 +416,124 @@ struct WorkoutSourceSchemaMigrationTests {
         #expect(migrated.count == 1)
     }
 
+    /// Every way this migration can lose a source has to ask to be reported *off the device*.
+    ///
+    /// This is the half of observable-over-fatal that cannot be checked by watching the app: three
+    /// times in this branch the reporting was implemented and landed somewhere nobody would ever
+    /// read it - once behind `#if DEBUG`, once with remote mirroring switched off - while the
+    /// don't-brick-the-launch half landed correctly every time, because that half is observable
+    /// from inside the process and this one is not. The request is observable, so it is asserted:
+    /// turning mirroring back off silently now fails here instead of failing in production.
+    @Test
+    func everyWayTheMigrationLosesSourcesAsksToBeReportedRemotely() throws {
+        let recorder = SpyDiagnosticsRecorder()
+        let previousDiagnostics = AscendMigrationPlan.diagnostics
+        AscendMigrationPlan.diagnostics = recorder
+        defer { AscendMigrationPlan.diagnostics = previousDiagnostics }
+
+        // The read pass giving up and proceeding with what it has.
+        try Self.withUnrepairableStore { _, _ in }
+        let readStoreURL = Self.makeStoreURL()
+        defer { Self.removeStore(at: readStoreURL) }
+        let unwritableStash = Self.IsolatedStash(unwritable: true)
+        defer { unwritableStash.tearDown() }
+
+        try Self.seedLegacyStore(at: readStoreURL) { context in
+            context.insert(
+                AscendSchemaV1.Workout(
+                    id: UUID(),
+                    name: "Live Climb",
+                    date: Self.sessionStart,
+                    duration: 1800,
+                    steps: 3000,
+                    floors: 187,
+                    source: .headphoneMotion
+                )
+            )
+        }
+        try Self.withLegacyStore(at: readStoreURL) { context in
+            _ = try? AscendMigrationPlan.stashLegacySources(
+                from: context,
+                stash: unwritableStash.stash
+            )
+        }
+
+        try Self.withUnrepairableStore { storeURL, stashScope in
+            // The write pass swallowing its failure so `didMigrate` cannot fail the container.
+            AscendMigrationPlan.applyStashedSourcesReportingFailure(
+                to: try Self.openMigratedStore(at: storeURL, allowsSave: false),
+                stash: stashScope.stash
+            )
+
+            // The write pass giving up for good.
+            for _ in 1..<WorkoutSourceMigrationStash.maximumAttempts {
+                _ = try? AscendMigrationPlan.applyStashedSources(
+                    to: try Self.openMigratedStore(at: storeURL, allowsSave: false),
+                    stash: stashScope.stash
+                )
+            }
+
+            // A stash that exists but will not decode.
+            try Data("not json".utf8).write(to: stashScope.fileURL, options: .atomic)
+            _ = try AscendMigrationPlan.applyStashedSources(
+                to: try Self.openMigratedStore(at: storeURL),
+                stash: stashScope.stash
+            )
+        }
+
+        for name in [
+            "workout_source_migration_read_failed",
+            "workout_source_migration_write_failed",
+            "workout_source_migration_abandoned",
+            "workout_source_migration_stash_unreadable"
+        ] {
+            let recorded = recorder.events.filter { $0.name == name }
+            let everyOneAsksToLeaveTheDevice = recorded.allSatisfy(\.mirrorToCrashlytics)
+
+            #expect(!recorded.isEmpty, "\(name) was never recorded, so this loss reaches nobody")
+            #expect(
+                everyOneAsksToLeaveTheDevice,
+                """
+                \(name) was recorded without asking for remote mirroring, so it never leaves the \
+                device - the app opens and looks healthy while the sources are gone
+                """
+            )
+        }
+    }
+
+    /// The counts a write-pass failure carries have to describe what actually happened.
+    ///
+    /// A failure that had already repaired most of the store is a different incident from one that
+    /// never started, and reporting zeroes for both hides which one it was.
+    @Test
+    func aSwallowedWriteFailureReportsHowFarItGot() throws {
+        let recorder = SpyDiagnosticsRecorder()
+        let previousDiagnostics = AscendMigrationPlan.diagnostics
+        AscendMigrationPlan.diagnostics = recorder
+        defer { AscendMigrationPlan.diagnostics = previousDiagnostics }
+
+        try Self.withUnrepairableStore { storeURL, stashScope in
+            AscendMigrationPlan.applyStashedSourcesReportingFailure(
+                to: try Self.openMigratedStore(at: storeURL, allowsSave: false),
+                stash: stashScope.stash
+            )
+        }
+
+        let recorded = try #require(
+            recorder.events.first { $0.name == "workout_source_migration_write_failed" }
+        )
+        #expect(
+            recorded.details["failed_attempt_count"] == "1",
+            """
+            the swallowed failure reported failed_attempt_count \
+            \(recorded.details["failed_attempt_count"] ?? "nil"); a zeroed report reads as though \
+            nothing was attempted
+            """
+        )
+        #expect(recorded.details["resolved_count"] != nil)
+        #expect(recorded.details["repaired_count"] != nil)
+    }
+
     /// The memory bound, measured at the store size that produced ASCEND-IOS-1K.
     ///
     /// The other tests in this suite seed one to three workouts, so they pass identically whether
@@ -552,6 +670,37 @@ struct WorkoutSourceSchemaMigrationTests {
     /// only way a test can keep its hands off the app's real stash file. `@Suite(.serialized)`
     /// orders these tests against each other but not against other suites, so the isolation has to
     /// come from here rather than from the ordering.
+    /// Seeds a migrated store whose stash still holds every source, so a caller can drive the
+    /// write pass against a store that refuses writes.
+    private static func withUnrepairableStore(
+        _ body: (URL, IsolatedStash) throws -> Void
+    ) throws {
+        let storeURL = makeStoreURL()
+        defer { removeStore(at: storeURL) }
+        let stashScope = IsolatedStash()
+        defer { stashScope.tearDown() }
+
+        try seedLegacyStore(at: storeURL) { context in
+            context.insert(
+                AscendSchemaV1.Workout(
+                    id: UUID(),
+                    name: "Live Climb",
+                    date: sessionStart,
+                    duration: 1800,
+                    steps: 3000,
+                    floors: 187,
+                    source: .headphoneMotion
+                )
+            )
+        }
+
+        #expect(throws: (any Error).self) {
+            _ = try openStore(at: storeURL, migrationPlan: FailingWorkoutSourceMigrationPlan.self)
+        }
+
+        try body(storeURL, stashScope)
+    }
+
     private final class IsolatedStash {
         let fileURL: URL
         let stash: WorkoutSourceMigrationStash
@@ -717,4 +866,38 @@ private enum FailingWorkoutSourceMigrationPlan: SchemaMigrationPlan {
 
 private enum InjectedMigrationFailure: Error {
     case didMigrateInterrupted
+}
+
+/// Captures what the migration *asked* the diagnostics layer for.
+private final class SpyDiagnosticsRecorder: AppDiagnosticsRecording, @unchecked Sendable {
+    struct Recorded {
+        let name: String
+        let details: [String: String]
+        let mirrorToCrashlytics: Bool
+    }
+
+    private let lock = NSLock()
+    private var recorded: [Recorded] = []
+
+    var events: [Recorded] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
+
+    @discardableResult
+    func record(
+        _ name: String,
+        level: AppDiagnosticEvent.Level,
+        details: [String: String],
+        mirrorToCrashlytics: Bool
+    ) -> AppDiagnosticEvent {
+        lock.lock()
+        recorded.append(
+            Recorded(name: name, details: details, mirrorToCrashlytics: mirrorToCrashlytics)
+        )
+        lock.unlock()
+
+        return AppDiagnosticEvent(name: name, level: level, details: details)
+    }
 }

@@ -36,22 +36,42 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
             try stashLegacySources(from: context)
         },
         didMigrate: { context in
-            // Deliberately swallowed. The schema step has already committed by the time this
-            // runs, so throwing would cost a launch and buy nothing: the stash still holds every
-            // value and `recoverInterruptedMigrationIfNeeded` re-runs the same write next launch,
-            // bounded by the same attempt counter. Refusing to open the app is the loudest
-            // failure available and also the worst.
-            do {
-                try applyStashedSources(to: context)
-            } catch {
-                report(
-                    "workout_source_migration_write_failed",
-                    error: error,
-                    sweep: SweepReport()
-                )
-            }
+            applyStashedSourcesReportingFailure(to: context)
         }
     )
+
+    /// Where the failure this migration is not allowed to be fatal about gets reported.
+    ///
+    /// Settable for the same reason `WorkoutSourceMigrationStash.shared` is: `MigrationStage`
+    /// builds its phases statically, so there is no parameter to thread a recorder through. The
+    /// seam exists so a test can assert what these paths *ask for* - the request to mirror
+    /// remotely is checkable from inside the process even though its delivery is not, and the
+    /// unverifiable half is the one that has quietly gone missing before.
+    nonisolated(unsafe) static var diagnostics: any AppDiagnosticsRecording = AppDiagnosticsRecorder.shared
+
+    /// Runs the write pass and swallows whatever it throws.
+    ///
+    /// The schema step has already committed by the time `didMigrate` runs, so throwing would
+    /// cost a launch and buy nothing: the stash still holds every value and
+    /// `recoverInterruptedMigrationIfNeeded` re-runs the same write next launch, bounded by the
+    /// same attempt counter. Refusing to open the app is the loudest failure available and also
+    /// the worst.
+    static func applyStashedSourcesReportingFailure(
+        to context: ModelContext,
+        stash: WorkoutSourceMigrationStash = .shared
+    ) {
+        do {
+            try applyStashedSources(to: context, stash: stash)
+        } catch let failure as WorkoutSourceMigrationSweepFailure {
+            report(
+                "workout_source_migration_write_failed",
+                error: failure.underlying,
+                sweep: failure.sweep
+            )
+        } catch {
+            report("workout_source_migration_write_failed", error: error, sweep: SweepReport())
+        }
+    }
 
     /// How many workouts a single page reads, and - in the write pass - commits.
     ///
@@ -94,7 +114,7 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
         var sweep = SweepReport()
 
         do {
-            sweep = try forEachPage(of: AscendSchemaV1.Workout.self, in: context) { page in
+            try forEachPage(of: AscendSchemaV1.Workout.self, in: context, report: &sweep) { page in
                 for workout in page {
                     sourcesByWorkoutID[workout.id] = workout.source.rawValue
                 }
@@ -152,11 +172,28 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
         stash: WorkoutSourceMigrationStash = .shared
     ) throws -> SweepReport {
         let stashed = stash.load()
+
+        // A stash that exists but will not decode is not the same thing as a finished migration,
+        // and treating them alike is how every source value goes to `.manual` with nothing
+        // recorded anywhere - the silent default this whole stage exists to prevent. It stays
+        // non-fatal, but it says so, and it converges so the report happens once.
+        if stashed.isUnreadable {
+            report(
+                "workout_source_migration_stash_unreadable",
+                error: WorkoutSourceMigrationError.stashCouldNotBeDecoded,
+                sweep: SweepReport()
+            )
+            stash.clearBestEffort()
+            return SweepReport()
+        }
+
         guard !stashed.sourcesByWorkoutID.isEmpty, !stashed.isExhausted else { return SweepReport() }
 
+        var sweep = SweepReport()
+        var repairedCount = 0
+
         do {
-            var repairedCount = 0
-            var sweep = try forEachPage(of: Workout.self, in: context) { page in
+            try forEachPage(of: Workout.self, in: context, report: &sweep) { page in
                 for workout in page {
                     guard let rawValue = stashed.sourcesByWorkoutID[workout.id],
                           workout.sourceRawValue != rawValue else { continue }
@@ -180,15 +217,19 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
 
             return sweep
         } catch {
-            let failedAttemptCount = countFailedAttempt(on: stash)
+            // Carry the partial sweep out with the error. A failure on the second attempt that
+            // had already repaired 800 of 900 rows is a different incident from one that never
+            // started, and reporting zeroes for both hides which one happened.
+            sweep.repairedCount = repairedCount
+            sweep.failedAttemptCount = countFailedAttempt(on: stash)
 
-            guard failedAttemptCount >= WorkoutSourceMigrationStash.maximumAttempts else {
-                throw error
+            guard sweep.failedAttemptCount >= WorkoutSourceMigrationStash.maximumAttempts else {
+                throw WorkoutSourceMigrationSweepFailure(sweep: sweep, underlying: error)
             }
 
-            var sweep = SweepReport()
-            sweep.failedAttemptCount = failedAttemptCount
             sweep.abandonedAfterRepeatedFailures = true
+            report("workout_source_migration_abandoned", error: error, sweep: sweep)
+
             return sweep
         }
     }
@@ -214,7 +255,7 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
     /// invisible on exactly the builds where it matters. Choosing observable-over-fatal is only
     /// worth anything if the observation reaches us.
     private static func report(_ name: String, error: any Error, sweep: SweepReport) {
-        AppDiagnosticsRecorder.shared.record(
+        diagnostics.record(
             name,
             level: .error,
             details: [
@@ -222,9 +263,10 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
                 "error_description": String(describing: error),
                 "resolved_count": String(sweep.workoutCount),
                 "unresolved_count": String(sweep.unresolvedCount),
+                "repaired_count": String(sweep.repairedCount),
                 "failed_attempt_count": String(sweep.failedAttemptCount)
             ],
-            mirrorToCrashlytics: false
+            mirrorToCrashlytics: true
         )
     }
 
@@ -261,13 +303,16 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
     /// The walk keeps going rather than stopping at the first gap, so the rows after it are still
     /// carried across. What to do about a non-zero `unresolvedCount` is the caller's decision,
     /// because the two passes answer it differently.
+    ///
+    /// `report` is `inout` rather than returned so a caller that fails partway still has the
+    /// counts for the pages that did land.
     private static func forEachPage<Model: PersistentModel>(
         of model: Model.Type,
         in context: ModelContext,
+        report: inout SweepReport,
         body: ([Model]) throws -> Void
-    ) throws -> SweepReport {
+    ) throws {
         let identifiers = try context.fetchIdentifiers(FetchDescriptor<Model>())
-        var report = SweepReport()
 
         var pageStart = identifiers.startIndex
         while pageStart < identifiers.endIndex {
@@ -294,13 +339,18 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
             report.largestPageSize = max(report.largestPageSize, page.count)
             pageStart = pageEnd
         }
-
-        return report
     }
+}
+
+/// A sweep failure that still knows how far it got.
+struct WorkoutSourceMigrationSweepFailure: Error {
+    let sweep: AscendMigrationPlan.SweepReport
+    let underlying: any Error
 }
 
 enum WorkoutSourceMigrationError: Error, CustomStringConvertible {
     case pageDidNotFullyResolve(requested: Int, resolved: Int)
+    case stashCouldNotBeDecoded
 
     var description: String {
         switch self {
@@ -308,6 +358,11 @@ enum WorkoutSourceMigrationError: Error, CustomStringConvertible {
             return """
             workout source migration resolved \(resolved) of \(requested) workouts in a page; \
             refusing to continue with the rest defaulted to manual
+            """
+        case .stashCouldNotBeDecoded:
+            return """
+            workout source migration stash exists but will not decode; every workout it held \
+            keeps the manual default
             """
         }
     }
@@ -335,6 +390,10 @@ final class WorkoutSourceMigrationStash: @unchecked Sendable {
     struct Contents: Equatable {
         var sourcesByWorkoutID: [UUID: String] = [:]
         var failedAttemptCount = 0
+
+        /// The file is there and holds values, but nothing can be read out of it. Distinct from
+        /// absent, which means the migration finished.
+        var isUnreadable = false
 
         var isExhausted: Bool {
             failedAttemptCount >= WorkoutSourceMigrationStash.maximumAttempts
@@ -380,7 +439,11 @@ final class WorkoutSourceMigrationStash: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
-        guard let stored = try? read() else { return Contents() }
+        guard FileManager.default.fileExists(atPath: fileURL.path(percentEncoded: false)) else {
+            return Contents()
+        }
+
+        guard let stored = try? read() else { return Contents(isUnreadable: true) }
 
         return Contents(
             sourcesByWorkoutID: stored.sourcesByWorkoutID.reduce(into: [UUID: String]()) { partialResult, entry in

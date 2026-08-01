@@ -156,17 +156,9 @@ struct AscendApp: App {
                 in: ModelContext(container)
             )
 
-            if report.abandonedAfterRepeatedFailures {
-                AppDiagnosticsRecorder.shared.record(
-                    "workout_source_migration_abandoned",
-                    level: .error,
-                    details: ["failed_attempt_count": String(report.failedAttemptCount)],
-                    mirrorToCrashlytics: false
-                )
-                return
-            }
-
-            guard report.repairedCount > 0 else { return }
+            // Abandonment reports itself from inside the plan, where the counts live and where a
+            // test can hold the recorder.
+            guard !report.abandonedAfterRepeatedFailures, report.repairedCount > 0 else { return }
 
             AppDiagnosticsRecorder.shared.record(
                 "workout_source_migration_recovered",
@@ -176,7 +168,7 @@ struct AscendApp: App {
                     "workout_count": String(report.workoutCount),
                     "unresolved_count": String(report.unresolvedCount)
                 ],
-                mirrorToCrashlytics: false
+                mirrorToCrashlytics: true
             )
         } catch {
             AppDiagnosticsRecorder.shared.record(
@@ -186,7 +178,7 @@ struct AscendApp: App {
                     "error_type": String(describing: type(of: error)),
                     "error_description": String(describing: error)
                 ],
-                mirrorToCrashlytics: false
+                mirrorToCrashlytics: true
             )
             debugLog("Failed to finish interrupted workout source migration: \(error)")
         }
