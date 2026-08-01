@@ -217,6 +217,56 @@ export function deployTriggeringFiles(files, patterns) {
 }
 
 /**
+ * Classifies the comparison between the deployed commit and the branch head.
+ *
+ * Every status GitHub can return is handled deliberately, because the one thing
+ * this watchdog must never do is fall through to silence. `behind` in
+ * particular reports zero changed files - the head does not contain the
+ * deployed commit at all - and reading that as "nothing to deploy" would mute
+ * the alert exactly when history has been rewritten under production.
+ *
+ * @param {object} input Classification input.
+ * @param {{status?: string | null, files?: Array<string> | null} | null}
+ *   [input.comparison] The compare result. A null comparison, a missing status,
+ *   or a null file list all mean "could not be established".
+ * @param {Array<string>} [input.deployPathFilters] The deploy workflow's
+ *   `on.push.paths` allowlist.
+ * @return {{alert: boolean, reason: string, triggering: Array<string> | null}}
+ *   Whether to alert, why, and the triggering files when they are known.
+ */
+export function classifyDrift({comparison, deployPathFilters = []} = {}) {
+  const status = comparison?.status ?? null;
+  const files = comparison?.files ?? null;
+
+  // The deployed commit is the head. Not drift under any reading.
+  if (status === "identical") {
+    return {alert: false, reason: "identical", triggering: []};
+  }
+
+  // The head does not contain the deployed commit: a force-push, a reset, or a
+  // rewritten history. Production is running code that is no longer on the
+  // branch, and no future push necessarily corrects it.
+  if (status === "behind") {
+    return {alert: true, reason: "behind", triggering: null};
+  }
+
+  // The ordinary case: the branch carries commits production has not taken.
+  if (status === "ahead" || status === "diverged") {
+    if (!Array.isArray(files)) {
+      return {alert: true, reason: "unresolved", triggering: null};
+    }
+    const triggering = deployTriggeringFiles(files, deployPathFilters);
+    return triggering.length > 0 ?
+      {alert: true, reason: status, triggering} :
+      {alert: false, reason: "no-triggering-paths", triggering};
+  }
+
+  // A status this code does not recognise. Err loud: a watchdog that cannot
+  // classify what it sees must say so rather than pass it off as healthy.
+  return {alert: true, reason: "unknown", triggering: null};
+}
+
+/**
  * Sorts runs newest-first by the time the run entered the queue.
  * @param {Array<object>} runs Workflow runs from the GitHub API.
  * @return {Array<object>} A new, newest-first array.
@@ -253,9 +303,9 @@ function runLabel(run) {
  *   head commit, or null when it could not be resolved.
  * @param {string | number | Date} input.now Evaluation time.
  * @param {object} [input.thresholds] Overrides for `DEFAULT_THRESHOLDS`.
- * @param {Array<string> | null} [input.undeployedFiles] Files changed between
- *   the last deployed commit and the head. Null means "could not be resolved",
- *   which is treated as possibly-deployable rather than assumed harmless.
+ * @param {{status?: string | null, files?: Array<string> | null} | null}
+ *   [input.comparison] The compare between the last deployed commit and the
+ *   head. Omitted or unresolvable means alert, not silence.
  * @param {Array<string>} [input.deployPathFilters] The deploy workflow's
  *   `on.push.paths` allowlist, from `parsePushPathFilters`.
  * @return {{healthy: boolean, alerts: Array<object>, lastSuccess: object|null}}
@@ -266,7 +316,7 @@ export function evaluateDeployHealth({
   head,
   now,
   thresholds,
-  undeployedFiles = null,
+  comparison = null,
   deployPathFilters = [],
 } = {}) {
   const limits = {...DEFAULT_THRESHOLDS, ...(thresholds ?? {})};
@@ -369,39 +419,54 @@ export function evaluateDeployHealth({
       // Deploy Production only runs on a `paths:` allowlist, so a head made of
       // docs-only commits was never meant to deploy and production is current.
       // Alerting on it would fire every three hours forever with nothing to do
-      // about it. Unresolvable file lists stay noisy on purpose - silence has
-      // to be earned by evidence, not by a failed lookup.
-      const triggering =
-        undeployedFiles === null ?
-          null :
-          deployTriggeringFiles(undeployedFiles, deployPathFilters);
+      // about it. Every other classification alerts - silence has to be earned
+      // by evidence, not by a failed or unreadable lookup.
+      const verdict = classifyDrift({comparison, deployPathFilters});
+      const deployedLabel = runLabel(lastSuccess);
+      const deployedRun = {
+        id: lastSuccess.id,
+        label: deployedLabel,
+        conclusion: "success",
+        url: lastSuccess.html_url ?? null,
+        createdAt: lastSuccess.created_at ?? null,
+      };
 
-      if (triggering === null || triggering.length > 0) {
+      if (verdict.reason === "behind") {
+        alerts.push({
+          kind: "deployed-commit-not-on-default-branch",
+          title:
+            `Production is running a commit that is not on ` +
+            `${head.ref ?? "the default branch"}`,
+          detail:
+            `The last successful deploy was ${deployedLabel}, and ` +
+            `${head.ref ?? "the default branch"} is now at ` +
+            `${head.sha.slice(0, 7)}, which does not contain it. History was ` +
+            "rewritten, reset, or force-pushed under production. No future " +
+            "push necessarily corrects this - deploy the current head " +
+            "deliberately.",
+          runs: [deployedRun],
+        });
+      } else if (verdict.alert) {
         const behindMs = headAgeMs === null ? null : nowMs - headAgeMs;
         const undeployedDetail =
-          triggering === null ?
-            "" :
-            ` ${triggering.length} undeployed file` +
-              `${triggering.length === 1 ? "" : "s"} match the workflow's ` +
-              `paths filter, starting with \`${triggering[0]}\`.`;
+          verdict.triggering === null ?
+            ` The diff between them could not be established (\`` +
+              `${comparison?.status ?? "no comparison"}\`), so this is ` +
+              "reported rather than assumed harmless." :
+            ` ${verdict.triggering.length} undeployed file` +
+              `${verdict.triggering.length === 1 ? "" : "s"} match the ` +
+              `workflow's paths filter, starting with ` +
+              `\`${verdict.triggering[0]}\`.`;
         alerts.push({
           kind: "production-behind-default-branch",
           title:
             `Production is behind ${head.ref ?? "the default branch"}` +
             (behindMs === null ? "" : ` by ${formatDuration(behindMs)}`),
           detail:
-            `Last successful deploy was ${runLabel(lastSuccess)}; ` +
+            `Last successful deploy was ${deployedLabel}; ` +
             `the default branch is now at ${head.sha.slice(0, 7)}.` +
             undeployedDetail,
-          runs: [
-            {
-              id: lastSuccess.id,
-              label: runLabel(lastSuccess),
-              conclusion: "success",
-              url: lastSuccess.html_url ?? null,
-              createdAt: lastSuccess.created_at ?? null,
-            },
-          ],
+          runs: [deployedRun],
         });
       }
     }

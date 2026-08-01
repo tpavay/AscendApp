@@ -212,29 +212,45 @@ async function readDeployPathFilters({request, owner, repo, workflow, branch}) {
 }
 
 /**
- * Lists the files changed between the last deployed commit and the head.
+ * Compares the last deployed commit against the branch head.
+ *
+ * Returns the status alongside the files, because the status is what makes the
+ * file list meaningful: `behind` reports zero files while meaning the head does
+ * not contain the deployed commit at all. `classifyDrift` decides what each
+ * status means; this function only reports what GitHub said, and reports a null
+ * status when it could not ask or could not get a complete answer.
+ *
  * @param {object} input Lookup input.
  * @param {Function} input.request The API client.
  * @param {string} input.owner Repository owner.
  * @param {string} input.repo Repository name.
  * @param {string} input.base The last successfully deployed commit.
  * @param {string} input.head The default-branch head commit.
- * @return {Promise<Array<string> | null>} Changed paths, or null when the diff
- *   could not be established completely.
+ * @return {Promise<{status: string | null, files: Array<string> | null}>} The
+ *   comparison, with a null file list when the diff is incomplete.
  */
-async function readUndeployedFiles({request, owner, repo, base, head}) {
+async function readComparison({request, owner, repo, base, head}) {
   try {
     const comparison = await request(
       `/repos/${owner}/${repo}/compare/${base}...${head}?per_page=1`
     );
+    const status =
+      typeof comparison?.status === "string" ? comparison.status : null;
     const files = comparison?.files;
     if (!Array.isArray(files) || files.length >= COMPARE_FILE_CAP) {
-      return null;
+      return {status, files: null};
     }
-    return files.map((file) => file.filename).filter(Boolean);
+    // `previous_filename` matters: a rename out of a triggering path reports
+    // only its new, non-triggering name, which would under-report the change.
+    return {
+      status,
+      files: files
+        .flatMap((file) => [file.filename, file.previous_filename])
+        .filter(Boolean),
+    };
   } catch (error) {
     console.log(`::warning::Could not compare ${base}...${head}: ${error.message}`);
-    return null;
+    return {status: null, files: null};
   }
 }
 
@@ -286,8 +302,8 @@ async function main() {
       branch: options.branch,
     }) :
     [];
-  const undeployedFiles = drifted ?
-    await readUndeployedFiles({
+  const comparison = drifted ?
+    await readComparison({
       request,
       owner,
       repo,
@@ -300,7 +316,7 @@ async function main() {
     runs,
     head,
     now,
-    undeployedFiles,
+    comparison,
     deployPathFilters,
   });
 

@@ -4,6 +4,7 @@ import test from "node:test";
 import {fileURLToPath} from "node:url";
 import {
   WATCHDOG_MARKER,
+  classifyDrift,
   deployTriggeringFiles,
   evaluateDeployHealth,
   formatDuration,
@@ -281,17 +282,76 @@ test("path filters follow GitHub's glob rules", () => {
   );
 });
 
-test("a docs-only commit ahead of the last deploy is not drift", () => {
-  const {healthy, alerts} = evaluateDeployHealth({
-    runs: [run({id: 2, run_number: 2, head_sha: "old".repeat(13) + "a"})],
+/** A deploy that succeeded on some commit other than the current head. */
+const DEPLOYED_ELSEWHERE = [
+  run({id: 2, run_number: 2, head_sha: "old".repeat(13) + "a"}),
+];
+
+/**
+ * Evaluates drift for one compare result against the real workflow filters.
+ * @param {object | null} comparison The compare result, or null.
+ * @return {object} The evaluation result.
+ */
+function driftFor(comparison) {
+  return evaluateDeployHealth({
+    runs: DEPLOYED_ELSEWHERE,
     head: HEAD,
     now: NOW,
-    undeployedFiles: [
+    comparison,
+    deployPathFilters: DEPLOY_PATH_FILTERS,
+  });
+}
+
+test("every compare status is classified deliberately, never by falling through", () => {
+  const filters = DEPLOY_PATH_FILTERS;
+  const docs = ["docs/a.md", "README.md"];
+  const code = ["functions/src/index.ts"];
+
+  assert.deepEqual(
+    classifyDrift({comparison: {status: "identical", files: []}, deployPathFilters: filters}),
+    {alert: false, reason: "identical", triggering: []}
+  );
+  assert.equal(
+    classifyDrift({comparison: {status: "ahead", files: docs}, deployPathFilters: filters}).alert,
+    false
+  );
+  assert.equal(
+    classifyDrift({comparison: {status: "ahead", files: code}, deployPathFilters: filters}).alert,
+    true
+  );
+  assert.equal(
+    classifyDrift({comparison: {status: "diverged", files: code}, deployPathFilters: filters}).alert,
+    true
+  );
+  assert.deepEqual(
+    classifyDrift({comparison: {status: "behind", files: []}, deployPathFilters: filters}),
+    {alert: true, reason: "behind", triggering: null},
+    "an empty file list from `behind` must never read as nothing to deploy"
+  );
+  assert.equal(
+    classifyDrift({comparison: {status: "ahead", files: null}, deployPathFilters: filters}).reason,
+    "unresolved"
+  );
+  assert.equal(
+    classifyDrift({comparison: {status: "surprising", files: []}, deployPathFilters: filters}).reason,
+    "unknown"
+  );
+  assert.equal(classifyDrift({comparison: null, deployPathFilters: filters}).alert, true);
+  assert.equal(classifyDrift().alert, true, "no input at all still errs loud");
+});
+
+test("the deployed head being the branch head is not drift", () => {
+  assert.deepEqual(driftFor({status: "identical", files: []}).alerts, []);
+});
+
+test("a docs-only commit ahead of the last deploy is not drift", () => {
+  const {healthy, alerts} = driftFor({
+    status: "ahead",
+    files: [
       "docs/production-backend-rollout-runbook.md",
       ".claude/skills/ascend-deploy/SKILL.md",
       "README.md",
     ],
-    deployPathFilters: DEPLOY_PATH_FILTERS,
   });
 
   assert.deepEqual(alerts, [], "nothing in that commit could ever have deployed");
@@ -299,16 +359,13 @@ test("a docs-only commit ahead of the last deploy is not drift", () => {
 });
 
 test("a commit touching deployable paths ahead of the last deploy is drift", () => {
-  const {healthy, alerts} = evaluateDeployHealth({
-    runs: [run({id: 2, run_number: 2, head_sha: "old".repeat(13) + "a"})],
-    head: HEAD,
-    now: NOW,
-    undeployedFiles: [
+  const {healthy, alerts} = driftFor({
+    status: "ahead",
+    files: [
       "docs/notes.md",
       "AscendApp/Features/Home/HomeView.swift",
       "functions/src/index.ts",
     ],
-    deployPathFilters: DEPLOY_PATH_FILTERS,
   });
 
   assert.equal(healthy, false);
@@ -319,16 +376,35 @@ test("a commit touching deployable paths ahead of the last deploy is drift", () 
   assert.match(alerts[0].detail, /2 undeployed files match/);
 });
 
-test("an unresolvable diff still alerts, because silence must be earned", () => {
-  const {healthy} = evaluateDeployHealth({
-    runs: [run({id: 2, run_number: 2, head_sha: "old".repeat(13) + "a"})],
-    head: HEAD,
-    now: NOW,
-    undeployedFiles: null,
-    deployPathFilters: DEPLOY_PATH_FILTERS,
-  });
+test("a head that no longer contains the deployed commit is its own alert", () => {
+  // A force-push or reset under production. The compare reports zero files
+  // because the head does not contain the deployed commit at all, so reading
+  // the file list alone would call a rewritten history healthy.
+  const {healthy, alerts} = driftFor({status: "behind", files: []});
 
   assert.equal(healthy, false);
+  assert.deepEqual(
+    alerts.map((alert) => alert.kind),
+    ["deployed-commit-not-on-default-branch"]
+  );
+  assert.match(alerts[0].title, /not on main/);
+  assert.match(alerts[0].detail, /rewritten, reset, or force-pushed/);
+});
+
+test("a compare status the watchdog cannot classify alerts rather than stays quiet", () => {
+  for (const comparison of [
+    {status: "unrecognised", files: []},
+    {status: null, files: []},
+    {status: "ahead", files: null},
+    null,
+  ]) {
+    const {healthy, alerts} = driftFor(comparison);
+    assert.equal(healthy, false, `status ${comparison?.status ?? "none"} must alert`);
+    assert.deepEqual(alerts.map((alert) => alert.kind), [
+      "production-behind-default-branch",
+    ]);
+    assert.match(alerts[0].detail, /could not be established/);
+  }
 });
 
 test("no successful run at all is its own alert", () => {

@@ -105,10 +105,17 @@ function readDeployedPayload(options) {
       maxBuffer: 32 * 1024 * 1024,
     });
   } catch (error) {
+    // On a spawn failure - npx missing, or a signal kill - `status` and
+    // `stderr` are both null and the only diagnostic left is `code`/`signal`.
+    // Neither carries the token, so naming them costs nothing.
+    const stderr = String(error.stderr ?? "").trim();
+    const cause =
+      stderr ||
+      [error.code, error.signal].filter(Boolean).join(" ") ||
+      "no diagnostic output";
     throw new Error(
       `firebase functions:list failed for ${options.projectId} ` +
-        `(exit ${error.status ?? "unknown"}). ` +
-        `${String(error.stderr ?? "").trim().slice(0, 400)}`
+        `(exit ${error.status ?? "unknown"}). ${cause.slice(0, 400)}`
     );
   }
 }
