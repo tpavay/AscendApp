@@ -243,7 +243,7 @@ struct WorkoutSourceSchemaMigrationTests {
         #expect(recovered[appleHealthID] == .appleHealth)
 
         #expect(
-            try stashScope.stash.load().sourcesByWorkoutID.isEmpty,
+            stashScope.stash.load().sourcesByWorkoutID.isEmpty,
             "a completed recovery has to clear the stash so later launches stop repairing"
         )
 
@@ -314,7 +314,7 @@ struct WorkoutSourceSchemaMigrationTests {
 
         let recovered = try Self.readSources(at: storeURL, finishInterruptedMigration: false)
         #expect(recovered == expectedSources)
-        #expect(try stashScope.stash.load().sourcesByWorkoutID.isEmpty)
+        #expect(stashScope.stash.load().sourcesByWorkoutID.isEmpty)
     }
 
     /// A repair that can never succeed has to stop, not retry on every launch forever.
@@ -350,18 +350,70 @@ struct WorkoutSourceSchemaMigrationTests {
             _ = try Self.openStore(at: storeURL, migrationPlan: FailingWorkoutSourceMigrationPlan.self)
         }
 
-        for _ in 0..<WorkoutSourceMigrationStash.maximumAttempts {
-            try stashScope.stash.recordFailedAttempt()
+        // A store that refuses writes fails the sweep for real, at `context.save()`, so the
+        // counter is driven by actual failures rather than primed by hand - the give-up branch
+        // is only worth anything if a genuine failure reaches it.
+        for attempt in 1..<WorkoutSourceMigrationStash.maximumAttempts {
+            #expect(throws: (any Error).self) {
+                _ = try Self.recoverSources(at: storeURL, allowsSave: false)
+            }
+            #expect(stashScope.stash.load().failedAttemptCount == attempt)
         }
 
-        let report = try Self.recoverSources(at: storeURL)
-        #expect(report.pageCount == 0, "an exhausted repair must not walk the store again")
-        #expect(report.repairedCount == 0)
+        let abandoning = try Self.recoverSources(at: storeURL, allowsSave: false)
+        #expect(
+            abandoning.abandonedAfterRepeatedFailures,
+            """
+            the last attempt still threw instead of giving up; a permanently failing repair has to \
+            stop and report itself, not retry on every launch forever
+            """
+        )
+        #expect(abandoning.failedAttemptCount == WorkoutSourceMigrationStash.maximumAttempts)
+
+        // And once given up on, it stops walking the store entirely.
+        let afterAbandonment = try Self.recoverSources(at: storeURL)
+        #expect(afterAbandonment.pageCount == 0, "an exhausted repair must not walk the store again")
+        #expect(afterAbandonment.repairedCount == 0)
+        #expect(afterAbandonment.abandonedAfterRepeatedFailures == false)
 
         #expect(
-            try stashScope.stash.load().sourcesByWorkoutID.isEmpty == false,
+            stashScope.stash.load().sourcesByWorkoutID.isEmpty == false,
             "the stashed values stay on disk after the repair is abandoned, for inspection"
         )
+    }
+
+    /// A migration that cannot stash anything must still let the app open.
+    ///
+    /// The read pass is the one that runs before the schema step commits, so a throw from it
+    /// leaves the store on V1 and the next launch runs the identical code and fails identically -
+    /// an app that never opens again, which is worse than the hang this branch exists to fix.
+    /// After `maximumAttempts` it stops throwing and proceeds with whatever it has. Loud has to
+    /// mean observable, not fatal.
+    @Test
+    func aReadPassThatCannotStashStopsRefusingToOpenTheStore() throws {
+        let storeURL = Self.makeStoreURL()
+        defer { Self.removeStore(at: storeURL) }
+        let stashScope = Self.IsolatedStash(unwritable: true)
+        defer { stashScope.tearDown() }
+
+        try Self.seedLegacyStore(at: storeURL) { context in
+            context.insert(
+                AscendSchemaV1.Workout(
+                    id: UUID(),
+                    name: "Live Climb",
+                    date: Self.sessionStart,
+                    duration: 1800,
+                    steps: 3000,
+                    floors: 187,
+                    source: .headphoneMotion
+                )
+            )
+        }
+
+        // The whole point: the container is constructible. The sources are lost - the stash is
+        // the only place they could have survived - but the user still has an app.
+        let migrated = try Self.readSources(at: storeURL, finishInterruptedMigration: false)
+        #expect(migrated.count == 1)
     }
 
     /// The memory bound, measured at the store size that produced ASCEND-IOS-1K.
@@ -505,9 +557,23 @@ struct WorkoutSourceSchemaMigrationTests {
         let stash: WorkoutSourceMigrationStash
         private let previous: WorkoutSourceMigrationStash
 
-        init() {
-            fileURL = URL.temporaryDirectory
-                .appending(path: "ascend-migration-stash-\(UUID().uuidString).json")
+        private let blockerURL: URL?
+
+        /// `unwritable` puts the stash under a path whose parent is a regular file, so every
+        /// `store` and `recordFailedAttempt` fails the way a permanently broken stash would.
+        init(unwritable: Bool = false) {
+            let root = URL.temporaryDirectory
+                .appending(path: "ascend-migration-stash-\(UUID().uuidString)")
+
+            if unwritable {
+                try? Data().write(to: root)
+                blockerURL = root
+                fileURL = root.appending(path: "stash.json")
+            } else {
+                blockerURL = nil
+                fileURL = root.appendingPathExtension("json")
+            }
+
             stash = WorkoutSourceMigrationStash(fileURL: fileURL)
             previous = WorkoutSourceMigrationStash.shared
             WorkoutSourceMigrationStash.shared = stash
@@ -516,6 +582,10 @@ struct WorkoutSourceSchemaMigrationTests {
         func tearDown() {
             WorkoutSourceMigrationStash.shared = previous
             try? FileManager.default.removeItem(at: fileURL)
+
+            if let blockerURL {
+                try? FileManager.default.removeItem(at: blockerURL)
+            }
         }
     }
 
@@ -560,19 +630,22 @@ struct WorkoutSourceSchemaMigrationTests {
         return try body(ModelContext(container))
     }
 
-    private static func openMigratedStore(at url: URL) throws -> ModelContext {
-        ModelContext(try openStore(at: url, migrationPlan: AscendMigrationPlan.self))
+    private static func openMigratedStore(at url: URL, allowsSave: Bool = true) throws -> ModelContext {
+        ModelContext(
+            try openStore(at: url, migrationPlan: AscendMigrationPlan.self, allowsSave: allowsSave)
+        )
     }
 
     private static func openStore(
         at url: URL,
-        migrationPlan: (any SchemaMigrationPlan.Type)?
+        migrationPlan: (any SchemaMigrationPlan.Type)?,
+        allowsSave: Bool = true
     ) throws -> ModelContainer {
         let schema = Schema(versionedSchema: AscendSchemaV2.self)
         return try ModelContainer(
             for: schema,
             migrationPlan: migrationPlan,
-            configurations: ModelConfiguration(schema: schema, url: url)
+            configurations: ModelConfiguration(schema: schema, url: url, allowsSave: allowsSave)
         )
     }
 
@@ -592,9 +665,12 @@ struct WorkoutSourceSchemaMigrationTests {
         try context.save()
     }
 
-    private static func recoverSources(at url: URL) throws -> AscendMigrationPlan.SweepReport {
+    private static func recoverSources(
+        at url: URL,
+        allowsSave: Bool = true
+    ) throws -> AscendMigrationPlan.SweepReport {
         try AscendMigrationPlan.recoverInterruptedMigrationIfNeeded(
-            in: try openMigratedStore(at: url)
+            in: try openMigratedStore(at: url, allowsSave: allowsSave)
         )
     }
 

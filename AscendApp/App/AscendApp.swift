@@ -173,7 +173,8 @@ struct AscendApp: App {
                 level: .warning,
                 details: [
                     "repaired_count": String(report.repairedCount),
-                    "workout_count": String(report.workoutCount)
+                    "workout_count": String(report.workoutCount),
+                    "unresolved_count": String(report.unresolvedCount)
                 ],
                 mirrorToCrashlytics: false
             )
@@ -181,7 +182,10 @@ struct AscendApp: App {
             AppDiagnosticsRecorder.shared.record(
                 "workout_source_migration_recovery_failed",
                 level: .error,
-                details: ["error_type": String(describing: type(of: error))],
+                details: [
+                    "error_type": String(describing: type(of: error)),
+                    "error_description": String(describing: error)
+                ],
                 mirrorToCrashlytics: false
             )
             debugLog("Failed to finish interrupted workout source migration: \(error)")

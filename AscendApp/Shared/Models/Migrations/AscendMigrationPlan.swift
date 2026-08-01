@@ -36,7 +36,20 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
             try stashLegacySources(from: context)
         },
         didMigrate: { context in
-            try applyStashedSources(to: context)
+            // Deliberately swallowed. The schema step has already committed by the time this
+            // runs, so throwing would cost a launch and buy nothing: the stash still holds every
+            // value and `recoverInterruptedMigrationIfNeeded` re-runs the same write next launch,
+            // bounded by the same attempt counter. Refusing to open the app is the loudest
+            // failure available and also the worst.
+            do {
+                try applyStashedSources(to: context)
+            } catch {
+                report(
+                    "workout_source_migration_write_failed",
+                    error: error,
+                    sweep: SweepReport()
+                )
+            }
         }
     )
 
@@ -53,30 +66,64 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
     /// What a sweep did, so a caller can log it and a test can assert the read stayed bounded.
     struct SweepReport: Equatable {
         var workoutCount = 0
+        var unresolvedCount = 0
         var pageCount = 0
         var largestPageSize = 0
         var repairedCount = 0
         var failedAttemptCount = 0
         var abandonedAfterRepeatedFailures = false
+
+        var requestedCount: Int { workoutCount + unresolvedCount }
     }
 
     /// Reads every pre-migration `source` and hands it to the stash.
+    ///
+    /// This is the one pass that may throw all the way out of `ModelContainer` construction, and
+    /// only for a bounded number of launches. Throwing here leaves the store on V1 with the old
+    /// `source` column intact, which is the *only* thing that preserves a retry - once the schema
+    /// advances the column is gone. So a failure is worth one or two dead launches, and then it is
+    /// not: at `WorkoutSourceMigrationStash.maximumAttempts` this stops throwing, keeps whatever
+    /// resolved, and reports the shortfall. A user with some sources unrepaired plus a signal we
+    /// can see beats a user whose app never opens again.
     @discardableResult
     static func stashLegacySources(
         from context: ModelContext,
         stash: WorkoutSourceMigrationStash = .shared
     ) throws -> SweepReport {
         var sourcesByWorkoutID: [UUID: String] = [:]
+        var sweep = SweepReport()
 
-        let report = try forEachPage(of: AscendSchemaV1.Workout.self, in: context) { page in
-            for workout in page {
-                sourcesByWorkoutID[workout.id] = workout.source.rawValue
+        do {
+            sweep = try forEachPage(of: AscendSchemaV1.Workout.self, in: context) { page in
+                for workout in page {
+                    sourcesByWorkoutID[workout.id] = workout.source.rawValue
+                }
             }
+
+            guard sweep.unresolvedCount == 0 else {
+                throw WorkoutSourceMigrationError.pageDidNotFullyResolve(
+                    requested: sweep.requestedCount,
+                    resolved: sweep.workoutCount
+                )
+            }
+
+            try stash.store(sourcesByWorkoutID)
+
+            return sweep
+        } catch {
+            let failedAttemptCount = countFailedAttempt(on: stash)
+            sweep.failedAttemptCount = failedAttemptCount
+            report("workout_source_migration_read_failed", error: error, sweep: sweep)
+
+            guard failedAttemptCount >= WorkoutSourceMigrationStash.maximumAttempts else {
+                throw error
+            }
+
+            try? stash.store(sourcesByWorkoutID)
+            sweep.abandonedAfterRepeatedFailures = true
+
+            return sweep
         }
-
-        try stash.store(sourcesByWorkoutID)
-
-        return report
     }
 
     /// Writes the stashed values onto the migrated store, a page at a time.
@@ -96,19 +143,20 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
     /// Repeated failure stops rather than looping. Each failed sweep increments a counter in the
     /// stash; once it reaches `WorkoutSourceMigrationStash.maximumAttempts` the sweep is abandoned
     /// and reported once, so a permanently unresolvable store surfaces as one loud diagnostic
-    /// instead of a repair that silently retries on every launch forever. The stash file is left
-    /// on disk for inspection rather than deleted.
+    /// instead of a repair that silently walks the whole store on every launch forever. Every exit
+    /// converges on a terminal state - empty stash or exhausted counter - because this runs inside
+    /// `AscendApp.init()` on the main thread, and an unbounded walk there is ASCEND-IOS-1K again.
     @discardableResult
     static func applyStashedSources(
         to context: ModelContext,
         stash: WorkoutSourceMigrationStash = .shared
     ) throws -> SweepReport {
-        let stashed = try stash.load()
+        let stashed = stash.load()
         guard !stashed.sourcesByWorkoutID.isEmpty, !stashed.isExhausted else { return SweepReport() }
 
         do {
             var repairedCount = 0
-            var report = try forEachPage(of: Workout.self, in: context) { page in
+            var sweep = try forEachPage(of: Workout.self, in: context) { page in
                 for workout in page {
                     guard let rawValue = stashed.sourcesByWorkoutID[workout.id],
                           workout.sourceRawValue != rawValue else { continue }
@@ -119,24 +167,65 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
 
                 try context.save()
             }
-            report.repairedCount = repairedCount
+            sweep.repairedCount = repairedCount
 
-            try? stash.clear()
+            guard sweep.unresolvedCount == 0 else {
+                throw WorkoutSourceMigrationError.pageDidNotFullyResolve(
+                    requested: sweep.requestedCount,
+                    resolved: sweep.workoutCount
+                )
+            }
 
-            return report
+            stash.clearBestEffort()
+
+            return sweep
         } catch {
-            let failedAttemptCount = (try? stash.recordFailedAttempt())
-                ?? (stashed.failedAttemptCount + 1)
+            let failedAttemptCount = countFailedAttempt(on: stash)
 
             guard failedAttemptCount >= WorkoutSourceMigrationStash.maximumAttempts else {
                 throw error
             }
 
-            var report = SweepReport()
-            report.failedAttemptCount = failedAttemptCount
-            report.abandonedAfterRepeatedFailures = true
-            return report
+            var sweep = SweepReport()
+            sweep.failedAttemptCount = failedAttemptCount
+            sweep.abandonedAfterRepeatedFailures = true
+            return sweep
         }
+    }
+
+    /// Records a failed sweep and reports how many have now failed.
+    ///
+    /// A counter that cannot be persisted counts as exhausted rather than as an unrecorded
+    /// increment: otherwise the on-disk count never advances, `isExhausted` never becomes true,
+    /// and the store gets walked again on every launch for the life of the install. The stash is
+    /// emptied in that case so the next launch's early return fires.
+    private static func countFailedAttempt(on stash: WorkoutSourceMigrationStash) -> Int {
+        guard let failedAttemptCount = try? stash.recordFailedAttempt() else {
+            stash.clearBestEffort()
+            return WorkoutSourceMigrationStash.maximumAttempts
+        }
+
+        return failedAttemptCount
+    }
+
+    /// Puts the counts somewhere a release build can actually surface them.
+    ///
+    /// `debugLog` is compiled out of anything but DEBUG, so a shortfall logged only there is
+    /// invisible on exactly the builds where it matters. Choosing observable-over-fatal is only
+    /// worth anything if the observation reaches us.
+    private static func report(_ name: String, error: any Error, sweep: SweepReport) {
+        AppDiagnosticsRecorder.shared.record(
+            name,
+            level: .error,
+            details: [
+                "error_type": String(describing: type(of: error)),
+                "error_description": String(describing: error),
+                "resolved_count": String(sweep.workoutCount),
+                "unresolved_count": String(sweep.unresolvedCount),
+                "failed_attempt_count": String(sweep.failedAttemptCount)
+            ],
+            mirrorToCrashlytics: false
+        )
     }
 
     /// Finishes a migration whose `didMigrate` never completed.
@@ -162,13 +251,16 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
     /// `Comparable`. Under a non-total order two OFFSET pages can overlap or leave a gap, and a
     /// workout in the gap silently keeps the `.manual` default.
     ///
-    /// A page that does not resolve every identifier it asked for throws instead of carrying on
-    /// with what it got. This same silent-default failure has now been built three times inside
-    /// the fix for it - the original whole-store scan, then offset pages that could skip rows,
-    /// then a `compactMap` that dropped unresolved ones - and each time it was invisible because
-    /// a lost workout reads back exactly like a healthy one. The counts are in the error, and
-    /// `workoutCount` is what actually resolved rather than what was requested, so a gap cannot be
-    /// mistaken for a complete sweep.
+    /// An identifier that does not resolve is counted, never dropped. This same silent-default
+    /// failure has now been built three times inside the fix for it - the original whole-store
+    /// scan, then offset pages that could skip rows, then a `compactMap` that swallowed unresolved
+    /// ones - and each time it was invisible because a lost workout reads back exactly like a
+    /// healthy one. `workoutCount` is what actually resolved rather than what was requested, so a
+    /// gap cannot be mistaken for a complete sweep.
+    ///
+    /// The walk keeps going rather than stopping at the first gap, so the rows after it are still
+    /// carried across. What to do about a non-zero `unresolvedCount` is the caller's decision,
+    /// because the two passes answer it differently.
     private static func forEachPage<Model: PersistentModel>(
         of model: Model.Type,
         in context: ModelContext,
@@ -194,16 +286,10 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
                 page.append(resolved)
             }
 
-            guard page.count == requested.count else {
-                throw WorkoutSourceMigrationError.pageDidNotFullyResolve(
-                    requested: requested.count,
-                    resolved: page.count
-                )
-            }
-
             try body(page)
 
             report.workoutCount += page.count
+            report.unresolvedCount += requested.count - page.count
             report.pageCount += 1
             report.largestPageSize = max(report.largestPageSize, page.count)
             pageStart = pageEnd
@@ -285,11 +371,16 @@ final class WorkoutSourceMigrationStash: @unchecked Sendable {
         )
     }
 
-    func load() throws -> Contents {
+    /// A stash that cannot be read is treated as absent rather than as an error.
+    ///
+    /// The alternative is a corrupt file that throws on every launch and never converges, which
+    /// costs a diagnostic each time and repairs nothing. Reading it as empty makes the caller's
+    /// early return fire; the file stays on disk for inspection.
+    func load() -> Contents {
         lock.lock()
         defer { lock.unlock() }
 
-        guard let stored = try read() else { return Contents() }
+        guard let stored = try? read() else { return Contents() }
 
         return Contents(
             sourcesByWorkoutID: stored.sourcesByWorkoutID.reduce(into: [UUID: String]()) { partialResult, entry in
@@ -301,17 +392,30 @@ final class WorkoutSourceMigrationStash: @unchecked Sendable {
     }
 
     /// Records that a sweep failed, and reports how many have now failed.
+    ///
+    /// Creates the file if it is not there yet: the read pass can fail before anything has been
+    /// stashed, and a counter that only exists once there is something to count would leave that
+    /// pass unbounded.
     @discardableResult
     func recordFailedAttempt() throws -> Int {
         lock.lock()
         defer { lock.unlock() }
 
-        guard var stored = try read() else { return 0 }
-
+        var stored = (try? read()) ?? StoredContents(sourcesByWorkoutID: [:], failedAttemptCount: 0)
         stored.failedAttemptCount += 1
         try write(stored)
 
         return stored.failedAttemptCount
+    }
+
+    /// Drives the stash to its terminal empty state, however it can.
+    ///
+    /// Unlinking is preferred, but a file that will not unlink must not leave values behind that
+    /// make the next launch walk the whole store again, so an empty payload is the fallback.
+    func clearBestEffort() {
+        if (try? clear()) != nil { return }
+
+        try? store([:])
     }
 
     private func read() throws -> StoredContents? {
