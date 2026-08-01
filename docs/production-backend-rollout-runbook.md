@@ -10,7 +10,8 @@ Do not run a production Firebase command while preparing or reviewing this chang
 Do not combine the deploy targets into one Firebase CLI call because that provides no index-readiness barrier before dependent Functions become active.
 
 The workflow uses the repository's protected `production` environment and requires `PRODUCTION_READY=true`.
-The captain must approve the protected environment before production work begins.
+Exactly one job carries that environment, `Approve Production Deploy`, so the run requests a single approval before any build or deploy work starts.
+The captain must approve that job before production work begins; nothing later in the run asks again.
 
 ## What this rollout contains
 
@@ -59,7 +60,7 @@ Use these read-only GitHub checks:
 ```sh
 gh-axi run list --workflow deploy-production.yml --branch main --limit 10
 gh-axi secret list
-gh-axi variable list --env production
+gh-axi variable list
 ```
 
 The captain-only replay check is:
@@ -94,17 +95,20 @@ Approve the protected `production` environment only after confirming the run's S
 The workflow performs the following order automatically:
 
 1. Pass the production readiness gate.
-2. Build and retain the signed production IPA.
-3. Build the Functions and Hosting artifacts.
-4. Deploy Firestore indexes.
-5. Poll until all 13 composite indexes report `READY`, all three field overrides are deployed with every declared query scope, and their relevant Firestore admin operations are complete.
-6. Deploy Functions.
-7. Verify `cleanupDeletedUserData`, `onPublicIdentityPropagationJobWritten`, `onPublicProfileIdentityWritten`, `onWorkoutWritten`, `onWorkoutReplaySplitsWritten`, and `unsubscribeFromEmails` report `ACTIVE`.
-8. Deploy Firestore rules.
-9. Deploy Storage rules.
-10. Deploy Hosting.
-11. Verify Hosting serves `/climbs/manifest.json` successfully.
-12. Upload the already-built IPA to TestFlight only after every backend step succeeds.
+2. Request the single `production` environment approval and hold until the captain grants it.
+3. Build and retain the signed production IPA.
+4. Build the Functions and Hosting artifacts.
+5. Deploy Firestore indexes.
+6. Poll until all 13 composite indexes report `READY`, all three field overrides are deployed with every declared query scope, and their relevant Firestore admin operations are complete.
+7. Deploy Functions.
+8. Verify `cleanupDeletedUserData`, `onPublicIdentityPropagationJobWritten`, `onPublicProfileIdentityWritten`, `onWorkoutWritten`, `onWorkoutReplaySplitsWritten`, and `unsubscribeFromEmails` report `ACTIVE`.
+9. Reconcile the whole deployed function set against this ref's `functions/src/index.ts` exports, failing on any missing, orphaned, or non-`ACTIVE` function.
+10. Deploy Firestore rules.
+11. Deploy Storage rules.
+12. Deploy Hosting.
+13. Verify Hosting serves `/climbs/manifest.json` successfully.
+14. Upload the already-built IPA to TestFlight only after every backend step succeeds.
+15. Assert the run reached a real outcome, so a run that deployed nothing fails instead of reporting green.
 
 This ordering makes indexes available before `onWorkoutWritten` can execute its `source + climbId` query.
 It makes Functions available before Hosting publishes rewrites to `joinWaitlist` and `unsubscribeFromEmails`.
@@ -112,7 +116,8 @@ It keeps the backend ahead of the binary because `upload-testflight` depends on 
 
 ## Exact deployment commands
 
-The workflow is the authoritative deployment path and supplies the repository secret as `FIREBASE_TOKEN` plus the protected environment variable as `FIREBASE_PROJECT_ID_PRODUCTION`.
+The workflow is the authoritative deployment path and supplies the repository secret `FIREBASE_TOKEN` plus the repository variable `FIREBASE_PROJECT_ID_PRODUCTION`.
+Both are repository-scoped: the `production` environment holds no secrets and no variables of its own, so list them without an `--env` filter.
 These are the exact Firebase operations it runs, shown for review and captain-only recovery.
 
 ### 1. Firestore indexes
@@ -170,6 +175,16 @@ npx -y firebase-tools@15.22.1 --json functions:list \
       onWorkoutReplaySplitsWritten \
       unsubscribeFromEmails
 ```
+
+That list is curated, so it proves those six exports and says nothing about the rest of the project.
+Then reconcile the whole deployed set against the checked-out source, which is what catches a function nobody thought to add to the curated list and one deleted from source but still serving traffic:
+
+```sh
+node scripts/verify-deployed-functions.mjs --project production
+```
+
+Run it from the ref production is supposed to be running, because the expectation is that ref's `functions/src/index.ts`.
+A green `firebase deploy` log is not evidence that the project holds what the source declares; only this reconciliation is.
 
 Rollback: stop before the Firestore rules and TestFlight steps, inspect the failed Function logs, and redeploy the Functions from the last known good production SHA using the rollback worktree described below.
 Do not remove a healthy `cleanupDeletedUserData` merely because an unrelated Function failed.
@@ -265,10 +280,11 @@ rmdir "$ROLLBACK_ROOT"
 ## Post-deploy production verification
 
 The workflow must reach green before selecting or distributing the TestFlight build.
+A run that concludes `cancelled` sends no email, so do not read silence as success: an open `deploy-health` issue means production is not running the head of `main`, and it closes itself once a deploy lands.
 Then complete these captain-only checks against production.
 
 1. Confirm all declared Firestore indexes still report `READY` with the index assertion command above.
-2. Confirm the six critical Functions still report `ACTIVE` with the function assertion command above.
+2. Confirm the six critical Functions still report `ACTIVE`, and that the deployed set still reconciles against the release ref, with the two function commands above.
 3. Inspect recent cleanup logs with `npx -y firebase-tools@15.22.1 functions:log --project production --only cleanupDeletedUserData --lines 50`.
 4. Create one Google smoke account and one Apple smoke account in a production-signed physical-device build.
 5. For each account, create a workout, replay presence, profile data, a push token, feedback, and user-scoped Storage data that exercise the cleanup paths.
