@@ -321,6 +321,50 @@ struct RemoteFeatureGateTests {
         #expect(stored.first?.lastError == "previous failure")
     }
 
+    /// A held queue must not claim to be uploading. The rows stay queued either way, so the only
+    /// thing at stake is whether the banner tells the truth for as long as the switch is thrown.
+    @Test
+    func killingMediaUploadsStopsTheBannerClaimingAnUploadIsInProgress() {
+        #expect(
+            MediaUploadManager.resolvedStatus(pendingCount: 3, failedCount: 0, isQueueActive: false)
+                == MediaUploadStatus.none
+        )
+        #expect(
+            MediaUploadManager.resolvedStatus(pendingCount: 3, failedCount: 0, isQueueActive: true)
+                == .uploading(current: 1, total: 3)
+        )
+    }
+
+    /// A failure that already happened is still true while the switch is off, so the banner keeps
+    /// reporting it. Only the retry affordance goes away, in `MediaUploadBanner`.
+    @Test
+    func killingMediaUploadsStillReportsFailuresThatAlreadyHappened() {
+        #expect(
+            MediaUploadManager.resolvedStatus(pendingCount: 1, failedCount: 2, isQueueActive: false)
+                == .failed(count: 2)
+        )
+        #expect(
+            MediaUploadManager.resolvedStatus(pendingCount: 0, failedCount: 0, isQueueActive: false)
+                == MediaUploadStatus.none
+        )
+    }
+
+    /// The banner reads this to decide whether to offer retry at all.
+    @Test
+    func theUploadQueueReportsWhetherItIsHeld() {
+        let held = MediaUploadManager(
+            photoRepo: FakeGatedPhotoRepository(),
+            featureFlags: makeStore(disabling: .workoutMediaUploads)
+        )
+        let running = MediaUploadManager(
+            photoRepo: FakeGatedPhotoRepository(),
+            featureFlags: RemoteFeatureFlagStore()
+        )
+
+        #expect(held.isUploadQueueActive == false)
+        #expect(running.isUploadQueueActive == true)
+    }
+
     /// Turning the switch back on has to drain what accumulated while it was off, from the same
     /// user-triggered retry that the gate blocked.
     @Test

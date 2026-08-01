@@ -29,7 +29,7 @@
 
 import {createSign} from "node:crypto";
 
-import {selectVersion} from "./lib/phased-release-selection.mjs";
+import {newestCandidate, selectVersion} from "./lib/phased-release-selection.mjs";
 
 const BUNDLE_ID = "com.TylerPavay.AscendApp";
 const API_ROOT = "https://api.appstoreconnect.apple.com/v1";
@@ -265,7 +265,18 @@ async function main() {
 
   console.log(describe(state));
 
-  if (command === "status") return;
+  if (command === "status") {
+    // Naming the newer record explicitly, because "status reported on 1.0.1" is only
+    // reassuring if the operator can see that 1.0.2 exists and is not the one rolling out.
+    const newest = newestCandidate(candidates);
+    if (newest && newest.version.id !== state.version.id) {
+      console.log(
+        `\nNewer record not rolling out: ${newest.version.attributes?.versionString ?? "(unknown)"} ` +
+          `(${newest.version.attributes?.appStoreState ?? "unknown state"}).`,
+      );
+    }
+    return;
+  }
 
   console.log("");
   if (command === "enable") {

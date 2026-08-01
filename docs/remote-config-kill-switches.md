@@ -14,7 +14,7 @@ The catalog is `AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift`;
 | `workout_cloud_backup_writes_enabled` | Uploading workout documents and heart-rate sidecars | Workouts stay `pendingUpsert` in SwiftData and flush on the next pass |
 | `workout_remote_deletes_enabled` | Deleting remote workout documents and sidecars | `PendingWorkoutDeletion` rows stay queued and replay |
 | `workout_cloud_restore_enabled` | Decoding cloud backups into local storage | The next bootstrap still treats it as the initial hydration |
-| `workout_media_uploads_enabled` | The background media upload queue, and the sweep that deletes local originals | `PendingMediaUpload` rows stay queued and local files stay on disk |
+| `workout_media_uploads_enabled` | The background media upload queue, and the sweep that deletes local originals | `PendingMediaUpload` rows stay queued and local files stay on disk. The workout banner stays quiet rather than claiming an upload is in progress, and drops the retry affordance |
 | `local_data_migrations_enabled` | One-shot local backfills that rewrite stored workouts | The version key is not stamped, so the backfill runs later |
 | `leaderboard_publishing_enabled` | Publishing leaderboard stats, retiring legacy stat documents | Local stats stay dirty and republish. **Exception:** the legacy stat sweep is dropped, not deferred - see below |
 | `public_profile_publishing_enabled` | Publishing the public profile mirror, stats, summaries | Republished from local state on the next bootstrap |
@@ -159,6 +159,7 @@ npm run phased-release:pause          # freezes the rollout where it is
 
 `pause`, `resume`, and `release-to-all` resolve to the one version whose phased release is `ACTIVE` or `PAUSED`.
 If none is, or more than one is, the command refuses and prints what it found rather than acting on a superseded version and reporting success.
+`status` reports on that same version, falling back to the newest when nothing is rolling out, and names any newer record it skipped - so a version sitting in `PREPARE_FOR_SUBMISSION` is never mistaken for the rollout in flight.
 Add `--version <versionString>` to name the target explicitly.
 `scripts/test/phased-release-selection.test.mjs` pins that selection.
 

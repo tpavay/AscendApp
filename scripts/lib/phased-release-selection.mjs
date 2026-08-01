@@ -42,6 +42,23 @@ export function compareVersionStrings(a, b) {
   return 0;
 }
 
+/** The candidates whose rollout is live and can still be steered. */
+export function inFlightCandidates(candidates) {
+  return (candidates ?? []).filter((candidate) =>
+    IN_FLIGHT_PHASED_RELEASE_STATES.has(candidate.phasedRelease?.attributes?.phasedReleaseState),
+  );
+}
+
+/**
+ * The highest version record, without judging ties. `selectVersion` layers the ambiguity
+ * check on top; callers that only need something to compare against use this directly.
+ */
+export function newestCandidate(candidates) {
+  return [...(candidates ?? [])].sort((a, b) =>
+    compareVersionStrings(a.version.attributes?.versionString, b.version.attributes?.versionString),
+  )[0];
+}
+
 function describeCandidate({version, phasedRelease}) {
   const versionString = version.attributes?.versionString ?? "(unknown)";
   const appStoreState = version.attributes?.appStoreState ?? "(unknown)";
@@ -56,8 +73,10 @@ function describeCandidate({version, phasedRelease}) {
  * - A command that steers a live rollout requires exactly one version whose phased release
  *   is ACTIVE or PAUSED. Zero and more than one both throw, naming what was found, because
  *   both mean the operator's intent cannot be inferred.
- * - `status` and `enable` take the newest version by version string, and throw if two
- *   records share it.
+ * - `status` reports on the same version those commands would act on, falling back to the
+ *   newest when nothing is rolling out. Reporting on a newer, unsubmitted version while an
+ *   older one is mid-rollout is the reading an operator gets wrong under pressure.
+ * - `enable` takes the newest version by version string, and throws if two records share it.
  */
 export function selectVersion(candidates, {command, requestedVersionString} = {}) {
   if (!candidates || candidates.length === 0) {
@@ -83,11 +102,9 @@ export function selectVersion(candidates, {command, requestedVersionString} = {}
     return matches[0];
   }
 
-  if (IN_FLIGHT_COMMANDS.has(command)) {
-    const inFlight = candidates.filter((candidate) =>
-      IN_FLIGHT_PHASED_RELEASE_STATES.has(candidate.phasedRelease?.attributes?.phasedReleaseState),
-    );
+  const inFlight = inFlightCandidates(candidates);
 
+  if (IN_FLIGHT_COMMANDS.has(command)) {
     if (inFlight.length === 0) {
       throw new Error(
         `No version has a phased release in progress, so there is nothing to \`${command}\`. ` +
@@ -102,6 +119,10 @@ export function selectVersion(candidates, {command, requestedVersionString} = {}
       );
     }
     return inFlight[0];
+  }
+
+  if (command === "status" && inFlight.length > 0) {
+    return newestCandidate(inFlight);
   }
 
   const sorted = [...candidates].sort((a, b) =>

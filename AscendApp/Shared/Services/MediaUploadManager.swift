@@ -85,6 +85,28 @@ final class MediaUploadManager {
         uploadStatuses[workoutId] ?? .none
     }
 
+    /// Whether the queue may run right now. Read by the UI so a thrown kill switch neither claims
+    /// an upload is in progress nor offers a retry that cannot happen.
+    var isUploadQueueActive: Bool {
+        featureFlags.isEnabled(.workoutMediaUploads)
+    }
+
+    /// Pure derivation of what the banner should say, so the rule that a held queue never reports
+    /// itself as uploading is testable without a picker item.
+    static func resolvedStatus(
+        pendingCount: Int,
+        failedCount: Int,
+        isQueueActive: Bool
+    ) -> MediaUploadStatus {
+        if failedCount > 0 {
+            return .failed(count: failedCount)
+        }
+        guard isQueueActive, pendingCount > 0 else {
+            return .none
+        }
+        return .uploading(current: 1, total: pendingCount)
+    }
+
     /// Queue new uploads for a workout.
     /// Saves media files locally and creates PendingMediaUpload records.
     /// - Parameters:
@@ -459,16 +481,12 @@ final class MediaUploadManager {
         }
 
         let failedCount = uploads.filter { $0.status == PendingUploadStatus.failed.rawValue }.count
+        let pendingCount = uploads.filter { $0.status == PendingUploadStatus.pending.rawValue || $0.status == PendingUploadStatus.uploading.rawValue }.count
 
-        if failedCount > 0 {
-            uploadStatuses[workoutId] = .failed(count: failedCount)
-        } else {
-            let pendingCount = uploads.filter { $0.status == PendingUploadStatus.pending.rawValue || $0.status == PendingUploadStatus.uploading.rawValue }.count
-            if pendingCount > 0 {
-                uploadStatuses[workoutId] = .uploading(current: 1, total: pendingCount)
-            } else {
-                uploadStatuses[workoutId] = MediaUploadStatus.none
-            }
-        }
+        uploadStatuses[workoutId] = Self.resolvedStatus(
+            pendingCount: pendingCount,
+            failedCount: failedCount,
+            isQueueActive: isUploadQueueActive
+        )
     }
 }
