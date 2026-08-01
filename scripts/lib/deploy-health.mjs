@@ -636,18 +636,32 @@ export function selectWatchdogIssue(issues) {
  * Kept separate from the API client so the notification decision - the part
  * that must not regress - is unit-testable without touching GitHub.
  *
+ * Notification and freshness are decided separately, because they answer
+ * different questions. `comment` is what emails, so it is gated on the alert
+ * identity: a standing problem must not shout every three hours. `updateBody`
+ * is only prose, and a body edit notifies nobody, so it is gated on the text
+ * actually differing - which keeps the volatile facts the identity deliberately
+ * excludes (the age, the undeployed-file count) current for whoever opens the
+ * issue, instead of freezing them at whatever they said on day one.
+ *
  * @param {object} input Decision input.
  * @param {boolean} input.healthy Whether the pipeline is healthy.
  * @param {Array<object>} [input.alerts] The alert set (ignored when healthy).
- * @param {{number: number, identity: string | null} | null} input.existingIssue
- *   The open watchdog issue, if one exists.
- * @return {{action: string, issueNumber: number|null, comment: string|null}}
- *   The action to take.
+ * @param {string} [input.body] The freshly rendered report body.
+ * @param {{number: number, identity: string | null, body?: string} | null}
+ *   input.existingIssue The open watchdog issue, if one exists.
+ * @return {{action: string, issueNumber: number|null, comment: string|null,
+ *   updateBody: boolean}} The action to take.
  */
-export function planIssueSync({healthy, alerts, existingIssue}) {
+export function planIssueSync({healthy, alerts, body = null, existingIssue}) {
   if (healthy) {
     if (!existingIssue) {
-      return {action: "none", issueNumber: null, comment: null};
+      return {
+        action: "none",
+        issueNumber: null,
+        comment: null,
+        updateBody: false,
+      };
     }
     return {
       action: "close",
@@ -655,22 +669,29 @@ export function planIssueSync({healthy, alerts, existingIssue}) {
       comment:
         "A `Deploy Production` run has succeeded on the default-branch head " +
         "and no run is stalled. Closing.",
+      updateBody: false,
     };
   }
 
   if (!existingIssue) {
-    return {action: "create", issueNumber: null, comment: null};
+    return {
+      action: "create",
+      issueNumber: null,
+      comment: null,
+      updateBody: false,
+    };
   }
 
-  // Body edits do not notify; comments do. Compare the alert identity rather
-  // than the rendered body, so a standing problem stays quiet however its prose
-  // renders and a genuinely new one shouts. An issue with no readable identity -
-  // predating this token, or hand-edited - counts as changed: one extra
-  // notification is a far cheaper error than a silent outage.
+  // Compare the alert identity rather than the rendered body, so a standing
+  // problem stays quiet however its prose renders and a genuinely new one
+  // shouts. An issue with no readable identity - predating this token, or
+  // hand-edited - counts as changed: one extra notification is a far cheaper
+  // error than a silent outage.
   const changed = existingIssue.identity !== alertIdentity(alerts);
   return {
     action: changed ? "update" : "noop",
     issueNumber: existingIssue.number,
     comment: changed ? "The deploy-pipeline health report changed." : null,
+    updateBody: body !== null && (existingIssue.body ?? "") !== body,
   };
 }

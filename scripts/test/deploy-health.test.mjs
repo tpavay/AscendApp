@@ -11,11 +11,13 @@ import {
   formatCoarseDuration,
   formatDuration,
   formatHealthReport,
+  parseAlertIdentity,
   parsePushPathFilters,
   pathMatchesFilters,
   planIssueSync,
   selectWatchdogIssue,
 } from "../lib/deploy-health.mjs";
+import {applyIssuePlan} from "../check-deploy-production-health.mjs";
 import {
   diffDeployedFunctions,
   formatFunctionsDiff,
@@ -662,6 +664,153 @@ test("the identity survives a rewording of the report prose", () => {
     planIssueSync({healthy: false, alerts, existingIssue: canonical}).action,
     "noop"
   );
+});
+
+/**
+ * Records the writes `applyIssuePlan` performs against a fake API client.
+ * @param {object} plan The plan to apply.
+ * @param {string} body The rendered report body.
+ * @return {Promise<Array<object>>} One entry per request, in order.
+ */
+async function writesFor(plan, body) {
+  const calls = [];
+  await applyIssuePlan({
+    request: async (path, init = {}) => {
+      calls.push({
+        path,
+        method: init.method ?? "GET",
+        body: init.body ? JSON.parse(init.body) : null,
+      });
+      return {html_url: "https://example.invalid/1"};
+    },
+    owner: "tpavay",
+    repo: "AscendApp",
+    plan,
+    body,
+  });
+  return calls;
+}
+
+/**
+ * Renders the drift report for a head undeployed for a given span.
+ * @param {string} now Evaluation time.
+ * @return {{alerts: Array<object>, body: string}} The report.
+ */
+function driftReportAt(now) {
+  const {alerts} = evaluateDeployHealth({
+    runs: [run({id: 2, run_number: 2, head_sha: "old".repeat(13) + "a"})],
+    head: HEAD,
+    now,
+    comparison: {status: "ahead", files: ["functions/src/index.ts"]},
+    deployPathFilters: DEPLOY_PATH_FILTERS,
+  });
+  return {alerts, body: formatHealthReport(alerts)};
+}
+
+test("a standing problem's prose is refreshed even though it stays silent", () => {
+  // The same drift, one day later: the identity holds, so nothing should
+  // email - but the age in the body has moved on and must not read as day one.
+  const day0 = driftReportAt("2026-07-21T12:00:00Z");
+  const day5 = driftReportAt("2026-07-26T12:00:00Z");
+
+  assert.notEqual(day0.body, day5.body, "the prose really did go stale");
+  assert.match(day0.body, /under a day/);
+  assert.match(day5.body, /over 5 days/);
+
+  const plan = planIssueSync({
+    healthy: false,
+    alerts: day5.alerts,
+    body: day5.body,
+    existingIssue: {number: 292, identity: alertIdentity(day0.alerts), body: day0.body},
+  });
+
+  assert.equal(plan.action, "noop");
+  assert.equal(plan.comment, null, "a standing problem must not re-notify");
+  assert.equal(plan.updateBody, true, "but its text must not freeze");
+});
+
+test("the identity token is byte-identical across a body-only refresh", () => {
+  const day0 = driftReportAt("2026-07-21T12:00:00Z");
+  const day5 = driftReportAt("2026-07-26T12:00:00Z");
+
+  assert.equal(
+    parseAlertIdentity(day0.body),
+    parseAlertIdentity(day5.body),
+    "a refresh that moved the token would masquerade as a new problem"
+  );
+});
+
+test("a noop with stale prose patches the body and posts no comment", async () => {
+  const calls = await writesFor(
+    {action: "noop", issueNumber: 292, comment: null, updateBody: true},
+    "refreshed body"
+  );
+
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}`),
+    ["PATCH /repos/tpavay/AscendApp/issues/292"]
+  );
+  assert.deepEqual(calls[0].body, {body: "refreshed body"});
+});
+
+test("a noop with identical prose writes nothing at all", async () => {
+  const calls = await writesFor(
+    {action: "noop", issueNumber: 292, comment: null, updateBody: false},
+    "unchanged body"
+  );
+
+  assert.deepEqual(calls, []);
+});
+
+test("a changed identity patches the body and comments", async () => {
+  const calls = await writesFor(
+    {
+      action: "update",
+      issueNumber: 292,
+      comment: "The deploy-pipeline health report changed.",
+      updateBody: true,
+    },
+    "new body"
+  );
+
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}`),
+    [
+      "PATCH /repos/tpavay/AscendApp/issues/292",
+      "POST /repos/tpavay/AscendApp/issues/292/comments",
+    ]
+  );
+});
+
+test("a healthy pipeline with no issue writes nothing", async () => {
+  assert.deepEqual(
+    await writesFor(
+      {action: "none", issueNumber: null, comment: null, updateBody: false},
+      ""
+    ),
+    []
+  );
+});
+
+test("recovery comments before it closes, so the close is not silent", async () => {
+  const calls = await writesFor(
+    {
+      action: "close",
+      issueNumber: 292,
+      comment: "A `Deploy Production` run has succeeded.",
+      updateBody: false,
+    },
+    ""
+  );
+
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}`),
+    [
+      "POST /repos/tpavay/AscendApp/issues/292/comments",
+      "PATCH /repos/tpavay/AscendApp/issues/292",
+    ]
+  );
+  assert.deepEqual(calls[1].body, {state: "closed", state_reason: "completed"});
 });
 
 test("recovery closes the issue and says why", () => {

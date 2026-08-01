@@ -26,8 +26,9 @@
  */
 
 import {execFileSync} from "node:child_process";
-import {readFileSync} from "node:fs";
+import {readFileSync, realpathSync} from "node:fs";
 import process from "node:process";
+import {fileURLToPath} from "node:url";
 import {
   evaluateDeployHealth,
   formatHealthReport,
@@ -344,10 +345,13 @@ async function main() {
     `/repos/${owner}/${repo}/issues?state=open&per_page=100`
   );
   const {canonical, duplicates} = selectWatchdogIssue(openIssues);
-  const plan = planIssueSync({healthy, alerts, existingIssue: canonical});
+  const plan = planIssueSync({healthy, alerts, body, existingIssue: canonical});
   console.log(`Issue action: ${plan.action}`);
 
   if (options.dryRun) {
+    if (plan.updateBody) {
+      console.log(`Would refresh the body of #${plan.issueNumber}`);
+    }
     if (duplicates.length > 0) {
       console.log(`Would close duplicates: ${duplicates.join(", ")}`);
     }
@@ -394,7 +398,12 @@ async function closeDuplicates({request, owner, repo, duplicates, canonical}) {
 }
 
 /**
- * Applies the issue plan: create, update-and-comment, close, or nothing.
+ * Applies the issue plan: create, refresh the body, comment, and/or close.
+ *
+ * The body PATCH is driven by `plan.updateBody` and the comment by
+ * `plan.comment`, never by the action alone - a `noop` still refreshes stale
+ * prose, and it still says nothing, because only the comment emails.
+ *
  * @param {object} input Application input.
  * @param {Function} input.request The API client.
  * @param {string} input.owner Repository owner.
@@ -403,8 +412,8 @@ async function closeDuplicates({request, owner, repo, duplicates, canonical}) {
  * @param {string} input.body The rendered report body.
  * @return {Promise<void>} Resolves once GitHub is in sync.
  */
-async function applyIssuePlan({request, owner, repo, plan, body}) {
-  if (plan.action === "none" || plan.action === "noop") {
+export async function applyIssuePlan({request, owner, repo, plan, body}) {
+  if (plan.action === "none") {
     return;
   }
 
@@ -425,7 +434,7 @@ async function applyIssuePlan({request, owner, repo, plan, body}) {
 
   const path = `/repos/${owner}/${repo}/issues/${plan.issueNumber}`;
 
-  if (plan.action === "update") {
+  if (plan.updateBody) {
     await request(path, {method: "PATCH", body: JSON.stringify({body})});
   }
 
@@ -468,11 +477,13 @@ async function ensureLabel(request, owner, repo) {
   }
 }
 
-main()
-  .then((code) => {
-    process.exitCode = code;
-  })
-  .catch((error) => {
-    console.error(`::error::${error.message}`);
-    process.exitCode = 1;
-  });
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main()
+    .then((code) => {
+      process.exitCode = code;
+    })
+    .catch((error) => {
+      console.error(`::error::${error.message}`);
+      process.exitCode = 1;
+    });
+}
