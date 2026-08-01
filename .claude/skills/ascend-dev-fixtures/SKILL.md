@@ -35,6 +35,7 @@ paths:
   Every seeding entry point validates through it, because the Admin SDK bypasses `firestore.rules` and is therefore the one writer that could publish an identity the server would strip on projection.
   `SharedTestVectors/display-name-screening-vector.json` pins it against the Cloud Functions implementation; add a case there rather than editing one screening copy in isolation.
 - `hydrate-user` also refuses to *invent* a public display name: with none passed and none stored it errors rather than publishing a placeholder.
+  `create-auth-user --hydrate-profile` pre-flights the same requirement before it calls `auth.createUser`, so a missing `--display-name` fails the command instead of leaving an orphaned Auth account with no Firestore user document.
   The app's own fallback for a nameless account is `PublicClimberIdentity.systemHandle`, a per-uid handle ("Climber A3F9MQ"). A bare "Climber" collides across every account that took the fallback and is indistinguishable from a real name once it reaches a podium - staging carried exactly that on its top weekly and yearly row, written by a build that predates #263.
 - `scripts/dev-db.mjs hydrate-user` fails before writing when `--display-name` fails screening or `--photo-url` is not a Firebase Storage download URL, including when the offending value is inherited from the existing user document rather than passed on the command line.
   To publish no photo, pass `--photo-url ""` or `--clear-photo`; either one wins over a stored `profilePictureURL` instead of falling back to it.

@@ -722,6 +722,16 @@ function validateCreateAuthUserArgs(args) {
   }
 
   if (args.hydrateProfile) {
+    // hydrate-user refuses to invent a public display name, and it runs only after
+    // auth.createUser has already succeeded. A brand-new account has no stored
+    // displayName to inherit, so without this pre-flight the command leaves an orphaned
+    // Auth record with no Firestore user document behind.
+    if (!args.displayName && !args.useExistingAuthUser) {
+      throw new Error(
+        "create-auth-user --hydrate-profile requires --display-name for a new Auth user; " +
+        "there is no stored display name to inherit."
+      );
+    }
     validateHydrateUserArgs({...args, userId: args.userId ?? "new-auth-user"});
   }
 }

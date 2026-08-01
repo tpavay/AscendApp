@@ -1,7 +1,9 @@
 import {canonicalWorkoutDocumentId} from "../../lib/workout-document-id.mjs";
+import {currentPeriod} from "../../lib/leaderboard-period.mjs";
 import {PUBLIC_PHOTO_URL_PATTERN} from "../lib/public-identity-contract.mjs";
 
 export {PUBLIC_PHOTO_URL_PATTERN};
+export {currentPeriod};
 
 export const PROFILE_SEED_PACK_ID = "v1-profile-test";
 export const PROFILE_SEED_SOURCE = "seed-test-users";
@@ -346,49 +348,6 @@ export function statsFromWorkoutDocuments(workouts) {
   };
 }
 
-export function currentPeriod(timeFrameKey, date = new Date()) {
-  switch (timeFrameKey) {
-    case "daily": {
-      const year = date.getUTCFullYear();
-      const month = date.getUTCMonth() + 1;
-      const day = date.getUTCDate();
-      return {
-        key: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
-        startAt: utcDate(year, month - 1, day),
-      };
-    }
-    case "weekly": {
-      const {year, week, startAt} = weekInfoUTC(date);
-      return {
-        key: `${year}-W${String(week).padStart(2, "0")}`,
-        startAt,
-      };
-    }
-    case "monthly": {
-      const year = date.getUTCFullYear();
-      const month = date.getUTCMonth() + 1;
-      return {
-        key: `${year}-M${String(month).padStart(2, "0")}`,
-        startAt: utcDate(year, month - 1, 1),
-      };
-    }
-    case "yearly": {
-      const year = date.getUTCFullYear();
-      return {
-        key: `${year}`,
-        startAt: utcDate(year, 0, 1),
-      };
-    }
-    case "all_time":
-      return {
-        key: "all",
-        startAt: new Date(0),
-      };
-    default:
-      throw new Error(`Unknown time frame: ${timeFrameKey}`);
-  }
-}
-
 function write(ref, data, shape) {
   const item = {ref, data, shape};
   validateSeedWrite(item);
@@ -646,49 +605,6 @@ function rankForType(type) {
   if (type.endsWith("top_3")) return 3;
   if (type.endsWith("top_10")) return 7;
   return 42;
-}
-
-function utcDate(year, month, day) {
-  return new Date(Date.UTC(year, month, day));
-}
-
-function startOfUTCDay(date) {
-  return utcDate(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-}
-
-function startOfWeekUTC(date) {
-  const start = startOfUTCDay(date);
-  const daysSinceMonday = (start.getUTCDay() + 6) % 7;
-  start.setUTCDate(start.getUTCDate() - daysSinceMonday);
-  return start;
-}
-
-function weekInfoUTC(date) {
-  const normalizedDate = startOfUTCDay(date);
-  const weekStart = startOfWeekUTC(normalizedDate);
-  const calendarYear = normalizedDate.getUTCFullYear();
-
-  const firstWeekStart = startOfWeekUTC(utcDate(calendarYear, 0, 1));
-  if (weekStart < firstWeekStart) {
-    return weekInfoUTC(utcDate(calendarYear - 1, 11, 31));
-  }
-
-  const nextYearFirstWeekStart = startOfWeekUTC(utcDate(calendarYear + 1, 0, 1));
-  if (weekStart >= nextYearFirstWeekStart) {
-    return {
-      year: calendarYear + 1,
-      week: 1,
-      startAt: weekStart,
-    };
-  }
-
-  const diffMs = weekStart.getTime() - firstWeekStart.getTime();
-  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-  return {
-    year: calendarYear,
-    week: Math.floor(diffDays / 7) + 1,
-    startAt: weekStart,
-  };
 }
 
 function poundsToKg(value) {

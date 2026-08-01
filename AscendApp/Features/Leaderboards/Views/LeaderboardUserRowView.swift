@@ -10,14 +10,18 @@ struct LeaderboardUserRowView: View {
     /// ladder" rather than as a number, so it can never be mistaken for a placing.
     static let unrankedRankLabel = "-"
 
+    /// The signed-in climber's own row. An unranked climber renders without a rank
+    /// number at all - see `LeaderboardUserStanding`. The two cases are one property
+    /// rather than a nullable entry beside loose copies of its fields, so no caller can
+    /// assemble a row that carries a rank and an unranked treatment at the same time.
+    enum Standing {
+        case ranked(ModeratedLeaderboardEntry)
+        case unranked(formattedValue: String, photoURL: URL?)
+    }
+
     @Environment(\.colorScheme) private var colorScheme
 
-    /// The signed-in climber's own row. An unranked climber renders without a rank
-    /// number at all - see `LeaderboardUserStanding`.
-    let entry: ModeratedLeaderboardEntry?
-    let displayName: String
-    let photoURL: URL?
-    let formattedValue: String
+    let standing: Standing
     let metric: LeaderboardMetric
     var crownGapText: String? = nil
 
@@ -26,10 +30,7 @@ struct LeaderboardUserRowView: View {
         metric: LeaderboardMetric,
         crownGapText: String? = nil
     ) {
-        self.entry = entry
-        self.displayName = entry.identity.displayName
-        self.photoURL = entry.identity.photoURL
-        self.formattedValue = entry.formattedValue
+        self.standing = .ranked(entry)
         self.metric = metric
         self.crownGapText = crownGapText
     }
@@ -40,12 +41,36 @@ struct LeaderboardUserRowView: View {
         metric: LeaderboardMetric,
         crownGapText: String? = nil
     ) {
-        self.entry = nil
-        self.displayName = "You"
-        self.photoURL = photoURL
-        self.formattedValue = unrankedFormattedValue
+        self.standing = .unranked(formattedValue: unrankedFormattedValue, photoURL: photoURL)
         self.metric = metric
         self.crownGapText = crownGapText
+    }
+
+    private var displayName: String {
+        switch standing {
+        case .ranked(let entry):
+            return entry.identity.displayName
+        case .unranked:
+            return "You"
+        }
+    }
+
+    private var photoURL: URL? {
+        switch standing {
+        case .ranked(let entry):
+            return entry.identity.photoURL
+        case .unranked(_, let photoURL):
+            return photoURL
+        }
+    }
+
+    private var formattedValue: String {
+        switch standing {
+        case .ranked(let entry):
+            return entry.formattedValue
+        case .unranked(let formattedValue, _):
+            return formattedValue
+        }
     }
 
     private var rowFill: Color {
@@ -57,15 +82,28 @@ struct LeaderboardUserRowView: View {
     }
 
     private var rankLabel: String {
-        guard let entry else { return Self.unrankedRankLabel }
-        return CompetitionRanking.rankLabel(entry.rank, isTied: entry.isTied)
+        switch standing {
+        case .ranked(let entry):
+            return CompetitionRanking.rankLabel(entry.rank, isTied: entry.isTied)
+        case .unranked:
+            return Self.unrankedRankLabel
+        }
+    }
+
+    private var rankTint: Color {
+        switch standing {
+        case .ranked:
+            return .accent
+        case .unranked:
+            return Color.accent.opacity(0.45)
+        }
     }
 
     var body: some View {
         HStack(spacing: 12) {
             Text(rankLabel)
                 .font(.montserratBold(size: 30))
-                .foregroundStyle(entry == nil ? Color.accent.opacity(0.45) : .accent)
+                .foregroundStyle(rankTint)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(width: 52, alignment: .leading)
@@ -131,11 +169,12 @@ struct LeaderboardUserRowView: View {
 
     private var accessibilityLabel: String {
         let rankText: String
-        if let entry {
+        switch standing {
+        case .ranked(let entry):
             rankText = entry.isTied
                 ? "You are tied for rank \(entry.rank)"
                 : "Your rank \(entry.rank)"
-        } else {
+        case .unranked:
             rankText = "You are unranked this period"
         }
         let base = "\(rankText), \(displayName), \(formattedValue) \(metric.displayName)"

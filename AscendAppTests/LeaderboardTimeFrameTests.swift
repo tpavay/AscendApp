@@ -41,52 +41,75 @@ struct LeaderboardTimeFrameTests {
         #expect(yearly.endAt == utcDate(year: 2027, month: 1, day: 1))
     }
 
-    /// Pins the exact key strings every writer and reader agree on. The client
-    /// (`currentPeriod`), the finalizer (`previousPeriod` in
-    /// `functions/src/leaderboardAchievements.ts`), and the seeds
-    /// (`currentPeriod` in `scripts/seed-demo-user.mjs`) all derive these
-    /// independently; a document written under one spelling is invisible to a reader
-    /// using another, and the board just looks empty.
-    @Test(arguments: PeriodKeyVector.all)
-    func periodKeysMatchTheServerAndSeedDerivation(vector: PeriodKeyVector) {
-        let referenceDate = utcDate(
-            year: vector.year,
-            month: vector.month,
-            day: vector.day,
-            hour: 12
-        )
+    /// Pins the exact key strings every writer and reader agree on, against the same file
+    /// the JavaScript halves read. The client (`currentPeriod`), the finalizer
+    /// (`previousPeriod` in `functions/src/leaderboardAchievements.ts`), and the seeds
+    /// (`currentPeriod` in `scripts/lib/leaderboard-period.mjs` and in
+    /// `scripts/seed/fixtures/profile-fixtures.mjs`) all derive these independently; a
+    /// document written under one spelling is invisible to a reader using another, and the
+    /// board just looks empty.
+    @Test
+    func periodKeysMatchTheServerAndSeedDerivation() throws {
+        let vector = try Self.sharedPeriodKeyVector()
 
-        #expect(LeaderboardTimeFrame.weekly.currentPeriod(referenceDate: referenceDate).key == vector.weekly)
-        #expect(LeaderboardTimeFrame.monthly.currentPeriod(referenceDate: referenceDate).key == vector.monthly)
-        #expect(LeaderboardTimeFrame.yearly.currentPeriod(referenceDate: referenceDate).key == vector.yearly)
+        #expect(vector.cases.count >= 9)
+
+        for testCase in vector.cases {
+            let (year, month, day) = try Self.dateComponents(of: testCase)
+            let referenceDate = utcDate(year: year, month: month, day: day, hour: 12)
+
+            #expect(
+                LeaderboardTimeFrame.weekly.currentPeriod(referenceDate: referenceDate).key
+                    == testCase.weekly,
+                "weekly key for \(testCase.date) - \(testCase.name)"
+            )
+            #expect(
+                LeaderboardTimeFrame.monthly.currentPeriod(referenceDate: referenceDate).key
+                    == testCase.monthly,
+                "monthly key for \(testCase.date) - \(testCase.name)"
+            )
+            #expect(
+                LeaderboardTimeFrame.yearly.currentPeriod(referenceDate: referenceDate).key
+                    == testCase.yearly,
+                "yearly key for \(testCase.date) - \(testCase.name)"
+            )
+        }
     }
 
-    struct PeriodKeyVector: Sendable, CustomStringConvertible {
-        let year: Int
-        let month: Int
-        let day: Int
-        let weekly: String
-        let monthly: String
-        let yearly: String
+    private struct PeriodKeyVectorFile: Decodable {
+        struct Case: Decodable {
+            let name: String
+            let date: String
+            let weekly: String
+            let monthly: String
+            let yearly: String
+        }
 
-        var description: String { "\(year)-\(month)-\(day)" }
+        let cases: [Case]
+    }
 
-        static let all: [PeriodKeyVector] = [
-            // The day the captain photographed the boards.
-            .init(year: 2026, month: 8, day: 1, weekly: "2026-W31", monthly: "2026-M08", yearly: "2026"),
-            .init(year: 2026, month: 7, day: 27, weekly: "2026-W31", monthly: "2026-M07", yearly: "2026"),
-            .init(year: 2026, month: 8, day: 2, weekly: "2026-W31", monthly: "2026-M08", yearly: "2026"),
-            .init(year: 2026, month: 8, day: 3, weekly: "2026-W32", monthly: "2026-M08", yearly: "2026"),
-            // Single-digit week and month stay zero padded, or the key stops sorting
-            // and stops matching what the server wrote.
-            .init(year: 2026, month: 2, day: 5, weekly: "2026-W06", monthly: "2026-M02", yearly: "2026"),
-            // Week 1 is the week containing Jan 1, so it can open in the previous
-            // calendar year and still carry the next year in its key.
-            .init(year: 2025, month: 12, day: 29, weekly: "2026-W01", monthly: "2025-M12", yearly: "2025"),
-            .init(year: 2026, month: 1, day: 1, weekly: "2026-W01", monthly: "2026-M01", yearly: "2026"),
-            .init(year: 2026, month: 12, day: 31, weekly: "2027-W01", monthly: "2026-M12", yearly: "2026"),
-            .init(year: 2027, month: 1, day: 1, weekly: "2027-W01", monthly: "2027-M01", yearly: "2027")
-        ]
+    private static func sharedPeriodKeyVector() throws -> PeriodKeyVectorFile {
+        let repoRoot = URL(filePath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let vectorURL = repoRoot.appending(
+            path: "SharedTestVectors/leaderboard-period-key-vector.json"
+        )
+        let data = try Data(contentsOf: vectorURL)
+        return try JSONDecoder().decode(PeriodKeyVectorFile.self, from: data)
+    }
+
+    private struct MalformedVectorDate: Error, CustomStringConvertible {
+        let date: String
+        var description: String { "vector date \(date) is not YYYY-MM-DD" }
+    }
+
+    private static func dateComponents(
+        of testCase: PeriodKeyVectorFile.Case
+    ) throws -> (year: Int, month: Int, day: Int) {
+        let numbers = testCase.date.split(separator: "-").compactMap { Int($0) }
+        guard numbers.count == 3 else { throw MalformedVectorDate(date: testCase.date) }
+        return (numbers[0], numbers[1], numbers[2])
     }
 
     /// A week is *not* inside a month. On 2026-08-01 the weekly window opened on
@@ -148,6 +171,49 @@ struct LeaderboardTimeFrameTests {
         #expect(
             LeaderboardTimeFrame.allTime.currentPeriod(referenceDate: firstOfMonth).windowLabel
                 == "All time"
+        )
+    }
+
+    /// The window is Gregorian by construction and stored under a Gregorian key, so its
+    /// label has to be Gregorian too. Left on `Calendar.autoupdatingCurrent`, a device set
+    /// to a Buddhist or Islamic calendar renders the board keyed `2026-M08` as "2569 BE"
+    /// or "صفر" - a label contradicting its own key.
+    @Test
+    func windowLabelsAreFormattedInTheGregorianCalendarTheWindowIsDefinedIn() {
+        let styles = [
+            LeaderboardPeriod.dayStyle,
+            LeaderboardPeriod.monthStyle,
+            LeaderboardPeriod.yearStyle
+        ]
+
+        for style in styles {
+            #expect(style.calendar.identifier == .gregorian)
+            #expect(style.calendar == LeaderboardPeriod.labelCalendar)
+            #expect(style.calendar != .autoupdatingCurrent)
+            #expect(style.locale == LeaderboardPeriod.labelLocale)
+            #expect(style.timeZone == LeaderboardTimeFrame.canonicalTimeZone)
+        }
+
+        // Proves the pin is load-bearing rather than incidental: the same styles on a
+        // non-Gregorian calendar name a different month and year for the same instant.
+        let firstOfMonth = utcDate(year: 2026, month: 8, day: 1, hour: 16, minute: 33)
+        var buddhist = LeaderboardPeriod.yearStyle
+        buddhist.calendar = Calendar(identifier: .buddhist)
+        buddhist.locale = Locale(identifier: "th_TH")
+        #expect(buddhist.format(firstOfMonth) != LeaderboardPeriod.yearStyle.format(firstOfMonth))
+
+        var islamic = LeaderboardPeriod.monthStyle
+        islamic.calendar = Calendar(identifier: .islamicUmmAlQura)
+        islamic.locale = Locale(identifier: "ar_SA")
+        #expect(islamic.format(firstOfMonth) != LeaderboardPeriod.monthStyle.format(firstOfMonth))
+
+        #expect(
+            LeaderboardTimeFrame.monthly.currentPeriod(referenceDate: firstOfMonth).windowLabel
+                == "August"
+        )
+        #expect(
+            LeaderboardTimeFrame.yearly.currentPeriod(referenceDate: firstOfMonth).windowLabel
+                == "2026"
         )
     }
 

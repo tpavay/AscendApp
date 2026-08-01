@@ -437,8 +437,9 @@ struct LeaderboardView: View {
         enum PinnedRow {
             case ranked(ModeratedLeaderboardEntry)
             /// No rank this period, so the row renders without one rather than borrowing
-            /// its list position.
-            case unranked(formattedValue: String)
+            /// its list position. It still carries the climber's value, because the chase
+            /// line under the row is measured from it.
+            case unranked(value: Double, formattedValue: String)
         }
 
         let podiumEntries: [ModeratedLeaderboardEntry]
@@ -478,13 +479,13 @@ struct LeaderboardView: View {
                 )
                 .padding(.top, 2)
 
-            case .unranked(let formattedValue):
+            case .unranked(let value, let formattedValue):
                 LeaderboardUserRowView(
                     unrankedFormattedValue: formattedValue,
                     photoURL: authVM.displayPhotoURL,
                     metric: viewModel.selectedMetric,
                     crownGapText: crownGapText(
-                        value: standing?.value ?? 0,
+                        value: value,
                         userId: nil,
                         podiumEntries: state.podiumEntries
                     )
@@ -527,11 +528,11 @@ struct LeaderboardView: View {
                 listEntries: listEntries
             )
 
-        case .unranked(_, let formattedValue):
+        case .unranked(let value, let formattedValue):
             // An unranked climber is in no entry list, so there is nothing to dedupe.
             return LeaderboardPresentationState(
                 podiumEntries: podiumEntries,
-                pinnedRow: .unranked(formattedValue: formattedValue),
+                pinnedRow: .unranked(value: value, formattedValue: formattedValue),
                 listEntries: listEntries
             )
 

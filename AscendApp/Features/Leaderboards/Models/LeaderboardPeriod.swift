@@ -21,8 +21,10 @@ struct LeaderboardPeriod: Equatable, Hashable, Sendable {
     /// legitimately carries steps that the freshly-reset monthly board does not. With
     /// both windows unnamed, that correct state reads as lost data.
     ///
-    /// Rendered in the canonical time zone the window is *defined* in, not the viewer's.
-    /// A UTC-Monday window labelled with local dates would name days it does not cover.
+    /// Rendered in the canonical time zone and calendar the window is *defined* in, not
+    /// the viewer's. A UTC-Monday window labelled with local dates would name days it does
+    /// not cover, and a window keyed `2026-M08` labelled on the viewer's calendar would
+    /// read "2569 BE" or "صفر" - naming a month the board does not cover.
     var windowLabel: String {
         switch timeFrame {
         case .daily:
@@ -64,13 +66,33 @@ struct LeaderboardPeriod: Equatable, Hashable, Sendable {
         return endAt.addingTimeInterval(-1)
     }
 
-    private static let dayStyle = Date.FormatStyle(timeZone: LeaderboardTimeFrame.canonicalTimeZone)
-        .month(.abbreviated)
-        .day()
+    /// Every window is *computed* through `WeekConfiguration.calendar`, which is Gregorian,
+    /// and stored under a Gregorian key. Labelling it on `Calendar.autoupdatingCurrent`
+    /// would let the device's calendar rename a board its own key contradicts.
+    static let labelCalendar = WeekConfiguration.calendar(timeZone: LeaderboardTimeFrame.canonicalTimeZone)
 
-    private static let monthStyle = Date.FormatStyle(timeZone: LeaderboardTimeFrame.canonicalTimeZone)
-        .month(.wide)
+    /// The app ships en-US only, so the label reads the same everywhere the window does.
+    static let labelLocale = Locale(identifier: "en_US")
 
-    private static let yearStyle = Date.FormatStyle(timeZone: LeaderboardTimeFrame.canonicalTimeZone)
-        .year()
+    static let dayStyle = Date.FormatStyle(
+        locale: labelLocale,
+        calendar: labelCalendar,
+        timeZone: LeaderboardTimeFrame.canonicalTimeZone
+    )
+    .month(.abbreviated)
+    .day()
+
+    static let monthStyle = Date.FormatStyle(
+        locale: labelLocale,
+        calendar: labelCalendar,
+        timeZone: LeaderboardTimeFrame.canonicalTimeZone
+    )
+    .month(.wide)
+
+    static let yearStyle = Date.FormatStyle(
+        locale: labelLocale,
+        calendar: labelCalendar,
+        timeZone: LeaderboardTimeFrame.canonicalTimeZone
+    )
+    .year()
 }

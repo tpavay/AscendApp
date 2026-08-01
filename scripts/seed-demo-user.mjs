@@ -28,6 +28,7 @@ import {
   seededReplayCompletedCount,
   staleWorkoutDocumentIds,
 } from "./lib/workout-document-id.mjs";
+import {currentPeriod, utcDate} from "./lib/leaderboard-period.mjs";
 import {
   PUBLIC_IDENTITY_STATE_PUBLISHED,
   firstAscentSeedFields,
@@ -1066,80 +1067,6 @@ function leaderboardStatsData(user, timeFrame, period, totals) {
 
 function leaderboardDocId(userId, timeFrame, periodKey) {
   return `${timeFrame}_${periodKey}_${userId}`;
-}
-
-function currentPeriod(timeFrame, date = new Date()) {
-  switch (timeFrame) {
-    case "daily": {
-      const startAt = utcDate(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-      return {
-        key: `${startAt.getUTCFullYear()}-${String(startAt.getUTCMonth() + 1).padStart(2, "0")}-${String(startAt.getUTCDate()).padStart(2, "0")}`,
-        startAt,
-      };
-    }
-    case "weekly": {
-      const startAt = startOfWeekUTC(date);
-      const {year, week} = weekInfoUTC(date);
-      return {
-        key: `${year}-W${String(week).padStart(2, "0")}`,
-        startAt,
-      };
-    }
-    case "monthly": {
-      const startAt = utcDate(date.getUTCFullYear(), date.getUTCMonth(), 1);
-      return {
-        key: `${startAt.getUTCFullYear()}-M${String(startAt.getUTCMonth() + 1).padStart(2, "0")}`,
-        startAt,
-      };
-    }
-    case "yearly": {
-      const startAt = utcDate(date.getUTCFullYear(), 0, 1);
-      return {
-        key: `${startAt.getUTCFullYear()}`,
-        startAt,
-      };
-    }
-    case "all_time":
-      return {
-        key: "all",
-        startAt: new Date(0),
-      };
-    default:
-      throw new Error(`Unsupported time frame ${timeFrame}`);
-  }
-}
-
-function utcDate(year, month, day) {
-  return new Date(Date.UTC(year, month, day));
-}
-
-function startOfWeekUTC(date) {
-  const start = utcDate(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-  const daysSinceMonday = (start.getUTCDay() + 6) % 7;
-  start.setUTCDate(start.getUTCDate() - daysSinceMonday);
-  return start;
-}
-
-function weekInfoUTC(date) {
-  const normalizedDate = utcDate(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-  const weekStart = startOfWeekUTC(normalizedDate);
-  const calendarYear = normalizedDate.getUTCFullYear();
-  const firstWeekStart = startOfWeekUTC(utcDate(calendarYear, 0, 1));
-
-  if (weekStart < firstWeekStart) {
-    return weekInfoUTC(utcDate(calendarYear - 1, 11, 31));
-  }
-
-  const nextYearFirstWeekStart = startOfWeekUTC(utcDate(calendarYear + 1, 0, 1));
-  if (weekStart >= nextYearFirstWeekStart) {
-    return {year: calendarYear + 1, week: 1};
-  }
-
-  const diffDays = Math.round((weekStart.getTime() - firstWeekStart.getTime()) / (1000 * 60 * 60 * 24));
-  return {
-    year: calendarYear,
-    week: Math.floor(diffDays / 7) + 1,
-  };
 }
 
 function loadCatalog() {

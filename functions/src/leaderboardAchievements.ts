@@ -302,6 +302,7 @@ function previousPeriod(
 export const leaderboardAchievementsTestHooks = {
   achievementType,
   profileStatsIncrement,
+  previousPeriod,
 };
 
 function timestampDate(value: unknown): Date | null {
