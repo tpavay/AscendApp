@@ -51,7 +51,9 @@ If a bug reaches those paths, the lever is a fixed build - which is exactly why 
 
 There is nothing to build, submit, or wait for review on.
 
-To confirm it landed on a specific build, the debug menu has **Remote Flags** (dev and staging builds), which shows each flag's resolved value and whether it came from the server or from the shipped default.
+To confirm it landed on a specific build, open **Remote Flags**, which shows each flag's resolved value and whether it came from the server or from the shipped default.
+On dev builds it sits inside Settings -> Developer -> Debug Tools; on staging builds, where the rest of Debug Tools is compiled out, it is its own Settings -> Developer row.
+Release builds ship neither.
 
 ## What happens when the fetch fails
 

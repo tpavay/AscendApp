@@ -82,22 +82,23 @@ actor LeaderboardSyncCoordinator {
     }
 
     private func performSyncLoop(startingWith request: Request) async throws {
-        // Killed: `markSynced` is never reached, so the local `LeaderboardStats` stay dirty and the
-        // next enqueue after the flag returns republishes them. Gated here rather than at
-        // `enqueueSync` so `flushNow` is covered by the same switch.
-        guard RemoteFeatureGate.allows(
-            .leaderboardPublishing,
-            path: "LeaderboardSyncCoordinator.performSyncLoop",
-            store: featureFlags
-        ) else {
-            latestRequest = nil
-            syncLoopRequested = false
-            return
-        }
-
         var currentRequest: Request? = request
 
         while let request = currentRequest ?? latestRequest {
+            // Killed: `markSynced` is never reached, so the local `LeaderboardStats` stay dirty and
+            // the next enqueue after the flag returns republishes them. Re-read per iteration so a
+            // switch thrown during a burst of saves halts at the next request instead of after the
+            // loop drains. Gated here rather than at `enqueueSync` so `flushNow` is covered too.
+            guard RemoteFeatureGate.allows(
+                .leaderboardPublishing,
+                path: "LeaderboardSyncCoordinator.performSyncLoop",
+                store: featureFlags
+            ) else {
+                latestRequest = nil
+                syncLoopRequested = false
+                return
+            }
+
             latestRequest = nil
             currentRequest = nil
 
