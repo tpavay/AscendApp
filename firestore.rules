@@ -373,6 +373,10 @@ service cloud.firestore {
       return 1;
     }
 
+    // Unlike a schemaVersion (see isSupportedSchemaVersion), this one is pinned
+    // to an exact value on purpose: it asserts which moderation policy screened
+    // the display name, so accepting an older value would accept weaker
+    // screening. It is a trust boundary, not metadata - do not widen it.
     function isValidIdentityPolicyMetadata() {
       return request.resource.data.identityPolicyVersion is int &&
         request.resource.data.identityPolicyVersion ==

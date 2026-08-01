@@ -33,7 +33,8 @@ The workout update rule lets the stored version move forward but not backward, b
 
 `identityPolicyVersion` is deliberately not one of these: it asserts which moderation policy screened a display name, so accepting an older value would accept weaker screening.
 
-Bumping a version is then a Swift-constant change alone. Verify with the schema-version range tests in `tests/firebase-rules/workout-contract.test.mjs`.
+Bumping a version then needs no rules edit at all - it is a Swift-constant change. Verify with the schema-version range tests in `tests/firebase-rules/workout-contract.test.mjs`.
+The rules being permissive does not make every bump free on the client: the heart-rate sidecar blob version is still matched exactly by `WorkoutHeartRateSidecarValidator`, so bumping it makes already-uploaded sidecars unrestorable unless the validator learns to read the older shape - see `ascend-workout-model`.
 
 ## The workout write rule has almost no expression budget left
 
