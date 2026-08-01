@@ -141,15 +141,6 @@ final class WorkoutImportCoordinator {
         case complete
     }
 
-    struct ExistingWorkoutIndex {
-        let allWorkouts: [Workout]
-        let appleHealthWorkoutsByID: [String: Workout]
-
-        func workout(forAppleHealthID externalRecordID: String) -> Workout? {
-            appleHealthWorkoutsByID[externalRecordID]
-        }
-    }
-
     var pendingCandidates: [ImportedWorkoutCandidate] = []
     var isChecking = false
     var isImporting = false
@@ -171,7 +162,15 @@ final class WorkoutImportCoordinator {
     private var lastAutomaticCheckAt: Date?
     private var refreshTask: Task<Void, Never>?
     private var activeRefreshTrigger: ImportRefreshTrigger?
+    private var legacySourceLinkBackfillTask: Task<Void, Never>?
     var currentAutoImportedReviewWorkoutID: UUID?
+
+    /// How many Apple Health workouts the current import pass has left to bring in.
+    ///
+    /// Drives Home's "still importing" affordance: the screen is usable throughout, and this is
+    /// what tells the user history is still arriving rather than missing.
+    private(set) var remainingImportCount = 0
+    private(set) var totalImportCount = 0
 
     init(
         authorizationController: any HealthKitAuthorizationControlling = HealthKitAuthorizationClient.shared,
@@ -234,19 +233,46 @@ final class WorkoutImportCoordinator {
         authorizationController.authorizationRequestStatus
     }
 
+    /// Attaches the store. Called from `HomeView.task`, so everything it does synchronously runs
+    /// before Home can render - it must stay bounded no matter how much history the user has.
+    ///
+    /// The legacy source-link backfill is unbounded by nature, so it is handed to a cancellable
+    /// batched task rather than run inline; the review-state prune is bounded to the one or two
+    /// IDs it inspects. Running both inline is what produced ASCEND-IOS-1K.
     func configure(modelContext: ModelContext) {
         self.modelContext = modelContext
         leaderboardService.configure(modelContext: modelContext)
 
         do {
-            try WorkoutSourceMigrationService.runIfNeeded(modelContext: modelContext)
             try pruneAutoImportedReviewState(modelContext: modelContext)
         } catch {
             lastErrorMessage = error.localizedDescription
         }
 
+        startLegacySourceLinkBackfillIfNeeded(modelContext: modelContext)
+
         Task {
             await syncAppleHealthAutomationServices()
+        }
+    }
+
+    /// Runs the legacy source-link backfill once, in the background, at most one task at a time.
+    private func startLegacySourceLinkBackfillIfNeeded(modelContext: ModelContext) {
+        guard legacySourceLinkBackfillTask == nil,
+              !WorkoutSourceMigrationService.hasCompletedBackfill else {
+            return
+        }
+
+        legacySourceLinkBackfillTask = Task { @MainActor [weak self] in
+            defer { self?.legacySourceLinkBackfillTask = nil }
+
+            do {
+                try await WorkoutSourceMigrationService.runIfNeeded(modelContext: modelContext)
+            } catch is CancellationError {
+                // The owner went away mid-sweep; the next `configure` resumes it.
+            } catch {
+                self?.lastErrorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -283,10 +309,18 @@ final class WorkoutImportCoordinator {
         return lastErrorMessage == nil
     }
 
+    /// Coalesces concurrent refreshes onto one task, and cancels that task when the caller
+    /// awaiting it is cancelled.
+    ///
+    /// The refresh is unstructured so that several surfaces can share one pass, which also means
+    /// it does not inherit cancellation for free. Without the handler below, walking away from
+    /// Home mid-backfill left the import running against a screen nobody was looking at.
     func refreshPendingImports(trigger: ImportRefreshTrigger) async {
         if let refreshTask {
             let activeRefreshTrigger = activeRefreshTrigger
-            await refreshTask.value
+            await awaitRefresh(refreshTask)
+
+            if Task.isCancelled { return }
 
             if activeRefreshTrigger?.covers(trigger) == false {
                 await refreshPendingImports(trigger: trigger)
@@ -303,7 +337,22 @@ final class WorkoutImportCoordinator {
         self.refreshTask = refreshTask
         activeRefreshTrigger = trigger
 
-        await refreshTask.value
+        await awaitRefresh(refreshTask)
+    }
+
+    private func awaitRefresh(_ task: Task<Void, Never>) async {
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    /// Stops any in-flight import work. The store is left consistent - each imported workout is
+    /// saved on its own - and the next refresh picks up whatever is still outstanding.
+    func cancelInFlightWork() {
+        refreshTask?.cancel()
+        legacySourceLinkBackfillTask?.cancel()
     }
 
     private func performRefreshPendingImports(trigger: ImportRefreshTrigger) async {
@@ -323,27 +372,28 @@ final class WorkoutImportCoordinator {
         defer { isChecking = false }
 
         do {
-            try WorkoutSourceMigrationService.runIfNeeded(modelContext: modelContext)
+            startLegacySourceLinkBackfillIfNeeded(modelContext: modelContext)
             await authorizationController.refreshAuthorizationRequestStatus()
             let previousSuccessfulCheckAt = HealthKitSyncState.lastSuccessfulCheckAt ?? lastCheckAt
             _ = await performAppleHealthRefreshIfNeeded(trigger: trigger)
 
-            var existingIndex = try buildExistingWorkoutIndex(modelContext: modelContext)
-            let enrichedWorkouts = try await enrichInAppWorkoutsWithAppleHealthIfPossible(
-                existingIndex: existingIndex,
-                modelContext: modelContext
-            )
-            if !enrichedWorkouts.isEmpty {
-                existingIndex = try buildExistingWorkoutIndex(modelContext: modelContext)
-            }
-            pendingCandidates = try await buildPendingCandidates(existingIndex: existingIndex)
+            try Task.checkCancellation()
+            _ = try await enrichInAppWorkoutsWithAppleHealthIfPossible(modelContext: modelContext)
+
+            try Task.checkCancellation()
+            pendingCandidates = try buildPendingCandidates(modelContext: modelContext)
             try pruneAutoImportedReviewState(modelContext: modelContext)
+
+            try Task.checkCancellation()
             await autoImportEligibleAppleHealthCandidatesIfNeeded(
                 modelContext: modelContext,
                 missingActivationFallback: previousSuccessfulCheckAt
             )
             lastCheckAt = Date()
             lastErrorMessage = nil
+        } catch is CancellationError {
+            // The surface that asked for this refresh went away. Whatever imported already is
+            // saved; the next entry resumes from there.
         } catch {
             lastErrorMessage = error.localizedDescription
         }
@@ -425,14 +475,16 @@ final class WorkoutImportCoordinator {
     }
 
     func isImported(_ candidate: ImportedWorkoutCandidate) -> Bool {
-        guard let modelContext else { return false }
-
-        do {
-            let existingIndex = try buildExistingWorkoutIndex(modelContext: modelContext)
-            return isCandidateImported(candidate, existingIndex: existingIndex)
-        } catch {
+        guard let modelContext,
+              let appleHealthSample = candidate.appleHealthSample else {
             return false
         }
+
+        let existingWorkout = try? AppleHealthLinkQuery.workout(
+            forExternalRecordID: appleHealthSample.externalRecordID,
+            in: modelContext
+        )
+        return existingWorkout != nil
     }
 
     func resetAutomaticCheckThrottle() {
@@ -501,9 +553,7 @@ final class WorkoutImportCoordinator {
         }
 
         do {
-            let existingIndex = try buildExistingWorkoutIndex(modelContext: modelContext)
             let enrichedWorkouts = try await enrichInAppWorkoutsWithAppleHealthIfPossible(
-                existingIndex: existingIndex,
                 modelContext: modelContext,
                 eligibleWorkoutIDs: [workout.id],
                 forceRangeDiscovery: forceRangeDiscovery
@@ -633,40 +683,41 @@ final class WorkoutImportCoordinator {
         )
     }
 
-    private func buildPendingCandidates(existingIndex: ExistingWorkoutIndex) async throws -> [ImportedWorkoutCandidate] {
+    private func buildPendingCandidates(modelContext: ModelContext) throws -> [ImportedWorkoutCandidate] {
         let ignoredAppleHealthWorkoutIDs = ignoredAppleHealthWorkoutStore.load()
         let appleSamples = HealthKitSyncState.cachedWorkoutSamples
             .filter { !ignoredAppleHealthWorkoutIDs.contains($0.externalRecordID) }
-            .sorted { $0.startDate > $1.startDate }
 
-        var candidates: [ImportedWorkoutCandidate] = []
+        let importedRecordIDs = try AppleHealthLinkQuery.importedRecordIDs(
+            among: Set(appleSamples.map(\.externalRecordID)),
+            in: modelContext
+        )
 
-        for sample in appleSamples {
-            guard !isAppleHealthImported(sample.externalRecordID, existingIndex: existingIndex) else { continue }
-            candidates.append(.appleHealth(sample: sample))
-        }
-
-        return candidates.sorted { lhs, rhs in
-            lhs.startDate > rhs.startDate
-        }
+        return appleSamples
+            .filter { !importedRecordIDs.contains($0.externalRecordID) }
+            .map { ImportedWorkoutCandidate.appleHealth(sample: $0) }
+            .sorted { lhs, rhs in
+                lhs.startDate > rhs.startDate
+            }
     }
 
     @discardableResult
     private func enrichInAppWorkoutsWithAppleHealthIfPossible(
-        existingIndex: ExistingWorkoutIndex,
         modelContext: ModelContext,
         eligibleWorkoutIDs: Set<UUID>? = nil,
         forceRangeDiscovery: Bool = false
     ) async throws -> [Workout] {
         guard authorizationController.connectionState == .connected else { return [] }
 
-        let inScopeWorkouts = existingIndex.allWorkouts.filter { workout in
-            if let eligibleWorkoutIDs, !eligibleWorkoutIDs.contains(workout.id) {
-                return false
-            }
+        let inScopeWorkouts = try InAppSensorWorkoutQuery
+            .allInAppSensorWorkouts(in: modelContext)
+            .filter { workout in
+                if let eligibleWorkoutIDs, !eligibleWorkoutIDs.contains(workout.id) {
+                    return false
+                }
 
-            return workout.isInAppSensorWorkout && needsAppleHealthEnrichment(workout)
-        }
+                return needsAppleHealthEnrichment(workout)
+            }
 
         let linkedMetricWorkouts = inScopeWorkouts.filter { workout in
             appleHealthExternalRecordID(for: workout) != nil &&
@@ -696,9 +747,9 @@ final class WorkoutImportCoordinator {
         let heartRateFallbackWorkouts = forceRangeDiscovery
             ? eligibleWorkouts
             : eligibleWorkouts.filter { enrichmentRetryStore.isRetryDue(for: $0) }
-        let appleSamples = await appleHealthSamplesForEnrichment(
+        let appleSamples = try await appleHealthSamplesForEnrichment(
             eligibleWorkouts: eligibleWorkouts,
-            existingIndex: existingIndex,
+            modelContext: modelContext,
             forceRangeDiscovery: forceRangeDiscovery
         )
         guard !appleSamples.isEmpty else {
@@ -771,9 +822,9 @@ final class WorkoutImportCoordinator {
 
     private func appleHealthSamplesForEnrichment(
         eligibleWorkouts: [Workout],
-        existingIndex: ExistingWorkoutIndex,
+        modelContext: ModelContext,
         forceRangeDiscovery: Bool = false
-    ) async -> [HealthKitWorkoutSample] {
+    ) async throws -> [HealthKitWorkoutSample] {
         let ignoredAppleHealthWorkoutIDs = ignoredAppleHealthWorkoutStore.load()
         var samplesByID: [String: HealthKitWorkoutSample] = [:]
         let retryableWorkouts = forceRangeDiscovery
@@ -782,34 +833,46 @@ final class WorkoutImportCoordinator {
                 enrichmentRetryStore.isRetryDue(for: workout)
             }
 
-        func addIfEligible(_ sample: HealthKitWorkoutSample) {
-            guard !ignoredAppleHealthWorkoutIDs.contains(sample.externalRecordID),
-                  !isAppleHealthImported(sample.externalRecordID, existingIndex: existingIndex) else {
-                return
+        // Imported-ness is resolved a batch at a time rather than per sample: one bounded query
+        // over the IDs in hand, instead of an index built by scanning the whole store.
+        func addAllEligible(_ samples: [HealthKitWorkoutSample]) throws {
+            let unignoredSamples = samples.filter {
+                !ignoredAppleHealthWorkoutIDs.contains($0.externalRecordID)
             }
+            guard !unignoredSamples.isEmpty else { return }
 
-            samplesByID[sample.externalRecordID] = sample
+            let importedRecordIDs = try AppleHealthLinkQuery.importedRecordIDs(
+                among: Set(unignoredSamples.map(\.externalRecordID)),
+                in: modelContext
+            )
+
+            for sample in unignoredSamples
+            where !importedRecordIDs.contains(sample.externalRecordID) {
+                samplesByID[sample.externalRecordID] = sample
+            }
         }
 
-        HealthKitSyncState.cachedWorkoutSamples.forEach(addIfEligible)
+        func sortedSamples() -> [HealthKitWorkoutSample] {
+            samplesByID.values.sorted { lhs, rhs in
+                lhs.startDate > rhs.startDate
+            }
+        }
+
+        try addAllEligible(HealthKitSyncState.cachedWorkoutSamples)
 
         if let dateRange = appleHealthEnrichmentDiscoveryRange(for: retryableWorkouts) {
             enrichmentRetryStore.recordAttempt(for: retryableWorkouts)
             guard let discoveredSamples = try? await workoutReader.fetchStairStepperWorkouts(in: dateRange) else {
-                return samplesByID.values.sorted { lhs, rhs in
-                    lhs.startDate > rhs.startDate
-                }
+                return sortedSamples()
             }
             HealthKitSyncState.updateCachedWorkoutSamples(
                 added: discoveredSamples,
                 deletedExternalRecordIDs: []
             )
-            discoveredSamples.forEach(addIfEligible)
+            try addAllEligible(discoveredSamples)
         }
 
-        return samplesByID.values.sorted { lhs, rhs in
-            lhs.startDate > rhs.startDate
-        }
+        return sortedSamples()
     }
 
     @discardableResult
@@ -935,9 +998,13 @@ final class WorkoutImportCoordinator {
         )
 
         isImporting = true
+        totalImportCount = candidates.count
+        remainingImportCount = candidates.count
         defer {
             isImporting = false
             currentImportingCandidateID = nil
+            totalImportCount = 0
+            remainingImportCount = 0
         }
 
         var importedWorkouts: [Workout] = []
@@ -945,9 +1012,16 @@ final class WorkoutImportCoordinator {
         var failedCandidateIDs: [String] = []
 
         for candidate in candidates.sorted(by: { $0.startDate < $1.startDate }) {
+            // A backfill can be hundreds of workouts long. Yielding between them keeps Home
+            // interactive while it runs, and gives cancellation somewhere to land.
+            await Task.yield()
+            if Task.isCancelled { break }
+
             currentImportingCandidateID = candidate.id
 
             let outcome = await importCandidateInternal(candidate, modelContext: modelContext)
+            remainingImportCount = max(0, remainingImportCount - 1)
+
             switch outcome {
             case .imported(let workout):
                 importedWorkouts.append(workout)
@@ -995,14 +1069,15 @@ final class WorkoutImportCoordinator {
         modelContext: ModelContext
     ) async -> ImportOutcome {
         do {
-            let existingIndex = try buildExistingWorkoutIndex(modelContext: modelContext)
-
             switch candidate.kind {
             case .appleHealth:
                 guard let appleHealthSample = candidate.appleHealthSample else {
                     return .failed(candidateID: candidate.id)
                 }
-                if let existingWorkout = existingIndex.workout(forAppleHealthID: appleHealthSample.externalRecordID) {
+                if let existingWorkout = try AppleHealthLinkQuery.workout(
+                    forExternalRecordID: appleHealthSample.externalRecordID,
+                    in: modelContext
+                ) {
                     return .updatedExisting(existingWorkout)
                 }
                 return try await importAppleHealthCandidate(candidate, modelContext: modelContext)
@@ -1030,13 +1105,14 @@ final class WorkoutImportCoordinator {
         }
         let appleHealthLink = makeAppleHealthSourceLink(from: sample, workout: workout)
 
-        let refreshedIndex = try buildExistingWorkoutIndex(modelContext: modelContext)
-        if let existingWorkout = refreshedIndex.workout(forAppleHealthID: sample.externalRecordID) {
+        if let existingWorkout = try AppleHealthLinkQuery.workout(
+            forExternalRecordID: sample.externalRecordID,
+            in: modelContext
+        ) {
             return .updatedExisting(existingWorkout)
         }
 
         let enrichedWorkouts = try await enrichInAppWorkoutsWithAppleHealthIfPossible(
-            existingIndex: refreshedIndex,
             modelContext: modelContext
         )
         if let enrichedWorkout = enrichedWorkouts.first(where: { $0.healthKitUUID == sample.externalRecordID }) {
@@ -1048,44 +1124,6 @@ final class WorkoutImportCoordinator {
         try modelContext.save()
 
         return .imported(workout)
-    }
-
-    private func buildExistingWorkoutIndex(modelContext: ModelContext) throws -> ExistingWorkoutIndex {
-        let workouts = try fetchAllWorkouts(from: modelContext)
-
-        var appleHealthWorkoutsByID: [String: Workout] = [:]
-
-        for workout in workouts {
-            if let healthKitUUID = workout.healthKitUUID {
-                appleHealthWorkoutsByID[healthKitUUID] = workout
-            }
-
-            for sourceLink in workout.sourceLinks {
-                switch sourceLink.provider {
-                case .appleHealth:
-                    appleHealthWorkoutsByID[sourceLink.externalRecordID] = workout
-                case .garmin, .fitbit, .hevy:
-                    break
-                }
-            }
-        }
-
-        return ExistingWorkoutIndex(
-            allWorkouts: workouts,
-            appleHealthWorkoutsByID: appleHealthWorkoutsByID
-        )
-    }
-
-    private func isCandidateImported(_ candidate: ImportedWorkoutCandidate, existingIndex: ExistingWorkoutIndex) -> Bool {
-        switch candidate.kind {
-        case .appleHealth:
-            guard let appleHealthSample = candidate.appleHealthSample else { return false }
-            return isAppleHealthImported(appleHealthSample.externalRecordID, existingIndex: existingIndex)
-        }
-    }
-
-    private func isAppleHealthImported(_ externalRecordID: String, existingIndex: ExistingWorkoutIndex) -> Bool {
-        existingIndex.workout(forAppleHealthID: externalRecordID) != nil
     }
 
     private func hasAppleHealthLink(_ workout: Workout) -> Bool {
@@ -1325,12 +1363,29 @@ final class WorkoutImportCoordinator {
         return try modelContext.fetch(descriptor)
     }
 
+    /// Drops review state that points at a workout the user has since deleted.
+    ///
+    /// This runs on every Home entry, so it queries only the one or two IDs it actually cares
+    /// about. Deriving them from a full `fetchAllWorkouts` is what blocked the main thread for
+    /// 182 seconds on a large history (ASCEND-IOS-1K).
     private func pruneAutoImportedReviewState(modelContext: ModelContext) throws {
-        let validWorkoutIDs = try Set(fetchAllWorkouts(from: modelContext).map(\.id))
-        reviewStateStore.prune(validIDs: validWorkoutIDs)
+        var reviewedWorkoutIDs: Set<UUID> = []
+        if let recordedWorkoutID = reviewStateStore.recordedWorkoutID() {
+            reviewedWorkoutIDs.insert(recordedWorkoutID)
+        }
+        if let currentAutoImportedReviewWorkoutID {
+            reviewedWorkoutIDs.insert(currentAutoImportedReviewWorkoutID)
+        }
+        guard !reviewedWorkoutIDs.isEmpty else { return }
+
+        let survivingWorkoutIDs = try WorkoutExistenceQuery.existingIDs(
+            among: reviewedWorkoutIDs,
+            in: modelContext
+        )
+        reviewStateStore.prune(validIDs: survivingWorkoutIDs)
 
         if let currentAutoImportedReviewWorkoutID,
-           !validWorkoutIDs.contains(currentAutoImportedReviewWorkoutID) {
+           !survivingWorkoutIDs.contains(currentAutoImportedReviewWorkoutID) {
             self.currentAutoImportedReviewWorkoutID = nil
         }
     }
@@ -1389,13 +1444,16 @@ final class WorkoutImportCoordinator {
     }
 
     private func recalculateDerivedData(modelContext: ModelContext, newWorkouts: [Workout] = []) throws {
+        // `fetchAllWorkouts` is unavoidable here: a percentile is defined against the user's whole
+        // history. What is avoidable is deriving that history once per workout - see
+        // `allPercentiles(forDateAscendingWorkouts:)`.
         let allWorkouts = try fetchAllWorkouts(from: modelContext)
+        let percentiles = PercentileScoreService.allPercentiles(
+            forDateAscendingWorkouts: allWorkouts
+        )
 
-        for workout in allWorkouts {
-            workout.percentileScores = PercentileScoreService.calculateAllPercentiles(
-                for: workout,
-                existingWorkouts: allWorkouts
-            )
+        for (workout, scores) in zip(allWorkouts, percentiles) {
+            workout.percentileScores = scores
         }
 
         // Refresh derived workout data and leaderboard stats.

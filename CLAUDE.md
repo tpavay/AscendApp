@@ -155,6 +155,8 @@ Rules that fire from contexts that don't look like their own domain. Each names 
 - **A chest strap always outranks an Apple Watch as the live heart-rate source.** Every live session type samples through the one shared recorder; never grow a second capture path. Fires while wiring any heart-rate source or new live session. -> `LiveHeartRateSourceKind.selectionPriority`, `LiveHeartRateRecorder`
 - **No third-party frameworks without asking first.** Avoid UIKit unless requested. Fires at `import` time.
 - **SwiftData + CloudKit**: never use `@Attribute(.unique)`; properties need defaults or must be optional; all relationships must be optional. Fires while writing an `@Model`.
+- **Store an `@Model` enum as a raw value if anything will ever filter on it.** `#Predicate` rejects a captured Codable enum (`unsupportedPredicate`) and *hard-crashes* on `array.contains(optional ?? "")`; `[String?].contains(optionalProperty)` is the working optional form. A non-filterable column is why a query becomes a whole-store scan. Fires while writing an `@Model` property, long before anyone writes the query. -> `swiftdata-pro`
+- **Nothing on a screen's `.task` may run a store query whose cost grows with the user's history.** Home blocked for 182s answering a one-UUID question with `fetch(FetchDescriptor<Workout>())` (ASCEND-IOS-1K). Use the bounded queries in `Shared/Repositories/`; `Workout` carries its heart-rate series inline, so a full fetch is never cheap. Fires while writing a view's `.task` or a coordinator's `configure`. -> `ascend-workout-import`
 - **Never commit API keys, secrets, or QA credentials**, and never bundle them into production builds.
 
 ## Ascend-Specific Overrides
