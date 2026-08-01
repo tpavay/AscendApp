@@ -344,7 +344,7 @@ async function main() {
     `/repos/${owner}/${repo}/issues?state=open&per_page=100`
   );
   const {canonical, duplicates} = selectWatchdogIssue(openIssues);
-  const plan = planIssueSync({healthy, body, existingIssue: canonical});
+  const plan = planIssueSync({healthy, alerts, existingIssue: canonical});
   console.log(`Issue action: ${plan.action}`);
 
   if (options.dryRun) {

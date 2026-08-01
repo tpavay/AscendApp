@@ -83,6 +83,29 @@ export function formatDuration(ms) {
 }
 
 /**
+ * Formats a span at a grain coarse enough not to churn between watchdog runs.
+ *
+ * The watchdog runs every three hours, so any figure finer than this would
+ * differ on every single run. Alert prose is read by a human deciding whether
+ * to act, and "over 11 days" carries that decision exactly as well as
+ * "11d 1h" - while staying identical across a dozen consecutive reports.
+ *
+ * @param {number} ms Span in milliseconds.
+ * @return {string} A coarse, stable duration.
+ */
+export function formatCoarseDuration(ms) {
+  const hours = Math.max(0, ms) / (60 * MINUTE_MS);
+  if (hours < 6) {
+    return "under 6 hours";
+  }
+  if (hours < 24) {
+    return "under a day";
+  }
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "over a day" : `over ${days} days`;
+}
+
+/**
  * Reads the `on.push.paths` allowlist out of a workflow file.
  *
  * The drift check needs to know which commits could ever have triggered a
@@ -379,13 +402,12 @@ export function evaluateDeployHealth({
   for (const {run, waitingMs} of stalled) {
     alerts.push({
       kind: "run-stalled",
-      title:
-        `Deploy Production ${runLabel(run)} has been ` +
-        `${run.status} for ${formatDuration(waitingMs)}`,
+      title: `Deploy Production ${runLabel(run)} is stuck in ${run.status}`,
       detail:
         "A run that never finishes holds the deploy-production concurrency " +
         "group, and every run queued behind it is cancelled without ever " +
-        "creating a job. Approve or cancel it.",
+        "creating a job. Approve or cancel it. It has been " +
+        `${run.status} for ${formatCoarseDuration(waitingMs)}.`,
       runs: [
         {
           id: run.id,
@@ -457,15 +479,18 @@ export function evaluateDeployHealth({
               `${verdict.triggering.length === 1 ? "" : "s"} match the ` +
               `workflow's paths filter, starting with ` +
               `\`${verdict.triggering[0]}\`.`;
+        const ageDetail =
+          behindMs === null ?
+            "" :
+            ` The head has been undeployed for ${formatCoarseDuration(behindMs)}.`;
         alerts.push({
           kind: "production-behind-default-branch",
-          title:
-            `Production is behind ${head.ref ?? "the default branch"}` +
-            (behindMs === null ? "" : ` by ${formatDuration(behindMs)}`),
+          title: `Production is behind ${head.ref ?? "the default branch"}`,
           detail:
             `Last successful deploy was ${deployedLabel}; ` +
             `the default branch is now at ${head.sha.slice(0, 7)}.` +
-            undeployedDetail,
+            undeployedDetail +
+            ageDetail,
           runs: [deployedRun],
         });
       }
@@ -478,12 +503,53 @@ export function evaluateDeployHealth({
 /** Hidden marker that lets the watchdog find the issue it owns. */
 export const WATCHDOG_MARKER = "<!-- ascend-deploy-production-watchdog -->";
 
+/** Label on the hidden token that records which alert set the issue reports. */
+export const WATCHDOG_IDENTITY_LABEL = "ascend-deploy-production-watchdog-id";
+
+const IDENTITY_PATTERN = new RegExp(
+  `<!--\\s*${WATCHDOG_IDENTITY_LABEL}:([A-Za-z0-9_.,:|@-]*)\\s*-->`
+);
+
 /**
- * Renders an alert set as a stable issue body.
+ * Derives a stable fingerprint of *which problems* a report describes.
  *
- * Stability is the point: the watchdog rewrites the body only when it changes,
- * and comments only when it rewrites, so a standing problem does not email
- * every three hours while a *new* problem still does.
+ * Deliberately built from the alert set alone - sorted kinds, and the sorted
+ * run ids each kind names - and never from rendered prose. Anything that ticks
+ * (a duration, a timestamp, a growing count) would make every run look like a
+ * new problem, and since the watchdog emails whenever the report changes, that
+ * turns one standing outage into a notification every three hours. The identity
+ * changes when the situation changes, and only then.
+ *
+ * @param {Array<object>} alerts Alerts from `evaluateDeployHealth`.
+ * @return {string} A deterministic identity token.
+ */
+export function alertIdentity(alerts) {
+  const parts = (alerts ?? [])
+    .map((alert) => {
+      const ids = (alert.runs ?? [])
+        .map((entry) => String(entry.id))
+        .sort();
+      return `${alert.kind}@${ids.join(",")}`;
+    })
+    .sort();
+  return parts.length === 0 ? "none" : parts.join("|");
+}
+
+/**
+ * Reads the identity token a previous report stored in an issue body.
+ * @param {string} body An issue body.
+ * @return {string | null} The stored identity, or null when there is not one.
+ */
+export function parseAlertIdentity(body) {
+  return String(body ?? "").match(IDENTITY_PATTERN)?.[1] ?? null;
+}
+
+/**
+ * Renders an alert set as an issue body carrying its own identity.
+ *
+ * The identity token is what the next run compares against, so the prose here
+ * is free to change - reword a detail, bucket a duration differently - without
+ * turning a standing problem into a fresh notification.
  *
  * @param {Array<object>} alerts Alerts from `evaluateDeployHealth`.
  * @param {{repository?: string, workflow?: string}} [context] Repo context.
@@ -493,6 +559,7 @@ export function formatHealthReport(alerts, context = {}) {
   const workflow = context.workflow ?? "Deploy Production";
   const lines = [
     WATCHDOG_MARKER,
+    `<!-- ${WATCHDOG_IDENTITY_LABEL}:${alertIdentity(alerts)} -->`,
     "",
     `\`${workflow}\` is not delivering code to production.`,
     "",
@@ -535,8 +602,9 @@ export function formatHealthReport(alerts, context = {}) {
  * instead of accumulating a new issue every three hours.
  *
  * @param {Array<object>} issues Open issues from the GitHub API.
- * @return {{canonical: {number: number, body: string} | null,
- *   duplicates: Array<number>}} The issue to keep and the ones to close.
+ * @return {{canonical: {number: number, body: string,
+ *   identity: string | null} | null, duplicates: Array<number>}} The issue to
+ *   keep, with the alert identity it currently reports, and the ones to close.
  */
 export function selectWatchdogIssue(issues) {
   const owned = (issues ?? [])
@@ -551,8 +619,13 @@ export function selectWatchdogIssue(issues) {
   }
 
   const [first, ...rest] = owned;
+  const body = first.body ?? "";
   return {
-    canonical: {number: first.number, body: first.body ?? ""},
+    canonical: {
+      number: first.number,
+      body,
+      identity: parseAlertIdentity(body),
+    },
     duplicates: rest.map((issue) => issue.number),
   };
 }
@@ -565,13 +638,13 @@ export function selectWatchdogIssue(issues) {
  *
  * @param {object} input Decision input.
  * @param {boolean} input.healthy Whether the pipeline is healthy.
- * @param {string} input.body The rendered report body (ignored when healthy).
- * @param {{number: number, body: string} | null} input.existingIssue The open
- *   watchdog issue, if one exists.
+ * @param {Array<object>} [input.alerts] The alert set (ignored when healthy).
+ * @param {{number: number, identity: string | null} | null} input.existingIssue
+ *   The open watchdog issue, if one exists.
  * @return {{action: string, issueNumber: number|null, comment: string|null}}
  *   The action to take.
  */
-export function planIssueSync({healthy, body, existingIssue}) {
+export function planIssueSync({healthy, alerts, existingIssue}) {
   if (healthy) {
     if (!existingIssue) {
       return {action: "none", issueNumber: null, comment: null};
@@ -589,9 +662,12 @@ export function planIssueSync({healthy, body, existingIssue}) {
     return {action: "create", issueNumber: null, comment: null};
   }
 
-  // Body edits do not notify; comments do. Comment only when the report
-  // actually changed, so a standing problem stays quiet and a new one shouts.
-  const changed = (existingIssue.body ?? "").trim() !== body.trim();
+  // Body edits do not notify; comments do. Compare the alert identity rather
+  // than the rendered body, so a standing problem stays quiet however its prose
+  // renders and a genuinely new one shouts. An issue with no readable identity -
+  // predating this token, or hand-edited - counts as changed: one extra
+  // notification is a far cheaper error than a silent outage.
+  const changed = existingIssue.identity !== alertIdentity(alerts);
   return {
     action: changed ? "update" : "noop",
     issueNumber: existingIssue.number,

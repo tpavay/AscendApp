@@ -4,9 +4,11 @@ import test from "node:test";
 import {fileURLToPath} from "node:url";
 import {
   WATCHDOG_MARKER,
+  alertIdentity,
   classifyDrift,
   deployTriggeringFiles,
   evaluateDeployHealth,
+  formatCoarseDuration,
   formatDuration,
   formatHealthReport,
   parsePushPathFilters,
@@ -203,8 +205,9 @@ test("a run stalled on approval is caught while it is still holding the group", 
 
   assert.equal(healthy, false);
   const stalled = alerts.find((alert) => alert.kind === "run-stalled");
-  assert.match(stalled.title, /in_progress for 9h/);
+  assert.match(stalled.title, /is stuck in in_progress$/);
   assert.match(stalled.detail, /concurrency group/);
+  assert.match(stalled.detail, /in_progress for under a day/);
 });
 
 test("a run inside the stall threshold is not an alert", () => {
@@ -500,37 +503,172 @@ test("no watchdog issue open reads as none, not as an error", () => {
 });
 
 test("an unhealthy pipeline with no open issue opens one", () => {
-  const plan = planIssueSync({healthy: false, body: "b", existingIssue: null});
+  const plan = planIssueSync({healthy: false, alerts: [], existingIssue: null});
   assert.equal(plan.action, "create");
 });
 
-test("an unchanged report does not re-notify", () => {
+/**
+ * Builds the open watchdog issue a rendered report would have left behind.
+ * @param {Array<object>} alerts The alerts that report described.
+ * @return {object} The canonical issue, as `selectWatchdogIssue` returns it.
+ */
+function issueReporting(alerts) {
+  const {canonical} = selectWatchdogIssue([
+    {number: 7, body: formatHealthReport(alerts)},
+  ]);
+  return canonical;
+}
+
+test("a standing problem stays quiet even as its durations tick on", () => {
+  // The same stall and the same drift, evaluated an hour apart. The rendered
+  // prose is allowed to differ; the notification decision must not.
+  const stalling = run({id: 9, status: "queued", conclusion: null,
+    created_at: "2026-07-16T23:22:38Z", run_started_at: "2026-07-16T23:22:38Z"});
+  const deployed = run({id: 2, run_number: 2, head_sha: "old".repeat(13) + "a"});
+  const evaluate = (now) => evaluateDeployHealth({
+    runs: [stalling, deployed],
+    head: HEAD,
+    now,
+    comparison: {status: "ahead", files: ["functions/src/index.ts"]},
+    deployPathFilters: DEPLOY_PATH_FILTERS,
+  }).alerts;
+
+  const earlier = evaluate("2026-07-31T12:00:00Z");
+  const later = evaluate("2026-07-31T13:00:00Z");
+
+  assert.ok(
+    earlier.some((alert) => alert.kind === "run-stalled") &&
+      earlier.some((alert) => alert.kind === "production-behind-default-branch"),
+    "both duration-bearing alerts are active"
+  );
+  assert.notEqual(
+    formatDuration(Date.parse("2026-07-31T12:00:00Z") - Date.parse(stalling.created_at)),
+    formatDuration(Date.parse("2026-07-31T13:00:00Z") - Date.parse(stalling.created_at)),
+    "the underlying durations really did change"
+  );
+  assert.equal(alertIdentity(earlier), alertIdentity(later));
+
   const plan = planIssueSync({
     healthy: false,
-    body: "same",
-    existingIssue: {number: 7, body: "same"},
+    alerts: later,
+    existingIssue: issueReporting(earlier),
   });
 
   assert.equal(plan.action, "noop");
   assert.equal(plan.comment, null);
 });
 
-test("a changed report comments, because body edits do not email", () => {
+test("neither duration-bearing alert puts a clock in its title", () => {
+  const {alerts} = evaluateDeployHealth({
+    runs: [
+      run({id: 9, status: "queued", conclusion: null,
+        created_at: "2026-07-16T23:22:38Z",
+        run_started_at: "2026-07-16T23:22:38Z"}),
+      run({id: 2, run_number: 2, head_sha: "old".repeat(13) + "a"}),
+    ],
+    head: HEAD,
+    now: NOW,
+    comparison: {status: "ahead", files: ["functions/src/index.ts"]},
+    deployPathFilters: DEPLOY_PATH_FILTERS,
+  });
+
+  for (const alert of alerts) {
+    assert.doesNotMatch(
+      alert.title,
+      /\d+\s*(?:d|h|m)\b/,
+      `"${alert.title}" names the condition, not its age`
+    );
+  }
+  assert.ok(
+    alerts.some((alert) => /over \d+ days|under a day|under 6 hours/.test(alert.detail)),
+    "the age still reaches the reader, coarsely, in the body"
+  );
+});
+
+test("coarse durations do not churn between watchdog runs", () => {
+  const hour = 60 * 60_000;
+  assert.equal(formatCoarseDuration(0), "under 6 hours");
+  assert.equal(formatCoarseDuration(5.9 * hour), "under 6 hours");
+  assert.equal(formatCoarseDuration(7 * hour), "under a day");
+  assert.equal(formatCoarseDuration(25 * hour), "over a day");
+  assert.equal(formatCoarseDuration(11 * 24 * hour + hour), "over 11 days");
+  assert.equal(
+    formatCoarseDuration(11 * 24 * hour + hour),
+    formatCoarseDuration(11 * 24 * hour + 4 * hour),
+    "three hours later reads identically"
+  );
+});
+
+test("a genuinely new alert kind re-notifies", () => {
+  const existing = [{kind: "runs-not-succeeding", runs: [{id: 1}]}];
+  const grown = [...existing, {kind: "run-stalled", runs: [{id: 5}]}];
+
   const plan = planIssueSync({
     healthy: false,
-    body: "new",
-    existingIssue: {number: 7, body: "old"},
+    alerts: grown,
+    existingIssue: issueReporting(existing),
   });
 
   assert.equal(plan.action, "update");
   assert.ok(plan.comment);
 });
 
+test("a new run inside an existing alert kind re-notifies", () => {
+  const existing = [{kind: "runs-not-succeeding", runs: [{id: 1}, {id: 2}]}];
+  const grown = [{kind: "runs-not-succeeding", runs: [{id: 1}, {id: 2}, {id: 3}]}];
+
+  const plan = planIssueSync({
+    healthy: false,
+    alerts: grown,
+    existingIssue: issueReporting(existing),
+  });
+
+  assert.equal(plan.action, "update");
+  assert.ok(plan.comment);
+});
+
+test("run order within an alert does not fake a new problem", () => {
+  const alerts = [{kind: "runs-not-succeeding", runs: [{id: 2}, {id: 1}]}];
+  const reordered = [{kind: "runs-not-succeeding", runs: [{id: 1}, {id: 2}]}];
+
+  assert.equal(alertIdentity(alerts), alertIdentity(reordered));
+});
+
+test("an issue with no readable identity is treated as changed, never as matching", () => {
+  const alerts = [{kind: "runs-not-succeeding", runs: [{id: 1}]}];
+
+  for (const body of [
+    `${WATCHDOG_MARKER}\n\nan issue written before the identity token existed`,
+    `${WATCHDOG_MARKER}\n<!-- ascend-deploy-production-watchdog-id -->\n\nmangled`,
+  ]) {
+    const {canonical} = selectWatchdogIssue([{number: 7, body}]);
+    assert.equal(canonical.identity, null);
+    const plan = planIssueSync({healthy: false, alerts, existingIssue: canonical});
+    assert.equal(plan.action, "update", "erring loud beats erring silent");
+    assert.ok(plan.comment);
+  }
+});
+
+test("the identity survives a rewording of the report prose", () => {
+  const alerts = [{kind: "run-stalled", runs: [{id: 42}]}];
+  const {canonical} = selectWatchdogIssue([
+    {
+      number: 7,
+      body: `${WATCHDOG_MARKER}\n<!-- ascend-deploy-production-watchdog-id:${alertIdentity(alerts)} -->\n\ntotally different prose`,
+    },
+  ]);
+
+  assert.equal(
+    planIssueSync({healthy: false, alerts, existingIssue: canonical}).action,
+    "noop"
+  );
+});
+
 test("recovery closes the issue and says why", () => {
   const plan = planIssueSync({
     healthy: true,
-    body: "",
-    existingIssue: {number: 7, body: "old"},
+    alerts: [],
+    existingIssue: {number: 7, identity: "run-stalled@9"},
   });
 
   assert.equal(plan.action, "close");
@@ -539,7 +677,7 @@ test("recovery closes the issue and says why", () => {
 });
 
 test("a healthy pipeline with no issue does nothing", () => {
-  const plan = planIssueSync({healthy: true, body: "", existingIssue: null});
+  const plan = planIssueSync({healthy: true, alerts: [], existingIssue: null});
   assert.equal(plan.action, "none");
 });
 
