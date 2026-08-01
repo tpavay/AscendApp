@@ -162,6 +162,9 @@ final class WorkoutImportCoordinator {
     private var lastAutomaticCheckAt: Date?
     private var refreshTask: Task<Void, Never>?
     private var activeRefreshTrigger: ImportRefreshTrigger?
+    private var refreshJoinContinuations: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var joinsInFlight: Set<UUID> = []
+    private var joinsEndedBeforeParking: Set<UUID> = []
     private var legacySourceLinkBackfillTask: Task<Void, Never>?
     var currentAutoImportedReviewWorkoutID: UUID?
 
@@ -319,10 +322,11 @@ final class WorkoutImportCoordinator {
     /// Only the owner may cancel. A caller that merely joins someone else's in-flight pass stops
     /// caring about the result when it is cancelled, but the surface that asked for the pass is
     /// still watching it: dismissing the import sheet must not stop the backfill Home started.
+    /// A cancelled joiner still returns straight away - it stops waiting without stopping the pass.
     func refreshPendingImports(trigger: ImportRefreshTrigger) async {
-        if let refreshTask {
+        if refreshTask != nil {
             let activeRefreshTrigger = activeRefreshTrigger
-            await refreshTask.value
+            await joinInFlightRefresh()
 
             if Task.isCancelled { return }
 
@@ -337,6 +341,7 @@ final class WorkoutImportCoordinator {
             await self?.performRefreshPendingImports(trigger: trigger)
             self?.refreshTask = nil
             self?.activeRefreshTrigger = nil
+            self?.resumeAllJoiners()
         }
         self.refreshTask = refreshTask
         activeRefreshTrigger = trigger
@@ -349,6 +354,58 @@ final class WorkoutImportCoordinator {
             await task.value
         } onCancel: {
             task.cancel()
+        }
+    }
+
+    /// Waits for the in-flight pass without owning it.
+    ///
+    /// Deliberately not `await task.value`: a `Task<Void, Never>` is not interruptible by the
+    /// awaiting task's own cancellation, so a joiner that awaited it directly would stay
+    /// suspended for the rest of someone else's backfill. Parking on a continuation instead lets
+    /// the joiner be resumed by whichever comes first - the pass finishing, or its own
+    /// cancellation - while leaving the shared task untouched either way.
+    private func joinInFlightRefresh() async {
+        let joinID = UUID()
+        joinsInFlight.insert(joinID)
+        defer {
+            joinsInFlight.remove(joinID)
+            joinsEndedBeforeParking.remove(joinID)
+        }
+
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                // `joinsEndedBeforeParking` closes the window where cancellation arrives after
+                // the handler is installed but before the continuation exists. Without it that
+                // ordering parks a joiner nothing will ever resume.
+                guard refreshTask != nil,
+                      joinsEndedBeforeParking.remove(joinID) == nil else {
+                    continuation.resume()
+                    return
+                }
+
+                refreshJoinContinuations[joinID] = continuation
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.endJoin(joinID)
+            }
+        }
+    }
+
+    private func endJoin(_ joinID: UUID) {
+        if let continuation = refreshJoinContinuations.removeValue(forKey: joinID) {
+            continuation.resume()
+        } else if joinsInFlight.contains(joinID) {
+            joinsEndedBeforeParking.insert(joinID)
+        }
+    }
+
+    private func resumeAllJoiners() {
+        let continuations = refreshJoinContinuations.values
+        refreshJoinContinuations.removeAll()
+
+        for continuation in continuations {
+            continuation.resume()
         }
     }
 

@@ -125,11 +125,13 @@ struct AscendApp: App {
         do {
             let schema = Schema(versionedSchema: AscendSchemaV2.self)
             let config = ModelConfiguration(schema: schema)
-            return .success(try ModelContainer(
+            let container = try ModelContainer(
                 for: schema,
                 migrationPlan: AscendMigrationPlan.self,
                 configurations: config
-            ))
+            )
+            finishInterruptedMigrationIfNeeded(in: container)
+            return .success(container)
         } catch {
             AppDiagnosticsRecorder.shared.record(
                 "model_container_creation_failed",
@@ -139,6 +141,36 @@ struct AscendApp: App {
             )
             debugLog("Failed to create model container: \(error)")
             return .failure(.localDataUnavailable)
+        }
+    }
+
+    /// A `didMigrate` that never landed leaves the store on V2 with the old workout sources gone,
+    /// and SwiftData will not re-enter the stage to try again - so the retry has to live here, on
+    /// the already-migrated store. It no-ops unless a previous launch left the stash behind.
+    ///
+    /// Failing to repair is not worth blocking launch over: the stash survives, so the next
+    /// launch tries again.
+    private static func finishInterruptedMigrationIfNeeded(in container: ModelContainer) {
+        do {
+            let repairedCount = try AscendMigrationPlan.recoverInterruptedMigrationIfNeeded(
+                in: ModelContext(container)
+            )
+            guard repairedCount > 0 else { return }
+
+            AppDiagnosticsRecorder.shared.record(
+                "workout_source_migration_recovered",
+                level: .warning,
+                details: ["repaired_count": String(repairedCount)],
+                mirrorToCrashlytics: false
+            )
+        } catch {
+            AppDiagnosticsRecorder.shared.record(
+                "workout_source_migration_recovery_failed",
+                level: .error,
+                details: ["error_type": String(describing: type(of: error))],
+                mirrorToCrashlytics: false
+            )
+            debugLog("Failed to finish interrupted workout source migration: \(error)")
         }
     }
 }

@@ -174,6 +174,74 @@ struct WorkoutSourceSchemaMigrationTests {
         #expect(try InAppSensorWorkoutQuery.allInAppSensorWorkouts(in: context).count == 1)
     }
 
+    /// The failure path, which is the one that matters.
+    ///
+    /// A `didMigrate` that throws leaves the store recorded as V2 with the old `source` column
+    /// already gone, and SwiftData will not re-enter the stage to try again. If the next launch
+    /// simply succeeded, every workout would read `.manual` for good - the exact silent loss this
+    /// migration exists to prevent, only now indistinguishable from a healthy install.
+    @Test
+    func aMigrationThatFailsPartwayIsFinishedOnTheNextLaunch() throws {
+        let storeURL = Self.makeStoreURL()
+        defer { Self.removeStore(at: storeURL) }
+        defer { try? WorkoutSourceMigrationStash.shared.clear() }
+
+        let headphoneID = UUID()
+        let appleHealthID = UUID()
+
+        try Self.seedLegacyStore(at: storeURL) { context in
+            context.insert(
+                AscendSchemaV1.Workout(
+                    id: headphoneID,
+                    name: "Live Climb",
+                    date: Self.sessionStart,
+                    duration: 1800,
+                    steps: 3000,
+                    floors: 187,
+                    source: .headphoneMotion
+                )
+            )
+            context.insert(
+                AscendSchemaV1.Workout(
+                    id: appleHealthID,
+                    name: "Stair Stepper",
+                    date: Self.sessionStart.addingTimeInterval(86_400),
+                    duration: 1200,
+                    steps: 2000,
+                    floors: 125,
+                    source: .appleHealth,
+                    healthKitUUID: "hk-1"
+                )
+            )
+        }
+
+        #expect(throws: (any Error).self) {
+            _ = try Self.openStore(at: storeURL, migrationPlan: FailingWorkoutSourceMigrationPlan.self)
+        }
+
+        let interrupted = try Self.readSources(at: storeURL, finishInterruptedMigration: false)
+        #expect(
+            interrupted[headphoneID] == .manual,
+            """
+            the failed migration was expected to leave the store unwritten; it read back \
+            \(String(describing: interrupted[headphoneID])), so this test is not exercising the \
+            recovery path it claims to
+            """
+        )
+
+        let recovered = try Self.readSources(at: storeURL, finishInterruptedMigration: true)
+        #expect(recovered[headphoneID] == .headphoneMotion)
+        #expect(recovered[appleHealthID] == .appleHealth)
+
+        #expect(
+            try WorkoutSourceMigrationStash.shared.load().isEmpty,
+            "a completed recovery has to clear the stash so later launches stop repairing"
+        )
+
+        let afterRecovery = try Self.readSources(at: storeURL, finishInterruptedMigration: true)
+        #expect(afterRecovery[headphoneID] == .headphoneMotion)
+    }
+
     // MARK: - Store helpers
 
     private static func makeStoreURL() -> URL {
@@ -205,12 +273,62 @@ struct WorkoutSourceSchemaMigrationTests {
     }
 
     private static func openMigratedStore(at url: URL) throws -> ModelContext {
+        ModelContext(try openStore(at: url, migrationPlan: AscendMigrationPlan.self))
+    }
+
+    private static func openStore(
+        at url: URL,
+        migrationPlan: (any SchemaMigrationPlan.Type)?
+    ) throws -> ModelContainer {
         let schema = Schema(versionedSchema: AscendSchemaV2.self)
-        let container = try ModelContainer(
+        return try ModelContainer(
             for: schema,
-            migrationPlan: AscendMigrationPlan.self,
+            migrationPlan: migrationPlan,
             configurations: ModelConfiguration(schema: schema, url: url)
         )
-        return ModelContext(container)
     }
+
+    /// Opens the store the way a launch does, reads the sources out as plain values, and lets the
+    /// container go - so the next open in the same test is not fighting a live connection.
+    private static func readSources(
+        at url: URL,
+        finishInterruptedMigration: Bool
+    ) throws -> [UUID: WorkoutSource] {
+        let context = try openMigratedStore(at: url)
+        if finishInterruptedMigration {
+            try AscendMigrationPlan.recoverInterruptedMigrationIfNeeded(in: context)
+        }
+
+        return try context.fetch(FetchDescriptor<Workout>())
+            .reduce(into: [UUID: WorkoutSource]()) { partialResult, workout in
+                partialResult[workout.id] = workout.source
+            }
+    }
+}
+
+/// Stands in for the launch where `didMigrate` never lands: the real `willMigrate` runs and
+/// stashes the old sources, then the write fails.
+private enum FailingWorkoutSourceMigrationPlan: SchemaMigrationPlan {
+    static var schemas: [any VersionedSchema.Type] {
+        [AscendSchemaV1.self, AscendSchemaV2.self]
+    }
+
+    static var stages: [MigrationStage] {
+        [
+            MigrationStage.custom(
+                fromVersion: AscendSchemaV1.self,
+                toVersion: AscendSchemaV2.self,
+                willMigrate: { context in
+                    try AscendMigrationPlan.stashLegacySources(from: context)
+                },
+                didMigrate: { _ in
+                    throw InjectedMigrationFailure.didMigrateInterrupted
+                }
+            )
+        ]
+    }
+}
+
+private enum InjectedMigrationFailure: Error {
+    case didMigrateInterrupted
 }

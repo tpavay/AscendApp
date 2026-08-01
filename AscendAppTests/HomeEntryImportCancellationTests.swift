@@ -17,6 +17,7 @@ struct HomeEntryImportCancellationTests {
     private static let cancelAfterCandidates = 3
     private static let joinAfterCandidates = 3
     private static let cancelJoinerAfterCandidates = 6
+    private static let observeJoinerAfterCandidates = 10
     private static let sessionStart = Date(timeIntervalSince1970: 1_776_900_000)
 
     @Test
@@ -79,12 +80,15 @@ struct HomeEntryImportCancellationTests {
         }
     }
 
-    /// Only the caller that started the pass may stop it.
+    /// Only the caller that started the pass may stop it - and a joiner that walks away must not
+    /// keep waiting on it either.
     ///
     /// Several surfaces share one refresh, and the ones that merely join it come and go: the
     /// import sheet, the integrations card, the background observer. Letting a joiner's
     /// cancellation reach the shared task means dismissing the import sheet silently kills the
-    /// backfill Home started and is still showing progress for.
+    /// backfill Home started and is still showing progress for. Making the joiner wait it out
+    /// instead is the opposite failure: the sheet's `.task` stays suspended for the whole
+    /// remaining import. Both halves are asserted here.
     @Test
     func aJoiningCallerGoingAwayDoesNotStopTheOwnersBackfill() async throws {
         try await HealthKitImportCoordinatorTestIsolation.shared.run {
@@ -131,9 +135,14 @@ struct HomeEntryImportCancellationTests {
                 case Self.joinAfterCandidates:
                     joiner.task = Task { @MainActor in
                         await coordinator.refreshPendingImports(trigger: .manualReview)
+                        joiner.hasReturned = true
                     }
                 case Self.cancelJoinerAfterCandidates:
                     joiner.task?.cancel()
+                case Self.observeJoinerAfterCandidates:
+                    // Sampled while the owner is demonstrably still importing, so a joiner that
+                    // waits the pass out reads false here.
+                    joiner.hadReturnedBeforeOwnerFinished = joiner.hasReturned
                 default:
                     break
                 }
@@ -144,6 +153,14 @@ struct HomeEntryImportCancellationTests {
 
             let imported = try modelContext.fetch(FetchDescriptor<Workout>())
 
+            #expect(
+                joiner.hadReturnedBeforeOwnerFinished,
+                """
+                the cancelled joiner was still suspended at candidate \
+                \(Self.observeJoinerAfterCandidates) of \(Self.candidateCount); a joining caller \
+                that goes away has to stop waiting, not sit out the rest of someone else's import
+                """
+            )
             #expect(
                 imported.count == Self.candidateCount,
                 """
@@ -374,6 +391,8 @@ private final class CancellingStubWorkoutReader: HealthKitWorkoutReading {
 @MainActor
 private final class JoinedRefreshHolder {
     var task: Task<Void, Never>?
+    var hasReturned = false
+    var hadReturnedBeforeOwnerFinished = false
 }
 
 @MainActor
