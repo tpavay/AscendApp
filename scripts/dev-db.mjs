@@ -346,7 +346,8 @@ create-auth-user fields:
   --email <email> [--display-name <name>] [--uid <uid>]
   [--photo-url <url> | --photo-url "" | --clear-photo]
   [--password <password> | --password-env <ENV_NAME> | --generate-password]
-  [--use-existing] [--unverified] [--hydrate-profile | --seed-demo-data]
+  [--use-existing] [--unverified]
+  [--hydrate-profile (requires --display-name for a new user) | --seed-demo-data]
   If no password flag is provided, a random password is generated and printed once.
 
 hydrate-user fields:
