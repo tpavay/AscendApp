@@ -401,6 +401,89 @@ test('invalid weight entries are rejected', async () => {
   })));
 });
 
+// Nested-map key-set contract.
+//
+// Four workout sub-maps are validated by `keys().size() == N` paired with a single `hasAll([...])`
+// literal, because the `hasOnly`/`hasAll` pair the count replaces costs expression budget the
+// workout write rule does not have. The count is only exact while it matches the list beside it,
+// and nothing in the rules file ties the two together. These tests are that tie: for each map, an
+// unknown extra key must be rejected (the count catches what `hasOnly` used to) and a required key
+// swapped for an unknown one of the same arity must be rejected (the list catches what the count
+// alone cannot). Raising a count without extending its list, or the reverse, fails here.
+//
+// Each fixture populates at most one nested list - the write rule is already over Firestore's
+// 1000-expression ceiling well below its declared caps (issue #295), and a denial from that would
+// pass these assertions while proving nothing.
+test('a workout weight entry rejects an unknown key and a missing required key', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    weightConfiguration: {
+      entries: [{...makeWeightEntry(), unexpected: 'extra'}],
+    },
+  })));
+
+  const {isEnabled, ...weightEntryMissingIsEnabled} = makeWeightEntry();
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    weightConfiguration: {
+      entries: [{...weightEntryMissingIsEnabled, enabled: isEnabled}],
+    },
+  })));
+});
+
+test('a workout weight configuration rejects an unknown key and a missing required key', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    weightConfiguration: {
+      entries: [makeWeightEntry()],
+      unexpected: 'extra',
+    },
+  })));
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    weightConfiguration: {
+      items: [makeWeightEntry()],
+    },
+  })));
+});
+
+test('a participation metrics snapshot rejects an unknown key and a missing required key', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    participations: [{
+      ...makeRoutineTemplateParticipation(),
+      metricsSnapshot: {...makeMetricsSnapshot(), unexpected: 'extra'},
+    }],
+  })));
+
+  const {floors, ...snapshotMissingFloors} = makeMetricsSnapshot();
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    participations: [{
+      ...makeRoutineTemplateParticipation(),
+      metricsSnapshot: {...snapshotMissingFloors, flights: floors},
+    }],
+  })));
+});
+
+test('a workout participation rejects an unknown key and a missing required key', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    participations: [{...makeRoutineTemplateParticipation(), unexpected: 'extra'}],
+  })));
+
+  const {createdAt, ...participationMissingCreatedAt} = makeRoutineTemplateParticipation();
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    participations: [{...participationMissingCreatedAt, created: createdAt}],
+  })));
+});
+
 test('users cannot write workouts into another users path', async () => {
   const context = testEnv.authenticatedContext(userId);
   const workoutRef = doc(context.firestore(), `users/${otherUserId}/workouts/${workoutId}`);

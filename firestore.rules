@@ -538,11 +538,9 @@ service cloud.firestore {
             request.resource.data.climbId.size() > 0 &&
             request.resource.data.climbId.size() <= 160)) &&
         (!request.resource.data.keys().hasAny(["climbTier"]) ||
-          (request.resource.data.climbTier is string &&
-            isValidClimbTier(request.resource.data.climbTier))) &&
+          isValidClimbTier(request.resource.data.climbTier)) &&
         (!request.resource.data.keys().hasAny(["climbCompletionStatus"]) ||
-          (request.resource.data.climbCompletionStatus is string &&
-            isValidClimbAttemptStatus(request.resource.data.climbCompletionStatus))) &&
+          isValidClimbAttemptStatus(request.resource.data.climbCompletionStatus)) &&
         (!request.resource.data.keys().hasAny(["climbCompletionDurationSeconds"]) ||
           (request.resource.data.climbCompletionDurationSeconds is int &&
             request.resource.data.climbCompletionDurationSeconds >= 0)) &&
@@ -593,7 +591,6 @@ service cloud.firestore {
         ]) &&
         request.resource.data.userId == request.auth.uid &&
         isValidLeaderboardIdentity() &&
-        request.resource.data.timeFrame is string &&
         isValidTimeFrame(request.resource.data.timeFrame) &&
         isSupportedSchemaVersion(request.resource.data.schemaVersion) &&
         request.resource.data.periodKey is string &&
