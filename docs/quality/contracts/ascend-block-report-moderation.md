@@ -32,7 +32,7 @@ Blocks follow the account to new devices, and saved display names are screened b
 - [ ] PA-6: Profile photo and display-name edits propagate to public profile and existing leaderboard mirrors without changing ranking data.
 - [ ] PA-7: Part A ships only with the complete Part B moderation boundary in this same change.
 - [ ] PA-8: The user root may keep an empty display name before onboarding completes, but every public mirror stores a non-empty validated account name or stable UID-derived fallback.
-- [ ] PA-9: No historical backfill ships. Ascend is pre-launch and production holds no user or projection data, so account-authored identity reaches every projection through the live write path and the server propagation trigger only.
+- [ ] PA-9: No historical backfill ships to production. Ascend is pre-launch and production holds no user or projection data, so account-authored identity reaches every projection through the live write path and the server propagation trigger only. Dev and staging repair pre-policy mirrors with `scripts/restore-public-identities.mjs`, which writes only the public profile source document and is refused against production.
 - [ ] PA-10: Public profile propagation updates leaderboard, Live Replay entry, finisher, and First Ascent identity with bounded retry and leaves all non-identity fields unchanged.
 
 ### Part B - block, report, and write-time filtering
