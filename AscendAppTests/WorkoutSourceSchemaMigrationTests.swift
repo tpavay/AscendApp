@@ -243,12 +243,125 @@ struct WorkoutSourceSchemaMigrationTests {
         #expect(recovered[appleHealthID] == .appleHealth)
 
         #expect(
-            try stashScope.stash.load().isEmpty,
+            try stashScope.stash.load().sourcesByWorkoutID.isEmpty,
             "a completed recovery has to clear the stash so later launches stop repairing"
         )
 
         let afterRecovery = try Self.readSources(at: storeURL, finishInterruptedMigration: true)
         #expect(afterRecovery[headphoneID] == .headphoneMotion)
+    }
+
+    /// The paged-save failure path: some pages committed, then the sweep died.
+    ///
+    /// The write commits a page at a time so its pending-change set stays bounded, which means a
+    /// failure can now leave the store *half* repaired rather than untouched. That is only safe
+    /// because the stash - not the transaction - is the unit of completion: it survives every
+    /// partial run and is cleared once, after the last page. This asserts the half-repaired store
+    /// converges, and that re-applying the pages that already landed is free.
+    @Test
+    func aSweepInterruptedBetweenPagesIsFinishedOnTheNextLaunch() throws {
+        let directory = Self.freshStoreDirectory(named: "partial-commit")
+        let storeURL = directory.appending(path: "\(UUID().uuidString).store")
+        let stashScope = Self.IsolatedStash()
+        defer { stashScope.tearDown() }
+
+        // Only verified sources, so an unwritten row is unambiguously `.manual`.
+        let sourceRotation: [WorkoutSource] = [.headphoneMotion, .appleHealth]
+        let workoutCount = AscendMigrationPlan.readPageSize * 2 + 50
+        var orderedIDs: [UUID] = []
+        var expectedSources: [UUID: WorkoutSource] = [:]
+
+        try Self.seedLegacyStore(at: storeURL) { context in
+            for index in 0..<workoutCount {
+                let source = sourceRotation[index % sourceRotation.count]
+                let workout = AscendSchemaV1.Workout(
+                    id: UUID(),
+                    name: "Seeded \(index)",
+                    date: Self.sessionStart.addingTimeInterval(TimeInterval(index) * -86_400),
+                    duration: 1800,
+                    steps: 3000,
+                    floors: 187,
+                    source: source
+                )
+                context.insert(workout)
+                orderedIDs.append(workout.id)
+                expectedSources[workout.id] = source
+            }
+        }
+
+        #expect(throws: (any Error).self) {
+            _ = try Self.openStore(at: storeURL, migrationPlan: FailingWorkoutSourceMigrationPlan.self)
+        }
+
+        // Stand in for a sweep that committed its first page and then died: exactly the store
+        // state paged saves can leave behind, which all-or-nothing never could.
+        let committedIDs = Set(orderedIDs.prefix(AscendMigrationPlan.readPageSize))
+        try Self.commitSources(at: storeURL, expectedSources.filter { committedIDs.contains($0.key) })
+
+        let interrupted = try Self.readSources(at: storeURL, finishInterruptedMigration: false)
+        #expect(interrupted.filter { $0.value == .manual }.count == workoutCount - committedIDs.count)
+
+        let report = try Self.recoverSources(at: storeURL)
+        #expect(
+            report.repairedCount == workoutCount - committedIDs.count,
+            """
+            recovery rewrote \(report.repairedCount) workouts when only \
+            \(workoutCount - committedIDs.count) were still unwritten; the already-committed pages \
+            are supposed to be skipped, not redone
+            """
+        )
+        #expect(report.pageCount > 1)
+
+        let recovered = try Self.readSources(at: storeURL, finishInterruptedMigration: false)
+        #expect(recovered == expectedSources)
+        #expect(try stashScope.stash.load().sourcesByWorkoutID.isEmpty)
+    }
+
+    /// A repair that can never succeed has to stop, not retry on every launch forever.
+    ///
+    /// Failing loudly is right for a transient failure - the stash survives and the next launch
+    /// finishes the job. It is wrong for a permanent one, where the same error would be thrown at
+    /// every startup for the life of the install. After `maximumAttempts` the sweep stops running
+    /// at all; the stash file is deliberately left on disk rather than deleted, so the values are
+    /// still there to inspect.
+    @Test
+    func aRepairThatKeepsFailingIsGivenUpOnRatherThanRetriedForever() throws {
+        let storeURL = Self.makeStoreURL()
+        defer { Self.removeStore(at: storeURL) }
+        let stashScope = Self.IsolatedStash()
+        defer { stashScope.tearDown() }
+
+        let headphoneID = UUID()
+        try Self.seedLegacyStore(at: storeURL) { context in
+            context.insert(
+                AscendSchemaV1.Workout(
+                    id: headphoneID,
+                    name: "Live Climb",
+                    date: Self.sessionStart,
+                    duration: 1800,
+                    steps: 3000,
+                    floors: 187,
+                    source: .headphoneMotion
+                )
+            )
+        }
+
+        #expect(throws: (any Error).self) {
+            _ = try Self.openStore(at: storeURL, migrationPlan: FailingWorkoutSourceMigrationPlan.self)
+        }
+
+        for _ in 0..<WorkoutSourceMigrationStash.maximumAttempts {
+            try stashScope.stash.recordFailedAttempt()
+        }
+
+        let report = try Self.recoverSources(at: storeURL)
+        #expect(report.pageCount == 0, "an exhausted repair must not walk the store again")
+        #expect(report.repairedCount == 0)
+
+        #expect(
+            try stashScope.stash.load().sourcesByWorkoutID.isEmpty == false,
+            "the stashed values stay on disk after the repair is abandoned, for inspection"
+        )
     }
 
     /// The memory bound, measured at the store size that produced ASCEND-IOS-1K.
@@ -365,11 +478,16 @@ struct WorkoutSourceSchemaMigrationTests {
         }
     }
 
-    /// Cleaned on the way in, not out: these stores run to ~90 MB so they cannot accumulate, but
-    /// unlinking a store file while a `ModelContainer` still holds it open is an SQLite API
-    /// violation and a container has no close.
+    /// A directory nothing else is holding open.
+    ///
+    /// The path carries a UUID rather than a fixed name because the sweep below unlinks it, and
+    /// unlinking a store file while a `ModelContainer` still has it open is an SQLite API
+    /// violation. `@Suite(.serialized)` rules that out within one process; it does nothing across
+    /// the parallel worktrees that share this machine's simulator. Nothing cleans up on the way
+    /// out - a container has no close, so the only safe moment to unlink is before anything opens.
     private static func freshStoreDirectory(named name: String) -> URL {
-        let directory = URL.temporaryDirectory.appending(path: "ascend-migration-paging/\(name)")
+        let directory = URL.temporaryDirectory
+            .appending(path: "ascend-migration-paging/\(name)-\(UUID().uuidString)")
         try? FileManager.default.removeItem(at: directory)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
@@ -455,6 +573,28 @@ struct WorkoutSourceSchemaMigrationTests {
             for: schema,
             migrationPlan: migrationPlan,
             configurations: ModelConfiguration(schema: schema, url: url)
+        )
+    }
+
+    /// Writes sources straight onto the migrated store, bypassing the stash, so a test can build
+    /// the store state a partially-committed sweep leaves behind.
+    private static func commitSources(
+        at url: URL,
+        _ sourcesByWorkoutID: [UUID: WorkoutSource]
+    ) throws {
+        let context = try openMigratedStore(at: url)
+
+        for workout in try context.fetch(FetchDescriptor<Workout>()) {
+            guard let source = sourcesByWorkoutID[workout.id] else { continue }
+            workout.source = source
+        }
+
+        try context.save()
+    }
+
+    private static func recoverSources(at url: URL) throws -> AscendMigrationPlan.SweepReport {
+        try AscendMigrationPlan.recoverInterruptedMigrationIfNeeded(
+            in: try openMigratedStore(at: url)
         )
     }
 

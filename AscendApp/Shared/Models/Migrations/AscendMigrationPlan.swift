@@ -40,12 +40,14 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
         }
     )
 
-    /// How many workouts either pass may hold materialised at once.
+    /// How many workouts a single page reads, and - in the write pass - commits.
     ///
     /// A `Workout` carries its heart-rate series inline, so a store of a few hundred sessions is
-    /// tens of megabytes on disk. Reading it a page at a time is what keeps a one-time cost from
-    /// becoming a launch-time crash - the recovery pass runs inside `AscendApp.init()`, on the
-    /// main thread, which is the exact shape ASCEND-IOS-1K was.
+    /// tens of megabytes on disk, and the recovery pass runs inside `AscendApp.init()` on the main
+    /// thread, which is the exact shape ASCEND-IOS-1K was. This bounds how many rows each
+    /// iteration constructs and how many pending changes a transaction carries. It does not bound
+    /// how many models the `ModelContext` keeps registered afterwards - SwiftData decides that,
+    /// and nothing here evicts them.
     static let readPageSize = 100
 
     /// What a sweep did, so a caller can log it and a test can assert the read stayed bounded.
@@ -54,6 +56,8 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
         var pageCount = 0
         var largestPageSize = 0
         var repairedCount = 0
+        var failedAttemptCount = 0
+        var abandonedAfterRepeatedFailures = false
     }
 
     /// Reads every pre-migration `source` and hands it to the stash.
@@ -75,45 +79,64 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
         return report
     }
 
-    /// Writes the stashed values onto the migrated store, all-or-nothing.
+    /// Writes the stashed values onto the migrated store, a page at a time.
     ///
-    /// The read is paged but the write is not: one `save()` at the end, after every page has been
-    /// walked. A per-page save would make a failure partway through permanent, because the schema
-    /// version has already advanced by the time this runs, so SwiftData will never re-enter the
-    /// stage and the stash held the only remaining copy of the old values. Paging the read and
-    /// batching the write are independent - bounding what is *materialised* never required
-    /// splitting the transaction.
+    /// Each page commits before the next one is read, so the pending-change set stays bounded
+    /// instead of growing to the repaired-row count. That is safe only because the stash is the
+    /// unit of completion, not the transaction: it survives every partial run and is cleared
+    /// exactly once, after the last page. A run interrupted with some pages committed therefore
+    /// re-enters on the next launch and finishes the rest, and re-applying a page that already
+    /// landed costs nothing because a workout whose column already matches is skipped.
     ///
-    /// Clearing the stash is best-effort and deliberately last. The save is the transaction
-    /// boundary, so a scratch file that will not unlink must not turn a launch whose sources were
-    /// written correctly into `localDataUnavailable`; a stash that outlives its write just makes
-    /// the next launch re-run a sweep that changes nothing.
+    /// Clearing the stash is best-effort and deliberately last. The pages are the transaction
+    /// boundaries, so a scratch file that will not unlink must not turn a launch whose sources
+    /// were written correctly into `localDataUnavailable`; a stash that outlives its write just
+    /// makes the next launch re-run a sweep that changes nothing.
     ///
-    /// Idempotent by construction - a workout whose column already matches is skipped.
+    /// Repeated failure stops rather than looping. Each failed sweep increments a counter in the
+    /// stash; once it reaches `WorkoutSourceMigrationStash.maximumAttempts` the sweep is abandoned
+    /// and reported once, so a permanently unresolvable store surfaces as one loud diagnostic
+    /// instead of a repair that silently retries on every launch forever. The stash file is left
+    /// on disk for inspection rather than deleted.
     @discardableResult
     static func applyStashedSources(
         to context: ModelContext,
         stash: WorkoutSourceMigrationStash = .shared
     ) throws -> SweepReport {
-        let sourcesByWorkoutID = try stash.load()
-        guard !sourcesByWorkoutID.isEmpty else { return SweepReport() }
+        let stashed = try stash.load()
+        guard !stashed.sourcesByWorkoutID.isEmpty, !stashed.isExhausted else { return SweepReport() }
 
-        var repairedCount = 0
-        var report = try forEachPage(of: Workout.self, in: context) { page in
-            for workout in page {
-                guard let rawValue = sourcesByWorkoutID[workout.id],
-                      workout.sourceRawValue != rawValue else { continue }
+        do {
+            var repairedCount = 0
+            var report = try forEachPage(of: Workout.self, in: context) { page in
+                for workout in page {
+                    guard let rawValue = stashed.sourcesByWorkoutID[workout.id],
+                          workout.sourceRawValue != rawValue else { continue }
 
-                workout.sourceRawValue = rawValue
-                repairedCount += 1
+                    workout.sourceRawValue = rawValue
+                    repairedCount += 1
+                }
+
+                try context.save()
             }
+            report.repairedCount = repairedCount
+
+            try? stash.clear()
+
+            return report
+        } catch {
+            let failedAttemptCount = (try? stash.recordFailedAttempt())
+                ?? (stashed.failedAttemptCount + 1)
+
+            guard failedAttemptCount >= WorkoutSourceMigrationStash.maximumAttempts else {
+                throw error
+            }
+
+            var report = SweepReport()
+            report.failedAttemptCount = failedAttemptCount
+            report.abandonedAfterRepeatedFailures = true
+            return report
         }
-        report.repairedCount = repairedCount
-
-        try context.save()
-        try? stash.clear()
-
-        return report
     }
 
     /// Finishes a migration whose `didMigrate` never completed.
@@ -131,14 +154,21 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
         try applyStashedSources(to: context, stash: stash)
     }
 
-    /// Walks a model type a page at a time, holding at most `readPageSize` rows materialised.
+    /// Walks a model type `readPageSize` rows at a time.
     ///
     /// Pages are cut over `fetchIdentifiers` rather than `fetchOffset`. Identifiers are one row
     /// each and partition by construction; `fetchOffset` would need a genuinely total sort order
     /// to do the same, and `Workout` has none - `date` ties, and `id` is a `UUID`, which is not
     /// `Comparable`. Under a non-total order two OFFSET pages can overlap or leave a gap, and a
-    /// workout in the gap silently keeps the `.manual` default. That is precisely the loss this
-    /// stage exists to prevent, so the paging is not allowed to be approximately right.
+    /// workout in the gap silently keeps the `.manual` default.
+    ///
+    /// A page that does not resolve every identifier it asked for throws instead of carrying on
+    /// with what it got. This same silent-default failure has now been built three times inside
+    /// the fix for it - the original whole-store scan, then offset pages that could skip rows,
+    /// then a `compactMap` that dropped unresolved ones - and each time it was invisible because
+    /// a lost workout reads back exactly like a healthy one. The counts are in the error, and
+    /// `workoutCount` is what actually resolved rather than what was requested, so a gap cannot be
+    /// mistaken for a complete sweep.
     private static func forEachPage<Model: PersistentModel>(
         of model: Model.Type,
         in context: ModelContext,
@@ -146,7 +176,6 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
     ) throws -> SweepReport {
         let identifiers = try context.fetchIdentifiers(FetchDescriptor<Model>())
         var report = SweepReport()
-        report.workoutCount = identifiers.count
 
         var pageStart = identifiers.startIndex
         while pageStart < identifiers.endIndex {
@@ -156,15 +185,45 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
                 limitedBy: identifiers.endIndex
             ) ?? identifiers.endIndex
 
-            let page = identifiers[pageStart..<pageEnd].compactMap { context.model(for: $0) as? Model }
+            let requested = identifiers[pageStart..<pageEnd]
+            var page: [Model] = []
+            page.reserveCapacity(requested.count)
+
+            for identifier in requested {
+                guard let resolved = context.model(for: identifier) as? Model else { continue }
+                page.append(resolved)
+            }
+
+            guard page.count == requested.count else {
+                throw WorkoutSourceMigrationError.pageDidNotFullyResolve(
+                    requested: requested.count,
+                    resolved: page.count
+                )
+            }
+
             try body(page)
 
+            report.workoutCount += page.count
             report.pageCount += 1
             report.largestPageSize = max(report.largestPageSize, page.count)
             pageStart = pageEnd
         }
 
         return report
+    }
+}
+
+enum WorkoutSourceMigrationError: Error, CustomStringConvertible {
+    case pageDidNotFullyResolve(requested: Int, resolved: Int)
+
+    var description: String {
+        switch self {
+        case let .pageDidNotFullyResolve(requested, resolved):
+            return """
+            workout source migration resolved \(resolved) of \(requested) workouts in a page; \
+            refusing to continue with the rest defaulted to manual
+            """
+        }
     }
 }
 
@@ -181,6 +240,26 @@ final class WorkoutSourceMigrationStash: @unchecked Sendable {
     /// plan at a scratch file instead of the app's.
     nonisolated(unsafe) static var shared = WorkoutSourceMigrationStash()
 
+    /// How many times the write may fail before the repair is given up on.
+    ///
+    /// Retrying is right for a transient failure and wrong for a permanent one: an identifier that
+    /// will never resolve would otherwise re-throw on every launch for the life of the install.
+    static let maximumAttempts = 3
+
+    struct Contents: Equatable {
+        var sourcesByWorkoutID: [UUID: String] = [:]
+        var failedAttemptCount = 0
+
+        var isExhausted: Bool {
+            failedAttemptCount >= WorkoutSourceMigrationStash.maximumAttempts
+        }
+    }
+
+    private struct StoredContents: Codable {
+        var sourcesByWorkoutID: [String: String]
+        var failedAttemptCount: Int
+    }
+
     private let lock = NSLock()
     private let fileURL: URL
 
@@ -196,30 +275,59 @@ final class WorkoutSourceMigrationStash: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
-        let encodable = sourcesByWorkoutID.reduce(into: [String: String]()) { partialResult, entry in
-            partialResult[entry.key.uuidString] = entry.value
+        try write(
+            StoredContents(
+                sourcesByWorkoutID: sourcesByWorkoutID.reduce(into: [String: String]()) { partialResult, entry in
+                    partialResult[entry.key.uuidString] = entry.value
+                },
+                failedAttemptCount: 0
+            )
+        )
+    }
+
+    func load() throws -> Contents {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard let stored = try read() else { return Contents() }
+
+        return Contents(
+            sourcesByWorkoutID: stored.sourcesByWorkoutID.reduce(into: [UUID: String]()) { partialResult, entry in
+                guard let id = UUID(uuidString: entry.key) else { return }
+                partialResult[id] = entry.value
+            },
+            failedAttemptCount: stored.failedAttemptCount
+        )
+    }
+
+    /// Records that a sweep failed, and reports how many have now failed.
+    @discardableResult
+    func recordFailedAttempt() throws -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard var stored = try read() else { return 0 }
+
+        stored.failedAttemptCount += 1
+        try write(stored)
+
+        return stored.failedAttemptCount
+    }
+
+    private func read() throws -> StoredContents? {
+        guard FileManager.default.fileExists(atPath: fileURL.path(percentEncoded: false)) else {
+            return nil
         }
 
+        return try JSONDecoder().decode(StoredContents.self, from: Data(contentsOf: fileURL))
+    }
+
+    private func write(_ contents: StoredContents) throws {
         try FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try JSONEncoder().encode(encodable).write(to: fileURL, options: .atomic)
-    }
-
-    func load() throws -> [UUID: String] {
-        lock.lock()
-        defer { lock.unlock() }
-
-        guard FileManager.default.fileExists(atPath: fileURL.path(percentEncoded: false)) else {
-            return [:]
-        }
-
-        let decoded = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: fileURL))
-        return decoded.reduce(into: [UUID: String]()) { partialResult, entry in
-            guard let id = UUID(uuidString: entry.key) else { return }
-            partialResult[id] = entry.value
-        }
+        try JSONEncoder().encode(contents).write(to: fileURL, options: .atomic)
     }
 
     func clear() throws {

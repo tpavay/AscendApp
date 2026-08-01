@@ -155,6 +155,17 @@ struct AscendApp: App {
             let report = try AscendMigrationPlan.recoverInterruptedMigrationIfNeeded(
                 in: ModelContext(container)
             )
+
+            if report.abandonedAfterRepeatedFailures {
+                AppDiagnosticsRecorder.shared.record(
+                    "workout_source_migration_abandoned",
+                    level: .error,
+                    details: ["failed_attempt_count": String(report.failedAttemptCount)],
+                    mirrorToCrashlytics: false
+                )
+                return
+            }
+
             guard report.repairedCount > 0 else { return }
 
             AppDiagnosticsRecorder.shared.record(
