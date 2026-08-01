@@ -74,7 +74,7 @@ test("a whole-run cancellation names every stage it stopped", () => {
   for (const stage of ALL_STAGES) {
     assert.match(output, new RegExp(`${stage} concluded 'cancelled'`));
   }
-  assert.match(output, /notification a cancelled run never would/);
+  assert.match(output, /did not reach production/);
 });
 
 test("the failure annotation names the commit that did not ship", () => {

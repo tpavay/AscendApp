@@ -2,16 +2,22 @@ name: Deploy Production Watchdog
 
 # Makes a cancelled deploy as loud as a failed one.
 #
-# GitHub emails on `failure` and says nothing about `cancelled`. A production
-# deploy has three ways to conclude `cancelled` without anyone touching it, and
-# the worst of them destroys the workflow's own ability to report: a run queued
-# behind another run is cancelled before it creates a single job, so no step
-# inside `deploy-production.yml` - not even one guarded by `always()` - can ever
-# run to complain. That is how eight consecutive runs disappeared between
-# 2026-07-16 and 2026-07-29 while production sat on the code from `6341ad6`.
+# GitHub emails on `failure` and says nothing about `cancelled`, and nothing
+# inside the pipeline can change that. Two independent reasons, both measured:
 #
-# So the check lives outside the pipeline it watches, and it answers the
-# question that actually matters: is the code on `main` running in production?
+#   - a run queued behind another run is cancelled before it creates a single
+#     job, so no step in `deploy-production.yml` - not even one guarded by
+#     `always()` - ever runs to complain;
+#   - even when a job does run, cancellation outranks it. On throwaway run
+#     30676439255 an `always()` job concluded `failure` inside a cancelled run
+#     and the RUN still concluded `cancelled`, so no email fired.
+#
+# That is how eight consecutive runs disappeared between 2026-07-16 and
+# 2026-07-29 while production sat on the code from `6341ad6`.
+#
+# So the check lives outside the pipeline it watches - it is the ONLY channel a
+# cancelled run has - and it answers the question that actually matters: is the
+# code on `main` running in production?
 
 on:
   # Fires for every conclusion, `cancelled` included. This is the fast path.
@@ -30,9 +36,12 @@ permissions:
   actions: read
   issues: write
 
-concurrency:
-  group: deploy-production-watchdog
-  cancel-in-progress: false
+# Deliberately no `concurrency:` group. Any group at all reproduces, inside the
+# watchdog, the displacement failure it exists to detect: a `workflow_run` run
+# arriving while a cron run is mid-flight would be cancelled before creating a
+# job, silently. Concurrent runs are already handled by design - the issue is
+# located by marker and `selectWatchdogIssue`/`closeDuplicates` collapse any
+# duplicate two racing runs manage to open.
 
 jobs:
   check:

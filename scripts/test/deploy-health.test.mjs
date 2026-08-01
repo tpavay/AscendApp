@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
 import test from "node:test";
+import {fileURLToPath} from "node:url";
 import {
   WATCHDOG_MARKER,
+  deployTriggeringFiles,
   evaluateDeployHealth,
   formatDuration,
   formatHealthReport,
+  parsePushPathFilters,
+  pathMatchesFilters,
   planIssueSync,
   selectWatchdogIssue,
 } from "../lib/deploy-health.mjs";
@@ -235,6 +240,95 @@ test("a fresh commit is given time to deploy before drift is an alert", () => {
   });
 
   assert.equal(healthy, true, "a commit pushed seconds ago is not yet drift");
+});
+
+const DEPLOY_WORKFLOW = fileURLToPath(
+  new URL("../../.github/workflows/deploy-production.yml", import.meta.url)
+);
+const DEPLOY_PATH_FILTERS = parsePushPathFilters(
+  readFileSync(DEPLOY_WORKFLOW, "utf8")
+);
+
+test("the deploy filters are read from the workflow, not copied", () => {
+  assert.ok(
+    DEPLOY_PATH_FILTERS.includes("AscendApp/**"),
+    "the real workflow's allowlist parses"
+  );
+  assert.ok(DEPLOY_PATH_FILTERS.includes("functions/**"));
+  assert.ok(DEPLOY_PATH_FILTERS.includes("firebase.json"));
+  assert.ok(
+    !DEPLOY_PATH_FILTERS.includes("main"),
+    "`branches: [main]` is not mistaken for a path filter"
+  );
+});
+
+test("path filters follow GitHub's glob rules", () => {
+  assert.equal(pathMatchesFilters("AscendApp/Features/Home/View.swift", ["AscendApp/**"]), true);
+  assert.equal(pathMatchesFilters("docs/notes.md", ["AscendApp/**"]), false);
+  assert.equal(pathMatchesFilters("web/src/a.ts", ["*.md"]), false);
+  assert.equal(pathMatchesFilters("README.md", ["*.md"]), true);
+  assert.equal(pathMatchesFilters("docs/a.md", ["*.md"]), false, "* does not span /");
+  assert.equal(pathMatchesFilters("firebase.json", ["firebase.json"]), true);
+  assert.equal(pathMatchesFilters("scripts/x.mjs", ["scripts/**", "!scripts/x.mjs"]), false);
+  assert.deepEqual(
+    deployTriggeringFiles(["docs/a.md", "functions/src/index.ts"], DEPLOY_PATH_FILTERS),
+    ["functions/src/index.ts"]
+  );
+  assert.deepEqual(
+    deployTriggeringFiles(["docs/a.md"], []),
+    ["docs/a.md"],
+    "no allowlist means everything triggers"
+  );
+});
+
+test("a docs-only commit ahead of the last deploy is not drift", () => {
+  const {healthy, alerts} = evaluateDeployHealth({
+    runs: [run({id: 2, run_number: 2, head_sha: "old".repeat(13) + "a"})],
+    head: HEAD,
+    now: NOW,
+    undeployedFiles: [
+      "docs/production-backend-rollout-runbook.md",
+      ".claude/skills/ascend-deploy/SKILL.md",
+      "README.md",
+    ],
+    deployPathFilters: DEPLOY_PATH_FILTERS,
+  });
+
+  assert.deepEqual(alerts, [], "nothing in that commit could ever have deployed");
+  assert.equal(healthy, true);
+});
+
+test("a commit touching deployable paths ahead of the last deploy is drift", () => {
+  const {healthy, alerts} = evaluateDeployHealth({
+    runs: [run({id: 2, run_number: 2, head_sha: "old".repeat(13) + "a"})],
+    head: HEAD,
+    now: NOW,
+    undeployedFiles: [
+      "docs/notes.md",
+      "AscendApp/Features/Home/HomeView.swift",
+      "functions/src/index.ts",
+    ],
+    deployPathFilters: DEPLOY_PATH_FILTERS,
+  });
+
+  assert.equal(healthy, false);
+  assert.deepEqual(
+    alerts.map((alert) => alert.kind),
+    ["production-behind-default-branch"]
+  );
+  assert.match(alerts[0].detail, /2 undeployed files match/);
+});
+
+test("an unresolvable diff still alerts, because silence must be earned", () => {
+  const {healthy} = evaluateDeployHealth({
+    runs: [run({id: 2, run_number: 2, head_sha: "old".repeat(13) + "a"})],
+    head: HEAD,
+    now: NOW,
+    undeployedFiles: null,
+    deployPathFilters: DEPLOY_PATH_FILTERS,
+  });
+
+  assert.equal(healthy, false);
 });
 
 test("no successful run at all is its own alert", () => {
@@ -501,7 +595,9 @@ test("a deployed function that is not ACTIVE is not serving, so it fails", () =>
     "processEmailJobs",
   ]);
 
-  assert.deepEqual(inactive, [{id: "processEmailJobs", state: "FAILED"}]);
+  assert.deepEqual(inactive, [
+    {id: "processEmailJobs", region: null, state: "FAILED"},
+  ]);
 
   const diff = diffDeployedFunctions({
     exported: ["joinWaitlist", "processEmailJobs"],
@@ -521,8 +617,50 @@ test("a payload with no state field is not invented into a failure", () => {
     result: [{id: "joinWaitlist"}],
   });
 
-  assert.deepEqual(deployed, [{id: "joinWaitlist", state: null}]);
+  assert.deepEqual(deployed, [{id: "joinWaitlist", region: null, state: null}]);
   assert.deepEqual(inactiveDeployedFunctions(deployed, ["joinWaitlist"]), []);
+});
+
+test("one function serving in one region and broken in another is not serving", () => {
+  // Keying the state check on `id` alone lets whichever region the CLI listed
+  // last speak for all of them, so a FAILED region hides behind an ACTIVE one.
+  const deployed = parseDeployedFunctions({
+    status: "success",
+    result: [
+      {id: "onWorkoutWritten", region: "us-central1", state: "ACTIVE"},
+      {id: "onWorkoutWritten", region: "europe-west1", state: "FAILED"},
+    ],
+  });
+
+  assert.equal(deployed.length, 2, "regions are separate deployments");
+
+  const inactive = inactiveDeployedFunctions(deployed, ["onWorkoutWritten"]);
+  assert.deepEqual(inactive, [
+    {id: "onWorkoutWritten", region: "europe-west1", state: "FAILED"},
+  ]);
+
+  const diff = diffDeployedFunctions({
+    exported: ["onWorkoutWritten"],
+    deployed: deployed.map((entry) => entry.id),
+  });
+  assert.deepEqual(diff.missing, [], "the name-level diff still keys on id");
+  assert.deepEqual(diff.orphaned, []);
+
+  const {ok, lines} = formatFunctionsDiff({projectId: "p", diff, inactive});
+  assert.equal(ok, false);
+  assert.ok(lines.some((line) => line.includes("europe-west1")));
+});
+
+test("a multi-region function is one name, not one name per region", () => {
+  const payload = {
+    status: "success",
+    result: [
+      {id: "joinWaitlist", region: "us-central1"},
+      {id: "joinWaitlist", region: "europe-west1"},
+    ],
+  };
+
+  assert.deepEqual(parseDeployedFunctionNames(payload), ["joinWaitlist"]);
 });
 
 test("an orphan's state is irrelevant - it should not be there at all", () => {

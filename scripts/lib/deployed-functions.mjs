@@ -70,9 +70,10 @@ function exportedNameFromClause(clause) {
  * @return {Array<string>} Sorted deployed function names.
  */
 export function parseDeployedFunctionNames(payload) {
-  return parseDeployedFunctions(payload)
-    .map((entry) => entry.id)
-    .sort();
+  const names = new Set(
+    parseDeployedFunctions(payload).map((entry) => entry.id)
+  );
+  return [...names].sort();
 }
 
 /**
@@ -82,8 +83,14 @@ export function parseDeployedFunctionNames(payload) {
  * only `ACTIVE` means it will serve. "Deployed" and "working" are different
  * claims, and a reconciliation that checks only names makes the weaker one.
  *
+ * De-duplication is on `id` *and* `region`: one name can be deployed to several
+ * regions, and collapsing them on name alone lets whichever region the CLI
+ * happened to list last speak for all of them - so a function `ACTIVE` in one
+ * region and `FAILED` in another would be reported as serving.
+ *
  * @param {string | object} payload Raw JSON text or the parsed object.
- * @return {Array<{id: string, state: string | null}>} Deployed functions.
+ * @return {Array<{id: string, region: string | null, state: string | null}>}
+ *   Deployed functions, one entry per region.
  */
 export function parseDeployedFunctions(payload) {
   const parsed = typeof payload === "string" ? JSON.parse(payload) : payload;
@@ -95,14 +102,19 @@ export function parseDeployedFunctions(payload) {
     );
   }
 
-  const byId = new Map();
+  const byIdAndRegion = new Map();
   for (const entry of result) {
     if (typeof entry?.id === "string" && entry.id.length > 0) {
-      byId.set(entry.id, {id: entry.id, state: entry.state ?? null});
+      const region = typeof entry.region === "string" ? entry.region : null;
+      byIdAndRegion.set(`${entry.id}@${region ?? ""}`, {
+        id: entry.id,
+        region,
+        state: entry.state ?? null,
+      });
     }
   }
 
-  return [...byId.values()];
+  return [...byIdAndRegion.values()];
 }
 
 /**
@@ -112,16 +124,25 @@ export function parseDeployedFunctions(payload) {
  * omit it, and inventing a failure from a missing field would block deploys
  * for a reason that is not evidence of anything.
  *
- * @param {Array<{id: string, state: string | null}>} deployed Deployed set.
+ * Every region is judged separately, so one bad region is a failure even when
+ * its siblings are serving.
+ *
+ * @param {Array<{id: string, region?: string | null, state: string | null}>}
+ *   deployed Deployed set, one entry per id and region.
  * @param {Array<string>} expected Names the source exports.
- * @return {Array<{id: string, state: string | null}>} Not-serving functions.
+ * @return {Array<{id: string, region?: string | null, state: string | null}>}
+ *   Not-serving functions.
  */
 export function inactiveDeployedFunctions(deployed, expected) {
   const expectedSet = new Set(expected);
   return deployed
     .filter((entry) => expectedSet.has(entry.id))
     .filter((entry) => entry.state !== null && entry.state !== "ACTIVE")
-    .sort((a, b) => a.id.localeCompare(b.id));
+    .sort(
+      (a, b) =>
+        a.id.localeCompare(b.id) ||
+        (a.region ?? "").localeCompare(b.region ?? "")
+    );
 }
 
 /**
@@ -180,8 +201,9 @@ export function formatFunctionsDiff({projectId, diff, inactive = []}) {
   }
 
   for (const entry of inactive) {
+    const where = entry.region ? ` (${entry.region})` : "";
     lines.push(
-      `::error::${entry.id} is deployed to ${projectId} in state ` +
+      `::error::${entry.id}${where} is deployed to ${projectId} in state ` +
         `${entry.state}, not ACTIVE, so it is not serving.`
     );
   }

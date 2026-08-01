@@ -26,10 +26,12 @@
  */
 
 import {execFileSync} from "node:child_process";
+import {readFileSync} from "node:fs";
 import process from "node:process";
 import {
   evaluateDeployHealth,
   formatHealthReport,
+  parsePushPathFilters,
   planIssueSync,
   selectWatchdogIssue,
 } from "./lib/deploy-health.mjs";
@@ -37,6 +39,8 @@ import {
 const ISSUE_TITLE = "Deploy Production is not reaching production";
 const ISSUE_LABEL = "deploy-health";
 const API_ROOT = "https://api.github.com";
+/** GitHub caps `compare` at 300 files; past that the list is not the diff. */
+const COMPARE_FILE_CAP = 300;
 
 /**
  * Parses the supported flags out of argv.
@@ -142,6 +146,99 @@ function createClient(token) {
 }
 
 /**
+ * Reads every page of a paginated list endpoint.
+ *
+ * The watchdog issue is the *oldest* one, and `/issues` sorts newest-first, so
+ * an unpaginated read loses the canonical issue the moment the repository
+ * carries more than one page of open issues - and then opens a fresh duplicate
+ * on every unhealthy run.
+ *
+ * @param {Function} request The API client.
+ * @param {string} path The first page's path, without a `page` parameter.
+ * @return {Promise<Array<object>>} Every item across every page.
+ */
+async function requestAllPages(request, path) {
+  const items = [];
+  const separator = path.includes("?") ? "&" : "?";
+  for (let page = 1; page <= 100; page += 1) {
+    const batch = await request(`${path}${separator}page=${page}`);
+    if (!Array.isArray(batch) || batch.length === 0) {
+      break;
+    }
+    items.push(...batch);
+    if (batch.length < 100) {
+      break;
+    }
+  }
+  return items;
+}
+
+/**
+ * Reads the deploy workflow's `on.push.paths` allowlist.
+ *
+ * Read from the deploy branch rather than from the checkout, because the filter
+ * that governs pushes to `main` is the one committed on `main`. Falls back to
+ * the local file, then to no filter at all - and no filter means every drift
+ * alerts, which is the pre-existing behaviour.
+ *
+ * @param {object} input Lookup input.
+ * @param {Function} input.request The API client.
+ * @param {string} input.owner Repository owner.
+ * @param {string} input.repo Repository name.
+ * @param {string} input.workflow Workflow filename.
+ * @param {string} input.branch The deploy branch.
+ * @return {Promise<Array<string>>} The declared path filters.
+ */
+async function readDeployPathFilters({request, owner, repo, workflow, branch}) {
+  const path = `.github/workflows/${workflow}`;
+  try {
+    const file = await request(
+      `/repos/${owner}/${repo}/contents/${path}?ref=${encodeURIComponent(branch)}`
+    );
+    if (typeof file?.content === "string") {
+      return parsePushPathFilters(
+        Buffer.from(file.content, file.encoding ?? "base64").toString("utf8")
+      );
+    }
+  } catch (error) {
+    console.log(`::warning::Could not read ${path} from ${branch}: ${error.message}`);
+  }
+
+  try {
+    return parsePushPathFilters(readFileSync(path, "utf8"));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Lists the files changed between the last deployed commit and the head.
+ * @param {object} input Lookup input.
+ * @param {Function} input.request The API client.
+ * @param {string} input.owner Repository owner.
+ * @param {string} input.repo Repository name.
+ * @param {string} input.base The last successfully deployed commit.
+ * @param {string} input.head The default-branch head commit.
+ * @return {Promise<Array<string> | null>} Changed paths, or null when the diff
+ *   could not be established completely.
+ */
+async function readUndeployedFiles({request, owner, repo, base, head}) {
+  try {
+    const comparison = await request(
+      `/repos/${owner}/${repo}/compare/${base}...${head}?per_page=1`
+    );
+    const files = comparison?.files;
+    if (!Array.isArray(files) || files.length >= COMPARE_FILE_CAP) {
+      return null;
+    }
+    return files.map((file) => file.filename).filter(Boolean);
+  } catch (error) {
+    console.log(`::warning::Could not compare ${base}...${head}: ${error.message}`);
+    return null;
+  }
+}
+
+/**
  * Runs the health check and syncs the alert issue.
  * @return {Promise<number>} The process exit code.
  */
@@ -169,10 +266,42 @@ async function main() {
     ref: options.branch,
   };
 
+  const now = new Date().toISOString();
+  // Evaluated twice on purpose: the first pass names the last successful run,
+  // which is the only thing that says what "undeployed" means, and the second
+  // decides drift with that diff in hand. Both passes are the same pure
+  // function, so the notification decision still lives in one place.
+  const firstPass = evaluateDeployHealth({runs, head, now});
+  const lastSuccess = firstPass.lastSuccess;
+  const drifted = Boolean(
+    lastSuccess && head.sha && lastSuccess.head_sha !== head.sha
+  );
+
+  const deployPathFilters = drifted ?
+    await readDeployPathFilters({
+      request,
+      owner,
+      repo,
+      workflow: options.workflow,
+      branch: options.branch,
+    }) :
+    [];
+  const undeployedFiles = drifted ?
+    await readUndeployedFiles({
+      request,
+      owner,
+      repo,
+      base: lastSuccess.head_sha,
+      head: head.sha,
+    }) :
+    null;
+
   const {healthy, alerts} = evaluateDeployHealth({
     runs,
     head,
-    now: new Date().toISOString(),
+    now,
+    undeployedFiles,
+    deployPathFilters,
   });
 
   const body = formatHealthReport(alerts, {
@@ -194,7 +323,8 @@ async function main() {
     );
   }
 
-  const openIssues = await request(
+  const openIssues = await requestAllPages(
+    request,
     `/repos/${owner}/${repo}/issues?state=open&per_page=100`
   );
   const {canonical, duplicates} = selectWatchdogIssue(openIssues);

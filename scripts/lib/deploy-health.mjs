@@ -83,6 +83,140 @@ export function formatDuration(ms) {
 }
 
 /**
+ * Reads the `on.push.paths` allowlist out of a workflow file.
+ *
+ * The drift check needs to know which commits could ever have triggered a
+ * deploy, and the only authority on that is the workflow's own filter. Parsing
+ * it beats copying it: a second hand-maintained list drifts the moment somebody
+ * edits the workflow, and a drift alert that fires on a docs-only commit trains
+ * the reader to ignore the one channel this watchdog exists to create.
+ *
+ * @param {string} source Contents of a workflow YAML file.
+ * @return {Array<string>} The declared path filters, empty when there are none.
+ */
+export function parsePushPathFilters(source) {
+  const patterns = [];
+  let onIndent = null;
+  let pushIndent = null;
+  let pathsIndent = null;
+
+  for (const raw of String(source ?? "").split("\n")) {
+    if (raw.trim() === "" || raw.trimStart().startsWith("#")) {
+      continue;
+    }
+    const indent = raw.length - raw.trimStart().length;
+    const line = raw.trim();
+
+    if (pathsIndent !== null) {
+      if (indent > pathsIndent && line.startsWith("- ")) {
+        const value = line.slice(2).trim().replace(/^["']|["']$/g, "");
+        if (value) {
+          patterns.push(value);
+        }
+        continue;
+      }
+      pathsIndent = null;
+    }
+
+    if (pushIndent !== null && indent <= pushIndent) {
+      pushIndent = null;
+    }
+    if (onIndent !== null && indent <= onIndent) {
+      onIndent = null;
+    }
+
+    if (onIndent === null) {
+      if (/^["']?on["']?:\s*$/.test(line)) {
+        onIndent = indent;
+      }
+      continue;
+    }
+    if (pushIndent === null) {
+      if (indent > onIndent && /^push:\s*$/.test(line)) {
+        pushIndent = indent;
+      }
+      continue;
+    }
+    if (indent > pushIndent && /^paths:\s*$/.test(line)) {
+      pathsIndent = indent;
+    }
+  }
+
+  return patterns;
+}
+
+/**
+ * Compiles one GitHub path filter into a regular expression.
+ *
+ * Follows GitHub's own glob rules: `**` spans directory separators, `*` and `?`
+ * do not.
+ *
+ * @param {string} pattern A single filter pattern, without any `!` prefix.
+ * @return {RegExp} An anchored matcher.
+ */
+function pathFilterToRegExp(pattern) {
+  let source = "^";
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index];
+    if (char === "*") {
+      if (pattern[index + 1] === "*") {
+        source += ".*";
+        index += 1;
+      } else {
+        source += "[^/]*";
+      }
+    } else if (char === "?") {
+      source += "[^/]";
+    } else if ("\\^$.|+()[]{}".includes(char)) {
+      source += `\\${char}`;
+    } else {
+      source += char;
+    }
+  }
+  return new RegExp(`${source}$`);
+}
+
+/**
+ * Decides whether one changed file would trigger a workflow.
+ *
+ * Later patterns win, so a `!`-prefixed exclusion can undo an earlier match,
+ * matching how GitHub evaluates the list.
+ *
+ * @param {string} path A repository-relative file path.
+ * @param {Array<string>} patterns The workflow's path filters.
+ * @return {boolean} True when the path is inside the allowlist.
+ */
+export function pathMatchesFilters(path, patterns) {
+  let matched = false;
+  for (const pattern of patterns ?? []) {
+    const negated = pattern.startsWith("!");
+    const body = negated ? pattern.slice(1) : pattern;
+    if (pathFilterToRegExp(body).test(path)) {
+      matched = !negated;
+    }
+  }
+  return matched;
+}
+
+/**
+ * Keeps only the files that would actually trigger a deploy.
+ *
+ * An empty filter list means the workflow has no `paths:` restriction, so every
+ * file triggers it.
+ *
+ * @param {Array<string>} files Changed file paths.
+ * @param {Array<string>} patterns The workflow's path filters.
+ * @return {Array<string>} The triggering subset.
+ */
+export function deployTriggeringFiles(files, patterns) {
+  const list = files ?? [];
+  if (!Array.isArray(patterns) || patterns.length === 0) {
+    return [...list];
+  }
+  return list.filter((file) => pathMatchesFilters(file, patterns));
+}
+
+/**
  * Sorts runs newest-first by the time the run entered the queue.
  * @param {Array<object>} runs Workflow runs from the GitHub API.
  * @return {Array<object>} A new, newest-first array.
@@ -119,10 +253,22 @@ function runLabel(run) {
  *   head commit, or null when it could not be resolved.
  * @param {string | number | Date} input.now Evaluation time.
  * @param {object} [input.thresholds] Overrides for `DEFAULT_THRESHOLDS`.
+ * @param {Array<string> | null} [input.undeployedFiles] Files changed between
+ *   the last deployed commit and the head. Null means "could not be resolved",
+ *   which is treated as possibly-deployable rather than assumed harmless.
+ * @param {Array<string>} [input.deployPathFilters] The deploy workflow's
+ *   `on.push.paths` allowlist, from `parsePushPathFilters`.
  * @return {{healthy: boolean, alerts: Array<object>, lastSuccess: object|null}}
  *   The evaluation result.
  */
-export function evaluateDeployHealth({runs, head, now, thresholds} = {}) {
+export function evaluateDeployHealth({
+  runs,
+  head,
+  now,
+  thresholds,
+  undeployedFiles = null,
+  deployPathFilters = [],
+} = {}) {
   const limits = {...DEFAULT_THRESHOLDS, ...(thresholds ?? {})};
   const nowMs = toEpochMs(now);
   if (nowMs === null) {
@@ -220,25 +366,44 @@ export function evaluateDeployHealth({runs, head, now, thresholds} = {}) {
         runs: [],
       });
     } else if (lastSuccess && lastSuccess.head_sha !== head.sha && staleEnough) {
-      const behindMs = headAgeMs === null ? null : nowMs - headAgeMs;
-      alerts.push({
-        kind: "production-behind-default-branch",
-        title:
-          `Production is behind ${head.ref ?? "the default branch"}` +
-          (behindMs === null ? "" : ` by ${formatDuration(behindMs)}`),
-        detail:
-          `Last successful deploy was ${runLabel(lastSuccess)}; ` +
-          `the default branch is now at ${head.sha.slice(0, 7)}.`,
-        runs: [
-          {
-            id: lastSuccess.id,
-            label: runLabel(lastSuccess),
-            conclusion: "success",
-            url: lastSuccess.html_url ?? null,
-            createdAt: lastSuccess.created_at ?? null,
-          },
-        ],
-      });
+      // Deploy Production only runs on a `paths:` allowlist, so a head made of
+      // docs-only commits was never meant to deploy and production is current.
+      // Alerting on it would fire every three hours forever with nothing to do
+      // about it. Unresolvable file lists stay noisy on purpose - silence has
+      // to be earned by evidence, not by a failed lookup.
+      const triggering =
+        undeployedFiles === null ?
+          null :
+          deployTriggeringFiles(undeployedFiles, deployPathFilters);
+
+      if (triggering === null || triggering.length > 0) {
+        const behindMs = headAgeMs === null ? null : nowMs - headAgeMs;
+        const undeployedDetail =
+          triggering === null ?
+            "" :
+            ` ${triggering.length} undeployed file` +
+              `${triggering.length === 1 ? "" : "s"} match the workflow's ` +
+              `paths filter, starting with \`${triggering[0]}\`.`;
+        alerts.push({
+          kind: "production-behind-default-branch",
+          title:
+            `Production is behind ${head.ref ?? "the default branch"}` +
+            (behindMs === null ? "" : ` by ${formatDuration(behindMs)}`),
+          detail:
+            `Last successful deploy was ${runLabel(lastSuccess)}; ` +
+            `the default branch is now at ${head.sha.slice(0, 7)}.` +
+            undeployedDetail,
+          runs: [
+            {
+              id: lastSuccess.id,
+              label: runLabel(lastSuccess),
+              conclusion: "success",
+              url: lastSuccess.html_url ?? null,
+              createdAt: lastSuccess.created_at ?? null,
+            },
+          ],
+        });
+      }
     }
   }
 

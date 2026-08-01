@@ -410,14 +410,21 @@ jobs:
           APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
         run: bundle exec fastlane upload_testflight
 
-  # A production deploy either succeeds or fails. GitHub emails on `failure`
-  # and says nothing at all about `cancelled`, so a run that stops half-way
-  # through - by hand, by timeout, or by losing its concurrency slot after it
-  # started - has to be converted into a failure here or it is silent.
+  # A production deploy either succeeds or fails. This job is what makes a run
+  # that quietly deployed *nothing* conclude `failure` instead of `success` -
+  # most importantly a stage reporting `skipped` because an upstream job was
+  # skipped, which GitHub would otherwise roll up into a green run. That case
+  # does send the failure email.
   #
-  # `always()` is what lets this job run inside a cancelled run. It cannot save
-  # a run cancelled while still queued, because such a run never creates a job
-  # at all; `deploy-production-watchdog.yml` covers that case from outside.
+  # What it does NOT do is rescue a cancelled run. Measured on throwaway run
+  # 30676439255: the run was cancelled mid-flight, the `always()` status job
+  # ran and concluded `failure`, and the RUN still concluded `cancelled` -
+  # GitHub's run-conclusion precedence puts cancellation above a failed job, so
+  # no email fires. Cancellation is carried entirely by
+  # `deploy-production-watchdog.yml`, which observes the run from outside.
+  #
+  # `always()` still earns its place: it is what lets this job run at all when
+  # an upstream job was skipped or failed.
   deploy-status:
     name: Deploy Status
     if: ${{ always() }}

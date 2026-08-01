@@ -2,15 +2,18 @@
 #
 # Turns a deploy run that did not deploy into a failed one.
 #
-# GitHub emails on `failure` and says nothing at all about `cancelled`, so a
-# deploy run that stops half-way - by hand, by timeout, or by losing its
-# concurrency slot after it started - is silent unless something converts it.
-# A final job with `if: always()` runs this, and its exit code becomes the
-# run's conclusion.
+# GitHub emails on `failure` and says nothing at all about `cancelled`. A run
+# where a stage was skipped - because an upstream job was skipped, or never
+# reached - would otherwise roll up to `success` having deployed nothing. A
+# final job with `if: always()` runs this, and a non-zero exit here makes the
+# run conclude `failure`, which does send the email.
 #
-# It cannot save a run cancelled while still queued, because such a run never
-# creates a job at all. `deploy-production-watchdog.yml` covers that from
-# outside the pipeline.
+# It cannot rescue a CANCELLED run. Measured on throwaway run 30676439255: the
+# run was cancelled mid-flight, the `always()` status job ran and concluded
+# `failure`, and the run still concluded `cancelled` - GitHub ranks
+# cancellation above a failed job. Cancellation, whether the run was cancelled
+# while queued or mid-flight, is carried by `deploy-production-watchdog.yml`
+# from outside the pipeline.
 #
 # Usage:
 #   assert-deploy-outcome.sh <gate-result> <ready> <stage>=<result> ...
@@ -45,6 +48,10 @@ done
 if [ "$gate_result" != "success" ]; then
   echo "::error::The deploy gate concluded '${gate_result}'."
   failed=1
+# Currently unreachable: production-gate exits 1 whenever PRODUCTION_READY is
+# not "true", so gate_result cannot be "success" while ready is anything else.
+# Kept as the correct behaviour if that exit is ever relaxed - but its tests
+# are not live coverage of gate-off behaviour.
 elif [ "$ready" != "true" ]; then
   for pair in "$@"; do
     stage="${pair%%=*}"
@@ -69,7 +76,7 @@ else
 fi
 
 if [ "$failed" -eq 1 ]; then
-  echo "::error::This deploy did not reach production. Failing the run so GitHub sends the notification a cancelled run never would."
+  echo "::error::This deploy did not reach production. Failing the run so GitHub sends a notification instead of rolling an empty deploy up into a green run."
   exit 1
 fi
 

@@ -93,12 +93,24 @@ function readDeployedPayload(options) {
     options.projectId,
     "--json",
   ];
-  if (process.env.FIREBASE_TOKEN) {
-    args.push("--token", process.env.FIREBASE_TOKEN);
-  }
 
-  // `maxBuffer` because the v2 payload carries full function configs.
-  return execFileSync("npx", args, {encoding: "utf8", maxBuffer: 32 * 1024 * 1024});
+  // FIREBASE_TOKEN is passed through the inherited environment, which
+  // firebase-tools already reads, and never on argv: argv is world-readable
+  // through the process table and is reproduced verbatim in the Error message
+  // execFileSync throws on a non-zero exit. Outside Actions nothing masks it.
+  try {
+    // `maxBuffer` because the v2 payload carries full function configs.
+    return execFileSync("npx", args, {
+      encoding: "utf8",
+      maxBuffer: 32 * 1024 * 1024,
+    });
+  } catch (error) {
+    throw new Error(
+      `firebase functions:list failed for ${options.projectId} ` +
+        `(exit ${error.status ?? "unknown"}). ` +
+        `${String(error.stderr ?? "").trim().slice(0, 400)}`
+    );
+  }
 }
 
 /**
