@@ -56,6 +56,10 @@ final class FirebaseRemoteFeatureFlagSource: RemoteFeatureFlagSource, @unchecked
         }
     }
 
+    func activatedValues() -> [String: Bool] {
+        remoteSourcedValues()
+    }
+
     func startListening(onUpdate: @escaping @Sendable ([String: Bool]) -> Void) {
         let newRegistration = remoteConfig.addOnConfigUpdateListener { [weak self] _, error in
             guard let self else { return }

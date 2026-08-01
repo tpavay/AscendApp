@@ -20,6 +20,11 @@ final class RemoteFeatureFlagService {
     /// its shipped default or on a value the SDK persisted from a previous launch.
     private(set) var hasCompletedInitialFetch = false
 
+    /// Whether any flag is currently resolved from a backend-supplied value, whether that arrived
+    /// on this launch or was seeded from the SDK's persisted activation. Only used to say honestly
+    /// in diagnostics what a failed fetch fell back to.
+    private var hasBackendSourcedValues = false
+
     init(
         source: any RemoteFeatureFlagSource,
         store: RemoteFeatureFlagStore = .shared,
@@ -34,9 +39,14 @@ final class RemoteFeatureFlagService {
         self.init(source: FirebaseRemoteFeatureFlagSource())
     }
 
-    /// Starts the real-time listener and kicks off the first fetch. Call once, after Firebase is
-    /// configured.
+    /// Seeds the store from the SDK's persisted activation, then starts the real-time listener and
+    /// kicks off the first fetch. Call once, after Firebase is configured.
+    ///
+    /// The seed is synchronous and comes first on purpose: it is the only step that cannot fail, so
+    /// every gate reads an operator's last published answer from the first line of the launch,
+    /// including the offline launch where no fetch will ever land.
     func configure() {
+        seedFromPersistedActivation()
         startListeningIfNeeded()
         refresh()
     }
@@ -66,10 +76,19 @@ final class RemoteFeatureFlagService {
         isListening = false
     }
 
+    /// Publishes the values the SDK already holds, before any network work. Safe to call whether or
+    /// not the device has ever fetched: a device that never has supplies nothing here, so every
+    /// flag stays on its shipped default.
+    private func seedFromPersistedActivation() {
+        apply(remoteValues: source.activatedValues(), trigger: "persisted_activation")
+    }
+
     private func performRefresh() async {
         do {
             let remoteValues = try await source.fetchAndActivate()
-            guard !Task.isCancelled else { return }
+            // Applied even when this task was superseded. The round trip is already paid for, the
+            // store update is idempotent, and throwing away a kill switch to honour a cancellation
+            // is the wrong trade for a mechanism that exists for the worst day.
             hasCompletedInitialFetch = true
             apply(remoteValues: remoteValues, trigger: "fetch")
         } catch {
@@ -77,12 +96,20 @@ final class RemoteFeatureFlagService {
             // Deliberately non-fatal. Every flag keeps whatever it already resolved to - the last
             // activated value the SDK persisted, or the shipped default - so a failed fetch never
             // changes app behaviour on its own.
+            let resolvedFrom: String
+            if hasCompletedInitialFetch {
+                resolvedFrom = "previous_fetch"
+            } else if hasBackendSourcedValues {
+                resolvedFrom = "persisted_activation"
+            } else {
+                resolvedFrom = "shipped_defaults"
+            }
             diagnostics.record(
                 "remote_config_fetch_failed",
                 level: .warning,
                 details: [
                     "error_type": String(describing: type(of: error)),
-                    "resolved_from": hasCompletedInitialFetch ? "previous_fetch" : "shipped_defaults"
+                    "resolved_from": resolvedFrom
                 ]
             )
         }
@@ -103,6 +130,7 @@ final class RemoteFeatureFlagService {
     }
 
     private func apply(remoteValues: [String: Bool], trigger: String) {
+        hasBackendSourcedValues = remoteValues.isEmpty == false
         let snapshot = RemoteFeatureFlagSnapshot.resolving(remoteValues: remoteValues)
         guard store.apply(snapshot) else { return }
 

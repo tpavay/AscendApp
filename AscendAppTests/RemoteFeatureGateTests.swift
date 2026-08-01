@@ -287,6 +287,69 @@ struct RemoteFeatureGateTests {
         #expect(pending.first?.retryCount == 0)
     }
 
+    /// A user-triggered retry reaches the same upload-then-delete-the-original path as the sweep,
+    /// so the switch has to hold it too - and hold it before the rows are touched.
+    @Test
+    func killingMediaUploadsLeavesAUserTriggeredRetryQueuedAndUntouched() async throws {
+        let modelContext = try makeModelContext()
+        let workoutId = UUID()
+        let pending = PendingMediaUpload(
+            workoutId: workoutId,
+            localFileName: "failed-media.jpg",
+            mediaType: "photo",
+            orderIndex: 0
+        )
+        pending.uploadStatus = .failed
+        pending.retryCount = 2
+        pending.lastError = "previous failure"
+        modelContext.insert(pending)
+        try modelContext.save()
+
+        let photoRepository = FakeGatedPhotoRepository()
+        let manager = MediaUploadManager(
+            photoRepo: photoRepository,
+            featureFlags: makeStore(disabling: .workoutMediaUploads)
+        )
+
+        await manager.retryFailedUploads(for: workoutId, modelContext: modelContext)
+
+        #expect(await photoRepository.uploadCount() == 0)
+        let stored = try modelContext.fetch(FetchDescriptor<PendingMediaUpload>())
+        #expect(stored.count == 1)
+        #expect(stored.first?.status == PendingUploadStatus.failed.rawValue)
+        #expect(stored.first?.retryCount == 2)
+        #expect(stored.first?.lastError == "previous failure")
+    }
+
+    /// Turning the switch back on has to drain what accumulated while it was off, from the same
+    /// user-triggered retry that the gate blocked.
+    @Test
+    func turningMediaUploadsBackOnLetsTheRetryRunAgain() async throws {
+        let modelContext = try makeModelContext()
+        let workoutId = UUID()
+        let pending = PendingMediaUpload(
+            workoutId: workoutId,
+            localFileName: "failed-media.jpg",
+            mediaType: "photo",
+            orderIndex: 0
+        )
+        pending.uploadStatus = .failed
+        pending.retryCount = 2
+        modelContext.insert(pending)
+        try modelContext.save()
+
+        let manager = MediaUploadManager(
+            photoRepo: FakeGatedPhotoRepository(),
+            featureFlags: RemoteFeatureFlagStore()
+        )
+
+        await manager.retryFailedUploads(for: workoutId, modelContext: modelContext)
+
+        let stored = try modelContext.fetch(FetchDescriptor<PendingMediaUpload>())
+        #expect(stored.first?.retryCount == 0)
+        #expect(stored.first?.status != PendingUploadStatus.failed.rawValue)
+    }
+
     private func makeStore(disabling flag: RemoteFeatureFlag) -> RemoteFeatureFlagStore {
         RemoteFeatureFlagStore(
             snapshot: RemoteFeatureFlagSnapshot.resolving(remoteValues: [flag.key: false])

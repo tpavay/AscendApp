@@ -19,6 +19,9 @@
  *   node scripts/appstore-phased-release.mjs resume --confirm
  *   node scripts/appstore-phased-release.mjs release-to-all --confirm
  *
+ * Add `--version <versionString>` to any command to name the version explicitly instead of
+ * letting the script resolve it.
+ *
  * Credentials come from the same environment variables the TestFlight upload lane uses:
  *   APP_STORE_CONNECT_API_KEY_ID, APP_STORE_CONNECT_API_ISSUER_ID,
  *   APP_STORE_CONNECT_API_KEY (base64-encoded .p8)
@@ -26,9 +29,13 @@
 
 import {createSign} from "node:crypto";
 
+import {selectVersion} from "./lib/phased-release-selection.mjs";
+
 const BUNDLE_ID = "com.TylerPavay.AscendApp";
 const API_ROOT = "https://api.appstoreconnect.apple.com/v1";
 const TOKEN_LIFETIME_SECONDS = 900;
+const VERSION_PAGE_LIMIT = 50;
+const MAX_VERSION_PAGES = 10;
 
 const COMMANDS = new Set(["status", "enable", "pause", "resume", "release-to-all"]);
 const MUTATING_COMMANDS = new Set(["enable", "pause", "resume", "release-to-all"]);
@@ -90,8 +97,12 @@ function readCredentials() {
   };
 }
 
-async function callApi(token, path, {method = "GET", body} = {}) {
-  const response = await fetch(`${API_ROOT}${path}`, {
+async function callApi(token, path, options) {
+  return requestJson(token, `${API_ROOT}${path}`, path, options);
+}
+
+async function requestJson(token, url, path, {method = "GET", body} = {}) {
+  const response = await fetch(url, {
     method,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -130,28 +141,33 @@ async function findApp(token) {
 }
 
 /**
- * The newest iOS version record, with its phased release attached. That is the one an
- * operator means whether they are arming a rollout before submission or halting one that
- * is already running.
+ * Every iOS version record, each paired with its phased release.
+ *
+ * Deliberately a full listing rather than `limit=1`: the endpoint documents no default
+ * ordering, so asking for one record asks the API to choose the target of a `pause`.
+ * `selectVersion` makes that choice explicitly instead.
  */
-async function findLatestVersion(token, appId) {
-  const result = await callApi(
-    token,
-    `/apps/${appId}/appStoreVersions?filter[platform]=IOS&limit=1` +
-      "&include=appStoreVersionPhasedRelease",
-  );
+async function fetchVersionCandidates(token, appId) {
+  const candidates = [];
+  let url =
+    `${API_ROOT}/apps/${appId}/appStoreVersions?filter[platform]=IOS` +
+    `&limit=${VERSION_PAGE_LIMIT}&include=appStoreVersionPhasedRelease`;
 
-  const version = result?.data?.[0];
-  if (!version) {
-    throw new Error("No iOS App Store version found for this app.");
+  for (let page = 0; page < MAX_VERSION_PAGES && url; page += 1) {
+    const result = await requestJson(token, url, `/apps/${appId}/appStoreVersions`);
+
+    for (const version of result?.data ?? []) {
+      const phasedReleaseId = version.relationships?.appStoreVersionPhasedRelease?.data?.id;
+      const phasedRelease = result.included?.find(
+        (entry) => entry.type === "appStoreVersionPhasedReleases" && entry.id === phasedReleaseId,
+      );
+      candidates.push({version, phasedRelease: phasedRelease ?? null});
+    }
+
+    url = result?.links?.next ?? null;
   }
 
-  const phasedReleaseId = version.relationships?.appStoreVersionPhasedRelease?.data?.id;
-  const phasedRelease = result.included?.find(
-    (entry) => entry.type === "appStoreVersionPhasedReleases" && entry.id === phasedReleaseId,
-  );
-
-  return {version, phasedRelease: phasedRelease ?? null};
+  return candidates;
 }
 
 function describe({version, phasedRelease}) {
@@ -225,7 +241,10 @@ async function main() {
   const [command, ...rest] = process.argv.slice(2);
 
   if (!command || !COMMANDS.has(command)) {
-    throw new Error(`Usage: appstore-phased-release.mjs <${[...COMMANDS].join("|")}> [--confirm]`);
+    throw new Error(
+      `Usage: appstore-phased-release.mjs <${[...COMMANDS].join("|")}> ` +
+        "[--confirm] [--version <versionString>]",
+    );
   }
 
   const confirmed = rest.includes("--confirm");
@@ -233,9 +252,16 @@ async function main() {
     throw new Error(`\`${command}\` changes the live rollout. Re-run with --confirm.`);
   }
 
+  const versionFlagIndex = rest.indexOf("--version");
+  const requestedVersionString = versionFlagIndex === -1 ? null : rest[versionFlagIndex + 1];
+  if (versionFlagIndex !== -1 && !requestedVersionString) {
+    throw new Error("`--version` needs a version string, for example `--version 1.0.1`.");
+  }
+
   const token = makeToken(readCredentials());
   const app = await findApp(token);
-  const state = await findLatestVersion(token, app.id);
+  const candidates = await fetchVersionCandidates(token, app.id);
+  const state = selectVersion(candidates, {command, requestedVersionString});
 
   console.log(describe(state));
 

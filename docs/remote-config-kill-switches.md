@@ -16,11 +16,17 @@ The catalog is `AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift`;
 | `workout_cloud_restore_enabled` | Decoding cloud backups into local storage | The next bootstrap still treats it as the initial hydration |
 | `workout_media_uploads_enabled` | The background media upload queue, and the sweep that deletes local originals | `PendingMediaUpload` rows stay queued and local files stay on disk |
 | `local_data_migrations_enabled` | One-shot local backfills that rewrite stored workouts | The version key is not stamped, so the backfill runs later |
-| `leaderboard_publishing_enabled` | Publishing leaderboard stats, retiring legacy stat documents | Local stats stay dirty and republish |
+| `leaderboard_publishing_enabled` | Publishing leaderboard stats, retiring legacy stat documents | Local stats stay dirty and republish. **Exception:** the legacy stat sweep is dropped, not deferred - see below |
 | `public_profile_publishing_enabled` | Publishing the public profile mirror, stats, summaries | Republished from local state on the next bootstrap |
 
 The invariant across all of them: **a blocked path defers its work, it never drops it.**
 Pending state survives untouched, so turning a switch back on drains the queue with no user action and no further release.
+
+One documented exception, and it is deliberate.
+`LeaderboardService.deleteLegacyRemoteStats` runs only in the launch that rebuilds local stats onto the current schema, and that rebuild is one-shot: once the rebuilt stats are saved, `needsCurrentSchemaRebuild` never returns true again.
+A device whose one rebuild happened while `leaderboard_publishing_enabled` was off therefore never sweeps its legacy stat documents.
+Those documents are already superseded by the current-schema ones, so the whole cost is a stale row that nothing reads - which is why this is left as a drop rather than given a queue of its own.
+Do not read the invariant above as universal without this line.
 `AscendAppTests/RemoteFeatureGateTests.swift` pins it for the five gates whose collaborators can be faked - backup writes, remote deletes, cloud restore, media uploads, and local backfills - including the "turn it back on and the queue drains" half.
 The remaining two (leaderboard publishing, public profile publishing) reach shared services that would need a live backend to observe, so their gates are reviewed rather than tested; making those injectable is worth doing the next time either is touched.
 
@@ -55,8 +61,11 @@ A fetch failure never changes app behaviour on its own.
 Resolution order, per flag:
 
 1. The value the backend most recently supplied for this device.
-   The Firebase SDK persists activated values across launches, so this survives cold starts with no network.
+   The Firebase SDK persists activated values across launches, and `RemoteFeatureFlagService.configure()` reads them into the store synchronously at launch, before the first fetch is even attempted.
+   That read cannot fail, so this step survives a cold start with no network - it does not wait on, or depend on, a fetch succeeding.
 2. The flag's `shippedDefault` in `RemoteFeatureFlag.swift`.
+
+Only values the SDK reports as `.remote` count for step 1, so an unfetched or unparseable key still falls through to step 2.
 
 Why fail *open* rather than closed:
 
@@ -147,6 +156,11 @@ node appstore-phased-release.mjs enable --confirm
 cd scripts
 npm run phased-release:pause          # freezes the rollout where it is
 ```
+
+`pause`, `resume`, and `release-to-all` resolve to the one version whose phased release is `ACTIVE` or `PAUSED`.
+If none is, or more than one is, the command refuses and prints what it found rather than acting on a superseded version and reporting success.
+Add `--version <versionString>` to name the target explicitly.
+`scripts/test/phased-release-selection.test.mjs` pins that selection.
 
 Or: App Store Connect -> the version (status **Ready for Distribution**) -> Phased Release -> **Pause Phased Release**.
 Requires Account Holder, Admin, or App Manager.

@@ -183,6 +183,59 @@ struct RemoteFeatureFlagServiceTests {
         #expect(store.snapshot == .shippedDefaults)
     }
 
+    /// The whole point of the mechanism: a device that goes offline after a kill switch was
+    /// published must still boot with it thrown. No fetch succeeds on this launch, so the only
+    /// thing that can carry the `false` across the cold start is the SDK's persisted activation.
+    @Test
+    func aPersistedKillSwitchSurvivesALaunchWithNoSuccessfulFetch() async {
+        let source = FakeRemoteFeatureFlagSource(
+            fetchResult: .failure(RemoteFeatureFlagSourceError.fetchFailed),
+            activatedValues: [RemoteFeatureFlag.workoutMediaUploads.key: false]
+        )
+        let store = RemoteFeatureFlagStore()
+        let service = RemoteFeatureFlagService(source: source, store: store)
+
+        service.configure()
+        await service.refreshAndWait()
+
+        #expect(service.hasCompletedInitialFetch == false)
+        #expect(store.isEnabled(.workoutMediaUploads) == false)
+        #expect(store.snapshot.source(of: .workoutMediaUploads) == .remote)
+        for flag in RemoteFeatureFlag.allCases where flag != .workoutMediaUploads {
+            #expect(store.isEnabled(flag) == true)
+        }
+    }
+
+    /// The seed must not need the network at all, or an offline launch would resolve from shipped
+    /// defaults for as long as the fetch took to fail.
+    @Test
+    func thePersistedSeedLandsBeforeAnyFetchIsAttempted() {
+        let source = FakeRemoteFeatureFlagSource(
+            fetchResult: .success([:]),
+            activatedValues: [RemoteFeatureFlag.workoutRemoteDeletes.key: false]
+        )
+        let store = RemoteFeatureFlagStore()
+        let service = RemoteFeatureFlagService(source: source, store: store)
+
+        service.configure()
+
+        #expect(store.isEnabled(.workoutRemoteDeletes) == false)
+        #expect(source.fetchCallCount == 0)
+    }
+
+    /// A device the backend has never answered for has nothing persisted, and must not be nudged
+    /// off its shipped defaults by the seed.
+    @Test
+    func aDeviceWithNothingPersistedStaysOnShippedDefaults() {
+        let source = FakeRemoteFeatureFlagSource(fetchResult: .success([:]))
+        let store = RemoteFeatureFlagStore()
+        let service = RemoteFeatureFlagService(source: source, store: store)
+
+        service.configure()
+
+        #expect(store.snapshot == .shippedDefaults)
+    }
+
     @Test
     func configureStartsTheRealTimeListenerAndARealTimeUpdateLandsWithoutAFetch() async {
         let source = FakeRemoteFeatureFlagSource(fetchResult: .success([:]))
@@ -228,11 +281,21 @@ struct RemoteFeatureFlagServiceTests {
 private final class FakeRemoteFeatureFlagSource: RemoteFeatureFlagSource, @unchecked Sendable {
     private let lock = NSLock()
     private var storedFetchResult: Result<[String: Bool], any Error>
+    private var storedActivatedValues: [String: Bool]
     private var onUpdate: (@Sendable ([String: Bool]) -> Void)?
     private var storedStartListeningCallCount = 0
+    private var storedFetchCallCount = 0
 
-    init(fetchResult: Result<[String: Bool], any Error>) {
+    init(
+        fetchResult: Result<[String: Bool], any Error>,
+        activatedValues: [String: Bool] = [:]
+    ) {
         storedFetchResult = fetchResult
+        storedActivatedValues = activatedValues
+    }
+
+    var fetchCallCount: Int {
+        lock.withLock { storedFetchCallCount }
     }
 
     var isListening: Bool {
@@ -253,7 +316,15 @@ private final class FakeRemoteFeatureFlagSource: RemoteFeatureFlagSource, @unche
     }
 
     func fetchAndActivate() async throws -> [String: Bool] {
-        try lock.withLock { storedFetchResult }.get()
+        let result = lock.withLock { () -> Result<[String: Bool], any Error> in
+            storedFetchCallCount += 1
+            return storedFetchResult
+        }
+        return try result.get()
+    }
+
+    func activatedValues() -> [String: Bool] {
+        lock.withLock { storedActivatedValues }
     }
 
     func startListening(onUpdate: @escaping @Sendable ([String: Bool]) -> Void) {

@@ -155,6 +155,10 @@ final class MediaUploadManager {
 
     /// Retry all failed uploads for a workout
     func retryFailedUploads(for workoutId: UUID, modelContext: ModelContext) async {
+        // Checked before the rows are touched, not just before the upload: a reset to `pending`
+        // would be a status change on work the switch says must sit exactly as it is.
+        guard mediaUploadsAllowed(path: "MediaUploadManager.retryFailedUploads") else { return }
+
         // Reset failed uploads to pending
         let descriptor = FetchDescriptor<PendingMediaUpload>(
             predicate: #Predicate { $0.workoutId == workoutId && $0.status == "failed" }
@@ -176,15 +180,9 @@ final class MediaUploadManager {
 
     /// Process all pending uploads (called on app launch/foreground)
     func processPendingUploads(modelContext: ModelContext) async {
-        // Killed: the `PendingMediaUpload` rows stay queued and the local-original sweep below
-        // does not run, so nothing is uploaded and nothing is deleted until the flag returns.
-        guard RemoteFeatureGate.allows(
-            .workoutMediaUploads,
-            path: "MediaUploadManager.processPendingUploads",
-            store: featureFlags
-        ) else {
-            return
-        }
+        // Also gated here, above `processUploadsForWorkout`, because the orphaned-file cleanup at
+        // the end of this sweep is local deletion the switch is meant to stop as well.
+        guard mediaUploadsAllowed(path: "MediaUploadManager.processPendingUploads") else { return }
 
         let descriptor = FetchDescriptor<PendingMediaUpload>(
             predicate: #Predicate { $0.status == "pending" || $0.status == "uploading" }
@@ -238,8 +236,20 @@ final class MediaUploadManager {
 
     // MARK: - Private Methods
 
+    /// Whether the media queue may run. The switch exists for the upload's second half - deleting
+    /// the local original once Cloud Storage is believed to have it - so every path that can reach
+    /// that deletion asks here.
+    private func mediaUploadsAllowed(path: String) -> Bool {
+        RemoteFeatureGate.allows(.workoutMediaUploads, path: path, store: featureFlags)
+    }
+
     /// Process uploads for a specific workout
     private func processUploadsForWorkout(workoutId: UUID, modelContext: ModelContext) async {
+        // The single choke point every entry point funnels through, so a save-triggered enqueue
+        // cannot upload and delete a local original behind a thrown switch. The
+        // `PendingMediaUpload` rows are left exactly as they are and drain when the flag returns.
+        guard mediaUploadsAllowed(path: "MediaUploadManager.processUploadsForWorkout") else { return }
+
         guard !processingWorkoutIds.contains(workoutId) else { return }
         processingWorkoutIds.insert(workoutId)
 

@@ -10,6 +10,13 @@ protocol RemoteFeatureFlagSource: Sendable {
     /// tell "the backend said nothing" apart from "the backend said nothing new".
     func fetchAndActivate() async throws -> [String: Bool]
 
+    /// The values already activated on this device, read without touching the network.
+    ///
+    /// This is what makes a kill switch durable: a fetch throws when the device is offline, so
+    /// without reading the persisted activation a cold launch in aeroplane mode would run every
+    /// flag on its shipped default while the SDK still held the `false` an operator published.
+    func activatedValues() -> [String: Bool]
+
     /// Opens a real-time connection and reports every activated update.
     ///
     /// Calling this twice replaces the previous registration rather than stacking a second one.
