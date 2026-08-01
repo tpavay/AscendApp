@@ -21,6 +21,7 @@ import UIKit
 /// render server. `HeartRateChartDownsamplingTests` pins the mark count that drives
 /// that cost instead.
 @MainActor
+@Suite(.hostsAWindow)
 struct WorkoutDetailScrollHostingTests {
     /// Two seconds of 60 Hz scrolling - the length of the drag in the recording.
     private static let scrollTickCount = 120
@@ -54,13 +55,20 @@ struct WorkoutDetailScrollHostingTests {
             UIApplication.shared.connectedScenes.first as? UIWindowScene,
             "test host app should expose a live UIWindowScene"
         )
+        let previousKeyWindow = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)
         window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
         window.rootViewController = host
         window.makeKeyAndVisible()
+        // Detaching from the scene is what dismantles the content. Hiding is not enough: a window
+        // still attached keeps `WorkoutDetailView`'s `@Query` observing SwiftData after the
+        // container declared above has gone, and that observer then traps on the next save any
+        // other suite performs, taking the whole test process down.
         defer {
-            window.rootViewController = nil
             window.isHidden = true
+            previousKeyWindow?.makeKey()
+            window.rootViewController = nil
+            window.windowScene = nil
         }
         Self.flush(window)
 

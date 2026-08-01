@@ -215,6 +215,14 @@ jobs:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: npx -y firebase-tools@15.22.1 deploy --project ascend-staging-fa7d5 --only functions,firestore:rules,firestore:indexes,storage,hosting --non-interactive --force --token "$FIREBASE_TOKEN"
 
+      # Staging is where a functions drift should be caught, not production.
+      # The reconciliation is against the checked-out ref, so this asserts that
+      # ascend-staging-fa7d5 holds exactly what `develop` exports.
+      - name: Verify deployed functions match this ref
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: node scripts/verify-deployed-functions.mjs --project ascend-staging-fa7d5
+
   upload-testflight:
     name: Upload to TestFlight (Staging)
     needs:
