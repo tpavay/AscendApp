@@ -410,6 +410,156 @@ test('users cannot write workouts into another users path', async () => {
   })));
 });
 
+// Schema-version range contract.
+//
+// Rules deploy globally and instantly; app rollout is gradual and lags behind. Any rule that pins
+// a schema version to one exact number therefore fails in both directions the day the number moves:
+// stored documents at the old number stop being updatable by an updated client, and clients still
+// running the old build stop being able to write at all. These tests simulate the next bump by
+// putting `CURRENT + 1` on the wire - exactly what the first client build after a bump emits while
+// every stored document is still at the old number.
+const CURRENT_WORKOUT_SCHEMA_VERSION = 1;
+const BUMPED_WORKOUT_SCHEMA_VERSION = CURRENT_WORKOUT_SCHEMA_VERSION + 1;
+const CURRENT_LEADERBOARD_SCHEMA_VERSION = 2;
+const BUMPED_LEADERBOARD_SCHEMA_VERSION = CURRENT_LEADERBOARD_SCHEMA_VERSION + 1;
+const MAX_SCHEMA_VERSION = 1000;
+
+async function seedWorkoutDocument(overrides = {}) {
+  await testEnv.withSecurityRulesDisabled(async (adminContext) => {
+    await setDoc(
+      doc(adminContext.firestore(), `users/${userId}/workouts/${workoutId}`),
+      makeWorkoutDocument(overrides)
+    );
+  });
+}
+
+test('a workout stored at the previous schema version stays updatable after a bump', async () => {
+  await seedWorkoutDocument({schemaVersion: CURRENT_WORKOUT_SCHEMA_VERSION});
+
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertSucceeds(setDoc(workoutRef, makeWorkoutDocument({
+    schemaVersion: BUMPED_WORKOUT_SCHEMA_VERSION,
+  })));
+});
+
+test('a client still emitting the previous schema version is not locked out of writing', async () => {
+  await seedWorkoutDocument({schemaVersion: CURRENT_WORKOUT_SCHEMA_VERSION});
+
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertSucceeds(setDoc(workoutRef, makeWorkoutDocument({
+    schemaVersion: CURRENT_WORKOUT_SCHEMA_VERSION,
+    steps: 1400,
+  })));
+});
+
+// Writes are whole-document `setData`, so letting an older build stamp its lower version back onto
+// a migrated document would drop the fields the newer schema added. The write is refused instead.
+test('a workout schema version may not regress to an older number', async () => {
+  await seedWorkoutDocument({schemaVersion: BUMPED_WORKOUT_SCHEMA_VERSION});
+
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    schemaVersion: CURRENT_WORKOUT_SCHEMA_VERSION,
+  })));
+});
+
+test('workout schema versions outside the supported range are rejected', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({schemaVersion: 0})));
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({schemaVersion: -1})));
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    schemaVersion: MAX_SCHEMA_VERSION + 1,
+  })));
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({schemaVersion: '1'})));
+});
+
+// The workout write rule has no expression budget for an `is string` check in front of an enum
+// validator, so those were dropped. Membership in a list of string literals has to carry the type
+// check on its own for every enum in the document.
+test('non-string enum values are rejected without a separate type check', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({source: 1})));
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({integrityLevel: true})));
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    media: [{...makeMediaItem(), type: 3}],
+  })));
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    weightConfiguration: {entries: [{...makeWeightEntry(), equipmentType: 7}]},
+  })));
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    participations: [{...makeRoutineTemplateParticipation(), contextType: 2}],
+  })));
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    participations: [{...makeRoutineTemplateParticipation(), role: 4}],
+  })));
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    participations: [{...makeRoutineTemplateParticipation(), verificationTier: 5}],
+  })));
+});
+
+test('a heart-rate reference at a bumped object schema version stays writable', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertSucceeds(setDoc(workoutRef, makeWorkoutDocument({
+    heartRateSeries: {
+      ...makeHeartRateSeriesReference(userId, workoutId),
+      objectSchemaVersion: BUMPED_WORKOUT_SCHEMA_VERSION,
+    },
+  })));
+});
+
+test('heart-rate object schema versions outside the supported range are rejected', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const workoutRef = doc(context.firestore(), `users/${userId}/workouts/${workoutId}`);
+
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    heartRateSeries: {
+      ...makeHeartRateSeriesReference(userId, workoutId),
+      objectSchemaVersion: 0,
+    },
+  })));
+  await assertFails(setDoc(workoutRef, makeWorkoutDocument({
+    heartRateSeries: {
+      ...makeHeartRateSeriesReference(userId, workoutId),
+      objectSchemaVersion: MAX_SCHEMA_VERSION + 1,
+    },
+  })));
+});
+
+test('leaderboard stats accept every schema version still plausibly in the field', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const statsRef = doc(context.firestore(), `leaderboard_stats/weekly_2026-W15_${userId}`);
+
+  await assertSucceeds(setDoc(statsRef, makeLeaderboardDocument({
+    schemaVersion: BUMPED_LEADERBOARD_SCHEMA_VERSION,
+  })));
+  await assertSucceeds(setDoc(statsRef, makeLeaderboardDocument({
+    schemaVersion: CURRENT_LEADERBOARD_SCHEMA_VERSION - 1,
+  })));
+});
+
+test('leaderboard schema versions outside the supported range are rejected', async () => {
+  const context = testEnv.authenticatedContext(userId);
+  const statsRef = doc(context.firestore(), `leaderboard_stats/weekly_2026-W15_${userId}`);
+
+  await assertFails(setDoc(statsRef, makeLeaderboardDocument({schemaVersion: 0})));
+  await assertFails(setDoc(statsRef, makeLeaderboardDocument({
+    schemaVersion: MAX_SCHEMA_VERSION + 1,
+  })));
+  await assertFails(setDoc(statsRef, makeLeaderboardDocument({schemaVersion: '2'})));
+});
+
 test('owner can upload a valid heart-rate sidecar blob', async () => {
   const context = testEnv.authenticatedContext(userId);
   const sidecarRef = ref(

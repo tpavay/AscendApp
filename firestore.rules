@@ -13,6 +13,22 @@ service cloud.firestore {
       return (value is int || value is float) && value >= 0;
     }
 
+    // A schema version is metadata, not a trust boundary - every field of every
+    // versioned document is validated by type and domain independently of this
+    // number, so narrowing it buys no safety and costs availability. Pinning it
+    // to one exact value locks documents and clients out in both directions the
+    // day the number moves: stored documents at the old version stop being
+    // updatable by an updated client, and clients still on the old build stop
+    // being able to write at all. Rules deploy globally and instantly while app
+    // rollout is gradual, so the two can never be ordered to avoid that. The
+    // floor is 1 because no shipped client ever emitted a lower number; the
+    // ceiling is only a garbage guard, matching contextVersion / rulesVersion.
+    function isSupportedSchemaVersion(version) {
+      return version is int &&
+        version >= 1 &&
+        version <= 1000;
+    }
+
     function isValidLocationProfileText(value) {
       return value is string &&
         value.size() > 0 &&
@@ -516,7 +532,6 @@ service cloud.firestore {
         isNonNegativeNumber(request.resource.data.durationSeconds) &&
         request.resource.data.steps is int &&
         request.resource.data.steps >= 0 &&
-        request.resource.data.source is string &&
         isValidWorkoutSource(request.resource.data.source) &&
         (!request.resource.data.keys().hasAny(["climbId"]) ||
           (request.resource.data.climbId is string &&
@@ -580,8 +595,7 @@ service cloud.firestore {
         isValidLeaderboardIdentity() &&
         request.resource.data.timeFrame is string &&
         isValidTimeFrame(request.resource.data.timeFrame) &&
-        request.resource.data.schemaVersion is int &&
-        request.resource.data.schemaVersion == 2 &&
+        isSupportedSchemaVersion(request.resource.data.schemaVersion) &&
         request.resource.data.periodKey is string &&
         isValidPeriodKey(
           request.resource.data.timeFrame,
@@ -666,6 +680,9 @@ service cloud.firestore {
       return type in ["feature_request", "bug_report", "get_help"];
     }
 
+    // Enum validators take the value untyped: membership in a list of string
+    // literals already excludes every non-string, so a preceding `is string`
+    // check is a no-op the workout write rule has no expression budget for.
     function isValidWorkoutSource(source) {
       return source in [
         "manual",
@@ -734,7 +751,6 @@ service cloud.firestore {
         item.url.size() > 0 &&
         item.url.size() <= 2048 &&
         item.uploadedAt is timestamp &&
-        item.type is string &&
         isValidWorkoutMediaType(item.type) &&
         (!item.keys().hasAny(["durationSeconds"]) ||
           (isNonNegativeNumber(item.durationSeconds) &&
@@ -761,12 +777,7 @@ service cloud.firestore {
 
     function isValidWorkoutWeightEntry(entry) {
       return entry is map &&
-        entry.keys().hasOnly([
-          "id",
-          "equipmentType",
-          "weightValue",
-          "isEnabled"
-        ]) &&
+        entry.keys().size() == 4 &&
         entry.keys().hasAll([
           "id",
           "equipmentType",
@@ -775,7 +786,6 @@ service cloud.firestore {
         ]) &&
         entry.id is string &&
         isValidWorkoutId(entry.id) &&
-        entry.equipmentType is string &&
         isValidWorkoutWeightEquipmentType(entry.equipmentType) &&
         isNonNegativeNumber(entry.weightValue) &&
         entry.isEnabled is bool;
@@ -808,7 +818,7 @@ service cloud.firestore {
 
     function isValidWorkoutWeightConfiguration(config) {
       return config is map &&
-        config.keys().hasOnly(["entries"]) &&
+        config.keys().size() == 1 &&
         config.keys().hasAll(["entries"]) &&
         isValidWorkoutWeightEntryList(config.entries);
     }
@@ -840,7 +850,7 @@ service cloud.firestore {
         reference.sampleCount is int &&
         reference.sampleCount > 0 &&
         reference.get("sha256", "").matches("^([0-9a-f]{64})?$") &&
-        reference.get("objectSchemaVersion", 1) in [1] &&
+        isSupportedSchemaVersion(reference.get("objectSchemaVersion", 1)) &&
         reference.get("compressedByteCount", 1) is int &&
         reference.seriesStartAt is timestamp &&
         reference.seriesEndAt is timestamp &&
@@ -869,13 +879,7 @@ service cloud.firestore {
 
     function isValidWorkoutParticipationMetricsSnapshot(snapshot) {
       return snapshot is map &&
-        snapshot.keys().hasOnly([
-          "startedAt",
-          "durationSeconds",
-          "steps",
-          "floors",
-          "stepsPerMinute"
-        ]) &&
+        snapshot.keys().size() == 5 &&
         snapshot.keys().hasAll([
           "startedAt",
           "durationSeconds",
@@ -894,20 +898,7 @@ service cloud.firestore {
 
     function isValidWorkoutParticipationItem(userId, workoutId, item, workoutSource) {
       return item is map &&
-        item.keys().hasOnly([
-          "id",
-          "workoutId",
-          "userId",
-          "contextType",
-          "contextId",
-          "contextVersion",
-          "rulesVersion",
-          "role",
-          "leaderboardEligible",
-          "verificationTier",
-          "metricsSnapshot",
-          "createdAt"
-        ]) &&
+        item.keys().size() == 12 &&
         item.keys().hasAll([
           "id",
           "workoutId",
@@ -926,7 +917,6 @@ service cloud.firestore {
         isValidWorkoutId(item.id) &&
         item.workoutId == workoutId &&
         item.userId == userId &&
-        item.contextType is string &&
         isValidWorkoutParticipationContextType(item.contextType) &&
         item.contextId is string &&
         item.contextId.size() > 0 &&
@@ -937,10 +927,8 @@ service cloud.firestore {
         item.rulesVersion is int &&
         item.rulesVersion > 0 &&
         item.rulesVersion <= 1000 &&
-        item.role is string &&
         isValidWorkoutParticipationRole(item.role) &&
         item.leaderboardEligible is bool &&
-        item.verificationTier is string &&
         isValidWorkoutParticipationVerificationTier(item.verificationTier) &&
         isValidWorkoutParticipationMetricsSnapshot(item.metricsSnapshot) &&
         item.createdAt is timestamp &&
@@ -973,15 +961,6 @@ service cloud.firestore {
           isValidWorkoutParticipationItem(userId, workoutId, participations[6], workoutSource)) &&
         (participations.size() <= 7 ||
           isValidWorkoutParticipationItem(userId, workoutId, participations[7], workoutSource));
-    }
-
-    function currentWorkoutSchemaVersion() {
-      return 1;
-    }
-
-    function isSupportedWorkoutSchemaVersion(version) {
-      return version is int &&
-        version == currentWorkoutSchemaVersion();
     }
 
     function isValidWorkoutDocument(userId, workoutId) {
@@ -1032,7 +1011,7 @@ service cloud.firestore {
           "updatedAt"
         ]) &&
         request.resource.data.userId == userId &&
-        isSupportedWorkoutSchemaVersion(request.resource.data.schemaVersion) &&
+        isSupportedSchemaVersion(request.resource.data.schemaVersion) &&
         request.resource.data.name is string &&
         request.resource.data.name.size() > 0 &&
         request.resource.data.name.size() <= 120 &&
@@ -1047,14 +1026,12 @@ service cloud.firestore {
         request.resource.data.stepsPerFloor <= 100 &&
         request.resource.data.notes is string &&
         request.resource.data.notes.size() <= 5000 &&
-        request.resource.data.source is string &&
         isValidWorkoutSource(request.resource.data.source) &&
         (!request.resource.data.keys().hasAny(["climbId"]) ||
           (request.resource.data.source == "headphone_motion" &&
             request.resource.data.climbId is string &&
             request.resource.data.climbId.size() > 0 &&
             request.resource.data.climbId.size() <= 160)) &&
-        request.resource.data.integrityLevel is string &&
         isValidIntegrityLevel(request.resource.data.integrityLevel) &&
         request.resource.data.createdAt is timestamp &&
         request.resource.data.updatedAt is timestamp &&
@@ -1357,10 +1334,15 @@ service cloud.firestore {
         allow read: if isOwner(userId);
         allow create: if isOwner(userId) &&
           isValidWorkoutDocument(userId, workoutId);
+        // The stored schema version may only move forward. Equality would make
+        // every stored document un-updatable the day the number is bumped, since
+        // an updated client always emits the new number. Writes are whole-document
+        // `setData`, so allowing it to move backward would instead let an older
+        // build drop the fields a newer schema added.
         allow update: if isOwner(userId) &&
           isValidWorkoutDocument(userId, workoutId) &&
           request.resource.data.userId == resource.data.userId &&
-          request.resource.data.schemaVersion == resource.data.schemaVersion &&
+          request.resource.data.schemaVersion >= resource.data.schemaVersion &&
           request.resource.data.createdAt == resource.data.createdAt;
         allow delete: if isOwner(userId);
       }

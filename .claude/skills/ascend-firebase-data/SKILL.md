@@ -23,6 +23,25 @@ The same `firestore.rules` file must be deployed to all environments (dev, stagi
 Verify with `npm run test:firebase-rules` (emulator-backed rules tests under `tests/firebase-rules/`).
 CI runs the same command on any PR touching rules, indexes, or Firebase config - see `ascend-deploy` for that job.
 
+## Schema versions are ranges in the rules, never equalities
+
+`schemaVersion` and `objectSchemaVersion` go through `isSupportedSchemaVersion`, which accepts a bounded range rather than one exact number.
+Never write `schemaVersion == <n>` into a rule, and never require an incoming version to equal the stored one.
+Rules deploy globally and instantly while app rollout is gradual, so an exact pin locks out in both directions the day the number moves: stored documents at the old number stop being updatable by an updated client, and clients still on the old build stop being able to write at all.
+The number carries no authority - every field is validated by type and domain independently of it, which is what actually protects the data.
+The workout update rule lets the stored version move forward but not backward, because whole-document `setData` would otherwise let an older build drop the fields a newer schema added.
+
+`identityPolicyVersion` is deliberately not one of these: it asserts which moderation policy screened a display name, so accepting an older value would accept weaker screening.
+
+Bumping a version is then a Swift-constant change alone. Verify with the schema-version range tests in `tests/firebase-rules/workout-contract.test.mjs`.
+
+## The workout write rule has almost no expression budget left
+
+Firestore aborts rule evaluation at 1000 expressions and returns a plain `PERMISSION_DENIED`, so an over-budget document silently never reaches the cloud backup.
+Rules functions inline their arguments, so each `item.` dereference inside a per-element validator re-evaluates the whole `request.resource.data.<list>[i]` chain - the cost scales with the number of distinct field references per element, not with the number of comparisons.
+The workout rule is already over budget well below its own declared list caps (issue #295), so before adding any check to that path, exercise it against a document with several nested list elements rather than the single-element fixtures.
+Enum validators there take their value untyped on purpose: membership in a list of string literals already excludes non-strings, so a preceding `is string` is a no-op the budget cannot afford.
+
 ## Storage pathing + rules
 
 User-generated media must be stored under user-scoped prefixes:
