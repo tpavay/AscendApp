@@ -843,7 +843,16 @@ async function hydrateUser(projectId, args) {
   const userRef = db.collection("users").doc(args.userId);
   const existingSnapshot = await userRef.get();
   const existing = existingSnapshot.data() ?? {};
-  const displayName = trimmed(args.displayName) ?? trimmed(existing.displayName) ?? "Climber";
+  // Never invent a public display name. The app's own fallback for a nameless account is
+  // PublicClimberIdentity.systemHandle, a per-uid handle ("Climber A3F9MQ"); a bare
+  // "Climber" published here collides across every hydrated account and is indistinguishable
+  // from a real name once it reaches a podium. Make the operator supply one instead.
+  const displayName = trimmed(args.displayName) ?? trimmed(existing.displayName);
+  if (!displayName) {
+    throw new Error(
+      `hydrate-user: ${args.userId} has no display name to publish. Pass --display-name.`
+    );
+  }
   const photoURL = resolveHydratePhotoURL(args.photoURL, existing.profilePictureURL);
   assertPublishablePublicIdentity({displayName, photoURL}, "hydrate-user");
   const joinedAt = args.joinedAt ?? timestampDate(existing.joined_at) ?? new Date();

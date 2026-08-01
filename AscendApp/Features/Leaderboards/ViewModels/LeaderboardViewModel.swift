@@ -12,12 +12,12 @@ final class LeaderboardViewModel {
     var selectedBodyWeightFilter: LeaderboardBodyWeightFilter = .all
     var selectedLocationFilter: LeaderboardLocationFilter = .all
     var leaderboardEntries: [LeaderboardEntry] = []
-    var userEntry: LeaderboardEntry?
+    var userStanding: LeaderboardUserStanding?
     var isLoading = false
     var errorMessage: String?
     var isOffline = false
 
-    private let service = LeaderboardService.shared
+    private let service: LeaderboardService
     private let repository = LeaderboardRepository.shared
     private let sessionCache: LeaderboardSessionCache
     private let pageSize = 25
@@ -30,13 +30,24 @@ final class LeaderboardViewModel {
     private var currentUserProfile: LeaderboardProfileSnapshot?
     private var rawLeaderboardStats: [FirestoreLeaderboardStats] = []
 
-    init(sessionCache: LeaderboardSessionCache = .shared) {
+    init(
+        sessionCache: LeaderboardSessionCache = .shared,
+        service: LeaderboardService = .shared
+    ) {
         self.sessionCache = sessionCache
+        self.service = service
     }
 
     func configure(userId: String, modelContext: ModelContext) {
         currentUserId = userId
         service.configure(modelContext: modelContext)
+    }
+
+    /// The window the selected board covers. Surfaced so the board can name it: weekly
+    /// and monthly windows do not nest, so an unlabelled pair reads as a contradiction on
+    /// any day a week straddles a month boundary.
+    var selectedPeriod: LeaderboardPeriod {
+        selectedTimeFrame.currentPeriod()
     }
 
     var displayedEntries: [LeaderboardEntry] {
@@ -192,7 +203,7 @@ final class LeaderboardViewModel {
                 )
                 if cacheStats.isEmpty {
                     leaderboardEntries = []
-                    userEntry = try? placeholderEntry(for: userId)
+                    userStanding = unrankedStanding(for: userId)
                     handleError(URLError(.notConnectedToInternet), context: "load")
                 } else {
                     apply(stats: reconciledStats, userId: userId)
@@ -202,7 +213,7 @@ final class LeaderboardViewModel {
                 return
             } catch {
                 leaderboardEntries = []
-                userEntry = try? placeholderEntry(for: userId)
+                userStanding = unrankedStanding(for: userId)
                 handleError(URLError(.notConnectedToInternet), context: "load")
                 isLoading = false
                 return
@@ -238,7 +249,7 @@ final class LeaderboardViewModel {
                 let reconciledStats = reconcileCurrentUserStats(cachedStats, userId: userId)
                 if cachedStats.isEmpty {
                     leaderboardEntries = []
-                    userEntry = try? placeholderEntry(for: userId)
+                    userStanding = unrankedStanding(for: userId)
                     handleError(error, context: "load")
                 } else {
                     apply(stats: reconciledStats, userId: userId)
@@ -264,7 +275,7 @@ final class LeaderboardViewModel {
                 )
                 if cacheStats.isEmpty {
                     leaderboardEntries = []
-                    userEntry = try? placeholderEntry(for: userId)
+                    userStanding = unrankedStanding(for: userId)
                     handleError(error, context: "load")
                 } else {
                     apply(stats: reconciledStats, userId: userId)
@@ -272,7 +283,7 @@ final class LeaderboardViewModel {
                 }
             } catch {
                 leaderboardEntries = []
-                userEntry = try? placeholderEntry(for: userId)
+                userStanding = unrankedStanding(for: userId)
                 handleError(error, context: "load")
             }
         }
@@ -339,8 +350,8 @@ final class LeaderboardViewModel {
             )
         }
 
-        if let entry = userEntry, entry.userId == userId {
-            userEntry = entry.withProfile(displayName: "You", photoURL: photoURL)
+        if let entry = userStanding?.rankedEntry, entry.userId == userId {
+            userStanding = .ranked(entry.withProfile(displayName: "You", photoURL: photoURL))
         }
     }
 
@@ -373,8 +384,8 @@ final class LeaderboardViewModel {
         }
 
         leaderboardEntries = entries
-        userEntry = entries.first(where: { $0.userId == userId }) ??
-            (hasActiveDemographicFilters ? nil : (try? placeholderEntry(for: userId)))
+        userStanding = entries.first(where: { $0.userId == userId }).map(LeaderboardUserStanding.ranked) ??
+            (hasActiveDemographicFilters ? nil : unrankedStanding(for: userId))
         resetPagination()
     }
 
@@ -400,21 +411,20 @@ final class LeaderboardViewModel {
         }
     }
 
-    private func placeholderEntry(for userId: String) throws -> LeaderboardEntry? {
-        guard let localStats = try service.getLocalStats(for: userId, timeFrame: selectedTimeFrame) else {
+    /// The climber's standing when they are not among the ranked entries.
+    ///
+    /// They are not there because `LeaderboardCurrentUserReconciler` drops a climber with
+    /// no activity in the window - so by construction this is the zero-activity case, and
+    /// the honest answer is that they hold no rank. This must never synthesise one from
+    /// list position: that is what put a "rank 2, 0 steps" row directly under a podium
+    /// whose second plinth read `OPEN`.
+    private func unrankedStanding(for userId: String) -> LeaderboardUserStanding? {
+        guard let localStats = try? service.getLocalStats(for: userId, timeFrame: selectedTimeFrame) else {
             return nil
         }
 
         let value = localStats.value(for: selectedMetric)
-        return LeaderboardEntry(
-            userId: userId,
-            displayName: "You",
-            photoURL: currentUserPhotoURL,
-            rank: leaderboardEntries.count + 1,
-            value: value,
-            formattedValue: formatValue(value, for: selectedMetric),
-            isCurrentUser: true
-        )
+        return .unranked(value: value, formattedValue: formatValue(value, for: selectedMetric))
     }
 
     private func resetPagination() {

@@ -6,11 +6,47 @@
 import SwiftUI
 
 struct LeaderboardUserRowView: View {
+    /// Rank glyph for a climber who holds no rank this period. Reads as "no rung on the
+    /// ladder" rather than as a number, so it can never be mistaken for a placing.
+    static let unrankedRankLabel = "-"
+
     @Environment(\.colorScheme) private var colorScheme
 
-    let entry: ModeratedLeaderboardEntry
+    /// The signed-in climber's own row. An unranked climber renders without a rank
+    /// number at all - see `LeaderboardUserStanding`.
+    let entry: ModeratedLeaderboardEntry?
+    let displayName: String
+    let photoURL: URL?
+    let formattedValue: String
     let metric: LeaderboardMetric
     var crownGapText: String? = nil
+
+    init(
+        entry: ModeratedLeaderboardEntry,
+        metric: LeaderboardMetric,
+        crownGapText: String? = nil
+    ) {
+        self.entry = entry
+        self.displayName = entry.identity.displayName
+        self.photoURL = entry.identity.photoURL
+        self.formattedValue = entry.formattedValue
+        self.metric = metric
+        self.crownGapText = crownGapText
+    }
+
+    init(
+        unrankedFormattedValue: String,
+        photoURL: URL?,
+        metric: LeaderboardMetric,
+        crownGapText: String? = nil
+    ) {
+        self.entry = nil
+        self.displayName = "You"
+        self.photoURL = photoURL
+        self.formattedValue = unrankedFormattedValue
+        self.metric = metric
+        self.crownGapText = crownGapText
+    }
 
     private var rowFill: Color {
         colorScheme == .dark ? Color.white.opacity(0.055) : Color.black.opacity(0.045)
@@ -20,11 +56,16 @@ struct LeaderboardUserRowView: View {
         colorScheme == .dark ? .white : .black
     }
 
+    private var rankLabel: String {
+        guard let entry else { return Self.unrankedRankLabel }
+        return CompetitionRanking.rankLabel(entry.rank, isTied: entry.isTied)
+    }
+
     var body: some View {
         HStack(spacing: 12) {
-            Text(CompetitionRanking.rankLabel(entry.rank, isTied: entry.isTied))
+            Text(rankLabel)
                 .font(.montserratBold(size: 30))
-                .foregroundStyle(.accent)
+                .foregroundStyle(entry == nil ? Color.accent.opacity(0.45) : .accent)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(width: 52, alignment: .leading)
@@ -34,7 +75,7 @@ struct LeaderboardUserRowView: View {
                 .frame(width: 42, height: 42)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.identity.displayName.uppercased())
+                Text(displayName.uppercased())
                     .font(.montserratBold(size: 15))
                     .foregroundStyle(primaryTextColor)
                     .lineLimit(1)
@@ -60,7 +101,7 @@ struct LeaderboardUserRowView: View {
 
             Spacer(minLength: 8)
 
-            Text(entry.formattedValue)
+            Text(formattedValue)
                 .font(.montserratMedium(size: 16))
                 .foregroundStyle(primaryTextColor.opacity(0.9))
                 .lineLimit(1)
@@ -89,10 +130,15 @@ struct LeaderboardUserRowView: View {
     }
 
     private var accessibilityLabel: String {
-        let rankText = entry.isTied
-            ? "You are tied for rank \(entry.rank)"
-            : "Your rank \(entry.rank)"
-        let base = "\(rankText), \(entry.identity.displayName), \(entry.formattedValue) \(metric.displayName)"
+        let rankText: String
+        if let entry {
+            rankText = entry.isTied
+                ? "You are tied for rank \(entry.rank)"
+                : "Your rank \(entry.rank)"
+        } else {
+            rankText = "You are unranked this period"
+        }
+        let base = "\(rankText), \(displayName), \(formattedValue) \(metric.displayName)"
         guard let crownGapText else {
             return base
         }
@@ -101,7 +147,7 @@ struct LeaderboardUserRowView: View {
 
     @ViewBuilder
     private var profileImage: some View {
-        if let photoURL = entry.identity.photoURL {
+        if let photoURL {
             AsyncImage(url: photoURL) { phase in
                 switch phase {
                 case .success(let image):
@@ -146,7 +192,7 @@ struct LeaderboardUserRowView: View {
     }
 }
 
-#Preview {
+#Preview("Ranked") {
     LeaderboardUserRowView(
         entry: .preview(
             userId: "1",
@@ -158,6 +204,16 @@ struct LeaderboardUserRowView: View {
         ),
         metric: .climb,
         crownGapText: "1,204 STEPS TO CROWN"
+    )
+    .background(Color.black)
+}
+
+#Preview("Unranked") {
+    LeaderboardUserRowView(
+        unrankedFormattedValue: "0",
+        photoURL: nil,
+        metric: .climb,
+        crownGapText: "48,000 STEPS TO CROWN"
     )
     .background(Color.black)
 }

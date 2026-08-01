@@ -8,7 +8,10 @@ final class LeaderboardService {
     private let repository = LeaderboardRepository.shared
     private var modelContext: ModelContext?
 
-    private init() {}
+    /// Callers reach the app-wide instance through `shared`. A separate instance exists so a
+    /// caller that owns its own `ModelContext` - a test, chiefly - is not racing every other
+    /// holder of the singleton's single context.
+    init() {}
 
     func configure(modelContext: ModelContext) {
         self.modelContext = modelContext
