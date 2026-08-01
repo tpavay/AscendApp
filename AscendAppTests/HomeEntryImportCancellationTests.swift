@@ -15,6 +15,8 @@ import Testing
 struct HomeEntryImportCancellationTests {
     private static let candidateCount = 12
     private static let cancelAfterCandidates = 3
+    private static let joinAfterCandidates = 3
+    private static let cancelJoinerAfterCandidates = 6
     private static let sessionStart = Date(timeIntervalSince1970: 1_776_900_000)
 
     @Test
@@ -72,6 +74,81 @@ struct HomeEntryImportCancellationTests {
                 """
                 the backfill imported \(imported.count) of \(Self.candidateCount) candidates after \
                 its owner went away; it should have stopped at the next candidate boundary
+                """
+            )
+        }
+    }
+
+    /// Only the caller that started the pass may stop it.
+    ///
+    /// Several surfaces share one refresh, and the ones that merely join it come and go: the
+    /// import sheet, the integrations card, the background observer. Letting a joiner's
+    /// cancellation reach the shared task means dismissing the import sheet silently kills the
+    /// backfill Home started and is still showing progress for.
+    @Test
+    func aJoiningCallerGoingAwayDoesNotStopTheOwnersBackfill() async throws {
+        try await HealthKitImportCoordinatorTestIsolation.shared.run {
+            let modelContext = try Self.makeModelContext()
+            let stateSnapshot = HealthKitSyncStateSnapshot.capture()
+            let settingsSnapshot = SettingsSnapshot.capture()
+            defer {
+                stateSnapshot.restore()
+                settingsSnapshot.restore()
+            }
+            Self.resetHealthKitSyncState()
+            let stores = Self.makeIsolatedStores()
+            defer { stores.defaults.removePersistentDomain(forName: stores.suiteName) }
+
+            let fixture = Self.makeCandidates(count: Self.candidateCount)
+            let reader = CancellingStubWorkoutReader(
+                workoutsByExternalRecordID: fixture.workoutsByID,
+                addedSamples: fixture.samples
+            )
+
+            SettingsManager.shared.appleHealthAutoImportEnabled = true
+            SettingsManager.shared.appleHealthAutoImportActivatedAt =
+                Self.sessionStart.addingTimeInterval(-86_400)
+
+            let coordinator = WorkoutImportCoordinator(
+                authorizationController: StubAuthorizationController(),
+                workoutReader: reader,
+                metricsReader: StubMetricsReader(),
+                reviewStateStore: stores.reviewStateStore,
+                ignoredAppleHealthWorkoutStore: stores.ignoredAppleHealthWorkoutStore
+            )
+            coordinator.configure(modelContext: modelContext)
+
+            // Home starts the pass and stays on screen for all of it.
+            let owner = Task { @MainActor in
+                await coordinator.refreshPendingImports(trigger: .homeEntry)
+            }
+
+            // The import sheet opens onto the pass already running, then dismisses - both pinned
+            // to candidate boundaries so the join really happens mid-backfill.
+            let joiner = JoinedRefreshHolder()
+            reader.onWorkoutFetched = { fetchCount in
+                switch fetchCount {
+                case Self.joinAfterCandidates:
+                    joiner.task = Task { @MainActor in
+                        await coordinator.refreshPendingImports(trigger: .manualReview)
+                    }
+                case Self.cancelJoinerAfterCandidates:
+                    joiner.task?.cancel()
+                default:
+                    break
+                }
+            }
+
+            await owner.value
+            await joiner.task?.value
+
+            let imported = try modelContext.fetch(FetchDescriptor<Workout>())
+
+            #expect(
+                imported.count == Self.candidateCount,
+                """
+                the backfill stopped at \(imported.count) of \(Self.candidateCount) candidates \
+                after a joining caller went away; only the owner may cancel the shared pass
                 """
             )
         }
@@ -255,7 +332,7 @@ struct HomeEntryImportCancellationTests {
 @MainActor
 private final class CancellingStubWorkoutReader: HealthKitWorkoutReading {
     let isHealthDataAvailable = true
-    var onWorkoutFetched: ((Int) -> Void)?
+    var onWorkoutFetched: (@MainActor (Int) -> Void)?
 
     private let workoutsByExternalRecordID: [String: HKWorkout]
     private let addedSamples: [HealthKitWorkoutSample]
@@ -290,6 +367,13 @@ private final class CancellingStubWorkoutReader: HealthKitWorkoutReading {
     {
         []
     }
+}
+
+/// Holds the refresh a second surface joined, so the test can start it at one candidate boundary
+/// and cancel it at a later one.
+@MainActor
+private final class JoinedRefreshHolder {
+    var task: Task<Void, Never>?
 }
 
 @MainActor

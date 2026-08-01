@@ -123,22 +123,11 @@ struct AscendApp: App {
     
     private static func createModelContainer() -> ModelContainerCreationResult {
         do {
-            let config = ModelConfiguration(schema: Schema([
-                Workout.self,
-                WorkoutSourceLink.self,
-                WorkoutParticipation.self,
-                ActiveHeadphoneWorkoutDraft.self,
-                LeaderboardStats.self,
-                Routine.self,
-                RoutineFolder.self,
-                ClimbAttempt.self,
-                PendingMediaUpload.self,
-                PendingWorkoutDeletion.self,
-                BestEffortCacheEntry.self,
-                BestEffortCacheMetadata.self
-            ]))
+            let schema = Schema(versionedSchema: AscendSchemaV2.self)
+            let config = ModelConfiguration(schema: schema)
             return .success(try ModelContainer(
-                for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, ActiveHeadphoneWorkoutDraft.self, LeaderboardStats.self, Routine.self, RoutineFolder.self, ClimbAttempt.self, PendingMediaUpload.self, PendingWorkoutDeletion.self, BestEffortCacheEntry.self, BestEffortCacheMetadata.self,
+                for: schema,
+                migrationPlan: AscendMigrationPlan.self,
                 configurations: config
             ))
         } catch {

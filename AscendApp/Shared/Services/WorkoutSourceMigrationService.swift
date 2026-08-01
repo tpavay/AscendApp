@@ -25,8 +25,12 @@ enum WorkoutSourceMigrationService {
     /// mutated the whole store in one main-thread step - the same unbounded shape that hung Home
     /// for 182 seconds (ASCEND-IOS-1K); a one-time cost is still a hang the first time it is
     /// paid. Cancellation leaves the store consistent: each batch is saved before the next one
-    /// starts, and the completion flag is only set once the sweep finishes, so an interrupted run
-    /// resumes where it left off.
+    /// starts, and the completion flag is only set once the sweep finishes.
+    ///
+    /// An interrupted run restarts from the beginning rather than resuming - the offset is a
+    /// local, not persisted state. That is deliberate: `ensureLegacySourceLinksExist` is
+    /// idempotent, so re-walking the already-linked prefix inserts nothing, and a persisted
+    /// offset would silently skip rows whenever a workout is deleted between runs.
     ///
     /// Only workouts carrying a `healthKitUUID` can need a link, so the sweep is bounded by the
     /// Apple Health history rather than by the whole store.

@@ -30,6 +30,15 @@ enum InAppSensorWorkoutQuery {
     /// constant. That is the dimension that does not grow with Apple Health history, which is
     /// what ASCEND-IOS-1K scaled on. Making it constant means normalising an empty heart-rate
     /// series to `nil` at every write site first - a workout-model change, not a query change.
+    ///
+    /// State the cost at full size rather than at its best case: enrichment runs once per
+    /// imported candidate, so a backfill of *n* Apple Health workouts pays this fetch *n* times.
+    /// The retained shape is `n x (in-app session count)`, not one linear pass. That is still far
+    /// below the whole-store scan it replaced - imported Apple Health workouts, the rows that
+    /// grow without bound and carry the inline heart-rate series, are excluded by the predicate -
+    /// but it is not free, and hoisting it out of the per-candidate loop is not mechanical: it
+    /// would change when a just-imported sample can still merge into an existing in-app workout.
+    /// See `WorkoutImportCoordinator.importAppleHealthCandidate`.
     static func allInAppSensorWorkouts(in modelContext: ModelContext) throws -> [Workout] {
         let inAppSensorSourceRawValue = WorkoutSource.headphoneMotion.rawValue
         let descriptor = FetchDescriptor<Workout>(

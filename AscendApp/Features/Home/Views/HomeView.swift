@@ -61,6 +61,20 @@ struct HomeView: View {
         showingCompletedWorkoutShare
     }
 
+    /// Whether Home is still the screen behind whatever is on top of it.
+    ///
+    /// SwiftUI fires `onDisappear` on Home for a modal presentation *and* for a
+    /// `navigationDestination` push, neither of which is Home going away. Cancelling on either
+    /// would be a pause the user never asked for, so both are listed here and only a real
+    /// teardown falls through.
+    private var isCoveredRatherThanTornDown: Bool {
+        hasBlockingModalPresentation ||
+        autoImportedReviewWorkout != nil ||
+        selectedHomeClimb != nil ||
+        activeJustClimbGoal != nil ||
+        showingClimbBrowse
+    }
+
     private var greeting: String {
         // If first launch date not set, this is the first launch
         if firstLaunchDate == 0 {
@@ -241,12 +255,12 @@ struct HomeView: View {
             syncAutoImportedReviewPresentation()
         }
         .onDisappear {
-            // Home owns this pass; once it is gone, so is the reason to keep importing. A
-            // full-screen presentation can also fire `onDisappear` while Home is still the
-            // underlying screen, so that case is excluded - cancelling there would be a pause
-            // the user never asked for. Cancelling is always safe to get wrong in the other
-            // direction: imported workouts are saved individually and the next entry resumes.
-            guard !hasBlockingModalPresentation else { return }
+            // Home owns this pass; once it is gone, so is the reason to keep importing. Sheets,
+            // full-screen covers and pushed destinations all fire `onDisappear` while Home is
+            // still the screen underneath, so those are excluded. Cancelling is always safe to
+            // get wrong in the other direction: imported workouts are saved individually and the
+            // next entry resumes.
+            guard !isCoveredRatherThanTornDown else { return }
             importCoordinator.cancelInFlightWork()
         }
         .animation(.easeInOut(duration: 0.2), value: isBackfillInProgress)

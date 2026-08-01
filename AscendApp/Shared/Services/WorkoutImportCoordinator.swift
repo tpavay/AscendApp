@@ -309,16 +309,20 @@ final class WorkoutImportCoordinator {
         return lastErrorMessage == nil
     }
 
-    /// Coalesces concurrent refreshes onto one task, and cancels that task when the caller
-    /// awaiting it is cancelled.
+    /// Coalesces concurrent refreshes onto one task, and cancels that task when the caller that
+    /// *started* it is cancelled.
     ///
     /// The refresh is unstructured so that several surfaces can share one pass, which also means
     /// it does not inherit cancellation for free. Without the handler below, walking away from
     /// Home mid-backfill left the import running against a screen nobody was looking at.
+    ///
+    /// Only the owner may cancel. A caller that merely joins someone else's in-flight pass stops
+    /// caring about the result when it is cancelled, but the surface that asked for the pass is
+    /// still watching it: dismissing the import sheet must not stop the backfill Home started.
     func refreshPendingImports(trigger: ImportRefreshTrigger) async {
         if let refreshTask {
             let activeRefreshTrigger = activeRefreshTrigger
-            await awaitRefresh(refreshTask)
+            await refreshTask.value
 
             if Task.isCancelled { return }
 
@@ -337,10 +341,10 @@ final class WorkoutImportCoordinator {
         self.refreshTask = refreshTask
         activeRefreshTrigger = trigger
 
-        await awaitRefresh(refreshTask)
+        await awaitOwnedRefresh(refreshTask)
     }
 
-    private func awaitRefresh(_ task: Task<Void, Never>) async {
+    private func awaitOwnedRefresh(_ task: Task<Void, Never>) async {
         await withTaskCancellationHandler {
             await task.value
         } onCancel: {
@@ -1112,6 +1116,10 @@ final class WorkoutImportCoordinator {
             return .updatedExisting(existingWorkout)
         }
 
+        // Re-run per candidate, deliberately: this sample may be the Apple Health side of an
+        // in-app session recorded moments ago, and only enriching now can tell. The cost is real
+        // and is stated in full on `InAppSensorWorkoutQuery.allInAppSensorWorkouts` - a backfill
+        // of n candidates refetches the in-app sensor history n times.
         let enrichedWorkouts = try await enrichInAppWorkoutsWithAppleHealthIfPossible(
             modelContext: modelContext
         )

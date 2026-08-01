@@ -91,6 +91,11 @@ final class HealthKitBackgroundSyncManager {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let resumer = HealthKitOneShotResumer(continuation)
 
+            let timeout = Task.detached {
+                try await Task.sleep(for: Self.backgroundDeliveryTimeout)
+                resumer.resume(throwing: BackgroundDeliveryError.timedOut)
+            }
+
             request { success, error in
                 if let error {
                     resumer.resume(throwing: error)
@@ -99,11 +104,7 @@ final class HealthKitBackgroundSyncManager {
                 } else {
                     resumer.resume(throwing: BackgroundDeliveryError.requestFailed)
                 }
-            }
-
-            Task.detached {
-                try? await Task.sleep(for: Self.backgroundDeliveryTimeout)
-                resumer.resume(throwing: BackgroundDeliveryError.timedOut)
+                timeout.cancel()
             }
         }
     }

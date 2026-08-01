@@ -22,7 +22,7 @@ struct HomeImportProgressBar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Pulling in your history. \(remainingCount) sessions to go.")
+            Text("Pulling in your history. ^[\(remainingCount) session](inflect: true) to go.")
                 .font(.montserratMedium(size: 12))
                 .foregroundStyle(.secondary)
 
@@ -42,6 +42,7 @@ struct HomeImportProgressBar: View {
     VStack {
         HomeImportProgressBar(remainingCount: 128, totalCount: 400)
         HomeImportProgressBar(remainingCount: 3, totalCount: 400)
+        HomeImportProgressBar(remainingCount: 1, totalCount: 400)
     }
     .padding(.vertical, 40)
 }
