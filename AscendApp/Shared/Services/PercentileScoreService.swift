@@ -83,6 +83,63 @@ struct PercentileScoreService {
         return scores
     }
 
+    /// Percentile scores for every workout in one pass, oldest first.
+    ///
+    /// Equivalent, score for score, to calling `calculateAllPercentiles(for:existingWorkouts:)`
+    /// on each workout with the same array - but linear instead of quadratic. The quadratic
+    /// version re-derived every earlier workout's metric values for every workout, which meant
+    /// re-running `WorkoutEffortService.analyze` O(n^2) times; recalculating derived data after
+    /// an Apple Health backfill paid that on the main thread.
+    ///
+    /// `workouts` must be sorted by date ascending. Percentiles look at *strictly* earlier
+    /// workouts, so same-date workouts all see the same history - hence the tie-group flush.
+    static func allPercentiles(forDateAscendingWorkouts workouts: [Workout]) -> [[String: Double]] {
+        let valuesByWorkout = workouts.map(metricValues(for:))
+
+        var scores: [[String: Double]] = []
+        scores.reserveCapacity(workouts.count)
+
+        var historicalValuesByMetric: [HeatMapMetric: [Double]] = [:]
+        var historicalCount = 0
+        var pendingTieGroup: [[HeatMapMetric: Double]] = []
+        var pendingTieDate: Date?
+
+        func flushTieGroup() {
+            for values in pendingTieGroup {
+                for (metric, value) in values {
+                    historicalValuesByMetric[metric, default: []].append(value)
+                }
+            }
+            historicalCount += pendingTieGroup.count
+            pendingTieGroup.removeAll(keepingCapacity: true)
+        }
+
+        for (index, workout) in workouts.enumerated() {
+            if let pendingTieDate, pendingTieDate != workout.date {
+                flushTieGroup()
+            }
+            pendingTieDate = workout.date
+
+            let workoutValues = valuesByWorkout[index]
+            var workoutScores: [String: Double] = [:]
+            workoutScores.reserveCapacity(HeatMapMetric.allCases.count)
+
+            for metric in HeatMapMetric.allCases {
+                workoutScores[metric.rawValue] = calculateScore(
+                    metric: metric,
+                    value: workoutValues[metric],
+                    historicalValues: historicalValuesByMetric[metric] ?? [],
+                    workoutCount: historicalCount
+                )
+            }
+
+            scores.append(workoutScores)
+            pendingTieGroup.append(workoutValues)
+        }
+
+        return scores
+    }
+
     /// Calculate the score for a single metric
     private static func calculateScore(
         metric: HeatMapMetric,

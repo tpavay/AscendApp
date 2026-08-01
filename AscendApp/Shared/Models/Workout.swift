@@ -144,8 +144,17 @@ class Workout {
     var averageMETs: Double? // Average METs from Apple Health
 
     // Data integrity and source tracking
-    var source: WorkoutSource // How this workout was created/imported
+    //
+    // Stored as its raw value, like every other enum on this model. A Codable enum cannot appear
+    // in a `#Predicate` - SwiftData rejects it with `unsupportedPredicate` - which forced source
+    // filtering to happen by scanning the whole store (ASCEND-IOS-1K).
+    var sourceRawValue: String = WorkoutSource.manual.rawValue
     var integrityLevel: DataIntegrityLevel // Verified vs unverified data
+
+    var source: WorkoutSource {
+        get { WorkoutSource(rawValue: sourceRawValue) ?? .manual }
+        set { sourceRawValue = newValue.rawValue }
+    }
     var deviceModel: String? // "Apple Watch Series 9", "iPhone 15 Pro", etc.
     var sourceMetadata: String? // Additional source-specific data (JSON string)
     var healthKitUUID: String? // HealthKit workout UUID for deduplication
@@ -247,7 +256,7 @@ class Workout {
         self.averageMETs = averageMETs
         
         // Set data integrity fields
-        self.source = source
+        self.sourceRawValue = source.rawValue
         self.integrityLevel = source.isVerified ? .verified : .unverified
         self.deviceModel = deviceModel
         self.sourceMetadata = sourceMetadata

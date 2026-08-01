@@ -1,9 +1,6 @@
 ---
 name: ascend-workout-import
-description: Use when working on Ascend workout imports - Apple Health / HealthKit import, the import facade, auto-import opt-in and activation timestamp, the latest-unseen review flow, background freshness and HealthKit observers, or external provider provenance. Covers why enriched Live Climbs never surface for review and how external data enters the canonical store.
-paths:
-  - AscendApp/Features/Integrations/**
-  - AscendApp/Shared/Services/*Import*
+description: Use when working on Ascend workout imports - Apple Health / HealthKit import, the import facade, auto-import opt-in and activation timestamp, the latest-unseen review flow, background freshness and HealthKit observers, or external provider provenance - and when writing any screen `.task` or coordinator `configure` that touches the workout store, which fires from Home and other feature code far outside the Integrations folder. Covers why enriched Live Climbs never surface for review, how external data enters the canonical store, and the bounded-query and cancellation rules that keep the entry path off the main thread's critical section.
 ---
 
 # Import UX
@@ -27,9 +24,28 @@ External workout imports exist because Ascend partly serves as a logger - alongs
 - Reviewing an auto-imported workout is a *cleanup pass on an already-saved record* - semantically distinct from creating a new workout. UI affordances (button labels, dismiss behavior) should reflect that the workout already exists.
 - The review surface exists to fix bad step counts on workouts imported from external wearables (Apple Watch step data is frequently wrong for stair-stepper use) and to let the user add notes / media to the imported record. It does not apply to Live Climbs - those have accurate in-app step counts and gather notes / media at the completion summary, not via review.
 
+## Entry-path cost (the ASCEND-IOS-1K rule)
+- Nothing reached synchronously from a screen's `.task` or a coordinator's `configure` may run a query whose cost grows with the user's history.
+`Workout` carries its heart-rate series inline, so `fetch(FetchDescriptor<Workout>())` materialises the device's entire heart-rate history - it is never a cheap way to answer a question about one workout.
+Answering "does this ID still exist?" that way blocked Home for 182 seconds on every entry.
+- Identity and dedupe questions go through the bounded queries in `AscendApp/Shared/Repositories/` - `WorkoutExistenceQuery`, `AppleHealthLinkQuery`, `InAppSensorWorkoutQuery` - not through an in-memory index built from the whole store.
+`AppleHealthLinkQuery` checks the `WorkoutSourceLink` row *and* the legacy `Workout.healthKitUUID`, because the Firestore restore path writes the UUID without creating a link; dropping either check duplicates imports.
+`InAppSensorWorkoutQuery` is bounded by in-app session count rather than constant, on purpose - its doc comment states why narrowing further would change enrichment semantics.
+- Work that is unbounded by nature (the legacy source-link backfill, a large Apple Health import) runs in a cancellable batched task off the synchronous path, saving each batch before the next starts and setting the completion flag only at the end, so an interruption costs an idempotent re-walk rather than lost or skipped rows.
+- Home stays interactive while a backfill lands and says so: `HomeImportProgressBar` reports the remaining session count off `WorkoutImportCoordinator.remainingImportCount` / `totalImportCount`.
+A single arriving workout is not narrated.
+
+## Refresh ownership and cancellation
+- Concurrent refreshes coalesce onto one shared unstructured task, so it does not inherit cancellation for free - `refreshPendingImports` wires it up explicitly.
+- Only the caller that *started* a pass may cancel it. A caller that merely joined stops waiting without stopping the pass, so dismissing the import sheet never kills the backfill Home started.
+- Cancellation is always safe: imported workouts are saved individually and the next entry resumes from there.
+
 ## Background freshness
 - Prefer system-provided background delivery (e.g. HealthKit observers) when available; fall back to launch/foreground incremental refresh.
 - Observer callbacks must be serialized through the import facade - a callback wakes the pipeline; the pipeline owns the actual fetch.
+- Every HealthKit completion handler awaited from the import system must be time-bounded.
+HealthKit does not guarantee they fire - `disableBackgroundDelivery` reliably does not on a simulator without Health authorization - and an unbounded continuation is not a slow call but a permanent one: it strands the shared refresh task forever, and a continuation is not a cancellation point.
+`HealthKitBackgroundSyncManager` bounds them, which is what makes the cancellation guarantees above true.
 
 ## Related
 - Load the `healthkit` skill for Apple Health API work.

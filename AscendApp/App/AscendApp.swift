@@ -123,24 +123,15 @@ struct AscendApp: App {
     
     private static func createModelContainer() -> ModelContainerCreationResult {
         do {
-            let config = ModelConfiguration(schema: Schema([
-                Workout.self,
-                WorkoutSourceLink.self,
-                WorkoutParticipation.self,
-                ActiveHeadphoneWorkoutDraft.self,
-                LeaderboardStats.self,
-                Routine.self,
-                RoutineFolder.self,
-                ClimbAttempt.self,
-                PendingMediaUpload.self,
-                PendingWorkoutDeletion.self,
-                BestEffortCacheEntry.self,
-                BestEffortCacheMetadata.self
-            ]))
-            return .success(try ModelContainer(
-                for: Workout.self, WorkoutSourceLink.self, WorkoutParticipation.self, ActiveHeadphoneWorkoutDraft.self, LeaderboardStats.self, Routine.self, RoutineFolder.self, ClimbAttempt.self, PendingMediaUpload.self, PendingWorkoutDeletion.self, BestEffortCacheEntry.self, BestEffortCacheMetadata.self,
+            let schema = Schema(versionedSchema: AscendSchemaV2.self)
+            let config = ModelConfiguration(schema: schema)
+            let container = try ModelContainer(
+                for: schema,
+                migrationPlan: AscendMigrationPlan.self,
                 configurations: config
-            ))
+            )
+            finishInterruptedMigrationIfNeeded(in: container)
+            return .success(container)
         } catch {
             AppDiagnosticsRecorder.shared.record(
                 "model_container_creation_failed",
@@ -150,6 +141,46 @@ struct AscendApp: App {
             )
             debugLog("Failed to create model container: \(error)")
             return .failure(.localDataUnavailable)
+        }
+    }
+
+    /// A `didMigrate` that never landed leaves the store on V2 with the old workout sources gone,
+    /// and SwiftData will not re-enter the stage to try again - so the retry has to live here, on
+    /// the already-migrated store. It no-ops unless a previous launch left the stash behind.
+    ///
+    /// Failing to repair is not worth blocking launch over: the stash survives, so the next
+    /// launch tries again.
+    private static func finishInterruptedMigrationIfNeeded(in container: ModelContainer) {
+        do {
+            let report = try AscendMigrationPlan.recoverInterruptedMigrationIfNeeded(
+                in: ModelContext(container)
+            )
+
+            // Abandonment reports itself from inside the plan, where the counts live and where a
+            // test can hold the recorder.
+            guard !report.abandonedAfterRepeatedFailures, report.repairedCount > 0 else { return }
+
+            AppDiagnosticsRecorder.shared.record(
+                "workout_source_migration_recovered",
+                level: .warning,
+                details: [
+                    "repaired_count": String(report.repairedCount),
+                    "workout_count": String(report.workoutCount),
+                    "unresolved_count": String(report.unresolvedCount)
+                ],
+                mirrorToCrashlytics: true
+            )
+        } catch {
+            AppDiagnosticsRecorder.shared.record(
+                "workout_source_migration_recovery_failed",
+                level: .error,
+                details: [
+                    "error_type": String(describing: type(of: error)),
+                    "error_description": String(describing: error)
+                ],
+                mirrorToCrashlytics: true
+            )
+            debugLog("Failed to finish interrupted workout source migration: \(error)")
         }
     }
 }

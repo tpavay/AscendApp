@@ -39,6 +39,12 @@ struct HomeView: View {
         tabRouter.selectedTab == .home
     }
 
+    /// A single arriving workout resolves faster than the strip can be read; only a real backfill
+    /// is worth narrating.
+    private var isBackfillInProgress: Bool {
+        importCoordinator.isImporting && importCoordinator.totalImportCount > 1
+    }
+
     init(
         homeDashboard: HomeDashboardViewModel = HomeDashboardViewModel(),
         tabRouter: TabRouter
@@ -53,6 +59,20 @@ struct HomeView: View {
         showingJustClimbSetup ||
         showingManualWorkoutForm ||
         showingCompletedWorkoutShare
+    }
+
+    /// Whether Home is still the screen behind whatever is on top of it.
+    ///
+    /// SwiftUI fires `onDisappear` on Home for a modal presentation *and* for a
+    /// `navigationDestination` push, neither of which is Home going away. Cancelling on either
+    /// would be a pause the user never asked for, so both are listed here and only a real
+    /// teardown falls through.
+    private var isCoveredRatherThanTornDown: Bool {
+        hasBlockingModalPresentation ||
+        autoImportedReviewWorkout != nil ||
+        selectedHomeClimb != nil ||
+        activeJustClimbGoal != nil ||
+        showingClimbBrowse
     }
 
     private var greeting: String {
@@ -108,6 +128,14 @@ struct HomeView: View {
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 12)
+
+            if isBackfillInProgress {
+                HomeImportProgressBar(
+                    remainingCount: importCoordinator.remainingImportCount,
+                    totalCount: importCoordinator.totalImportCount
+                )
+                .transition(.opacity)
+            }
 
             ScrollView {
                 LazyVStack(spacing: 20) {
@@ -226,6 +254,16 @@ struct HomeView: View {
             await importCoordinator.refreshPendingImports(trigger: .homeEntry)
             syncAutoImportedReviewPresentation()
         }
+        .onDisappear {
+            // Home owns this pass; once it is gone, so is the reason to keep importing. Sheets,
+            // full-screen covers and pushed destinations all fire `onDisappear` while Home is
+            // still the screen underneath, so those are excluded. Cancelling is always safe to
+            // get wrong in the other direction: imported workouts are saved individually and the
+            // next entry resumes.
+            guard !isCoveredRatherThanTornDown else { return }
+            importCoordinator.cancelInFlightWork()
+        }
+        .animation(.easeInOut(duration: 0.2), value: isBackfillInProgress)
         .onChange(of: tabRouter.selectedTab) { _, newValue in
             guard newValue == .home else { return }
             refreshHomeDashboard()

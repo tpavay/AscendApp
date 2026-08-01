@@ -118,7 +118,7 @@ struct CompletedClimbRankSummaryEvidenceTests {
         )
 
         let image = try await hostAndCapture(
-            summary(workout: workout, climb: Self.burjKhalifa, context: context),
+            try summary(workout: workout, climb: Self.burjKhalifa, context: context),
             settleSeconds: 0.5
         )
         let text = try await recognizedText(in: image)
@@ -177,7 +177,7 @@ struct CompletedClimbRankSummaryEvidenceTests {
         )
 
         let image = try await hostAndCapture(
-            summary(workout: workout, climb: Self.burjKhalifa, context: context),
+            try summary(workout: workout, climb: Self.burjKhalifa, context: context),
             settleSeconds: 0.5
         )
         let text = try await recognizedText(in: image)
@@ -205,7 +205,7 @@ struct CompletedClimbRankSummaryEvidenceTests {
         let context = try #require(Self.summaryContext(for: workout))
 
         let image = try await hostAndCapture(
-            summary(workout: workout, climb: Self.burjKhalifa, context: context),
+            try summary(workout: workout, climb: Self.burjKhalifa, context: context),
             settleSeconds: 0
         )
         let text = try await recognizedText(in: image)
@@ -327,7 +327,7 @@ struct CompletedClimbRankSummaryEvidenceTests {
         workout: Workout,
         climb: Climb,
         context: LiveReplayLeaderboardContext
-    ) -> some View {
+    ) throws -> some View {
         // The argument list `WorkoutDetailView` passes when a saved Live Climb summary is opened.
         LiveClimbCompletionSummaryView(
             climb: climb,
@@ -341,7 +341,7 @@ struct CompletedClimbRankSummaryEvidenceTests {
             ranksOnLeaderboard: true,
             onDone: {}
         )
-        .modelContainer(for: Self.summaryModels, inMemory: true)
+        .modelContainer(try summaryContainer())
     }
 
     private static let summaryModels: [any PersistentModel.Type] = [
@@ -350,6 +350,23 @@ struct CompletedClimbRankSummaryEvidenceTests {
         BestEffortCacheEntry.self,
         BestEffortCacheMetadata.self
     ]
+
+    /// Held for the process, not built per render.
+    ///
+    /// `LiveClimbCompletionSummaryView` carries a `@Query`, and SwiftUI keeps observing SwiftData
+    /// for a beat after the host is torn down. A per-render container is gone before that observer
+    /// is, and the observer then traps on the dangling reference the next time *any* suite calls
+    /// `ModelContext.save()` - taking the whole test process down with it, attributed to whatever
+    /// unrelated code happened to be saving. `.modelContainer(for:inMemory:)` is what makes it
+    /// per-render, so this suite may not use it.
+    private static let container: ModelContainer? = try? ModelContainer(
+        for: Schema(summaryModels),
+        configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+    )
+
+    private func summaryContainer() throws -> ModelContainer {
+        try #require(Self.container, "The evidence suite needs an in-memory model container")
+    }
 
     // MARK: - Capture
 
