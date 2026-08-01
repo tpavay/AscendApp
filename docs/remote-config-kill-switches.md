@@ -14,7 +14,7 @@ The catalog is `AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift`;
 | `workout_cloud_backup_writes_enabled` | Uploading workout documents and heart-rate sidecars | Workouts stay `pendingUpsert` in SwiftData and flush on the next pass |
 | `workout_remote_deletes_enabled` | Deleting remote workout documents and sidecars | `PendingWorkoutDeletion` rows stay queued and replay |
 | `workout_cloud_restore_enabled` | Decoding cloud backups into local storage | The next bootstrap still treats it as the initial hydration |
-| `workout_media_uploads_enabled` | The background media upload queue, and the sweep that deletes local originals | `PendingMediaUpload` rows stay queued and local files stay on disk. The workout banner stays quiet rather than claiming an upload is in progress, and drops the retry affordance |
+| `workout_media_uploads_enabled` | The background media upload queue, and the sweep that deletes local originals. A batch already running stops at the next item rather than finishing | `PendingMediaUpload` rows stay queued and local files stay on disk. The workout banner stays quiet rather than claiming an upload is in progress, and drops the retry affordance |
 | `local_data_migrations_enabled` | One-shot local backfills that rewrite stored workouts | The version key is not stamped, so the backfill runs later |
 | `leaderboard_publishing_enabled` | Publishing leaderboard stats, retiring legacy stat documents | Local stats stay dirty and republish. **Exception:** the legacy stat sweep is dropped, not deferred - see below |
 | `public_profile_publishing_enabled` | Publishing the public profile mirror, stats, summaries | Republished from local state on the next bootstrap |

@@ -321,6 +321,67 @@ struct RemoteFeatureGateTests {
         #expect(stored.first?.lastError == "previous failure")
     }
 
+    /// A switch thrown while a batch is already running has to stop the next item, not wait out the
+    /// remaining retries. Every row the loop never reached must be untouched so it drains later.
+    @Test
+    func killingMediaUploadsMidBatchHaltsBeforeTheNextItem() async throws {
+        let modelContext = try makeModelContext()
+        let workout = makeWorkout()
+        modelContext.insert(workout)
+        for index in 0..<3 {
+            modelContext.insert(
+                PendingMediaUpload(
+                    workoutId: workout.id,
+                    localFileName: "queued-media-\(index).jpg",
+                    mediaType: "photo",
+                    orderIndex: index
+                )
+            )
+        }
+        try modelContext.save()
+
+        let store = RemoteFeatureFlagStore()
+        let manager = MediaUploadManager(photoRepo: FakeGatedPhotoRepository(), featureFlags: store)
+
+        let processing = Task { await manager.processPendingUploads(modelContext: modelContext) }
+        #expect(await firstUploadStarted(in: modelContext))
+
+        store.apply(
+            RemoteFeatureFlagSnapshot.resolving(
+                remoteValues: [RemoteFeatureFlag.workoutMediaUploads.key: false]
+            )
+        )
+        await processing.value
+
+        let stored = try modelContext.fetch(
+            FetchDescriptor<PendingMediaUpload>(
+                sortBy: [SortDescriptor(\PendingMediaUpload.orderIndex)]
+            )
+        )
+        #expect(stored.count == 3)
+        #expect(stored.first?.status == PendingUploadStatus.failed.rawValue)
+        for untouched in stored.dropFirst() {
+            #expect(untouched.status == PendingUploadStatus.pending.rawValue)
+            #expect(untouched.retryCount == 0)
+            #expect(untouched.lastError == nil)
+        }
+    }
+
+    /// `processUpload` stamps the row it is working on before its first attempt, which is the only
+    /// signal that the loop has entered an item rather than merely been asked to start.
+    private func firstUploadStarted(in modelContext: ModelContext) async -> Bool {
+        for _ in 0..<200 {
+            let rows = try? modelContext.fetch(
+                FetchDescriptor<PendingMediaUpload>(
+                    sortBy: [SortDescriptor(\PendingMediaUpload.orderIndex)]
+                )
+            )
+            if rows?.first?.status == PendingUploadStatus.uploading.rawValue { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return false
+    }
+
     /// A held queue must not claim to be uploading. The rows stay queued either way, so the only
     /// thing at stake is whether the banner tells the truth for as long as the switch is thrown.
     @Test

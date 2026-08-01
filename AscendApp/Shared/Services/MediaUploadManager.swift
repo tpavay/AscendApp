@@ -302,6 +302,14 @@ final class MediaUploadManager {
         var didUploadAnyMedia = false
 
         for (currentIndex, upload) in pendingUploads.enumerated() {
+            // Re-read per item so a switch thrown mid-batch halts here rather than deleting local
+            // originals for the minutes the remaining retries would take. The item already in
+            // flight is left to finish: tearing it down risks a deleted original with no uploaded
+            // copy, which is the loss the switch exists to prevent.
+            guard mediaUploadsAllowed(path: "MediaUploadManager.processUploadsForWorkout.item") else {
+                break
+            }
+
             // Update status to show progress
             let total = pendingUploads.count
             uploadStatuses[workoutId] = .uploading(current: currentIndex + 1, total: total)
