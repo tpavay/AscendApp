@@ -152,15 +152,18 @@ struct AscendApp: App {
     /// launch tries again.
     private static func finishInterruptedMigrationIfNeeded(in container: ModelContainer) {
         do {
-            let repairedCount = try AscendMigrationPlan.recoverInterruptedMigrationIfNeeded(
+            let report = try AscendMigrationPlan.recoverInterruptedMigrationIfNeeded(
                 in: ModelContext(container)
             )
-            guard repairedCount > 0 else { return }
+            guard report.repairedCount > 0 else { return }
 
             AppDiagnosticsRecorder.shared.record(
                 "workout_source_migration_recovered",
                 level: .warning,
-                details: ["repaired_count": String(repairedCount)],
+                details: [
+                    "repaired_count": String(report.repairedCount),
+                    "workout_count": String(report.workoutCount)
+                ],
                 mirrorToCrashlytics: false
             )
         } catch {

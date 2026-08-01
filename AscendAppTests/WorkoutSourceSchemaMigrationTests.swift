@@ -20,6 +20,8 @@ struct WorkoutSourceSchemaMigrationTests {
     func migrationCarriesEveryRecordedSourceForward() throws {
         let storeURL = Self.makeStoreURL()
         defer { Self.removeStore(at: storeURL) }
+        let stashScope = Self.IsolatedStash()
+        defer { stashScope.tearDown() }
 
         let headphoneID = UUID()
         let appleHealthID = UUID()
@@ -76,6 +78,8 @@ struct WorkoutSourceSchemaMigrationTests {
     func migratedInAppSensorWorkoutsStayEnrichable() throws {
         let storeURL = Self.makeStoreURL()
         defer { Self.removeStore(at: storeURL) }
+        let stashScope = Self.IsolatedStash()
+        defer { stashScope.tearDown() }
 
         let headphoneID = UUID()
 
@@ -122,6 +126,8 @@ struct WorkoutSourceSchemaMigrationTests {
     func migrationLeavesTheRestOfTheWorkoutIntact() throws {
         let storeURL = Self.makeStoreURL()
         defer { Self.removeStore(at: storeURL) }
+        let stashScope = Self.IsolatedStash()
+        defer { stashScope.tearDown() }
 
         let workoutID = UUID()
 
@@ -158,6 +164,8 @@ struct WorkoutSourceSchemaMigrationTests {
     func aFreshStoreOpensStraightOntoTheCurrentSchema() throws {
         let storeURL = Self.makeStoreURL()
         defer { Self.removeStore(at: storeURL) }
+        let stashScope = Self.IsolatedStash()
+        defer { stashScope.tearDown() }
 
         let context = try Self.openMigratedStore(at: storeURL)
         let workout = Workout(
@@ -184,7 +192,8 @@ struct WorkoutSourceSchemaMigrationTests {
     func aMigrationThatFailsPartwayIsFinishedOnTheNextLaunch() throws {
         let storeURL = Self.makeStoreURL()
         defer { Self.removeStore(at: storeURL) }
-        defer { try? WorkoutSourceMigrationStash.shared.clear() }
+        let stashScope = Self.IsolatedStash()
+        defer { stashScope.tearDown() }
 
         let headphoneID = UUID()
         let appleHealthID = UUID()
@@ -234,7 +243,7 @@ struct WorkoutSourceSchemaMigrationTests {
         #expect(recovered[appleHealthID] == .appleHealth)
 
         #expect(
-            try WorkoutSourceMigrationStash.shared.load().isEmpty,
+            try stashScope.stash.load().isEmpty,
             "a completed recovery has to clear the stash so later launches stop repairing"
         )
 
@@ -242,7 +251,155 @@ struct WorkoutSourceSchemaMigrationTests {
         #expect(afterRecovery[headphoneID] == .headphoneMotion)
     }
 
+    /// The memory bound, measured at the store size that produced ASCEND-IOS-1K.
+    ///
+    /// The other tests in this suite seed one to three workouts, so they pass identically whether
+    /// the read is paged or not - they are evidence about *correctness*, not about cost. This one
+    /// seeds the shape the hang was reproduced against (900 sessions carrying a 45-minute
+    /// heart-rate series each, ~94 MB of inline `heartRateData`) and asserts the structural fact
+    /// that actually regressed once already: that the sweep never holds the whole store
+    /// materialised at once. Delete the paging and `largestPageSize` becomes the row count.
+    ///
+    /// Resident footprint is deliberately not the signal. It was tried in this PR and rejected -
+    /// CoreData faults binary attributes lazily, so scanning all 900 of these rows moves the
+    /// process footprint by single-digit MB, and by a different single-digit MB warm than cold.
+    @Test
+    func bothMigrationPassesReadTheStoreInBoundedPages() throws {
+        let directory = Self.freshStoreDirectory(named: "paging")
+        let storeURL = directory.appending(path: "\(UUID().uuidString).store")
+        let stashScope = Self.IsolatedStash()
+        defer { stashScope.tearDown() }
+
+        var expectedSources: [UUID: WorkoutSource] = [:]
+        try Self.seedLegacyStore(at: storeURL) { context in
+            for index in 0..<Self.pagingStoreSize {
+                let source = Self.rotatingSources[index % Self.rotatingSources.count]
+                let workout = AscendSchemaV1.Workout(
+                    id: UUID(),
+                    name: "Seeded \(index)",
+                    date: Self.sessionStart.addingTimeInterval(TimeInterval(index) * -86_400),
+                    duration: 45 * 60,
+                    steps: 3_200,
+                    floors: 200,
+                    source: source
+                )
+                workout.heartRateData = Self.heartRateSeries().encoded
+                context.insert(workout)
+                expectedSources[workout.id] = source
+            }
+        }
+
+        // The read pass, run exactly as `willMigrate` runs it.
+        let readReport = try Self.withLegacyStore(at: storeURL) { context in
+            try AscendMigrationPlan.stashLegacySources(from: context, stash: stashScope.stash)
+        }
+
+        // The write pass, run exactly as `didMigrate` runs it, against the migrated store.
+        let migratedContext = try Self.openMigratedStore(at: storeURL)
+        try stashScope.stash.store(
+            expectedSources.reduce(into: [UUID: String]()) { $0[$1.key] = $1.value.rawValue }
+        )
+        let writeReport = try AscendMigrationPlan.applyStashedSources(
+            to: migratedContext,
+            stash: stashScope.stash
+        )
+
+        let expectedPageCount = (Self.pagingStoreSize + AscendMigrationPlan.readPageSize - 1)
+            / AscendMigrationPlan.readPageSize
+
+        print(
+            """
+            workout source migration paging
+              store             \(Self.pagingStoreSize) workouts, \
+            \(Self.heartRateSamplesPerWorkout) heart-rate samples each
+              page size         \(AscendMigrationPlan.readPageSize)
+              read pass         \(readReport.pageCount) pages, \
+            largest \(readReport.largestPageSize)
+              write pass        \(writeReport.pageCount) pages, \
+            largest \(writeReport.largestPageSize)
+            """
+        )
+
+        #expect(readReport.workoutCount == Self.pagingStoreSize)
+        #expect(writeReport.workoutCount == Self.pagingStoreSize)
+
+        // The contract. A single unbounded fetch reports one page holding every row, so removing
+        // the paging fails both of these rather than quietly reintroducing the cost.
+        #expect(
+            readReport.largestPageSize == AscendMigrationPlan.readPageSize,
+            """
+            the read pass held \(readReport.largestPageSize) workouts materialised at once against \
+            a page size of \(AscendMigrationPlan.readPageSize); it is walking the whole store in \
+            one fetch
+            """
+        )
+        #expect(
+            writeReport.largestPageSize == AscendMigrationPlan.readPageSize,
+            """
+            the write pass held \(writeReport.largestPageSize) workouts materialised at once \
+            against a page size of \(AscendMigrationPlan.readPageSize)
+            """
+        )
+        #expect(readReport.pageCount == expectedPageCount)
+        #expect(writeReport.pageCount == expectedPageCount)
+
+        // Paging that skips a row is worse than paging that is slow, so the sources are checked
+        // across the whole store rather than sampled.
+        let migrated = try migratedContext.fetch(FetchDescriptor<Workout>())
+        #expect(migrated.count == Self.pagingStoreSize)
+        #expect(migrated.allSatisfy { expectedSources[$0.id] == $0.source })
+    }
+
     // MARK: - Store helpers
+
+    private static let pagingStoreSize = 900
+    private static let heartRateSamplesPerWorkout = 2_600
+    private static let rotatingSources: [WorkoutSource] = [.headphoneMotion, .appleHealth, .manual]
+
+    private static func heartRateSeries() -> [HeartRateDataPoint] {
+        (0..<heartRateSamplesPerWorkout).map { second in
+            HeartRateDataPoint(
+                timestamp: sessionStart.addingTimeInterval(TimeInterval(second)),
+                heartRate: 120 + (second % 60)
+            )
+        }
+    }
+
+    /// Cleaned on the way in, not out: these stores run to ~90 MB so they cannot accumulate, but
+    /// unlinking a store file while a `ModelContainer` still holds it open is an SQLite API
+    /// violation and a container has no close.
+    private static func freshStoreDirectory(named name: String) -> URL {
+        let directory = URL.temporaryDirectory.appending(path: "ascend-migration-paging/\(name)")
+        try? FileManager.default.removeItem(at: directory)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    /// Points the real migration plan at a scratch stash for the length of one test.
+    ///
+    /// `MigrationStage` builds its phases statically, so the plan resolves
+    /// `WorkoutSourceMigrationStash.shared` rather than taking one - swapping the singleton is the
+    /// only way a test can keep its hands off the app's real stash file. `@Suite(.serialized)`
+    /// orders these tests against each other but not against other suites, so the isolation has to
+    /// come from here rather than from the ordering.
+    private final class IsolatedStash {
+        let fileURL: URL
+        let stash: WorkoutSourceMigrationStash
+        private let previous: WorkoutSourceMigrationStash
+
+        init() {
+            fileURL = URL.temporaryDirectory
+                .appending(path: "ascend-migration-stash-\(UUID().uuidString).json")
+            stash = WorkoutSourceMigrationStash(fileURL: fileURL)
+            previous = WorkoutSourceMigrationStash.shared
+            WorkoutSourceMigrationStash.shared = stash
+        }
+
+        func tearDown() {
+            WorkoutSourceMigrationStash.shared = previous
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+    }
 
     private static func makeStoreURL() -> URL {
         URL.temporaryDirectory.appending(path: "ascend-migration-\(UUID().uuidString).store")
@@ -270,6 +427,19 @@ struct WorkoutSourceSchemaMigrationTests {
         let context = ModelContext(container)
         try seed(context)
         try context.save()
+    }
+
+    /// Reopens the store under the old schema, the way `willMigrate` sees it.
+    private static func withLegacyStore<T>(
+        at url: URL,
+        _ body: (ModelContext) throws -> T
+    ) throws -> T {
+        let schema = Schema(versionedSchema: AscendSchemaV1.self)
+        let container = try ModelContainer(
+            for: schema,
+            configurations: ModelConfiguration(schema: schema, url: url)
+        )
+        return try body(ModelContext(container))
     }
 
     private static func openMigratedStore(at url: URL) throws -> ModelContext {

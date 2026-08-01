@@ -40,67 +40,80 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
         }
     )
 
+    /// How many workouts either pass may hold materialised at once.
+    ///
+    /// A `Workout` carries its heart-rate series inline, so a store of a few hundred sessions is
+    /// tens of megabytes on disk. Reading it a page at a time is what keeps a one-time cost from
+    /// becoming a launch-time crash - the recovery pass runs inside `AscendApp.init()`, on the
+    /// main thread, which is the exact shape ASCEND-IOS-1K was.
+    static let readPageSize = 100
+
+    /// What a sweep did, so a caller can log it and a test can assert the read stayed bounded.
+    struct SweepReport: Equatable {
+        var workoutCount = 0
+        var pageCount = 0
+        var largestPageSize = 0
+        var repairedCount = 0
+    }
+
     /// Reads every pre-migration `source` and hands it to the stash.
-    ///
-    /// `propertiesToFetch` is what keeps this affordable rather than the number of rows: a
-    /// `Workout` carries its heart-rate series inline, so a store of a few hundred sessions is
-    /// tens of megabytes, and faulting all of it in to copy one string per row is how a one-time
-    /// cost becomes a launch-time crash. Only `id` and `source` are ever read here.
-    ///
-    /// Fetched in one pass rather than paged. `fetchOffset` pagination over an *unsorted* fetch
-    /// has no ordering guarantee, so successive pages are not guaranteed to partition the rows -
-    /// a shifted page silently skips workouts, and a skipped workout keeps the `.manual` default.
-    /// That is exactly the loss this stage exists to prevent, so the fetch does not page at all.
+    @discardableResult
     static func stashLegacySources(
         from context: ModelContext,
         stash: WorkoutSourceMigrationStash = .shared
-    ) throws {
-        var descriptor = FetchDescriptor<AscendSchemaV1.Workout>()
-        descriptor.propertiesToFetch = [\.id, \.source]
+    ) throws -> SweepReport {
+        var sourcesByWorkoutID: [UUID: String] = [:]
 
-        let sourcesByWorkoutID = try context.fetch(descriptor)
-            .reduce(into: [UUID: String]()) { partialResult, workout in
-                partialResult[workout.id] = workout.source.rawValue
+        let report = try forEachPage(of: AscendSchemaV1.Workout.self, in: context) { page in
+            for workout in page {
+                sourcesByWorkoutID[workout.id] = workout.source.rawValue
             }
+        }
 
         try stash.store(sourcesByWorkoutID)
+
+        return report
     }
 
     /// Writes the stashed values onto the migrated store, all-or-nothing.
     ///
-    /// One `save()` at the end, and the stash is only cleared once that save has returned. A
-    /// per-batch save would make a failure partway through permanent: the schema version has
-    /// already advanced by the time this runs, so SwiftData will never re-enter the stage, and
-    /// the stash held the only remaining copy of the old values. With this shape an interrupted
-    /// run leaves the stash intact, which is the signal `recoverInterruptedMigrationIfNeeded`
-    /// reads on the next launch.
+    /// The read is paged but the write is not: one `save()` at the end, after every page has been
+    /// walked. A per-page save would make a failure partway through permanent, because the schema
+    /// version has already advanced by the time this runs, so SwiftData will never re-enter the
+    /// stage and the stash held the only remaining copy of the old values. Paging the read and
+    /// batching the write are independent - bounding what is *materialised* never required
+    /// splitting the transaction.
     ///
-    /// Idempotent by construction - a workout whose column already matches is skipped - so
-    /// re-running it after a partially-committed attempt costs nothing and changes nothing.
+    /// Clearing the stash is best-effort and deliberately last. The save is the transaction
+    /// boundary, so a scratch file that will not unlink must not turn a launch whose sources were
+    /// written correctly into `localDataUnavailable`; a stash that outlives its write just makes
+    /// the next launch re-run a sweep that changes nothing.
+    ///
+    /// Idempotent by construction - a workout whose column already matches is skipped.
     @discardableResult
     static func applyStashedSources(
         to context: ModelContext,
         stash: WorkoutSourceMigrationStash = .shared
-    ) throws -> Int {
+    ) throws -> SweepReport {
         let sourcesByWorkoutID = try stash.load()
-        guard !sourcesByWorkoutID.isEmpty else { return 0 }
-
-        var descriptor = FetchDescriptor<Workout>()
-        descriptor.propertiesToFetch = [\.id, \.sourceRawValue]
+        guard !sourcesByWorkoutID.isEmpty else { return SweepReport() }
 
         var repairedCount = 0
-        for workout in try context.fetch(descriptor) {
-            guard let rawValue = sourcesByWorkoutID[workout.id],
-                  workout.sourceRawValue != rawValue else { continue }
+        var report = try forEachPage(of: Workout.self, in: context) { page in
+            for workout in page {
+                guard let rawValue = sourcesByWorkoutID[workout.id],
+                      workout.sourceRawValue != rawValue else { continue }
 
-            workout.sourceRawValue = rawValue
-            repairedCount += 1
+                workout.sourceRawValue = rawValue
+                repairedCount += 1
+            }
         }
+        report.repairedCount = repairedCount
 
         try context.save()
-        try stash.clear()
+        try? stash.clear()
 
-        return repairedCount
+        return report
     }
 
     /// Finishes a migration whose `didMigrate` never completed.
@@ -114,8 +127,44 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
     static func recoverInterruptedMigrationIfNeeded(
         in context: ModelContext,
         stash: WorkoutSourceMigrationStash = .shared
-    ) throws -> Int {
+    ) throws -> SweepReport {
         try applyStashedSources(to: context, stash: stash)
+    }
+
+    /// Walks a model type a page at a time, holding at most `readPageSize` rows materialised.
+    ///
+    /// Pages are cut over `fetchIdentifiers` rather than `fetchOffset`. Identifiers are one row
+    /// each and partition by construction; `fetchOffset` would need a genuinely total sort order
+    /// to do the same, and `Workout` has none - `date` ties, and `id` is a `UUID`, which is not
+    /// `Comparable`. Under a non-total order two OFFSET pages can overlap or leave a gap, and a
+    /// workout in the gap silently keeps the `.manual` default. That is precisely the loss this
+    /// stage exists to prevent, so the paging is not allowed to be approximately right.
+    private static func forEachPage<Model: PersistentModel>(
+        of model: Model.Type,
+        in context: ModelContext,
+        body: ([Model]) throws -> Void
+    ) throws -> SweepReport {
+        let identifiers = try context.fetchIdentifiers(FetchDescriptor<Model>())
+        var report = SweepReport()
+        report.workoutCount = identifiers.count
+
+        var pageStart = identifiers.startIndex
+        while pageStart < identifiers.endIndex {
+            let pageEnd = identifiers.index(
+                pageStart,
+                offsetBy: readPageSize,
+                limitedBy: identifiers.endIndex
+            ) ?? identifiers.endIndex
+
+            let page = identifiers[pageStart..<pageEnd].compactMap { context.model(for: $0) as? Model }
+            try body(page)
+
+            report.pageCount += 1
+            report.largestPageSize = max(report.largestPageSize, page.count)
+            pageStart = pageEnd
+        }
+
+        return report
     }
 }
 
@@ -127,7 +176,10 @@ enum AscendMigrationPlan: SchemaMigrationPlan {
 /// is the one where the app never reaches `didMigrate`: at that point the old column is already
 /// gone from the store, and this file is the only surviving copy of what it held.
 final class WorkoutSourceMigrationStash: @unchecked Sendable {
-    static let shared = WorkoutSourceMigrationStash()
+    /// Settable because `MigrationStage` builds its phases statically - there is no parameter to
+    /// thread an instance through - so this is the only seam a test has for pointing the real
+    /// plan at a scratch file instead of the app's.
+    nonisolated(unsafe) static var shared = WorkoutSourceMigrationStash()
 
     private let lock = NSLock()
     private let fileURL: URL
