@@ -22,6 +22,7 @@ import UIKit
 /// threshold would flake on a loaded runner. Only the mark counts, the preserved
 /// min/max envelope, and the pixel-difference bound are assertions.
 @MainActor
+@Suite(.hostsAWindow)
 struct HeartRateChartRenderCostEvidenceTests {
     private static let start = Date(timeIntervalSince1970: 1_750_300_000)
     private static let sessionSeconds = 2_603
@@ -139,13 +140,20 @@ struct HeartRateChartRenderCostEvidenceTests {
             UIApplication.shared.connectedScenes.first as? UIWindowScene,
             "test host app should expose a live UIWindowScene"
         )
+        let previousKeyWindow = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)
         window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
         window.rootViewController = host
         window.makeKeyAndVisible()
+        // Detaching from the scene is what dismantles the content. Hiding is not enough: a window
+        // still attached keeps `WorkoutDetailView`'s `@Query` observing SwiftData after the
+        // container declared above has gone, and that observer then traps on the next save any
+        // other suite performs, taking the whole test process down.
         defer {
-            window.rootViewController = nil
             window.isHidden = true
+            previousKeyWindow?.makeKey()
+            window.rootViewController = nil
+            window.windowScene = nil
         }
         Self.flush(window)
 
