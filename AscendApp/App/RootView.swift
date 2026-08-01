@@ -63,6 +63,11 @@ struct RootView: View {
                 "app_will_enter_foreground",
                 details: ["route": rootRoute.diagnosticName]
             )
+            // Backstop for a real-time connection dropped while suspended. Deliberately not
+            // awaited: the bootstrap below runs on the already-resolved values rather than waiting
+            // out a network fetch, and a switch flipped while the app slept lands moments later or
+            // on the next pass.
+            RemoteFeatureFlagService.shared.refresh()
             // Retry pending uploads when app comes to foreground (network may have restored)
             Task {
                 importCoordinator.configure(modelContext: modelContext)

@@ -7,10 +7,21 @@ enum WorkoutRemoteSyncMigrationService {
     static func runIfNeeded(
         modelContext: ModelContext,
         currentUserId: String,
-        userDefaults: UserDefaults = .standard
+        userDefaults: UserDefaults = .standard,
+        featureFlags: RemoteFeatureFlagStore = .shared
     ) throws {
         let versionKey = migrationVersionKey(for: currentUserId)
         guard userDefaults.bool(forKey: versionKey) == false else { return }
+
+        // Killed before the version key is stamped, so the backfill is deferred rather than
+        // skipped: it runs on the next bootstrap after the flag returns.
+        guard RemoteFeatureGate.allows(
+            .localDataMigrations,
+            path: "WorkoutRemoteSyncMigrationService.runIfNeeded",
+            store: featureFlags
+        ) else {
+            return
+        }
 
         let workouts = try modelContext.fetch(FetchDescriptor<Workout>())
         var didChangeAnyWorkout = false

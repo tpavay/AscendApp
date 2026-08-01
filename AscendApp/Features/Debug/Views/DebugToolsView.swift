@@ -104,6 +104,18 @@ struct DebugToolsView: View {
                 .buttonStyle(.plain)
 
                 NavigationLink {
+                    RemoteFeatureFlagsView()
+                } label: {
+                    inspectionRow(
+                        title: "Remote Flags",
+                        description: "Watch server-controlled kill switches resolve on this build",
+                        icon: "switch.2",
+                        iconColor: .red
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
                     DiagnosticsLogView()
                 } label: {
                     inspectionRow(

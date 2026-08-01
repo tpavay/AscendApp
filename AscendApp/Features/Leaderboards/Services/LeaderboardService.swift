@@ -193,7 +193,20 @@ final class LeaderboardService {
         }
     }
 
-    func deleteLegacyRemoteStats(userId: String) async throws {
+    func deleteLegacyRemoteStats(
+        userId: String,
+        featureFlags: RemoteFeatureFlagStore = .shared
+    ) async throws {
+        // Killed: legacy documents are left in place. They are already superseded by the
+        // current-schema documents, so deferring the sweep costs nothing but a stale row.
+        guard RemoteFeatureGate.allows(
+            .leaderboardPublishing,
+            path: "LeaderboardService.deleteLegacyRemoteStats",
+            store: featureFlags
+        ) else {
+            return
+        }
+
         try await repository.deleteLegacyStats(userId: userId)
     }
 

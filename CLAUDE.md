@@ -36,7 +36,7 @@ Full playbook: `ascend-brand-voice`. Design patterns: `product-design-playbook`.
 
 - **iOS 26.0+**, Swift 6, SwiftUI
 - **Data**: Local-first with cloud sync - SwiftData on device, Firebase Firestore for backup/sync/sharing
-- **Backend**: Firebase (Auth, Firestore, Storage, Cloud Functions, Hosting, Analytics, Crashlytics)
+- **Backend**: Firebase (Auth, Firestore, Storage, Cloud Functions, Hosting, Analytics, Crashlytics, Remote Config)
 - **Subscriptions / Paywall**: RevenueCat for subscription management and entitlements; SuperWall for paywall presentation and onboarding/conversion analytics
 - **Analytics / Diagnostics**: Firebase Analytics, Mixpanel, Sentry
 - **Integrations**: Apple HealthKit, Hevy
@@ -159,6 +159,7 @@ Rules that fire from contexts that don't look like their own domain. Each names 
 - **"Pre-launch" means PRODUCTION data is free, not dev, staging, or TestFlight stores.** Any change to an `@Model`'s persisted shape - including moving an enum to a raw value - needs a `SchemaMigrationPlan`, or lightweight migration silently defaults every existing row. Fires while editing an `@Model`, which is exactly where the reasoning goes wrong. -> `swiftdata-pro`
 - **Store an `@Model` enum as a raw value if anything will ever filter on it.** `#Predicate` rejects a captured Codable enum (`unsupportedPredicate`) and *hard-crashes* on `array.contains(optional ?? "")`; `[String?].contains(optionalProperty)` is the working optional form. A non-filterable column is why a query becomes a whole-store scan. Fires while writing an `@Model` property, long before anyone writes the query. -> `swiftdata-pro`
 - **Nothing on a screen's `.task` may run a store query whose cost grows with the user's history.** Home blocked for 182s answering a one-UUID question with `fetch(FetchDescriptor<Workout>())` (ASCEND-IOS-1K). Use the bounded queries in `Shared/Repositories/`; `Workout` carries its heart-rate series inline, so a full fetch is never cheap. Fires while writing a view's `.task` or a coordinator's `configure`. -> `ascend-workout-import`
+- **A new code path that writes or reshapes persisted data needs a Remote Config kill switch in front of it** - an iOS binary cannot be rolled back, so a shipped data-corrupting write has no other undo. Gate at the choke point that can *defer* the work (pending state survives untouched), never at the raw Firestore call. Fires while adding a repository write, a sync coordinator, or a migration. -> `docs/remote-config-kill-switches.md`, `AscendApp/Shared/Services/RemoteConfig/`
 - **Never commit API keys, secrets, or QA credentials**, and never bundle them into production builds.
 
 ## Ascend-Specific Overrides
@@ -217,6 +218,7 @@ Resolve work to a GitHub issue before implementing:
 - `.github/workflows/ci.yml` - PR validation; `ci-required-check-fallback.yml` routes the required check for PRs that change no CI-relevant path (`ascend-deploy`)
 - `.github/workflows/deploy-staging.yml`, `deploy-production.yml` - deploy pipelines (prod gated)
 - `Gemfile`, `fastlane/Appfile`, `fastlane/Fastfile`, `fastlane/Matchfile` - build/signing/TestFlight
+- `remoteconfig.template.json` - the kill-switch parameters; publish only via `scripts/deploy-remote-config.mjs`, never from CI (`docs/remote-config-kill-switches.md`)
 - `docs/dependency-security.md` - deliberate dependency pins and overrides; read before bumping any npm dependency
 
 ## Project Context File (All AI Providers)

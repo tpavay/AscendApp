@@ -15,8 +15,19 @@ enum WorkoutHydrationService {
         currentUserId: String,
         remoteRepository: any WorkoutRemoteRepositoryProtocol = WorkoutRemoteRepository.shared,
         heartRateStorageRepository: any WorkoutHeartRateStorageRepositoryProtocol =
-            WorkoutHeartRateStorageRepository.shared
+            WorkoutHeartRateStorageRepository.shared,
+        featureFlags: RemoteFeatureFlagStore = .shared
     ) async throws -> Int {
+        // Killed before `hydratedUserIdsThisSession` is touched, so the restore is only deferred:
+        // the next bootstrap after the flag returns still treats this as the initial hydration.
+        guard RemoteFeatureGate.allows(
+            .workoutCloudRestore,
+            path: "WorkoutHydrationService.hydrateIfNeeded",
+            store: featureFlags
+        ) else {
+            return 0
+        }
+
         guard !hydratingUserIds.contains(currentUserId) else {
             return 0
         }
