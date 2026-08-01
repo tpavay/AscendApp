@@ -1,0 +1,61 @@
+name: Deploy Production Watchdog
+
+# Makes a cancelled deploy as loud as a failed one.
+#
+# GitHub emails on `failure` and says nothing about `cancelled`. A production
+# deploy has three ways to conclude `cancelled` without anyone touching it, and
+# the worst of them destroys the workflow's own ability to report: a run queued
+# behind another run is cancelled before it creates a single job, so no step
+# inside `deploy-production.yml` - not even one guarded by `always()` - can ever
+# run to complain. That is how eight consecutive runs disappeared between
+# 2026-07-16 and 2026-07-29 while production sat on the code from `6341ad6`.
+#
+# So the check lives outside the pipeline it watches, and it answers the
+# question that actually matters: is the code on `main` running in production?
+
+on:
+  # Fires for every conclusion, `cancelled` included. This is the fast path.
+  workflow_run:
+    workflows: ["Deploy Production"]
+    types: [completed]
+  # The backstop, and the only thing that catches the two cases `workflow_run`
+  # cannot: a run cancelled while still queued, and a deploy that was never
+  # triggered at all.
+  schedule:
+    - cron: "23 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: deploy-production-watchdog
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check Deploy Health
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      # Two independent channels, because one of them can be muted:
+      #   - the issue is opened, commented on, and assigned to the repo owner,
+      #     which emails on every change to the report;
+      #   - a non-zero exit fails this run, which emails the way any other
+      #     failed workflow does.
+      # Both clear themselves once a deploy succeeds on the head of `main`.
+      - name: Check that production is running the default branch
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/check-deploy-production-health.mjs --repo "${{ github.repository }}"

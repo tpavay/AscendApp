@@ -21,6 +21,13 @@ on:
       - ".firebaserc"
       - ".github/workflows/deploy-production.yml"
 
+# A production deploy must never be aborted part-way, so an in-flight run is
+# never cancelled. The cost of that choice is that a run which stops moving
+# holds this group indefinitely, and GitHub keeps at most ONE pending run per
+# group - each new run cancels the one it displaces, before that run has
+# created a single job. Between 2026-07-16 and 2026-07-29 that cancelled six
+# runs in silence. `deploy-production-watchdog.yml` is what makes it audible;
+# the single approval gate below is what stops it recurring.
 concurrency:
   group: deploy-production
   cancel-in-progress: false
@@ -32,25 +39,52 @@ jobs:
   production-gate:
     name: Production Gate
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ready: ${{ steps.readiness.outputs.ready }}
     steps:
       - name: Check production readiness
+        id: readiness
         run: |
           if [ "${{ vars.PRODUCTION_READY }}" != "true" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
             echo "Production deploy is disabled."
             echo "Set repository variable PRODUCTION_READY=true after provisioning production Firebase + secrets."
             echo "Workflow will fail before deploy jobs."
             exit 1
           else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
             echo "Production deploy is enabled."
           fi
 
+  # The ONLY job that carries `environment: production`, and it does nothing
+  # else. Every protected job opens its own deployment that starts in `waiting`
+  # for the environment's required reviewer, so spreading the environment over
+  # three jobs asked for three separate approvals. On run 29540507247 the third
+  # request (deployment 5481609169) appeared three minutes after the Firebase
+  # deploy had already reported success, was never noticed, and sat `waiting`
+  # for 12 days 18 hours - keeping the run open and the concurrency group held.
+  # One approval, requested before any work starts, or none at all.
+  production-approval:
+    name: Approve Production Deploy
+    if: ${{ needs.production-gate.outputs.ready == 'true' }}
+    needs: production-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+
+    steps:
+      - name: Record approval
+        run: echo "Production deploy approved for ${{ github.sha }}."
+
   build-ios:
     name: Build iOS IPA (Production)
-    if: ${{ vars.PRODUCTION_READY == 'true' }}
-    needs: production-gate
+    if: ${{ needs.production-gate.outputs.ready == 'true' }}
+    needs:
+      - production-gate
+      - production-approval
     runs-on: macos-15
     timeout-minutes: 60
-    environment: production
 
     steps:
       - name: Checkout repository
@@ -196,13 +230,13 @@ jobs:
 
   deploy-firebase:
     name: Deploy Firebase (Production)
-    if: ${{ vars.PRODUCTION_READY == 'true' }}
+    if: ${{ needs.production-gate.outputs.ready == 'true' }}
     needs:
       - production-gate
+      - production-approval
       - build-ios
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    environment: production
     permissions:
       contents: read
 
@@ -306,6 +340,18 @@ jobs:
                 onWorkoutReplaySplitsWritten \
                 unsubscribeFromEmails
 
+      # The step above proves a curated set of critical functions is healthy.
+      # This one proves the project holds *exactly* what this ref exports - the
+      # property that was missing when production spent two weeks without
+      # cleanupDeletedUserData, onWorkoutWritten and unsubscribeFromEmails
+      # behind a green deploy log. A curated list cannot catch a function nobody
+      # thought to add to it, and cannot catch one deleted from source but still
+      # serving traffic.
+      - name: Verify deployed functions match this ref
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: node scripts/verify-deployed-functions.mjs --project "${{ vars.FIREBASE_PROJECT_ID_PRODUCTION }}"
+
       - name: Deploy Firestore rules
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
@@ -331,14 +377,14 @@ jobs:
 
   upload-testflight:
     name: Upload to TestFlight (Production)
-    if: ${{ vars.PRODUCTION_READY == 'true' }}
+    if: ${{ needs.production-gate.outputs.ready == 'true' }}
     needs:
       - production-gate
+      - production-approval
       - build-ios
       - deploy-firebase
     runs-on: macos-15
     timeout-minutes: 30
-    environment: production
 
     steps:
       - name: Checkout repository
@@ -363,3 +409,40 @@ jobs:
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
         run: bundle exec fastlane upload_testflight
+
+  # A production deploy either succeeds or fails. GitHub emails on `failure`
+  # and says nothing at all about `cancelled`, so a run that stops half-way
+  # through - by hand, by timeout, or by losing its concurrency slot after it
+  # started - has to be converted into a failure here or it is silent.
+  #
+  # `always()` is what lets this job run inside a cancelled run. It cannot save
+  # a run cancelled while still queued, because such a run never creates a job
+  # at all; `deploy-production-watchdog.yml` covers that case from outside.
+  deploy-status:
+    name: Deploy Status
+    if: ${{ always() }}
+    needs:
+      - production-gate
+      - production-approval
+      - build-ios
+      - deploy-firebase
+      - upload-testflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Assert the run reached a real outcome
+        env:
+          DEPLOY_COMMIT: ${{ github.sha }}
+        shell: bash
+        run: |
+          bash scripts/ci/assert-deploy-outcome.sh \
+            "${{ needs.production-gate.result }}" \
+            "${{ needs.production-gate.outputs.ready }}" \
+            "production-approval=${{ needs.production-approval.result }}" \
+            "build-ios=${{ needs.build-ios.result }}" \
+            "deploy-firebase=${{ needs.deploy-firebase.result }}" \
+            "upload-testflight=${{ needs.upload-testflight.result }}"
