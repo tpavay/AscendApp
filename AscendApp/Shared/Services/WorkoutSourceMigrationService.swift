@@ -34,13 +34,27 @@ enum WorkoutSourceMigrationService {
     ///
     /// Only workouts carrying a `healthKitUUID` can need a link, so the sweep is bounded by the
     /// Apple Health history rather than by the whole store.
-    static func runIfNeeded(modelContext: ModelContext) async throws {
+    static func runIfNeeded(
+        modelContext: ModelContext,
+        featureFlags: RemoteFeatureFlagStore = .shared
+    ) async throws {
         guard !hasCompletedBackfill else { return }
 
         var offset = 0
 
         while true {
             try Task.checkCancellation()
+
+            // Killed before the version key is stamped, so the backfill is deferred rather than
+            // skipped: it restarts on the next import pass after the flag returns. Re-read per
+            // batch so a switch thrown mid-sweep halts at the next batch boundary.
+            guard RemoteFeatureGate.allows(
+                .localDataMigrations,
+                path: "WorkoutSourceMigrationService.runIfNeeded",
+                store: featureFlags
+            ) else {
+                return
+            }
 
             var descriptor = FetchDescriptor<Workout>(
                 predicate: #Predicate<Workout> { workout in

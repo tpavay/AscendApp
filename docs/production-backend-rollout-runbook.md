@@ -239,6 +239,22 @@ Do not submit a real email address as a routing probe.
 
 Rollback: rebuild and redeploy only Hosting from the last known good production SHA.
 
+### 6. Remote Config kill switches
+
+Publishes the parameters that let a shipped iOS binary be halted without a new submission.
+This is the one step that is deliberately **not** part of any CI deploy: publishing the template is a full replace, so an automated deploy could silently re-enable a switch an operator had just turned off.
+
+```sh
+node scripts/deploy-remote-config.mjs --env prod --confirm-production ascend-prod-9c8f2
+node scripts/deploy-remote-config.mjs --env prod --confirm-production ascend-prod-9c8f2 --apply
+```
+
+The script reads the live template first and refuses to publish while any managed flag is switched off.
+Run it before the first App Store release so every parameter exists in production ahead of the moment it is needed.
+
+Rollback: there is nothing to roll back - the checked-in template is the healthy state, with every switch on.
+To *use* a switch, flip it to `false` in the Firebase console. See `remote-config-kill-switches.md`.
+
 ## Rollback worktree
 
 Prepare a clean rollback worktree from the SHA recorded by the last successful production deployment.

@@ -7,8 +7,19 @@ enum ProfilePublicationService {
         modelContext: ModelContext,
         userId: String,
         joinedAt: Date?,
-        repository: ProfileRepository = .shared
+        repository: ProfileRepository = .shared,
+        featureFlags: RemoteFeatureFlagStore = .shared
     ) async {
+        // Killed: nothing local depends on the mirror having been written, so the next bootstrap
+        // after the flag returns republishes from the same local state.
+        guard RemoteFeatureGate.allows(
+            .publicProfilePublishing,
+            path: "ProfilePublicationService.publishCurrentUserProfile",
+            store: featureFlags
+        ) else {
+            return
+        }
+
         do {
             let storedProfile = try await UserDataRepository.shared.getUserFromFirestore(
                 userId: userId

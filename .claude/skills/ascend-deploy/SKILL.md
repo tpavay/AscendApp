@@ -166,6 +166,16 @@ Do not introduce a *new* long-lived JSON service-account key for deploy auth; th
   - `KEYCHAIN_PASSWORD`
   - production-specific `*_PRODUCTION` variants of the above
 
+## Phased release and the remote kill switches
+
+An iOS binary cannot be rolled back, so a shipped release has exactly two undo levers. Full detail, including the fetch-failure posture and verified Remote Config pricing: `docs/remote-config-kill-switches.md`.
+
+- **Remote Config kill switches** in front of every data-shape-touching path. Flipping one in the Firebase console reaches every running install in seconds, including ones that already updated. Catalog: `AscendApp/Shared/Services/RemoteConfig/RemoteFeatureFlag.swift`; template: `remoteconfig.template.json`.
+  - Publishing the template is a full replace. It is deliberately **not** in any CI deploy `--only` list, and `scripts/deploy-remote-config.mjs` refuses to publish over a switch that is currently off. Do not add `remoteconfig` to the deploy workflows - `scripts/test/remote-config-template.test.mjs` fails if you do.
+- **App Store phased release** - 1/2/5/10/20/50/100% over seven days. It does **not** apply to an app's first release, so 1.0 goes to everyone at once and only the kill switches cover launch day.
+  - Arm and halt with `scripts/appstore-phased-release.mjs` (`status`, `enable`, `pause`, `resume`, `release-to-all`), using the same `APP_STORE_CONNECT_API_*` credentials as `upload_testflight`.
+  - Pausing stops further users being moved onto a build; it does not remove it from anyone who already updated. For a data-corrupting bug, flip the kill switch first, then pause.
+
 ## CI Firebase plists
 
 The Staging and Production plists are gitignored; the Dev plist is committed (see `AscendApp/App/Firebase/README.md`). CI decodes all three from base64 secrets into `AscendApp/App/Firebase/` before building:

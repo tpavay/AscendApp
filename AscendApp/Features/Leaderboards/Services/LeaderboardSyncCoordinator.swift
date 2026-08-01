@@ -7,12 +7,15 @@ actor LeaderboardSyncCoordinator {
         let userId: String
     }
 
+    private let featureFlags: RemoteFeatureFlagStore
     private var latestRequest: Request?
     private var debounceTask: Task<Void, Never>?
     private var syncTask: Task<Void, Error>?
     private var syncLoopRequested = false
 
-    private init() {}
+    init(featureFlags: RemoteFeatureFlagStore = .shared) {
+        self.featureFlags = featureFlags
+    }
 
     func enqueueSync(
         userId: String,
@@ -79,6 +82,19 @@ actor LeaderboardSyncCoordinator {
     }
 
     private func performSyncLoop(startingWith request: Request) async throws {
+        // Killed: `markSynced` is never reached, so the local `LeaderboardStats` stay dirty and the
+        // next enqueue after the flag returns republishes them. Gated here rather than at
+        // `enqueueSync` so `flushNow` is covered by the same switch.
+        guard RemoteFeatureGate.allows(
+            .leaderboardPublishing,
+            path: "LeaderboardSyncCoordinator.performSyncLoop",
+            store: featureFlags
+        ) else {
+            latestRequest = nil
+            syncLoopRequested = false
+            return
+        }
+
         var currentRequest: Request? = request
 
         while let request = currentRequest ?? latestRequest {

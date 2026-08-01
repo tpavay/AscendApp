@@ -18,6 +18,7 @@ export const CI_RELEVANT_PATHS = [
   "storage.rules",
   "firestore.indexes.json",
   "firebase.json",
+  "remoteconfig.template.json",
   ".firebaserc",
   "tests/firebase-rules/**",
   "scripts/**",

@@ -8,6 +8,7 @@ final class WorkoutSyncCoordinator {
 
     private let remoteRepository: any WorkoutRemoteRepositoryProtocol
     private let heartRateStorageRepository: any WorkoutHeartRateStorageRepositoryProtocol
+    private let featureFlags: RemoteFeatureFlagStore
     private let operationTimeoutSeconds: Double
     private var isProcessingPendingWorkouts = false
     private var shouldProcessPendingWorkoutsAgain = false
@@ -15,10 +16,12 @@ final class WorkoutSyncCoordinator {
     init(
         remoteRepository: any WorkoutRemoteRepositoryProtocol = WorkoutRemoteRepository.shared,
         heartRateStorageRepository: any WorkoutHeartRateStorageRepositoryProtocol = WorkoutHeartRateStorageRepository.shared,
+        featureFlags: RemoteFeatureFlagStore = .shared,
         operationTimeoutSeconds: Double = 15.0
     ) {
         self.remoteRepository = remoteRepository
         self.heartRateStorageRepository = heartRateStorageRepository
+        self.featureFlags = featureFlags
         self.operationTimeoutSeconds = operationTimeoutSeconds
     }
 
@@ -81,11 +84,15 @@ final class WorkoutSyncCoordinator {
                     currentUserId: currentUserId
                 )
 
-                let snapshots = try loadPendingSnapshots(
-                    modelContext: modelContext,
-                    currentUserId: currentUserId,
-                    excludedWorkoutIds: deletedWorkoutIds
-                )
+                // Killed: the workouts stay flagged for upsert in SwiftData and go up on the
+                // next pass after the flag returns. Nothing is marked synced or failed.
+                let snapshots = backupsAreEnabled
+                    ? try loadPendingSnapshots(
+                        modelContext: modelContext,
+                        currentUserId: currentUserId,
+                        excludedWorkoutIds: deletedWorkoutIds
+                    )
+                    : []
 
                 for snapshot in snapshots {
                     do {
@@ -163,10 +170,29 @@ private extension WorkoutSyncCoordinator {
         return finalDocument.heartRateSeries
     }
 
+    var backupsAreEnabled: Bool {
+        RemoteFeatureGate.allows(
+            .workoutCloudBackupWrites,
+            path: "WorkoutSyncCoordinator.processPendingWorkouts",
+            store: featureFlags
+        )
+    }
+
     func processPendingDeletions(
         modelContext: ModelContext,
         currentUserId: String
     ) async throws -> Set<UUID> {
+        // Killed: the `PendingWorkoutDeletion` rows survive untouched and replay once the flag is
+        // back on. Returning no deleted ids is safe because `loadPendingSnapshots` reads those same
+        // rows itself, so a workout awaiting deletion is still excluded from the upsert pass.
+        guard RemoteFeatureGate.allows(
+            .workoutRemoteDeletes,
+            path: "WorkoutSyncCoordinator.processPendingDeletions",
+            store: featureFlags
+        ) else {
+            return []
+        }
+
         let pendingDeletions = try loadPendingDeletions(
             modelContext: modelContext,
             currentUserId: currentUserId

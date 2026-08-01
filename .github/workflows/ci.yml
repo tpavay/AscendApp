@@ -14,6 +14,7 @@ on:
       - "storage.rules"
       - "firestore.indexes.json"
       - "firebase.json"
+      - "remoteconfig.template.json"
       - ".firebaserc"
       - "tests/firebase-rules/**"
       - "scripts/**"
@@ -91,6 +92,10 @@ jobs:
               - "firebase.json"
               - ".firebaserc"
               - "firestore.indexes.json"
+              # The Remote Config suite asserts the kill-switch template matches
+              # RemoteFeatureFlag.swift, so an edit to either must run it.
+              - "remoteconfig.template.json"
+              - "AscendApp/Shared/Services/RemoteConfig/**"
               # The launch-offer suite reads the hosted paywall, public copy,
               # legal terms, and authoritative commerce guidance.
               - "web/public/superwall/**"

@@ -34,6 +34,9 @@ struct AscendApp: App {
             #if DEBUG || STAGING
             SuperwallStaticConfigCacheBusterURLProtocol.register()
             #endif
+            // Before anything that touches data shape gets a chance to run, so the first pass of
+            // sync, restore, and migrations sees whatever the backend last said.
+            RemoteFeatureFlagService.shared.configure()
             PushNotificationService.shared.configure()
             TelemetryManager.shared.configure()
             TelemetryManager.shared.setAppMetadata()

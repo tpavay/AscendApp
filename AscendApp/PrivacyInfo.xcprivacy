@@ -195,7 +195,13 @@
             </array>
         </dict>
 
-        <!-- Device ID - APNs/FCM push registration tokens and app-specific analytics identifiers (Firebase Analytics IDFV, Mixpanel, Superwall) -->
+        <!--
+          Device ID - APNs/FCM push registration tokens and app-specific analytics
+          identifiers (Firebase Analytics IDFV, Mixpanel, Superwall). Firebase
+          Remote Config also sends the app-scoped Firebase installation ID with
+          each config fetch; it collects no new data type and adds no required-
+          reason API beyond the UserDefaults access already declared below.
+        -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeDeviceID</string>

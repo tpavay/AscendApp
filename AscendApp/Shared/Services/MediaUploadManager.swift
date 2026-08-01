@@ -67,8 +67,15 @@ final class MediaUploadManager {
 
     // MARK: - Initialization
 
-    private init(photoRepo: any PhotoRepositoryProtocol = FirebasePhotoRepository()) {
+    /// Server-controlled off switch for the background queue below.
+    private let featureFlags: RemoteFeatureFlagStore
+
+    init(
+        photoRepo: any PhotoRepositoryProtocol = FirebasePhotoRepository(),
+        featureFlags: RemoteFeatureFlagStore = .shared
+    ) {
         self.photoRepo = photoRepo
+        self.featureFlags = featureFlags
     }
 
     // MARK: - Public API
@@ -169,6 +176,16 @@ final class MediaUploadManager {
 
     /// Process all pending uploads (called on app launch/foreground)
     func processPendingUploads(modelContext: ModelContext) async {
+        // Killed: the `PendingMediaUpload` rows stay queued and the local-original sweep below
+        // does not run, so nothing is uploaded and nothing is deleted until the flag returns.
+        guard RemoteFeatureGate.allows(
+            .workoutMediaUploads,
+            path: "MediaUploadManager.processPendingUploads",
+            store: featureFlags
+        ) else {
+            return
+        }
+
         let descriptor = FetchDescriptor<PendingMediaUpload>(
             predicate: #Predicate { $0.status == "pending" || $0.status == "uploading" }
         )

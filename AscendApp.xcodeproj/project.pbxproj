@@ -21,6 +21,7 @@
 		9D4000012F60000000100001 /* MapboxMaps in Frameworks */ = {isa = PBXBuildFile; productRef = 9D4000032F60000000100003 /* MapboxMaps */; };
 		9E5000012F6B000000100001 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 9E5000022F6B000000100002 /* FirebaseMessaging */; };
 		9F6000012F75000000100001 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 9F6000032F75000000100003 /* Sentry */; };
+		9FA000012F80000000100001 /* FirebaseRemoteConfig in Frameworks */ = {isa = PBXBuildFile; productRef = 9FA000022F80000000100002 /* FirebaseRemoteConfig */; };
 		A20000012F10000000000001 /* AscendLiveActivityWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A20000012F10000000000003 /* AscendLiveActivityWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -126,6 +127,7 @@
 				9C3000012F2A000000100001 /* Mixpanel in Frameworks */,
 				9D4000012F60000000100001 /* MapboxMaps in Frameworks */,
 				9F6000012F75000000100001 /* Sentry in Frameworks */,
+				9FA000012F80000000100001 /* FirebaseRemoteConfig in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -220,6 +222,7 @@
 				9C3000032F2A000000100003 /* Mixpanel */,
 				9D4000032F60000000100003 /* MapboxMaps */,
 				9F6000032F75000000100003 /* Sentry */,
+				9FA000022F80000000100002 /* FirebaseRemoteConfig */,
 			);
 			productName = AscendApp;
 			productReference = 9A5E4D822E2406F8008DE803 /* AscendApp.app */;
@@ -1107,6 +1110,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 9F6000022F75000000100002 /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
 			productName = Sentry;
+		};
+		9FA000022F80000000100002 /* FirebaseRemoteConfig */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9A8E4CE42E2418D200C78912 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseRemoteConfig;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
