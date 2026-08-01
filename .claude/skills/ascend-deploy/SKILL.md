@@ -13,6 +13,7 @@ paths:
   - firestore.rules
   - firestore.indexes.json
   - storage.rules
+  - remoteconfig.template.json
 ---
 
 # Deploy

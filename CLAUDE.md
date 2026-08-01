@@ -36,7 +36,7 @@ Full playbook: `ascend-brand-voice`. Design patterns: `product-design-playbook`.
 
 - **iOS 26.0+**, Swift 6, SwiftUI
 - **Data**: Local-first with cloud sync - SwiftData on device, Firebase Firestore for backup/sync/sharing
-- **Backend**: Firebase (Auth, Firestore, Storage, Cloud Functions, Hosting, Analytics, Crashlytics)
+- **Backend**: Firebase (Auth, Firestore, Storage, Cloud Functions, Hosting, Analytics, Crashlytics, Remote Config)
 - **Subscriptions / Paywall**: RevenueCat for subscription management and entitlements; SuperWall for paywall presentation and onboarding/conversion analytics
 - **Analytics / Diagnostics**: Firebase Analytics, Mixpanel, Sentry
 - **Integrations**: Apple HealthKit, Hevy

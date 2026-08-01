@@ -55,6 +55,9 @@ Complete every item before starting the production workflow.
    They ship as configured production publishable client keys, so the workflow's monetization preflight now verifies them before the archive instead of blocking the run.
    `Staging` carries its own staging publishable keys and clears the same preflight, and `Debug` is intentionally unset.
    The per-environment key split is owned by `docs/superwall-paywall-setup.md`.
+9. Confirm the production Remote Config template is published, so every kill switch exists before the binary that needs one ships.
+   No deploy workflow does this; see "Remote Config kill switches" below for the captain-only command.
+
 Use these read-only GitHub checks:
 
 ```sh
@@ -118,7 +121,8 @@ It keeps the backend ahead of the binary because `upload-testflight` depends on 
 
 The workflow is the authoritative deployment path and supplies the repository secret `FIREBASE_TOKEN` plus the repository variable `FIREBASE_PROJECT_ID_PRODUCTION`.
 Both are repository-scoped: the `production` environment holds no secrets and no variables of its own, so list them without an `--env` filter.
-These are the exact Firebase operations it runs, shown for review and captain-only recovery.
+Sections 1-5 are the exact Firebase operations it runs, shown for review and captain-only recovery.
+Section 6 is the one deploy target the workflow deliberately never touches, so it is captain-only by construction rather than only for recovery.
 
 ### 1. Firestore indexes
 
