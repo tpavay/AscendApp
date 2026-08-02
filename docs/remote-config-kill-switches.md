@@ -114,6 +114,56 @@ npm run remoteconfig:deploy:production -- --apply
 To restore normal behaviour, flip the parameter back to `true` in the console.
 Deleting the parameter also works - the flag falls back to its shipped default, which is `true`.
 
+### Publishing is not optional, and CI now checks it
+
+Between #298 and #318 the template existed, was correct, and had never been published to any project.
+Every flag resolved to its `shippedDefault`, the app behaved completely normally, and nothing caught it - because the only parity check compared the checked-in template to `RemoteFeatureFlag.swift`, and both of those were right.
+The comparison nobody made was against the live backend, which was empty in dev, staging and production.
+
+`scripts/ci/assert-remote-config-published.mjs <dev|staging|prod>` closes that.
+It reads the live template and fails the staging and production archives when a flag the build reads is missing from the backend, or is published as something other than a `BOOLEAN`.
+Both are the same failure from the client's point of view: strict parsing treats a non-boolean as absent, so the flag silently falls back to its shipped default.
+
+Two things it deliberately does **not** do:
+
+- It never looks at parameter *values*. A switch an operator has turned off is the mechanism working, and an archive must not be blocked because someone is using the lever.
+- It fails rather than passes when it cannot reach the backend. "Could not look" must never read as "looks fine" - that is the exact shape of the gap it exists to end.
+
+### Publish and verification record
+
+| Project | Published | Template version | Verified |
+|---|---|---|---|
+| Dev `ascend-f2e4f` | 2026-08-02 | 4 (1 = first publish; 2-3 were the switch exercise below) | Client `main_active` carries all seven, `main_default` empty |
+| Staging `ascend-staging-fa7d5` | 2026-08-02 | 1 | Client `main_active` carries all seven, `main_default` empty |
+| Production `ascend-prod-9c8f2` | 2026-08-02 | 1 | Live template only - see the caveat below |
+
+Client-side verification reads the Firebase SDK's own activation store in the simulator container, `Library/Application Support/Google/RemoteConfig/RemoteConfig.sqlite3`:
+
+```bash
+container=$(xcrun simctl get_app_container booted com.TylerPavay.AscendApp.dev data)
+sqlite3 "$container/Library/Application Support/Google/RemoteConfig/RemoteConfig.sqlite3" \
+  "select key, cast(value as text) from main_active order by key;"
+```
+
+`main_active` is what makes `RemoteConfigValue.source` report `.remote`, which is the single condition `FirebaseRemoteFeatureFlagSource.remoteSourcedValues()` requires before a value counts.
+A key present there is, by construction, a key the app resolves from the server rather than from `shippedDefault`.
+`main_default` must stay empty - Ascend deliberately calls no `setDefaults`, and a non-empty table would mean the `.remote` / `.default` distinction had been destroyed.
+The **Remote Flags** screen shows the same thing with a UI, and is the right tool on a TestFlight build where there is no container to read.
+
+**Production was verified against the live template only.** Proving the production *client* resolves `.remote` would mean running a production-configured build, which registers an app instance against the production project - beyond "publishing config is authorised". The archive preflight now covers this permanently: no production build can be cut while a flag is missing from `ascend-prod-9c8f2`.
+
+### The switch exercise (dev, 2026-08-02)
+
+The console-to-gate chain had never run end to end, because until this publish no parameter existed on any backend to flip.
+Exercised on dev with `workout_media_uploads_enabled`:
+
+1. Published with the flag set to `false`. The client resolved `false` on its next launch.
+2. The other six stayed `true` - one switch moves one path.
+3. Re-running the deploy **refused**, naming the active kill switch, and published only once re-run with `--allow-overwriting-active-kill-switch workout_media_uploads_enabled`.
+4. The client returned to `true`.
+
+**Not yet demonstrated: the real-time listener.** Both transitions above were observed after a relaunch, which is the foreground-fetch path. On a foregrounded simulator build the listener did not deliver either change within 60 seconds, in either direction. That is one unexplained observation on one simulator, not an established defect - the `streamFetchInvalidations` connection did open, and a simulator's QUIC handling is not a device's. The claim under "Flipping one" that a running app picks a change up within seconds is therefore **unverified**, and the deferred behaviour of the gates themselves is covered by `AscendAppTests/RemoteFeatureGateTests.swift` rather than by this exercise. Confirm the listener on a real Staging TestFlight device via the Remote Flags screen before relying on it during an incident; a foreground relaunch is the fallback that is known to work.
+
 ## Cost
 
 Remote Config moves to usage-based pricing on **1 September 2026**.

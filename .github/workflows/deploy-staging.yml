@@ -153,6 +153,17 @@ jobs:
         shell: bash
         run: node scripts/ci/assert-monetization-keys-configured.mjs Staging
 
+      # The kill switches are the only undo a shipped binary has, and a build
+      # whose parameters were never published to the backend behaves completely
+      # normally until the moment someone needs the lever. CI previously compared
+      # the checked-in template to the Swift enum and never to the live project,
+      # which is how #318 stayed invisible. Compare against the backend.
+      - name: Verify staging kill switches are published
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        shell: bash
+        run: node scripts/ci/assert-remote-config-published.mjs staging
+
       - name: Derive build number
         shell: bash
         run: |

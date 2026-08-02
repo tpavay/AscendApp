@@ -198,6 +198,16 @@ jobs:
         shell: bash
         run: node scripts/ci/assert-monetization-keys-configured.mjs Release
 
+      # An App Store binary cannot be rolled back, so these switches are the only
+      # thing that can stop a shipped data-corrupting write. A build whose
+      # parameters were never published to the backend carries no such lever, and
+      # looks identical to one that does. Refuse to archive it.
+      - name: Verify production kill switches are published
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        shell: bash
+        run: node scripts/ci/assert-remote-config-published.mjs prod
+
       - name: Derive build number
         shell: bash
         run: |
