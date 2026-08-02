@@ -323,6 +323,33 @@ test("a legacy row is reported by a trigger and removable by the operator",
     assert.equal(await readStanding(legacyId), undefined);
   });
 
+// The backfill's removal guard decides from this read, so it has to tell an
+// absent period document apart from one carrying an unrecognised status.
+test("a period's finalization state is readable inside the transaction",
+  async () => {
+    await db.doc("leaderboard_periods/weekly_2026-W31").set({
+      status: "finalizing",
+      timeFrame: "weekly",
+      periodKey: "2026-W31",
+    });
+    await db.doc("leaderboard_periods/weekly_2026-W29").set({
+      timeFrame: "weekly",
+      periodKey: "2026-W29",
+    });
+
+    const states = await makeAdminLeaderboardStatsStore().runTransaction(
+      async (transaction) => ({
+        finalizing: await transaction.readPeriodFinalization("weekly_2026-W31"),
+        statusless: await transaction.readPeriodFinalization("weekly_2026-W29"),
+        absent: await transaction.readPeriodFinalization("weekly_2026-W28"),
+      })
+    );
+
+    assert.deepEqual(states.finalizing, {exists: true, status: "finalizing"});
+    assert.deepEqual(states.statusless, {exists: true, status: null});
+    assert.deepEqual(states.absent, {exists: false, status: null});
+  });
+
 // Seeded competitors have a standing with no canonical workouts by design.
 test("a seeded competitor's standing survives a reconciliation", async () => {
   const seededId = leaderboardDocumentId("persona-1", "weekly", "2026-W31");

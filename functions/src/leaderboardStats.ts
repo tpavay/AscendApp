@@ -62,6 +62,7 @@ const LEADERBOARD_STATS_COLLECTION = "leaderboard_stats";
 const USERS_COLLECTION = "users";
 const WORKOUTS_COLLECTION = "workouts";
 const PUBLIC_PROFILE_COLLECTION = "public_profile";
+const LEADERBOARD_PERIODS_COLLECTION = "leaderboard_periods";
 const CURRENT_PUBLIC_PROFILE_ID = "current";
 
 export const LEADERBOARD_STATS_SCHEMA_VERSION = 2;
@@ -199,9 +200,35 @@ export type LeaderboardRemovalReason =
   | "prunedClosedWindow"
   | "unresolvableWindow";
 
-/** The operations available inside one reconciliation. */
+/**
+ * What `leaderboard_periods/{timeFrame}_{periodKey}` says about one window.
+ *
+ * `exists` and `status` are kept apart on purpose. A period the finalizer has
+ * never touched has no document at all, which is a different statement from a
+ * document that exists carrying a status this code does not recognise, and only
+ * the first is safe to act on.
+ */
+export interface PeriodFinalization {
+  exists: boolean;
+  status: string | null;
+}
+
+/**
+ * The operations available inside one reconciliation.
+ *
+ * `readPeriodFinalization` is here rather than in the caller because a decision
+ * about whether a removal is safe has to be made from a read INSIDE the
+ * transaction that performs it. Reading the status separately leaves a window
+ * where finalizeLeaderboardAchievements can take its lock between the check and
+ * the delete; reading it here makes a concurrent finalizer abort and retry this
+ * transaction so the decision is re-made against the new status. Firestore
+ * requires reads before writes, so call it during the read phase.
+ */
 export interface LeaderboardStatsTransaction {
   read(userId: string): Promise<LeaderboardStatsSnapshot>;
+  readPeriodFinalization(
+    periodDocumentId: string
+  ): Promise<PeriodFinalization>;
   write(documentId: string, data: Record<string, unknown>): Promise<void>;
   delete(
     documentId: string,
@@ -992,6 +1019,19 @@ export function makeAdminLeaderboardStatsStore(): LeaderboardStatsStore {
                       document.get("periodStartAt")
                     ),
                   })),
+                };
+              },
+
+              async readPeriodFinalization(periodDocumentId) {
+                const snapshot = await firestoreTransaction.get(
+                  db
+                    .collection(LEADERBOARD_PERIODS_COLLECTION)
+                    .doc(periodDocumentId)
+                );
+                const status = snapshot.get("status");
+                return {
+                  exists: snapshot.exists,
+                  status: typeof status === "string" ? status : null,
                 };
               },
 

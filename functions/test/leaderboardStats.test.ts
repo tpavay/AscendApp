@@ -1064,6 +1064,9 @@ function makeStore(options: {
         async read() {
           return snapshot;
         },
+        async readPeriodFinalization() {
+          return {exists: false, status: null};
+        },
         async write(documentId, data) {
           writes.set(documentId, data);
         },

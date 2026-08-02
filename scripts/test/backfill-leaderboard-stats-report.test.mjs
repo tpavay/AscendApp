@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   describeAction,
+  describeStatus,
   printReport,
-  shouldRefuseRemoval,
+  removalDecision,
 } from "../backfill-leaderboard-stats.mjs";
 
 function capture(run) {
@@ -134,18 +135,78 @@ test("the closed-period detail is capped rather than burying the report", () => 
   assert.match(output, /\.\.\. and 5 more/);
 });
 
+// Cleaning a just-closed window BEFORE the nightly job runs is the whole reason
+// --include-closed-periods exists, and the absence of the period document is the
+// one positive signal that no award has been minted from it.
+test("a period the awards job has not started is removable", () => {
+  assert.deepEqual(
+    removalDecision({exists: false, status: null}, false),
+    {refused: false, refusal: null}
+  );
+  assert.deepEqual(removalDecision(undefined, false), {
+    refused: false,
+    refusal: null,
+  });
+});
+
 // Deleting the record an award points at is not something to do by accident.
 test("a finalized period's removal is refused without its own opt-in", () => {
-  assert.equal(shouldRefuseRemoval("finalized", false), true);
-  assert.equal(shouldRefuseRemoval("finalized", true), false);
-  assert.equal(shouldRefuseRemoval("not finalized", false), false);
-  assert.equal(shouldRefuseRemoval("finalizing", false), false);
+  assert.equal(
+    removalDecision({exists: true, status: "finalized"}, false).refused,
+    true
+  );
+  assert.equal(
+    removalDecision({exists: true, status: "finalized"}, true).refused,
+    false
+  );
+});
+
+// finalizeLeaderboardAchievements holds this status while it reads exactly
+// these rows to mint awards. Deleting mid-read is a race, not a decision, so
+// consent to losing provenance is not consent to this.
+test("a finalizing period is refused even with the provenance opt-in", () => {
+  for (const allowed of [false, true]) {
+    const decision = removalDecision(
+      {exists: true, status: "finalizing"},
+      allowed
+    );
+    assert.equal(decision.refused, true);
+    assert.equal(decision.refusal, "finalizing");
+  }
+});
+
+// Refusal is the default branch, so a status this code has never seen can never
+// permit a deletion.
+test("a status this tool cannot reason about refuses the removal", () => {
+  for (const status of [null, "", "reconciling", "FINALIZED", "done"]) {
+    for (const allowed of [false, true]) {
+      const decision = removalDecision({exists: true, status}, allowed);
+      assert.equal(
+        decision.refused,
+        true,
+        `status ${JSON.stringify(status)} must not permit a removal`
+      );
+      assert.equal(decision.refusal, "unrecognisedStatus");
+    }
+  }
+});
+
+test("the reported status distinguishes never-started from status-less", () => {
+  assert.equal(describeStatus({exists: false, status: null}), "not started");
+  assert.equal(describeStatus(undefined), "not started");
+  assert.equal(
+    describeStatus({exists: true, status: null}),
+    "present, no status field"
+  );
+  assert.equal(describeStatus({exists: true, status: "finalizing"}),
+    "finalizing");
 });
 
 test("a refused removal is reported with what it would have cost", () => {
   const refused = {
     ...evidencelessWeeklyRow(),
     kind: "refusedDelete",
+    refusal: "finalized",
     periodStatus: "finalized",
   };
 
@@ -154,11 +215,35 @@ test("a refused removal is reported with what it would have cost", () => {
     {includeClosedPeriods: true, verbose: false}
   ));
 
-  assert.match(output, /Removals refused \(finalized period\):  1/);
-  assert.match(output, /Removals REFUSED - period already finalized: 1/);
+  assert.match(output, /Removals refused \(award at stake\):    1/);
+  assert.match(output, /Removals REFUSED - an award is at stake: 1/);
   assert.match(output, /pointing at a document that no longer/);
   assert.match(output, /--allow-finalized-provenance-loss/);
   assert.match(describeAction(refused), /REFUSED/);
+});
+
+// A refusal made mid-finalization has to say so rather than borrowing the
+// finalized wording, because the operator's options differ: the flag clears one
+// and cannot clear the other.
+test("a refusal names which of the two reasons blocked it", () => {
+  const mid = {
+    ...evidencelessWeeklyRow(),
+    kind: "refusedDelete",
+    refusal: "finalizing",
+    periodStatus: "finalizing",
+  };
+
+  const output = capture(() => printReport(
+    emptyReport({refusedRemovals: [mid]}),
+    {includeClosedPeriods: true, verbose: false}
+  ));
+
+  assert.match(output, /reading this period right now/);
+  assert.match(describeAction(mid), /reading this period right now/);
+  assert.doesNotMatch(
+    describeAction(mid),
+    /--allow-finalized-provenance-loss/
+  );
 });
 
 // The legacy rows nothing sweeps any more. They still compete for awards, so a

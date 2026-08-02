@@ -55,7 +55,6 @@ const PERIOD_PATH = resolve(
   FUNCTIONS_DIR,
   "lib/src/leaderboardPeriod.js"
 );
-const LEADERBOARD_PERIODS_COLLECTION = "leaderboard_periods";
 const COMPARED_FIELDS = [
   "totalSteps",
   "totalFloors",
@@ -151,6 +150,18 @@ permanent achievement survives, but the record its leaderboardStatsId points at
 as provenance is gone, and that is not reversible. Such removals are refused and
 reported unless --allow-finalized-provenance-loss is passed as well.
 
+The period's status is read inside the same transaction that performs the
+removal, and a removal proceeds only when that read is positively safe:
+  no leaderboard_periods document  -> allowed; the awards job has not run yet
+  status 'finalizing'              -> REFUSED outright, even with the flag,
+                                      because the awards job is reading these
+                                      rows right now
+  status 'finalized'               -> refused unless the flag is passed
+  anything else                    -> REFUSED; an unrecognised status means
+                                      this tool cannot tell whether an award is
+                                      being minted, and the safe answer to "I
+                                      do not know" is no
+
 Legacy {uid}_{timeFrame} rows CAN NEVER BE RE-DERIVED - their identifier encodes
 no period, so there is no window to sum workouts over and nothing to rebuild
 them from. Removing one is FINAL. They are reported in their own section on
@@ -214,9 +225,6 @@ async function main() {
       "currently open periods only"}`
   );
 
-  // Read up front rather than per row: a removal has to know whether its period
-  // is finalized at the moment it decides, not after the run is over.
-  const periodStatuses = await finalizationStatuses(db);
   const userIds = await leaderboardUserIds(db);
   console.log(`Climbers with a standing or a workout: ${userIds.length}`);
 
@@ -237,7 +245,6 @@ async function main() {
       period,
       userId,
       now,
-      periodStatuses,
       dryRun: args.dryRun,
       allowFinalizedProvenanceLoss: args.allowFinalizedProvenanceLoss,
     });
@@ -264,12 +271,19 @@ async function main() {
  * A pruned closed window and a window that was derived and came back empty are
  * different statements about a row, so they never share a bucket.
  */
-function collect(report, store, outcome, userId) {
+export function collect(report, store, outcome, userId) {
   const changeById = new Map(
     store.changes.map((change) => [change.documentId, change])
   );
 
   for (const change of store.changes) {
+    // Counted before the legacy-row skip below: a refusal the run actually made
+    // has to reach the headline whatever section also prints the row, or two
+    // counters describing one run disagree about how many removals were blocked.
+    if (change.kind === "refusedDelete") {
+      report.refusedRemovals.push(change);
+      continue;
+    }
     if (change.reason === "unresolvableWindow") {
       continue;
     }
@@ -277,8 +291,6 @@ function collect(report, store, outcome, userId) {
       report.unchanged += 1;
     } else if (change.kind === "write") {
       report.changed.push(change);
-    } else if (change.kind === "refusedDelete") {
-      report.refusedRemovals.push(change);
     } else if (change.reason === "prunedClosedWindow") {
       report.prunedClosedWindows.push(change);
     } else {
@@ -302,26 +314,9 @@ function describeUnresolvableAction(change) {
     return "left in place (needs --include-closed-periods to remove)";
   }
   if (change.kind === "refusedDelete") {
-    return "REMOVAL REFUSED (period is finalized)";
+    return `REMOVAL REFUSED (${describeRefusal(change)})`;
   }
   return "REMOVE - final, nothing can rebuild it";
-}
-
-/**
- * Every leaderboard period's finalization status, keyed the way the finalizer
- * names its documents.
- */
-async function finalizationStatuses(db) {
-  const snapshot = await db
-    .collection(LEADERBOARD_PERIODS_COLLECTION)
-    .select("status")
-    .get();
-  return new Map(
-    snapshot.docs.map((document) => [
-      document.id,
-      document.get("status") ?? "not finalized",
-    ])
-  );
 }
 
 /**
@@ -356,14 +351,13 @@ async function leaderboardUserIds(db) {
  * an apply run reports what it did. Reads always hit Firestore, so the derived
  * numbers are the real ones either way.
  */
-function makeReportingStore(options) {
+export function makeReportingStore(options) {
   const {
     db,
     derivation,
     period,
     userId,
     now,
-    periodStatuses,
     dryRun,
     allowFinalizedProvenanceLoss,
   } = options;
@@ -371,6 +365,7 @@ function makeReportingStore(options) {
   const openIds = derivation.openPeriodDocumentIds(userId, now);
   const changes = [];
   let existingById = new Map();
+  let finalizationById = new Map();
 
   return {
     changes,
@@ -393,6 +388,23 @@ function makeReportingStore(options) {
             existingById = new Map(
               documents.map((document) => [document.id, document.data()])
             );
+            // Read in the transaction that will perform the removals, and in
+            // its read phase because Firestore forbids reads after writes. A
+            // finalizer that takes its lock after this point aborts and retries
+            // the whole callback, so the guard below can never decide from a
+            // status that has since changed.
+            finalizationById = new Map(
+              await Promise.all(
+                [...existingById.keys()].map(async (documentId) => [
+                  documentId,
+                  await readFinalization(
+                    transaction,
+                    period,
+                    existingById.get(documentId)
+                  ),
+                ])
+              )
+            );
             return snapshot;
           },
           async write(documentId, data) {
@@ -414,10 +426,7 @@ function makeReportingStore(options) {
               stored: summarize(before),
               derived: summarize(data),
               derivedWorkoutCount: numberOrNull(data.totalWorkouts) ?? 0,
-              periodStatus: window.timeFrame && window.periodKey ?
-                periodStatuses.get(`${window.timeFrame}_${window.periodKey}`) ??
-                  "not finalized" :
-                "not finalized",
+              periodStatus: describeStatus(finalizationById.get(documentId)),
               ...window,
             });
             if (!dryRun) {
@@ -433,17 +442,14 @@ function makeReportingStore(options) {
               documentId,
               openIds
             );
-            const periodStatus = window.timeFrame && window.periodKey ?
-              periodStatuses.get(`${window.timeFrame}_${window.periodKey}`) ??
-                "not finalized" :
-              "not finalized";
-            const refused = shouldRefuseRemoval(
-              periodStatus,
+            const decision = removalDecision(
+              finalizationById.get(documentId),
               allowFinalizedProvenanceLoss
             );
             changes.push({
-              kind: refused ? "refusedDelete" : "delete",
+              kind: decision.refused ? "refusedDelete" : "delete",
               reason,
+              refusal: decision.refusal,
               userId,
               documentId,
               before: summarize(before),
@@ -452,10 +458,10 @@ function makeReportingStore(options) {
               // printing a zero here would assert a finding nobody made.
               derived: null,
               derivedWorkoutCount: reason === "noEvidence" ? 0 : null,
-              periodStatus,
+              periodStatus: describeStatus(finalizationById.get(documentId)),
               ...window,
             });
-            if (!refused && !dryRun) {
+            if (!decision.refused && !dryRun) {
               await transaction.delete(documentId);
             }
           },
@@ -515,14 +521,74 @@ function timestampMillis(value) {
 }
 
 /**
- * Whether a removal must be refused because it would orphan award provenance.
+ * Reads the finalization state of the period a stored row belongs to.
  *
- * The achievement stores `leaderboardStatsId` pointing back at the row. Deleting
- * it leaves a permanent award pointing at a document that no longer exists, the
- * award itself is not unwound, and no rerun can put the row back.
+ * A row that names no window has no period document to look up, and the answer
+ * for it is the same as for a window the finalizer never touched.
  */
-export function shouldRefuseRemoval(periodStatus, allowFinalizedProvenanceLoss) {
-  return periodStatus === "finalized" && !allowFinalizedProvenanceLoss;
+async function readFinalization(transaction, period, stored) {
+  const timeFrame = typeof stored?.timeFrame === "string" ?
+    stored.timeFrame :
+    null;
+  const startMillis = timestampMillis(stored?.periodStartAt);
+  if (timeFrame === null || startMillis === null) {
+    return {exists: false, status: null};
+  }
+  const window = period.currentPeriod(timeFrame, new Date(startMillis));
+  return transaction.readPeriodFinalization(`${timeFrame}_${window.key}`);
+}
+
+/**
+ * Whether a removal may proceed, and why not when it may not.
+ *
+ * Written as an allow-list with refusal as the default branch. Enumerating what
+ * to refuse would let a status this code has never seen - one a later finalizer
+ * adds, a malformed value, a document with no status field - permit a deletion,
+ * and an unrecognised status means this tool cannot tell whether an award is
+ * being minted right now. Where the two are in tension, REFUSE: a removal
+ * wrongly refused costs an operator a second run, a removal wrongly allowed
+ * destroys someone's permanent award and cannot be undone.
+ *
+ * `finalizing` is refused even with the provenance opt-in, because the finalizer
+ * holds that status for up to FINALIZING_LOCK_MINUTES while reading exactly
+ * these rows to mint awards. Deleting mid-read is a live race rather than an
+ * informed choice, and consent to losing provenance is not consent to silently
+ * dropping a climber out of the finalization now in flight.
+ */
+export function removalDecision(finalization, allowFinalizedProvenanceLoss) {
+  if (finalization === undefined || finalization.exists !== true) {
+    // The finalizer writes this document when it begins, so its absence is the
+    // one positive signal that no award has been minted from this window.
+    return {refused: false, refusal: null};
+  }
+  if (finalization.status === "finalizing") {
+    return {refused: true, refusal: "finalizing"};
+  }
+  if (finalization.status === "finalized") {
+    return {
+      refused: !allowFinalizedProvenanceLoss,
+      refusal: allowFinalizedProvenanceLoss ? null : "finalized",
+    };
+  }
+  return {refused: true, refusal: "unrecognisedStatus"};
+}
+
+export function describeStatus(finalization) {
+  if (finalization === undefined || finalization.exists !== true) {
+    return "not started";
+  }
+  return finalization.status ?? "present, no status field";
+}
+
+export function describeRefusal(change) {
+  switch (change.refusal) {
+  case "finalizing":
+    return "the awards job is reading this period right now";
+  case "finalized":
+    return "period is finalized; needs --allow-finalized-provenance-loss";
+  default:
+    return `unrecognised period status: ${change.periodStatus}`;
+  }
 }
 
 function numberOrNull(value) {
@@ -608,7 +674,7 @@ export function printReport(report, args) {
     `Legacy rows with no derivable period: ${report.unresolvable.length}`
   );
   console.log(
-    `Removals refused (finalized period):  ${report.refusedRemovals.length}`
+    `Removals refused (award at stake):    ${report.refusedRemovals.length}`
   );
   console.log(`Seeded rows left alone:          ${report.syntheticSkipped}`);
 
@@ -733,15 +799,19 @@ function printRefusedRemovals(refused) {
   }
 
   console.log("");
-  console.log(`Removals REFUSED - period already finalized: ${refused.length}`);
+  console.log(`Removals REFUSED - an award is at stake: ${refused.length}`);
   console.log(
     "Deleting one of these would leave the permanent achievement in place " +
     "with its leaderboardStatsId pointing at a document that no longer " +
-    "exists, and that is not reversible. Pass " +
-    "--allow-finalized-provenance-loss as well if that is genuinely intended."
+    "exists, and that is not reversible. A period still reading 'finalizing' " +
+    "is being read by the awards job right now and is refused outright; " +
+    "--allow-finalized-provenance-loss covers only the already-finalized case."
   );
   for (const change of refused.slice(0, DETAIL_LIMIT)) {
-    console.log(`  ${change.documentId}: ${windowLabel(change)}`);
+    console.log(
+      `  ${change.documentId}: ${windowLabel(change)} - ` +
+      `${describeRefusal(change)}`
+    );
   }
   printOverflow(refused.length);
 }
@@ -811,7 +881,7 @@ function printAwardBearingDetail(changes) {
 
 export function describeAction(change) {
   if (change.kind === "refusedDelete") {
-    return "REMOVAL REFUSED (period is finalized)";
+    return `REMOVAL REFUSED (${describeRefusal(change)})`;
   }
   if (change.kind !== "delete") {
     return "REWRITE";
